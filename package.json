@@ -10,7 +10,7 @@
   "scripts": {
     "check": "npm run typecheck && npm test && npm run harness:check-import-boundaries && npm run harness:scan-forbidden-symbols && npm run harness:check-private-boundary && npm run harness:check-package-policy && npm run harness:check-implementation-contracts && npm run harness:check-schema-contracts",
     "typecheck": "tsc -b --pretty false",
-    "test": "node --test",
+    "test": "node tools/run-node-tests.mjs",
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
     "harness:check-private-boundary": "node tools/check-private-boundary.mjs",
