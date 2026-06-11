@@ -1,12 +1,9 @@
 import { Schema } from "effect";
+import { domainStatuses } from "../domain/lifecycle-status.ts";
+import { packageDispositions } from "../domain/package-disposition.ts";
 
 export const DomainStatusSchema = Schema.Literal(
-  "planned",
-  "active",
-  "blocked",
-  "in_review",
-  "done",
-  "cancelled"
+  ...domainStatuses
 );
 
 export const SnapshotStatusSchema = Schema.Union(DomainStatusSchema, Schema.Literal("unknown"));
@@ -70,7 +67,7 @@ export const TaskFrontmatterSchema = Schema.Struct({
   task_id: Schema.String,
   title: Schema.String,
   lifecycle: LifecycleBindingSchema,
-  packageDisposition: Schema.Literal("active", "archived"),
+  packageDisposition: Schema.Literal(...packageDispositions),
   vertical: Schema.String,
   preset: Schema.String
 });
@@ -161,7 +158,7 @@ export const SqliteTaskRowSchema = Schema.Struct({
   taskId: Schema.String,
   title: Schema.String,
   canonicalStatus: SnapshotStatusSchema,
-  packageDisposition: Schema.Literal("active", "archived"),
+  packageDisposition: Schema.Literal(...packageDispositions),
   lifecycleEngine: Schema.String,
   freshness: FreshnessSchema,
   updatedAt: Schema.String,

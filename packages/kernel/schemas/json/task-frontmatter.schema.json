@@ -10,7 +10,7 @@
     "task_id": { "type": "string" },
     "title": { "type": "string" },
     "lifecycle": { "type": "object" },
-    "packageDisposition": { "enum": ["active", "archived"] },
+    "packageDisposition": { "enum": ["active", "archived", "tombstoned"] },
     "vertical": { "type": "string" },
     "preset": { "type": "string" }
   }

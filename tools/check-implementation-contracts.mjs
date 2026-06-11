@@ -111,6 +111,7 @@ for (const tsconfigPath of workspaceTsconfigs) {
     moduleResolution: "NodeNext",
     target: "ES2024",
     strict: true,
+    allowImportingTsExtensions: true,
     erasableSyntaxOnly: true
   };
   for (const [key, expected] of Object.entries(requiredOptions)) {
