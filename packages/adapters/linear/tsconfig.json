@@ -7,8 +7,10 @@
     "moduleResolution": "NodeNext",
     "target": "ES2024",
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "erasableSyntaxOnly": true
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }
-
