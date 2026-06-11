@@ -53,6 +53,7 @@ for (const sourceRoot of sourceRoots) {
   for (const file of await walk(sourceRoot)) {
     const text = await readFile(file, "utf8");
     const rel = relative(file);
+    const isTestOrFixture = /(?:^|\/)(?:__fixtures__|fixtures|test|tests)\//.test(rel) || /\.test\.[cm]?[jt]s$/.test(rel);
 
     if (rel.startsWith("packages/kernel/src/domain/")) {
       if (/\bfrom\s+["'][^"']*(?:legacy|scripts\/kernel\/task)[^"']*["']/.test(text)) {
@@ -76,6 +77,14 @@ for (const sourceRoot of sourceRoots) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:application|store)\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
           record(file, `ports layer imports implementation/controller layer via ${specifier}`);
+        }
+      }
+    }
+
+    if (!isTestOrFixture && !rel.startsWith("packages/kernel/src/store/")) {
+      for (const specifier of imports) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
+          record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);
         }
       }
     }
