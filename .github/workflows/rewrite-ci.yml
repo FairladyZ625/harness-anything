@@ -41,3 +41,14 @@ jobs:
       - run: npm run harness:check-import-boundaries
       - run: npm run harness:scan-forbidden-symbols
       - run: npm run harness:check-private-boundary
+
+  package-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run harness:check-package-policy
