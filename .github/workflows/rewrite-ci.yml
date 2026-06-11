@@ -41,6 +41,7 @@ jobs:
       - run: npm run harness:check-import-boundaries
       - run: npm run harness:scan-forbidden-symbols
       - run: npm run harness:check-private-boundary
+      - run: npm run harness:check-implementation-contracts
 
   package-policy:
     runs-on: ubuntu-latest

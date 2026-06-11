@@ -5,6 +5,7 @@ const root = process.cwd();
 const sourceRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|mts|js|mjs)$/;
 const violations = [];
+const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g;
 
 async function walk(dir) {
   let entries;
@@ -36,6 +37,17 @@ function record(file, reason) {
   violations.push(`${relative(file)}: ${reason}`);
 }
 
+function resolveImport(file, specifier) {
+  if (!specifier.startsWith(".")) return specifier;
+  const resolved = path.normalize(path.join(path.dirname(file), specifier));
+  return relative(resolved);
+}
+
+function importedPathViolates(file, specifier, isForbidden) {
+  const resolved = resolveImport(file, specifier);
+  return isForbidden(resolved);
+}
+
 for (const sourceRoot of sourceRoots) {
   for (const file of await walk(sourceRoot)) {
     const text = await readFile(file, "utf8");
@@ -47,6 +59,47 @@ for (const sourceRoot of sourceRoots) {
       }
       if (/\bfrom\s+["'][^"']*(?:legacy|scripts\/kernel\/task)[^"']*["']/.test(text)) {
         record(file, "domain layer imports legacy runtime");
+      }
+    }
+
+    const imports = [...text.matchAll(importPattern)].map((match) => match[1]);
+    if (rel.startsWith("packages/kernel/src/domain/")) {
+      for (const specifier of imports) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:ports|application|store)\//.test(target))) {
+          record(file, `domain layer imports upper kernel layer via ${specifier}`);
+        }
+      }
+    }
+
+    if (rel.startsWith("packages/kernel/src/ports/")) {
+      for (const specifier of imports) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:application|store)\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
+          record(file, `ports layer imports implementation/controller layer via ${specifier}`);
+        }
+      }
+    }
+
+    if (rel.startsWith("packages/kernel/src/application/")) {
+      for (const specifier of imports) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
+          record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
+        }
+      }
+    }
+
+    if (rel.startsWith("packages/gui/")) {
+      for (const specifier of imports) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target) || /packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target))) {
+          record(file, `GUI imports store or external adapter implementation via ${specifier}`);
+        }
+      }
+    }
+
+    if (rel.startsWith("packages/cli/")) {
+      for (const specifier of imports) {
+        if (importedPathViolates(file, specifier, (target) => /packages\/gui\//.test(target) || /^@harness-anything\/gui/.test(target))) {
+          record(file, `CLI imports GUI layer via ${specifier}`);
+        }
       }
     }
 
@@ -65,4 +118,3 @@ if (violations.length > 0) {
 }
 
 console.log("Import boundary check passed.");
-
