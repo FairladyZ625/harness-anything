@@ -1,5 +1,6 @@
 {
   "visibility": "public-safe",
+  "sourceTaskId": "2026-06-12-kr-01-harness-infrastructure",
   "title": "Harness infrastructure baseline",
   "summary": "Public-safe summary of the baseline gates and remaining residuals.",
   "links": [
@@ -9,6 +10,18 @@
       "kind": "commit"
     }
   ],
+  "readiness": {
+    "closeoutReadiness": "passed",
+    "reviewGate": "passed",
+    "ciGate": "passed",
+    "evidenceLinks": [
+      {
+        "label": "Review evidence",
+        "href": "https://example.invalid/pull/1",
+        "kind": "review"
+      }
+    ]
+  },
   "redactionReport": {
     "scannerVersion": "redaction-fixture/v1",
     "findings": [],

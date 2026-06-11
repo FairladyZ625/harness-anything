@@ -1,8 +1,15 @@
 {
   "visibility": "private",
+  "sourceTaskId": "2026-06-12-invalid",
   "title": "Invalid projection",
   "summary": "This should not decode.",
   "links": [],
+  "readiness": {
+    "closeoutReadiness": "missing",
+    "reviewGate": "missing",
+    "ciGate": "missing",
+    "evidenceLinks": []
+  },
   "redactionReport": {
     "scannerVersion": "redaction-fixture/v1",
     "findings": [],

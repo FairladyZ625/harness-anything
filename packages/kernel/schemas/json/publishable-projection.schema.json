@@ -4,13 +4,73 @@
   "x-harness-schema-id": "publishable-projection",
   "title": "Publishable Projection",
   "type": "object",
-  "required": ["visibility", "title", "summary", "links", "redactionReport", "idempotencyKey"],
+  "additionalProperties": false,
+  "required": ["visibility", "sourceTaskId", "title", "summary", "links", "readiness", "redactionReport", "idempotencyKey"],
   "properties": {
     "visibility": { "const": "public-safe" },
+    "sourceTaskId": { "type": "string" },
     "title": { "type": "string" },
     "summary": { "type": "string" },
-    "links": { "type": "array" },
-    "redactionReport": { "type": "object" },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "href", "kind"],
+        "properties": {
+          "label": { "type": "string" },
+          "href": { "type": "string" },
+          "kind": { "enum": ["artifact", "commit", "review"] }
+        }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["closeoutReadiness", "reviewGate", "ciGate", "evidenceLinks"],
+      "properties": {
+        "closeoutReadiness": { "const": "passed" },
+        "reviewGate": { "const": "passed" },
+        "ciGate": { "const": "passed" },
+        "evidenceLinks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "href", "kind"],
+            "properties": {
+              "label": { "type": "string" },
+              "href": { "type": "string" },
+              "kind": { "enum": ["artifact", "commit", "review"] }
+            }
+          }
+        }
+      }
+    },
+    "redactionReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scannerVersion", "findings", "passed"],
+      "properties": {
+        "scannerVersion": { "type": "string" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ruleId", "severity", "message"],
+            "properties": {
+              "ruleId": { "type": "string" },
+              "severity": { "enum": ["info", "warning", "error"] },
+              "message": { "type": "string" },
+              "path": { "type": "string" }
+            }
+          }
+        },
+        "passed": { "const": true }
+      }
+    },
     "idempotencyKey": { "type": "string" }
   }
 }

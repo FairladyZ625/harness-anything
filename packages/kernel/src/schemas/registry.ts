@@ -112,15 +112,24 @@ export const RedactionFindingSchema = Schema.Struct({
   path: OptionalString
 });
 
+const PublishableLinkSchema = Schema.Struct({
+  label: Schema.String,
+  href: Schema.String,
+  kind: LinkKindSchema
+});
+
 export const PublishableProjectionSchema = Schema.Struct({
   visibility: Schema.Literal("public-safe"),
+  sourceTaskId: Schema.String,
   title: Schema.String,
   summary: Schema.String,
-  links: Schema.Array(Schema.Struct({
-    label: Schema.String,
-    href: Schema.String,
-    kind: LinkKindSchema
-  })),
+  links: Schema.Array(PublishableLinkSchema),
+  readiness: Schema.Struct({
+    closeoutReadiness: Schema.Literal("passed"),
+    reviewGate: Schema.Literal("passed"),
+    ciGate: Schema.Literal("passed"),
+    evidenceLinks: Schema.Array(PublishableLinkSchema).pipe(Schema.minItems(1))
+  }),
   redactionReport: Schema.Struct({
     scannerVersion: Schema.String,
     findings: Schema.Array(RedactionFindingSchema),
