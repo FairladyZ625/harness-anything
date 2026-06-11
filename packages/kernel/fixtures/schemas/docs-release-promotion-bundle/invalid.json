@@ -1,0 +1,18 @@
+{
+  "schema": "docs-release-promotion-bundle/v1",
+  "projectionVersion": "projection/v1",
+  "sourceTaskId": "2026-06-11-kr-01-harness-infrastructure",
+  "generatedAt": "2026-06-11T00:04:00.000Z",
+  "publicFiles": [
+    {
+      "path": ".harness-private/raw-log.md",
+      "sha256": "sha256:0123456789abcdef",
+      "kind": "private"
+    }
+  ],
+  "redactionReport": {
+    "scannerVersion": "redaction-fixture/v1",
+    "findings": [],
+    "passed": true
+  }
+}

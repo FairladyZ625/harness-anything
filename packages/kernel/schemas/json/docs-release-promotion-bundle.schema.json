@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/docs-release-promotion-bundle.schema.json",
+  "x-harness-schema-id": "docs-release-promotion-bundle",
+  "title": "Docs Release Promotion Bundle",
+  "type": "object",
+  "required": ["schema", "projectionVersion", "sourceTaskId", "generatedAt", "publicFiles", "redactionReport"],
+  "properties": {
+    "schema": { "const": "docs-release-promotion-bundle/v1" },
+    "projectionVersion": { "type": "string" },
+    "sourceTaskId": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "publicFiles": { "type": "array" },
+    "redactionReport": { "type": "object" }
+  }
+}

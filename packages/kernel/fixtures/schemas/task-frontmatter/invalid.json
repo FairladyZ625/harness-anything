@@ -1,0 +1,18 @@
+{
+  "schema": "task-package/v2",
+  "task_id": "2026-06-11-invalid",
+  "title": "Invalid frontmatter",
+  "lifecycle": {
+    "bindingSchema": "lifecycle-binding/v1",
+    "engine": "local",
+    "status": "waiting",
+    "ref": null,
+    "titleSnapshot": null,
+    "url": null,
+    "bindingCreatedAt": "2026-06-11T00:00:00.000Z",
+    "bindingFingerprint": "sha256:0123456789abcdef"
+  },
+  "packageDisposition": "active",
+  "vertical": "software/coding",
+  "preset": "standard-task"
+}

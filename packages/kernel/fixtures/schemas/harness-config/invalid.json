@@ -1,0 +1,7 @@
+{
+  "schema": "harness/v1",
+  "project": {
+    "id": "coding-agent-harness",
+    "locale": "fr-FR"
+  }
+}

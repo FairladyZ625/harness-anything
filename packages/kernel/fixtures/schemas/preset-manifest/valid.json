@@ -1,0 +1,14 @@
+{
+  "schema": "preset-manifest/v1",
+  "id": "standard-task",
+  "title": "Standard Task",
+  "vertical": "software/coding",
+  "capabilities": [
+    {
+      "id": "schema-contracts",
+      "kind": "checker",
+      "enabledByDefault": true
+    }
+  ],
+  "templates": ["standard-task/brief"]
+}

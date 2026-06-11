@@ -1,0 +1,32 @@
+{
+  "schema": "harness/v2",
+  "project": {
+    "id": "coding-agent-harness",
+    "locale": "zh-CN"
+  },
+  "lifecycle": {
+    "default": "local",
+    "enabled": ["local", "multica"],
+    "engines": {
+      "local": {
+        "kind": "local"
+      },
+      "multica": {
+        "kind": "multica",
+        "workspace": "workspace-id",
+        "project": "project-id"
+      }
+    }
+  },
+  "vertical": {
+    "default": "software/coding"
+  },
+  "presets": {
+    "default": "standard-task"
+  },
+  "storage": {
+    "markdownRoot": "coding-agent-harness",
+    "sqlitePath": ".harness/cache/projections.sqlite",
+    "journalPath": ".harness/write-journal"
+  }
+}

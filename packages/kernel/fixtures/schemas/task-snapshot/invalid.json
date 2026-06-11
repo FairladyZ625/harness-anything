@@ -1,0 +1,8 @@
+{
+  "canonicalStatus": "waiting",
+  "rawStatus": "waiting",
+  "freshness": "fresh",
+  "fetchedAt": "2026-06-11T00:02:00.000Z",
+  "source": "external-engine",
+  "engine": "multica"
+}

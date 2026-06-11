@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/publishable-projection.schema.json",
+  "x-harness-schema-id": "publishable-projection",
+  "title": "Publishable Projection",
+  "type": "object",
+  "required": ["visibility", "title", "summary", "links", "redactionReport", "idempotencyKey"],
+  "properties": {
+    "visibility": { "const": "public-safe" },
+    "title": { "type": "string" },
+    "summary": { "type": "string" },
+    "links": { "type": "array" },
+    "redactionReport": { "type": "object" },
+    "idempotencyKey": { "type": "string" }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/task-snapshot.schema.json",
+  "x-harness-schema-id": "task-snapshot",
+  "title": "Task Snapshot",
+  "type": "object",
+  "required": ["canonicalStatus", "rawStatus", "freshness", "fetchedAt", "source", "engine"],
+  "properties": {
+    "canonicalStatus": { "enum": ["planned", "active", "blocked", "in_review", "done", "cancelled", "unknown"] },
+    "rawStatus": { "type": "string" },
+    "freshness": { "enum": ["fresh", "stale-but-usable", "unavailable-no-cache"] },
+    "fetchedAt": { "type": "string" },
+    "source": { "enum": ["local-document", "external-engine", "snapshot-cache"] },
+    "engine": { "type": "string" }
+  }
+}

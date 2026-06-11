@@ -1,0 +1,11 @@
+{
+  "schema": "sqlite-task-row/v1",
+  "taskId": "2026-06-11-kr-01-harness-infrastructure",
+  "title": "Harness infrastructure baseline",
+  "canonicalStatus": "paused",
+  "packageDisposition": "active",
+  "lifecycleEngine": "local",
+  "freshness": "fresh",
+  "updatedAt": "2026-06-11T00:03:00.000Z",
+  "sourcePath": "planning/modules/kernel-rewrite/tasks/2026-06-11-kr-01-harness-infrastructure/task_plan.md"
+}

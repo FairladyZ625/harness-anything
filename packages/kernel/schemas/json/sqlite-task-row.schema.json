@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/sqlite-task-row.schema.json",
+  "x-harness-schema-id": "sqlite-task-row",
+  "title": "SQLite Task Row",
+  "type": "object",
+  "required": ["schema", "taskId", "title", "canonicalStatus", "packageDisposition", "lifecycleEngine", "freshness", "updatedAt", "sourcePath"],
+  "properties": {
+    "schema": { "const": "sqlite-task-row/v1" },
+    "taskId": { "type": "string" },
+    "title": { "type": "string" },
+    "canonicalStatus": { "enum": ["planned", "active", "blocked", "in_review", "done", "cancelled", "unknown"] },
+    "packageDisposition": { "enum": ["active", "archived"] },
+    "lifecycleEngine": { "type": "string" },
+    "freshness": { "enum": ["fresh", "stale-but-usable", "unavailable-no-cache"] },
+    "updatedAt": { "type": "string" },
+    "sourcePath": { "type": "string" }
+  }
+}

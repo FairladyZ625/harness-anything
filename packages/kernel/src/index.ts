@@ -1,2 +1,1 @@
-export {};
-
+export * from "./schemas/registry.js";

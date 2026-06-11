@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/template-catalog.schema.json",
+  "x-harness-schema-id": "template-catalog",
+  "title": "Template Catalog",
+  "type": "object",
+  "required": ["schema", "templates"],
+  "properties": {
+    "schema": { "const": "template-catalog/v1" },
+    "templates": { "type": "array" }
+  }
+}

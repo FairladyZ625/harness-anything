@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/harness-config.schema.json",
+  "x-harness-schema-id": "harness-config",
+  "title": "Harness Config v2",
+  "type": "object",
+  "required": ["schema", "project", "lifecycle", "vertical", "presets", "storage"],
+  "properties": {
+    "schema": { "const": "harness/v2" },
+    "project": { "type": "object" },
+    "lifecycle": { "type": "object" },
+    "vertical": { "type": "object" },
+    "presets": { "type": "object" },
+    "storage": { "type": "object" }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "template-catalog/v1",
+  "templates": [
+    {
+      "id": "standard-task/brief",
+      "documentKind": "brief",
+      "locale": "de-DE",
+      "slots": ["goal"],
+      "frontmatterSchema": "task-package/v2"
+    }
+  ]
+}

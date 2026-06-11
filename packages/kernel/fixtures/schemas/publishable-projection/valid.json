@@ -1,0 +1,18 @@
+{
+  "visibility": "public-safe",
+  "title": "Harness infrastructure baseline",
+  "summary": "Public-safe summary of the baseline gates and remaining residuals.",
+  "links": [
+    {
+      "label": "Public commit",
+      "href": "https://example.invalid/commit/abc123",
+      "kind": "commit"
+    }
+  ],
+  "redactionReport": {
+    "scannerVersion": "redaction-fixture/v1",
+    "findings": [],
+    "passed": true
+  },
+  "idempotencyKey": "sha256:public-safe-fixture"
+}

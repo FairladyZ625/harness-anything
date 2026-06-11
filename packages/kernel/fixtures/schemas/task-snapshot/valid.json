@@ -1,0 +1,13 @@
+{
+  "canonicalStatus": "unknown",
+  "rawStatus": "custom external state",
+  "freshness": "fresh",
+  "fetchedAt": "2026-06-11T00:02:00.000Z",
+  "expiresAt": "2026-06-11T00:07:00.000Z",
+  "source": "external-engine",
+  "engine": "multica",
+  "ref": "FAI-37",
+  "assignee": "agent",
+  "url": "https://example.invalid/tasks/FAI-37",
+  "title": "External task snapshot"
+}

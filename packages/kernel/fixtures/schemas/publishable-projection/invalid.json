@@ -1,0 +1,12 @@
+{
+  "visibility": "private",
+  "title": "Invalid projection",
+  "summary": "This should not decode.",
+  "links": [],
+  "redactionReport": {
+    "scannerVersion": "redaction-fixture/v1",
+    "findings": [],
+    "passed": false
+  },
+  "idempotencyKey": "sha256:invalid"
+}

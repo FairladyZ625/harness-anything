@@ -1,0 +1,18 @@
+{
+  "schema": "task-package/v2",
+  "task_id": "2026-06-11-kr-01-harness-infrastructure",
+  "title": "Harness infrastructure baseline",
+  "lifecycle": {
+    "bindingSchema": "lifecycle-binding/v1",
+    "engine": "local",
+    "status": "active",
+    "ref": null,
+    "titleSnapshot": null,
+    "url": null,
+    "bindingCreatedAt": "2026-06-11T00:00:00.000Z",
+    "bindingFingerprint": "sha256:0123456789abcdef"
+  },
+  "packageDisposition": "active",
+  "vertical": "software/coding",
+  "preset": "standard-task"
+}

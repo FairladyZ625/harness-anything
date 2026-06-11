@@ -1,0 +1,14 @@
+{
+  "schema": "write-journal/v1",
+  "opId": "op-2026-06-11-001",
+  "taskId": "2026-06-11-kr-01-harness-infrastructure",
+  "kind": "progress_append",
+  "actor": {
+    "kind": "agent",
+    "id": "codex"
+  },
+  "at": "2026-06-11T00:01:00.000Z",
+  "payload": {
+    "text": "Schema registry gate added."
+  }
+}

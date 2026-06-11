@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/task-frontmatter.schema.json",
+  "x-harness-schema-id": "task-frontmatter",
+  "title": "Task Frontmatter v2",
+  "type": "object",
+  "required": ["schema", "task_id", "title", "lifecycle", "packageDisposition", "vertical", "preset"],
+  "properties": {
+    "schema": { "const": "task-package/v2" },
+    "task_id": { "type": "string" },
+    "title": { "type": "string" },
+    "lifecycle": { "type": "object" },
+    "packageDisposition": { "enum": ["active", "archived"] },
+    "vertical": { "type": "string" },
+    "preset": { "type": "string" }
+  }
+}

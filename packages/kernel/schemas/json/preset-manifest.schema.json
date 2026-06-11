@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/preset-manifest.schema.json",
+  "x-harness-schema-id": "preset-manifest",
+  "title": "Preset Manifest",
+  "type": "object",
+  "required": ["schema", "id", "title", "vertical", "capabilities", "templates"],
+  "properties": {
+    "schema": { "const": "preset-manifest/v1" },
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "vertical": { "type": "string" },
+    "capabilities": { "type": "array" },
+    "templates": { "type": "array" }
+  }
+}
