@@ -81,7 +81,8 @@ for (const sourceRoot of sourceRoots) {
       }
     }
 
-    if (!isTestOrFixture && !rel.startsWith("packages/kernel/src/store/")) {
+    const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
+    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
           record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);
