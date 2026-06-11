@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
@@ -35,6 +35,18 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
   if (packageJson.private !== true) record(`${relativePath} must stay private until npm ownership is explicitly confirmed`);
   if (packageJson.version !== "0.0.0") record(`${relativePath} must stay version 0.0.0 before first release planning`);
   if (packageJson.publishConfig) record(`${relativePath} must not define publishConfig before the npm publish decision`);
+}
+
+for (const relativePath of [
+  "packages/kernel/.git",
+  "packages/cli/.git",
+  "packages/gui/.git",
+  "packages/adapters/local/.git",
+  "packages/adapters/multica/.git",
+  "packages/adapters/github-issues/.git",
+  "packages/adapters/linear/.git"
+]) {
+  if (existsSync(path.join(root, relativePath))) record(`package-level Git repository is forbidden: ${relativePath}`);
 }
 
 if (violations.length > 0) {

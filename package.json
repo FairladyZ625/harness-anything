@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "check": "npm run typecheck && npm test && npm run harness:check-import-boundaries && npm run harness:scan-forbidden-symbols && npm run harness:check-private-boundary && npm run harness:check-package-policy && npm run harness:check-implementation-contracts",
-    "typecheck": "npm exec --yes --package typescript@5.9.3 -- tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false",
     "test": "node --test",
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
@@ -21,7 +21,7 @@
     "node": ">=24"
   },
   "devDependencies": {
-    "@types/node": "24",
+    "@types/node": "24.13.2",
     "typescript": "5.9.3"
   },
   "dependencies": {

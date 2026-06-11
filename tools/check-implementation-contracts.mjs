@@ -3,18 +3,32 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
-const sourceFile = /\.(?:ts|mts|js|mjs)$/;
+const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
 const violations = [];
 
-const workspaceTsconfigs = [
-  "packages/kernel/tsconfig.json",
-  "packages/cli/tsconfig.json",
-  "packages/gui/tsconfig.json",
-  "packages/adapters/local/tsconfig.json",
-  "packages/adapters/multica/tsconfig.json",
-  "packages/adapters/github-issues/tsconfig.json",
-  "packages/adapters/linear/tsconfig.json"
-];
+const expectedRuntimeTestFiles = {
+  gui: [
+    "packages/gui/test/renderer-no-node.test.ts",
+    "packages/gui/test/preload-allowlist.test.ts",
+    "packages/gui/test/markdown-sanitize.test.ts",
+    "packages/gui/test/local-api-auth.test.ts",
+    "packages/gui/test/path-traversal.test.ts",
+    "packages/gui/test/terminal-no-ingestion.test.ts"
+  ],
+  store: [
+    "packages/kernel/test/store/journal-idempotency.test.ts",
+    "packages/kernel/test/store/same-task-fifo.test.ts",
+    "packages/kernel/test/store/global-committer-lock.test.ts",
+    "packages/kernel/test/store/crash-before-watermark.test.ts",
+    "packages/kernel/test/store/payload-hash.test.ts",
+    "packages/kernel/test/store/sqlite-rebuild.test.ts"
+  ],
+  publish: [
+    "packages/kernel/test/publish/redaction.test.ts",
+    "packages/kernel/test/publish/idempotency.test.ts",
+    "packages/kernel/test/publish/private-evidence-rejection.test.ts"
+  ]
+};
 
 function record(message) {
   violations.push(message);
@@ -51,13 +65,39 @@ async function walk(dir) {
 }
 
 const rootPackage = readJson("package.json");
+const rootTsconfig = readJson("tsconfig.json");
 if (rootPackage.engines?.node !== ">=24") record("root engines.node must remain >=24");
 if (rootPackage.dependencies?.effect !== "3.21.2") record("effect version must remain 3.21.2 until an explicit upgrade task");
 if (rootPackage.devDependencies?.typescript !== "5.9.3") record("typescript version must remain 5.9.3 until an explicit upgrade task");
-if (rootPackage.devDependencies?.["@types/node"] !== "24") record("@types/node version must remain 24");
+if (rootPackage.devDependencies?.["@types/node"] !== "24.13.2") record("@types/node version must remain 24.13.2");
 if (!existsSync(path.join(root, "package-lock.json"))) record("package-lock.json is required; npm is the package manager");
+const packageLock = existsSync(path.join(root, "package-lock.json")) ? readJson("package-lock.json") : { packages: {} };
+for (const [lockPath, expected] of [
+  ["node_modules/effect", "3.21.2"],
+  ["node_modules/typescript", "5.9.3"],
+  ["node_modules/@types/node", "24.13.2"]
+]) {
+  const actual = packageLock.packages?.[lockPath]?.version;
+  if (actual !== expected) record(`package-lock ${lockPath} must be ${expected}, got ${actual ?? "missing"}`);
+}
 for (const forbiddenLockfile of ["pnpm-lock.yaml", "yarn.lock", "bun.lockb"]) {
   if (existsSync(path.join(root, forbiddenLockfile))) record(`${forbiddenLockfile} is not allowed in this npm workspace`);
+}
+
+const workspaceTsconfigs = (rootTsconfig.references ?? [])
+  .map((reference) => `${reference.path.replace(/^\.\//, "")}/tsconfig.json`)
+  .sort();
+const expectedWorkspaceTsconfigs = [
+  "packages/adapters/github-issues/tsconfig.json",
+  "packages/adapters/linear/tsconfig.json",
+  "packages/adapters/local/tsconfig.json",
+  "packages/adapters/multica/tsconfig.json",
+  "packages/cli/tsconfig.json",
+  "packages/gui/tsconfig.json",
+  "packages/kernel/tsconfig.json"
+].sort();
+if (JSON.stringify(workspaceTsconfigs) !== JSON.stringify(expectedWorkspaceTsconfigs)) {
+  record(`tsconfig references must match expected workspaces: ${expectedWorkspaceTsconfigs.join(", ")}`);
 }
 
 for (const tsconfigPath of workspaceTsconfigs) {
@@ -79,6 +119,15 @@ for (const tsconfigPath of workspaceTsconfigs) {
 }
 
 const files = await walk(path.join(root, "packages"));
+const hasGuiImplementation = files.some((file) => /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)));
+const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/store\//.test(relative(file)));
+const hasPublishImplementation = files.some((file) => /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)));
+for (const [kind, active] of Object.entries({ gui: hasGuiImplementation, store: hasStoreImplementation, publish: hasPublishImplementation })) {
+  if (!active) continue;
+  for (const requiredPath of expectedRuntimeTestFiles[kind]) {
+    if (!existsSync(path.join(root, requiredPath))) record(`${kind} implementation requires contract test: ${requiredPath}`);
+  }
+}
 
 for (const file of files) {
   const rel = relative(file);
@@ -90,16 +139,19 @@ for (const file of files) {
   }
 
   if (rel.startsWith("packages/kernel/src/domain/")) {
-    if (/\b(?:Effect|Context|Layer|Queue|Semaphore)\b/.test(text)) {
+    if (/\bfrom\s+["']effect["']|\bimport\s*\(\s*["']effect["']\s*\)|\b(?:Effect|Context|Layer|Queue|Semaphore)\b/.test(text)) {
       record(`${rel}: domain must not use Effect runtime, Context, Layer, Queue, or Semaphore`);
     }
     if (/\bData\.TaggedError\b/.test(text)) {
       record(`${rel}: domain errors must be plain readonly _tag unions, not Data.TaggedError`);
     }
+    if (/\b(?:async\s+function|Promise<|new\s+Promise|fetch\s*\(|Date\.now\s*\(|Math\.random\s*\()/m.test(text)) {
+      record(`${rel}: domain must stay deterministic and synchronous`);
+    }
   }
 
-  if (rel.startsWith("packages/kernel/src/application/") && /\bEffect\.runPromise\b/.test(text)) {
-    record(`${rel}: Effect.runPromise is only allowed at controller composition roots`);
+  if (!rel.startsWith("packages/cli/src/") && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
+    record(`${rel}: Effect.runPromise* is only allowed at CLI composition roots`);
   }
 
   if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
@@ -107,8 +159,11 @@ for (const file of files) {
   }
 
   if (rel.startsWith("packages/adapters/") && !isTestOrFixture) {
-    if (/(^|[^\w])(:\s*any\b|as\s+any\b|<any>)/.test(text)) {
+    if (/(^|[^\w])(:\s*any\b|as\s+(?:any|never|unknown|TaskSnapshot|PublishableProjection)\b|<any>)/.test(text)) {
       record(`${rel}: adapters must decode raw input instead of returning or casting any`);
+    }
+    if (/\bJSON\.parse\s*\(/.test(text) && !/\bSchema\.decodeUnknown/.test(text)) {
+      record(`${rel}: adapter JSON.parse must be immediately paired with Effect Schema decode`);
     }
     if (/catchAll[\s\S]{0,240}StatusUnmapped[\s\S]{0,240}["']active["']/.test(text)) {
       record(`${rel}: adapters must not swallow StatusUnmapped as active`);
@@ -132,10 +187,15 @@ for (const file of files) {
     if (/loadURL\s*\(\s*["']https?:\/\//.test(text)) record(`${rel}: GUI V1 must not load remote content`);
     if (/cors\s*\([^)]*(?:origin\s*:\s*["']\*["']|\*)/s.test(text)) record(`${rel}: local API must not use wildcard CORS`);
     if (/\.listen\s*\(\s*["'](?:0\.0\.0\.0|::)["']/.test(text)) record(`${rel}: local API must bind to 127.0.0.1 only`);
+    if (/\blisten\s*\([^)]*["']0\.0\.0\.0["']/.test(text) || /\blisten\s*\([^)]*host\s*:\s*["']0\.0\.0\.0["']/.test(text)) record(`${rel}: local API must bind to 127.0.0.1 only`);
+    if (/\bcors\s*\(\s*\)/.test(text)) record(`${rel}: local API must not use default wildcard CORS`);
+    if (/\bcontextBridge\.exposeInMainWorld\s*\(/.test(text) && !/allowedPreloadApi|preloadAllowlist|HARNESS_PRELOAD_API/.test(text)) {
+      record(`${rel}: preload API must be exposed through an explicit allowlist`);
+    }
     if (/from\s+["'][^"']*(?:@harness-anything\/adapter-|packages\/adapters)[^"']*["']/.test(text)) {
       record(`${rel}: GUI must read cached projections/application services, not call external adapter implementations`);
     }
-    if (/terminal[\s\S]{0,120}(?:projection|mutate|ingest|parse output)/i.test(text)) {
+    if (/terminal[\s\S]{0,120}(?:projection|mutate|ingest|parse output|appendProgress|saveEvidence|TaskService)/i.test(text)) {
       record(`${rel}: terminal output must not mutate projections or become implicit task state`);
     }
   }
@@ -144,6 +204,7 @@ for (const file of files) {
     for (const required of [
       /nodeIntegration\s*:\s*false/,
       /contextIsolation\s*:\s*true/,
+      /sandbox\s*:\s*true/,
       /webSecurity\s*:\s*true/
     ]) {
       if (!required.test(text)) record(`${rel}: BrowserWindow must set ${required.source}`);

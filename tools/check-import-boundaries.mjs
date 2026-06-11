@@ -3,9 +3,10 @@ import path from "node:path";
 
 const root = process.cwd();
 const sourceRoots = [path.join(root, "packages")];
-const sourceFile = /\.(?:ts|mts|js|mjs)$/;
+const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
 const violations = [];
-const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g;
+const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
+const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
 
 async function walk(dir) {
   let entries;
@@ -54,17 +55,17 @@ for (const sourceRoot of sourceRoots) {
     const rel = relative(file);
 
     if (rel.startsWith("packages/kernel/src/domain/")) {
-      if (/\bfrom\s+["'](?:node:)?(?:fs|process|child_process|sqlite|better-sqlite3)["']/.test(text)) {
-        record(file, "domain layer imports IO/runtime module");
-      }
       if (/\bfrom\s+["'][^"']*(?:legacy|scripts\/kernel\/task)[^"']*["']/.test(text)) {
         record(file, "domain layer imports legacy runtime");
       }
     }
 
-    const imports = [...text.matchAll(importPattern)].map((match) => match[1]);
+    const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
     if (rel.startsWith("packages/kernel/src/domain/")) {
       for (const specifier of imports) {
+        if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {
+          record(file, `domain layer imports IO/runtime module via ${specifier}`);
+        }
         if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:ports|application|store)\//.test(target))) {
           record(file, `domain layer imports upper kernel layer via ${specifier}`);
         }
@@ -104,8 +105,13 @@ for (const sourceRoot of sourceRoots) {
     }
 
     if (/packages\/(?!kernel\/src\/legacy-fixtures)/.test(rel)) {
-      if (/\bfrom\s+["'][^"']*scripts\/kernel\/task[^"']*["']/.test(text)) {
-        record(file, "production package imports old task kernel");
+      for (const specifier of imports) {
+        if (oldRuntimePattern.test(specifier)) {
+          record(file, `production package imports old runtime via ${specifier}`);
+        }
+      }
+      if (oldRuntimePattern.test(text)) {
+        record(file, "production package references old runtime symbol or path");
       }
     }
   }
