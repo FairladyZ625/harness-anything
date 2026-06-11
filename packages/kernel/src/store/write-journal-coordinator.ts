@@ -500,11 +500,22 @@ function isStaleLock(record: LockRecord, lockTtlMs: number): boolean {
 
 function clearStaleTakeoverClaim(claimPath: string, lockTtlMs: number): void {
   if (!existsSync(claimPath)) return;
-  const record = JSON.parse(readFileSync(claimPath, "utf8")) as LockRecord;
+  const record = readClaimRecord(claimPath);
+  if (!record) {
+    throw new Error(`lock already held: ${path.basename(claimPath, ".takeover")} takeover in progress`);
+  }
   if (!isStaleLock(record, lockTtlMs)) {
     throw new Error(`lock already held: ${path.basename(claimPath, ".takeover")} takeover in progress`);
   }
   rmSync(claimPath, { force: true });
+}
+
+function readClaimRecord(claimPath: string): LockRecord | null {
+  try {
+    return JSON.parse(readFileSync(claimPath, "utf8")) as LockRecord;
+  } catch {
+    return null;
+  }
 }
 
 function recoverQuarantinedStaleLock(lockPath: string): void {

@@ -123,6 +123,8 @@ const files = await walk(path.join(root, "packages"));
 const hasGuiImplementation = files.some((file) => /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)));
 const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/store\//.test(relative(file)));
 const hasPublishImplementation = files.some((file) => /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)));
+const hasLocalLifecycleImplementation = files.some((file) => relative(file) === "packages/adapters/local/src/index.ts")
+  && !readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8").trim().startsWith("export {}");
 for (const [kind, active] of Object.entries({ gui: hasGuiImplementation, store: hasStoreImplementation, publish: hasPublishImplementation })) {
   if (!active) continue;
   for (const requiredPath of expectedRuntimeTestFiles[kind]) {
@@ -165,6 +167,31 @@ if (hasStoreImplementation) {
   const fifoTest = readFileSync(path.join(root, "packages/kernel/test/store/same-task-fifo.test.ts"), "utf8");
   if (!/two coordinators|firstCoordinator|secondCoordinator/.test(fifoTest)) {
     record("same-task-fifo.test.ts must prove durable journal FIFO across two coordinators");
+  }
+}
+
+if (hasLocalLifecycleImplementation) {
+  const localAdapterText = readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8");
+  const cliText = readFileSync(path.join(root, "packages/cli/src/index.ts"), "utf8");
+  const cliTestPath = "packages/cli/test/local-lifecycle-cli.test.ts";
+  if (!existsSync(path.join(root, cliTestPath))) record(`local lifecycle CLI requires contract test: ${cliTestPath}`);
+  for (const requiredSnippet of [
+    "WriteCoordinator",
+    "makeJournaledWriteCoordinator",
+    "engine_owns_status",
+    "invalid transition",
+    "task_not_found"
+  ]) {
+    if (!`${localAdapterText}\n${cliText}`.includes(requiredSnippet)) {
+      record(`local lifecycle CLI implementation must include ${requiredSnippet}`);
+    }
+  }
+  if (/writeFileSync\s*\([^)]*tasks\//s.test(localAdapterText) || /renameSync\s*\([^)]*tasks\//s.test(localAdapterText)) {
+    record("local lifecycle adapter must mutate task documents through WriteCoordinator, not direct filesystem writes");
+  }
+  const cliTestText = existsSync(path.join(root, cliTestPath)) ? readFileSync(path.join(root, cliTestPath), "utf8") : "";
+  if (!/missing task errors do not leak local root paths|includes\(rootDir\)/.test(cliTestText)) {
+    record("local lifecycle CLI tests must prove missing task errors do not leak local root paths");
   }
 }
 
