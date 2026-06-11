@@ -126,6 +126,8 @@ const hasPublishImplementation = files.some((file) => /packages\/(?:kernel|cli|g
 const hasLocalLifecycleImplementation = files.some((file) => relative(file) === "packages/adapters/local/src/index.ts")
   && !readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8").trim().startsWith("export {}");
 const hasTaskProjectionImplementation = files.some((file) => relative(file) === "packages/kernel/src/projection/sqlite-task-projection.ts");
+const hasMulticaAdapterImplementation = files.some((file) => relative(file) === "packages/adapters/multica/src/index.ts")
+  && !readFileSync(path.join(root, "packages/adapters/multica/src/index.ts"), "utf8").trim().startsWith("export {}");
 for (const [kind, active] of Object.entries({ gui: hasGuiImplementation, store: hasStoreImplementation, publish: hasPublishImplementation })) {
   if (!active) continue;
   for (const requiredPath of expectedRuntimeTestFiles[kind]) {
@@ -224,6 +226,52 @@ if (hasTaskProjectionImplementation) {
   }
   if (/writeFileSync\s*\([^)]*tasks\//s.test(projectionText) || /renameSync\s*\([^)]*tasks\//s.test(projectionText)) {
     record("task projection must not write authored task documents");
+  }
+}
+
+if (hasMulticaAdapterImplementation) {
+  const multicaText = readFileSync(path.join(root, "packages/adapters/multica/src/index.ts"), "utf8");
+  const multicaTestPath = "packages/adapters/multica/test/multica-readonly-adopt.test.ts";
+  const multicaTestText = existsSync(path.join(root, multicaTestPath)) ? readFileSync(path.join(root, multicaTestPath), "utf8") : "";
+  if (!existsSync(path.join(root, multicaTestPath))) record(`Multica readonly adapter requires contract test: ${multicaTestPath}`);
+  for (const requiredSnippet of [
+    "makeMulticaLifecycleEngine",
+    "makeMulticaAdoptionService",
+    "stableMulticaBindingFingerprint",
+    "acquireAdoptClaims",
+    "publishNote: false",
+    "stale-but-usable",
+    "unavailable-no-cache",
+    "status_unmapped",
+    "findBindingByExternalRef",
+    "WriteCoordinator"
+  ]) {
+    if (!multicaText.includes(requiredSnippet)) record(`Multica readonly adapter implementation must include ${requiredSnippet}`);
+  }
+  for (const forbiddenVerb of ["transition", "assign", "rerun", "cancel", "comment", "externalWrite", "writeExternal"]) {
+    const exposedVerb = new RegExp(`(?:readonly\\s+)?${forbiddenVerb}\\s*[?:=(:]`, "u");
+    if (exposedVerb.test(multicaText)) record(`Multica readonly adapter must not expose external write verb: ${forbiddenVerb}`);
+  }
+  if (/publishNote\s*\??\s*:\s*(?:\(|async|Effect|function)/u.test(multicaText)) {
+    record("Multica readonly adapter must not expose external write verb: publishNote");
+  }
+  if (!/does not write external status into frontmatter|^  status:/m.test(multicaTestText)) {
+    record("Multica adopt tests must prove external status is not written to authored frontmatter");
+  }
+  if (!/rejects duplicate external bindings|external ref already bound/.test(multicaTestText)) {
+    record("Multica adopt tests must prove duplicate binding rejection");
+  }
+  if (!/adopt claim rejects duplicate refs|adopt claim already held/.test(`${multicaTestText}\n${multicaText}`)) {
+    record("Multica adopt tests must prove concurrent duplicate binding rejection through an adopt claim");
+  }
+  if (!/order-insensitive|stableMulticaBindingFingerprint/.test(multicaTestText)) {
+    record("Multica tests must prove binding fingerprint canonicalization");
+  }
+  if (!/stale cache|unavailable-no-cache|refuses stale snapshots/.test(multicaTestText)) {
+    record("Multica tests must prove stale cache and no-cache behavior");
+  }
+  if (/writeFileSync\s*\([^)]*tasks\//s.test(multicaText) || /renameSync\s*\([^)]*tasks\//s.test(multicaText)) {
+    record("Multica adopt must not write authored task documents outside WriteCoordinator");
   }
 }
 
