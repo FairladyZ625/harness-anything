@@ -130,6 +130,44 @@ for (const [kind, active] of Object.entries({ gui: hasGuiImplementation, store: 
   }
 }
 
+if (hasStoreImplementation) {
+  const coordinatorPath = path.join(root, "packages/kernel/src/store/write-journal-coordinator.ts");
+  const coordinatorText = existsSync(coordinatorPath) ? readFileSync(coordinatorPath, "utf8") : "";
+  for (const requiredSnippet of [
+    "write-journal/v1",
+    "write-watermark/v1",
+    "lock-takeover/v1",
+    "payloadRef",
+    "fsyncSync",
+    "ownerToken",
+    "heartbeatAt",
+    ".takeover",
+    "renameSync",
+    "commitTouchedPaths",
+    "rebuildProjectionStub"
+  ]) {
+    if (!coordinatorText.includes(requiredSnippet)) {
+      record(`store implementation must include ${requiredSnippet}`);
+    }
+  }
+
+  const storeIndexExported = readFileSync(path.join(root, "packages/kernel/src/index.ts"), "utf8").includes("./store/");
+  if (storeIndexExported) record("kernel public index must not export internal store implementations");
+
+  const payloadHashTest = readFileSync(path.join(root, "packages/kernel/test/store/payload-hash.test.ts"), "utf8");
+  if (!/tamper|mismatch|reject/i.test(payloadHashTest)) record("payload-hash.test.ts must prove tampered payloadRef blocks recovery");
+
+  const lockTest = readFileSync(path.join(root, "packages/kernel/test/store/global-committer-lock.test.ts"), "utf8");
+  if (!/two coordinators|stale lock|lock already held|live process locks|takeover claim|dead takeover claim|quarantined stale lock|double stale lock takeover|ownerToken/i.test(lockTest)) {
+    record("global-committer-lock.test.ts must prove contention, stale lock, live-lock, takeover claim recovery, quarantine recovery, double stale takeover, or owner token behavior, not only file presence");
+  }
+
+  const fifoTest = readFileSync(path.join(root, "packages/kernel/test/store/same-task-fifo.test.ts"), "utf8");
+  if (!/two coordinators|firstCoordinator|secondCoordinator/.test(fifoTest)) {
+    record("same-task-fifo.test.ts must prove durable journal FIFO across two coordinators");
+  }
+}
+
 for (const file of files) {
   const rel = relative(file);
   const text = await readFile(file, "utf8");
