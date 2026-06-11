@@ -1,0 +1,11 @@
+.harness-private/
+AGENTS.md
+CLAUDE.md
+docs/
+node_modules/
+dist/
+coverage/
+tmp/
+*.log
+*.tsbuildinfo
+packages/**/src/*.d.ts

@@ -1,0 +1,28 @@
+{
+  "name": "harness-anything",
+  "private": true,
+  "type": "module",
+  "description": "Clean-room Harness rewrite monorepo.",
+  "workspaces": [
+    "packages/*",
+    "packages/adapters/*"
+  ],
+  "scripts": {
+    "check": "npm run typecheck && npm test && npm run harness:check-import-boundaries && npm run harness:scan-forbidden-symbols",
+    "typecheck": "npm exec --yes --package typescript@5.9.3 -- tsc -b --pretty false",
+    "test": "node --test",
+    "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
+    "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "24",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "effect": "3.21.2"
+  }
+}
+

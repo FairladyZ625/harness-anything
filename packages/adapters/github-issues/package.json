@@ -1,0 +1,7 @@
+{
+  "name": "@harness-anything/adapter-github-issues",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}
+
