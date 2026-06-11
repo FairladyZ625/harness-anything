@@ -57,7 +57,7 @@ interface LocalTaskIndex {
   readonly url: string | null;
   readonly bindingCreatedAt: string;
   readonly bindingFingerprint: string;
-  readonly packageDisposition: "active" | "archived" | "deleted";
+  readonly packageDisposition: "active" | "archived" | "tombstoned";
   readonly vertical: string;
   readonly preset: string;
 }

@@ -158,10 +158,14 @@ export const SqliteTaskRowSchema = Schema.Struct({
   taskId: Schema.String,
   title: Schema.String,
   canonicalStatus: SnapshotStatusSchema,
+  coordinationStatus: Schema.Literal("open", "blocked", "in_review", "terminal", "unknown"),
+  rawStatus: Schema.String,
   packageDisposition: Schema.Literal(...packageDispositions),
+  closeoutReadiness: Schema.Literal("not_required", "missing", "incomplete", "ready", "passed", "failed"),
   lifecycleEngine: Schema.String,
   freshness: FreshnessSchema,
   updatedAt: Schema.String,
+  source: Schema.Literal("local-document", "external-engine", "snapshot-cache"),
   sourcePath: Schema.String
 });
 

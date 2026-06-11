@@ -103,6 +103,90 @@ test("CLI appends progress through the write journal", () => {
   });
 });
 
+test("CLI task list reads from rebuildable SQLite projection", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
+    rmSync(path.join(rootDir, ".projection.sqlite"), { force: true });
+
+    const result = runJson(rootDir, ["task", "list"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(Array.isArray(result.tasks), true);
+    assert.equal(result.tasks[0].taskId, "task-1");
+    assert.equal(result.tasks[0].canonicalStatus, "planned");
+    assert.equal(result.tasks[0].sourcePath, "tasks/task-1/INDEX.md");
+    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/INDEX.md"), "utf8").includes(".projection.sqlite"), false);
+  });
+});
+
+test("CLI check reports projection tampering as a stable JSON error", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
+    runJson(rootDir, ["task", "list"]);
+    const projectionPath = path.join(rootDir, ".projection.sqlite");
+    execFileSync(process.execPath, ["--input-type=module", "-e", [
+      "import { DatabaseSync } from 'node:sqlite';",
+      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
+      "const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get('task-1').row_json);",
+      "row.title = 'Projection Edit';",
+      "db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), 'task-1');",
+      "db.close();"
+    ].join("\n")]);
+
+    const result = runJson(rootDir, ["check"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "projection_check_failed");
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(JSON.stringify(result).includes("Projection Edit"), false);
+    assert.equal(JSON.stringify(result).includes(rootDir), false);
+  });
+});
+
+test("CLI task list does not emit tampered SQLite row content as task truth", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
+    runJson(rootDir, ["task", "list"]);
+    const projectionPath = path.join(rootDir, ".projection.sqlite");
+    execFileSync(process.execPath, ["--input-type=module", "-e", [
+      "import { DatabaseSync } from 'node:sqlite';",
+      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
+      "const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get('task-1').row_json);",
+      "row.title = 'SQLite Lie';",
+      "db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), 'task-1');",
+      "db.close();"
+    ].join("\n")]);
+
+    const result = runJson(rootDir, ["task", "list"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.tasks[0].title, "Task One");
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(JSON.stringify(result).includes("SQLite Lie"), false);
+  });
+});
+
+test("CLI check reports corrupted projection without crashing or leaking root", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
+    runJson(rootDir, ["task", "list"]);
+    const projectionPath = path.join(rootDir, ".projection.sqlite");
+    execFileSync(process.execPath, ["--input-type=module", "-e", [
+      "import { DatabaseSync } from 'node:sqlite';",
+      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
+      "db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run('{bad-json', 'task-1');",
+      "db.close();"
+    ].join("\n")]);
+
+    const result = runJson(rootDir, ["check"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "projection_check_failed");
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(JSON.stringify(result).includes(rootDir), false);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-"));
   try {

@@ -3,9 +3,13 @@
   "taskId": "2026-06-11-kr-01-harness-infrastructure",
   "title": "Harness infrastructure baseline",
   "canonicalStatus": "paused",
+  "coordinationStatus": "open",
+  "rawStatus": "paused",
   "packageDisposition": "active",
+  "closeoutReadiness": "not_required",
   "lifecycleEngine": "local",
   "freshness": "fresh",
   "updatedAt": "2026-06-11T00:03:00.000Z",
+  "source": "local-document",
   "sourcePath": "planning/modules/kernel-rewrite/tasks/2026-06-11-kr-01-harness-infrastructure/task_plan.md"
 }

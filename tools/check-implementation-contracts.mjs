@@ -125,6 +125,7 @@ const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/stor
 const hasPublishImplementation = files.some((file) => /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)));
 const hasLocalLifecycleImplementation = files.some((file) => relative(file) === "packages/adapters/local/src/index.ts")
   && !readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8").trim().startsWith("export {}");
+const hasTaskProjectionImplementation = files.some((file) => relative(file) === "packages/kernel/src/projection/sqlite-task-projection.ts");
 for (const [kind, active] of Object.entries({ gui: hasGuiImplementation, store: hasStoreImplementation, publish: hasPublishImplementation })) {
   if (!active) continue;
   for (const requiredPath of expectedRuntimeTestFiles[kind]) {
@@ -192,6 +193,37 @@ if (hasLocalLifecycleImplementation) {
   const cliTestText = existsSync(path.join(root, cliTestPath)) ? readFileSync(path.join(root, cliTestPath), "utf8") : "";
   if (!/missing task errors do not leak local root paths|includes\(rootDir\)/.test(cliTestText)) {
     record("local lifecycle CLI tests must prove missing task errors do not leak local root paths");
+  }
+}
+
+if (hasTaskProjectionImplementation) {
+  const projectionText = readFileSync(path.join(root, "packages/kernel/src/projection/sqlite-task-projection.ts"), "utf8");
+  const rebuildTestText = readFileSync(path.join(root, "packages/kernel/test/store/sqlite-rebuild.test.ts"), "utf8");
+  const cliTestText = readFileSync(path.join(root, "packages/cli/test/local-lifecycle-cli.test.ts"), "utf8");
+  for (const requiredSnippet of [
+    "DatabaseSync",
+    "rebuildTaskProjection",
+    "projection_tampered",
+    "sourceHash",
+    "rowsHash",
+    "closeoutReadiness",
+    "coordinationStatus"
+  ]) {
+    if (!projectionText.includes(requiredSnippet)) {
+      record(`task projection implementation must include ${requiredSnippet}`);
+    }
+  }
+  if (!/SQLite task projection rebuild is deterministic after cache deletion|rmSync\(path\.join\(rootDir, "\.projection\.sqlite"\)/.test(rebuildTestText)) {
+    record("task projection tests must prove deleting SQLite and rebuilding preserves read output");
+  }
+  if (!/generated SQLite edits are reported and rebuilt from markdown truth|projection_tampered/.test(rebuildTestText)) {
+    record("task projection tests must prove hand-edited generated projection is reported");
+  }
+  if (!/CLI task list reads from rebuildable SQLite projection|CLI check reports projection tampering|CLI task list does not emit tampered SQLite row content as task truth/.test(cliTestText)) {
+    record("CLI tests must cover task list and check over the SQLite projection");
+  }
+  if (/writeFileSync\s*\([^)]*tasks\//s.test(projectionText) || /renameSync\s*\([^)]*tasks\//s.test(projectionText)) {
+    record("task projection must not write authored task documents");
   }
 }
 

@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/domain/index.ts";
 import { isDomainStatus } from "../../kernel/src/domain/index.ts";
+import { checkTaskProjection, readTaskProjection } from "../../kernel/src/index.ts";
 
 export interface CliResult {
   readonly ok: boolean;
@@ -9,6 +10,9 @@ export interface CliResult {
   readonly taskId?: string;
   readonly status?: DomainStatus;
   readonly path?: string;
+  readonly tasks?: ReadonlyArray<unknown>;
+  readonly rows?: number;
+  readonly warnings?: ReadonlyArray<unknown>;
   readonly error?: {
     readonly code: string;
     readonly hint: string;
@@ -21,7 +25,9 @@ interface ParsedCommand {
   readonly action:
     | { readonly kind: "new-task"; readonly taskId: string; readonly title: string }
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus }
-    | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string };
+    | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
+    | { readonly kind: "task-list" }
+    | { readonly kind: "check" };
 }
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
@@ -37,7 +43,7 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
       onFailure: (error): CliResult => ({
         ok: false,
         command: parsed.value.action.kind,
-        taskId: parsed.value.action.taskId,
+        taskId: actionTaskId(parsed.value.action),
         error: toCliError(error)
       }),
       onSuccess: (value) => value
@@ -76,15 +82,43 @@ function runCommand(
     })));
   }
 
-  return engine.appendProgress({
-    taskId: command.action.taskId,
-    text: command.action.text
-  }).pipe(Effect.map((result): CliResult => ({
-    ok: true,
-    command: "progress-append",
-    taskId: result.taskId,
-    path: result.path
-  })));
+  if (command.action.kind === "progress-append") {
+    return engine.appendProgress({
+      taskId: command.action.taskId,
+      text: command.action.text
+    }).pipe(Effect.map((result): CliResult => ({
+      ok: true,
+      command: "progress-append",
+      taskId: result.taskId,
+      path: result.path
+    })));
+  }
+
+  if (command.action.kind === "task-list") {
+    return Effect.sync(() => {
+      const result = readTaskProjection({ rootDir: command.rootDir });
+      return {
+        ok: true,
+        command: "task-list",
+        tasks: result.rows,
+        warnings: result.warnings
+      } satisfies CliResult;
+    });
+  }
+
+  return Effect.sync(() => {
+    const result = checkTaskProjection({ rootDir: command.rootDir });
+    return {
+      ok: result.ok,
+      command: "check",
+      rows: result.rows.length,
+      warnings: result.warnings,
+      error: result.ok ? undefined : {
+        code: "projection_check_failed",
+        hint: "Projection cache or markdown source has contract warnings."
+      }
+    } satisfies CliResult;
+  });
 }
 
 function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
@@ -147,11 +181,37 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     };
   }
 
+  if (args[0] === "task" && args[1] === "list") {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "task-list"
+        }
+      }
+    };
+  }
+
+  if (args[0] === "check") {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "check"
+        }
+      }
+    };
+  }
+
   return {
     ok: false,
     error: {
       code: "unknown_command",
-      hint: "Supported commands: new-task, task status set, task progress append."
+      hint: "Supported commands: new-task, task status set, task progress append, task list, check."
     }
   };
 }
@@ -159,6 +219,10 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
 function readOption(argv: ReadonlyArray<string>, name: string): string | undefined {
   const index = argv.indexOf(name);
   return index >= 0 ? argv[index + 1] : undefined;
+}
+
+function actionTaskId(action: ParsedCommand["action"]): string | undefined {
+  return "taskId" in action ? action.taskId : undefined;
 }
 
 function toCliError(error: EngineError | WriteError): CliResult["error"] {
@@ -194,7 +258,7 @@ function emit(result: CliResult, json: boolean): void {
   }
 
   if (result.ok) {
-    const suffix = result.status ? ` status=${result.status}` : result.path ? ` path=${result.path}` : "";
+    const suffix = result.status ? ` status=${result.status}` : result.path ? ` path=${result.path}` : result.rows !== undefined ? ` rows=${result.rows}` : "";
     console.log(`ok command=${result.command} task=${result.taskId ?? ""}${suffix}`);
     return;
   }

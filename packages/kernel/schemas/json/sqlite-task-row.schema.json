@@ -4,16 +4,20 @@
   "x-harness-schema-id": "sqlite-task-row",
   "title": "SQLite Task Row",
   "type": "object",
-  "required": ["schema", "taskId", "title", "canonicalStatus", "packageDisposition", "lifecycleEngine", "freshness", "updatedAt", "sourcePath"],
+  "required": ["schema", "taskId", "title", "canonicalStatus", "coordinationStatus", "rawStatus", "packageDisposition", "closeoutReadiness", "lifecycleEngine", "freshness", "updatedAt", "source", "sourcePath"],
   "properties": {
     "schema": { "const": "sqlite-task-row/v1" },
     "taskId": { "type": "string" },
     "title": { "type": "string" },
     "canonicalStatus": { "enum": ["planned", "active", "blocked", "in_review", "done", "cancelled", "unknown"] },
+    "coordinationStatus": { "enum": ["open", "blocked", "in_review", "terminal", "unknown"] },
+    "rawStatus": { "type": "string" },
     "packageDisposition": { "enum": ["active", "archived", "tombstoned"] },
+    "closeoutReadiness": { "enum": ["not_required", "missing", "incomplete", "ready", "passed", "failed"] },
     "lifecycleEngine": { "type": "string" },
     "freshness": { "enum": ["fresh", "stale-but-usable", "unavailable-no-cache"] },
     "updatedAt": { "type": "string" },
+    "source": { "enum": ["local-document", "external-engine", "snapshot-cache"] },
     "sourcePath": { "type": "string" }
   }
 }
