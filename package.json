@@ -8,11 +8,12 @@
     "packages/adapters/*"
   ],
   "scripts": {
-    "check": "npm run typecheck && npm test && npm run harness:check-import-boundaries && npm run harness:scan-forbidden-symbols",
+    "check": "npm run typecheck && npm test && npm run harness:check-import-boundaries && npm run harness:scan-forbidden-symbols && npm run harness:check-private-boundary",
     "typecheck": "npm exec --yes --package typescript@5.9.3 -- tsc -b --pretty false",
     "test": "node --test",
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
-    "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs"
+    "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
+    "harness:check-private-boundary": "node tools/check-private-boundary.mjs"
   },
   "engines": {
     "node": ">=24"
@@ -25,4 +26,3 @@
     "effect": "3.21.2"
   }
 }
-
