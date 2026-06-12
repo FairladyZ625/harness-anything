@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import type { DocumentWrite } from "../ports/artifact-store.ts";
+import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type {
   FlushReason,
   FlushReport,

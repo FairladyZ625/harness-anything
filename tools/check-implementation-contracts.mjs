@@ -410,6 +410,10 @@ for (const file of files) {
     record(`${rel}: Effect.runPromise* is only allowed at controller composition roots`);
   }
 
+  if (!rel.startsWith("packages/kernel/src/store/") && !isTestOrFixture && /\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
+    record(`${rel}: authored writes must go through WriteCoordinator.enqueue; the ArtifactStoreWriter seam is flusher-only inside kernel/src/store/`);
+  }
+
   if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
     record(`${rel}: store must not import engine adapter implementations`);
   }

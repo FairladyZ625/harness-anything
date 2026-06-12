@@ -4,10 +4,13 @@ import { Effect, Option } from "effect";
 import type {
   ArtifactDocument,
   ArtifactStore,
-  ArtifactWriteReceipt,
-  DocumentWrite,
   TaskPackageRead
 } from "../ports/artifact-store.ts";
+import type {
+  ArtifactStoreWriter,
+  ArtifactWriteReceipt,
+  DocumentWrite
+} from "../ports/artifact-store-writer.ts";
 import type { ArtifactStoreError, EngineId, ExternalRef, TaskId } from "../domain/index.ts";
 import { sha256Text } from "./hash.ts";
 
@@ -27,6 +30,21 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
         cause
       })
     }),
+    findBindingByExternalRef: (engine, ref) => Effect.try({
+      try: () => findBindingByExternalRef(rootDir, engine, ref),
+      catch: (cause): ArtifactStoreError => ({
+        _tag: "ArtifactReadFailed",
+        path: path.join(rootDir, "tasks"),
+        cause
+      })
+    })
+  };
+}
+
+export function makeMarkdownArtifactStoreWriter(options: MarkdownArtifactStoreOptions): ArtifactStoreWriter {
+  const rootDir = path.resolve(options.rootDir);
+
+  return {
     writeDocument: (write) => Effect.try({
       try: () => writeDocument(rootDir, write),
       catch: (cause): ArtifactStoreError => ({
@@ -41,14 +59,6 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
         _tag: "ArtifactWriteRejected",
         path: packagePath(rootDir, taskId),
         reason: cause instanceof Error ? cause.message : "archive failed"
-      })
-    }),
-    findBindingByExternalRef: (engine, ref) => Effect.try({
-      try: () => findBindingByExternalRef(rootDir, engine, ref),
-      catch: (cause): ArtifactStoreError => ({
-        _tag: "ArtifactReadFailed",
-        path: path.join(rootDir, "tasks"),
-        cause
       })
     })
   };
