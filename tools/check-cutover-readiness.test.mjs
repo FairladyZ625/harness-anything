@@ -28,6 +28,22 @@ test("cutover readiness allows old runtime references in tests and behavior repo
   });
 });
 
+test("cutover readiness ignores private harness files inside local worktrees", async () => {
+  await withFixtureRepo(async (root) => {
+    mkdirSync(path.join(root, ".worktrees/gui-prototype-private-context/.harness-private"), { recursive: true });
+    writeFileSync(path.join(root, ".worktrees/gui-prototype-private-context/.harness-private/AGENTS.md"), [
+      "Local-only harness note.",
+      "It may mention scripts/kernel/task and requestTransition because it is not public surface.",
+      "It may also mention coding-agent-harness compatibility.",
+      ""
+    ].join("\n"));
+
+    const violations = await evaluateCutoverReadiness(root);
+
+    assert.deepEqual(violations, []);
+  });
+});
+
 test("cutover readiness requires the harness-anything CLI package artifact bin surface", async () => {
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "packages/cli/package.json"), JSON.stringify({

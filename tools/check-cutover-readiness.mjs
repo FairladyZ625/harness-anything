@@ -222,7 +222,7 @@ async function collectFiles(directory) {
   for (const entry of entries) {
     const full = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (["node_modules", "dist", "out", "coverage"].includes(entry.name)) continue;
+      if (ignoredDirectoryNames.has(entry.name)) continue;
       files.push(...await collectFiles(full));
     } else if (entry.isFile() && (sourceFilePattern.test(entry.name) || entry.name.endsWith(".md") || entry.name.endsWith(".yml") || entry.name.endsWith(".yaml") || entry.name === "package.json")) {
       files.push(full);
@@ -230,6 +230,17 @@ async function collectFiles(directory) {
   }
   return files;
 }
+
+const ignoredDirectoryNames = new Set([
+  ".git",
+  ".harness",
+  ".harness-private",
+  ".worktrees",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out"
+]);
 
 function readJson(root, rel) {
   return JSON.parse(readFileSync(path.join(root, rel), "utf8"));
