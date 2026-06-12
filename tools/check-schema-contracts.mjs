@@ -13,6 +13,7 @@ const expectedSchemaIds = [
   "publishable-projection",
   "template-catalog",
   "preset-manifest",
+  "vertical-definition",
   "sqlite-task-row",
   "docs-release-promotion-bundle"
 ];

@@ -1,8 +1,22 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { Effect } from "effect";
+import { Schema } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/domain/index.ts";
 import { isDomainStatus } from "../../kernel/src/domain/index.ts";
-import { checkTaskProjection, readTaskProjection } from "../../kernel/src/index.ts";
+import {
+  PresetManifestSchema,
+  TemplateCatalogSchema,
+  VerticalDefinitionSchema,
+  checkTaskProjection,
+  planTemplateMaterialization,
+  readTaskProjection,
+  validateExtensionInputShape,
+  validatePresetManifests,
+  validateTemplateCatalog,
+  validateVerticalDefinition
+} from "../../kernel/src/index.ts";
 
 export interface CliResult {
   readonly ok: boolean;
@@ -11,6 +25,9 @@ export interface CliResult {
   readonly status?: DomainStatus;
   readonly path?: string;
   readonly tasks?: ReadonlyArray<unknown>;
+  readonly templates?: ReadonlyArray<unknown>;
+  readonly document?: unknown;
+  readonly issues?: ReadonlyArray<unknown>;
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
   readonly error?: {
@@ -27,7 +44,11 @@ interface ParsedCommand {
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
     | { readonly kind: "task-list" }
-    | { readonly kind: "check" };
+    | { readonly kind: "check" }
+    | { readonly kind: "template-list"; readonly catalogPath: string }
+    | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }
+    | { readonly kind: "preset-validate"; readonly manifestPath: string; readonly kernelVersion: string }
+    | { readonly kind: "vertical-validate"; readonly definitionPath: string };
 }
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
@@ -35,6 +56,12 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   if (!parsed.ok) {
     emit({ ok: false, command: "parse", error: parsed.error }, true);
     return 2;
+  }
+
+  if (isExtensionAction(parsed.value.action)) {
+    const result = runExtensionCommand(parsed.value);
+    emit(result, parsed.value.json);
+    return result.ok ? 0 : 1;
   }
 
   const engine = makeLocalLifecycleEngine({ rootDir: parsed.value.rootDir });
@@ -207,11 +234,82 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     };
   }
 
+  if (args[0] === "template" && args[1] === "list") {
+    const catalogPath = readOption(args, "--catalog");
+    if (!catalogPath) {
+      return { ok: false, error: { code: "missing_catalog", hint: "Use --catalog for template list." } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "template-list",
+          catalogPath
+        }
+      }
+    };
+  }
+
+  if (args[0] === "template" && args[1] === "render" && args[2]) {
+    const catalogPath = readOption(args, "--catalog");
+    if (!catalogPath) {
+      return { ok: false, error: { code: "missing_catalog", hint: "Use --catalog for template render." } };
+    }
+    const locale = readOption(args, "--locale") ?? "zh-CN";
+    if (locale !== "zh-CN" && locale !== "en-US") {
+      return { ok: false, error: { code: "invalid_locale", hint: `Unknown locale: ${locale}` } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "template-render",
+          templateRef: args[2],
+          catalogPath,
+          locale
+        }
+      }
+    };
+  }
+
+  if (args[0] === "preset" && args[1] === "validate" && args[2]) {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "preset-validate",
+          manifestPath: args[2],
+          kernelVersion: readOption(args, "--kernel-version") ?? "1.0.0"
+        }
+      }
+    };
+  }
+
+  if (args[0] === "vertical" && args[1] === "validate" && args[2]) {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "vertical-validate",
+          definitionPath: args[2]
+        }
+      }
+    };
+  }
+
   return {
     ok: false,
     error: {
       code: "unknown_command",
-      hint: "Supported commands: new-task, task status set, task progress append, task list, check."
+      hint: "Supported commands: new-task, task status set, task progress append, task list, check, template list, template render, preset validate, vertical validate."
     }
   };
 }
@@ -223,6 +321,150 @@ function readOption(argv: ReadonlyArray<string>, name: string): string | undefin
 
 function actionTaskId(action: ParsedCommand["action"]): string | undefined {
   return "taskId" in action ? action.taskId : undefined;
+}
+
+function isExtensionAction(action: ParsedCommand["action"]): action is Extract<ParsedCommand["action"], { readonly kind: "template-list" | "template-render" | "preset-validate" | "vertical-validate" }> {
+  return action.kind === "template-list" || action.kind === "template-render" || action.kind === "preset-validate" || action.kind === "vertical-validate";
+}
+
+function runExtensionCommand(command: ParsedCommand): CliResult {
+  try {
+    if (command.action.kind === "template-list") {
+      const decoded = decodeExtensionJsonFile("template-catalog", command.action.catalogPath, TemplateCatalogSchema);
+      if (!decoded.ok) {
+        return invalidExtensionResult("template-list", "template_catalog_invalid", "Template catalog failed validation.", decoded.issues);
+      }
+      const catalog = decoded.value;
+      const validation = validateTemplateCatalog(catalog);
+      return {
+        ok: validation.ok,
+        command: "template-list",
+        templates: catalog.documents.map((document) => ({
+          templateRef: `template://${document.id}@${document.version}`,
+          documentKind: document.documentKind,
+          slot: document.slot,
+          materializeAs: document.materializeAs,
+          locales: document.locales.map((variant) => variant.locale)
+        })),
+        issues: validation.issues,
+        error: validation.ok ? undefined : {
+          code: "template_catalog_invalid",
+          hint: "Template catalog failed validation."
+        }
+      };
+    }
+
+    if (command.action.kind === "template-render") {
+      const decoded = decodeExtensionJsonFile("template-catalog", command.action.catalogPath, TemplateCatalogSchema);
+      if (!decoded.ok) {
+        return invalidExtensionResult("template-render", "template_catalog_invalid", "Template catalog failed validation.", decoded.issues);
+      }
+      const catalog = decoded.value;
+      const materialized = planTemplateMaterialization({
+        catalog,
+        locale: command.action.locale,
+        selections: [{
+          slot: "cli.render",
+          templateRef: command.action.templateRef,
+          materializeAs: "stdout.md",
+          localePolicy: {
+            prefer: "explicit",
+            fallback: "en-US"
+          }
+        }]
+      });
+      return {
+        ok: materialized.ok,
+        command: "template-render",
+        document: materialized.documents[0],
+        issues: materialized.issues,
+        error: materialized.ok ? undefined : {
+          code: "template_render_failed",
+          hint: "Template selection could not be materialized."
+        }
+      };
+    }
+
+    if (command.action.kind === "preset-validate") {
+      const decoded = decodeExtensionJsonFile("preset-manifest", command.action.manifestPath, PresetManifestSchema);
+      if (!decoded.ok) {
+        return invalidExtensionResult("preset-validate", "preset_manifest_invalid", "Preset manifest failed validation.", decoded.issues);
+      }
+      const manifest = decoded.value;
+      const validation = validatePresetManifests([manifest], { kernelVersion: command.action.kernelVersion });
+      return {
+        ok: validation.ok,
+        command: "preset-validate",
+        issues: validation.issues,
+        error: validation.ok ? undefined : {
+          code: "preset_manifest_invalid",
+          hint: "Preset manifest failed validation."
+        }
+      };
+    }
+
+    if (command.action.kind === "vertical-validate") {
+      const decoded = decodeExtensionJsonFile("vertical-definition", command.action.definitionPath, VerticalDefinitionSchema);
+      if (!decoded.ok) {
+        return invalidExtensionResult("vertical-validate", "vertical_definition_invalid", "Vertical definition failed validation.", decoded.issues);
+      }
+      const vertical = decoded.value;
+      const validation = validateVerticalDefinition(vertical);
+      return {
+        ok: validation.ok,
+        command: "vertical-validate",
+        issues: validation.issues,
+        error: validation.ok ? undefined : {
+          code: "vertical_definition_invalid",
+          hint: "Vertical definition failed validation."
+        }
+      };
+    }
+
+    return {
+      ok: false,
+      command: command.action.kind,
+      error: {
+        code: "unknown_command",
+        hint: "Unsupported extension command."
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      command: command.action.kind,
+      error: {
+        code: "decode_failed",
+        hint: "Input JSON failed to decode or could not be read."
+      }
+    };
+  }
+}
+
+function decodeExtensionJsonFile<A, I>(
+  kind: "template-catalog" | "preset-manifest" | "vertical-definition",
+  filePath: string,
+  schema: Schema.Schema<A, I, never>
+): { readonly ok: true; readonly value: A } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {
+  const inputPath = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
+  const raw = JSON.parse(readFileSync(inputPath, "utf8")) as unknown;
+  const shape = validateExtensionInputShape(kind, raw);
+  if (!shape.ok) {
+    return { ok: false, issues: shape.issues };
+  }
+  return { ok: true, value: Schema.decodeUnknownSync(schema)(raw) };
+}
+
+function invalidExtensionResult(command: string, code: string, hint: string, issues: ReadonlyArray<unknown>): CliResult {
+  return {
+    ok: false,
+    command,
+    issues,
+    error: {
+      code,
+      hint
+    }
+  };
 }
 
 function toCliError(error: EngineError | WriteError): CliResult["error"] {

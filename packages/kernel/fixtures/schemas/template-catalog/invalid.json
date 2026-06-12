@@ -1,12 +1,11 @@
 {
   "schema": "template-catalog/v1",
-  "templates": [
-    {
-      "id": "standard-task/brief",
-      "documentKind": "brief",
-      "locale": "de-DE",
-      "slots": ["goal"],
-      "frontmatterSchema": "task-package/v2"
-    }
-  ]
+  "package": {
+    "id": "software-coding-core",
+    "title": "Software Coding Core Templates",
+    "version": "1.0.0",
+    "owner": "harness-anything",
+    "locales": ["de-DE"]
+  },
+  "documents": []
 }

@@ -1,12 +1,34 @@
 {
   "schema": "template-catalog/v1",
-  "templates": [
+  "package": {
+    "id": "software-coding-core",
+    "title": "Software Coding Core Templates",
+    "version": "1.0.0",
+    "owner": "harness-anything",
+    "locales": ["zh-CN", "en-US"]
+  },
+  "documents": [
     {
-      "id": "standard-task/brief",
-      "documentKind": "brief",
-      "locale": "zh-CN",
-      "slots": ["goal", "context", "acceptance"],
-      "frontmatterSchema": "task-package/v2"
+      "id": "planning/task-flow",
+      "version": "1",
+      "documentKind": "task-flow",
+      "slot": "task.flow",
+      "materializeAs": "task_flow.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Goal", "## Steps", "## Gates"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": ["## Goal", "## Steps", "## Gates"],
+          "body": "## Goal\n说明目标。\n\n## Steps\n列出步骤。\n\n## Gates\n列出门禁。\n"
+        },
+        {
+          "locale": "en-US",
+          "anchors": ["## Goal", "## Steps", "## Gates"],
+          "body": "## Goal\nDescribe the goal.\n\n## Steps\nList the steps.\n\n## Gates\nList the gates.\n"
+        }
+      ]
     }
   ]
 }

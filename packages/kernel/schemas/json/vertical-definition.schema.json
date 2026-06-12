@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/vertical-definition.schema.json",
+  "x-harness-schema-id": "vertical-definition",
+  "title": "Vertical Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "title", "version", "entityKinds", "contractEntityKinds", "packageScaffolds", "templateSelections", "checkerProfile", "projectionSchemas"],
+  "properties": {
+    "schema": { "const": "vertical-definition/v1" },
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "version": { "type": "string" },
+    "entityKinds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "packageKind", "contractEntity"],
+        "properties": {
+          "id": { "type": "string" },
+          "packageKind": { "type": "string" },
+          "contractEntity": { "type": "boolean" }
+        }
+      }
+    },
+    "contractEntityKinds": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "packageScaffolds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entityKind", "templateSelections"],
+        "properties": {
+          "entityKind": { "type": "string" },
+          "templateSelections": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/templateSelection" }
+          }
+        }
+      }
+    },
+    "templateSelections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/templateSelection" }
+    },
+    "checkerProfile": { "type": "string" },
+    "projectionSchemas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "schemaRef"],
+        "properties": {
+          "id": { "type": "string" },
+          "schemaRef": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "templateSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot", "templateRef", "materializeAs", "localePolicy"],
+      "properties": {
+        "slot": { "type": "string" },
+        "templateRef": { "type": "string" },
+        "materializeAs": { "type": "string" },
+        "localePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prefer", "fallback"],
+          "properties": {
+            "prefer": { "enum": ["project", "preset", "explicit"] },
+            "fallback": { "enum": ["zh-CN", "en-US"] }
+          }
+        },
+        "requiredWhen": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}
