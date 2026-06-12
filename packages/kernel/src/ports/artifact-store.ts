@@ -1,5 +1,5 @@
-import { Context, Effect } from "effect";
-import type { ArtifactStoreError, PackageDisposition, TaskId } from "../domain/index.js";
+import { Context, Effect, Option } from "effect";
+import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../domain/index.js";
 
 export interface ArtifactDocument {
   readonly path: string;
@@ -30,6 +30,10 @@ export interface ArtifactStore {
   readonly readTaskPackage: (taskId: TaskId) => Effect.Effect<TaskPackageRead, ArtifactStoreError>;
   readonly writeDocument: (write: DocumentWrite) => Effect.Effect<ArtifactWriteReceipt, ArtifactStoreError>;
   readonly archivePackage: (taskId: TaskId) => Effect.Effect<TaskPackageRead, ArtifactStoreError>;
+  readonly findBindingByExternalRef: (
+    engine: EngineId,
+    ref: ExternalRef
+  ) => Effect.Effect<Option.Option<TaskId>, ArtifactStoreError>;
 }
 
 export const ArtifactStore = Context.GenericTag<ArtifactStore>(
