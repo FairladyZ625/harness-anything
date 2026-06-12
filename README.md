@@ -9,3 +9,6 @@ workspace packages, not nested Git repositories.
 Private planning, architecture, and task state live in `.harness-private/`,
 which is intentionally ignored by the public repo.
 
+## License
+
+Harness-Anything is licensed under AGPL-3.0-or-later. See `LICENSE`.

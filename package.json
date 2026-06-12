@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Clean-room Harness rewrite monorepo.",
+  "license": "AGPL-3.0-or-later",
   "workspaces": [
     "packages/*",
     "packages/adapters/*"
