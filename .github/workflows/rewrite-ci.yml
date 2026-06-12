@@ -55,6 +55,7 @@ jobs:
       - run: npm run harness:check-private-boundary
       - run: npm run harness:check-implementation-contracts
       - run: npm run harness:check-schema-contracts
+      - run: npm run harness:check-cutover-readiness
 
   package-policy:
     runs-on: ubuntu-latest
@@ -66,6 +67,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run harness:check-package-policy
+      - run: npm run harness:smoke-cli-package
 
   schema-contracts:
     runs-on: ubuntu-latest

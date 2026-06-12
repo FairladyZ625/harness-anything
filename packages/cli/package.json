@@ -2,6 +2,22 @@
   "name": "@harness-anything/cli",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "bin": {
+    "harness-anything": "./dist/cli/src/index.js"
+  },
+  "exports": {
+    ".": "./dist/cli/src/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
+  "dependencies": {
+    "effect": "3.21.2"
+  }
 }
-

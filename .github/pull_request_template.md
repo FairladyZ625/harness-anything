@@ -39,6 +39,8 @@
 - [ ] `npm run harness:check-package-policy`
 - [ ] `npm run harness:check-implementation-contracts`
 - [ ] `npm run harness:check-schema-contracts`
+- [ ] `npm run harness:check-cutover-readiness`
+- [ ] `npm run harness:smoke-cli-package`
 - [ ] GitHub Actions `rewrite-ci` passed
 - Not run: [command and reason]
 
@@ -113,6 +115,8 @@
 - [ ] `npm run harness:check-package-policy`
 - [ ] `npm run harness:check-implementation-contracts`
 - [ ] `npm run harness:check-schema-contracts`
+- [ ] `npm run harness:check-cutover-readiness`
+- [ ] `npm run harness:smoke-cli-package`
 - [ ] GitHub Actions `rewrite-ci` passed
 - 未运行：[命令和原因]
 

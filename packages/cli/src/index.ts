@@ -1,6 +1,9 @@
+#!/usr/bin/env node
+
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { Schema } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
@@ -582,6 +585,16 @@ function emit(result: CliResult, json: boolean): void {
   console.error(`error code=${result.error?.code ?? "unknown"} hint=${result.error?.hint ?? "Command failed."}`);
 }
 
-if (process.argv[1]?.endsWith("packages/cli/src/index.ts")) {
+function isCliEntrypoint(): boolean {
+  const invokedPath = process.argv[1];
+  if (!invokedPath) return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return invokedPath.endsWith("packages/cli/src/index.ts");
+  }
+}
+
+if (isCliEntrypoint()) {
   process.exitCode = await main();
 }

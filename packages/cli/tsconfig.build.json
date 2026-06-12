@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2024",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "rootDir": "..",
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*.ts",
+    "../kernel/src/**/*.ts",
+    "../adapters/local/src/**/*.ts"
+  ]
+}

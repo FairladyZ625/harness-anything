@@ -1,0 +1,38 @@
+{
+  "schema": "harness-anything-behavior-corpus-classification/v1",
+  "scope": "KR-10 clean cutover",
+  "publishState": "not-published",
+  "categories": {
+    "preserve": 0,
+    "intentional-change": 2,
+    "old-bug": 0,
+    "unsupported-input": 1,
+    "needs-decision": 0
+  },
+  "evidence": [
+    {
+      "id": "EV-CUTOVER-READINESS",
+      "command": "npm run harness:check-cutover-readiness",
+      "result": "passed"
+    },
+    {
+      "id": "EV-CLI-PACKAGE-SMOKE",
+      "command": "npm run harness:smoke-cli-package",
+      "result": "passed"
+    }
+  ],
+  "items": [
+    {
+      "classification": "intentional-change",
+      "summary": "Package identity uses harness-anything rather than old package names."
+    },
+    {
+      "classification": "intentional-change",
+      "summary": "Default CLI package artifact bin is harness-anything; external npm publish remains out of scope."
+    },
+    {
+      "classification": "unsupported-input",
+      "summary": "Old task schema/API compatibility is not supported by the clean-room rewrite."
+    }
+  ]
+}

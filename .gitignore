@@ -1,5 +1,6 @@
 .harness-private/
 .harness/
+.worktrees/
 AGENTS.md
 CLAUDE.md
 docs/
