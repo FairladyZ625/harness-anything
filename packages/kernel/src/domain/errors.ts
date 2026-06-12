@@ -1,4 +1,5 @@
 import type { EngineId, ExternalRef, TaskId } from "./task.js";
+import type { ImmutableBindingField } from "./lifecycle-binding.js";
 
 export type EngineError =
   | { readonly _tag: "EngineNotEnabled"; readonly engine: EngineId }
@@ -15,7 +16,7 @@ export type EngineError =
 export type BindingInvariantError = {
   readonly _tag: "BindingInvariantViolation";
   readonly taskId: TaskId;
-  readonly field: "engine" | "ref" | "bindingCreatedAt" | "bindingFingerprint";
+  readonly field: ImmutableBindingField;
   readonly expected: string | null;
   readonly actual: string | null;
 };

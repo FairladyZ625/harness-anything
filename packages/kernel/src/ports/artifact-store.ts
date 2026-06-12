@@ -1,5 +1,5 @@
-import { Context, Effect } from "effect";
-import type { ArtifactStoreError, PackageDisposition, TaskId } from "../domain/index.js";
+import { Context, Effect, Option } from "effect";
+import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../domain/index.js";
 
 export interface ArtifactDocument {
   readonly path: string;
@@ -14,22 +14,14 @@ export interface TaskPackageRead {
   readonly documents: ReadonlyArray<ArtifactDocument>;
 }
 
-export interface DocumentWrite {
-  readonly taskId: TaskId;
-  readonly path: string;
-  readonly body: string;
-}
-
-export interface ArtifactWriteReceipt {
-  readonly taskId: TaskId;
-  readonly path: string;
-  readonly sha256: string;
-}
-
+// Read-side port. All authored writes go through WriteCoordinator; the
+// write surface lives in artifact-store-writer.ts as a flusher-only seam.
 export interface ArtifactStore {
   readonly readTaskPackage: (taskId: TaskId) => Effect.Effect<TaskPackageRead, ArtifactStoreError>;
-  readonly writeDocument: (write: DocumentWrite) => Effect.Effect<ArtifactWriteReceipt, ArtifactStoreError>;
-  readonly archivePackage: (taskId: TaskId) => Effect.Effect<TaskPackageRead, ArtifactStoreError>;
+  readonly findBindingByExternalRef: (
+    engine: EngineId,
+    ref: ExternalRef
+  ) => Effect.Effect<Option.Option<TaskId>, ArtifactStoreError>;
 }
 
 export const ArtifactStore = Context.GenericTag<ArtifactStore>(

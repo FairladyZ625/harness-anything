@@ -17,12 +17,16 @@ export type BindingInvariantResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: BindingInvariantError };
 
+export const immutableBindingFields = ["engine", "ref", "bindingCreatedAt", "bindingFingerprint"] as const;
+
+export type ImmutableBindingField = (typeof immutableBindingFields)[number];
+
 export function validateLifecycleBindingInvariant(
   taskId: TaskId,
   previous: LifecycleBinding,
   next: LifecycleBinding
 ): BindingInvariantResult {
-  for (const field of ["engine", "ref", "bindingCreatedAt", "bindingFingerprint"] as const) {
+  for (const field of immutableBindingFields) {
     if (previous[field] !== next[field]) {
       return {
         ok: false,

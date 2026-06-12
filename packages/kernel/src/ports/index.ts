@@ -1,5 +1,21 @@
-export * from "./artifact-store.ts";
-export * from "./binding-index.ts";
-export * from "./lifecycle-engine.ts";
-export * from "./template-library.ts";
-export * from "./write-coordinator.ts";
+// Curated port surface. artifact-store-writer.ts is deliberately absent:
+// the write seam is flusher-only and must not be reachable from here.
+export { ArtifactStore } from "./artifact-store.ts";
+export type { ArtifactDocument, TaskPackageRead } from "./artifact-store.ts";
+
+export { LifecycleEngine } from "./lifecycle-engine.ts";
+export type { TaskEngineRef, TaskListFilter, EngineCapabilities, NoteRef } from "./lifecycle-engine.ts";
+
+export { TemplateLibrary } from "./template-library.ts";
+export type { Locale, TemplateRef, TemplateDocument } from "./template-library.ts";
+
+export { WriteCoordinator } from "./write-coordinator.ts";
+export type {
+  WriteOp,
+  WriteOpKind,
+  LocalTransitionWriteOp,
+  WriteAck,
+  FlushReason,
+  FlushReport,
+  RecoveryReport
+} from "./write-coordinator.ts";

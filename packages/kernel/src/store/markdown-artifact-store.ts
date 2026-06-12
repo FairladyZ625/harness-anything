@@ -1,14 +1,17 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type {
   ArtifactDocument,
   ArtifactStore,
-  ArtifactWriteReceipt,
-  DocumentWrite,
   TaskPackageRead
 } from "../ports/artifact-store.ts";
-import type { ArtifactStoreError, TaskId } from "../domain/index.ts";
+import type {
+  ArtifactStoreWriter,
+  ArtifactWriteReceipt,
+  DocumentWrite
+} from "../ports/artifact-store-writer.ts";
+import type { ArtifactStoreError, EngineId, ExternalRef, TaskId } from "../domain/index.ts";
 import { sha256Text } from "./hash.ts";
 
 export interface MarkdownArtifactStoreOptions {
@@ -27,6 +30,21 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
         cause
       })
     }),
+    findBindingByExternalRef: (engine, ref) => Effect.try({
+      try: () => findBindingByExternalRef(rootDir, engine, ref),
+      catch: (cause): ArtifactStoreError => ({
+        _tag: "ArtifactReadFailed",
+        path: path.join(rootDir, "tasks"),
+        cause
+      })
+    })
+  };
+}
+
+export function makeMarkdownArtifactStoreWriter(options: MarkdownArtifactStoreOptions): ArtifactStoreWriter {
+  const rootDir = path.resolve(options.rootDir);
+
+  return {
     writeDocument: (write) => Effect.try({
       try: () => writeDocument(rootDir, write),
       catch: (cause): ArtifactStoreError => ({
@@ -44,6 +62,29 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
       })
     })
   };
+}
+
+export function findBindingByExternalRef(
+  rootDir: string,
+  engine: EngineId,
+  ref: ExternalRef
+): Option.Option<TaskId> {
+  const tasksDir = path.join(rootDir, "tasks");
+  if (!existsSync(tasksDir)) return Option.none();
+  for (const taskId of readdirSync(tasksDir).sort()) {
+    const indexPath = path.join(tasksDir, taskId, "INDEX.md");
+    if (!existsSync(indexPath)) continue;
+    const frontmatter = readFileSync(indexPath, "utf8").match(/^---\n([\s\S]*?)\n---/u)?.[1] ?? "";
+    if (readScalar(frontmatter, "  engine") === engine && readScalar(frontmatter, "  ref") === ref) {
+      return Option.some(taskId);
+    }
+  }
+  return Option.none();
+}
+
+function readScalar(frontmatter: string, key: string): string {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return frontmatter.match(new RegExp(`^${escaped}:\\s*(.*)$`, "mu"))?.[1]?.trim() ?? "";
 }
 
 export function writeDocument(rootDir: string, write: DocumentWrite): ArtifactWriteReceipt {

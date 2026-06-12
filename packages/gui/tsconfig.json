@@ -10,13 +10,17 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "rootDir": "./src",
+    "outDir": "./dist"
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx"
   ],
   "references": [
-    { "path": "../application" }
+    {
+      "path": "../application"
+    }
   ]
 }

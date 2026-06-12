@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
 import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
-import type { BindingIndex, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
+import type { ArtifactStore, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
+
+export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
 import type { TaskSnapshot } from "../../../kernel/src/schemas/registry.ts";
 
 export interface MulticaRawIssue {
@@ -28,7 +30,7 @@ export interface MulticaLifecycleOptions {
 export interface MulticaAdoptionOptions extends MulticaLifecycleOptions {
   readonly rootDir: string;
   readonly coordinator: WriteCoordinator;
-  readonly bindingIndex?: BindingIndex;
+  readonly bindingIndex?: BindingLookup;
 }
 
 export interface AdoptMulticaTaskInput {
@@ -243,7 +245,7 @@ function mapStatus(rawStatus: string): { readonly canonicalStatus: TaskSnapshot[
   return { canonicalStatus: "unknown", warning: "status_unmapped" };
 }
 
-function makeMarkdownBindingIndex(rootDir: string): BindingIndex {
+function makeMarkdownBindingIndex(rootDir: string): BindingLookup {
   return {
     findBindingByExternalRef: (engine, ref) => Effect.sync(() => {
       const tasksDir = path.join(rootDir, "tasks");

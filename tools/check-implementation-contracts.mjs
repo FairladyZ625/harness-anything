@@ -60,7 +60,11 @@ async function walk(dir) {
     if (entry.isDirectory()) {
       if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
       files.push(...await walk(full));
-    } else if (sourceFile.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+    } else if (entry.name.endsWith(".d.ts")) {
+      if (/\/src\//.test(relative(full))) {
+        record(`${relative(full)}: declaration artifacts must be emitted to dist/ by tsc -b, never live in src/`);
+      }
+    } else if (sourceFile.test(entry.name)) {
       files.push(full);
     }
   }
@@ -116,7 +120,9 @@ for (const tsconfigPath of workspaceTsconfigs) {
     target: "ES2024",
     strict: true,
     allowImportingTsExtensions: true,
-    erasableSyntaxOnly: true
+    erasableSyntaxOnly: true,
+    rootDir: "./src",
+    outDir: "./dist"
   };
   for (const [key, expected] of Object.entries(requiredOptions)) {
     if (options[key] !== expected) record(`${tsconfigPath} compilerOptions.${key} must be ${JSON.stringify(expected)}`);
@@ -402,6 +408,10 @@ for (const file of files) {
 
   if (!rel.startsWith("packages/cli/src/") && !rel.startsWith("packages/application/src/") && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
     record(`${rel}: Effect.runPromise* is only allowed at controller composition roots`);
+  }
+
+  if (!rel.startsWith("packages/kernel/src/store/") && !isTestOrFixture && /\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
+    record(`${rel}: authored writes must go through WriteCoordinator.enqueue; the ArtifactStoreWriter seam is flusher-only inside kernel/src/store/`);
   }
 
   if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
