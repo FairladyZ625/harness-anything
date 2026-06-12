@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,7 +11,7 @@ import { docWrite, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 const execFileAsync = promisify(execFile);
 
-test("WriteCoordinator rejects unsupported non-document writes before lifecycle exists", () => {
+test("WriteCoordinator rejects semantic writes without document payload", () => {
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
 
@@ -24,8 +24,83 @@ test("WriteCoordinator rejects unsupported non-document writes before lifecycle 
 
     assert.throws(
       () => Effect.runSync(coordinator.flush("explicit")),
-      /unsupported write op kind/
+      /requires path and body payload/
     );
+  });
+});
+
+test("WriteCoordinator validates supersede batch before writing any document", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+
+    Effect.runSync(coordinator.enqueue({
+      opId: "op-supersede-batch-invalid",
+      taskId: "task-old",
+      kind: "package_supersede",
+      payload: {
+        writes: [
+          { taskId: "task-old", path: "INDEX.md", body: "old archived", packageSlug: "old" },
+          { taskId: "task-new", path: "/absolute.md", body: "new", packageSlug: "new" }
+        ]
+      }
+    }));
+
+    assert.throws(
+      () => Effect.runSync(coordinator.flush("explicit")),
+      /absolute paths are not allowed/
+    );
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-old-old/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/absolute.md")), false);
+  });
+});
+
+test("WriteCoordinator rejects hard delete before journaling when policy payload or disposition is invalid", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+
+    assert.throws(
+      () => Effect.runSync(coordinator.enqueue({
+        opId: "op-hard-delete-missing-reason",
+        taskId: "task-hard",
+        kind: "package_delete_hard",
+        payload: { reason: "" }
+      })),
+      /hard delete requires reason payload/
+    );
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
+
+    mkdirSync(path.join(rootDir, "harness/planning/tasks/task-hard"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/planning/tasks/task-hard/INDEX.md"), [
+      "---",
+      "schema: task-package/v2",
+      "task_id: task-hard",
+      "title: Hard Delete",
+      "lifecycle:",
+      "  bindingSchema: lifecycle-binding/v1",
+      "  engine: local",
+      "  status: planned",
+      "  ref: ",
+      "  titleSnapshot: Hard Delete",
+      "  url: ",
+      "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
+      "  bindingFingerprint: sha256:fixture",
+      "packageDisposition: typo",
+      "vertical: default",
+      "preset: default",
+      "---",
+      ""
+    ].join("\n"), "utf8");
+
+    assert.throws(
+      () => Effect.runSync(coordinator.enqueue({
+        opId: "op-hard-delete-invalid-disposition",
+        taskId: "task-hard",
+        kind: "package_delete_hard",
+        payload: { reason: "mistaken local package" }
+      })),
+      /invalid package disposition/
+    );
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-hard/INDEX.md")), true);
   });
 });
 

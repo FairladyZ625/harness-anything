@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import type { CloseoutReadiness, DomainStatus, PackageDisposition } from "../domain/index.ts";
-import { isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
+import { findEntityRefs, isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
@@ -440,12 +440,12 @@ function findDanglingEntityRefs(rootDir: string, entries: ReadonlyArray<TaskSour
   const files = listTextFiles(resolveHarnessLayout(rootDir).authoredRoot);
   for (const filePath of files) {
     const body = readFileSync(filePath, "utf8");
-    for (const match of body.matchAll(/\btask\/([A-Za-z0-9_-]+)\b/gu)) {
-      const ref = match[1] ?? "";
-      if (ref.length > 0 && !knownTaskIds.has(ref)) {
+    for (const ref of findEntityRefs(body)) {
+      if (ref.externalHarness) continue;
+      if (ref.id.length > 0 && !knownTaskIds.has(ref.id)) {
         warnings.push(hardFail(
           "dangling_entity_ref",
-          `Dangling task reference task/${ref} in ${sourcePath(rootDir, filePath)}.`,
+          `Dangling task reference task/${ref.id} in ${sourcePath(rootDir, filePath)}.`,
           "Update the reference to an existing task package or remove the stale relation."
         ));
         return warnings;
@@ -462,7 +462,11 @@ function findRelationCycles(entries: ReadonlyArray<TaskSourceEntry>): ReadonlyAr
     const packageBody = listTextFiles(path.dirname(entry.indexPath))
       .map((filePath) => readFileSync(filePath, "utf8"))
       .join("\n");
-    const targets = [...packageBody.matchAll(/target:\s*task\/([A-Za-z0-9_-]+)/gu)].map((match) => match[1] ?? "").filter(Boolean);
+    const targets = [...packageBody.matchAll(/target:\s*((?:[A-Za-z][A-Za-z0-9_-]*:)?task\/[A-Za-z0-9_-]+)/gu)]
+      .flatMap((match) => {
+        const ref = findEntityRefs(match[1] ?? "")[0];
+        return ref && !ref.externalHarness ? [ref.id] : [];
+      });
     graph.set(taskId, targets);
   }
 

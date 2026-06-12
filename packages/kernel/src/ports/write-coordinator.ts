@@ -6,7 +6,11 @@ export type WriteOpKind =
   | "transition_local"
   | "progress_append"
   | "doc_write"
-  | "package_archive";
+  | "package_archive"
+  | "package_tombstone"
+  | "package_reopen"
+  | "package_supersede"
+  | "package_delete_hard";
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 

@@ -34,12 +34,21 @@ export interface CliResult {
   readonly path?: string;
   readonly packagePath?: string;
   readonly projectionPath?: string;
+  readonly mode?: "soft" | "hard";
   readonly tasks?: ReadonlyArray<unknown>;
   readonly templates?: ReadonlyArray<unknown>;
   readonly document?: unknown;
   readonly issues?: ReadonlyArray<unknown>;
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
+  readonly summary?: {
+    readonly taskCount: number;
+    readonly warningCount: number;
+    readonly hardFailCount: number;
+    readonly byPackageDisposition: Record<string, number>;
+    readonly byCoordinationStatus: Record<string, number>;
+  };
+  readonly commands?: ReadonlyArray<CommandRegistryEntry>;
   readonly launchPlan?: {
     readonly packageName: "@harness-anything/gui";
     readonly mode: "local-desktop-controller";
@@ -55,6 +64,28 @@ export interface CliResult {
   };
 }
 
+export interface CommandRegistryEntry {
+  readonly kind: string;
+  readonly primary: string;
+  readonly resultEnvelope: "CliResult/v1";
+}
+
+const commandRegistry = [
+  { kind: "init", primary: "harness init", resultEnvelope: "CliResult/v1" },
+  { kind: "new-task", primary: "harness new-task --title <title> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "status-set", primary: "harness task status set <id> <status>", resultEnvelope: "CliResult/v1" },
+  { kind: "progress-append", primary: "harness task progress append <id> --text <text>", resultEnvelope: "CliResult/v1" },
+  { kind: "task-archive", primary: "harness task archive <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
+  { kind: "task-supersede", primary: "harness task supersede <old-id> --title <title> [--slug <slug>]", resultEnvelope: "CliResult/v1" },
+  { kind: "task-delete", primary: "harness task delete (--soft|--hard) <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
+  { kind: "task-reopen", primary: "harness task reopen <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
+  { kind: "task-list", primary: "harness task list [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "status", primary: "harness status --json", resultEnvelope: "CliResult/v1" },
+  { kind: "check", primary: "harness check [--post-merge] [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "governance-rebuild", primary: "harness governance rebuild [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "gui", primary: "harness gui", resultEnvelope: "CliResult/v1" }
+] as const satisfies ReadonlyArray<CommandRegistryEntry>;
+
 interface ParsedCommand {
   readonly rootDir: string;
   readonly json: boolean;
@@ -63,6 +94,10 @@ interface ParsedCommand {
     | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean }
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
+    | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string }
+    | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title: string; readonly slug: string; readonly reason: string }
+    | { readonly kind: "task-delete"; readonly taskId: string; readonly mode: "soft" | "hard"; readonly reason: string }
+    | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-list" }
     | { readonly kind: "status" }
     | { readonly kind: "check"; readonly postMerge: boolean }
@@ -160,6 +195,64 @@ function runCommand(
     })));
   }
 
+  if (command.action.kind === "task-archive") {
+    return engine.archiveTask({
+      taskId: command.action.taskId,
+      reason: command.action.reason
+    }).pipe(Effect.map((result): CliResult => ({
+      ok: true,
+      command: "task-archive",
+      taskId: result.taskId,
+      status: result.status,
+      path: "INDEX.md"
+    })));
+  }
+
+  if (command.action.kind === "task-supersede") {
+    const action = command.action;
+    const newTaskId = generateTaskId();
+    return engine.supersedeTask({
+      oldTaskId: action.oldTaskId,
+      newTaskId,
+      title: action.title,
+      slug: action.slug,
+      reason: action.reason
+    }).pipe(Effect.map((result): CliResult => ({
+      ok: true,
+      command: "task-supersede",
+      taskId: result.oldTaskId,
+      path: `task/${result.newTaskId}`,
+      packagePath: path.relative(command.rootDir, createTaskPackagePath(command.rootDir, result.newTaskId, action.slug)).split(path.sep).join("/")
+    })));
+  }
+
+  if (command.action.kind === "task-delete") {
+    return engine.deleteTask({
+      taskId: command.action.taskId,
+      mode: command.action.mode,
+      reason: command.action.reason
+    }).pipe(Effect.map((result): CliResult => ({
+      ok: true,
+      command: "task-delete",
+      taskId: result.taskId,
+      mode: result.mode,
+      path: result.mode
+    })));
+  }
+
+  if (command.action.kind === "task-reopen") {
+    return engine.reopenTask({
+      taskId: command.action.taskId,
+      reason: command.action.reason
+    }).pipe(Effect.map((result): CliResult => ({
+      ok: true,
+      command: "task-reopen",
+      taskId: result.taskId,
+      status: result.status,
+      path: "INDEX.md"
+    })));
+  }
+
   if (command.action.kind === "task-list") {
     return Effect.sync(() => {
       const result = readTaskProjection({ rootDir: command.rootDir });
@@ -180,6 +273,8 @@ function runCommand(
         command: "status",
         rows: result.rows.length,
         warnings: result.warnings,
+        summary: summarizeStatus(result.rows, result.warnings),
+        commands: commandRegistry,
         projectionPath: path.relative(command.rootDir, result.projectionPath).split(path.sep).join("/"),
         error: result.ok ? undefined : {
           code: "status_check_failed",
@@ -324,6 +419,29 @@ function initializeHarness(rootDir: string): CliResult {
   };
 }
 
+function summarizeStatus(
+  rows: ReadonlyArray<{ readonly packageDisposition: string; readonly coordinationStatus: string }>,
+  warnings: ReadonlyArray<unknown>
+): NonNullable<CliResult["summary"]> {
+  const hardFailCount = warnings.filter((warning) => {
+    const record = warning as { readonly severity?: unknown };
+    return typeof warning === "object" && warning !== null && record.severity === "hard-fail";
+  }).length;
+  return {
+    taskCount: rows.length,
+    warningCount: warnings.length,
+    hardFailCount,
+    byPackageDisposition: countBy(rows.map((row) => row.packageDisposition)),
+    byCoordinationStatus: countBy(rows.map((row) => row.coordinationStatus))
+  };
+}
+
+function countBy(values: ReadonlyArray<string>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+  return counts;
+}
+
 function writeIfMissing(filePath: string, body: string): void {
   if (existsSync(filePath)) return;
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -418,6 +536,96 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
           kind: "progress-append",
           taskId: args[3],
           text
+        }
+      }
+    };
+  }
+
+  if (args[0] === "task" && args[1] === "archive" && args[2]) {
+    const reason = readOption(args, "--reason");
+    if (!reason) {
+      return { ok: false, error: { code: "missing_reason", hint: "Use --reason for task archive." } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "task-archive",
+          taskId: args[2],
+          reason
+        }
+      }
+    };
+  }
+
+  if (args[0] === "task" && args[1] === "supersede" && args[2]) {
+    const title = readOption(args, "--title");
+    if (!title) {
+      return { ok: false, error: { code: "missing_title", hint: "Use --title for task supersede." } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "task-supersede",
+          oldTaskId: args[2],
+          title,
+          slug: readOption(args, "--slug") ?? slugifyTaskTitle(title),
+          reason: readOption(args, "--reason") ?? "superseded"
+        }
+      }
+    };
+  }
+
+  if (args[0] === "task" && args[1] === "delete") {
+    if (args.includes("--hard") && args.includes("--soft")) {
+      return { ok: false, error: { code: "conflicting_delete_mode", hint: "Use exactly one of --soft or --hard for task delete." } };
+    }
+    const mode = args.includes("--hard") ? "hard" : args.includes("--soft") ? "soft" : null;
+    const taskId = args.find((arg, index) => index > 1 && !arg.startsWith("--") && args[index - 1] !== "--reason");
+    if (!mode) {
+      return { ok: false, error: { code: "missing_delete_mode", hint: "Use --soft or --hard for task delete." } };
+    }
+    if (!taskId) {
+      return { ok: false, error: { code: "missing_task_id", hint: "Provide a task id for task delete." } };
+    }
+    const reason = readOption(args, "--reason");
+    if (!reason) {
+      return { ok: false, error: { code: "missing_reason", hint: "Use --reason for task delete." } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "task-delete",
+          taskId,
+          mode,
+          reason
+        }
+      }
+    };
+  }
+
+  if (args[0] === "task" && args[1] === "reopen" && args[2]) {
+    const reason = readOption(args, "--reason");
+    if (!reason) {
+      return { ok: false, error: { code: "missing_reason", hint: "Use --reason for task reopen." } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "task-reopen",
+          taskId: args[2],
+          reason
         }
       }
     };
@@ -564,7 +772,7 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     ok: false,
     error: {
       code: "unknown_command",
-      hint: "Supported commands: init, new-task, task status set, task progress append, task list, status, check, governance rebuild, gui, template list, template render, preset validate, vertical validate."
+      hint: `Supported commands: ${commandRegistry.map((entry) => entry.primary).join("; ")}, template list, template render, preset validate, vertical validate.`
     }
   };
 }
@@ -575,6 +783,7 @@ function readOption(argv: ReadonlyArray<string>, name: string): string | undefin
 }
 
 function actionTaskId(action: ParsedCommand["action"]): string | undefined {
+  if ("oldTaskId" in action) return action.oldTaskId;
   return "taskId" in action ? action.taskId : undefined;
 }
 
@@ -734,6 +943,30 @@ function toCliError(error: EngineError | WriteError): CliResult["error"] {
     return {
       code: raw.includes("invalid transition") ? "invalid_transition" : raw.includes("task not found") ? "task_not_found" : "malformed_snapshot",
       hint: raw
+    };
+  }
+  if (error._tag === "TerminalReopenRequiresSupersede") {
+    return {
+      code: "terminal_reopen_requires_supersede",
+      hint: `Task ${error.taskId} is ${error.status}; create follow-up work with harness task supersede.`
+    };
+  }
+  if (error._tag === "ArchivedHardDeleteForbidden") {
+    return {
+      code: "archived_hard_delete_forbidden",
+      hint: `Task ${error.taskId} is archived; keep audit history or use soft delete.`
+    };
+  }
+  if (error._tag === "TerminalHardDeleteForbidden") {
+    return {
+      code: "terminal_hard_delete_forbidden",
+      hint: `Task ${error.taskId} is ${error.status}; terminal work cannot be hard deleted.`
+    };
+  }
+  if (error._tag === "RelatedTaskHardDeleteForbidden") {
+    return {
+      code: "related_task_hard_delete_forbidden",
+      hint: `Task ${error.taskId} has task relations; remove or supersede relations before hard delete.`
     };
   }
   if (error._tag === "WriteConflict") {

@@ -22,6 +22,9 @@ export type { CloseoutReadiness } from "./closeout-readiness.ts";
 export { packageDispositions, isPackageDisposition } from "./package-disposition.ts";
 export type { PackageDisposition } from "./package-disposition.ts";
 
+export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
+export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
+
 export type {
   EngineError,
   BindingInvariantError,

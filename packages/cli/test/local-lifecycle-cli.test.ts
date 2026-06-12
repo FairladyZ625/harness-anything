@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -133,6 +133,118 @@ test("CLI appends progress through the write journal", () => {
   });
 });
 
+test("CLI task archive writes disposition through semantic journal kind", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const result = runJson(rootDir, ["task", "archive", taskId, "--reason", "superseded by newer plan"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "task-archive");
+    const indexBody = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8");
+    assert.match(indexBody, /packageDisposition: archived/);
+    assert.match(indexBody, /superseded by newer plan/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"kind":"package_archive"/);
+  });
+});
+
+test("CLI task supersede archives old task and creates relation to new task", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Original Task"]);
+    const oldTaskId = assertGeneratedTaskId(created.taskId);
+    const result = runJson(rootDir, ["task", "supersede", oldTaskId, "--title", "Replacement Task", "--reason", "scope changed"]);
+    const newTaskRef = String(result.path);
+    const newTaskId = assertGeneratedTaskId(newTaskRef.replace("task/", ""));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "task-supersede");
+    assert.equal(result.taskId, oldTaskId);
+    assert.equal(result.packagePath, `harness/planning/tasks/${newTaskId}-replacement-task`);
+    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${oldTaskId}-original-task/INDEX.md`), "utf8"), /packageDisposition: archived/);
+    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${newTaskId}-replacement-task/relations.md`), "utf8"), new RegExp(`type: supersedes[\\s\\S]*task/${oldTaskId}`));
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"kind":"package_supersede"/);
+  });
+});
+
+test("CLI task delete soft tombstones and hard delete rejects archived terminal or related tasks", () => {
+  withTempRoot((rootDir) => {
+    const hard = runJson(rootDir, ["new-task", "--title", "Hard Delete"]);
+    const hardTaskId = assertGeneratedTaskId(hard.taskId);
+    const hardPackagePath = path.join(rootDir, `harness/planning/tasks/${hardTaskId}-hard-delete`);
+    assert.equal(existsSync(hardPackagePath), true);
+    const hardResult = runJson(rootDir, ["task", "delete", "--hard", hardTaskId, "--reason", "mistaken local package"]);
+    assert.equal(hardResult.ok, true);
+    assert.equal(hardResult.mode, "hard");
+    assert.equal(existsSync(hardPackagePath), false);
+    const journalBody = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
+    assert.match(journalBody, /"kind":"package_delete_hard"/);
+    assert.match(journalBody, /"schema":"delete-audit\/v1"/);
+    assert.match(journalBody, /"kind":"package_delete_hard_applied"/);
+    const hardDeletePayloads = readdirSync(path.join(rootDir, ".harness/write-journal/payloads"))
+      .map((entry) => readFileSync(path.join(rootDir, ".harness/write-journal/payloads", entry), "utf8"));
+    assert.equal(hardDeletePayloads.some((body) => body.includes("mistaken local package")), true);
+
+    const soft = runJson(rootDir, ["new-task", "--title", "Soft Delete"]);
+    const softTaskId = assertGeneratedTaskId(soft.taskId);
+    const softResult = runJson(rootDir, ["task", "delete", "--soft", softTaskId, "--reason", "not needed"]);
+    assert.equal(softResult.ok, true);
+    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${softTaskId}-soft-delete/INDEX.md`), "utf8"), /packageDisposition: tombstoned/);
+
+    const archived = runJson(rootDir, ["new-task", "--title", "Archived Delete"]);
+    const archivedTaskId = assertGeneratedTaskId(archived.taskId);
+    runJson(rootDir, ["task", "archive", archivedTaskId, "--reason", "keep audit"]);
+    const archivedFailure = runJson(rootDir, ["task", "delete", "--hard", archivedTaskId, "--reason", "remove"], false);
+    assert.equal(archivedFailure.ok, false);
+    assert.equal(archivedFailure.error?.code, "archived_hard_delete_forbidden");
+
+    const terminal = runJson(rootDir, ["new-task", "--title", "Done Delete"]);
+    const terminalTaskId = assertGeneratedTaskId(terminal.taskId);
+    runJson(rootDir, ["task", "status", "set", terminalTaskId, "active"]);
+    runJson(rootDir, ["task", "status", "set", terminalTaskId, "done"]);
+    const terminalFailure = runJson(rootDir, ["task", "delete", "--hard", terminalTaskId, "--reason", "remove"], false);
+    assert.equal(terminalFailure.ok, false);
+    assert.equal(terminalFailure.error?.code, "terminal_hard_delete_forbidden");
+
+    const related = runJson(rootDir, ["new-task", "--title", "Related Delete"]);
+    const relatedTaskId = assertGeneratedTaskId(related.taskId);
+    writeFileSync(path.join(rootDir, `harness/planning/tasks/${relatedTaskId}-related-delete/relations.md`), `target: task/${softTaskId}\n`, "utf8");
+    const relatedFailure = runJson(rootDir, ["task", "delete", "--hard", relatedTaskId, "--reason", "remove"], false);
+    assert.equal(relatedFailure.ok, false);
+    assert.equal(relatedFailure.error?.code, "related_task_hard_delete_forbidden");
+  });
+});
+
+test("CLI task delete rejects conflicting delete modes", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Mode Conflict"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const failure = runJson(rootDir, ["task", "delete", "--soft", "--hard", taskId, "--reason", "ambiguous"], false);
+
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "conflicting_delete_mode");
+    assert.equal(existsSync(path.join(rootDir, `harness/planning/tasks/${taskId}-mode-conflict/INDEX.md`)), true);
+  });
+});
+
+test("CLI task reopen restores only non-terminal package disposition", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Reopenable"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    runJson(rootDir, ["task", "archive", taskId, "--reason", "paused"]);
+
+    const reopened = runJson(rootDir, ["task", "reopen", taskId, "--reason", "resume"]);
+
+    assert.equal(reopened.ok, true);
+    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-reopenable/INDEX.md`), "utf8"), /packageDisposition: active/);
+
+    runJson(rootDir, ["task", "status", "set", taskId, "active"]);
+    runJson(rootDir, ["task", "status", "set", taskId, "done"]);
+    const failure = runJson(rootDir, ["task", "reopen", taskId, "--reason", "more work"], false);
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "terminal_reopen_requires_supersede");
+  });
+});
+
 test("CLI task list reads from rebuildable SQLite projection", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
@@ -152,7 +264,9 @@ test("CLI task list reads from rebuildable SQLite projection", () => {
 
 test("CLI status --json returns local projection health envelope", () => {
   withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    runJson(rootDir, ["task", "archive", taskId, "--reason", "done elsewhere"]);
 
     const result = runJson(rootDir, ["status"]);
 
@@ -160,6 +274,11 @@ test("CLI status --json returns local projection health envelope", () => {
     assert.equal(result.command, "status");
     assert.equal(result.rows, 1);
     assert.equal(result.projectionPath, ".harness/cache/projections.sqlite");
+    assert.equal(result.summary.taskCount, 1);
+    assert.equal(result.summary.byPackageDisposition.archived, 1);
+    assert.equal(result.summary.warningCount, 1);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "projection_stale" || warning.code === "projection_missing"), true);
+    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "task-supersede" && entry.resultEnvelope === "CliResult/v1"), true);
   });
 });
 
@@ -307,6 +426,18 @@ test("CLI check --post-merge does not mistake Markdown setext headings for confl
   });
 });
 
+test("CLI check --post-merge stores prefixed external EntityRefs without resolving them", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-a", "A", "planned");
+    writeFileSync(path.join(rootDir, "harness/planning/tasks/task-a/relations.md"), "external relation other-harness:task/missing-remote\n", "utf8");
+
+    const result = runJson(rootDir, ["check", "--post-merge"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "dangling_entity_ref"), false);
+  });
+});
+
 test("CLI gui command delegates to the local desktop controller without importing GUI", () => {
   const result = runJson(process.cwd(), ["gui"], true, { HARNESS_GUI_DRY_RUN: "1" });
 
@@ -334,6 +465,7 @@ function writeIndex(
     readonly engine?: string;
     readonly ref?: string;
     readonly bindingFingerprint?: string;
+    readonly packageDisposition?: string;
   } = {}
 ): void {
   const taskId = options.taskId ?? directoryName;
@@ -358,7 +490,7 @@ function writeIndex(
     "  url: ",
     `  bindingCreatedAt: ${bindingCreatedAt}`,
     `  bindingFingerprint: ${bindingFingerprint}`,
-    "packageDisposition: active",
+    `packageDisposition: ${options.packageDisposition ?? "active"}`,
     "vertical: default",
     "preset: default",
     "---",

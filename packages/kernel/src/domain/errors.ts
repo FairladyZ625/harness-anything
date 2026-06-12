@@ -9,6 +9,10 @@ export type EngineError =
   | { readonly _tag: "MalformedSnapshot"; readonly raw: unknown }
   | { readonly _tag: "StatusUnmapped"; readonly rawStatus: string }
   | { readonly _tag: "EngineOwnsStatus"; readonly engine: EngineId; readonly ref: ExternalRef }
+  | { readonly _tag: "TerminalReopenRequiresSupersede"; readonly taskId: TaskId; readonly status: string }
+  | { readonly _tag: "ArchivedHardDeleteForbidden"; readonly taskId: TaskId }
+  | { readonly _tag: "TerminalHardDeleteForbidden"; readonly taskId: TaskId; readonly status: string }
+  | { readonly _tag: "RelatedTaskHardDeleteForbidden"; readonly taskId: TaskId }
   | { readonly _tag: "RateLimited"; readonly engine: EngineId; readonly retryAfterMs?: number }
   | { readonly _tag: "EngineUnreachable"; readonly engine: EngineId; readonly cause?: unknown }
   | { readonly _tag: "Timeout"; readonly ms: number };
