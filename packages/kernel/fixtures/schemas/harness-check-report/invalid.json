@@ -1,0 +1,39 @@
+{
+  "schema": "harness-check-report/v1",
+  "ok": true,
+  "axes": [
+    {
+      "axis": "source-package",
+      "ok": true,
+      "warningCount": 0,
+      "hardFailCount": 0,
+      "codes": []
+    },
+    {
+      "axis": "generated-cache",
+      "ok": true,
+      "warningCount": 0,
+      "hardFailCount": 0,
+      "codes": []
+    },
+    {
+      "axis": "collaboration-gate",
+      "ok": true,
+      "warningCount": 0,
+      "hardFailCount": 0,
+      "codes": []
+    },
+    {
+      "axis": "source-package",
+      "ok": true,
+      "warningCount": 0,
+      "hardFailCount": 0,
+      "codes": []
+    }
+  ],
+  "summary": {
+    "rowCount": 0,
+    "warningCount": 0,
+    "hardFailCount": 0
+  }
+}

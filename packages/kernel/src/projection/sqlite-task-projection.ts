@@ -11,6 +11,8 @@ export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
 export type ProjectionCanonicalStatus = DomainStatus | "unknown";
 export type CoordinationStatus = "open" | "blocked" | "in_review" | "terminal" | "unknown";
+export type ProjectionWarningSource = "source-package" | "generated-cache" | "collaboration-gate";
+export type ProjectionWarningSeverity = "warning" | "hard-fail";
 export type ProjectionWarningCode =
   | "projection_missing"
   | "projection_stale"
@@ -42,9 +44,29 @@ export interface TaskProjectionRow {
 
 export interface ProjectionWarning {
   readonly code: ProjectionWarningCode;
+  readonly source: ProjectionWarningSource;
+  readonly severity: ProjectionWarningSeverity;
   readonly message: string;
-  readonly severity?: "warning" | "hard-fail";
   readonly repairHint?: string;
+}
+
+export interface ProjectionCheckAxisReport {
+  readonly axis: ProjectionWarningSource;
+  readonly ok: boolean;
+  readonly warningCount: number;
+  readonly hardFailCount: number;
+  readonly codes: ReadonlyArray<ProjectionWarningCode>;
+}
+
+export interface ProjectionCheckReport {
+  readonly schema: "harness-check-report/v1";
+  readonly ok: boolean;
+  readonly axes: readonly [ProjectionCheckAxisReport, ProjectionCheckAxisReport, ProjectionCheckAxisReport];
+  readonly summary: {
+    readonly rowCount: number;
+    readonly warningCount: number;
+    readonly hardFailCount: number;
+  };
 }
 
 export interface ProjectionReadResult {
@@ -55,6 +77,7 @@ export interface ProjectionReadResult {
 export interface ProjectionCheckResult extends ProjectionReadResult {
   readonly ok: boolean;
   readonly projectionPath: string;
+  readonly report: ProjectionCheckReport;
 }
 
 export interface TaskProjectionOptions {
@@ -79,7 +102,7 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : defaultTaskProjectionPath(rootDir);
   const source = readMarkdownSource(rootDir);
   const rows = source.entries.map((entry) => taskEntryToRow(rootDir, entry)).sort(compareRows);
-  const rowsHash = hashRows(rows);
+  const rowsHash = hashExactRows(rows);
   writeProjectionDatabase(projectionPath, rows, {
     sourceHash: source.hash,
     rowsHash
@@ -97,27 +120,47 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
   const warnings = [...source.warnings];
 
   if (!existsSync(projectionPath)) {
-    warnings.push({ code: "projection_missing", message: "Projection cache was missing and has been rebuilt." });
+    warnings.push(warning(
+      "generated-cache",
+      "projection_missing",
+      "Projection cache was missing and has been rebuilt.",
+      "Run harness governance rebuild to materialize a fresh local projection cache before relying on generated state."
+    ));
     const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
     return { rows: rebuilt.rows, warnings };
   }
 
   const existing = tryReadProjectionDatabase(projectionPath);
   if (!existing.ok) {
-    warnings.push({ code: "projection_tampered", message: "Projection cache could not be read and has been rebuilt from markdown." });
+    warnings.push(hardFail(
+      "generated-cache",
+      "projection_tampered",
+      "Projection cache could not be read and has been rebuilt from markdown.",
+      "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
+    ));
     const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
   if (existing.meta.sourceHash !== source.hash) {
-    warnings.push({ code: "projection_stale", message: "Projection cache was stale and has been rebuilt from markdown." });
+    warnings.push(warning(
+      "generated-cache",
+      "projection_stale",
+      "Projection cache was stale and has been rebuilt from markdown.",
+      "Run harness governance rebuild after authored task changes or merges."
+    ));
     const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
-  const actualRowsHash = hashRows(existing.rows);
+  const actualRowsHash = hashExactRows(existing.rows);
   if (existing.meta.rowsHash !== actualRowsHash) {
-    warnings.push({ code: "projection_tampered", message: "Projection rows no longer match their recorded hash." });
+    warnings.push(hardFail(
+      "generated-cache",
+      "projection_tampered",
+      "Projection rows no longer match their recorded hash.",
+      "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
+    ));
     const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
@@ -134,9 +177,11 @@ export function checkTaskProjection(options: TaskProjectionOptions): ProjectionC
   const result = readTaskProjection({ rootDir, projectionPath });
   const postMergeWarnings = options.postMerge ? runPostMergeChecks(rootDir) : [];
   const warnings = [...result.warnings, ...postMergeWarnings];
+  const ok = warnings.every((item) => item.severity !== "hard-fail");
   return {
-    ok: warnings.every((warning) => warning.code !== "projection_tampered" && warning.code !== "source_malformed" && warning.severity !== "hard-fail"),
+    ok,
     projectionPath,
+    report: buildCheckReport(ok, result.rows.length, warnings),
     rows: result.rows,
     warnings
   };
@@ -229,7 +274,10 @@ function readMarkdownSource(rootDir: string): {
     } catch (error) {
       warnings.push({
         code: "source_malformed",
-        message: error instanceof Error ? error.message : `Malformed task package: ${name}`
+        source: "source-package",
+        severity: "hard-fail",
+        message: error instanceof Error ? error.message : `Malformed task package: ${name}`,
+        repairHint: "Restore valid task-package/v2 frontmatter before running projection reads or post-merge checks."
       });
     }
   }
@@ -306,8 +354,15 @@ function sourcePath(rootDir: string, filePath: string): string {
   return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 
-function hashRows(rows: ReadonlyArray<TaskProjectionRow>): string {
+function hashExactRows(rows: ReadonlyArray<TaskProjectionRow>): string {
   return hashText(JSON.stringify([...rows].sort(compareRows)));
+}
+
+export function hashTaskProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): string {
+  return hashText(JSON.stringify([...rows].sort(compareRows).map((row) => ({
+    ...row,
+    updatedAt: "<derived-from-source-mtime>"
+  }))));
 }
 
 function hashText(text: string): string {
@@ -331,9 +386,20 @@ function runPostMergeChecks(rootDir: string): ReadonlyArray<ProjectionWarning> {
   return warnings;
 }
 
-function hardFail(code: ProjectionWarningCode, message: string, repairHint: string): ProjectionWarning {
+function warning(source: ProjectionWarningSource, code: ProjectionWarningCode, message: string, repairHint: string): ProjectionWarning {
   return {
     code,
+    source,
+    severity: "warning",
+    message,
+    repairHint
+  };
+}
+
+function hardFail(source: ProjectionWarningSource, code: ProjectionWarningCode, message: string, repairHint: string): ProjectionWarning {
+  return {
+    code,
+    source,
     message,
     severity: "hard-fail",
     repairHint
@@ -349,6 +415,7 @@ function findDuplicateTaskIds(rootDir: string, entries: ReadonlyArray<TaskSource
     const previous = seen.get(taskId);
     if (previous) {
       warnings.push(hardFail(
+        "source-package",
         "duplicate_task_id",
         `Duplicate task_id ${taskId} in ${previous} and ${source}.`,
         "Regenerate one task package with a new random task_<ULID> identity; do not hand-edit IDs to merge packages."
@@ -372,6 +439,7 @@ function findDuplicateExternalBindings(entries: ReadonlyArray<TaskSourceEntry>):
     const previous = seen.get(key);
     if (previous) {
       warnings.push(hardFail(
+        "source-package",
         "duplicate_external_binding",
         `External binding ${key} is used by ${previous} and ${taskId}.`,
         "Keep exactly one package for each external engine/ref binding and relink or remove the duplicate package."
@@ -388,6 +456,7 @@ function findTrackedGeneratedFiles(rootDir: string): ReadonlyArray<ProjectionWar
     const output = execFileSync("git", ["-C", rootDir, "ls-files", "--", ".harness", ".journal", ".projection.sqlite", ".adopt-claims"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
     if (output.length === 0) return [];
     return [hardFail(
+      "collaboration-gate",
       "generated_tracked",
       "Generated local harness files are tracked by git.",
       "Remove .harness/, legacy .journal/, legacy .projection.sqlite, and legacy .adopt-claims/ files from git; rebuild generated projections locally."
@@ -409,6 +478,7 @@ function findTamperedBindings(entries: ReadonlyArray<TaskSourceEntry>): Readonly
     if (stored !== expected) {
       const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
       warnings.push(hardFail(
+        "source-package",
         "binding_tampered",
         `Lifecycle binding fingerprint mismatch for ${taskId}.`,
         "Do not mutate lifecycle identity fields in place; restore the original binding or create a fresh task/adoption package."
@@ -425,6 +495,7 @@ function findConflictMarkers(rootDir: string): ReadonlyArray<ProjectionWarning> 
     const body = readFileSync(candidate, "utf8");
     if (/^<<<<<<<[^\n]*\n[\s\S]*?^=======$[\s\S]*?^>>>>>>>[^\n]*$/mu.test(body)) {
       return [hardFail(
+        "collaboration-gate",
         "conflict_marker_present",
         `Git conflict marker found in ${sourcePath(rootDir, candidate)}.`,
         "Resolve merge conflict markers before running post-merge checks again."
@@ -444,6 +515,7 @@ function findDanglingEntityRefs(rootDir: string, entries: ReadonlyArray<TaskSour
       if (ref.externalHarness) continue;
       if (ref.id.length > 0 && !knownTaskIds.has(ref.id)) {
         warnings.push(hardFail(
+          "source-package",
           "dangling_entity_ref",
           `Dangling task reference task/${ref.id} in ${sourcePath(rootDir, filePath)}.`,
           "Update the reference to an existing task package or remove the stale relation."
@@ -494,6 +566,7 @@ function findRelationCycles(entries: ReadonlyArray<TaskSourceEntry>): ReadonlyAr
     const cycle = visit(taskId);
     if (cycle) {
       return [hardFail(
+        "source-package",
         "relation_cycle_detected",
         `Task relation cycle detected: ${cycle.join(" -> ")}.`,
         "Break the cyclic task relation before merging authored planning docs."
@@ -501,6 +574,37 @@ function findRelationCycles(entries: ReadonlyArray<TaskSourceEntry>): ReadonlyAr
     }
   }
   return [];
+}
+
+function buildCheckReport(
+  ok: boolean,
+  rowCount: number,
+  warnings: ReadonlyArray<ProjectionWarning>
+): ProjectionCheckReport {
+  const axisReport = (axis: ProjectionWarningSource): ProjectionCheckAxisReport => {
+    const axisWarnings = warnings.filter((item) => item.source === axis);
+    return {
+      axis,
+      ok: axisWarnings.every((item) => item.severity !== "hard-fail"),
+      warningCount: axisWarnings.length,
+      hardFailCount: axisWarnings.filter((item) => item.severity === "hard-fail").length,
+      codes: [...new Set(axisWarnings.map((item) => item.code))].sort()
+    };
+  };
+  return {
+    schema: "harness-check-report/v1",
+    ok,
+    axes: [
+      axisReport("source-package"),
+      axisReport("generated-cache"),
+      axisReport("collaboration-gate")
+    ],
+    summary: {
+      rowCount,
+      warningCount: warnings.length,
+      hardFailCount: warnings.filter((item) => item.severity === "hard-fail").length
+    }
+  };
 }
 
 function listTextFiles(inputPath: string): ReadonlyArray<string> {

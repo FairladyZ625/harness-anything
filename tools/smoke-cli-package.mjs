@@ -48,7 +48,33 @@ try {
     throw new Error(`unexpected CLI smoke output: ${stdout}`);
   }
 
+  const projectDir = path.join(consumerDir, "minimal-project");
+  mkdirSync(projectDir, { recursive: true });
+  const init = runJson(binPath, ["--json", "init"], projectDir);
+  if (init.ok !== true || init.path !== "harness/harness.yaml") {
+    throw new Error(`unexpected init smoke output: ${JSON.stringify(init)}`);
+  }
+
+  const created = runJson(binPath, ["--json", "new-task", "--title", "Smoke Task"], projectDir);
+  if (created.ok !== true || typeof created.taskId !== "string" || !created.taskId.startsWith("task_")) {
+    throw new Error(`unexpected new-task smoke output: ${JSON.stringify(created)}`);
+  }
+
+  const status = runJson(binPath, ["--json", "status"], projectDir);
+  if (status.ok !== true || status.report?.schema !== "harness-check-report/v1" || status.summary?.taskCount !== 1) {
+    throw new Error(`unexpected status smoke output: ${JSON.stringify(status)}`);
+  }
+
+  const check = runJson(binPath, ["--json", "check", "--post-merge"], projectDir);
+  if (check.ok !== true || check.report?.schema !== "harness-check-report/v1" || !Array.isArray(check.report?.axes)) {
+    throw new Error(`unexpected check smoke output: ${JSON.stringify(check)}`);
+  }
+
   console.log("CLI package smoke passed.");
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
+}
+
+function runJson(binPath, args, cwd) {
+  return JSON.parse(execFileSync(binPath, args, { cwd, encoding: "utf8" }));
 }

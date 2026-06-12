@@ -93,7 +93,7 @@ test("Multica adopt writes only local binding and does not write external status
     assert.match(index, /titleSnapshot: Multica FAI-1/);
     assert.equal(/^  status:/mu.test(index), false);
     assert.equal(index.includes("Done"), false);
-    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /doc_write/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
   });
 });
 

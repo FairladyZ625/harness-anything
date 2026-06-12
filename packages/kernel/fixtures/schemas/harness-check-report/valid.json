@@ -1,0 +1,32 @@
+{
+  "schema": "harness-check-report/v1",
+  "ok": false,
+  "axes": [
+    {
+      "axis": "source-package",
+      "ok": false,
+      "warningCount": 1,
+      "hardFailCount": 1,
+      "codes": ["binding_tampered"]
+    },
+    {
+      "axis": "generated-cache",
+      "ok": true,
+      "warningCount": 1,
+      "hardFailCount": 0,
+      "codes": ["projection_stale"]
+    },
+    {
+      "axis": "collaboration-gate",
+      "ok": true,
+      "warningCount": 0,
+      "hardFailCount": 0,
+      "codes": []
+    }
+  ],
+  "summary": {
+    "rowCount": 2,
+    "warningCount": 2,
+    "hardFailCount": 1
+  }
+}

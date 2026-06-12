@@ -261,6 +261,40 @@ export const SqliteTaskRowSchema = Schema.Struct({
   sourcePath: Schema.String
 });
 
+export const ProjectionWarningSourceSchema = Schema.Literal("source-package", "generated-cache", "collaboration-gate");
+export const ProjectionWarningCodeSchema = Schema.Literal(
+  "projection_missing",
+  "projection_stale",
+  "projection_tampered",
+  "source_malformed",
+  "duplicate_task_id",
+  "duplicate_external_binding",
+  "generated_tracked",
+  "binding_tampered",
+  "conflict_marker_present",
+  "dangling_entity_ref",
+  "relation_cycle_detected"
+);
+
+const HarnessCheckAxisReportSchema = Schema.Struct({
+  axis: ProjectionWarningSourceSchema,
+  ok: Schema.Boolean,
+  warningCount: Schema.Number,
+  hardFailCount: Schema.Number,
+  codes: Schema.Array(ProjectionWarningCodeSchema)
+});
+
+export const HarnessCheckReportSchema = Schema.Struct({
+  schema: Schema.Literal("harness-check-report/v1"),
+  ok: Schema.Boolean,
+  axes: Schema.Tuple(HarnessCheckAxisReportSchema, HarnessCheckAxisReportSchema, HarnessCheckAxisReportSchema),
+  summary: Schema.Struct({
+    rowCount: Schema.Number,
+    warningCount: Schema.Number,
+    hardFailCount: Schema.Number
+  })
+});
+
 export const DocsReleasePromotionBundleSchema = Schema.Struct({
   schema: Schema.Literal("docs-release-promotion-bundle/v1"),
   projectionVersion: Schema.String,
@@ -285,6 +319,7 @@ export type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 export type PresetProfile = Schema.Schema.Type<typeof PresetProfileSchema>;
 export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
 export type SqliteTaskRow = Schema.Schema.Type<typeof SqliteTaskRowSchema>;
+export type HarnessCheckReport = Schema.Schema.Type<typeof HarnessCheckReportSchema>;
 export type DocsReleasePromotionBundle = Schema.Schema.Type<typeof DocsReleasePromotionBundleSchema>;
 
 export const schemaRegistry = [
@@ -350,6 +385,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/sqlite-task-row.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/sqlite-task-row/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/sqlite-task-row/invalid.json"
+  },
+  {
+    id: "harness-check-report",
+    schema: HarnessCheckReportSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/harness-check-report.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/harness-check-report/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/harness-check-report/invalid.json"
   },
   {
     id: "docs-release-promotion-bundle",

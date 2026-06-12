@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/harness-check-report.schema.json",
+  "x-harness-schema-id": "harness-check-report",
+  "title": "Harness Check Report",
+  "type": "object",
+  "required": ["schema", "ok", "axes", "summary"],
+  "properties": {
+    "schema": { "const": "harness-check-report/v1" },
+    "ok": { "type": "boolean" },
+    "axes": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["axis", "ok", "warningCount", "hardFailCount", "codes"],
+        "properties": {
+          "axis": { "enum": ["source-package", "generated-cache", "collaboration-gate"] },
+          "ok": { "type": "boolean" },
+          "warningCount": { "type": "number" },
+          "hardFailCount": { "type": "number" },
+          "codes": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "projection_missing",
+                "projection_stale",
+                "projection_tampered",
+                "source_malformed",
+                "duplicate_task_id",
+                "duplicate_external_binding",
+                "generated_tracked",
+                "binding_tampered",
+                "conflict_marker_present",
+                "dangling_entity_ref",
+                "relation_cycle_detected"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["rowCount", "warningCount", "hardFailCount"],
+      "properties": {
+        "rowCount": { "type": "number" },
+        "warningCount": { "type": "number" },
+        "hardFailCount": { "type": "number" }
+      }
+    }
+  }
+}

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
-import { checkTaskProjection, readTaskProjection, rebuildTaskProjection } from "../../src/index.ts";
+import { checkTaskProjection, hashTaskProjectionRows, readTaskProjection, rebuildTaskProjection } from "../../src/index.ts";
 import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
@@ -42,6 +42,24 @@ test("SQLite task projection rebuild is deterministic after cache deletion", () 
   });
 });
 
+test("SQLite task projection row hash is deterministic and content-addressed", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-2", "Task Two", "done");
+    writeIndex(rootDir, "task-1", "Task One", "active");
+
+    const first = rebuildTaskProjection({ rootDir }).rows;
+    const second = [...first].reverse();
+
+    assert.equal(hashTaskProjectionRows(second), hashTaskProjectionRows(first));
+    const indexPath = path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md");
+    utimesSync(indexPath, new Date("2026-06-12T01:00:00.000Z"), new Date("2026-06-12T01:00:00.000Z"));
+    assert.equal(hashTaskProjectionRows(rebuildTaskProjection({ rootDir }).rows), hashTaskProjectionRows(first));
+
+    writeIndex(rootDir, "task-1", "Renamed Task One", "active");
+    assert.notEqual(hashTaskProjectionRows(rebuildTaskProjection({ rootDir }).rows), hashTaskProjectionRows(first));
+  });
+});
+
 test("task projection auto-rebuilds when markdown source changes", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-1", "Task One", "planned");
@@ -74,7 +92,31 @@ test("generated SQLite edits are reported and rebuilt from markdown truth", () =
     assert.equal(result.ok, false);
     assert.equal(result.rows[0]?.title, "Task One");
     assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(result.warnings.every((warning) => typeof warning.source === "string" && typeof warning.severity === "string"), true);
+    assert.equal(result.report.axes.some((axis) => axis.axis === "generated-cache" && axis.hardFailCount === 1), true);
     assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8").includes("Edited In Projection"), false);
+  });
+});
+
+test("generated SQLite timestamp edits are reported even though projection hashes ignore mtimes", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-1", "Task One", "active");
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const db = new DatabaseSync(projectionPath);
+    try {
+      const row = JSON.parse(db.prepare("SELECT row_json FROM task_projection WHERE task_id = ?").get("task-1").row_json as string) as Record<string, unknown>;
+      row.updatedAt = "1999-01-01T00:00:00.000Z";
+      db.prepare("UPDATE task_projection SET row_json = ? WHERE task_id = ?").run(JSON.stringify(row), "task-1");
+    } finally {
+      db.close();
+    }
+
+    const result = checkTaskProjection({ rootDir });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.notEqual(result.rows[0]?.updatedAt, "1999-01-01T00:00:00.000Z");
   });
 });
 

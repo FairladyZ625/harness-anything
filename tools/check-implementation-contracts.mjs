@@ -223,7 +223,9 @@ if (hasStoreImplementation) {
     ".takeover",
     "renameSync",
     "commitTouchedPaths",
-    "rebuildProjectionStub"
+    "rebuildProjectionHash",
+    "hashTaskProjectionRows",
+    "compactJournalDurably"
   ]) {
     if (!coordinatorText.includes(requiredSnippet)) {
       record(`store implementation must include ${requiredSnippet}`);

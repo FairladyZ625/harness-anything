@@ -41,6 +41,7 @@ export interface CliResult {
   readonly issues?: ReadonlyArray<unknown>;
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
+  readonly report?: unknown;
   readonly summary?: {
     readonly taskCount: number;
     readonly warningCount: number;
@@ -273,6 +274,7 @@ function runCommand(
         command: "status",
         rows: result.rows.length,
         warnings: result.warnings,
+        report: result.report,
         summary: summarizeStatus(result.rows, result.warnings),
         commands: commandRegistry,
         projectionPath: path.relative(command.rootDir, result.projectionPath).split(path.sep).join("/"),
@@ -304,6 +306,7 @@ function runCommand(
       command: command.action.kind === "check" && command.action.postMerge ? "check --post-merge" : "check",
       rows: result.rows.length,
       warnings: result.warnings,
+      report: result.report,
       error: result.ok ? undefined : {
         code: "projection_check_failed",
         hint: command.action.kind === "check" && command.action.postMerge

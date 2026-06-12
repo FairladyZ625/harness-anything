@@ -15,6 +15,7 @@ const expectedSchemaIds = [
   "preset-manifest",
   "vertical-definition",
   "sqlite-task-row",
+  "harness-check-report",
   "docs-release-promotion-bundle"
 ];
 const violations = [];

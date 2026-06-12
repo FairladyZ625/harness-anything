@@ -38,6 +38,7 @@ import {
   resolveHarnessLayout,
   taskPackagePath
 } from "../layout/index.ts";
+import { hashTaskProjectionRows, rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 
 export interface JournaledWriteCoordinatorOptions {
   readonly rootDir: string;
@@ -179,7 +180,7 @@ function flushRecords(
   }
 
   const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds);
-  const projectionHash = rebuildProjectionStub(committedOpIds);
+  const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir) : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const watermark = committedOpIds.at(-1);
 
@@ -191,6 +192,7 @@ function flushRecords(
       projectionHash,
       updatedAt: new Date().toISOString()
     });
+    tryCompactJournal(journalPath, new Set(allCommitted));
   }
 
   return {
@@ -764,8 +766,33 @@ function currentGitHead(rootDir: string): string {
   }
 }
 
-function rebuildProjectionStub(opIds: ReadonlyArray<string>): string {
-  return sha256Text(`projection-rebuild:v1:${opIds.join(",")}`);
+function rebuildProjectionHash(rootDir: string): string {
+  return hashTaskProjectionRows(rebuildTaskProjection({ rootDir }).rows);
+}
+
+function tryCompactJournal(journalPath: string, coveredOpIds: ReadonlySet<string>): void {
+  try {
+    compactJournalDurably(journalPath, coveredOpIds);
+  } catch {
+    // Compaction is an optimization. The watermark is authoritative for replay,
+    // so a failed compaction must not turn a committed flush into a failure.
+  }
+}
+
+function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<string>): void {
+  if (!existsSync(journalPath)) return;
+  const body = readFileSync(journalPath, "utf8");
+  if (body.trim().length === 0) return;
+
+  const retained = body
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .filter((line) => {
+      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord>;
+      if (parsed.schema !== "write-journal/v1") return true;
+      return typeof parsed.opId !== "string" || !coveredOpIds.has(parsed.opId);
+    });
+  writeFileDurably(journalPath, retained.length === 0 ? "" : `${retained.join("\n")}\n`);
 }
 
 function validateOp(rootDir: string, op: WriteOp): void {

@@ -11,3 +11,5 @@ Status: initial
 5. Use `harness task supersede` for follow-up work after `done` or `cancelled`; do not reopen terminal work.
 6. Use `harness task delete --soft` for audit-preserving removal. `--hard` is only for mistaken local packages with no archive, terminal status, or task relations.
 7. Run `harness status --json` and `harness check --post-merge` after merges before continuing authored task changes.
+
+See `docs-release/m1-minimal-loop.md` for the M1 repository model, state machine, and check report axes.
