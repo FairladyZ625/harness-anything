@@ -44,8 +44,6 @@ export interface CliResult {
   readonly report?: unknown;
   readonly summary?: {
     readonly taskCount: number;
-    readonly warningCount: number;
-    readonly hardFailCount: number;
     readonly byPackageDisposition: Record<string, number>;
     readonly byCoordinationStatus: Record<string, number>;
   };
@@ -268,14 +266,14 @@ function runCommand(
 
   if (command.action.kind === "status") {
     return Effect.sync(() => {
-      const result = checkTaskProjection({ rootDir: command.rootDir });
+      const result = checkTaskProjection({ rootDir: command.rootDir, postMerge: true });
       return {
         ok: result.ok,
         command: "status",
         rows: result.rows.length,
         warnings: result.warnings,
         report: result.report,
-        summary: summarizeStatus(result.rows, result.warnings),
+        summary: summarizeStatus(result.rows),
         commands: commandRegistry,
         projectionPath: path.relative(command.rootDir, result.projectionPath).split(path.sep).join("/"),
         error: result.ok ? undefined : {
@@ -423,17 +421,10 @@ function initializeHarness(rootDir: string): CliResult {
 }
 
 function summarizeStatus(
-  rows: ReadonlyArray<{ readonly packageDisposition: string; readonly coordinationStatus: string }>,
-  warnings: ReadonlyArray<unknown>
+  rows: ReadonlyArray<{ readonly packageDisposition: string; readonly coordinationStatus: string }>
 ): NonNullable<CliResult["summary"]> {
-  const hardFailCount = warnings.filter((warning) => {
-    const record = warning as { readonly severity?: unknown };
-    return typeof warning === "object" && warning !== null && record.severity === "hard-fail";
-  }).length;
   return {
     taskCount: rows.length,
-    warningCount: warnings.length,
-    hardFailCount,
     byPackageDisposition: countBy(rows.map((row) => row.packageDisposition)),
     byCoordinationStatus: countBy(rows.map((row) => row.coordinationStatus))
   };

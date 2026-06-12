@@ -275,11 +275,26 @@ test("CLI status --json returns local projection health envelope", () => {
     assert.equal(result.projectionPath, ".harness/cache/projections.sqlite");
     assert.equal(result.summary.taskCount, 1);
     assert.equal(result.summary.byPackageDisposition.archived, 1);
-    assert.equal(result.summary.warningCount, 0);
     assert.equal(result.report.schema, "harness-check-report/v1");
+    assert.equal(result.report.summary.warningCount, 0);
     assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "generated-cache" && axis.warningCount === 0), true);
+    assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "collaboration-gate" && axis.warningCount === 0), true);
     assert.equal(result.warnings.length, 0);
     assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "task-supersede" && entry.resultEnvelope === "CliResult/v1"), true);
+  });
+});
+
+test("CLI status --json runs the post-merge collaboration gate", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(path.join(rootDir, "harness/standards"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/standards/repo.md"), "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", "utf8");
+
+    const result = runJson(rootDir, ["status"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "status_check_failed");
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "conflict_marker_present" && warning.source === "collaboration-gate"), true);
+    assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "collaboration-gate" && axis.hardFailCount === 1), true);
   });
 });
 

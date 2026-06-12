@@ -112,6 +112,9 @@ interface OwnedLock {
 }
 
 const defaultActor: JournalActor = { kind: "agent", id: "local" };
+// Flush writes the full op-id set before compaction for recovery safety, then
+// trims to a bounded recent-id window only after journal compaction succeeds.
+const maxWatermarkCommittedOpIds = 128;
 
 export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
@@ -182,17 +185,25 @@ function flushRecords(
   const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds);
   const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir) : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
+  const recentCommitted = recentOpIds(allCommitted);
   const watermark = committedOpIds.at(-1);
 
   if (committedOpIds.length > 0) {
-    writeWatermarkDurably(watermarkPath, {
+    const fullWatermark = {
       schema: "write-watermark/v1",
       lastCommittedOpIds: allCommitted,
       lastCommitSha,
       projectionHash,
       updatedAt: new Date().toISOString()
-    });
-    tryCompactJournal(journalPath, new Set(allCommitted));
+    } satisfies WriteWatermark;
+    writeWatermarkDurably(watermarkPath, fullWatermark);
+    if (tryCompactJournal(journalPath, new Set(allCommitted)) && recentCommitted.length < allCommitted.length) {
+      writeWatermarkDurably(watermarkPath, {
+        ...fullWatermark,
+        lastCommittedOpIds: recentCommitted,
+        updatedAt: new Date().toISOString()
+      });
+    }
   }
 
   return {
@@ -770,12 +781,18 @@ function rebuildProjectionHash(rootDir: string): string {
   return hashTaskProjectionRows(rebuildTaskProjection({ rootDir }).rows);
 }
 
-function tryCompactJournal(journalPath: string, coveredOpIds: ReadonlySet<string>): void {
+function recentOpIds(opIds: ReadonlyArray<string>): ReadonlyArray<string> {
+  return opIds.slice(-maxWatermarkCommittedOpIds);
+}
+
+function tryCompactJournal(journalPath: string, coveredOpIds: ReadonlySet<string>): boolean {
   try {
     compactJournalDurably(journalPath, coveredOpIds);
+    return true;
   } catch {
     // Compaction is an optimization. The watermark is authoritative for replay,
     // so a failed compaction must not turn a committed flush into a failure.
+    return false;
   }
 }
 
