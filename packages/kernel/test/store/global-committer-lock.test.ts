@@ -44,8 +44,8 @@ test("WriteCoordinator keeps independent task writes in one global commit stream
 
 test("two coordinators cannot flush while the global lock is already held", () => {
   withTempStore((rootDir) => {
-    mkdirSync(path.join(rootDir, ".journal/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock"), JSON.stringify({
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock"), JSON.stringify({
       pid: process.pid,
       hostname: hostname(),
       acquiredAt: new Date().toISOString(),
@@ -65,8 +65,8 @@ test("two coordinators cannot flush while the global lock is already held", () =
 
 test("stale lock takeover is journaled before continuing", () => {
   withTempStore((rootDir) => {
-    mkdirSync(path.join(rootDir, ".journal/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock"), JSON.stringify({
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock"), JSON.stringify({
       pid: 999_999_999,
       hostname: hostname(),
       acquiredAt: "2000-01-01T00:00:00.000Z",
@@ -79,14 +79,14 @@ test("stale lock takeover is journaled before continuing", () => {
     const report = Effect.runSync(coordinator.flush("explicit"));
 
     assert.equal(report.opCount, 1);
-    assert.match(readFileSync(path.join(rootDir, ".journal/writes.jsonl"), "utf8"), /"schema":"lock-takeover\/v1"/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"schema":"lock-takeover\/v1"/);
   });
 });
 
 test("live process locks are not taken over solely because TTL expired", () => {
   withTempStore((rootDir) => {
-    mkdirSync(path.join(rootDir, ".journal/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock"), JSON.stringify({
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock"), JSON.stringify({
       pid: process.pid,
       hostname: hostname(),
       acquiredAt: "2000-01-01T00:00:00.000Z",
@@ -102,7 +102,7 @@ test("live process locks are not taken over solely because TTL expired", () => {
       /lock already held/
     );
     assert.equal(
-      JSON.parse(readFileSync(path.join(rootDir, ".journal/locks/global.lock"), "utf8")).ownerToken,
+      JSON.parse(readFileSync(path.join(rootDir, ".harness/locks/global.lock"), "utf8")).ownerToken,
       "still-live-owner"
     );
   });
@@ -110,8 +110,8 @@ test("live process locks are not taken over solely because TTL expired", () => {
 
 test("takeover claim prevents silent acquire while stale lock is quarantined", () => {
   withTempStore((rootDir) => {
-    mkdirSync(path.join(rootDir, ".journal/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock.takeover"), JSON.stringify({
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock.takeover"), JSON.stringify({
       pid: process.pid,
       hostname: hostname(),
       ownerToken: "takeover-owner",
@@ -127,7 +127,7 @@ test("takeover claim prevents silent acquire while stale lock is quarantined", (
       /takeover in progress|lock already held/
     );
     assert.throws(
-      () => readFileSync(path.join(rootDir, ".journal/locks/global.lock"), "utf8"),
+      () => readFileSync(path.join(rootDir, ".harness/locks/global.lock"), "utf8"),
       /ENOENT/
     );
   });
@@ -135,15 +135,15 @@ test("takeover claim prevents silent acquire while stale lock is quarantined", (
 
 test("dead takeover claim is cleared so stale lock recovery can continue", () => {
   withTempStore((rootDir) => {
-    mkdirSync(path.join(rootDir, ".journal/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock"), JSON.stringify({
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock"), JSON.stringify({
       pid: 999_999_998,
       hostname: hostname(),
       acquiredAt: "2000-01-01T00:00:00.000Z",
       heartbeatAt: "2000-01-01T00:00:00.000Z",
       ownerToken: "dead-lock-owner"
     }), "utf8");
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock.takeover"), JSON.stringify({
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock.takeover"), JSON.stringify({
       pid: 999_999_999,
       hostname: hostname(),
       ownerToken: "dead-takeover-owner",
@@ -157,7 +157,7 @@ test("dead takeover claim is cleared so stale lock recovery can continue", () =>
 
     assert.equal(report.opCount, 1);
     assert.throws(
-      () => readFileSync(path.join(rootDir, ".journal/locks/global.lock.takeover"), "utf8"),
+      () => readFileSync(path.join(rootDir, ".harness/locks/global.lock.takeover"), "utf8"),
       /ENOENT/
     );
   });
@@ -165,15 +165,15 @@ test("dead takeover claim is cleared so stale lock recovery can continue", () =>
 
 test("quarantined stale lock is restored before takeover is journaled", () => {
   withTempStore((rootDir) => {
-    mkdirSync(path.join(rootDir, ".journal/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock.stale.dead-lock-owner.dead-takeover-owner"), JSON.stringify({
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock.stale.dead-lock-owner.dead-takeover-owner"), JSON.stringify({
       pid: 999_999_998,
       hostname: hostname(),
       acquiredAt: "2000-01-01T00:00:00.000Z",
       heartbeatAt: "2000-01-01T00:00:00.000Z",
       ownerToken: "dead-lock-owner"
     }), "utf8");
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock.takeover"), JSON.stringify({
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock.takeover"), JSON.stringify({
       pid: 999_999_999,
       hostname: hostname(),
       ownerToken: "dead-takeover-owner",
@@ -186,9 +186,9 @@ test("quarantined stale lock is restored before takeover is journaled", () => {
     const report = Effect.runSync(coordinator.flush("explicit"));
 
     assert.equal(report.opCount, 1);
-    assert.match(readFileSync(path.join(rootDir, ".journal/writes.jsonl"), "utf8"), /"schema":"lock-takeover\/v1"/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"schema":"lock-takeover\/v1"/);
     assert.deepEqual(
-      readdirSync(path.join(rootDir, ".journal/locks")).filter((entry) => entry.includes(".stale.")),
+      readdirSync(path.join(rootDir, ".harness/locks")).filter((entry) => entry.includes(".stale.")),
       []
     );
   });
@@ -200,8 +200,8 @@ test("double stale lock takeover race keeps a single committer", async () => {
     Effect.runSync(coordinator.enqueue(docWrite("op-race-1", "task-1", "race.md", "first")));
     Effect.runSync(coordinator.enqueue(docWrite("op-race-2", "task-1", "race.md", "second")));
 
-    mkdirSync(path.join(rootDir, ".journal/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, ".journal/locks/global.lock"), JSON.stringify({
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".harness/locks/global.lock"), JSON.stringify({
       pid: 999_999_999,
       hostname: hostname(),
       acquiredAt: "2000-01-01T00:00:00.000Z",
@@ -225,10 +225,10 @@ test("double stale lock takeover race keeps a single committer", async () => {
       execFileAsync(process.execPath, ["--input-type=module", "-e", childScript], { cwd: process.cwd() })
     ]);
 
-    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/race.md"), "utf8"), "second");
-    assert.equal(readdirSync(path.join(rootDir, ".journal/locks")).length, 0);
+    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/race.md"), "utf8"), "second");
+    assert.equal(readdirSync(path.join(rootDir, ".harness/locks")).length, 0);
     assert.deepEqual(
-      readdirSync(path.join(rootDir, ".journal")).filter((entry) => entry.includes(".stale.")),
+      readdirSync(path.join(rootDir, ".harness/write-journal")).filter((entry) => entry.includes(".stale.")),
       []
     );
   });

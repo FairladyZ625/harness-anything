@@ -15,7 +15,7 @@ test("WriteCoordinator flushes same-task writes in FIFO order", () => {
 
     const report = Effect.runSync(coordinator.flush("explicit"));
     assert.equal(report.watermark, "op-2");
-    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/notes.md"), "utf8"), "second");
+    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "second");
   });
 });
 
@@ -30,11 +30,11 @@ test("WriteCoordinator preserves same-task FIFO across two coordinators", () => 
     const secondReport = Effect.runSync(secondCoordinator.flush("explicit"));
     assert.equal(secondReport.opCount, 2);
     assert.equal(secondReport.watermark, "op-2");
-    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/notes.md"), "utf8"), "second");
+    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "second");
 
     const firstReport = Effect.runSync(firstCoordinator.flush("explicit"));
     assert.equal(firstReport.opCount, 0);
-    assert.equal(readFileSync(path.join(rootDir, ".journal/watermark.json"), "utf8").includes("\"op-1\",\"op-2\""), true);
-    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/notes.md"), "utf8"), "second");
+    assert.equal(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8").includes("\"op-1\",\"op-2\""), true);
+    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "second");
   });
 });

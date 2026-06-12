@@ -19,7 +19,7 @@ test("GUI service bridge reaches application service while enforcing document pa
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Task One/);
 
-    const rejected = await bridge.invoke("getTaskDocument", { taskId: "task-1", path: "../../.harness-private/review.md" }) as { readonly ok: boolean; readonly error?: { readonly code: string } };
+    const rejected = await bridge.invoke("getTaskDocument", { taskId: "task-1", path: "../../../../.harness-private/review.md" }) as { readonly ok: boolean; readonly error?: { readonly code: string } };
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "path_is_private");
   } finally {
@@ -28,8 +28,8 @@ test("GUI service bridge reaches application service while enforcing document pa
 });
 
 function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string): void {
-  mkdirSync(path.join(rootDir, "tasks", taskId), { recursive: true });
-  writeFileSync(path.join(rootDir, "tasks", taskId, "INDEX.md"), [
+  mkdirSync(path.join(rootDir, "harness/planning/tasks", taskId), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/planning/tasks", taskId, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,

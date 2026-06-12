@@ -4,6 +4,7 @@ import path from "node:path";
 import { Effect, Either, Option } from "effect";
 import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { ArtifactStore, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
+import { findTaskIdByExternalRef, resolveHarnessLayout, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
 
 export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
 import type { TaskSnapshot } from "../../../kernel/src/schemas/registry.ts";
@@ -248,17 +249,7 @@ function mapStatus(rawStatus: string): { readonly canonicalStatus: TaskSnapshot[
 function makeMarkdownBindingIndex(rootDir: string): BindingLookup {
   return {
     findBindingByExternalRef: (engine, ref) => Effect.sync(() => {
-      const tasksDir = path.join(rootDir, "tasks");
-      if (!existsSync(tasksDir)) return Option.none<TaskId>();
-      for (const taskId of readdirSync(tasksDir).sort()) {
-        const indexPath = taskIndexPath(rootDir, taskId);
-        if (!existsSync(indexPath)) continue;
-        const frontmatter = readFileSync(indexPath, "utf8").match(/^---\n([\s\S]*?)\n---/u)?.[1] ?? "";
-        if (readScalar(frontmatter, "  engine") === engine && readScalar(frontmatter, "  ref") === ref) {
-          return Option.some(taskId);
-        }
-      }
-      return Option.none<TaskId>();
+      return Option.fromNullable(findTaskIdByExternalRef(rootDir, engine, ref));
     })
   };
 }
@@ -320,22 +311,20 @@ function renderAdoptedIndex(input: {
 }
 
 function validateTaskId(taskId: TaskId): void {
-  if (taskId.length === 0 || taskId.includes("/") || taskId.includes("..")) {
-    throw new Error(`invalid task id: ${taskId}`);
-  }
+  validateTaskIdSyntax(taskId);
 }
 
 function taskIndexPath(rootDir: string, taskId: TaskId): string {
-  return path.join(rootDir, "tasks", taskId, "INDEX.md");
+  return taskDocumentPath(rootDir, taskId, "INDEX.md");
 }
 
 function claimPath(rootDir: string, kind: "binding" | "task", key: string): string {
-  return path.join(rootDir, ".adopt-claims", kind, stableHash(key));
+  return path.join(resolveHarnessLayout(rootDir).claimsRoot, kind, stableHash(key));
 }
 
 function readScalar(frontmatter: string, key: string): string {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return frontmatter.match(new RegExp(`^${escaped}:\\s*(.*)$`, "mu"))?.[1]?.trim() ?? "";
+  return frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
 }
 
 function stableHash(value: unknown): string {

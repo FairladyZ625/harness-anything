@@ -59,7 +59,7 @@ function validateTaskDocumentPayloadPath(rootDir: string, payload: unknown): { r
   if (typeof record.taskId !== "string" || typeof record.path !== "string") {
     return { ok: false, error: { code: "invalid_payload", hint: "taskId and path are required." } };
   }
-  const decision = validateProjectPath(rootDir, path.join("tasks", record.taskId, record.path));
+  const decision = validateProjectPath(rootDir, path.join("harness", "planning", "tasks", record.taskId, record.path));
   if (!decision.ok) {
     return {
       ok: false,

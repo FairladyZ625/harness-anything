@@ -6,6 +6,7 @@ export interface DocumentWrite {
   readonly taskId: TaskId;
   readonly path: string;
   readonly body: string;
+  readonly packageSlug?: string;
 }
 
 export interface ArtifactWriteReceipt {

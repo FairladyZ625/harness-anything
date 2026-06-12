@@ -85,7 +85,7 @@ test("Multica adopt writes only local binding and does not write external status
     });
 
     const result = Effect.runSync(service.adopt({ taskId: "task-1", ref: "FAI-1" }));
-    const index = readFileSync(path.join(rootDir, "tasks/task-1/INDEX.md"), "utf8");
+    const index = readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8");
 
     assert.deepEqual(result, { taskId: "task-1", engine: "multica", ref: "FAI-1" });
     assert.match(index, /engine: multica/);
@@ -93,7 +93,7 @@ test("Multica adopt writes only local binding and does not write external status
     assert.match(index, /titleSnapshot: Multica FAI-1/);
     assert.equal(/^  status:/mu.test(index), false);
     assert.equal(index.includes("Done"), false);
-    assert.match(readFileSync(path.join(rootDir, ".journal/writes.jsonl"), "utf8"), /doc_write/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /doc_write/);
   });
 });
 
@@ -120,7 +120,7 @@ test("Multica adopt rejects duplicate external bindings and task id conflicts", 
 
 test("Multica adopt claim rejects duplicate refs before authored scan can see them", () => {
   withTempRoot((rootDir) => {
-    mkdirSync(path.join(rootDir, ".adopt-claims", "binding", "d8469170d66bc64c333119e46da4697d62ed8e4cf611864b128b5ef5df48301c"), {
+    mkdirSync(path.join(rootDir, ".harness/adopt-claims", "binding", "d8469170d66bc64c333119e46da4697d62ed8e4cf611864b128b5ef5df48301c"), {
       recursive: true
     });
     const service = makeMulticaAdoptionService({
@@ -134,7 +134,7 @@ test("Multica adopt claim rejects duplicate refs before authored scan can see th
 
     assert.equal(result._tag, "Failure");
     assert.match(String(result.cause), /adopt claim already held/);
-    assert.equal(existsSync(path.join(rootDir, "tasks/task-1/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
   });
 });
 
