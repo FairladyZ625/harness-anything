@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/kernel" },
+    { "path": "./packages/application" },
     { "path": "./packages/cli" },
     { "path": "./packages/gui" },
     { "path": "./packages/adapters/local" },
@@ -10,4 +11,3 @@
     { "path": "./packages/adapters/linear" }
   ]
 }
-

@@ -22,6 +22,23 @@ test("CLI creates a local task with stable JSON output", () => {
   });
 });
 
+test("CLI gui command delegates to the local desktop controller without importing GUI", () => {
+  const result = runJson(process.cwd(), ["gui"], true, { HARNESS_GUI_DRY_RUN: "1" });
+
+  assert.deepEqual(result, {
+    ok: true,
+    command: "gui",
+    launchPlan: {
+      packageName: "@harness-anything/gui",
+      mode: "local-desktop-controller",
+      apiHost: "127.0.0.1",
+      delegated: true,
+      dryRun: true,
+      command: ["npm", "--workspace", "@harness-anything/gui", "run", "dev"]
+    }
+  });
+});
+
 test("CLI status set mutates local task state through the write journal", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
@@ -196,10 +213,11 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, unknown> {
+function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: { ...process.env, ...env }
     });
     return JSON.parse(stdout) as Record<string, unknown>;
   } catch (error) {

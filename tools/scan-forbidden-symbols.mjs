@@ -24,7 +24,7 @@ async function walk(dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist") continue;
+      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
       files.push(...await walk(full));
     } else if (sourceFile.test(entry.name)) {
       files.push(full);
@@ -55,4 +55,3 @@ if (violations.length > 0) {
 }
 
 console.log("Forbidden symbol scan passed.");
-

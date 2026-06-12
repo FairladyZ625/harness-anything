@@ -10,10 +10,13 @@ const expectedRuntimeTestFiles = {
   gui: [
     "packages/gui/test/renderer-no-node.test.ts",
     "packages/gui/test/preload-allowlist.test.ts",
+    "packages/gui/test/ipc-handler-registration.test.ts",
+    "packages/gui/test/service-bridge.test.ts",
     "packages/gui/test/markdown-sanitize.test.ts",
     "packages/gui/test/local-api-auth.test.ts",
     "packages/gui/test/path-traversal.test.ts",
-    "packages/gui/test/terminal-no-ingestion.test.ts"
+    "packages/gui/test/terminal-no-ingestion.test.ts",
+    "packages/application/test/local-controller-service.test.ts"
   ],
   store: [
     "packages/kernel/test/store/journal-idempotency.test.ts",
@@ -55,7 +58,7 @@ async function walk(dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist") continue;
+      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
       files.push(...await walk(full));
     } else if (sourceFile.test(entry.name) && !entry.name.endsWith(".d.ts")) {
       files.push(full);
@@ -92,6 +95,7 @@ const expectedWorkspaceTsconfigs = [
   "packages/adapters/linear/tsconfig.json",
   "packages/adapters/local/tsconfig.json",
   "packages/adapters/multica/tsconfig.json",
+  "packages/application/tsconfig.json",
   "packages/cli/tsconfig.json",
   "packages/gui/tsconfig.json",
   "packages/kernel/tsconfig.json"
@@ -133,6 +137,69 @@ for (const [kind, active] of Object.entries({ gui: hasGuiImplementation, store: 
   if (!active) continue;
   for (const requiredPath of expectedRuntimeTestFiles[kind]) {
     if (!existsSync(path.join(root, requiredPath))) record(`${kind} implementation requires contract test: ${requiredPath}`);
+  }
+}
+
+if (hasGuiImplementation) {
+  const guiText = files
+    .filter((file) => relative(file).startsWith("packages/gui/"))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
+  const applicationText = files
+    .filter((file) => relative(file).startsWith("packages/application/"))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
+  const cliText = readFileSync(path.join(root, "packages/cli/src/index.ts"), "utf8");
+  for (const requiredSnippet of [
+    "nodeIntegration: false",
+    "contextIsolation: true",
+    "sandbox: true",
+    "webSecurity: true",
+    "guiContentSecurityPolicy",
+    "HARNESS_PRELOAD_API",
+    "allowedPreloadApi",
+    "localApiBindHost = \"127.0.0.1\"",
+    "createLocalApiSession",
+    "authorizeLocalApiRequest",
+    "validateProjectPath",
+    "sanitizeMarkdownHtml",
+    "registerHarnessIpcHandlers",
+    "createGuiServiceBridge",
+    "shellPanelPolicy",
+    "outputCreatesTaskState: false",
+    "buildGuiViewModel"
+  ]) {
+    if (!guiText.includes(requiredSnippet)) record(`GUI implementation must include ${requiredSnippet}`);
+  }
+  for (const requiredSnippet of [
+    "makeLocalControllerService",
+    "makeLocalLifecycleEngine",
+    "readTaskProjection"
+  ]) {
+    if (!applicationText.includes(requiredSnippet)) record(`application service must include ${requiredSnippet}`);
+  }
+  if (
+    !cliText.includes("command: \"gui\"")
+    || !cliText.includes("@harness-anything/gui")
+    || !cliText.includes("spawn(command[0]")
+    || !cliText.includes("HARNESS_GUI_ROOT")
+    || /from\s+["'][^"']*(?:packages\/gui|@harness-anything\/gui)/.test(cliText)
+  ) {
+    record("CLI must delegate a gui launch command without importing the GUI package");
+  }
+  const guiSecurityTests = expectedRuntimeTestFiles.gui.map((testPath) => readFileSync(path.join(root, testPath), "utf8")).join("\n");
+  for (const requiredEvidence of [
+    "renderer model has no Node or Electron privileged surface",
+    "preload exposes only the approved API methods",
+    "main process registers one IPC handler for each preload allowlist method",
+    "GUI service bridge reaches application service",
+    "local controller service reads projection and writes through local lifecycle service path",
+    "Markdown sanitizer strips scripts",
+    "local API binds localhost",
+    "path guard rejects traversal",
+    "PTY output stays display-only"
+  ]) {
+    if (!guiSecurityTests.includes(requiredEvidence)) record(`GUI security tests must prove: ${requiredEvidence}`);
   }
 }
 
@@ -333,8 +400,8 @@ for (const file of files) {
     }
   }
 
-  if (!rel.startsWith("packages/cli/src/") && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
-    record(`${rel}: Effect.runPromise* is only allowed at CLI composition roots`);
+  if (!rel.startsWith("packages/cli/src/") && !rel.startsWith("packages/application/src/") && /\b(?:Effect|E|Fx)\.runPromise\w*\s*\(|\brunPromise\w*\s*\(/.test(text)) {
+    record(`${rel}: Effect.runPromise* is only allowed at controller composition roots`);
   }
 
   if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {

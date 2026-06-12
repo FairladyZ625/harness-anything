@@ -1,2 +1,9 @@
-export {};
-
+export * from "./api/local-api.ts";
+export * from "./api/service-bridge.ts";
+export * from "./api/view-model.ts";
+export * from "./doc-renderer/sanitize.ts";
+export * from "./main/ipc-handlers.ts";
+export * from "./main/window-config.ts";
+export * from "./preload/allowlist.ts";
+export * from "./renderer/app-model.ts";
+export * from "./terminal/boundary.ts";

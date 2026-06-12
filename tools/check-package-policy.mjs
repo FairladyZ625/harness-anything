@@ -4,6 +4,7 @@ import path from "node:path";
 const root = process.cwd();
 const expectedPackages = new Map([
   ["packages/kernel/package.json", "@harness-anything/kernel"],
+  ["packages/application/package.json", "@harness-anything/application"],
   ["packages/cli/package.json", "@harness-anything/cli"],
   ["packages/gui/package.json", "@harness-anything/gui"],
   ["packages/adapters/local/package.json", "@harness-anything/adapter-local"],
@@ -39,6 +40,7 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
 
 for (const relativePath of [
   "packages/kernel/.git",
+  "packages/application/.git",
   "packages/cli/.git",
   "packages/gui/.git",
   "packages/adapters/local/.git",

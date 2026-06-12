@@ -9,14 +9,13 @@
     "strict": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "erasableSyntaxOnly": true,
-    "jsx": "react-jsx"
+    "erasableSyntaxOnly": true
   },
   "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.ts"
   ],
   "references": [
-    { "path": "../application" }
+    { "path": "../kernel" },
+    { "path": "../adapters/local" }
   ]
 }

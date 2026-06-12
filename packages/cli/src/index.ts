@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
@@ -30,6 +31,15 @@ export interface CliResult {
   readonly issues?: ReadonlyArray<unknown>;
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
+  readonly launchPlan?: {
+    readonly packageName: "@harness-anything/gui";
+    readonly mode: "local-desktop-controller";
+    readonly apiHost: "127.0.0.1";
+    readonly delegated: true;
+    readonly dryRun: boolean;
+    readonly command: readonly string[];
+    readonly pid?: number;
+  };
   readonly error?: {
     readonly code: string;
     readonly hint: string;
@@ -45,6 +55,7 @@ interface ParsedCommand {
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
     | { readonly kind: "task-list" }
     | { readonly kind: "check" }
+    | { readonly kind: "gui" }
     | { readonly kind: "template-list"; readonly catalogPath: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }
     | { readonly kind: "preset-validate"; readonly manifestPath: string; readonly kernelVersion: string }
@@ -62,6 +73,12 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     const result = runExtensionCommand(parsed.value);
     emit(result, parsed.value.json);
     return result.ok ? 0 : 1;
+  }
+
+  if (parsed.value.action.kind === "gui") {
+    const result = launchGui(parsed.value.rootDir);
+    emit(result, parsed.value.json);
+    return 0;
   }
 
   const engine = makeLocalLifecycleEngine({ rootDir: parsed.value.rootDir });
@@ -146,6 +163,50 @@ function runCommand(
       }
     } satisfies CliResult;
   });
+}
+
+function launchGui(rootDir: string): CliResult {
+  const command = ["npm", "--workspace", "@harness-anything/gui", "run", "dev"] as const;
+  const dryRun = process.env.HARNESS_GUI_DRY_RUN === "1";
+  if (dryRun) {
+    return {
+      ok: true,
+      command: "gui",
+      launchPlan: {
+        packageName: "@harness-anything/gui",
+        mode: "local-desktop-controller",
+        apiHost: "127.0.0.1",
+        delegated: true,
+        dryRun,
+        command
+      }
+    };
+  }
+
+  const child = spawn(command[0], command.slice(1), {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      HARNESS_GUI_ROOT: path.resolve(rootDir)
+    }
+  });
+  child.unref();
+
+  return {
+    ok: true,
+    command: "gui",
+    launchPlan: {
+      packageName: "@harness-anything/gui",
+      mode: "local-desktop-controller",
+      apiHost: "127.0.0.1",
+      delegated: true,
+      dryRun,
+      command,
+      pid: child.pid
+    }
+  };
 }
 
 function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
@@ -234,6 +295,19 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     };
   }
 
+  if (args[0] === "gui") {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "gui"
+        }
+      }
+    };
+  }
+
   if (args[0] === "template" && args[1] === "list") {
     const catalogPath = readOption(args, "--catalog");
     if (!catalogPath) {
@@ -309,7 +383,7 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     ok: false,
     error: {
       code: "unknown_command",
-      hint: "Supported commands: new-task, task status set, task progress append, task list, check, template list, template render, preset validate, vertical validate."
+      hint: "Supported commands: new-task, task status set, task progress append, task list, check, gui, template list, template render, preset validate, vertical validate."
     }
   };
 }
@@ -500,7 +574,7 @@ function emit(result: CliResult, json: boolean): void {
   }
 
   if (result.ok) {
-    const suffix = result.status ? ` status=${result.status}` : result.path ? ` path=${result.path}` : result.rows !== undefined ? ` rows=${result.rows}` : "";
+    const suffix = result.status ? ` status=${result.status}` : result.path ? ` path=${result.path}` : result.rows !== undefined ? ` rows=${result.rows}` : result.launchPlan ? ` mode=${result.launchPlan.mode} package=${result.launchPlan.packageName}` : "";
     console.log(`ok command=${result.command} task=${result.taskId ?? ""}${suffix}`);
     return;
   }

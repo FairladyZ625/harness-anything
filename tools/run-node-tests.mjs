@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 const repoRoot = resolve(import.meta.dirname, "..");
 const roots = ["packages", "tools"];
 const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
-const ignoredDirectoryNames = new Set(["node_modules", "dist", "coverage", ".git"]);
+const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
 
 async function collectTestFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
