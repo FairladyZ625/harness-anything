@@ -4,9 +4,63 @@
   "x-harness-schema-id": "template-catalog",
   "title": "Template Catalog",
   "type": "object",
-  "required": ["schema", "templates"],
+  "additionalProperties": false,
+  "required": ["schema", "package", "documents"],
   "properties": {
     "schema": { "const": "template-catalog/v1" },
-    "templates": { "type": "array" }
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "version", "owner", "locales"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "version": { "type": "string" },
+        "owner": { "type": "string" },
+        "locales": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["zh-CN", "en-US"] }
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version", "documentKind", "slot", "materializeAs", "frontmatterSchema", "requiredAnchors", "fallbackLocale", "locales"],
+        "properties": {
+          "id": { "type": "string" },
+          "version": { "type": "string" },
+          "documentKind": { "type": "string" },
+          "slot": { "type": "string" },
+          "materializeAs": { "type": "string" },
+          "frontmatterSchema": { "type": "string" },
+          "requiredAnchors": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "fallbackLocale": { "enum": ["zh-CN", "en-US"] },
+          "locales": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["locale", "anchors", "body"],
+              "properties": {
+                "locale": { "enum": ["zh-CN", "en-US"] },
+                "anchors": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "body": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }

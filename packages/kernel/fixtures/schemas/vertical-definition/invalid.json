@@ -1,0 +1,12 @@
+{
+  "schema": "vertical-definition/v1",
+  "id": "software/coding",
+  "title": "Software Coding",
+  "version": "1.0.0",
+  "entityKinds": [],
+  "contractEntityKinds": ["task"],
+  "packageScaffolds": [],
+  "templateSelections": [],
+  "checkerProfile": "software-coding-standard",
+  "projectionSchemas": []
+}

@@ -1,14 +1,44 @@
 {
   "schema": "preset-manifest/v1",
-  "id": "standard-task",
-  "title": "Standard Task",
+  "id": "software-coding-standard",
+  "title": "Software Coding Standard",
   "vertical": "software/coding",
-  "capabilities": [
+  "version": "1.0.0",
+  "kernelVersionRange": {
+    "min": "1.0.0",
+    "maxExclusive": "2.0.0"
+  },
+  "capabilityImports": [
     {
       "id": "schema-contracts",
       "kind": "checker",
-      "enabledByDefault": true
+      "version": "1",
+      "required": true
+    },
+    {
+      "id": "task-flow-template",
+      "kind": "template",
+      "version": "1",
+      "required": true
     }
   ],
-  "templates": ["standard-task/brief"]
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "checkerProfile": "standard",
+      "templateSelections": [
+        {
+          "slot": "task.flow",
+          "templateRef": "template://planning/task-flow@1",
+          "materializeAs": "task_flow.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        }
+      ]
+    }
+  ],
+  "defaultProfile": "baseline"
 }

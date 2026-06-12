@@ -128,6 +128,7 @@ const hasLocalLifecycleImplementation = files.some((file) => relative(file) === 
 const hasTaskProjectionImplementation = files.some((file) => relative(file) === "packages/kernel/src/projection/sqlite-task-projection.ts");
 const hasMulticaAdapterImplementation = files.some((file) => relative(file) === "packages/adapters/multica/src/index.ts")
   && !readFileSync(path.join(root, "packages/adapters/multica/src/index.ts"), "utf8").trim().startsWith("export {}");
+const hasExtensionModelImplementation = files.some((file) => relative(file) === "packages/kernel/src/domain/extension-model.ts");
 for (const [kind, active] of Object.entries({ gui: hasGuiImplementation, store: hasStoreImplementation, publish: hasPublishImplementation })) {
   if (!active) continue;
   for (const requiredPath of expectedRuntimeTestFiles[kind]) {
@@ -272,6 +273,42 @@ if (hasMulticaAdapterImplementation) {
   }
   if (/writeFileSync\s*\([^)]*tasks\//s.test(multicaText) || /renameSync\s*\([^)]*tasks\//s.test(multicaText)) {
     record("Multica adopt must not write authored task documents outside WriteCoordinator");
+  }
+}
+
+if (hasExtensionModelImplementation) {
+  const extensionModelText = readFileSync(path.join(root, "packages/kernel/src/domain/extension-model.ts"), "utf8");
+  const cliText = readFileSync(path.join(root, "packages/cli/src/index.ts"), "utf8");
+  const extensionTestPath = "packages/kernel/test/contracts/extension-model.test.ts";
+  const cliExtensionTestPath = "packages/cli/test/extension-cli.test.ts";
+  if (!existsSync(path.join(root, extensionTestPath))) record(`extension model implementation requires contract test: ${extensionTestPath}`);
+  if (!existsSync(path.join(root, cliExtensionTestPath))) record(`extension model CLI surface requires contract test: ${cliExtensionTestPath}`);
+  for (const requiredSnippet of [
+    "validateTemplateCatalog",
+    "validatePresetManifests",
+    "validateVerticalDefinition",
+    "planTemplateMaterialization",
+    "preset_extends_cycle",
+    "template_locale_structure_mismatch",
+    "status_mapping_forbidden",
+    "unknown_extension_field",
+    "incompatible_kernel"
+  ]) {
+    if (!`${extensionModelText}\n${cliText}`.includes(requiredSnippet)) {
+      record(`extension model implementation must include ${requiredSnippet}`);
+    }
+  }
+  if (/from\s+["']effect["']/.test(extensionModelText) || /Effect\./.test(extensionModelText)) {
+    record("extension model domain helpers must remain pure and must not import or run Effect");
+  }
+  for (const schemaPath of [
+    "packages/kernel/schemas/json/template-catalog.schema.json",
+    "packages/kernel/schemas/json/preset-manifest.schema.json",
+    "packages/kernel/schemas/json/vertical-definition.schema.json"
+  ]) {
+    if (!readFileSync(path.join(root, schemaPath), "utf8").includes("\"additionalProperties\": false")) {
+      record(`${schemaPath} must reject unknown extension fields`);
+    }
   }
 }
 

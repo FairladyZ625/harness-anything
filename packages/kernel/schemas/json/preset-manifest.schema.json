@@ -4,13 +4,93 @@
   "x-harness-schema-id": "preset-manifest",
   "title": "Preset Manifest",
   "type": "object",
-  "required": ["schema", "id", "title", "vertical", "capabilities", "templates"],
+  "additionalProperties": false,
+  "required": ["schema", "id", "title", "vertical", "version", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile"],
   "properties": {
     "schema": { "const": "preset-manifest/v1" },
     "id": { "type": "string" },
     "title": { "type": "string" },
     "vertical": { "type": "string" },
-    "capabilities": { "type": "array" },
-    "templates": { "type": "array" }
+    "version": { "type": "string" },
+    "extends": { "type": "string" },
+    "kernelVersionRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min"],
+      "properties": {
+        "min": { "type": "string" },
+        "maxExclusive": { "type": "string" }
+      }
+    },
+    "capabilityImports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "version", "required"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["checker", "scaffold", "projection", "command", "template"] },
+          "version": { "type": "string" },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "checkerProfile", "templateSelections"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "checkerProfile": { "type": "string" },
+          "templateSelections": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/templateSelection" }
+          },
+          "capabilityImports": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "version"],
+              "properties": {
+                "id": { "type": "string" },
+                "version": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "defaultProfile": { "type": "string" }
+  },
+  "$defs": {
+    "templateSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot", "templateRef", "materializeAs", "localePolicy"],
+      "properties": {
+        "slot": { "type": "string" },
+        "templateRef": { "type": "string" },
+        "materializeAs": { "type": "string" },
+        "localePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prefer", "fallback"],
+          "properties": {
+            "prefer": { "enum": ["project", "preset", "explicit"] },
+            "fallback": { "enum": ["zh-CN", "en-US"] }
+          }
+        },
+        "requiredWhen": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
   }
 }

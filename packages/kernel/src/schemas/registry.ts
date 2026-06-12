@@ -14,6 +14,7 @@ export const LinkKindSchema = Schema.Literal("artifact", "commit", "review");
 const OptionalString = Schema.optional(Schema.String);
 const NullableString = Schema.NullOr(Schema.String);
 const StringArray = Schema.Array(Schema.String);
+const LocaleSchema = Schema.Literal("zh-CN", "en-US");
 
 export const ActorRefSchema = Schema.Struct({
   kind: ActorKindSchema,
@@ -140,13 +141,53 @@ export const PublishableProjectionSchema = Schema.Struct({
 
 export const TemplateCatalogSchema = Schema.Struct({
   schema: Schema.Literal("template-catalog/v1"),
-  templates: Schema.Array(Schema.Struct({
+  package: Schema.Struct({
     id: Schema.String,
+    title: Schema.String,
+    version: Schema.String,
+    owner: Schema.String,
+    locales: Schema.Array(LocaleSchema).pipe(Schema.minItems(1))
+  }),
+  documents: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    version: Schema.String,
     documentKind: Schema.String,
-    locale: Schema.Literal("zh-CN", "en-US"),
-    slots: StringArray,
-    frontmatterSchema: Schema.String
+    slot: Schema.String,
+    materializeAs: Schema.String,
+    frontmatterSchema: Schema.String,
+    requiredAnchors: StringArray,
+    fallbackLocale: LocaleSchema,
+    locales: Schema.Array(Schema.Struct({
+      locale: LocaleSchema,
+      anchors: StringArray,
+      body: Schema.String
+    })).pipe(Schema.minItems(1))
   }))
+});
+
+export const TemplateSelectionSchema = Schema.Struct({
+  slot: Schema.String,
+  templateRef: Schema.String,
+  materializeAs: Schema.String,
+  localePolicy: Schema.Struct({
+    prefer: Schema.Literal("project", "preset", "explicit"),
+    fallback: LocaleSchema
+  }),
+  requiredWhen: Schema.optional(Schema.Record({
+    key: Schema.String,
+    value: Schema.String
+  }))
+});
+
+export const PresetProfileSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  checkerProfile: Schema.String,
+  templateSelections: Schema.Array(TemplateSelectionSchema),
+  capabilityImports: Schema.optional(Schema.Array(Schema.Struct({
+    id: Schema.String,
+    version: Schema.String
+  })))
 });
 
 export const PresetManifestSchema = Schema.Struct({
@@ -154,12 +195,43 @@ export const PresetManifestSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   vertical: Schema.String,
-  capabilities: Schema.Array(Schema.Struct({
+  version: Schema.String,
+  extends: OptionalString,
+  kernelVersionRange: Schema.Struct({
+    min: Schema.String,
+    maxExclusive: OptionalString
+  }),
+  capabilityImports: Schema.Array(Schema.Struct({
     id: Schema.String,
-    kind: Schema.Literal("checker", "scaffold", "projection", "command"),
-    enabledByDefault: Schema.Boolean
+    kind: Schema.Literal("checker", "scaffold", "projection", "command", "template"),
+    version: Schema.String,
+    required: Schema.Boolean
   })),
-  templates: StringArray
+  profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1)),
+  defaultProfile: Schema.String
+});
+
+export const VerticalDefinitionSchema = Schema.Struct({
+  schema: Schema.Literal("vertical-definition/v1"),
+  id: Schema.String,
+  title: Schema.String,
+  version: Schema.String,
+  entityKinds: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    packageKind: Schema.String,
+    contractEntity: Schema.Boolean
+  })).pipe(Schema.minItems(1)),
+  contractEntityKinds: StringArray,
+  packageScaffolds: Schema.Array(Schema.Struct({
+    entityKind: Schema.String,
+    templateSelections: Schema.Array(TemplateSelectionSchema)
+  })),
+  templateSelections: Schema.Array(TemplateSelectionSchema),
+  checkerProfile: Schema.String,
+  projectionSchemas: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    schemaRef: Schema.String
+  }))
 });
 
 export const SqliteTaskRowSchema = Schema.Struct({
@@ -197,7 +269,10 @@ export type WriteJournalOp = Schema.Schema.Type<typeof WriteJournalOpSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
+export type TemplateSelection = Schema.Schema.Type<typeof TemplateSelectionSchema>;
 export type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
+export type PresetProfile = Schema.Schema.Type<typeof PresetProfileSchema>;
+export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
 export type SqliteTaskRow = Schema.Schema.Type<typeof SqliteTaskRowSchema>;
 export type DocsReleasePromotionBundle = Schema.Schema.Type<typeof DocsReleasePromotionBundleSchema>;
 
@@ -250,6 +325,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/preset-manifest.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/preset-manifest/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/preset-manifest/invalid.json"
+  },
+  {
+    id: "vertical-definition",
+    schema: VerticalDefinitionSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/vertical-definition.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/vertical-definition/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/vertical-definition/invalid.json"
   },
   {
     id: "sqlite-task-row",

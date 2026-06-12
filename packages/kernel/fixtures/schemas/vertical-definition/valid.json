@@ -1,0 +1,56 @@
+{
+  "schema": "vertical-definition/v1",
+  "id": "software/coding",
+  "title": "Software Coding",
+  "version": "1.0.0",
+  "entityKinds": [
+    {
+      "id": "task",
+      "packageKind": "task-package/v2",
+      "contractEntity": true
+    },
+    {
+      "id": "decision-record",
+      "packageKind": "document/v1",
+      "contractEntity": false
+    }
+  ],
+  "contractEntityKinds": ["task"],
+  "packageScaffolds": [
+    {
+      "entityKind": "task",
+      "templateSelections": [
+        {
+          "slot": "task.flow",
+          "templateRef": "template://planning/task-flow@1",
+          "materializeAs": "task_flow.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          },
+          "requiredWhen": {
+            "profile": "baseline"
+          }
+        }
+      ]
+    }
+  ],
+  "templateSelections": [
+    {
+      "slot": "task.flow",
+      "templateRef": "template://planning/task-flow@1",
+      "materializeAs": "task_flow.md",
+      "localePolicy": {
+        "prefer": "project",
+        "fallback": "en-US"
+      }
+    }
+  ],
+  "checkerProfile": "software-coding-standard",
+  "projectionSchemas": [
+    {
+      "id": "task-frontmatter",
+      "schemaRef": "schema://task-frontmatter"
+    }
+  ]
+}
