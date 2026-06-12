@@ -9,12 +9,16 @@
     "strict": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "erasableSyntaxOnly": true
+    "erasableSyntaxOnly": true,
+    "rootDir": "./src",
+    "outDir": "./dist"
   },
   "include": [
     "src/**/*.ts"
   ],
   "references": [
-    { "path": "../../kernel" }
+    {
+      "path": "../../kernel"
+    }
   ]
 }

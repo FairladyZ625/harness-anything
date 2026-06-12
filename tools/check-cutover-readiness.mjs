@@ -200,6 +200,9 @@ async function collectPublicTextFiles(root) {
       if (rel.startsWith("node_modules/") || rel.startsWith(".git/") || rel.startsWith(".harness") || rel.startsWith("dist/") || rel.startsWith("coverage/")) {
         return false;
       }
+      // AGENTS.md / CLAUDE.md are local-only agent entries; check-private-boundary
+      // enforces they stay untracked, so they are not public text.
+      if (rel === "AGENTS.md" || rel === "CLAUDE.md") return false;
       if (rel === "package-lock.json") return false;
       if (/(?:^|\/)(?:test|tests|fixtures|__fixtures__)\//u.test(rel)) return false;
       return rel.endsWith(".md") || rel.endsWith(".yml") || rel.endsWith(".yaml") || rel.endsWith("package.json");

@@ -10,4 +10,3 @@ coverage/
 tmp/
 *.log
 *.tsbuildinfo
-packages/**/src/**/*.d.ts
