@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
+import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 
 export const DomainStatusSchema = Schema.Literal(
   ...domainStatuses
@@ -52,6 +53,8 @@ export const HarnessConfigSchema = Schema.Struct({
   })
 });
 
+export const Sha256FingerprintSchema = Schema.TemplateLiteral("sha256:", Schema.String);
+
 export const LifecycleBindingSchema = Schema.Struct({
   bindingSchema: Schema.Literal("lifecycle-binding/v1"),
   engine: Schema.String,
@@ -60,8 +63,16 @@ export const LifecycleBindingSchema = Schema.Struct({
   titleSnapshot: NullableString,
   url: NullableString,
   bindingCreatedAt: Schema.String,
-  bindingFingerprint: Schema.String
+  bindingFingerprint: Sha256FingerprintSchema
 });
+
+// Compile-time anchor: the schema's decoded type and the domain's
+// LifecycleBinding must stay the same shape. Field drift fails tsc here,
+// not in a runtime alignment test.
+type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+type LifecycleBindingDecoded = Schema.Schema.Type<typeof LifecycleBindingSchema>;
+true satisfies MutuallyAssignable<LifecycleBindingDecoded, LifecycleBinding>;
+true satisfies MutuallyAssignable<keyof LifecycleBindingDecoded, keyof LifecycleBinding>;
 
 export const TaskFrontmatterSchema = Schema.Struct({
   schema: Schema.Literal("task-package/v2"),

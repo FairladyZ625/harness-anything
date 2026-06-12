@@ -4,14 +4,92 @@
   "x-harness-schema-id": "task-frontmatter",
   "title": "Task Frontmatter v2",
   "type": "object",
-  "required": ["schema", "task_id", "title", "lifecycle", "packageDisposition", "vertical", "preset"],
+  "required": [
+    "schema",
+    "task_id",
+    "title",
+    "lifecycle",
+    "packageDisposition",
+    "vertical",
+    "preset"
+  ],
   "properties": {
-    "schema": { "const": "task-package/v2" },
-    "task_id": { "type": "string" },
-    "title": { "type": "string" },
-    "lifecycle": { "type": "object" },
-    "packageDisposition": { "enum": ["active", "archived", "tombstoned"] },
-    "vertical": { "type": "string" },
-    "preset": { "type": "string" }
+    "schema": {
+      "const": "task-package/v2"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": [
+        "bindingSchema",
+        "engine",
+        "ref",
+        "titleSnapshot",
+        "url",
+        "bindingCreatedAt",
+        "bindingFingerprint"
+      ],
+      "properties": {
+        "bindingSchema": {
+          "const": "lifecycle-binding/v1"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "planned",
+            "active",
+            "blocked",
+            "in_review",
+            "done",
+            "cancelled"
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "titleSnapshot": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bindingCreatedAt": {
+          "type": "string"
+        },
+        "bindingFingerprint": {
+          "type": "string",
+          "pattern": "^sha256:"
+        }
+      }
+    },
+    "packageDisposition": {
+      "enum": [
+        "active",
+        "archived",
+        "tombstoned"
+      ]
+    },
+    "vertical": {
+      "type": "string"
+    },
+    "preset": {
+      "type": "string"
+    }
   }
 }
