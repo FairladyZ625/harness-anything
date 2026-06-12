@@ -18,7 +18,7 @@ test("journal stores payload hash for audit", () => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "a.md", "x")));
 
-    const journal = readFileSync(path.join(rootDir, ".journal/writes.jsonl"), "utf8");
+    const journal = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
     assert.match(journal, /"payloadHash":"[0-9a-f]{64}"/);
   });
 });
@@ -28,7 +28,7 @@ test("recovery rejects a tampered payloadRef before applying writes", () => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "a.md", "trusted")));
 
-    const journalRecord = JSON.parse(readFileSync(path.join(rootDir, ".journal/writes.jsonl"), "utf8")) as {
+    const journalRecord = JSON.parse(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8")) as {
       readonly payloadRef: {
         readonly path: string;
       };

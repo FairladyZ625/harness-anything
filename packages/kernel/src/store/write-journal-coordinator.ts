@@ -29,6 +29,7 @@ import type {
 import type { TaskId, WriteError } from "../domain/index.ts";
 import { sha256Text, stablePayloadHash } from "./hash.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
 
 export interface JournaledWriteCoordinatorOptions {
   readonly rootDir: string;
@@ -93,8 +94,9 @@ const defaultActor: JournalActor = { kind: "agent", id: "local" };
 
 export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
-  const journalPath = options.journalPath ?? path.join(rootDir, ".journal", "writes.jsonl");
-  const watermarkPath = options.watermarkPath ?? path.join(rootDir, ".journal", "watermark.json");
+  const layout = resolveHarnessLayout(rootDir);
+  const journalPath = options.journalPath ?? layout.journalPath;
+  const watermarkPath = options.watermarkPath ?? layout.watermarkPath;
   const actor = options.actor ?? defaultActor;
   const lockTtlMs = options.lockTtlMs ?? 60_000;
   const pending: WriteOp[] = [];
@@ -108,7 +110,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
           return { opId: op.opId, taskId: op.taskId, accepted: true };
         }
 
-        const record = createJournalRecord(rootDir, op, actor);
+        const record = createJournalRecord(rootDir, journalPath, op, actor);
         appendJsonLineDurably(journalPath, record);
         pending.push(op);
         return { opId: op.opId, taskId: op.taskId, accepted: true };
@@ -151,8 +153,8 @@ function flushRecords(
 
   for (const record of records) {
     const op = recordToOp(rootDir, record);
-    const write = applyOp(rootDir, op);
-    touchedPaths.push(path.join(rootDir, "tasks", op.taskId, write.path));
+    applyOp(rootDir, op);
+    touchedPaths.push(resolveHarnessLayout(rootDir).authoredRoot);
     committedOpIds.push(record.opId);
   }
 
@@ -188,9 +190,9 @@ function applyOp(rootDir: string, op: WriteOp): DocumentWrite {
   return write;
 }
 
-function createJournalRecord(rootDir: string, op: WriteOp, actor: JournalActor): JournalRecord {
+function createJournalRecord(rootDir: string, journalPath: string, op: WriteOp, actor: JournalActor): JournalRecord {
   const payload = toJournalPayload(op);
-  const payloadRef = writePayloadRef(rootDir, op.opId, payload);
+  const payloadRef = writePayloadRef(rootDir, journalPath, op.opId, payload);
   return {
     schema: "write-journal/v1",
     opId: op.opId,
@@ -235,7 +237,8 @@ function toDocumentWrite(op: WriteOp): DocumentWrite {
   return {
     taskId: op.taskId,
     path: payload.path,
-    body: payload.body
+    body: payload.body,
+    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
   };
 }
 
@@ -296,8 +299,9 @@ function readWatermark(watermarkPath: string): WriteWatermark | null {
   return parsed as WriteWatermark;
 }
 
-function writePayloadRef(rootDir: string, opId: string, payload: Record<string, unknown>): PayloadRef {
-  const relativePath = `.journal/payloads/${encodeURIComponent(opId)}.json`;
+function writePayloadRef(rootDir: string, journalPath: string, opId: string, payload: Record<string, unknown>): PayloadRef {
+  const relativeJournalDir = path.relative(rootDir, path.dirname(journalPath)).split(path.sep).join("/");
+  const relativePath = `${relativeJournalDir}/payloads/${encodeURIComponent(opId)}.json`;
   const absolutePath = path.join(rootDir, relativePath);
   const body = JSON.stringify(payload);
   writeFileDurably(absolutePath, body);
@@ -358,11 +362,12 @@ function withRepoLocks<T>(
   const locks: OwnedLock[] = [];
 
   try {
-    locks.push(acquireLock(rootDir, journalPath, actor, ".journal/locks/global.lock", lockTtlMs));
+    const lockRoot = path.relative(rootDir, resolveHarnessLayout(rootDir).locksRoot).split(path.sep).join("/");
+    locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs));
     const state = readJournal(journalPath, rootDir);
     const lockedTaskIds = new Set([...taskIds, ...state.map((record) => record.taskId)]);
     for (const taskId of [...lockedTaskIds].sort()) {
-      locks.push(acquireLock(rootDir, journalPath, actor, `.journal/locks/task-${sha256Text(taskId)}.lock`, lockTtlMs));
+      locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/task-${sha256Text(taskId)}.lock`, lockTtlMs));
     }
     return fn();
   } finally {

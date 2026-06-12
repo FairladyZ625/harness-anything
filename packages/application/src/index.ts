@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import type { DomainStatus } from "../../kernel/src/index.ts";
 import { isDomainStatus, readTaskProjection } from "../../kernel/src/index.ts";
+import { taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
@@ -149,7 +150,7 @@ function listKnownTaskDocuments(rootDir: string, taskId: string): ReadonlyArray<
 function taskDocumentPath(rootDir: string, taskId: string, documentPath: string): string {
   validateTaskId(taskId);
   validateRelativeDocumentPath(documentPath);
-  return path.join(rootDir, "tasks", taskId, documentPath);
+  return harnessTaskDocumentPath(rootDir, taskId, documentPath);
 }
 
 function readTaskIdPayload(payload: unknown): { readonly ok: true; readonly taskId: string } | LocalControllerFailure {
@@ -189,9 +190,7 @@ function readAppendProgressPayload(payload: unknown): { readonly ok: true; reado
 }
 
 function validateTaskId(taskId: string): void {
-  if (taskId.length === 0 || taskId.includes("/") || taskId.includes("..")) {
-    throw new Error(`invalid task id: ${taskId}`);
-  }
+  validateTaskIdSyntax(taskId);
 }
 
 function validateRelativeDocumentPath(documentPath: string): void {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
@@ -9,13 +9,16 @@ import { Schema } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/domain/index.ts";
 import { isDomainStatus } from "../../kernel/src/domain/index.ts";
+import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../kernel/src/layout/index.ts";
 import {
   PresetManifestSchema,
   TemplateCatalogSchema,
   VerticalDefinitionSchema,
   checkTaskProjection,
+  defaultTaskProjectionPath,
   planTemplateMaterialization,
   readTaskProjection,
+  rebuildTaskProjection,
   validateExtensionInputShape,
   validatePresetManifests,
   validateTemplateCatalog,
@@ -26,8 +29,11 @@ export interface CliResult {
   readonly ok: boolean;
   readonly command: string;
   readonly taskId?: string;
+  readonly slug?: string;
   readonly status?: DomainStatus;
   readonly path?: string;
+  readonly packagePath?: string;
+  readonly projectionPath?: string;
   readonly tasks?: ReadonlyArray<unknown>;
   readonly templates?: ReadonlyArray<unknown>;
   readonly document?: unknown;
@@ -53,11 +59,14 @@ interface ParsedCommand {
   readonly rootDir: string;
   readonly json: boolean;
   readonly action:
-    | { readonly kind: "new-task"; readonly taskId: string; readonly title: string }
+    | { readonly kind: "init" }
+    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean }
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
     | { readonly kind: "task-list" }
-    | { readonly kind: "check" }
+    | { readonly kind: "status" }
+    | { readonly kind: "check"; readonly postMerge: boolean }
+    | { readonly kind: "governance-rebuild" }
     | { readonly kind: "gui" }
     | { readonly kind: "template-list"; readonly catalogPath: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }
@@ -105,15 +114,25 @@ function runCommand(
   engine: ReturnType<typeof makeLocalLifecycleEngine>,
   command: ParsedCommand
 ): Effect.Effect<CliResult, EngineError | WriteError> {
+  if (command.action.kind === "init") {
+    return Effect.sync(() => initializeHarness(command.rootDir));
+  }
+
   if (command.action.kind === "new-task") {
+    const action = command.action;
+    const taskId = action.taskId ?? generateTaskId();
     return engine.createTask({
-      taskId: command.action.taskId,
-      title: command.action.title
+      taskId,
+      title: action.title,
+      slug: action.slug,
+      allowManualId: action.allowManualId
     }).pipe(Effect.map((result): CliResult => ({
       ok: true,
       command: "new-task",
       taskId: result.taskId,
-      status: result.status
+      slug: action.slug,
+      status: result.status,
+      packagePath: path.relative(command.rootDir, createTaskPackagePath(command.rootDir, result.taskId, action.slug)).split(path.sep).join("/")
     })));
   }
 
@@ -153,16 +172,48 @@ function runCommand(
     });
   }
 
+  if (command.action.kind === "status") {
+    return Effect.sync(() => {
+      const result = checkTaskProjection({ rootDir: command.rootDir });
+      return {
+        ok: result.ok,
+        command: "status",
+        rows: result.rows.length,
+        warnings: result.warnings,
+        projectionPath: path.relative(command.rootDir, result.projectionPath).split(path.sep).join("/"),
+        error: result.ok ? undefined : {
+          code: "status_check_failed",
+          hint: "Harness status has warnings that require attention."
+        }
+      } satisfies CliResult;
+    });
+  }
+
+  if (command.action.kind === "governance-rebuild") {
+    return Effect.sync(() => {
+      const result = rebuildTaskProjection({ rootDir: command.rootDir });
+      return {
+        ok: true,
+        command: "governance-rebuild",
+        rows: result.rows.length,
+        warnings: result.warnings,
+        projectionPath: path.relative(command.rootDir, defaultTaskProjectionPath(command.rootDir)).split(path.sep).join("/")
+      } satisfies CliResult;
+    });
+  }
+
   return Effect.sync(() => {
-    const result = checkTaskProjection({ rootDir: command.rootDir });
+    const result = checkTaskProjection({ rootDir: command.rootDir, postMerge: command.action.kind === "check" && command.action.postMerge });
     return {
       ok: result.ok,
-      command: "check",
+      command: command.action.kind === "check" && command.action.postMerge ? "check --post-merge" : "check",
       rows: result.rows.length,
       warnings: result.warnings,
       error: result.ok ? undefined : {
         code: "projection_check_failed",
-        hint: "Projection cache or markdown source has contract warnings."
+        hint: command.action.kind === "check" && command.action.postMerge
+          ? "Post-merge governance checks found hard-fail warnings."
+          : "Projection cache or markdown source has contract warnings."
       }
     } satisfies CliResult;
   });
@@ -212,6 +263,81 @@ function launchGui(rootDir: string): CliResult {
   };
 }
 
+function initializeHarness(rootDir: string): CliResult {
+  const layout = resolveHarnessLayout(rootDir);
+  for (const directory of [
+    layout.authoredRoot,
+    layout.standardsRoot,
+    layout.contextRoot,
+    path.join(layout.contextRoot, "architecture"),
+    layout.planningRoot,
+    layout.tasksRoot,
+    layout.localRoot,
+    layout.generatedRoot,
+    layout.cacheRoot,
+    layout.writeJournalRoot,
+    layout.payloadsRoot,
+    layout.locksRoot
+  ]) {
+    mkdirSync(directory, { recursive: true });
+  }
+
+  writeIfMissing(path.join(layout.authoredRoot, "harness.yaml"), [
+    "schema: harness-anything/v1",
+    "name: harness-anything",
+    "layout:",
+    "  authoredRoot: harness",
+    "  localRoot: .harness",
+    "tasks:",
+    "  root: harness/planning/tasks",
+    "  idPolicy: random-ulid",
+    ""
+  ].join("\n"));
+  writeIfMissing(path.join(layout.standardsRoot, "repo-governance.md"), [
+    "# Repository Governance",
+    "",
+    "- Authored shared state lives under `harness/`.",
+    "- Generated local state lives under `.harness/` and must remain untracked.",
+    "- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.",
+    ""
+  ].join("\n"));
+  writeIfMissing(path.join(layout.rootDir, "AGENTS.md"), [
+    "# Harness Agent Entry",
+    "",
+    "Read `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.",
+    "",
+    "Generated state under `.harness/` is local-only and must not be committed.",
+    ""
+  ].join("\n"));
+  writeIfMissing(path.join(layout.rootDir, "CLAUDE.md"), [
+    "# Claude Harness Entry",
+    "",
+    "Follow `AGENTS.md` and the shared authored harness under `harness/`.",
+    ""
+  ].join("\n"));
+  ensureGitignoreEntry(path.join(layout.rootDir, ".gitignore"), ".harness/");
+
+  return {
+    ok: true,
+    command: "init",
+    path: "harness/harness.yaml"
+  };
+}
+
+function writeIfMissing(filePath: string, body: string): void {
+  if (existsSync(filePath)) return;
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, body, "utf8");
+}
+
+function ensureGitignoreEntry(filePath: string, entry: string): void {
+  const existing = existsSync(filePath) ? readFileSync(filePath, "utf8") : "";
+  const lines = existing.split(/\r?\n/u).map((line) => line.trim());
+  if (lines.includes(entry)) return;
+  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  writeFileSync(filePath, `${existing}${prefix}${entry}\n`, "utf8");
+}
+
 function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
   const rootDir = readOption(argv, "--root") ?? process.cwd();
   const json = argv.includes("--json");
@@ -220,7 +346,30 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     return arg !== "--json" && arg !== "--root" && previous !== "--root";
   });
 
-  if (args[0] === "new-task" && args[1]) {
+  if (args[0] === "init") {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: { kind: "init" }
+      }
+    };
+  }
+
+  if (args[0] === "new-task") {
+    const migrationMode = args.includes("--migration") || args.includes("--import") || args.includes("--admin");
+    const manualId = readOption(args, "--id") ?? (args[1]?.startsWith("--") ? undefined : args[1]);
+    if (manualId && !migrationMode) {
+      return {
+        ok: false,
+        error: {
+          code: "manual_task_id_forbidden",
+          hint: "Task IDs are generated as random task_<ULID> values. Use --migration, --import, or --admin only for controlled backfills."
+        }
+      };
+    }
+    const title = readOption(args, "--title") ?? manualId ?? "Untitled task";
     return {
       ok: true,
       value: {
@@ -228,8 +377,10 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
         json,
         action: {
           kind: "new-task",
-          taskId: args[1],
-          title: readOption(args, "--title") ?? args[1]
+          taskId: manualId,
+          title,
+          slug: readOption(args, "--slug") ?? slugifyTaskTitle(title),
+          allowManualId: migrationMode
         }
       }
     };
@@ -285,6 +436,19 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     };
   }
 
+  if (args[0] === "status") {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "status"
+        }
+      }
+    };
+  }
+
   if (args[0] === "check") {
     return {
       ok: true,
@@ -292,7 +456,21 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
         rootDir,
         json,
         action: {
-          kind: "check"
+          kind: "check",
+          postMerge: args.includes("--post-merge")
+        }
+      }
+    };
+  }
+
+  if (args[0] === "governance" && args[1] === "rebuild") {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "governance-rebuild"
         }
       }
     };
@@ -386,7 +564,7 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     ok: false,
     error: {
       code: "unknown_command",
-      hint: "Supported commands: new-task, task status set, task progress append, task list, check, gui, template list, template render, preset validate, vertical validate."
+      hint: "Supported commands: init, new-task, task status set, task progress append, task list, status, check, governance rebuild, gui, template list, template render, preset validate, vertical validate."
     }
   };
 }

@@ -13,6 +13,7 @@ import type {
 } from "../ports/artifact-store-writer.ts";
 import type { ArtifactStoreError, EngineId, ExternalRef, TaskId } from "../domain/index.ts";
 import { sha256Text } from "./hash.ts";
+import { createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, resolveHarnessLayout, taskDocumentPath, taskPackagePath, validateTaskIdSyntax } from "../layout/index.ts";
 
 export interface MarkdownArtifactStoreOptions {
   readonly rootDir: string;
@@ -34,7 +35,7 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
       try: () => findBindingByExternalRef(rootDir, engine, ref),
       catch: (cause): ArtifactStoreError => ({
         _tag: "ArtifactReadFailed",
-        path: path.join(rootDir, "tasks"),
+        path: resolveHarnessLayout(rootDir).tasksRoot,
         cause
       })
     })
@@ -69,22 +70,7 @@ export function findBindingByExternalRef(
   engine: EngineId,
   ref: ExternalRef
 ): Option.Option<TaskId> {
-  const tasksDir = path.join(rootDir, "tasks");
-  if (!existsSync(tasksDir)) return Option.none();
-  for (const taskId of readdirSync(tasksDir).sort()) {
-    const indexPath = path.join(tasksDir, taskId, "INDEX.md");
-    if (!existsSync(indexPath)) continue;
-    const frontmatter = readFileSync(indexPath, "utf8").match(/^---\n([\s\S]*?)\n---/u)?.[1] ?? "";
-    if (readScalar(frontmatter, "  engine") === engine && readScalar(frontmatter, "  ref") === ref) {
-      return Option.some(taskId);
-    }
-  }
-  return Option.none();
-}
-
-function readScalar(frontmatter: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return frontmatter.match(new RegExp(`^${escaped}:\\s*(.*)$`, "mu"))?.[1]?.trim() ?? "";
+  return Option.fromNullable(findTaskIdByExternalRef(rootDir, engine, ref));
 }
 
 export function writeDocument(rootDir: string, write: DocumentWrite): ArtifactWriteReceipt {
@@ -158,26 +144,18 @@ function readDocuments(rootPath: string): ReadonlyArray<ArtifactDocument> {
 }
 
 function documentPath(rootDir: string, write: DocumentWrite): string {
-  const safePath = normalizeRelativePath(write.path);
-  return path.join(packagePath(rootDir, write.taskId), safePath);
+  const safePath = normalizeRelativeDocumentPath(write.path);
+  const rootPath = existsSync(taskPackagePath(rootDir, write.taskId))
+    ? taskPackagePath(rootDir, write.taskId)
+    : createTaskPackagePath(rootDir, write.taskId, write.packageSlug);
+  return path.join(rootPath, safePath);
 }
 
 function packagePath(rootDir: string, taskId: TaskId): string {
-  return path.join(rootDir, "tasks", normalizeTaskId(taskId));
+  return taskPackagePath(rootDir, normalizeTaskId(taskId));
 }
 
 function normalizeTaskId(taskId: TaskId): string {
-  if (taskId.length === 0 || taskId.includes("/") || taskId.includes("..")) {
-    throw new Error(`invalid task id: ${taskId}`);
-  }
+  validateTaskIdSyntax(taskId);
   return taskId;
-}
-
-function normalizeRelativePath(value: string): string {
-  if (path.isAbsolute(value)) throw new Error(`absolute paths are not allowed: ${value}`);
-  const normalized = path.normalize(value);
-  if (normalized.startsWith("..") || normalized === ".") {
-    throw new Error(`path must stay inside task package: ${value}`);
-  }
-  return normalized;
 }

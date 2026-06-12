@@ -14,7 +14,7 @@ test("markdown artifact store remains the rebuildable source of truth without SQ
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "task_plan.md", "# Task")));
     Effect.runSync(coordinator.flush("explicit"));
 
-    rmSync(path.join(rootDir, ".projection.sqlite"), { force: true });
+    rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
 
     const store = makeMarkdownArtifactStore({ rootDir });
     const taskPackage = Effect.runSync(store.readTaskPackage("task-1"));
@@ -29,14 +29,14 @@ test("SQLite task projection rebuild is deterministic after cache deletion", () 
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-1", "Task One", "active");
     writeIndex(rootDir, "task-2", "Task Two", "done");
-    writeFileSync(path.join(rootDir, "tasks/task-2/walkthrough.md"), "# Closeout\n");
+    writeFileSync(path.join(rootDir, "harness/planning/tasks/task-2/walkthrough.md"), "# Closeout\n");
 
     const first = rebuildTaskProjection({ rootDir }).rows;
-    rmSync(path.join(rootDir, ".projection.sqlite"), { force: true });
+    rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
     const second = rebuildTaskProjection({ rootDir }).rows;
 
     assert.deepEqual(second, first);
-    assert.equal(second[0]?.sourcePath, "tasks/task-1/INDEX.md");
+    assert.equal(second[0]?.sourcePath, "harness/planning/tasks/task-1/INDEX.md");
     assert.equal(second[0]?.source, "local-document");
     assert.equal(second[1]?.closeoutReadiness, "ready");
   });
@@ -59,7 +59,7 @@ test("generated SQLite edits are reported and rebuilt from markdown truth", () =
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-1", "Task One", "active");
     rebuildTaskProjection({ rootDir });
-    const projectionPath = path.join(rootDir, ".projection.sqlite");
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath);
     try {
       const row = JSON.parse(db.prepare("SELECT row_json FROM task_projection WHERE task_id = ?").get("task-1").row_json as string) as Record<string, unknown>;
@@ -74,7 +74,7 @@ test("generated SQLite edits are reported and rebuilt from markdown truth", () =
     assert.equal(result.ok, false);
     assert.equal(result.rows[0]?.title, "Task One");
     assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
-    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/INDEX.md"), "utf8").includes("Edited In Projection"), false);
+    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8").includes("Edited In Projection"), false);
   });
 });
 
@@ -82,7 +82,7 @@ test("corrupted SQLite projection is reported with a stable warning and rebuilt 
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-1", "Task One", "active");
     rebuildTaskProjection({ rootDir });
-    const projectionPath = path.join(rootDir, ".projection.sqlite");
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath);
     try {
       db.prepare("UPDATE task_projection SET row_json = ? WHERE task_id = ?").run("{bad-json", "task-1");
@@ -100,21 +100,21 @@ test("corrupted SQLite projection is reported with a stable warning and rebuilt 
 
 test("malformed task source is a checker error and not authored by projection reads", () => {
   withTempStore((rootDir) => {
-    mkdirSync(path.join(rootDir, "tasks/bad-task"), { recursive: true });
-    writeFileSync(path.join(rootDir, "tasks/bad-task/INDEX.md"), "# Missing frontmatter\n");
+    mkdirSync(path.join(rootDir, "harness/planning/tasks/bad-task"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/planning/tasks/bad-task/INDEX.md"), "# Missing frontmatter\n");
 
     const result = checkTaskProjection({ rootDir });
 
     assert.equal(result.ok, false);
     assert.equal(result.rows.length, 0);
     assert.equal(result.warnings.some((warning) => warning.code === "source_malformed"), true);
-    assert.equal(readFileSync(path.join(rootDir, "tasks/bad-task/INDEX.md"), "utf8"), "# Missing frontmatter\n");
+    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/bad-task/INDEX.md"), "utf8"), "# Missing frontmatter\n");
   });
 });
 
 function writeIndex(rootDir: string, taskId: string, title: string, status: string): void {
-  mkdirSync(path.join(rootDir, "tasks", taskId), { recursive: true });
-  writeFileSync(path.join(rootDir, "tasks", taskId, "INDEX.md"), [
+  mkdirSync(path.join(rootDir, "harness/planning/tasks", taskId), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/planning/tasks", taskId, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,

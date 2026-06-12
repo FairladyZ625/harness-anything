@@ -1,24 +1,309 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 
-test("CLI creates a local task with stable JSON output", () => {
+test("CLI init creates shared authored harness and ignored local state root", () => {
   withTempRoot((rootDir) => {
-    const result = runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
+    const result = runJson(rootDir, ["init"]);
 
-    assert.deepEqual(result, {
-      ok: true,
-      command: "new-task",
-      taskId: "task-1",
-      status: "planned"
+    assert.equal(result.ok, true);
+    assert.equal(result.path, "harness/harness.yaml");
+    assert.match(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), /idPolicy: random-ulid/);
+    assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /harness\/harness.yaml/);
+    assert.match(readFileSync(path.join(rootDir, ".gitignore"), "utf8"), /^\.harness\/$/m);
+  });
+});
+
+test("CLI creates a local task with generated identity and stable JSON output", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(result.taskId);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "new-task");
+    assert.equal(result.slug, "task-one");
+    assert.equal(result.status, "planned");
+    assert.equal(result.packagePath, `harness/planning/tasks/${taskId}-task-one`);
+    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /engine: local/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"schema":"write-journal\/v1"/);
+  });
+});
+
+test("CLI refuses default manual task IDs", () => {
+  withTempRoot((rootDir) => {
+    const positional = runJson(rootDir, ["new-task", "task-1", "--title", "Task One"], false);
+    const option = runJson(rootDir, ["new-task", "--id", "task-1", "--title", "Task One"], false);
+
+    assert.equal(positional.ok, false);
+    assert.equal(positional.error?.code, "manual_task_id_forbidden");
+    assert.equal(option.ok, false);
+    assert.equal(option.error?.code, "manual_task_id_forbidden");
+  });
+});
+
+test("CLI accepts manual task IDs only in controlled migration mode", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["new-task", "--id", "legacy-task-1", "--migration", "--title", "Imported Task"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.taskId, "legacy-task-1");
+    assert.equal(result.packagePath, "harness/planning/tasks/legacy-task-1-imported-task");
+    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/legacy-task-1-imported-task/INDEX.md"), "utf8"), /task_id: legacy-task-1/);
+  });
+});
+
+test("CLI status set mutates local task state through the write journal", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const result = runJson(rootDir, ["task", "status", "set", taskId, "active"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "active");
+    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /status: active/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
+  });
+});
+
+test("CLI rejects invalid local lifecycle transitions with a stable error code", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const failure = runJson(rootDir, ["task", "status", "set", taskId, "done"], false);
+
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "invalid_transition");
+  });
+});
+
+test("CLI rejects unknown six-state lifecycle values", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const failure = runJson(rootDir, ["task", "status", "set", taskId, "shipping"], false);
+
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "invalid_status");
+  });
+});
+
+test("CLI missing task errors do not leak local root paths", () => {
+  withTempRoot((rootDir) => {
+    const jsonFailure = runJson(rootDir, ["task", "status", "set", "missing-task", "active"], false);
+
+    assert.equal(jsonFailure.ok, false);
+    assert.equal(jsonFailure.error?.code, "task_not_found");
+    assert.equal(JSON.stringify(jsonFailure).includes(rootDir), false);
+
+    const humanFailure = runText(rootDir, ["task", "status", "set", "missing-task", "active"], false);
+    assert.equal(humanFailure.includes(rootDir), false);
+    assert.match(humanFailure, /task not found: missing-task/);
+  });
+});
+
+test("CLI refuses to set status for non-local engine bindings", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "External Task", "active", { engine: "multica", ref: "FAI-1" });
+
+    const failure = runJson(rootDir, ["task", "status", "set", "task-1", "done"], false);
+
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "engine_owns_status");
+  });
+});
+
+test("CLI appends progress through the write journal", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const result = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "Implemented local CLI"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.path, "progress.md");
+    assert.equal(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/progress.md`), "utf8"), "Implemented local CLI\n");
+    const payloadBodies = readdirSync(path.join(rootDir, ".harness/write-journal/payloads"))
+      .map((entry) => readFileSync(path.join(rootDir, ".harness/write-journal/payloads", entry), "utf8"));
+    assert.equal(payloadBodies.some((body) => body.includes("\"path\":\"progress.md\"")), true);
+  });
+});
+
+test("CLI task list reads from rebuildable SQLite projection", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
+
+    const result = runJson(rootDir, ["task", "list"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(Array.isArray(result.tasks), true);
+    assert.equal(result.tasks[0].taskId, taskId);
+    assert.equal(result.tasks[0].canonicalStatus, "planned");
+    assert.equal(result.tasks[0].sourcePath, `harness/planning/tasks/${taskId}-task-one/INDEX.md`);
+    assert.equal(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8").includes("projections.sqlite"), false);
+  });
+});
+
+test("CLI status --json returns local projection health envelope", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["new-task", "--title", "Task One"]);
+
+    const result = runJson(rootDir, ["status"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "status");
+    assert.equal(result.rows, 1);
+    assert.equal(result.projectionPath, ".harness/cache/projections.sqlite");
+  });
+});
+
+test("CLI governance rebuild regenerates projection from authored markdown", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["new-task", "--title", "Task One"]);
+    rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
+
+    const result = runJson(rootDir, ["governance", "rebuild"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "governance-rebuild");
+    assert.equal(result.rows, 1);
+    assert.match(readFileSync(path.join(rootDir, ".harness/cache/projections.sqlite"), "latin1"), /SQLite format 3/);
+  });
+});
+
+test("CLI check reports projection tampering as a stable JSON error", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    runJson(rootDir, ["task", "list"]);
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    execFileSync(process.execPath, ["--input-type=module", "-e", [
+      "import { DatabaseSync } from 'node:sqlite';",
+      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
+      `const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get(${JSON.stringify(taskId)}).row_json);`,
+      "row.title = 'Projection Edit';",
+      `db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), ${JSON.stringify(taskId)});`,
+      "db.close();"
+    ].join("\n")]);
+
+    const result = runJson(rootDir, ["check"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "projection_check_failed");
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(JSON.stringify(result).includes("Projection Edit"), false);
+    assert.equal(JSON.stringify(result).includes(rootDir), false);
+  });
+});
+
+test("CLI task list does not emit tampered SQLite row content as task truth", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    runJson(rootDir, ["task", "list"]);
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    execFileSync(process.execPath, ["--input-type=module", "-e", [
+      "import { DatabaseSync } from 'node:sqlite';",
+      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
+      `const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get(${JSON.stringify(taskId)}).row_json);`,
+      "row.title = 'SQLite Lie';",
+      `db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), ${JSON.stringify(taskId)});`,
+      "db.close();"
+    ].join("\n")]);
+
+    const result = runJson(rootDir, ["task", "list"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.tasks[0].title, "Task One");
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(JSON.stringify(result).includes("SQLite Lie"), false);
+  });
+});
+
+test("CLI check reports corrupted projection without crashing or leaking root", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    runJson(rootDir, ["task", "list"]);
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    execFileSync(process.execPath, ["--input-type=module", "-e", [
+      "import { DatabaseSync } from 'node:sqlite';",
+      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
+      `db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run('{bad-json', ${JSON.stringify(taskId)});`,
+      "db.close();"
+    ].join("\n")]);
+
+    const result = runJson(rootDir, ["check"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "projection_check_failed");
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(JSON.stringify(result).includes(rootDir), false);
+  });
+});
+
+test("CLI check --post-merge reports each hard-fail governance code", () => {
+  const cases: ReadonlyArray<readonly [string, (rootDir: string) => void]> = [
+    ["duplicate_task_id", (rootDir) => {
+      writeIndex(rootDir, "task-a", "A", "planned");
+      writeIndex(rootDir, "task-b", "B", "planned", { taskId: "task-a" });
+    }],
+    ["duplicate_external_binding", (rootDir) => {
+      writeIndex(rootDir, "task-a", "A", "planned", { engine: "multica", ref: "FAI-1" });
+      writeIndex(rootDir, "task-b", "B", "planned", { engine: "multica", ref: "FAI-1" });
+    }],
+    ["generated_tracked", (rootDir) => {
+      execFileSync("git", ["init"], { cwd: rootDir, stdio: "ignore" });
+      writeFileSync(path.join(rootDir, ".projection.sqlite"), "legacy generated", "utf8");
+      execFileSync("git", ["add", ".projection.sqlite"], { cwd: rootDir, stdio: "ignore" });
+    }],
+    ["binding_tampered", (rootDir) => {
+      writeIndex(rootDir, "task-a", "A", "planned", { bindingFingerprint: "sha256:tampered" });
+    }],
+    ["conflict_marker_present", (rootDir) => {
+      mkdirSync(path.join(rootDir, "harness/standards"), { recursive: true });
+      writeFileSync(path.join(rootDir, "harness/standards/repo.md"), "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", "utf8");
+    }],
+    ["dangling_entity_ref", (rootDir) => {
+      writeIndex(rootDir, "task-a", "A", "planned");
+      writeFileSync(path.join(rootDir, "harness/planning/tasks/task-a/relations.md"), "depends on task/missing-task\n", "utf8");
+    }],
+    ["relation_cycle_detected", (rootDir) => {
+      writeIndex(rootDir, "task-a", "A", "planned");
+      writeIndex(rootDir, "task-b", "B", "planned");
+      writeFileSync(path.join(rootDir, "harness/planning/tasks/task-a/relations.md"), "target: task/task-b\n", "utf8");
+      writeFileSync(path.join(rootDir, "harness/planning/tasks/task-b/relations.md"), "target: task/task-a\n", "utf8");
+    }]
+  ];
+
+  for (const [code, arrange] of cases) {
+    withTempRoot((rootDir) => {
+      arrange(rootDir);
+
+      const result = runJson(rootDir, ["check", "--post-merge"], false);
+
+      assert.equal(result.ok, false, code);
+      assert.equal(result.error?.code, "projection_check_failed", code);
+      assert.equal(result.warnings.some((warning) => warning.code === code && warning.severity === "hard-fail" && typeof warning.repairHint === "string"), true, code);
     });
-    assert.match(readFileSync(path.join(rootDir, "tasks/task-1/INDEX.md"), "utf8"), /engine: local/);
-    assert.match(readFileSync(path.join(rootDir, ".journal/writes.jsonl"), "utf8"), /"schema":"write-journal\/v1"/);
+  }
+});
+
+test("CLI check --post-merge does not mistake Markdown setext headings for conflicts", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(path.join(rootDir, "harness/standards"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/standards/repo.md"), "Heading\n=======\n", "utf8");
+
+    const result = runJson(rootDir, ["check", "--post-merge"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.some((warning) => warning.code === "conflict_marker_present"), false);
   });
 });
 
@@ -39,170 +324,55 @@ test("CLI gui command delegates to the local desktop controller without importin
   });
 });
 
-test("CLI status set mutates local task state through the write journal", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
-    const result = runJson(rootDir, ["task", "status", "set", "task-1", "active"]);
+function writeIndex(
+  rootDir: string,
+  directoryName: string,
+  title: string,
+  status: string,
+  options: {
+    readonly taskId?: string;
+    readonly engine?: string;
+    readonly ref?: string;
+    readonly bindingFingerprint?: string;
+  } = {}
+): void {
+  const taskId = options.taskId ?? directoryName;
+  const engine = options.engine ?? "local";
+  const ref = options.ref ?? "";
+  const bindingCreatedAt = "2026-06-12T00:00:00.000Z";
+  const bindingFingerprint = options.bindingFingerprint ?? (engine === "local" && ref === ""
+    ? "sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7"
+    : "sha256:fixture");
+  mkdirSync(path.join(rootDir, "harness/planning/tasks", directoryName), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/planning/tasks", directoryName, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${taskId}`,
+    `title: ${title}`,
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    `  engine: ${engine}`,
+    `  status: ${status}`,
+    `  ref: ${ref}`,
+    `  titleSnapshot: ${title}`,
+    "  url: ",
+    `  bindingCreatedAt: ${bindingCreatedAt}`,
+    `  bindingFingerprint: ${bindingFingerprint}`,
+    "packageDisposition: active",
+    "vertical: default",
+    "preset: default",
+    "---",
+    "",
+    `# ${title}`,
+    ""
+  ].join("\n"), "utf8");
+}
 
-    assert.equal(result.ok, true);
-    assert.equal(result.status, "active");
-    assert.match(readFileSync(path.join(rootDir, "tasks/task-1/INDEX.md"), "utf8"), /status: active/);
-    assert.match(readFileSync(path.join(rootDir, ".journal/watermark.json"), "utf8"), /write-watermark\/v1/);
-  });
-});
-
-test("CLI rejects invalid local lifecycle transitions with a stable error code", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
-    const failure = runJson(rootDir, ["task", "status", "set", "task-1", "done"], false);
-
-    assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "invalid_transition");
-  });
-});
-
-test("CLI missing task errors do not leak local root paths", () => {
-  withTempRoot((rootDir) => {
-    const jsonFailure = runJson(rootDir, ["task", "status", "set", "missing-task", "active"], false);
-
-    assert.equal(jsonFailure.ok, false);
-    assert.equal(jsonFailure.error?.code, "task_not_found");
-    assert.equal(JSON.stringify(jsonFailure).includes(rootDir), false);
-
-    const humanFailure = runText(rootDir, ["task", "status", "set", "missing-task", "active"], false);
-    assert.equal(humanFailure.includes(rootDir), false);
-    assert.match(humanFailure, /task not found: missing-task/);
-  });
-});
-
-test("CLI refuses to set status for non-local engine bindings", () => {
-  withTempRoot((rootDir) => {
-    mkdirSync(path.join(rootDir, "tasks/task-1"), { recursive: true });
-    writeFileSync(path.join(rootDir, "tasks/task-1/INDEX.md"), [
-      "---",
-      "schema: task-package/v2",
-      "task_id: task-1",
-      "title: External Task",
-      "lifecycle:",
-      "  bindingSchema: lifecycle-binding/v1",
-      "  engine: multica",
-      "  status: active",
-      "  ref: FAI-1",
-      "  titleSnapshot: External Task",
-      "  url: ",
-      "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
-      "  bindingFingerprint: sha256:external",
-      "packageDisposition: active",
-      "vertical: default",
-      "preset: default",
-      "---",
-      ""
-    ].join("\n"));
-
-    const failure = runJson(rootDir, ["task", "status", "set", "task-1", "done"], false);
-
-    assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "engine_owns_status");
-  });
-});
-
-test("CLI appends progress through the write journal", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
-    const result = runJson(rootDir, ["task", "progress", "append", "task-1", "--text", "Implemented local CLI"]);
-
-    assert.equal(result.ok, true);
-    assert.equal(result.path, "progress.md");
-    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/progress.md"), "utf8"), "Implemented local CLI\n");
-    const payloadBodies = readdirSync(path.join(rootDir, ".journal/payloads"))
-      .map((entry) => readFileSync(path.join(rootDir, ".journal/payloads", entry), "utf8"));
-    assert.equal(payloadBodies.some((body) => body.includes("\"path\":\"progress.md\"")), true);
-  });
-});
-
-test("CLI task list reads from rebuildable SQLite projection", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
-    rmSync(path.join(rootDir, ".projection.sqlite"), { force: true });
-
-    const result = runJson(rootDir, ["task", "list"]);
-
-    assert.equal(result.ok, true);
-    assert.equal(Array.isArray(result.tasks), true);
-    assert.equal(result.tasks[0].taskId, "task-1");
-    assert.equal(result.tasks[0].canonicalStatus, "planned");
-    assert.equal(result.tasks[0].sourcePath, "tasks/task-1/INDEX.md");
-    assert.equal(readFileSync(path.join(rootDir, "tasks/task-1/INDEX.md"), "utf8").includes(".projection.sqlite"), false);
-  });
-});
-
-test("CLI check reports projection tampering as a stable JSON error", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
-    runJson(rootDir, ["task", "list"]);
-    const projectionPath = path.join(rootDir, ".projection.sqlite");
-    execFileSync(process.execPath, ["--input-type=module", "-e", [
-      "import { DatabaseSync } from 'node:sqlite';",
-      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
-      "const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get('task-1').row_json);",
-      "row.title = 'Projection Edit';",
-      "db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), 'task-1');",
-      "db.close();"
-    ].join("\n")]);
-
-    const result = runJson(rootDir, ["check"], false);
-
-    assert.equal(result.ok, false);
-    assert.equal(result.error?.code, "projection_check_failed");
-    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
-    assert.equal(JSON.stringify(result).includes("Projection Edit"), false);
-    assert.equal(JSON.stringify(result).includes(rootDir), false);
-  });
-});
-
-test("CLI task list does not emit tampered SQLite row content as task truth", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
-    runJson(rootDir, ["task", "list"]);
-    const projectionPath = path.join(rootDir, ".projection.sqlite");
-    execFileSync(process.execPath, ["--input-type=module", "-e", [
-      "import { DatabaseSync } from 'node:sqlite';",
-      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
-      "const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get('task-1').row_json);",
-      "row.title = 'SQLite Lie';",
-      "db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), 'task-1');",
-      "db.close();"
-    ].join("\n")]);
-
-    const result = runJson(rootDir, ["task", "list"]);
-
-    assert.equal(result.ok, true);
-    assert.equal(result.tasks[0].title, "Task One");
-    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
-    assert.equal(JSON.stringify(result).includes("SQLite Lie"), false);
-  });
-});
-
-test("CLI check reports corrupted projection without crashing or leaking root", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["new-task", "task-1", "--title", "Task One"]);
-    runJson(rootDir, ["task", "list"]);
-    const projectionPath = path.join(rootDir, ".projection.sqlite");
-    execFileSync(process.execPath, ["--input-type=module", "-e", [
-      "import { DatabaseSync } from 'node:sqlite';",
-      `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
-      "db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run('{bad-json', 'task-1');",
-      "db.close();"
-    ].join("\n")]);
-
-    const result = runJson(rootDir, ["check"], false);
-
-    assert.equal(result.ok, false);
-    assert.equal(result.error?.code, "projection_check_failed");
-    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), true);
-    assert.equal(JSON.stringify(result).includes(rootDir), false);
-  });
-});
+function assertGeneratedTaskId(value: unknown): string {
+  assert.equal(typeof value, "string");
+  assert.match(value, taskIdPattern);
+  return value;
+}
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-"));
@@ -213,17 +383,17 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
+function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
       env: { ...process.env, ...env }
     });
-    return JSON.parse(stdout) as Record<string, unknown>;
+    return JSON.parse(stdout) as Record<string, any>;
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };
-    return JSON.parse(failure.stdout ?? "{}") as Record<string, unknown>;
+    return JSON.parse(failure.stdout ?? "{}") as Record<string, any>;
   }
 }
 

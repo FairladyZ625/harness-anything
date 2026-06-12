@@ -6,6 +6,7 @@ import { isDomainStatus, isTerminalStatus } from "../../../kernel/src/domain/ind
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/store/hash.ts";
+import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
 
 export interface LocalLifecycleOptions {
   readonly rootDir: string;
@@ -16,6 +17,8 @@ export interface LocalLifecycleOptions {
 export interface CreateLocalTaskInput {
   readonly taskId: TaskId;
   readonly title: string;
+  readonly allowManualId?: boolean;
+  readonly slug?: string;
   readonly vertical?: string;
   readonly preset?: string;
 }
@@ -70,6 +73,9 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
   return {
     createTask: (input) => Effect.gen(function* () {
       validateTaskId(input.taskId);
+      if (!input.allowManualId && !isGeneratedTaskId(input.taskId)) {
+        return yield* Effect.fail({ _tag: "MalformedSnapshot", raw: `task id must be generated: ${input.taskId}` } satisfies EngineError);
+      }
       if (existsSync(indexPath(rootDir, input.taskId))) {
         return yield* Effect.fail({ _tag: "MalformedSnapshot", raw: `task already exists: ${input.taskId}` } satisfies EngineError);
       }
@@ -82,7 +88,7 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
         vertical: input.vertical ?? "default",
         preset: input.preset ?? "default"
       });
-      yield* writeTaskDocument(coordinator, input.taskId, "INDEX.md", renderIndex(index));
+      yield* writeTaskDocument(coordinator, input.taskId, "INDEX.md", renderIndex(index), input.slug);
       return { taskId: input.taskId, status: "planned", engine: "local" } satisfies LocalTaskResult;
     }),
     setStatus: (input) => Effect.gen(function* () {
@@ -121,7 +127,8 @@ function writeTaskDocument(
   coordinator: WriteCoordinator,
   taskId: TaskId,
   documentPath: string,
-  body: string
+  body: string,
+  slug?: string
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
     const opId = `${Date.now()}-${stablePayloadHash({ taskId, documentPath, body }).slice(0, 16)}`;
@@ -131,7 +138,8 @@ function writeTaskDocument(
       kind: "doc_write",
       payload: {
         path: documentPath,
-        body
+        body,
+        ...(slug ? { packageSlug: slug } : {})
       }
     });
     yield* coordinator.flush("explicit");
@@ -229,7 +237,7 @@ function readIndex(rootDir: string, taskId: TaskId): LocalTaskIndex {
 
 function readScalar(frontmatter: string, key: string): string {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const value = frontmatter.match(new RegExp(`^${escaped}:\\s*(.*)$`, "mu"))?.[1];
+  const value = frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"))?.[1];
   if (value === undefined) throw new Error(`frontmatter missing ${key.trim()}`);
   return value.trim();
 }
@@ -249,9 +257,7 @@ function canTransition(from: DomainStatus, to: DomainStatus): boolean {
 }
 
 function validateTaskId(taskId: TaskId): void {
-  if (taskId.length === 0 || taskId.includes("/") || taskId.includes("..")) {
-    throw new Error(`invalid task id: ${taskId}`);
-  }
+  validateTaskIdSyntax(taskId);
 }
 
 function indexPath(rootDir: string, taskId: TaskId): string {
@@ -259,7 +265,7 @@ function indexPath(rootDir: string, taskId: TaskId): string {
 }
 
 function taskDocumentPath(rootDir: string, taskId: TaskId, documentPath: string): string {
-  return path.join(rootDir, "tasks", taskId, documentPath);
+  return harnessTaskDocumentPath(rootDir, taskId, documentPath);
 }
 
 function isNodeErrorCode(error: unknown, code: string): boolean {
