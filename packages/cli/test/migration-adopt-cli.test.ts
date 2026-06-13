@@ -36,139 +36,133 @@ test("CLI adopts Multica tasks locally and rejects duplicate external refs", () 
   });
 });
 
-test("CLI migration plan is readonly and structure apply requires confirmation", () => {
+test("CLI legacy scan and intake-plan are readonly intake evidence", () => {
   withTempRoot((rootDir) => {
-    writeLegacyTask(rootDir, "old-task");
+    writeLegacyTask(rootDir, "old-task", "active");
+    writeLegacyDoc(rootDir, "11-REFERENCE/testing-standard.md", "# Testing Standard\n");
+
+    const scan = runJson(rootDir, ["legacy", "scan", "."]);
+    const plan = runJson(rootDir, ["legacy", "intake-plan", ".", "--out", "legacy-intake.md"]);
+
+    assert.equal(scan.ok, true);
+    assert.equal(scan.command, "legacy-scan");
+    assert.equal(scan.report.schema, "legacy-intake-scan/v1");
+    assert.equal(scan.report.summary.taskCount, 1);
+    assert.equal(scan.report.summary.docCount, 1);
+    assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.storedPath === "harness/legacy/tasks/old-task"), true);
+    assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.recommendedTreatment === "rebuild-required"), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy")), false);
+    assert.equal(plan.path, "legacy-intake.md");
+    assert.match(readFileSync(path.join(rootDir, "legacy-intake.md"), "utf8"), /Legacy Intake Plan/);
+  });
+});
+
+test("CLI legacy copy and index write only under harness legacy storage", () => {
+  withTempRoot((rootDir) => {
+    writeLegacyTask(rootDir, "done-task", "done");
+    writeLegacyModuleTask(rootDir, "auth", "module-task", "active");
+    writeLegacyDoc(rootDir, "11-REFERENCE/testing-standard.md", "# Testing Standard\n");
+
+    const dryRun = runJson(rootDir, ["legacy", "copy-safe-docs", "."]);
+    assert.equal(dryRun.migrationMode, "plan");
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/done-task")), false);
+
+    const copied = runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"]);
+    const indexed = runJson(rootDir, ["legacy", "index", ".", "--apply"]);
+    const verified = runJson(rootDir, ["legacy", "verify"]);
+
+    assert.equal(copied.ok, true);
+    assert.equal(indexed.ok, true);
+    assert.equal(indexed.path, "harness/legacy/index.json");
+    assert.equal(verified.ok, true);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/done-task/task_plan.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/modules/auth/module-task/task_plan.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE/testing-standard.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/done-task")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/modules/auth/tasks/module-task")), false);
+    const index = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/index.json"), "utf8"));
+    assert.equal(index.schema, "legacy-index/v1");
+    assert.equal(index.summary.taskCount, 2);
+    assert.equal(index.summary.rebuildRequiredCount, 1);
+    assert.match(index.entries[0].sourceDigest, /^sha256:[a-f0-9]{64}$/u);
+  });
+});
+
+test("CLI legacy copy blocks collisions in P04 without overwrite", () => {
+  withTempRoot((rootDir) => {
+    writeLegacyTask(rootDir, "old-task", "active");
+    mkdirSync(path.join(rootDir, "harness/legacy/tasks/old-task"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/legacy/tasks/old-task/sentinel.txt"), "keep", "utf8");
+
+    const conflict = runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"], false);
+
+    assert.equal(conflict.ok, false);
+    assert.equal(conflict.error.code, "legacy_collision_requires_p05");
+    assert.equal(readFileSync(path.join(rootDir, "harness/legacy/tasks/old-task/sentinel.txt"), "utf8"), "keep");
+  });
+});
+
+test("CLI legacy verify detects missing, invalid, and valid index states", () => {
+  withTempRoot((rootDir) => {
+    const missing = runJson(rootDir, ["legacy", "verify"], false);
+    assert.equal(missing.error.code, "legacy_index_missing");
+
+    mkdirSync(path.join(rootDir, "harness/legacy"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/legacy/index.json"), "{\"schema\":\"wrong\"}\n", "utf8");
+    const invalid = runJson(rootDir, ["legacy", "verify"], false);
+    assert.equal(invalid.error.code, "legacy_index_invalid");
+
+    rmSync(path.join(rootDir, "harness"), { recursive: true, force: true });
+    writeLegacyTask(rootDir, "old-task", "done");
+    runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"]);
+    runJson(rootDir, ["legacy", "index", ".", "--apply"]);
+    const valid = runJson(rootDir, ["legacy", "verify"]);
+    assert.equal(valid.ok, true);
+    assert.equal(valid.report.summary.taskCount, 1);
+  });
+});
+
+test("CLI migrate aliases now emit Legacy Intake semantics and retire full cutover", () => {
+  withTempRoot((rootDir) => {
+    writeLegacyTask(rootDir, "old-task", "active");
 
     const plan = runJson(rootDir, ["migrate-plan"]);
-    const structurePlan = runJson(rootDir, ["migrate-structure", "--plan"]);
-    const refusedApply = runJson(rootDir, ["migrate-structure", "--apply"], false);
+    const structure = runJson(rootDir, ["migrate-structure", "--apply", "--confirm-plan"]);
+    const run = runJson(rootDir, ["migrate-run", "--plan-only"]);
+    const retired = runJson(rootDir, ["migrate-verify", run.path, "--full-cutover"], false);
 
-    assert.equal(plan.ok, true);
-    assert.equal(plan.report.schema, "harness-migration-plan/v1");
-    assert.equal(plan.report.summary.taskCount, 1);
-    assert.equal(structurePlan.migrationMode, "plan");
+    assert.equal(plan.report.schema, "legacy-intake-scan/v1");
+    assert.equal(plan.warnings[0].code, "migration_alias_legacy_intake");
+    assert.equal(structure.ok, true);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/old-task/task_plan.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/old-task")), false);
-    assert.equal(refusedApply.error.code, "plan_confirmation_required");
+    assert.equal(run.report.schema, "legacy-intake-session/v1");
+    assert.equal(retired.error.code, "full_cutover_retired");
+    assert.equal(retired.report.fullCutover, "retired");
   });
 });
 
-test("CLI migration apply copies legacy tasks and refuses target collisions before writing", () => {
-  withTempRoot((rootDir) => {
-    writeLegacyTask(rootDir, "old-task");
-    mkdirSync(path.join(rootDir, "harness/planning/tasks/old-task"), { recursive: true });
-
-    const conflict = runJson(rootDir, ["migrate-structure", "--apply", "--confirm-plan"], false);
-    assert.equal(conflict.error.code, "migration_preflight_failed");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/old-task/task_plan.md")), false);
-  });
-
-  withTempRoot((rootDir) => {
-    writeLegacyTask(rootDir, "old-task");
-    writeLegacyModuleTask(rootDir, "auth", "auth-old");
-
-    const applied = runJson(rootDir, ["migrate-structure", "--apply", "--confirm-plan"]);
-
-    assert.equal(applied.ok, true);
-    assert.equal(applied.migrationMode, "apply");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/old-task/task_plan.md")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/old-task/walkthrough.md")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/modules/auth/tasks/auth-old/task_plan.md")), true);
-  });
-});
-
-test("CLI migration run writes source-pack session evidence and normal verify", () => {
-  withTempRoot((rootDir) => {
-    writeLegacyTask(rootDir, "old-task");
-
-    const run = runJson(rootDir, ["migrate-run"]);
-    const verify = runJson(rootDir, ["migrate-verify", run.path]);
-    const fullCutover = runJson(rootDir, ["migrate-verify", run.path, "--full-cutover"], false);
-
-    assert.equal(run.ok, true);
-    assert.equal(run.report.schema, "harness-migration-session/v1");
-    assert.match(run.report.sourcePack.digest, /^sha256:/);
-    assert.equal(verify.ok, true);
-    assert.equal(verify.report.fullCutover, false);
-    assert.equal(fullCutover.error.code, "full_cutover_verify_failed");
-    assert.equal(fullCutover.report.fullCutover, true);
-    assert.equal(fullCutover.report.fullCutoverEvidence.ok, false);
-  });
-});
-
-test("CLI full cutover verify requires package and behavior corpus evidence", () => {
-  withTempRoot((rootDir) => {
-    writeLegacyTask(rootDir, "old-task");
-    writeCutoverReadySurface(rootDir);
-
-    const run = runJson(rootDir, ["migrate-run"]);
-    const fullCutover = runJson(rootDir, ["migrate-verify", run.path, "--full-cutover"]);
-
-    assert.equal(fullCutover.ok, true);
-    assert.equal(fullCutover.report.fullCutover, true);
-    assert.equal(fullCutover.report.fullCutoverEvidence.ok, true);
-    assert.equal(fullCutover.report.fullCutoverEvidence.packageReleaseDecision.publishState, "not-published");
-    assert.equal(fullCutover.report.fullCutoverEvidence.behaviorCorpus.needsDecision, 0);
-  });
-});
-
-function writeLegacyTask(rootDir: string, id: string): void {
+function writeLegacyTask(rootDir: string, id: string, status: string): void {
   const taskDir = path.join(rootDir, "docs/09-PLANNING/TASKS", id);
-  mkdirSync(taskDir, { recursive: true });
-  writeFileSync(path.join(taskDir, "task_plan.md"), `# ${id}\n\nTask Contract: harness-task/v1\n`, "utf8");
+  writeTaskPackage(taskDir, id, status);
 }
 
-function writeLegacyModuleTask(rootDir: string, moduleKey: string, id: string): void {
+function writeLegacyModuleTask(rootDir: string, moduleKey: string, id: string, status: string): void {
   const taskDir = path.join(rootDir, "docs/09-PLANNING/MODULES", moduleKey, "TASKS", id);
+  writeTaskPackage(taskDir, id, status);
+}
+
+function writeTaskPackage(taskDir: string, id: string, status: string): void {
   mkdirSync(taskDir, { recursive: true });
-  writeFileSync(path.join(taskDir, "task_plan.md"), `# ${id}\n`, "utf8");
+  writeFileSync(path.join(taskDir, "INDEX.md"), `---\ntitle: ${id}\nstatus: ${status}\n---\n# ${id}\n`, "utf8");
+  writeFileSync(path.join(taskDir, "task_plan.md"), `# ${id}\n\nTask Contract: harness-task/v1\n`, "utf8");
+  writeFileSync(path.join(taskDir, "progress.md"), `${id} progress\n`, "utf8");
 }
 
-function writeCutoverReadySurface(rootDir: string): void {
-  writePackage(rootDir, "package.json", { name: "harness-anything", private: true });
-  writePackage(rootDir, "packages/kernel/package.json", { name: "@harness-anything/kernel", version: "0.0.0", private: true });
-  writePackage(rootDir, "packages/application/package.json", { name: "@harness-anything/application", version: "0.0.0", private: true });
-  writePackage(rootDir, "packages/gui/package.json", { name: "@harness-anything/gui", version: "0.0.0", private: true });
-  writePackage(rootDir, "packages/adapters/local/package.json", { name: "@harness-anything/adapter-local", version: "0.0.0", private: true });
-  writePackage(rootDir, "packages/adapters/multica/package.json", { name: "@harness-anything/adapter-multica", version: "0.0.0", private: true });
-  writePackage(rootDir, "packages/adapters/github-issues/package.json", { name: "@harness-anything/adapter-github-issues", version: "0.0.0", private: true });
-  writePackage(rootDir, "packages/adapters/linear/package.json", { name: "@harness-anything/adapter-linear", version: "0.0.0", private: true });
-  writePackage(rootDir, "packages/cli/package.json", {
-    name: "@harness-anything/cli",
-    version: "0.0.0",
-    private: true,
-    bin: { "harness-anything": "./dist/cli/src/index.js" },
-    exports: { ".": "./dist/cli/src/index.js" }
-  });
-
-  const cutoverDir = path.join(rootDir, "tools/cutover");
-  mkdirSync(cutoverDir, { recursive: true });
-  writeFileSync(path.join(cutoverDir, "behavior-corpus-classification.json"), JSON.stringify({
-    schema: "harness-anything-behavior-corpus-classification/v1",
-    scope: "M2 final cutover",
-    publishState: "not-published",
-    categories: {
-      preserve: 7,
-      "intentional-change": 5,
-      "old-bug": 1,
-      "unsupported-input": 2,
-      "needs-decision": 0
-    },
-    items: [
-      ...Array.from({ length: 7 }, (_, index) => ({ classification: "preserve", summary: `preserve ${index}` })),
-      ...Array.from({ length: 5 }, (_, index) => ({ classification: "intentional-change", summary: `intentional ${index}` })),
-      { classification: "old-bug", summary: "old compatibility promise" },
-      { classification: "unsupported-input", summary: "conflicting legacy tree" },
-      { classification: "unsupported-input", summary: "npm publishing deferred" }
-    ]
-  }), "utf8");
-  writeFileSync(path.join(cutoverDir, "behavior-corpus-classification.md"), "# Behavior Corpus Classification\n", "utf8");
-}
-
-function writePackage(rootDir: string, relativePath: string, packageJson: Record<string, any>): void {
-  const fullPath = path.join(rootDir, relativePath);
+function writeLegacyDoc(rootDir: string, relativePath: string, body: string): void {
+  const fullPath = path.join(rootDir, "docs", relativePath);
   mkdirSync(path.dirname(fullPath), { recursive: true });
-  writeFileSync(fullPath, JSON.stringify(packageJson), "utf8");
+  writeFileSync(fullPath, body, "utf8");
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {

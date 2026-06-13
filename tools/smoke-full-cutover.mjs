@@ -1,38 +1,58 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
 const cli = path.join(root, "packages/cli/src/index.ts");
+const smokeRoot = path.join(root, ".harness/generated/full-cutover-smoke-root");
 const outDir = ".harness/generated/full-cutover-smoke";
 
 function runJson(args) {
-  const output = execFileSync(process.execPath, [cli, ...args, "--root", root, "--json"], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  return JSON.parse(output);
+  try {
+    const output = execFileSync(process.execPath, [cli, ...args, "--root", smokeRoot, "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    return JSON.parse(output);
+  } catch (error) {
+    const failure = error;
+    const body = failure.stdout && failure.stdout.toString().trim().length > 0
+      ? failure.stdout.toString()
+      : failure.stderr?.toString() ?? "";
+    return JSON.parse(body);
+  }
 }
 
 try {
-  rmSync(path.join(root, outDir), { recursive: true, force: true });
+  rmSync(smokeRoot, { recursive: true, force: true });
+  const legacyTask = path.join(smokeRoot, "docs/09-PLANNING/TASKS/smoke-task");
+  mkdirSync(legacyTask, { recursive: true });
+  writeFileSync(path.join(legacyTask, "INDEX.md"), "---\ntitle: Smoke Task\nstatus: done\n---\n# Smoke Task\n", "utf8");
+  writeFileSync(path.join(legacyTask, "task_plan.md"), "# Smoke Task\n", "utf8");
+
   const run = runJson(["migrate-run", "--plan-only", "--out-dir", outDir]);
-  if (run.ok !== true || run.report?.schema !== "harness-migration-session/v1") {
-    throw new Error("migrate-run did not produce a migration session");
+  if (run.ok !== true || run.report?.schema !== "legacy-intake-session/v1") {
+    throw new Error("migrate-run did not produce a Legacy Intake session");
   }
 
   const verify = runJson(["migrate-verify", run.path, "--full-cutover"]);
-  if (verify.ok !== true || verify.report?.fullCutoverEvidence?.ok !== true) {
-    throw new Error("full-cutover verify did not accept real repository evidence");
+  if (verify.ok !== false || verify.error?.code !== "full_cutover_retired") {
+    throw new Error("migrate-verify --full-cutover must be retired");
   }
 
-  const itemCount = verify.report.fullCutoverEvidence.behaviorCorpus.itemCount;
-  if (itemCount < 15) throw new Error(`behavior corpus too small: ${itemCount}`);
+  const copy = runJson(["legacy", "copy-safe-docs", ".", "--apply"]);
+  if (copy.ok !== true) throw new Error("legacy copy-safe-docs smoke failed");
+  const index = runJson(["legacy", "index", ".", "--apply"]);
+  if (index.ok !== true) throw new Error("legacy index smoke failed");
+  const legacyVerify = runJson(["legacy", "verify"]);
+  if (legacyVerify.ok !== true || legacyVerify.report?.summary?.entryCount === undefined) {
+    throw new Error("legacy verify did not accept current Legacy Intake index");
+  }
 
-  console.log(`Full cutover smoke passed with ${itemCount} behavior corpus items.`);
+  console.log(`Full cutover smoke retired; Legacy Intake verify passed with ${legacyVerify.report.summary.entryCount} entries.`);
 } finally {
-  rmSync(path.join(root, outDir), { recursive: true, force: true });
+  rmSync(smokeRoot, { recursive: true, force: true });
 }

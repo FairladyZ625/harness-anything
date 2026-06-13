@@ -93,6 +93,26 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
     };
   }
 
+  if (args[0] === "legacy" && args[1] === "scan" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "legacy-scan", sourcePath: args[2] } } };
+  }
+
+  if (args[0] === "legacy" && args[1] === "intake-plan" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "legacy-intake-plan", sourcePath: args[2], outPath: readOption(args, "--out") } } };
+  }
+
+  if (args[0] === "legacy" && args[1] === "copy-safe-docs" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "legacy-copy-safe-docs", sourcePath: args[2], apply: args.includes("--apply") } } };
+  }
+
+  if (args[0] === "legacy" && args[1] === "index" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "legacy-index", sourcePath: args[2], apply: args.includes("--apply") } } };
+  }
+
+  if (args[0] === "legacy" && args[1] === "verify") {
+    return { ok: true, value: { rootDir, json, action: { kind: "legacy-verify" } } };
+  }
+
   return null;
 }
 

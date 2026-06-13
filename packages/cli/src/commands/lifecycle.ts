@@ -14,7 +14,7 @@ import { runLessonPromote, runLessonSediment } from "./lesson.ts";
 import { runAdoptMultica, runSnapshotMultica } from "./adopt.ts";
 import { runDoctor } from "./doctor.ts";
 import { runGitDiffEvidence } from "./git-diff.ts";
-import { runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
+import { runLegacyCopySafeDocs, runLegacyIndex, runLegacyIntakePlan, runLegacyScan, runLegacyVerify, runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
@@ -193,6 +193,26 @@ export function runCommand(
   if (command.action.kind === "migrate-verify") {
     const action = command.action;
     return Effect.sync(() => runMigrateVerify(command.rootDir, action));
+  }
+  if (command.action.kind === "legacy-scan") {
+    const action = command.action;
+    return Effect.sync(() => runLegacyScan(command.rootDir, action));
+  }
+  if (command.action.kind === "legacy-intake-plan") {
+    const action = command.action;
+    return Effect.sync(() => runLegacyIntakePlan(command.rootDir, action));
+  }
+  if (command.action.kind === "legacy-copy-safe-docs") {
+    const action = command.action;
+    return Effect.sync(() => runLegacyCopySafeDocs(command.rootDir, action));
+  }
+  if (command.action.kind === "legacy-index") {
+    const action = command.action;
+    return Effect.sync(() => runLegacyIndex(command.rootDir, action));
+  }
+  if (command.action.kind === "legacy-verify") {
+    const action = command.action;
+    return Effect.sync(() => runLegacyVerify(command.rootDir, action));
   }
 
   if (command.action.kind === "git-diff") {

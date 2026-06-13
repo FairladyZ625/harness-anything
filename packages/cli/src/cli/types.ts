@@ -89,7 +89,12 @@ export interface ParsedCommand {
     | { readonly kind: "migrate-plan"; readonly limit: number }
     | { readonly kind: "migrate-structure"; readonly mode: "plan" | "apply"; readonly confirmPlan: boolean }
     | { readonly kind: "migrate-run"; readonly planOnly: boolean; readonly outDir: string }
-    | { readonly kind: "migrate-verify"; readonly sessionPath: string; readonly fullCutover: boolean }
+    | { readonly kind: "migrate-verify"; readonly sessionPath?: string; readonly fullCutover: boolean }
+    | { readonly kind: "legacy-scan"; readonly sourcePath: string }
+    | { readonly kind: "legacy-intake-plan"; readonly sourcePath: string; readonly outPath?: string }
+    | { readonly kind: "legacy-copy-safe-docs"; readonly sourcePath: string; readonly apply: boolean }
+    | { readonly kind: "legacy-index"; readonly sourcePath: string; readonly apply: boolean }
+    | { readonly kind: "legacy-verify" }
     | { readonly kind: "git-diff"; readonly baseRef?: string }
     | { readonly kind: "doctor" }
     | { readonly kind: "gui" }
