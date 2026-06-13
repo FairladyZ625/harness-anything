@@ -1,6 +1,6 @@
 # M2 Coding Vertical
 
-Status: M2 complete, package release deferred; final-cutover evidence is historical and deprecated for future strategy
+Status: M2 complete, package release deferred; the former `--full-cutover` flag is retired historical evidence only
 
 ## Install From This Repository
 
@@ -49,6 +49,23 @@ harness status --json
 harness check --post-merge --json
 ```
 
+For coding vertical dogfood, create new work through the vertical/preset surface:
+
+```bash
+harness new-task --title "Implement slice" --vertical software/coding --preset standard-task --json
+harness new-task --title "Implement module slice" --vertical software/coding --preset module --module billing --json
+```
+
+Project defaults can provide the same coding vertical and preset choices, but
+the explicit flags above are the portable command surface for agents and tests.
+
+Complete ordinary work through the terminal closeout command after review, CI,
+and local checks are ready:
+
+```bash
+harness task-complete <task-id> --ci passed --reviewer <reviewer-id> --json
+```
+
 Task package commands:
 
 ```bash
@@ -74,7 +91,15 @@ harness git-diff --json
 M2 shipped migration evidence commands, but the project strategy changed after
 M2: future releases should treat old task packages as legacy evidence, not as
 input for automatic task-package conversion. Use Legacy Intake and rebuild
-unfinished work as new tasks with provenance.
+unfinished work as new tasks with provenance:
+
+```bash
+harness legacy scan <legacy-root> --json
+harness legacy copy-safe-docs <legacy-root> --apply --json
+harness legacy index <legacy-root> --apply --json
+harness legacy verify --json
+harness new-task --from-legacy <legacy-id> --json
+```
 
 `createdBy` is optional task audit metadata sourced from local Git
 `user.name`/`user.email` when available. It is not task status, package

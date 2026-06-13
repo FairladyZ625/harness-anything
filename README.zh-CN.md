@@ -84,6 +84,21 @@ node packages/cli/src/index.ts --root /path/to/project --json status
 node packages/cli/src/index.ts --root /path/to/project --json check --post-merge
 ```
 
+当前 coding-agent dogfood 使用 coding vertical 和 preset surface 创建新任务，
+再通过 review/CI closeout gate 完成任务：
+
+```bash
+node packages/cli/src/index.ts --root /path/to/project --json new-task --title "Implement slice" --vertical software/coding --preset standard-task
+node packages/cli/src/index.ts --root /path/to/project --json task-complete <task-id> --ci passed --reviewer <reviewer-id>
+```
+
+未完成的旧任务状态只作为 Legacy Intake 证据处理。把它带 provenance
+重建成新的 Harness 任务，不承诺自动批量转换：
+
+```bash
+node packages/cli/src/index.ts --root /path/to/project --json new-task --from-legacy <legacy-id>
+```
+
 公开提交前运行完整仓库检查：
 
 ```bash
@@ -126,7 +141,7 @@ Private planning、architecture、review state 和 task ledger 位于 public doc
 
 ## Roadmap
 
-**M2 - coding vertical cutover**
+**M2 - coding vertical workflow**
 
 - [x] Kernel、CLI、package layout、governance checks、behavior corpus 和 Legacy Intake readiness evidence。
 - [x] Legacy Intake 和 private CLI package artifact 的本地 smoke 覆盖。

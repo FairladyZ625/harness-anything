@@ -66,7 +66,7 @@ The product model is intentionally composable:
 - A TypeScript monorepo with kernel, CLI, GUI, application, and adapter
   packages.
 - A governance surface for checking task packages, file complexity, import
-  boundaries, private/public boundaries, schema contracts, and cutover
+  boundaries, private/public boundaries, schema contracts, and Legacy Intake
   readiness.
 - A supply-chain release gate for high-severity npm advisories and CycloneDX
   SBOM generation.
@@ -110,6 +110,21 @@ node packages/cli/src/index.ts --root /path/to/project --json init
 node packages/cli/src/index.ts --root /path/to/project --json new-task --title "First task"
 node packages/cli/src/index.ts --root /path/to/project --json status
 node packages/cli/src/index.ts --root /path/to/project --json check --post-merge
+```
+
+For current coding-agent dogfood, create new work with the coding vertical and
+preset surface, then complete it through the review/CI closeout gate:
+
+```bash
+node packages/cli/src/index.ts --root /path/to/project --json new-task --title "Implement slice" --vertical software/coding --preset standard-task
+node packages/cli/src/index.ts --root /path/to/project --json task-complete <task-id> --ci passed --reviewer <reviewer-id>
+```
+
+Unfinished old task state is treated as Legacy Intake evidence. Rebuild it into
+a new Harness task with provenance instead of expecting bulk conversion:
+
+```bash
+node packages/cli/src/index.ts --root /path/to/project --json new-task --from-legacy <legacy-id>
 ```
 
 Run the full repository check before public commits:
@@ -158,7 +173,7 @@ Expect breaking changes while the public package surface stabilizes.
 
 ## Roadmap
 
-**M2 - coding vertical cutover**
+**M2 - coding vertical workflow**
 
 - [x] Kernel, CLI, package layout, governance checks, behavior corpus, and
   Legacy Intake readiness evidence.

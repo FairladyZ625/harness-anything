@@ -117,6 +117,45 @@ test("Legacy Intake readiness rejects forbidden runtime APIs in public markdown"
   });
 });
 
+test("Legacy Intake readiness rejects active cutover guidance in public markdown", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFileSync(path.join(root, "README.md"), [
+      "## Roadmap",
+      "",
+      "M2 - coding vertical cutover",
+      "",
+      "Run harness migrate-verify session.json --full-cutover --json as the release gate.",
+      ""
+    ].join("\n"));
+
+    const violations = await evaluateLegacyIntakeReadiness(root);
+
+    assert.equal(violations.some((violation) => violation.includes("README.md") && violation.includes("active guidance")), true);
+    assert.equal(violations.some((violation) => violation.includes("README.md:5") && violation.includes("without historical/deprecated context")), true);
+  });
+});
+
+test("Legacy Intake readiness allows explicitly historical full-cutover evidence in public markdown", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFileSync(path.join(root, "README.md"), [
+      "# Historical Final Cutover Evidence",
+      "",
+      "Historical M2 evidence used the now-retired full-cutover flag:",
+      "",
+      "```bash",
+      "harness migrate-verify session.json --full-cutover --json",
+      "```",
+      "",
+      "Future work should not use full cutover as an exit gate.",
+      ""
+    ].join("\n"));
+
+    const violations = await evaluateLegacyIntakeReadiness(root);
+
+    assert.deepEqual(violations, []);
+  });
+});
+
 test("Legacy Intake readiness rejects retired runtime paths in GitHub workflow config", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, ".github/workflows"), { recursive: true });

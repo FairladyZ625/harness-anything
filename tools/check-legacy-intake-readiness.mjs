@@ -31,6 +31,13 @@ const publicCompatibilityPatterns = [
   /\bautomatic migration\b/u,
   /\bauto-migration\b/u
 ];
+const activeCutoverGuidancePatterns = [
+  /\bcoding vertical cutover\b/iu,
+  /\bcutover readiness\b/iu
+];
+const fullCutoverMentionPattern = /(?:--full-cutover|\bfull[- ]cutover\b|\bfinal[- ]cutover\b)/iu;
+const allowedHistoricalCutoverContextPattern =
+  /\b(?:historical|deprecated|retired|former|rejection path|not active|should not use|not use|not as an active)\b/iu;
 const retiredPackageScriptGatePatterns = [
   /\bcheck-cutover-readiness\b/u,
   /\bsmoke-full-cutover\b/u,
@@ -144,6 +151,25 @@ async function checkPublicText(root, violations) {
         break;
       }
     }
+    for (const pattern of activeCutoverGuidancePatterns) {
+      if (pattern.test(text)) {
+        violations.push(`${rel}: public text appears to present cutover as active guidance`);
+        break;
+      }
+    }
+    checkFullCutoverPublicGuidance(rel, text, violations);
+  }
+}
+
+function checkFullCutoverPublicGuidance(rel, text, violations) {
+  const lines = text.split(/\r?\n/u);
+  for (const [index, line] of lines.entries()) {
+    if (!fullCutoverMentionPattern.test(line)) continue;
+    const contextStart = Math.max(0, index - 5);
+    const contextEnd = Math.min(lines.length, index + 2);
+    const context = lines.slice(contextStart, contextEnd).join("\n");
+    if (allowedHistoricalCutoverContextPattern.test(context)) continue;
+    violations.push(`${rel}:${index + 1}: public text mentions full cutover without historical/deprecated context`);
   }
 }
 

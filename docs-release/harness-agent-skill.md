@@ -1,11 +1,11 @@
 # Harness Agent Skill
 
-Status: M2 usable workflow
+Status: M2.5 usable workflow
 
 ## Rules
 
 1. Read `harness/harness.yaml` and the task `INDEX.md` before changing task state.
-2. Local task state is owned by Harness commands. Use `harness task status set`, `harness task progress append`, `harness task archive`, `harness task supersede`, `harness task delete`, and `harness task reopen`.
+2. Local task state is owned by Harness commands. Use `harness task progress append`, `harness task archive`, `harness task supersede`, `harness task delete`, `harness task reopen`, and `harness task-complete`.
 3. External engine task state is read-only in Harness. Change status in the owning engine, then use `harness check` locally.
 4. Do not edit `task_id`, `lifecycle.binding*`, or generated `.harness/` files by hand.
 5. Use `harness task supersede` for follow-up work after `done` or `cancelled`; do not reopen terminal work.
@@ -25,9 +25,26 @@ harness check --post-merge --json
 For new local work:
 
 ```bash
-harness new-task --title "Task title" --json
-harness task status set <task-id> active --json
+harness new-task --title "Task title" --vertical software/coding --preset standard-task --json
 harness task progress append <task-id> --text "Progress note" --json
+harness task-complete <task-id> --ci passed --reviewer <reviewer-id> --json
+```
+
+For module-scoped coding work:
+
+```bash
+harness new-task --title "Module task" --vertical software/coding --preset module --module <module-key> --json
+```
+
+For unfinished legacy work, keep the legacy state as evidence and rebuild a new
+Harness task with provenance:
+
+```bash
+harness legacy scan <legacy-root> --json
+harness legacy copy-safe-docs <legacy-root> --apply --json
+harness legacy index <legacy-root> --apply --json
+harness legacy verify --json
+harness new-task --from-legacy <legacy-id> --json
 ```
 
 For external read-only adoption:
