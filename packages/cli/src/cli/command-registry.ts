@@ -23,6 +23,7 @@ export const commandRegistry = [
   { kind: "migrate-structure", primary: "harness migrate-structure (--plan|--apply --confirm-plan) [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "migrate-run", primary: "harness migrate-run [--plan-only] [--out-dir folder] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "migrate-verify", primary: "harness migrate-verify <session.json> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "git-diff", primary: "harness git-diff [--base <ref>] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-list", primary: "harness preset list [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-inspect", primary: "harness preset inspect <id> [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-check", primary: "harness preset check <id> [--json]", resultEnvelope: "CliResult/v1" },

@@ -11,6 +11,7 @@ import { runCheckProfile } from "./check.ts";
 import { runGovernanceRebuild } from "./governance.ts";
 import { runLessonPromote, runLessonSediment } from "./lesson.ts";
 import { runAdoptMultica, runSnapshotMultica } from "./adopt.ts";
+import { runGitDiffEvidence } from "./git-diff.ts";
 import { runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
@@ -195,6 +196,11 @@ export function runCommand(
   if (command.action.kind === "migrate-verify") {
     const action = command.action;
     return Effect.sync(() => runMigrateVerify(command.rootDir, action));
+  }
+
+  if (command.action.kind === "git-diff") {
+    const action = command.action;
+    return Effect.sync(() => runGitDiffEvidence(command.rootDir, action.baseRef));
   }
 
   if (command.action.kind === "task-review") {

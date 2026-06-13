@@ -78,7 +78,8 @@ export function taskEntryToRow(rootDir: string, entry: TaskSourceEntry): TaskPro
     freshness: canonicalStatus === "unknown" || !isPackageDisposition(rawDisposition) ? "stale-but-usable" : "fresh",
     updatedAt: statSync(entry.indexPath).mtime.toISOString(),
     source: lifecycleEngine === "local" ? "local-document" : "external-engine",
-    sourcePath: source
+    sourcePath: source,
+    ...readCreatedBy(entry.frontmatter)
   };
 }
 
@@ -91,6 +92,19 @@ function parseFrontmatter(body: string): string {
 export function readScalar(frontmatter: string, key: string): string {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   return frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
+}
+
+function readCreatedBy(frontmatter: string): { readonly createdBy?: { readonly name: string; readonly email: string } } {
+  const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
+  if (!block) return {};
+  const name = readNestedScalar(block, "name");
+  const email = readNestedScalar(block, "email");
+  return name && email ? { createdBy: { name, email } } : {};
+}
+
+function readNestedScalar(block: string, key: string): string {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return block.match(new RegExp(`^[ \\t]+${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
 }
 
 function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStatus {

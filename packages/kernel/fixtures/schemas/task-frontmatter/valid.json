@@ -14,5 +14,9 @@
   },
   "packageDisposition": "active",
   "vertical": "software/coding",
-  "preset": "standard-task"
+  "preset": "standard-task",
+  "createdBy": {
+    "name": "Harness User",
+    "email": "harness@example.com"
+  }
 }

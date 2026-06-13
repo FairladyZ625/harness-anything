@@ -19,6 +19,11 @@ export type ProjectionWarningCode =
   | "dangling_entity_ref"
   | "relation_cycle_detected";
 
+export interface TaskCreatedBy {
+  readonly name: string;
+  readonly email: string;
+}
+
 export interface TaskProjectionRow {
   readonly schema: "sqlite-task-row/v1";
   readonly taskId: string;
@@ -33,6 +38,7 @@ export interface TaskProjectionRow {
   readonly updatedAt: string;
   readonly source: ProjectionSource;
   readonly sourcePath: string;
+  readonly createdBy?: TaskCreatedBy;
 }
 
 export interface ProjectionWarning {

@@ -8,6 +8,10 @@ import type { WriteOpKind } from "../../../kernel/src/ports/write-coordinator.ts
 import { makeJournaledWriteCoordinator, type JournalActor } from "../../../kernel/src/store/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/store/hash.ts";
 import { isGeneratedTaskId, resolveHarnessLayout, taskDocumentPath as harnessTaskDocumentPath, taskPackagePath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
+import { resolveTaskCreatedBy, type TaskCreatedBy } from "./created-by.ts";
+
+export { collectGitDiffEvidence } from "./git-diff-evidence.ts";
+export type { GitDiffEvidenceFile, GitDiffEvidenceOptions, GitDiffEvidenceReport } from "./git-diff-evidence.ts";
 
 export interface LocalLifecycleOptions {
   readonly rootDir: string;
@@ -27,6 +31,7 @@ export interface CreateLocalTaskInput {
   readonly slug?: string;
   readonly vertical?: string;
   readonly preset?: string;
+  readonly createdBy?: TaskCreatedBy;
 }
 
 export interface SetLocalStatusInput {
@@ -109,6 +114,7 @@ interface LocalTaskIndex {
   readonly packageDisposition: "active" | "archived" | "tombstoned";
   readonly vertical: string;
   readonly preset: string;
+  readonly createdBy?: TaskCreatedBy;
 }
 
 export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalLifecycleEngine {
@@ -126,13 +132,15 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
         return yield* Effect.fail({ _tag: "MalformedSnapshot", raw: `task already exists: ${input.taskId}` } satisfies EngineError);
       }
       const bindingCreatedAt = clock().toISOString();
+      const createdBy = resolveTaskCreatedBy(rootDir, input.createdBy);
       const index = makeIndex({
         taskId: input.taskId,
         title: input.title,
         status: "planned",
         bindingCreatedAt,
         vertical: input.vertical ?? "default",
-        preset: input.preset ?? "default"
+        preset: input.preset ?? "default",
+        createdBy
       });
       yield* writeTaskDocument(coordinator, input.taskId, "INDEX.md", renderIndex(index), {
         kind: "package_create",
@@ -185,13 +193,15 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
       }
       const oldIndex = yield* readIndexEffect(rootDir, input.oldTaskId);
       const bindingCreatedAt = clock().toISOString();
+      const createdBy = resolveTaskCreatedBy(rootDir);
       const newIndex = makeIndex({
         taskId: input.newTaskId,
         title: input.title,
         status: "planned",
         bindingCreatedAt,
         vertical: oldIndex.vertical,
-        preset: oldIndex.preset
+        preset: oldIndex.preset,
+        createdBy
       });
       const archivedOld = { ...oldIndex, packageDisposition: "archived" as const };
       const relationBody = renderSupersedesRelation(input.newTaskId, input.oldTaskId, input.reason);
@@ -329,6 +339,7 @@ function makeIndex(input: {
   readonly bindingCreatedAt: string;
   readonly vertical: string;
   readonly preset: string;
+  readonly createdBy?: TaskCreatedBy;
 }): LocalTaskIndex {
   const fingerprint = stablePayloadHash({
     engine: "local",
@@ -347,7 +358,8 @@ function makeIndex(input: {
     bindingFingerprint: `sha256:${fingerprint}`,
     packageDisposition: "active",
     vertical: input.vertical,
-    preset: input.preset
+    preset: input.preset,
+    ...(input.createdBy ? { createdBy: input.createdBy } : {})
   };
 }
 
@@ -369,6 +381,11 @@ function renderIndex(index: LocalTaskIndex, reason?: string): string {
     `packageDisposition: ${index.packageDisposition}`,
     `vertical: ${index.vertical}`,
     `preset: ${index.preset}`,
+    ...(index.createdBy ? [
+      "createdBy:",
+      `  name: ${index.createdBy.name}`,
+      `  email: ${index.createdBy.email}`
+    ] : []),
     "---",
     "",
     `# ${index.title}`,
@@ -411,7 +428,8 @@ function readIndex(rootDir: string, taskId: TaskId): LocalTaskIndex {
     bindingFingerprint: readScalar(frontmatter, "  bindingFingerprint"),
     packageDisposition: readPackageDisposition(frontmatter),
     vertical: readScalar(frontmatter, "vertical"),
-    preset: readScalar(frontmatter, "preset")
+    preset: readScalar(frontmatter, "preset"),
+    ...readCreatedBy(frontmatter)
   };
 }
 
@@ -424,6 +442,19 @@ function readScalar(frontmatter: string, key: string): string {
 
 function nullIfEmpty(value: string): string | null {
   return value.length === 0 ? null : value;
+}
+
+function readCreatedBy(frontmatter: string): { readonly createdBy?: TaskCreatedBy } {
+  const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
+  if (!block) return {};
+  const name = readOptionalNestedScalar(block, "name");
+  const email = readOptionalNestedScalar(block, "email");
+  return name && email ? { createdBy: { name, email } } : {};
+}
+
+function readOptionalNestedScalar(block: string, key: string): string {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return block.match(new RegExp(`^[ \\t]+${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
 }
 
 function readPackageDisposition(frontmatter: string): LocalTaskIndex["packageDisposition"] {
