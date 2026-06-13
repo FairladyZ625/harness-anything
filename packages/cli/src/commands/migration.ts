@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { CliResult } from "../cli/types.ts";
+import { evaluateFullCutoverEvidence } from "./full-cutover.ts";
 
 export interface MigratePlanAction {
   readonly kind: "migrate-plan";
@@ -23,6 +24,7 @@ export interface MigrateRunAction {
 export interface MigrateVerifyAction {
   readonly kind: "migrate-verify";
   readonly sessionPath: string;
+  readonly fullCutover: boolean;
 }
 
 interface MigrationAction {
@@ -130,7 +132,9 @@ export function runMigrateVerify(rootDir: string, action: MigrateVerifyAction): 
     .filter((entry) => entry.kind !== "template-remove")
     .filter((entry) => !existsSync(path.join(rootDir, entry.target)));
   const digestOk = session.sourcePack.digest === digestJson(session.actions);
-  const ok = missing.length === 0 && digestOk;
+  const migrationOk = missing.length === 0 && digestOk;
+  const fullCutoverEvidence = action.fullCutover ? evaluateFullCutoverEvidence(rootDir) : undefined;
+  const ok = migrationOk && (fullCutoverEvidence?.ok ?? true);
   return {
     ok,
     command: "migrate-verify",
@@ -141,11 +145,14 @@ export function runMigrateVerify(rootDir: string, action: MigrateVerifyAction): 
       planDigest: session.planDigest,
       digestOk,
       missingTargets: missing.map((entry) => entry.target),
-      fullCutover: false
+      fullCutover: action.fullCutover,
+      fullCutoverEvidence
     },
     error: ok ? undefined : {
-      code: "migration_verify_failed",
-      hint: "Migration session evidence does not match the target tree."
+      code: action.fullCutover ? "full_cutover_verify_failed" : "migration_verify_failed",
+      hint: action.fullCutover
+        ? "Migration session or final cutover evidence does not satisfy M2-P7."
+        : "Migration session evidence does not match the target tree."
     }
   };
 }

@@ -1,6 +1,6 @@
 {
   "schema": "harness-anything-behavior-corpus-classification/v1",
-  "scope": "KR-10 clean cutover",
+  "scope": "M2 final cutover",
   "publishState": "not-published",
   "categories": {
     "preserve": 0,
@@ -19,6 +19,11 @@
       "id": "EV-CLI-PACKAGE-SMOKE",
       "command": "npm run harness:smoke-cli-package",
       "result": "passed"
+    },
+    {
+      "id": "EV-FULL-CUTOVER-VERIFY",
+      "command": "harness migrate-verify <session.json> --full-cutover --json",
+      "result": "passed"
     }
   ],
   "items": [
@@ -32,7 +37,7 @@
     },
     {
       "classification": "unsupported-input",
-      "summary": "Old task schema/API compatibility is not supported by the clean-room rewrite."
+      "summary": "Prior task files are handled through explicit migration evidence, not by preserving previous public interfaces."
     }
   ]
 }

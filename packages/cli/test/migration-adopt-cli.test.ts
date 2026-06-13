@@ -90,7 +90,25 @@ test("CLI migration run writes source-pack session evidence and normal verify", 
     assert.match(run.report.sourcePack.digest, /^sha256:/);
     assert.equal(verify.ok, true);
     assert.equal(verify.report.fullCutover, false);
-    assert.equal(fullCutover.error.code, "full_cutover_out_of_scope");
+    assert.equal(fullCutover.error.code, "full_cutover_verify_failed");
+    assert.equal(fullCutover.report.fullCutover, true);
+    assert.equal(fullCutover.report.fullCutoverEvidence.ok, false);
+  });
+});
+
+test("CLI full cutover verify requires package and behavior corpus evidence", () => {
+  withTempRoot((rootDir) => {
+    writeLegacyTask(rootDir, "old-task");
+    writeCutoverReadySurface(rootDir);
+
+    const run = runJson(rootDir, ["migrate-run"]);
+    const fullCutover = runJson(rootDir, ["migrate-verify", run.path, "--full-cutover"]);
+
+    assert.equal(fullCutover.ok, true);
+    assert.equal(fullCutover.report.fullCutover, true);
+    assert.equal(fullCutover.report.fullCutoverEvidence.ok, true);
+    assert.equal(fullCutover.report.fullCutoverEvidence.packageReleaseDecision.publishState, "not-published");
+    assert.equal(fullCutover.report.fullCutoverEvidence.behaviorCorpus.needsDecision, 0);
   });
 });
 
@@ -104,6 +122,52 @@ function writeLegacyModuleTask(rootDir: string, moduleKey: string, id: string): 
   const taskDir = path.join(rootDir, "docs/09-PLANNING/MODULES", moduleKey, "TASKS", id);
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(path.join(taskDir, "task_plan.md"), `# ${id}\n`, "utf8");
+}
+
+function writeCutoverReadySurface(rootDir: string): void {
+  writePackage(rootDir, "package.json", { name: "harness-anything", private: true });
+  writePackage(rootDir, "packages/kernel/package.json", { name: "@harness-anything/kernel", version: "0.0.0", private: true });
+  writePackage(rootDir, "packages/application/package.json", { name: "@harness-anything/application", version: "0.0.0", private: true });
+  writePackage(rootDir, "packages/gui/package.json", { name: "@harness-anything/gui", version: "0.0.0", private: true });
+  writePackage(rootDir, "packages/adapters/local/package.json", { name: "@harness-anything/adapter-local", version: "0.0.0", private: true });
+  writePackage(rootDir, "packages/adapters/multica/package.json", { name: "@harness-anything/adapter-multica", version: "0.0.0", private: true });
+  writePackage(rootDir, "packages/adapters/github-issues/package.json", { name: "@harness-anything/adapter-github-issues", version: "0.0.0", private: true });
+  writePackage(rootDir, "packages/adapters/linear/package.json", { name: "@harness-anything/adapter-linear", version: "0.0.0", private: true });
+  writePackage(rootDir, "packages/cli/package.json", {
+    name: "@harness-anything/cli",
+    version: "0.0.0",
+    private: true,
+    bin: { "harness-anything": "./dist/cli/src/index.js" },
+    exports: { ".": "./dist/cli/src/index.js" }
+  });
+
+  const cutoverDir = path.join(rootDir, "tools/cutover");
+  mkdirSync(cutoverDir, { recursive: true });
+  writeFileSync(path.join(cutoverDir, "behavior-corpus-classification.json"), JSON.stringify({
+    schema: "harness-anything-behavior-corpus-classification/v1",
+    scope: "M2 final cutover",
+    publishState: "not-published",
+    categories: {
+      preserve: 0,
+      "intentional-change": 1,
+      "old-bug": 0,
+      "unsupported-input": 0,
+      "needs-decision": 0
+    },
+    items: [
+      {
+        classification: "intentional-change",
+        summary: "Package release remains not-published while cutover evidence is complete."
+      }
+    ]
+  }), "utf8");
+  writeFileSync(path.join(cutoverDir, "behavior-corpus-classification.md"), "# Behavior Corpus Classification\n", "utf8");
+}
+
+function writePackage(rootDir: string, relativePath: string, packageJson: Record<string, any>): void {
+  const fullPath = path.join(rootDir, relativePath);
+  mkdirSync(path.dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, JSON.stringify(packageJson), "utf8");
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {

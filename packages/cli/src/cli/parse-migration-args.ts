@@ -79,10 +79,18 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
   }
 
   if (args[0] === "migrate-verify" && args[1]) {
-    if (args.includes("--full-cutover")) {
-      return { ok: false, error: { code: "full_cutover_out_of_scope", hint: "Full cutover verification is reserved for M2-P7." } };
-    }
-    return { ok: true, value: { rootDir, json, action: { kind: "migrate-verify", sessionPath: args[1] } } };
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "migrate-verify",
+          sessionPath: args[1],
+          fullCutover: args.includes("--full-cutover")
+        }
+      }
+    };
   }
 
   return null;

@@ -35,8 +35,9 @@ Public operating docs:
 - `docs-release/harness-agent-skill.md`
 - `examples/minimal-project/`
 
-M2 is still before final cutover. Packages remain private and this repository
-does not claim a published package release from the P6 docs.
+M2 final-cutover evidence is complete for this repository workflow. Packages
+remain private, workspace versions remain `0.0.0`, and this repository does
+not claim a published npm package release.
 
 ## License
 
