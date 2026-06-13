@@ -28,7 +28,26 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
 
   if (args[0] === "new-task") {
     const migrationMode = args.includes("--migration") || args.includes("--import") || args.includes("--admin");
+    const fromLegacyId = readOption(args, "--from-legacy");
+    if (args.includes("--from-legacy") && (!fromLegacyId || fromLegacyId.startsWith("--"))) {
+      return {
+        ok: false,
+        error: {
+          code: "missing_legacy_id",
+          hint: "Use new-task --from-legacy <legacy-id> with an id from harness/legacy/index.json."
+        }
+      };
+    }
     const manualId = readOption(args, "--id") ?? (args[1]?.startsWith("--") ? undefined : args[1]);
+    if (fromLegacyId && manualId) {
+      return {
+        ok: false,
+        error: {
+          code: "legacy_rebuild_manual_id_forbidden",
+          hint: "new-task --from-legacy creates a fresh generated task id and cannot also use a manual id."
+        }
+      };
+    }
     if (manualId && !migrationMode) {
       return {
         ok: false,
@@ -38,7 +57,9 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
         }
       };
     }
-    const title = readOption(args, "--title") ?? manualId ?? "Untitled task";
+    const explicitTitle = readOption(args, "--title");
+    const title = explicitTitle ?? manualId ?? "Untitled task";
+    const explicitSlug = readOption(args, "--slug");
     return {
       ok: true,
       value: {
@@ -48,8 +69,11 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
           kind: "new-task",
           taskId: manualId,
           title,
-          slug: readOption(args, "--slug") ?? slugifyTaskTitle(title),
-          allowManualId: migrationMode
+          slug: explicitSlug ?? slugifyTaskTitle(title),
+          allowManualId: migrationMode,
+          fromLegacyId,
+          titleProvided: Boolean(explicitTitle),
+          slugProvided: Boolean(explicitSlug)
         }
       }
     };

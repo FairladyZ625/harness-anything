@@ -6,6 +6,7 @@ import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 import type { CliResult } from "../cli/types.ts";
 import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCollisionReport } from "./migration-collision.ts";
+import { collectLegacyProvenanceWarnings } from "./legacy-provenance-verify.ts";
 import type { LegacyCopySafeDocsAction, LegacyIndexAction, LegacyIntakePlanAction, LegacyScanAction, LegacyVerifyAction, MigratePlanAction, MigrateRunAction, MigrateStructureAction, MigrateVerifyAction } from "./migration-types.ts";
 
 interface LegacyScanReport {
@@ -206,16 +207,19 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
     .map((entry) => entry.storedPath)
     .filter((storedPath) => !existsSync(path.join(rootDir, storedPath)));
   const ok = missingTargets.length === 0;
+  const provenanceWarnings = collectLegacyProvenanceWarnings(rootDir);
   return {
     ok,
     command: "legacy-verify",
     rows: index.entries.length,
+    warnings: provenanceWarnings.length > 0 ? provenanceWarnings : undefined,
     report: {
       schema: "legacy-intake-verify-report/v1",
       ok,
       missingIndex: false,
       invalidIndex: false,
       missingTargets,
+      provenanceWarnings,
       summary: index.summary,
       collisionReport: collisionReport ? {
         entryCount: collisionReport.entries.length,

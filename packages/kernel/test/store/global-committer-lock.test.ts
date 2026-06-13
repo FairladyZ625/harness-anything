@@ -54,6 +54,31 @@ test("WriteCoordinator validates supersede batch before writing any document", (
   });
 });
 
+test("WriteCoordinator validates package create batch before writing any document", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+
+    Effect.runSync(coordinator.enqueue({
+      opId: "op-create-batch-invalid",
+      taskId: "task-new",
+      kind: "package_create",
+      payload: {
+        writes: [
+          { taskId: "task-new", path: "INDEX.md", body: "index", packageSlug: "new" },
+          { taskId: "task-new", path: "/absolute.md", body: "bad", packageSlug: "new" }
+        ]
+      }
+    }));
+
+    assert.throws(
+      () => Effect.runSync(coordinator.flush("explicit")),
+      /absolute paths are not allowed/
+    );
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/absolute.md")), false);
+  });
+});
+
 test("WriteCoordinator rejects hard delete before journaling when policy payload or disposition is invalid", () => {
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });

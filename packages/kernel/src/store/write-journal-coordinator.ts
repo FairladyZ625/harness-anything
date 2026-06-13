@@ -152,7 +152,7 @@ function applyRecord(rootDir: string, journalPath: string, record: JournalRecord
 }
 
 function applyOp(rootDir: string, op: WriteOp): DocumentWrite | null {
-  if (op.kind === "package_supersede" && isBatchDocumentWritePayload(op.payload)) {
+  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
     writeDocumentsAtomically(rootDir, op.payload.writes);
     return null;
   }

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 
 test("CLI exposes Multica snapshot as readonly JSON evidence", () => {
   withTempRoot((rootDir) => {
@@ -165,6 +166,69 @@ test("CLI legacy verify detects missing, invalid, and valid index states", () =>
     const valid = runJson(rootDir, ["legacy", "verify"]);
     assert.equal(valid.ok, true);
     assert.equal(valid.report.summary.taskCount, 1);
+  });
+});
+
+test("CLI rebuilds a fresh local task from a legacy index entry with provenance", () => {
+  withTempRoot((rootDir) => {
+    const missingLegacyId = runJson(rootDir, ["new-task", "--from-legacy"], false);
+    assert.equal(missingLegacyId.error.code, "missing_legacy_id");
+
+    const manualId = runJson(rootDir, ["new-task", "legacy-old-task", "--from-legacy", "legacy_missing"], false);
+    assert.equal(manualId.error.code, "legacy_rebuild_manual_id_forbidden");
+
+    const missing = runJson(rootDir, ["new-task", "--from-legacy", "legacy_missing"], false);
+    assert.equal(missing.error.code, "legacy_index_missing");
+
+    mkdirSync(path.join(rootDir, "harness/legacy"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/legacy/index.json"), "{\"schema\":\"wrong\"}\n", "utf8");
+    const invalid = runJson(rootDir, ["new-task", "--from-legacy", "legacy_missing"], false);
+    assert.equal(invalid.error.code, "legacy_index_invalid");
+
+    rmSync(path.join(rootDir, "harness"), { recursive: true, force: true });
+    writeLegacyTask(rootDir, "old-task", "active");
+    runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"]);
+    runJson(rootDir, ["legacy", "index", ".", "--apply"]);
+    const index = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/index.json"), "utf8"));
+    const legacyEntry = index.entries.find((entry: Record<string, unknown>) => entry.category === "task");
+
+    const unknown = runJson(rootDir, ["new-task", "--from-legacy", "legacy_unknown"], false);
+    assert.equal(unknown.error.code, "legacy_entry_not_found");
+
+    const rebuilt = runJson(rootDir, ["new-task", "--from-legacy", legacyEntry.id]);
+    assert.match(rebuilt.taskId, taskIdPattern);
+    assert.notEqual(rebuilt.taskId, legacyEntry.id);
+    assert.equal(rebuilt.status, "planned");
+    assert.equal(rebuilt.slug, "old-task");
+    assert.equal(rebuilt.report.inheritedTaskId, false);
+    assert.equal(rebuilt.report.inheritedStatus, false);
+    assert.equal(rebuilt.report.source.legacyId, legacyEntry.id);
+    assert.equal(rebuilt.report.source.storedPath, legacyEntry.storedPath);
+
+    const taskDir = path.join(rootDir, rebuilt.packagePath);
+    const indexBody = readFileSync(path.join(taskDir, "INDEX.md"), "utf8");
+    const provenance = JSON.parse(readFileSync(path.join(taskDir, "legacy-provenance.json"), "utf8"));
+    assert.match(indexBody, /status: planned/);
+    assert.doesNotMatch(indexBody, /status: active/);
+    assert.equal(provenance.schema, "legacy-rebuild-provenance/v1");
+    assert.equal(provenance.legacyId, legacyEntry.id);
+    assert.equal(provenance.storedPath, legacyEntry.storedPath);
+    assert.equal(provenance.detectedStatus.raw, "active");
+    assert.match(provenance.rebuiltAt, /^\d{4}-\d{2}-\d{2}T/u);
+    assert.notEqual(provenance.rebuiltAt, "1970-01-01T00:00:00.000Z");
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks", legacyEntry.id)), false);
+    assert.equal(existsSync(path.join(rootDir, legacyEntry.storedPath)), true);
+
+    writeFileSync(path.join(taskDir, "legacy-provenance.json"), "{\"schema\":\"legacy-rebuild-provenance/v1\",\"legacyId\":\"legacy_bad\"}\n", "utf8");
+    const invalidProvenance = runJson(rootDir, ["legacy", "verify"]);
+    assert.equal(invalidProvenance.ok, true);
+    assert.equal(invalidProvenance.warnings.some((warning: Record<string, unknown>) => warning.code === "legacy_provenance_invalid"), true);
+
+    provenance.storedPath = "harness/legacy/tasks/missing-rebuild-source";
+    writeFileSync(path.join(taskDir, "legacy-provenance.json"), `${JSON.stringify(provenance, null, 2)}\n`, "utf8");
+    const verified = runJson(rootDir, ["legacy", "verify"]);
+    assert.equal(verified.ok, true);
+    assert.equal(verified.warnings.some((warning: Record<string, unknown>) => warning.code === "legacy_provenance_target_missing" && warning.legacyId === legacyEntry.id), true);
   });
 });
 

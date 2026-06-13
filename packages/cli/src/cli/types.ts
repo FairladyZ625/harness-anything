@@ -69,7 +69,7 @@ export interface ParsedCommand {
   readonly json: boolean;
   readonly action:
     | { readonly kind: "init" }
-    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean }
+    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean }
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
     | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string }
