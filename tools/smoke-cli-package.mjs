@@ -70,6 +70,11 @@ try {
     throw new Error(`unexpected check smoke output: ${JSON.stringify(check)}`);
   }
 
+  const doctor = runJson(binPath, ["--json", "doctor"], projectDir);
+  if (doctor.ok !== true || doctor.report?.schema !== "harness-doctor/v1" || doctor.report?.readOnly !== true) {
+    throw new Error(`unexpected doctor smoke output: ${JSON.stringify(doctor)}`);
+  }
+
   console.log("CLI package smoke passed.");
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });

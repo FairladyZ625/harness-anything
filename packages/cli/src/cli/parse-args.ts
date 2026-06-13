@@ -1,6 +1,7 @@
 import { isDomainStatus } from "../../../kernel/src/domain/index.ts";
 import { slugifyTaskTitle } from "../../../kernel/src/layout/index.ts";
 import { commandRegistry } from "./command-registry.ts";
+import { parseDoctorArgs } from "./parse-doctor-args.ts";
 import { parseGitDiffArgs } from "./parse-git-diff-args.ts";
 import { parseMigrationArgs } from "./parse-migration-args.ts";
 import { isCheckProfile } from "../commands/check.ts";
@@ -326,6 +327,9 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
 
   const gitDiffCommand = parseGitDiffArgs(args, rootDir, json);
   if (gitDiffCommand) return { ok: true, value: gitDiffCommand };
+
+  const doctorCommand = parseDoctorArgs(args, rootDir, json);
+  if (doctorCommand) return { ok: true, value: doctorCommand };
 
   if (args[0] === "gui") {
     return {

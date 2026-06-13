@@ -1,6 +1,6 @@
 # Harness Agent Skill
 
-Status: initial
+Status: M2 usable workflow
 
 ## Rules
 
@@ -11,5 +11,33 @@ Status: initial
 5. Use `harness task supersede` for follow-up work after `done` or `cancelled`; do not reopen terminal work.
 6. Use `harness task delete --soft` for audit-preserving removal. `--hard` is only for mistaken local packages with no archive, terminal status, or task relations.
 7. Run `harness status --json` and `harness check --post-merge` after merges before continuing authored task changes.
+8. Use `harness doctor --json` before starting work in a checkout or after installing the CLI package artifact. Treat it as diagnostic evidence only; it does not repair files.
+9. Use `harness git-diff --json` when a task needs local diff evidence. It is read-only and reports relative paths.
 
-See `docs-release/m1-minimal-loop.md` for the M1 repository model, state machine, and check report axes.
+## Standard Work Loop
+
+```bash
+harness doctor --json
+harness status --json
+harness check --post-merge --json
+```
+
+For new local work:
+
+```bash
+harness new-task --title "Task title" --json
+harness task status set <task-id> active --json
+harness task progress append <task-id> --text "Progress note" --json
+```
+
+For external read-only adoption:
+
+```bash
+harness snapshot multica <ref> --json
+harness adopt multica <ref> --task <task-id> --json
+harness check --post-merge --json
+```
+
+See `docs-release/m1-minimal-loop.md` for the repository model, state machine,
+and check report axes. See `docs-release/m2-coding-vertical.md` for install,
+doctor, migration, and troubleshooting notes.

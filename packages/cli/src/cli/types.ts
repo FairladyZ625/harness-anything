@@ -86,6 +86,7 @@ export interface ParsedCommand {
     | { readonly kind: "migrate-run"; readonly planOnly: boolean; readonly outDir: string }
     | { readonly kind: "migrate-verify"; readonly sessionPath: string }
     | { readonly kind: "git-diff"; readonly baseRef?: string }
+    | { readonly kind: "doctor" }
     | { readonly kind: "gui" }
     | { readonly kind: "template-list"; readonly catalogPath: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }
