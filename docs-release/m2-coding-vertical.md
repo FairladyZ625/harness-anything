@@ -1,6 +1,6 @@
 # M2 Coding Vertical
 
-Status: M2 final-cutover evidence complete, package release deferred
+Status: M2 complete, package release deferred; final-cutover evidence is historical and deprecated for future strategy
 
 ## Install From This Repository
 
@@ -57,7 +57,7 @@ harness task archive <task-id> --reason "superseded" --json
 harness task supersede <task-id> --title "Replacement task" --reason "scope changed" --json
 ```
 
-## Migration And Evidence Commands
+## Legacy Intake And Evidence Commands
 
 Read-only or local-only evidence commands:
 
@@ -68,9 +68,13 @@ harness migrate-plan --json
 harness migrate-structure --plan --json
 harness migrate-run --plan-only --json
 harness migrate-verify <session.json> --json
-harness migrate-verify <session.json> --full-cutover --json
 harness git-diff --json
 ```
+
+M2 shipped migration evidence commands, but the project strategy changed after
+M2: future releases should treat old task packages as legacy evidence, not as
+input for automatic task-package conversion. Use Legacy Intake and rebuild
+unfinished work as new tasks with provenance.
 
 `createdBy` is optional task audit metadata sourced from local Git
 `user.name`/`user.email` when available. It is not task status, package
@@ -102,15 +106,13 @@ run the check again:
 harness check --post-merge --json
 ```
 
-## Final Cutover Evidence
+## Historical Final Cutover Evidence
 
-M2-P7 activates `migrate-verify --full-cutover` as the final repository gate.
-The gate verifies the migration session, package release decision, package
-surface, and behavior corpus report before returning success.
-The behavior corpus must contain at least 15 classified items and zero
-`needs-decision` entries.
+M2-P7 used `migrate-verify --full-cutover` as historical completion evidence.
+That strategy is now deprecated. Future work should not use full cutover as an
+exit gate or dogfood prerequisite.
 
-Local final-cutover checks:
+Historical M2 checks were:
 
 ```bash
 harness migrate-run --json
@@ -119,6 +121,8 @@ npm run harness:check-cutover-readiness
 npm run harness:smoke-full-cutover
 npm run check
 ```
+
+M2.5 will replace these with Legacy Intake readiness and smoke checks.
 
 Package release decision:
 
