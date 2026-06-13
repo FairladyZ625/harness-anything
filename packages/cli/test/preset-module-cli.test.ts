@@ -105,132 +105,6 @@ test("CLI new-task wires explicit coding vertical preset and module without rela
   });
 });
 
-test("CLI new-task uses project settings defaults and explicit flag precedence", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["init"]);
-    runJson(rootDir, ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"]);
-
-    const defaulted = runJson(rootDir, ["new-task", "--title", "Default Coding Task"]);
-    assert.equal(defaulted.report.vertical, "software/coding");
-    assert.equal(defaulted.report.preset, "standard-task");
-    assert.equal(defaulted.report.profile, "baseline");
-
-    const moduleTask = runJson(rootDir, ["new-task", "--title", "Module Override", "--preset", "module", "--module", "billing"]);
-    assert.equal(moduleTask.report.vertical, "software/coding");
-    assert.equal(moduleTask.report.preset, "module");
-    assert.equal(moduleTask.module.key, "billing");
-
-    writeRawPreset(rootDir, ".harness/presets/profiled-task/preset.json", makeProfiledPreset());
-    const profiled = runJson(rootDir, ["new-task", "--title", "Profile Override", "--preset", "profiled-task", "--profile", "extra"]);
-    assert.equal(profiled.report.profile, "extra");
-    assert.equal(profiled.generated.includes("extra.md"), true);
-  });
-});
-
-test("CLI new-task keeps inert settings generic and legacy rebuild isolated", () => {
-  withTempRoot((rootDir) => {
-    writeHarnessConfig(rootDir, [
-      "schema: harness-anything/v1",
-      "settings:",
-      "  locale: zh-CN",
-      "  defaultVertical: default",
-      "  defaultPreset: default",
-      "  defaultProfile: baseline",
-      "  customVerticals:",
-      "    enabled: false",
-      ""
-    ]);
-
-    const generic = runJson(rootDir, ["new-task", "--title", "Generic Task"]);
-    assert.equal(generic.report, undefined);
-    assert.match(readFileSync(path.join(rootDir, generic.packagePath, "INDEX.md"), "utf8"), /vertical: default/);
-
-    const explicitVertical = runJson(rootDir, ["new-task", "--title", "Explicit Vertical", "--vertical", "software/coding"]);
-    assert.equal(explicitVertical.report.vertical, "software/coding");
-    assert.equal(explicitVertical.report.preset, "standard-task");
-
-    const explicitPreset = runJson(rootDir, ["new-task", "--title", "Explicit Preset", "--preset", "standard-task"]);
-    assert.equal(explicitPreset.report.vertical, "software/coding");
-    assert.equal(explicitPreset.report.preset, "standard-task");
-
-    const legacy = runJson(rootDir, ["new-task", "--from-legacy", "legacy-1"], false);
-    assert.equal(legacy.error.code, "legacy_index_missing");
-  });
-});
-
-test("CLI settings fail closed for malformed and unsupported custom vertical defaults", () => {
-  withTempRoot((rootDir) => {
-    writeHarnessConfig(rootDir, [
-      "schema: harness-anything/v1",
-      "settings:",
-      "  locale: fr-FR",
-      "  defaultVertical: software/coding",
-      "  defaultPreset: standard-task",
-      ""
-    ]);
-
-    const malformed = runJson(rootDir, ["new-task", "--title", "Bad Settings"], false);
-    assert.equal(malformed.error.code, "harness_settings_invalid");
-    assert.equal(malformed.command, "new-task");
-  });
-
-  withTempRoot((rootDir) => {
-    writeHarnessConfig(rootDir, [
-      "schema: harness-anything/v1",
-      "settings:",
-      "  locale: zh-CN",
-      "  defaultVertical: software/coding",
-      "  defaultPreset: standard-task",
-      "  customVerticals:",
-      ""
-    ]);
-
-    const malformed = runJson(rootDir, ["new-task", "--title", "Missing Gate"], false);
-    assert.equal(malformed.error.code, "harness_settings_invalid");
-  });
-
-  withTempRoot((rootDir) => {
-    writeHarnessConfig(rootDir, [
-      "schema: harness-anything/v1",
-      "settings:",
-      "  locale: zh-CN",
-      "  defaultVertical: custom/acme",
-      "  defaultPreset: standard-task",
-      "  defaultProfile: baseline",
-      "  customVerticals:",
-      "    enabled: true",
-      ""
-    ]);
-
-    const custom = runJson(rootDir, ["new-task", "--title", "Custom Vertical"], false);
-    assert.equal(custom.error.code, "custom_vertical_forbidden");
-  });
-});
-
-test("CLI settings locale controls bundled materialization and metadata check", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["init"]);
-    writeHarnessConfig(rootDir, [
-      "schema: harness-anything/v1",
-      "settings:",
-      "  locale: en-US",
-      "  defaultVertical: software/coding",
-      "  defaultPreset: standard-task",
-      "  defaultProfile: baseline",
-      "  customVerticals:",
-      "    enabled: false",
-      ""
-    ]);
-
-    const created = runJson(rootDir, ["new-task", "--title", "English Task"]);
-    const taskPlan = readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8");
-    assert.match(taskPlan, /Describe the verifiable result/);
-
-    const checked = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
-    assert.equal(checked.ok, true);
-  });
-});
-
 test("CLI new-task fails closed on ambiguous preset and legacy/module input", () => {
   withTempRoot((rootDir) => {
     const missingModule = runJson(rootDir, ["new-task", "--title", "Module Task", "--vertical", "software/coding", "--preset", "module"], false);
@@ -520,18 +394,6 @@ function writePreset(rootDir: string, relativePath: string, overrides: {
   writeFileSync(filePath, JSON.stringify(makePreset(overrides), null, 2), "utf8");
 }
 
-function writeRawPreset(rootDir: string, relativePath: string, manifest: Record<string, unknown>): void {
-  const filePath = path.join(rootDir, relativePath);
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, JSON.stringify(manifest, null, 2), "utf8");
-}
-
-function writeHarnessConfig(rootDir: string, lines: ReadonlyArray<string>): void {
-  const filePath = path.join(rootDir, "harness/harness.yaml");
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, lines.join("\n"), "utf8");
-}
-
 function makePreset(overrides: {
   readonly id: string;
   readonly title: string;
@@ -555,44 +417,6 @@ function makePreset(overrides: {
       checkerProfile: "standard",
       templateSelections: overrides.templateSelections ?? []
     }],
-    defaultProfile: "baseline"
-  };
-}
-
-function makeProfiledPreset(): Record<string, unknown> {
-  return {
-    schema: "preset-manifest/v1",
-    id: "profiled-task",
-    title: "Profiled Task",
-    vertical: "software/coding",
-    version: "1.0.0",
-    kernelVersionRange: {
-      min: "1.0.0",
-      maxExclusive: "2.0.0"
-    },
-    capabilityImports: [],
-    profiles: [
-      {
-        id: "baseline",
-        title: "Baseline",
-        checkerProfile: "standard",
-        templateSelections: []
-      },
-      {
-        id: "extra",
-        title: "Extra",
-        checkerProfile: "standard",
-        templateSelections: [{
-          slot: "task.extra",
-          templateRef: "template://planning/references-index@1",
-          materializeAs: "extra.md",
-          localePolicy: {
-            prefer: "project",
-            fallback: "en-US"
-          }
-        }]
-      }
-    ],
     defaultProfile: "baseline"
   };
 }

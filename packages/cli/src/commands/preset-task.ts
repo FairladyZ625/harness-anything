@@ -9,7 +9,7 @@ import type { EngineError, WriteError } from "../../../kernel/src/domain/index.t
 import { createTaskPackagePath, generateTaskId } from "../../../kernel/src/layout/index.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry } from "./extensions/state.ts";
-import type { ProjectHarnessSettings } from "./settings.ts";
+import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
 
@@ -25,14 +25,7 @@ export function runNewTaskWithPreset(
   return Effect.gen(function* () {
     const vertical = action.vertical ?? settings?.defaultVertical ?? "software/coding";
     if (vertical !== "software/coding") {
-      return {
-        ok: false,
-        command: "new-task",
-        error: {
-          code: "custom_vertical_forbidden",
-          hint: "P10 only supports software/coding preset-aware task creation. Project custom vertical authoring requires P11 user authorization and remains fail-closed."
-        }
-      } satisfies CliResult;
+      return customVerticalGateResult(rootDir, "new-task", settings);
     }
 
     const presetId = action.preset ?? settings?.defaultPreset ?? "standard-task";

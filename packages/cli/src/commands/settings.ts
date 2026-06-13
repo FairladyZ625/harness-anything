@@ -14,8 +14,17 @@ export interface ProjectHarnessSettings {
   readonly customVerticalsEnabled: boolean;
 }
 
+export interface UserHarnessSettings {
+  readonly present: boolean;
+  readonly customVerticalsDevMode: boolean;
+}
+
 type SettingsResult =
   | { readonly ok: true; readonly settings: ProjectHarnessSettings }
+  | { readonly ok: false; readonly result: CliResult };
+
+type UserSettingsResult =
+  | { readonly ok: true; readonly settings: UserHarnessSettings }
   | { readonly ok: false; readonly result: CliResult };
 
 type RawSettings = Record<string, unknown>;
@@ -23,6 +32,11 @@ type RawSettings = Record<string, unknown>;
 const EMPTY_SETTINGS: ProjectHarnessSettings = {
   present: false,
   customVerticalsEnabled: false
+};
+
+const EMPTY_USER_SETTINGS: UserHarnessSettings = {
+  present: false,
+  customVerticalsDevMode: false
 };
 
 const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
@@ -43,6 +57,80 @@ export function readProjectHarnessSettings(rootDir: string, command = "settings"
       result: settingsError(command, error instanceof Error ? error.message : "Unable to read harness.yaml settings.")
     };
   }
+}
+
+export function readUserHarnessSettings(rootDir: string, command = "settings"): UserSettingsResult {
+  const configPath = path.join(resolveHarnessLayout(rootDir).localRoot, "user-settings.json");
+  if (!existsSync(configPath)) return { ok: true, settings: EMPTY_USER_SETTINGS };
+
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as unknown;
+    if (
+      !isRecord(raw) ||
+      !hasExactKeys(raw, ["devMode", "schema"]) ||
+      raw.schema !== "user-settings/v1" ||
+      !isRecord(raw.devMode) ||
+      !hasExactKeys(raw.devMode, ["customVerticals"]) ||
+      typeof raw.devMode.customVerticals !== "boolean"
+    ) {
+      return {
+        ok: false,
+        result: userSettingsError(command, ".harness/user-settings.json must match user-settings/v1 with devMode.customVerticals boolean.")
+      };
+    }
+    return {
+      ok: true,
+      settings: {
+        present: true,
+        customVerticalsDevMode: raw.devMode.customVerticals
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      result: userSettingsError(command, error instanceof Error ? error.message : "Unable to read .harness/user-settings.json.")
+    };
+  }
+}
+
+export function customVerticalGateResult(
+  rootDir: string,
+  command: string,
+  projectSettings: ProjectHarnessSettings | undefined
+): CliResult {
+  const userSettings = readUserHarnessSettings(rootDir, command);
+  if (!userSettings.ok) return userSettings.result;
+
+  const userGate = userSettings.settings.customVerticalsDevMode;
+  const projectGate = projectSettings?.customVerticalsEnabled === true;
+  if (!userGate) {
+    return {
+      ok: false,
+      command,
+      error: {
+        code: "custom_vertical_user_dev_mode_required",
+        hint: "Custom verticals require local user dev mode in .harness/user-settings.json and project settings.customVerticals.enabled."
+      }
+    };
+  }
+  if (!projectGate) {
+    return {
+      ok: false,
+      command,
+      error: {
+        code: "custom_vertical_project_gate_required",
+        hint: "Custom verticals require project settings.customVerticals.enabled: true in harness/harness.yaml."
+      }
+    };
+  }
+  return {
+    ok: false,
+    command,
+    error: {
+      code: "custom_vertical_contract_missing",
+      hint: "Custom vertical gates are enabled, but P11 does not implement custom vertical materialization or authoring."
+    }
+  };
 }
 
 export function shouldUseSettingsPresetAwareNewTask(settings: ProjectHarnessSettings): boolean {
@@ -204,8 +292,24 @@ function settingsError(command: string, hint: string): CliResult {
   };
 }
 
+function userSettingsError(command: string, hint: string): CliResult {
+  return {
+    ok: false,
+    command,
+    error: {
+      code: "user_settings_invalid",
+      hint
+    }
+  };
+}
+
 function isKnownSettingsScalar(key: string): boolean {
   return key === "locale" || key === "defaultVertical" || key === "defaultPreset" || key === "defaultProfile";
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: ReadonlyArray<string>): boolean {
+  const actual = Object.keys(value).sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
 function normalizeDefaultSentinel(value: string | undefined): string | undefined {
