@@ -17,6 +17,7 @@
   "include": [
     "src/**/*.ts",
     "../kernel/src/**/*.ts",
-    "../adapters/local/src/**/*.ts"
+    "../adapters/local/src/**/*.ts",
+    "../adapters/multica/src/**/*.ts"
   ]
 }

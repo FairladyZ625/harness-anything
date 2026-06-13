@@ -5,7 +5,7 @@ import type { DomainStatus, EngineError, PackageDisposition, TaskId, WriteError 
 import { findEntityRefs, isDomainStatus, isPackageDisposition, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import type { WriteOpKind } from "../../../kernel/src/ports/write-coordinator.ts";
-import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
+import { makeJournaledWriteCoordinator, type JournalActor } from "../../../kernel/src/store/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/store/hash.ts";
 import { isGeneratedTaskId, resolveHarnessLayout, taskDocumentPath as harnessTaskDocumentPath, taskPackagePath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
 
@@ -13,6 +13,11 @@ export interface LocalLifecycleOptions {
   readonly rootDir: string;
   readonly coordinator?: WriteCoordinator;
   readonly clock?: () => Date;
+}
+
+export interface LocalWriteCoordinatorOptions {
+  readonly rootDir: string;
+  readonly actor?: JournalActor;
 }
 
 export interface CreateLocalTaskInput {
@@ -85,6 +90,10 @@ export interface LocalLifecycleEngine {
   readonly supersedeTask: (input: SupersedeTaskInput) => Effect.Effect<LocalSupersedeResult, EngineError | WriteError>;
   readonly deleteTask: (input: DeleteTaskInput) => Effect.Effect<LocalDeleteResult, EngineError | WriteError>;
   readonly reopenTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
+}
+
+export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions): WriteCoordinator {
+  return makeJournaledWriteCoordinator(options);
 }
 
 interface LocalTaskIndex {
