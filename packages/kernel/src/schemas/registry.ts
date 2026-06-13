@@ -16,6 +16,10 @@ const OptionalString = Schema.optional(Schema.String);
 const NullableString = Schema.NullOr(Schema.String);
 const StringArray = Schema.Array(Schema.String);
 const LocaleSchema = Schema.Literal("zh-CN", "en-US");
+const LegacyRootSchema = Schema.Literal("harness/legacy");
+const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\/\/)(?!.*\\).+$/u));
+const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
+const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
 
 export const ActorRefSchema = Schema.Struct({
   kind: ActorKindSchema,
@@ -251,6 +255,68 @@ export const VerticalDefinitionSchema = Schema.Struct({
   }))
 });
 
+export const LegacyEvidencePointerSchema = Schema.Struct({
+  kind: Schema.Literal("progress", "review", "walkthrough", "commit", "pr", "artifact", "note"),
+  path: LegacyPathSchema,
+  label: OptionalString
+});
+
+export const LegacyIndexEntrySchema = Schema.Struct({
+  id: Schema.String,
+  category: Schema.Literal("task", "doc"),
+  sourcePath: Schema.String,
+  storedPath: LegacyPathSchema,
+  sourceDigest: StrictSha256Schema,
+  title: OptionalString,
+  detectedStatus: Schema.optional(Schema.Struct({
+    raw: Schema.String,
+    confidence: LegacyConfidenceSchema
+  })),
+  evidencePointers: Schema.Array(LegacyEvidencePointerSchema),
+  recommendedTreatment: Schema.Literal("preserve", "rebuild-required", "supersede", "archive", "ignore"),
+  humanReviewRequired: Schema.Boolean
+});
+
+export const LegacyIndexSchema = Schema.Struct({
+  schema: Schema.Literal("legacy-index/v1"),
+  legacyRoot: LegacyRootSchema,
+  generatedAt: Schema.String,
+  sourceRoot: Schema.String,
+  entries: Schema.Array(LegacyIndexEntrySchema),
+  summary: Schema.Struct({
+    entryCount: Schema.Number,
+    taskCount: Schema.Number,
+    docCount: Schema.Number,
+    rebuildRequiredCount: Schema.Number
+  })
+});
+
+const LegacyCollisionEntrySchema = Schema.Struct({
+  kind: Schema.Literal("file", "directory"),
+  sourcePath: Schema.String,
+  targetPath: Schema.String,
+  chosenPath: LegacyPathSchema,
+  suffixIndex: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+  reason: Schema.Literal("target-exists")
+}).pipe(Schema.filter((entry) => {
+  if (entry.targetPath === entry.chosenPath) return false;
+  const escapedIndex = String(entry.suffixIndex).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  if (entry.kind === "directory") return new RegExp(`-legacy-import-${escapedIndex}$`, "u").test(entry.chosenPath);
+  return new RegExp(`\\.legacy-import-${escapedIndex}(?:\\.[^/]+)?$`, "u").test(entry.chosenPath);
+}));
+
+export const LegacyCollisionReportSchema = Schema.Struct({
+  schema: Schema.Literal("legacy-collision-report/v1"),
+  legacyRoot: LegacyRootSchema,
+  generatedAt: Schema.String,
+  policy: Schema.Struct({
+    overwriteAllowed: Schema.Literal(false),
+    directorySuffixPattern: Schema.Literal("-legacy-import-N"),
+    fileSuffixPattern: Schema.Literal(".legacy-import-N")
+  }),
+  entries: Schema.Array(LegacyCollisionEntrySchema)
+});
+
 export const SqliteTaskRowSchema = Schema.Struct({
   schema: Schema.Literal("sqlite-task-row/v1"),
   taskId: Schema.String,
@@ -325,6 +391,10 @@ export type TemplateSelection = Schema.Schema.Type<typeof TemplateSelectionSchem
 export type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 export type PresetProfile = Schema.Schema.Type<typeof PresetProfileSchema>;
 export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
+export type LegacyEvidencePointer = Schema.Schema.Type<typeof LegacyEvidencePointerSchema>;
+export type LegacyIndexEntry = Schema.Schema.Type<typeof LegacyIndexEntrySchema>;
+export type LegacyIndex = Schema.Schema.Type<typeof LegacyIndexSchema>;
+export type LegacyCollisionReport = Schema.Schema.Type<typeof LegacyCollisionReportSchema>;
 export type SqliteTaskRow = Schema.Schema.Type<typeof SqliteTaskRowSchema>;
 export type HarnessCheckReport = Schema.Schema.Type<typeof HarnessCheckReportSchema>;
 export type DocsReleasePromotionBundle = Schema.Schema.Type<typeof DocsReleasePromotionBundleSchema>;
@@ -385,6 +455,20 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/vertical-definition.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/vertical-definition/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/vertical-definition/invalid.json"
+  },
+  {
+    id: "legacy-index",
+    schema: LegacyIndexSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/legacy-index.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/legacy-index/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/legacy-index/invalid.json"
+  },
+  {
+    id: "legacy-collision-report",
+    schema: LegacyCollisionReportSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/legacy-collision-report.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/legacy-collision-report/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/legacy-collision-report/invalid.json"
   },
   {
     id: "sqlite-task-row",

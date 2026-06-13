@@ -14,6 +14,8 @@ const expectedSchemaIds = [
   "template-catalog",
   "preset-manifest",
   "vertical-definition",
+  "legacy-index",
+  "legacy-collision-report",
   "sqlite-task-row",
   "harness-check-report",
   "docs-release-promotion-bundle"

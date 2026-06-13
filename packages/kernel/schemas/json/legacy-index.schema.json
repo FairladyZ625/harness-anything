@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/legacy-index.schema.json",
+  "x-harness-schema-id": "legacy-index",
+  "title": "Legacy Intake Index v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "legacyRoot",
+    "generatedAt",
+    "sourceRoot",
+    "entries",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "legacy-index/v1"
+    },
+    "legacyRoot": {
+      "const": "harness/legacy"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "sourceRoot": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "sourcePath",
+          "storedPath",
+          "sourceDigest",
+          "evidencePointers",
+          "recommendedTreatment",
+          "humanReviewRequired"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "task",
+              "doc"
+            ]
+          },
+          "sourcePath": {
+            "type": "string"
+          },
+          "storedPath": {
+            "type": "string",
+            "pattern": "^harness/legacy/(?!.*(^|/)\\.\\.(/|$))(?!.*//)(?!.*\\\\).+"
+          },
+          "sourceDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "detectedStatus": {
+            "type": "object",
+            "required": [
+              "raw",
+              "confidence"
+            ],
+            "properties": {
+              "raw": {
+                "type": "string"
+              },
+              "confidence": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "evidencePointers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "path"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "progress",
+                    "review",
+                    "walkthrough",
+                    "commit",
+                    "pr",
+                    "artifact",
+                    "note"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^harness/legacy/(?!.*(^|/)\\.\\.(/|$))(?!.*//)(?!.*\\\\).+"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "recommendedTreatment": {
+            "enum": [
+              "preserve",
+              "rebuild-required",
+              "supersede",
+              "archive",
+              "ignore"
+            ]
+          },
+          "humanReviewRequired": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "entryCount",
+        "taskCount",
+        "docCount",
+        "rebuildRequiredCount"
+      ],
+      "properties": {
+        "entryCount": {
+          "type": "number"
+        },
+        "taskCount": {
+          "type": "number"
+        },
+        "docCount": {
+          "type": "number"
+        },
+        "rebuildRequiredCount": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

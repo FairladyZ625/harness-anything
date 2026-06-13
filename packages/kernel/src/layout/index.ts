@@ -10,6 +10,12 @@ export interface HarnessLayout {
   readonly contextRoot: string;
   readonly planningRoot: string;
   readonly tasksRoot: string;
+  readonly legacyRoot: string;
+  readonly legacyTasksRoot: string;
+  readonly legacyDocsRoot: string;
+  readonly legacyIndexPath: string;
+  readonly legacyCollisionReportPath: string;
+  readonly legacyRebuildGuidePath: string;
   readonly localRoot: string;
   readonly generatedRoot: string;
   readonly cacheRoot: string;
@@ -28,6 +34,7 @@ const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 export function resolveHarnessLayout(rootDir: string): HarnessLayout {
   const resolvedRoot = path.resolve(rootDir);
   const authoredRoot = path.join(resolvedRoot, "harness");
+  const legacyRoot = path.join(authoredRoot, "legacy");
   const localRoot = path.join(resolvedRoot, ".harness");
   const writeJournalRoot = path.join(localRoot, "write-journal");
   return {
@@ -37,6 +44,12 @@ export function resolveHarnessLayout(rootDir: string): HarnessLayout {
     contextRoot: path.join(authoredRoot, "context"),
     planningRoot: path.join(authoredRoot, "planning"),
     tasksRoot: path.join(authoredRoot, "planning", "tasks"),
+    legacyRoot,
+    legacyTasksRoot: path.join(legacyRoot, "tasks"),
+    legacyDocsRoot: path.join(legacyRoot, "docs"),
+    legacyIndexPath: path.join(legacyRoot, "index.json"),
+    legacyCollisionReportPath: path.join(legacyRoot, "collision-report.json"),
+    legacyRebuildGuidePath: path.join(legacyRoot, "rebuild-guide.md"),
     localRoot,
     generatedRoot: path.join(localRoot, "generated"),
     cacheRoot: path.join(localRoot, "cache"),

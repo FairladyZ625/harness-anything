@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/legacy-collision-report.schema.json",
+  "x-harness-schema-id": "legacy-collision-report",
+  "title": "Legacy Intake Collision Report v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "legacyRoot",
+    "generatedAt",
+    "policy",
+    "entries"
+  ],
+  "properties": {
+    "schema": {
+      "const": "legacy-collision-report/v1"
+    },
+    "legacyRoot": {
+      "const": "harness/legacy"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "overwriteAllowed",
+        "directorySuffixPattern",
+        "fileSuffixPattern"
+      ],
+      "properties": {
+        "overwriteAllowed": {
+          "const": false
+        },
+        "directorySuffixPattern": {
+          "const": "-legacy-import-N"
+        },
+        "fileSuffixPattern": {
+          "const": ".legacy-import-N"
+        }
+      },
+      "additionalProperties": false
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "sourcePath",
+          "targetPath",
+          "chosenPath",
+          "suffixIndex",
+          "reason"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "file",
+              "directory"
+            ]
+          },
+          "sourcePath": {
+            "type": "string"
+          },
+          "targetPath": {
+            "type": "string"
+          },
+          "chosenPath": {
+            "type": "string",
+            "pattern": "^harness/legacy/(?!.*(^|/)\\.\\.(/|$))(?!.*//)(?!.*\\\\).+"
+          },
+          "suffixIndex": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "const": "target-exists"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "directory"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "chosenPath": {
+                  "pattern": "-legacy-import-[1-9][0-9]*$"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "file"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "chosenPath": {
+                  "pattern": "\\.legacy-import-[1-9][0-9]*(\\.[^/]+)?$"
+                }
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

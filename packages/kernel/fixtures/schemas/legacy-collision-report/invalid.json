@@ -1,0 +1,20 @@
+{
+  "schema": "legacy-collision-report/v1",
+  "legacyRoot": "harness/legacy",
+  "generatedAt": "2026-06-14T00:00:00.000Z",
+  "policy": {
+    "overwriteAllowed": true,
+    "directorySuffixPattern": "-custom-N",
+    "fileSuffixPattern": ".custom-N"
+  },
+  "entries": [
+    {
+      "kind": "file",
+      "sourcePath": "archive/old-harness/references/testing-standard.md",
+      "targetPath": "harness/legacy/docs/testing-standard.md",
+      "chosenPath": "harness/legacy/docs/testing-standard.md",
+      "suffixIndex": 0,
+      "reason": "target-exists"
+    }
+  ]
+}
