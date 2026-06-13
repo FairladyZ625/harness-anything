@@ -21,6 +21,9 @@
       "path": "../kernel"
     },
     {
+      "path": "../application"
+    },
+    {
       "path": "../adapters/local"
     }
   ]

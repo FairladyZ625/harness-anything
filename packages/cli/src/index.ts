@@ -7,9 +7,10 @@ import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { Schema } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
+import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../application/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/domain/index.ts";
 import { isDomainStatus } from "../../kernel/src/domain/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../kernel/src/layout/index.ts";
+import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle, taskDocumentPath } from "../../kernel/src/layout/index.ts";
 import {
   PresetManifestSchema,
   TemplateCatalogSchema,
@@ -42,6 +43,8 @@ export interface CliResult {
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
   readonly report?: unknown;
+  readonly reviewContract?: unknown;
+  readonly completionGate?: unknown;
   readonly summary?: {
     readonly taskCount: number;
     readonly byPackageDisposition: Record<string, number>;
@@ -78,6 +81,8 @@ const commandRegistry = [
   { kind: "task-supersede", primary: "harness task supersede <old-id> --title <title> [--slug <slug>]", resultEnvelope: "CliResult/v1" },
   { kind: "task-delete", primary: "harness task delete (--soft|--hard) <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
   { kind: "task-reopen", primary: "harness task reopen <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
+  { kind: "task-review", primary: "harness task-review <id> [--reviewer <id>]", resultEnvelope: "CliResult/v1" },
+  { kind: "task-complete", primary: "harness task-complete <id> [--ci passed|failed]", resultEnvelope: "CliResult/v1" },
   { kind: "task-list", primary: "harness task list [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "status", primary: "harness status --json", resultEnvelope: "CliResult/v1" },
   { kind: "check", primary: "harness check [--post-merge] [--json]", resultEnvelope: "CliResult/v1" },
@@ -97,6 +102,8 @@ interface ParsedCommand {
     | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title: string; readonly slug: string; readonly reason: string }
     | { readonly kind: "task-delete"; readonly taskId: string; readonly mode: "soft" | "hard"; readonly reason: string }
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
+    | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
+    | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
     | { readonly kind: "task-list" }
     | { readonly kind: "status" }
     | { readonly kind: "check"; readonly postMerge: boolean }
@@ -297,6 +304,16 @@ function runCommand(
     });
   }
 
+  if (command.action.kind === "task-review") {
+    const action = command.action;
+    return Effect.sync(() => runTaskReview(command.rootDir, action.taskId, action.reviewerId));
+  }
+
+  if (command.action.kind === "task-complete") {
+    const action = command.action;
+    return Effect.sync(() => runTaskComplete(command.rootDir, action.taskId, action.reviewerId, action.ciGate));
+  }
+
   return Effect.sync(() => {
     const result = checkTaskProjection({ rootDir: command.rootDir, postMerge: command.action.kind === "check" && command.action.postMerge });
     return {
@@ -434,6 +451,124 @@ function countBy(values: ReadonlyArray<string>): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
   return counts;
+}
+
+function runTaskReview(rootDir: string, taskId: string, reviewerId: string): CliResult {
+  const reviewPath = taskDocumentPath(rootDir, taskId, "review.md");
+  if (!existsSync(reviewPath)) {
+    return {
+      ok: false,
+      command: "task-review",
+      taskId,
+      error: {
+        code: "review_document_missing",
+        hint: "Task review requires review.md in the task package."
+      }
+    };
+  }
+
+  const parsed = parseReviewMarkdown(readFileSync(reviewPath, "utf8"));
+  if (parsed.issues.length > 0) {
+    return {
+      ok: false,
+      command: "task-review",
+      taskId,
+      issues: parsed.issues,
+      error: {
+        code: "review_schema_invalid",
+        hint: "review.md material findings table failed validation."
+      }
+    };
+  }
+
+  const gate = evaluateReviewGate({
+    taskId,
+    reviewerId,
+    submittedAt: new Date().toISOString(),
+    findings: parsed.findings
+  });
+  if (!gate.ok) {
+    return {
+      ok: false,
+      command: "task-review",
+      taskId,
+      report: gate,
+      issues: gate.issues,
+      error: {
+        code: "release_blocking_findings",
+        hint: "Open release-blocking findings must be closed before review passes."
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    command: "task-review",
+    taskId,
+    report: gate,
+    reviewContract: gate.contract
+  };
+}
+
+function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ciGate: "passed" | "failed"): CliResult {
+  const review = runTaskReview(rootDir, taskId, reviewerId);
+  if (!review.ok) {
+    return {
+      ok: false,
+      command: "task-complete",
+      taskId,
+      report: review.report,
+      issues: review.issues,
+      error: {
+        code: "review_not_passed",
+        hint: "Task completion requires a passed task-review gate."
+      }
+    };
+  }
+
+  const projection = readTaskProjection({ rootDir });
+  const row = projection.rows.find((item) => item.taskId === taskId);
+  if (!row) {
+    return {
+      ok: false,
+      command: "task-complete",
+      taskId,
+      error: {
+        code: "task_not_found",
+        hint: `task not found: ${taskId}`
+      }
+    };
+  }
+
+  const completionGate = evaluateCompletionGate({
+    taskId,
+    coordinationStatus: row.coordinationStatus,
+    packageDisposition: row.packageDisposition,
+    closeoutReadiness: row.closeoutReadiness,
+    reviewGate: "passed",
+    ciGate
+  });
+  if (!completionGate.ok) {
+    return {
+      ok: false,
+      command: "task-complete",
+      taskId,
+      completionGate,
+      issues: completionGate.issues,
+      error: {
+        code: completionGate.issues[0]?.code ?? "completion_gate_failed",
+        hint: "Task completion gate failed."
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    command: "task-complete",
+    taskId,
+    completionGate,
+    reviewContract: review.reviewContract
+  };
 }
 
 function writeIfMissing(filePath: string, body: string): void {
@@ -620,6 +755,41 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
           kind: "task-reopen",
           taskId: args[2],
           reason
+        }
+      }
+    };
+  }
+
+  if (args[0] === "task-review" && args[1]) {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "task-review",
+          taskId: args[1],
+          reviewerId: readOption(args, "--reviewer") ?? "local-reviewer"
+        }
+      }
+    };
+  }
+
+  if (args[0] === "task-complete" && args[1]) {
+    const ciGate = readOption(args, "--ci") ?? "passed";
+    if (ciGate !== "passed" && ciGate !== "failed") {
+      return { ok: false, error: { code: "invalid_ci_gate", hint: `Unknown CI gate: ${ciGate}` } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "task-complete",
+          taskId: args[1],
+          ciGate,
+          reviewerId: readOption(args, "--reviewer") ?? "local-reviewer"
         }
       }
     };

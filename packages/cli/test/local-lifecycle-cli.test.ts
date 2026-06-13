@@ -455,6 +455,48 @@ test("CLI check --post-merge stores prefixed external EntityRefs without resolvi
   });
 });
 
+test("CLI task-review fails closed on open release-blocking findings and emits pass contract when clean", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Review Task", "in_review");
+    writeReview(rootDir, "task-1", [
+      "| F-001 | P1 | Missing evidence. | diff | Add evidence. | yes | open | yes | none |"
+    ]);
+
+    const failure = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"], false);
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "release_blocking_findings");
+    assert.equal(failure.issues[0]?.findingId, "F-001");
+
+    writeReview(rootDir, "task-1", [
+      "| F-001 | P1 | Missing evidence. | diff | Added evidence. | no | closed | yes | none |"
+    ]);
+    const passed = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"]);
+    assert.equal(passed.ok, true);
+    assert.equal(passed.reviewContract.schema, "verifier-backed-review/v1");
+    assert.equal(passed.reviewContract.findingSummary.openBlocking, 0);
+  });
+});
+
+test("CLI task-complete evaluates review, CI, and closeout readiness without mutating lifecycle axes", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Complete Task", "in_review");
+    writeReview(rootDir, "task-1", []);
+    writeFileSync(path.join(rootDir, "harness/planning/tasks/task-1/walkthrough.md"), "# Closeout\n", "utf8");
+
+    const passed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    assert.equal(passed.ok, true);
+    assert.deepEqual(passed.completionGate.axes, {
+      coordinationStatus: "in_review",
+      packageDisposition: "active",
+      closeoutReadiness: "ready"
+    });
+
+    const failed = runJson(rootDir, ["task-complete", "task-1", "--ci", "failed"], false);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error?.code, "ci_not_passed");
+  });
+});
+
 test("CLI gui command delegates to the local desktop controller without importing GUI", () => {
   const result = runJson(process.cwd(), ["gui"], true, { HARNESS_GUI_DRY_RUN: "1" });
 
@@ -513,6 +555,17 @@ function writeIndex(
     "---",
     "",
     `# ${title}`,
+    ""
+  ].join("\n"), "utf8");
+}
+
+function writeReview(rootDir: string, directoryName: string, findingRows: ReadonlyArray<string>): void {
+  writeFileSync(path.join(rootDir, "harness/planning/tasks", directoryName, "review.md"), [
+    "# Review",
+    "",
+    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...findingRows,
     ""
   ].join("\n"), "utf8");
 }

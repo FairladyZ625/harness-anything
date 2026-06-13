@@ -5,6 +5,20 @@ import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import type { DomainStatus } from "../../kernel/src/index.ts";
 import { isDomainStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import { taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
+export {
+  evaluateCompletionGate,
+  evaluateReviewGate,
+  parseReviewMarkdown,
+  validatePhaseRows
+} from "./task-lifecycle-gates.ts";
+export type {
+  CompletionGateInput,
+  PhaseRow,
+  ReviewFinding,
+  ReviewGateInput,
+  ReviewGateResult,
+  VerifierBackedReviewContract
+} from "./task-lifecycle-gates.ts";
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
