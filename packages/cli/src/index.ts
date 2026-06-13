@@ -1297,7 +1297,7 @@ function runExtensionCommand(command: ParsedCommand): CliResult {
     }
 
     if (command.action.kind === "preset-run") {
-      return runPresetEntrypoint(command.rootDir, command.action.presetId, command.action.entrypoint, command.action.taskId);
+      return runPresetEntrypoint(command.rootDir, command.action.presetId, command.action.entrypoint, command.action.taskId, "preset-run");
     }
 
     if (command.action.kind === "preset-action") {
@@ -1309,7 +1309,7 @@ function runExtensionCommand(command: ParsedCommand): CliResult {
           error: { code: "preset_action_forbidden", hint: `Preset action ${command.action.actionName} is not declared.` }
         };
       }
-      return runPresetEntrypoint(command.rootDir, command.action.presetId, command.action.actionName, command.action.taskId);
+      return runPresetEntrypoint(command.rootDir, command.action.presetId, command.action.actionName, command.action.taskId, "preset-action");
     }
 
     if (command.action.kind === "module-list") {
@@ -1417,6 +1417,17 @@ function runExtensionCommand(command: ParsedCommand): CliResult {
       }
     };
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("invalid_registry_key:")) {
+      const label = error.message.split(":")[1] ?? "registry";
+      return {
+        ok: false,
+        command: command.action.kind,
+        error: {
+          code: "invalid_registry_key",
+          hint: `Invalid ${label} key.`
+        }
+      };
+    }
     return {
       ok: false,
       command: command.action.kind,
@@ -1561,7 +1572,13 @@ function presetManifestPath(rootDir: string, layer: "project" | "user", presetId
   return path.join(presetLayerRoot(rootDir, layer), presetId, "preset.json");
 }
 
-function runPresetEntrypoint(rootDir: string, presetId: string, entrypoint: "plan" | "scaffold" | "check", taskId: string): CliResult {
+function runPresetEntrypoint(
+  rootDir: string,
+  presetId: string,
+  entrypoint: "plan" | "scaffold" | "check",
+  taskId: string,
+  commandName: "preset-run" | "preset-action"
+): CliResult {
   const preset = resolvePreset(rootDir, presetId);
   if (!preset) return presetNotFound("preset-run", presetId);
   validateRegistryKey(taskId, "task");
@@ -1586,7 +1603,7 @@ function runPresetEntrypoint(rootDir: string, presetId: string, entrypoint: "pla
   writeFileSync(path.join(evidenceDir, "evidence.json"), JSON.stringify(evidence, null, 2), "utf8");
   return {
     ok: true,
-    command: "preset-run",
+    command: commandName,
     preset: publicPresetSummary(preset),
     evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
     report: evidence
@@ -1647,7 +1664,7 @@ function moduleNotFound(command: string, moduleKey: string): CliResult {
 
 function validateRegistryKey(value: string, label: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(value)) {
-    throw new Error(`invalid ${label} key`);
+    throw new Error(`invalid_registry_key:${label}`);
   }
 }
 

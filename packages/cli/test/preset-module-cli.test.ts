@@ -81,6 +81,14 @@ test("CLI preset run writes scoped evidence bundles and rejects unknown actions"
     const rejected = runJson(rootDir, ["preset", "action", "module", "deploy", "--task", "task-1"], false);
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error.code, "preset_action_forbidden");
+
+    const action = runJson(rootDir, ["preset", "action", "module", "check", "--task", "task-1"]);
+    assert.equal(action.ok, true);
+    assert.equal(action.command, "preset-action");
+
+    const invalidTask = runJson(rootDir, ["preset", "run", "module", "check", "--task", "../task"], false);
+    assert.equal(invalidTask.ok, false);
+    assert.equal(invalidTask.error.code, "invalid_registry_key");
   });
 });
 
