@@ -1,9 +1,17 @@
-.harness-private/
-.harness/
-.worktrees/
-AGENTS.md
-CLAUDE.md
-docs/
+# Local-only agent entrypoints for developing this source repository.
+# They route agents into .harness-private/ and must not be published.
+/AGENTS.md
+/CLAUDE.md
+/docs/
+
+# Private self-hosted harness for this source repository.
+# This directory is versioned by its own local/private git repository and must not be
+# published with the open-source package.
+/.harness-private/
+/.harness/
+/.worktrees/
+/.gstack/
+
 node_modules/
 dist/
 coverage/
