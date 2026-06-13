@@ -48,7 +48,7 @@ layers.
 | **CLI** | Exposes local commands for init, doctor, status, checks, task operations, migration evidence, and Git diff evidence. | Implemented in `@harness-anything/cli`. |
 | **Application layer** | Keeps controller/service orchestration out of UI and adapter code. | Implemented in `@harness-anything/application`. |
 | **GUI foundation** | Provides the Electron desktop shell and view model boundary. | Early foundation in `@harness-anything/gui`. |
-| **Adapters** | Connect external systems without taking ownership of harness state. | Adapter package layout exists; external write adapters are not the M2 claim. |
+| **Adapters** | Connect external systems without taking ownership of harness state. | Local and Multica surfaces exist; GitHub Issues and Linear packages are explicit M4 placeholders. |
 
 The product model is intentionally composable:
 
@@ -68,6 +68,8 @@ The product model is intentionally composable:
 - A governance surface for checking task packages, file complexity, import
   boundaries, private/public boundaries, schema contracts, and cutover
   readiness.
+- A supply-chain release gate for high-severity npm advisories and CycloneDX
+  SBOM generation.
 - A clean-room rewrite workspace for the public Harness product surface.
 
 ## What this is not
@@ -87,6 +89,19 @@ npm ci
 npm run typecheck
 node packages/cli/src/index.ts --json doctor
 ```
+
+The source-entry commands rely on Node's built-in TypeScript execution support
+and this repository's Node 24+ engine. For CI and release readiness, the
+canonical verification path is:
+
+```bash
+npm ci
+npm run check
+```
+
+The `rewrite-ci` workflow runs the public gates on Node 24 and Node 26 so source
+execution, typecheck, tests, package smoke, and supply-chain checks stay aligned
+with the documented runtime.
 
 For a minimal project loop:
 
@@ -114,7 +129,8 @@ workspace packages, not nested Git repositories.
 | `@harness-anything/cli` | Local command surface for project, task, migration, evidence, and check workflows. |
 | `@harness-anything/application` | Shared controller/service layer used by CLI and GUI surfaces. |
 | `@harness-anything/gui` | Electron GUI foundation and renderer boundary. |
-| `@harness-anything/adapter-github-issues` | Adapter package slot for GitHub Issues integration work. |
+| `@harness-anything/adapter-github-issues` | M4 placeholder package slot for GitHub Issues integration work. |
+| `@harness-anything/adapter-linear` | M4 placeholder package slot for Linear integration work. |
 
 ## Documentation
 

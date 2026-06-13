@@ -54,13 +54,29 @@ export type TaskDocumentResult = (LocalControllerSuccess & {
   readonly body?: string;
 }) | LocalControllerFailure;
 
+export interface TaskIdPayload {
+  readonly taskId: string;
+}
+
+export interface TaskDocumentPayload extends TaskIdPayload {
+  readonly path: string;
+}
+
+export interface SetTaskStatusPayload extends TaskIdPayload {
+  readonly status: DomainStatus;
+}
+
+export interface AppendTaskProgressPayload extends TaskIdPayload {
+  readonly text: string;
+}
+
 export interface LocalControllerService {
   readonly getTasks: () => TaskListResult;
-  readonly getTaskDetail: (payload: unknown) => TaskDetailResult;
-  readonly getTaskDocument: (payload: unknown) => TaskDocumentResult;
-  readonly setTaskStatus: (payload: unknown) => Promise<LocalControllerResult>;
-  readonly reviewTask: (payload: unknown) => Promise<LocalControllerResult>;
-  readonly appendTaskProgress: (payload: unknown) => Promise<LocalControllerResult>;
+  readonly getTaskDetail: (payload: TaskIdPayload) => TaskDetailResult;
+  readonly getTaskDocument: (payload: TaskDocumentPayload) => TaskDocumentResult;
+  readonly setTaskStatus: (payload: SetTaskStatusPayload) => Promise<LocalControllerResult>;
+  readonly reviewTask: (payload: TaskIdPayload) => Promise<LocalControllerResult>;
+  readonly appendTaskProgress: (payload: AppendTaskProgressPayload) => Promise<LocalControllerResult>;
   readonly rebuildGovernance: () => TaskListResult;
   readonly archiveTask: () => LocalControllerResult;
   readonly openShell: () => LocalControllerResult & {
@@ -81,33 +97,31 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       return { ok: true, tasks: result.rows, warnings: result.warnings };
     },
     getTaskDetail: (payload) => {
-      const parsed = readTaskIdPayload(payload);
-      if (!parsed.ok) return parsed;
+      validateTaskId(payload.taskId);
       const projection = readTaskProjection({ rootDir });
-      const task = projection.rows.find((row) => row.taskId === parsed.taskId);
-      if (!task) return taskNotFound(parsed.taskId);
+      const task = projection.rows.find((row) => row.taskId === payload.taskId);
+      if (!task) return taskNotFound(payload.taskId);
       return {
         ok: true,
         task,
-        documents: listKnownTaskDocuments(rootDir, parsed.taskId)
+        documents: listKnownTaskDocuments(rootDir, payload.taskId)
       };
     },
     getTaskDocument: (payload) => {
-      const parsed = readTaskDocumentPayload(payload);
-      if (!parsed.ok) return parsed;
-      const documentPath = taskDocumentPath(rootDir, parsed.taskId, parsed.path);
-      if (!existsSync(documentPath)) return { ok: false, error: { code: "document_not_found", hint: parsed.path } };
+      validateTaskId(payload.taskId);
+      validateRelativeDocumentPath(payload.path);
+      const documentPath = taskDocumentPath(rootDir, payload.taskId, payload.path);
+      if (!existsSync(documentPath)) return { ok: false, error: { code: "document_not_found", hint: payload.path } };
       return {
         ok: true,
-        taskId: parsed.taskId,
-        path: parsed.path,
+        taskId: payload.taskId,
+        path: payload.path,
         body: readFileSync(documentPath, "utf8")
       };
     },
     setTaskStatus: async (payload) => {
-      const parsed = readSetStatusPayload(payload);
-      if (!parsed.ok) return parsed;
-      return Effect.runPromise(engine.setStatus({ taskId: parsed.taskId, status: parsed.status }).pipe(
+      validateTaskId(payload.taskId);
+      return Effect.runPromise(engine.setStatus({ taskId: payload.taskId, status: payload.status }).pipe(
         Effect.match({
           onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Status update failed." } }),
           onSuccess: () => ({ ok: true })
@@ -115,9 +129,8 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       ));
     },
     reviewTask: async (payload) => {
-      const parsed = readTaskIdPayload(payload);
-      if (!parsed.ok) return parsed;
-      return Effect.runPromise(engine.setStatus({ taskId: parsed.taskId, status: "in_review" }).pipe(
+      validateTaskId(payload.taskId);
+      return Effect.runPromise(engine.setStatus({ taskId: payload.taskId, status: "in_review" }).pipe(
         Effect.match({
           onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Review transition failed." } }),
           onSuccess: () => ({ ok: true })
@@ -125,9 +138,8 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       ));
     },
     appendTaskProgress: async (payload) => {
-      const parsed = readAppendProgressPayload(payload);
-      if (!parsed.ok) return parsed;
-      return Effect.runPromise(engine.appendProgress({ taskId: parsed.taskId, text: parsed.text }).pipe(
+      validateTaskId(payload.taskId);
+      return Effect.runPromise(engine.appendProgress({ taskId: payload.taskId, text: payload.text }).pipe(
         Effect.match({
           onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Progress append failed." } }),
           onSuccess: () => ({ ok: true })
@@ -167,25 +179,33 @@ function taskDocumentPath(rootDir: string, taskId: string, documentPath: string)
   return harnessTaskDocumentPath(rootDir, taskId, documentPath);
 }
 
-function readTaskIdPayload(payload: unknown): { readonly ok: true; readonly taskId: string } | LocalControllerFailure {
+export function readTaskIdPayload(payload: unknown): { readonly ok: true; readonly taskId: string } | LocalControllerFailure {
   if (!isRecord(payload) || typeof payload.taskId !== "string") {
     return invalidPayload("taskId is required.");
   }
-  validateTaskId(payload.taskId);
+  try {
+    validateTaskId(payload.taskId);
+  } catch {
+    return invalidPayload("taskId is invalid.");
+  }
   return { ok: true, taskId: payload.taskId };
 }
 
-function readTaskDocumentPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly path: string } | LocalControllerFailure {
+export function readTaskDocumentPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly path: string } | LocalControllerFailure {
   const taskPayload = readTaskIdPayload(payload);
   if (!taskPayload.ok) return taskPayload;
   if (!isRecord(payload) || typeof payload.path !== "string") {
     return invalidPayload("path is required.");
   }
-  validateRelativeDocumentPath(payload.path);
+  try {
+    validateRelativeDocumentPath(payload.path);
+  } catch {
+    return invalidPayload("path must stay inside the task package.");
+  }
   return { ok: true, taskId: taskPayload.taskId, path: payload.path };
 }
 
-function readSetStatusPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly status: DomainStatus } | LocalControllerFailure {
+export function readSetStatusPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly status: DomainStatus } | LocalControllerFailure {
   const taskPayload = readTaskIdPayload(payload);
   if (!taskPayload.ok) return taskPayload;
   if (!isRecord(payload) || typeof payload.status !== "string" || !isDomainStatus(payload.status)) {
@@ -194,7 +214,7 @@ function readSetStatusPayload(payload: unknown): { readonly ok: true; readonly t
   return { ok: true, taskId: taskPayload.taskId, status: payload.status };
 }
 
-function readAppendProgressPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly text: string } | LocalControllerFailure {
+export function readAppendProgressPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly text: string } | LocalControllerFailure {
   const taskPayload = readTaskIdPayload(payload);
   if (!taskPayload.ok) return taskPayload;
   if (!isRecord(payload) || typeof payload.text !== "string" || payload.text.length === 0) {

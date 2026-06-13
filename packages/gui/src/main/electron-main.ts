@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGuiServiceBridge } from "../api/service-bridge.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
-import { assertDevRendererUrl, guiContentSecurityPolicy } from "./window-config.ts";
+import { assertDevRendererUrl, createGuiContentSecurityPolicy, isTrustedRendererUrl } from "./window-config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +26,10 @@ export function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!isTrustedRendererUrl(url)) event.preventDefault();
+  });
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
     assertDevRendererUrl(rendererUrl);
@@ -37,11 +41,16 @@ export function createMainWindow(): BrowserWindow {
 }
 
 export function installContentSecurityPolicy(): void {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        "Content-Security-Policy": [guiContentSecurityPolicy]
+        "Content-Security-Policy": [createGuiContentSecurityPolicy({
+          allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
+        })]
       }
     });
   });

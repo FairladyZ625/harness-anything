@@ -184,6 +184,10 @@ if (hasGuiImplementation) {
   ]) {
     if (!applicationText.includes(requiredSnippet)) record(`application service must include ${requiredSnippet}`);
   }
+  const serviceInterface = applicationText.match(/export interface LocalControllerService \{[\s\S]*?\n\}/)?.[0] ?? "";
+  if (/\([^)]*:\s*unknown\b/.test(serviceInterface)) {
+    record("LocalControllerService methods must use typed payloads; unknown belongs only in transport-boundary readers");
+  }
   if (
     !cliText.includes("command: \"gui\"")
     || !cliText.includes("@harness-anything/gui")
