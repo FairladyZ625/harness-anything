@@ -1,6 +1,6 @@
 # M2 Coding Vertical
 
-Status: M2 usable workflow, before final cutover
+Status: M2 final-cutover evidence complete, package release deferred
 
 ## Install From This Repository
 
@@ -68,6 +68,7 @@ harness migrate-plan --json
 harness migrate-structure --plan --json
 harness migrate-run --plan-only --json
 harness migrate-verify <session.json> --json
+harness migrate-verify <session.json> --full-cutover --json
 harness git-diff --json
 ```
 
@@ -101,8 +102,27 @@ run the check again:
 harness check --post-merge --json
 ```
 
-## P7 Boundary
+## Final Cutover Evidence
 
-P6 does not publish packages, change package privacy, switch default production
-paths, or claim final M2 exit. Those decisions require the final cutover packet
-with post-merge evidence.
+M2-P7 activates `migrate-verify --full-cutover` as the final repository gate.
+The gate verifies the migration session, package release decision, package
+surface, and behavior corpus report before returning success.
+
+Local final-cutover checks:
+
+```bash
+harness migrate-run --json
+harness migrate-verify <session.json> --full-cutover --json
+npm run harness:check-cutover-readiness
+npm run check
+```
+
+Package release decision:
+
+- no npm publish in M2.
+- packages remain `private: true`.
+- workspace versions remain `0.0.0`.
+- no `publishConfig` is introduced.
+
+M2 completion does not claim npm registry ownership, GUI completion, external
+write adapters, or later roadmap milestones.
