@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
@@ -26,6 +26,8 @@ import {
   validateVerticalDefinition
 } from "../../kernel/src/index.ts";
 
+type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
+
 export interface CliResult {
   readonly ok: boolean;
   readonly command: string;
@@ -38,7 +40,12 @@ export interface CliResult {
   readonly mode?: "soft" | "hard";
   readonly tasks?: ReadonlyArray<unknown>;
   readonly templates?: ReadonlyArray<unknown>;
+  readonly presets?: ReadonlyArray<unknown>;
+  readonly preset?: unknown;
+  readonly modules?: ReadonlyArray<unknown>;
+  readonly module?: unknown;
   readonly document?: unknown;
+  readonly evidenceBundle?: string;
   readonly issues?: ReadonlyArray<unknown>;
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
@@ -87,6 +94,21 @@ const commandRegistry = [
   { kind: "status", primary: "harness status --json", resultEnvelope: "CliResult/v1" },
   { kind: "check", primary: "harness check [--post-merge] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "governance-rebuild", primary: "harness governance rebuild [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-list", primary: "harness preset list [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-inspect", primary: "harness preset inspect <id> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-check", primary: "harness preset check <id> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-install", primary: "harness preset install <folder> [--project] [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-seed", primary: "harness preset seed [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-audit", primary: "harness preset audit [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-uninstall", primary: "harness preset uninstall <id> [--project] [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-run", primary: "harness preset run <id> <plan|scaffold|check> --task <id> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-action", primary: "harness preset action <id> <action> --task <id> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "module-list", primary: "harness module list [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "module-inspect", primary: "harness module inspect <key> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "module-register", primary: "harness module register <key> --title <title> --scope <path> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "module-scaffold", primary: "harness module scaffold <key> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "module-unregister", primary: "harness module unregister <key> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "module-step", primary: "harness module-step <key> <step> --state <state> [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "gui", primary: "harness gui", resultEnvelope: "CliResult/v1" }
 ] as const satisfies ReadonlyArray<CommandRegistryEntry>;
 
@@ -112,6 +134,21 @@ interface ParsedCommand {
     | { readonly kind: "template-list"; readonly catalogPath: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }
     | { readonly kind: "preset-validate"; readonly manifestPath: string; readonly kernelVersion: string }
+    | { readonly kind: "preset-list" }
+    | { readonly kind: "preset-inspect"; readonly presetId: string }
+    | { readonly kind: "preset-check"; readonly presetId: string }
+    | { readonly kind: "preset-install"; readonly sourcePath: string; readonly layer: "project" | "user" }
+    | { readonly kind: "preset-seed" }
+    | { readonly kind: "preset-audit" }
+    | { readonly kind: "preset-uninstall"; readonly presetId: string; readonly layer: "project" | "user" }
+    | { readonly kind: "preset-run"; readonly presetId: string; readonly entrypoint: "plan" | "scaffold" | "check"; readonly taskId: string }
+    | { readonly kind: "preset-action"; readonly presetId: string; readonly actionName: string; readonly taskId: string }
+    | { readonly kind: "module-list" }
+    | { readonly kind: "module-inspect"; readonly moduleKey: string }
+    | { readonly kind: "module-register"; readonly moduleKey: string; readonly title: string; readonly scope: string }
+    | { readonly kind: "module-scaffold"; readonly moduleKey: string }
+    | { readonly kind: "module-unregister"; readonly moduleKey: string }
+    | { readonly kind: "module-step"; readonly moduleKey: string; readonly stepId: string; readonly state: "planned" | "in-progress" | "blocked" | "done" }
     | { readonly kind: "vertical-validate"; readonly definitionPath: string };
 }
 
@@ -921,6 +958,80 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
     };
   }
 
+  if (args[0] === "preset" && args[1] === "list") {
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-list" } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "inspect" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-inspect", presetId: args[2] } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "check" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-check", presetId: args[2] } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "install" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-install", sourcePath: args[2], layer: args.includes("--project") ? "project" : "user" } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "seed") {
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-seed" } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "audit") {
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-audit" } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "uninstall" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-uninstall", presetId: args[2], layer: args.includes("--project") ? "project" : "user" } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "run" && args[2] && args[3]) {
+    const taskId = readOption(args, "--task");
+    if (!taskId) return { ok: false, error: { code: "missing_task", hint: "preset run requires --task <id>." } };
+    if (args[3] !== "plan" && args[3] !== "scaffold" && args[3] !== "check") {
+      return { ok: false, error: { code: "invalid_entrypoint", hint: `Unknown preset entrypoint: ${args[3]}` } };
+    }
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-run", presetId: args[2], entrypoint: args[3], taskId } } };
+  }
+
+  if (args[0] === "preset" && args[1] === "action" && args[2] && args[3]) {
+    const taskId = readOption(args, "--task");
+    if (!taskId) return { ok: false, error: { code: "missing_task", hint: "preset action requires --task <id>." } };
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-action", presetId: args[2], actionName: args[3], taskId } } };
+  }
+
+  if (args[0] === "module" && args[1] === "list") {
+    return { ok: true, value: { rootDir, json, action: { kind: "module-list" } } };
+  }
+
+  if (args[0] === "module" && args[1] === "inspect" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "module-inspect", moduleKey: args[2] } } };
+  }
+
+  if (args[0] === "module" && args[1] === "register" && args[2]) {
+    const title = readOption(args, "--title");
+    const scope = readOption(args, "--scope");
+    if (!title || !scope) return { ok: false, error: { code: "missing_module_fields", hint: "module register requires --title and --scope." } };
+    return { ok: true, value: { rootDir, json, action: { kind: "module-register", moduleKey: args[2], title, scope } } };
+  }
+
+  if (args[0] === "module" && args[1] === "scaffold" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "module-scaffold", moduleKey: args[2] } } };
+  }
+
+  if (args[0] === "module" && args[1] === "unregister" && args[2]) {
+    return { ok: true, value: { rootDir, json, action: { kind: "module-unregister", moduleKey: args[2] } } };
+  }
+
+  if (args[0] === "module-step" && args[1] && args[2]) {
+    const state = readOption(args, "--state") ?? "in-progress";
+    if (state !== "planned" && state !== "in-progress" && state !== "blocked" && state !== "done") {
+      return { ok: false, error: { code: "invalid_module_step_state", hint: `Unknown module step state: ${state}` } };
+    }
+    return { ok: true, value: { rootDir, json, action: { kind: "module-step", moduleKey: args[1], stepId: args[2], state } } };
+  }
+
   if (args[0] === "vertical" && args[1] === "validate" && args[2]) {
     return {
       ok: true,
@@ -954,8 +1065,49 @@ function actionTaskId(action: ParsedCommand["action"]): string | undefined {
   return "taskId" in action ? action.taskId : undefined;
 }
 
-function isExtensionAction(action: ParsedCommand["action"]): action is Extract<ParsedCommand["action"], { readonly kind: "template-list" | "template-render" | "preset-validate" | "vertical-validate" }> {
-  return action.kind === "template-list" || action.kind === "template-render" || action.kind === "preset-validate" || action.kind === "vertical-validate";
+function isExtensionAction(action: ParsedCommand["action"]): action is Extract<ParsedCommand["action"], {
+  readonly kind:
+    | "template-list"
+    | "template-render"
+    | "preset-validate"
+    | "preset-list"
+    | "preset-inspect"
+    | "preset-check"
+    | "preset-install"
+    | "preset-seed"
+    | "preset-audit"
+    | "preset-uninstall"
+    | "preset-run"
+    | "preset-action"
+    | "module-list"
+    | "module-inspect"
+    | "module-register"
+    | "module-scaffold"
+    | "module-unregister"
+    | "module-step"
+    | "vertical-validate"
+}> {
+  return [
+    "template-list",
+    "template-render",
+    "preset-validate",
+    "preset-list",
+    "preset-inspect",
+    "preset-check",
+    "preset-install",
+    "preset-seed",
+    "preset-audit",
+    "preset-uninstall",
+    "preset-run",
+    "preset-action",
+    "module-list",
+    "module-inspect",
+    "module-register",
+    "module-scaffold",
+    "module-unregister",
+    "module-step",
+    "vertical-validate"
+  ].includes(action.kind);
 }
 
 function runExtensionCommand(command: ParsedCommand): CliResult {
@@ -1034,6 +1186,210 @@ function runExtensionCommand(command: ParsedCommand): CliResult {
       };
     }
 
+    if (command.action.kind === "preset-list") {
+      return {
+        ok: true,
+        command: "preset-list",
+        presets: discoverPresets(command.rootDir).map(publicPresetSummary)
+      };
+    }
+
+    if (command.action.kind === "preset-inspect") {
+      const preset = resolvePreset(command.rootDir, command.action.presetId);
+      if (!preset) return presetNotFound("preset-inspect", command.action.presetId);
+      return {
+        ok: true,
+        command: "preset-inspect",
+        preset: {
+          ...publicPresetSummary(preset),
+          manifest: preset.manifest
+        }
+      };
+    }
+
+    if (command.action.kind === "preset-check") {
+      const preset = resolvePreset(command.rootDir, command.action.presetId);
+      if (!preset) return presetNotFound("preset-check", command.action.presetId);
+      const validation = validatePresetManifests([preset.manifest], { kernelVersion: "1.0.0" });
+      return {
+        ok: validation.ok,
+        command: "preset-check",
+        preset: publicPresetSummary(preset),
+        issues: validation.issues,
+        error: validation.ok ? undefined : {
+          code: "preset_manifest_invalid",
+          hint: "Preset manifest failed validation."
+        }
+      };
+    }
+
+    if (command.action.kind === "preset-install") {
+      const manifest = readPresetManifestFromSource(command.action.sourcePath);
+      const validation = validatePresetManifests([manifest], { kernelVersion: "1.0.0" });
+      if (!validation.ok) {
+        return {
+          ok: false,
+          command: "preset-install",
+          preset: { id: manifest.id },
+          issues: validation.issues,
+          error: { code: "preset_manifest_invalid", hint: "Preset manifest failed validation." }
+        };
+      }
+      const target = presetManifestPath(command.rootDir, command.action.layer, manifest.id);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, JSON.stringify(manifest, null, 2), "utf8");
+      return {
+        ok: true,
+        command: "preset-install",
+        preset: publicPresetSummary({ manifest, layer: command.action.layer, sourcePath: target })
+      };
+    }
+
+    if (command.action.kind === "preset-seed") {
+      for (const manifest of bundledPresetManifests()) {
+        const target = presetManifestPath(command.rootDir, "user", manifest.id);
+        if (!existsSync(target)) {
+          mkdirSync(path.dirname(target), { recursive: true });
+          writeFileSync(target, JSON.stringify(manifest, null, 2), "utf8");
+        }
+      }
+      return {
+        ok: true,
+        command: "preset-seed",
+        presets: discoverPresets(command.rootDir).filter((preset) => preset.layer === "user").map(publicPresetSummary)
+      };
+    }
+
+    if (command.action.kind === "preset-audit") {
+      const resolved = discoverPresets(command.rootDir);
+      const bundledById = new Map(bundledPresetManifests().map((manifest) => [manifest.id, manifest.version]));
+      const drift = resolved
+        .filter((preset) => preset.layer !== "builtin" && bundledById.has(preset.manifest.id) && bundledById.get(preset.manifest.id) !== preset.manifest.version)
+        .map((preset) => ({
+          id: preset.manifest.id,
+          layer: preset.layer,
+          installedVersion: preset.manifest.version,
+          bundledVersion: bundledById.get(preset.manifest.id)
+        }));
+      return {
+        ok: true,
+        command: "preset-audit",
+        presets: resolved.map(publicPresetSummary),
+        report: {
+          totalResolved: resolved.length,
+          drift
+        }
+      };
+    }
+
+    if (command.action.kind === "preset-uninstall") {
+      const target = presetManifestPath(command.rootDir, command.action.layer, command.action.presetId);
+      if (!existsSync(target)) return presetNotFound("preset-uninstall", command.action.presetId);
+      rmSync(path.dirname(target), { recursive: true, force: true });
+      return {
+        ok: true,
+        command: "preset-uninstall",
+        preset: {
+          id: command.action.presetId,
+          layer: command.action.layer
+        }
+      };
+    }
+
+    if (command.action.kind === "preset-run") {
+      return runPresetEntrypoint(command.rootDir, command.action.presetId, command.action.entrypoint, command.action.taskId);
+    }
+
+    if (command.action.kind === "preset-action") {
+      if (command.action.actionName !== "plan" && command.action.actionName !== "scaffold" && command.action.actionName !== "check") {
+        return {
+          ok: false,
+          command: "preset-action",
+          preset: { id: command.action.presetId },
+          error: { code: "preset_action_forbidden", hint: `Preset action ${command.action.actionName} is not declared.` }
+        };
+      }
+      return runPresetEntrypoint(command.rootDir, command.action.presetId, command.action.actionName, command.action.taskId);
+    }
+
+    if (command.action.kind === "module-list") {
+      return {
+        ok: true,
+        command: "module-list",
+        modules: readModules(command.rootDir).modules.filter((module) => module.status !== "unregistered")
+      };
+    }
+
+    if (command.action.kind === "module-inspect") {
+      const action = command.action;
+      const module = readModules(command.rootDir).modules.find((candidate) => candidate.key === action.moduleKey);
+      if (!module || module.status === "unregistered") return moduleNotFound("module-inspect", action.moduleKey);
+      return { ok: true, command: "module-inspect", module };
+    }
+
+    if (command.action.kind === "module-register") {
+      const action = command.action;
+      const registry = readModules(command.rootDir);
+      const existing = registry.modules.find((module) => module.key === action.moduleKey);
+      const module = {
+        key: action.moduleKey,
+        title: action.title,
+        status: "active",
+        scopes: [action.scope],
+        steps: [] as Array<{ readonly id: string; readonly state: string }>
+      };
+      const modules = existing
+        ? registry.modules.map((candidate) => candidate.key === action.moduleKey ? module : candidate)
+        : [...registry.modules, module];
+      writeModules(command.rootDir, { modules });
+      return { ok: true, command: "module-register", module };
+    }
+
+    if (command.action.kind === "module-scaffold") {
+      const action = command.action;
+      const registry = readModules(command.rootDir);
+      const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
+      if (!module || module.status === "unregistered") return moduleNotFound("module-scaffold", action.moduleKey);
+      const moduleRoot = path.join(resolveHarnessLayout(command.rootDir).planningRoot, "modules", module.key);
+      mkdirSync(moduleRoot, { recursive: true });
+      writeIfMissing(path.join(moduleRoot, "brief.md"), `# ${module.title}\n\nModule key: ${module.key}\n`);
+      writeIfMissing(path.join(moduleRoot, "module_plan.md"), `# ${module.title} Module Plan\n\n| Step | State |\n| --- | --- |\n`);
+      return {
+        ok: true,
+        command: "module-scaffold",
+        module,
+        path: path.relative(command.rootDir, path.join(moduleRoot, "module_plan.md")).split(path.sep).join("/")
+      };
+    }
+
+    if (command.action.kind === "module-unregister") {
+      const action = command.action;
+      const registry = readModules(command.rootDir);
+      const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
+      if (!module || module.status === "unregistered") return moduleNotFound("module-unregister", action.moduleKey);
+      const next = { ...module, status: "unregistered" };
+      writeModules(command.rootDir, {
+        modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
+      });
+      return { ok: true, command: "module-unregister", module: next };
+    }
+
+    if (command.action.kind === "module-step") {
+      const action = command.action;
+      const registry = readModules(command.rootDir);
+      const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
+      if (!module || module.status === "unregistered") return moduleNotFound("module-step", action.moduleKey);
+      const step = { id: action.stepId, state: action.state };
+      const steps = module.steps.some((candidate) => candidate.id === step.id)
+        ? module.steps.map((candidate) => candidate.id === step.id ? step : candidate)
+        : [...module.steps, step];
+      const next = { ...module, steps };
+      writeModules(command.rootDir, {
+        modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
+      });
+      return { ok: true, command: "module-step", module: next };
+    }
+
     if (command.action.kind === "vertical-validate") {
       const decoded = decodeExtensionJsonFile("vertical-definition", command.action.definitionPath, VerticalDefinitionSchema);
       if (!decoded.ok) {
@@ -1070,6 +1426,233 @@ function runExtensionCommand(command: ParsedCommand): CliResult {
       }
     };
   }
+}
+
+interface ResolvedPreset {
+  readonly manifest: PresetManifest;
+  readonly layer: "project" | "user" | "builtin";
+  readonly sourcePath: string;
+}
+
+interface ModuleRegistry {
+  readonly modules: ReadonlyArray<ModuleRecord>;
+}
+
+interface ModuleRecord {
+  readonly key: string;
+  readonly title: string;
+  readonly status: string;
+  readonly scopes: ReadonlyArray<string>;
+  readonly steps: ReadonlyArray<{ readonly id: string; readonly state: string }>;
+}
+
+const bundledPresetIds = [
+  "standard-task",
+  "module",
+  "legacy-migration",
+  "lesson-sedimentation",
+  "version-upgrade",
+  "publish-standard",
+  "release-closeout"
+] as const;
+
+function discoverPresets(rootDir: string): ReadonlyArray<ResolvedPreset> {
+  const byId = new Map<string, ResolvedPreset>();
+  for (const manifest of bundledPresetManifests()) {
+    byId.set(manifest.id, { manifest, layer: "builtin", sourcePath: `builtin:${manifest.id}` });
+  }
+  for (const layer of ["user", "project"] as const) {
+    for (const preset of readLayerPresets(rootDir, layer)) {
+      byId.set(preset.manifest.id, preset);
+    }
+  }
+  return [...byId.values()].sort((left, right) => left.manifest.id.localeCompare(right.manifest.id));
+}
+
+function resolvePreset(rootDir: string, presetId: string): ResolvedPreset | undefined {
+  return discoverPresets(rootDir).find((preset) => preset.manifest.id === presetId);
+}
+
+function publicPresetSummary(preset: ResolvedPreset): Record<string, unknown> {
+  return {
+    id: preset.manifest.id,
+    title: preset.manifest.title,
+    version: preset.manifest.version,
+    vertical: preset.manifest.vertical,
+    defaultProfile: preset.manifest.defaultProfile,
+    layer: preset.layer,
+    sourcePath: safePresetSourcePath(preset.sourcePath)
+  };
+}
+
+function safePresetSourcePath(sourcePath: string): string {
+  return sourcePath.startsWith("builtin:") ? sourcePath : sourcePath.split(path.sep).slice(-3).join("/");
+}
+
+function readLayerPresets(rootDir: string, layer: "project" | "user"): ReadonlyArray<ResolvedPreset> {
+  const layerRoot = presetLayerRoot(rootDir, layer);
+  if (!existsSync(layerRoot)) return [];
+  return readdirSync(layerRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(layerRoot, entry.name, "preset.json"))
+    .filter((presetPath) => existsSync(presetPath))
+    .map((presetPath) => ({
+      manifest: decodePresetManifestFile(presetPath),
+      layer,
+      sourcePath: presetPath
+    }));
+}
+
+function bundledPresetManifests(): ReadonlyArray<PresetManifest> {
+  return bundledPresetIds.map((id): PresetManifest => ({
+    schema: "preset-manifest/v1",
+    id,
+    title: titleizePresetId(id),
+    vertical: "software/coding",
+    version: "1.0.0",
+    kernelVersionRange: {
+      min: "1.0.0",
+      maxExclusive: "2.0.0"
+    },
+    capabilityImports: [{
+      id: `${id}-check`,
+      kind: "checker",
+      version: "1",
+      required: false
+    }],
+    profiles: [{
+      id: "baseline",
+      title: "Baseline",
+      checkerProfile: "standard",
+      templateSelections: []
+    }],
+    defaultProfile: "baseline"
+  }));
+}
+
+function titleizePresetId(id: string): string {
+  return id.split("-").map((part) => part.length > 0 ? `${part[0]?.toUpperCase()}${part.slice(1)}` : part).join(" ");
+}
+
+function readPresetManifestFromSource(sourcePath: string): PresetManifest {
+  const resolved = path.resolve(sourcePath);
+  const presetPath = existsSync(path.join(resolved, "preset.json")) ? path.join(resolved, "preset.json") : resolved;
+  return decodePresetManifestFile(presetPath);
+}
+
+function decodePresetManifestFile(presetPath: string): PresetManifest {
+  const raw = JSON.parse(readFileSync(presetPath, "utf8")) as unknown;
+  const shape = validateExtensionInputShape("preset-manifest", raw);
+  if (!shape.ok) {
+    throw new Error("preset manifest shape invalid");
+  }
+  return Schema.decodeUnknownSync(PresetManifestSchema)(raw);
+}
+
+function presetLayerRoot(rootDir: string, layer: "project" | "user"): string {
+  const layout = resolveHarnessLayout(rootDir);
+  return layer === "project"
+    ? path.join(layout.localRoot, "presets")
+    : path.join(layout.localRoot, "user-presets");
+}
+
+function presetManifestPath(rootDir: string, layer: "project" | "user", presetId: string): string {
+  validateRegistryKey(presetId, "preset");
+  return path.join(presetLayerRoot(rootDir, layer), presetId, "preset.json");
+}
+
+function runPresetEntrypoint(rootDir: string, presetId: string, entrypoint: "plan" | "scaffold" | "check", taskId: string): CliResult {
+  const preset = resolvePreset(rootDir, presetId);
+  if (!preset) return presetNotFound("preset-run", presetId);
+  validateRegistryKey(taskId, "task");
+  const evidenceDir = path.join(resolveHarnessLayout(rootDir).localRoot, "evidence", "presets", presetId, timestampForPath());
+  mkdirSync(evidenceDir, { recursive: true });
+  const generated: string[] = [];
+  if (entrypoint === "scaffold") {
+    const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
+    mkdirSync(path.dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, `# ${preset.manifest.title}\n\nTask: ${taskId}\n`, "utf8");
+    generated.push(path.relative(rootDir, outputPath).split(path.sep).join("/"));
+  }
+  const evidence = {
+    schema: "preset-evidence/v1",
+    presetId,
+    layer: preset.layer,
+    taskId,
+    entrypoint,
+    generated,
+    ok: true
+  };
+  writeFileSync(path.join(evidenceDir, "evidence.json"), JSON.stringify(evidence, null, 2), "utf8");
+  return {
+    ok: true,
+    command: "preset-run",
+    preset: publicPresetSummary(preset),
+    evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
+    report: evidence
+  };
+}
+
+function readModules(rootDir: string): ModuleRegistry {
+  const registryPath = modulesRegistryPath(rootDir);
+  if (!existsSync(registryPath)) return { modules: [] };
+  const parsed = JSON.parse(readFileSync(registryPath, "utf8")) as { readonly modules?: ReadonlyArray<ModuleRecord> };
+  return { modules: parsed.modules ?? [] };
+}
+
+function writeModules(rootDir: string, registry: ModuleRegistry): void {
+  const registryPath = modulesRegistryPath(rootDir);
+  mkdirSync(path.dirname(registryPath), { recursive: true });
+  writeFileSync(registryPath, JSON.stringify({ schema: "module-registry/v1", modules: registry.modules }, null, 2), "utf8");
+  writeModuleRegistryView(rootDir, registry);
+}
+
+function modulesRegistryPath(rootDir: string): string {
+  return path.join(resolveHarnessLayout(rootDir).authoredRoot, "modules.json");
+}
+
+function writeModuleRegistryView(rootDir: string, registry: ModuleRegistry): void {
+  const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "Module-Registry.md");
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  const rows = registry.modules
+    .map((module) => `| ${module.key} | ${module.title} | ${module.status} | ${module.scopes.join("<br>")} | ${module.steps.map((step) => `${step.id}:${step.state}`).join(", ")} |`)
+    .join("\n");
+  writeFileSync(outputPath, [
+    "# Module Registry",
+    "",
+    "| Key | Title | Status | Scopes | Steps |",
+    "| --- | --- | --- | --- | --- |",
+    rows,
+    ""
+  ].join("\n"), "utf8");
+}
+
+function presetNotFound(command: string, presetId: string): CliResult {
+  return {
+    ok: false,
+    command,
+    preset: { id: presetId },
+    error: { code: "preset_not_found", hint: `Preset ${presetId} was not found.` }
+  };
+}
+
+function moduleNotFound(command: string, moduleKey: string): CliResult {
+  return {
+    ok: false,
+    command,
+    module: { key: moduleKey },
+    error: { code: "module_not_found", hint: `Module ${moduleKey} was not found.` }
+  };
+}
+
+function validateRegistryKey(value: string, label: string): void {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(value)) {
+    throw new Error(`invalid ${label} key`);
+  }
+}
+
+function timestampForPath(now: Date = new Date()): string {
+  return now.toISOString().replace(/[:.]/gu, "-");
 }
 
 function decodeExtensionJsonFile<A, I>(
