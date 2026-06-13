@@ -1,14 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
-import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../application/src/index.ts";
-import type { EngineError, WriteError } from "../../kernel/src/domain/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, taskDocumentPath } from "../../kernel/src/layout/index.ts";
-import { checkTaskProjection, readTaskProjection } from "../../kernel/src/index.ts";
-import { commandRegistry } from "./command-registry.ts";
-import { runCheckProfile, runGovernanceRebuild, runLessonPromote, runLessonSediment } from "./check-governance.ts";
-import type { CliResult, ParsedCommand } from "./types.ts";
+import { makeLocalLifecycleEngine } from "../../../adapters/local/src/index.ts";
+import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../../application/src/index.ts";
+import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
+import { checkTaskProjection, readTaskProjection } from "../../../kernel/src/index.ts";
+import { commandRegistry } from "../cli/command-registry.ts";
+import { runCheckProfile } from "./check.ts";
+import { runGovernanceRebuild } from "./governance.ts";
+import { runLessonPromote, runLessonSediment } from "./lesson.ts";
+import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 export function runCommand(
   engine: ReturnType<typeof makeLocalLifecycleEngine>,

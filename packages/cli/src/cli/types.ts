@@ -1,4 +1,4 @@
-import type { DomainStatus } from "../../kernel/src/domain/index.ts";
+import type { DomainStatus } from "../../../kernel/src/domain/index.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";

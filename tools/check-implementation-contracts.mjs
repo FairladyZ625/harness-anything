@@ -210,8 +210,10 @@ if (hasGuiImplementation) {
 }
 
 if (hasStoreImplementation) {
-  const coordinatorPath = path.join(root, "packages/kernel/src/store/write-journal-coordinator.ts");
-  const coordinatorText = existsSync(coordinatorPath) ? readFileSync(coordinatorPath, "utf8") : "";
+  const coordinatorText = files
+    .filter((file) => relative(file).startsWith("packages/kernel/src/store/"))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
   for (const requiredSnippet of [
     "write-journal/v1",
     "write-watermark/v1",
@@ -275,7 +277,10 @@ if (hasLocalLifecycleImplementation) {
 }
 
 if (hasTaskProjectionImplementation) {
-  const projectionText = readFileSync(path.join(root, "packages/kernel/src/projection/sqlite-task-projection.ts"), "utf8");
+  const projectionText = files
+    .filter((file) => relative(file).startsWith("packages/kernel/src/projection/"))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
   const rebuildTestText = readFileSync(path.join(root, "packages/kernel/test/store/sqlite-rebuild.test.ts"), "utf8");
   const cliTestText = readFileSync(path.join(root, "packages/cli/test/local-lifecycle-cli.test.ts"), "utf8");
   for (const requiredSnippet of [

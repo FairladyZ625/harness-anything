@@ -10,8 +10,8 @@ import {
   validatePresetManifests,
   validateTemplateCatalog,
   validateVerticalDefinition
-} from "../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../kernel/src/layout/index.ts";
+} from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
 import {
   bundledPresetManifests,
   discoverPresets,
@@ -24,8 +24,8 @@ import {
   resolvePreset,
   runPresetEntrypoint,
   writeModules
-} from "./extension-state.ts";
-import type { CliResult, ParsedCommand } from "./types.ts";
+} from "./state.ts";
+import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 
 export function isExtensionAction(action: ParsedCommand["action"]): action is Extract<ParsedCommand["action"], {
   readonly kind:

@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
-import { PresetManifestSchema, validateExtensionInputShape } from "../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../kernel/src/layout/index.ts";
-import type { CliResult } from "./types.ts";
+import { PresetManifestSchema, validateExtensionInputShape } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import type { CliResult } from "../../cli/types.ts";
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 

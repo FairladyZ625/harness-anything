@@ -4,13 +4,13 @@ import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isExtensionAction, runExtensionCommand } from "./extension-commands.ts";
-import { actionTaskId, parseArgs } from "./parse-args.ts";
+import { isExtensionAction, runExtensionCommand } from "./commands/extensions/index.ts";
+import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import type { EngineError, WriteError } from "../../kernel/src/domain/index.ts";
-import { runCommand } from "./command-runner.ts";
-import type { CliResult } from "./types.ts";
+import { runCommand } from "./commands/lifecycle.ts";
+import type { CliResult } from "./cli/types.ts";
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);

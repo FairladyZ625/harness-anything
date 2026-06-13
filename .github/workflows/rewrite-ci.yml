@@ -51,6 +51,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run harness:check-import-boundaries
+      - run: npm run harness:check-file-complexity
       - run: npm run harness:scan-forbidden-symbols
       - run: npm run harness:check-private-boundary
       - run: npm run harness:check-implementation-contracts

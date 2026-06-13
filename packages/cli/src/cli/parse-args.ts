@@ -1,7 +1,7 @@
-import { isDomainStatus } from "../../kernel/src/domain/index.ts";
-import { slugifyTaskTitle } from "../../kernel/src/layout/index.ts";
+import { isDomainStatus } from "../../../kernel/src/domain/index.ts";
+import { slugifyTaskTitle } from "../../../kernel/src/layout/index.ts";
 import { commandRegistry } from "./command-registry.ts";
-import { isCheckProfile } from "./check-governance.ts";
+import { isCheckProfile } from "../commands/check.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
