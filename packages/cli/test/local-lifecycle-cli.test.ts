@@ -17,6 +17,7 @@ test("CLI init creates shared authored harness and ignored local state root", ()
     assert.match(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), /idPolicy: random-ulid/);
     assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /harness\/harness.yaml/);
     assert.match(readFileSync(path.join(rootDir, ".gitignore"), "utf8"), /^\.harness\/$/m);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy")), false);
   });
 });
 

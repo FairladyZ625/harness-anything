@@ -1,0 +1,46 @@
+{
+  "schema": "legacy-index/v1",
+  "legacyRoot": "harness/legacy",
+  "generatedAt": "2026-06-14T00:00:00.000Z",
+  "sourceRoot": "archive/old-harness",
+  "entries": [
+    {
+      "id": "legacy-task-001",
+      "category": "task",
+      "sourcePath": "archive/old-harness/docs/09-PLANNING/TASKS/task-001",
+      "storedPath": "harness/legacy/tasks/task-001",
+      "sourceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "title": "Legacy task one",
+      "detectedStatus": {
+        "raw": "active",
+        "confidence": "medium"
+      },
+      "evidencePointers": [
+        {
+          "kind": "progress",
+          "path": "harness/legacy/tasks/task-001/progress.md",
+          "label": "legacy progress"
+        }
+      ],
+      "recommendedTreatment": "rebuild-required",
+      "humanReviewRequired": true
+    },
+    {
+      "id": "legacy-doc-001",
+      "category": "doc",
+      "sourcePath": "archive/old-harness/references/testing-standard.md",
+      "storedPath": "harness/legacy/docs/testing-standard.md",
+      "sourceDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "title": "Testing standard",
+      "evidencePointers": [],
+      "recommendedTreatment": "preserve",
+      "humanReviewRequired": false
+    }
+  ],
+  "summary": {
+    "entryCount": 2,
+    "taskCount": 1,
+    "docCount": 1,
+    "rebuildRequiredCount": 1
+  }
+}

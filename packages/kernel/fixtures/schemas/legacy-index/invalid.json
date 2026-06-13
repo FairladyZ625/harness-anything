@@ -1,0 +1,24 @@
+{
+  "schema": "legacy-index/v1",
+  "legacyRoot": "legacy",
+  "generatedAt": "2026-06-14T00:00:00.000Z",
+  "sourceRoot": "archive/old-harness",
+  "entries": [
+    {
+      "id": "legacy-task-001",
+      "category": "task",
+      "sourcePath": "archive/old-harness/docs/09-PLANNING/TASKS/task-001",
+      "storedPath": "legacy/tasks/task-001",
+      "sourceDigest": "sha256:0123456789abcdef",
+      "evidencePointers": [],
+      "recommendedTreatment": "automatic-migrate",
+      "humanReviewRequired": false
+    }
+  ],
+  "summary": {
+    "entryCount": 1,
+    "taskCount": 1,
+    "docCount": 0,
+    "rebuildRequiredCount": 0
+  }
+}

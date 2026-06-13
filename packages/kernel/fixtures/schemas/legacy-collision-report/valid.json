@@ -1,0 +1,28 @@
+{
+  "schema": "legacy-collision-report/v1",
+  "legacyRoot": "harness/legacy",
+  "generatedAt": "2026-06-14T00:00:00.000Z",
+  "policy": {
+    "overwriteAllowed": false,
+    "directorySuffixPattern": "-legacy-import-N",
+    "fileSuffixPattern": ".legacy-import-N"
+  },
+  "entries": [
+    {
+      "kind": "directory",
+      "sourcePath": "archive/old-harness/standards",
+      "targetPath": "harness/legacy/docs/standards",
+      "chosenPath": "harness/legacy/docs/standards-legacy-import-1",
+      "suffixIndex": 1,
+      "reason": "target-exists"
+    },
+    {
+      "kind": "file",
+      "sourcePath": "archive/old-harness/references/testing-standard.md",
+      "targetPath": "harness/legacy/docs/testing-standard.md",
+      "chosenPath": "harness/legacy/docs/testing-standard.legacy-import-1.md",
+      "suffixIndex": 1,
+      "reason": "target-exists"
+    }
+  ]
+}
