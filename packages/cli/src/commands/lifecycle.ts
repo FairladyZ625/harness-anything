@@ -16,6 +16,7 @@ import { runDoctor } from "./doctor.ts";
 import { runGitDiffEvidence } from "./git-diff.ts";
 import { runNewTaskFromLegacy } from "./legacy-rebuild.ts";
 import { runNewTaskWithPreset, shouldUsePresetAwareNewTask } from "./preset-task.ts";
+import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "./settings.ts";
 import { runLegacyCopySafeDocs, runLegacyIndex, runLegacyIntakePlan, runLegacyScan, runLegacyVerify, runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
@@ -34,8 +35,10 @@ export function runCommand(
     if (action.fromLegacyId) {
       return runNewTaskFromLegacy(command.rootDir, action);
     }
-    if (shouldUsePresetAwareNewTask(action)) {
-      return runNewTaskWithPreset(command.rootDir, action);
+    const settingsResult = readProjectHarnessSettings(command.rootDir, "new-task");
+    if (!settingsResult.ok) return Effect.succeed(settingsResult.result);
+    if (shouldUsePresetAwareNewTask(action) || shouldUseSettingsPresetAwareNewTask(settingsResult.settings)) {
+      return runNewTaskWithPreset(command.rootDir, action, settingsResult.settings);
     }
     const taskId = action.taskId ?? generateTaskId();
     return engine.createTask({
@@ -383,6 +386,13 @@ function initializeHarness(rootDir: string): CliResult {
     "tasks:",
     "  root: harness/planning/tasks",
     "  idPolicy: random-ulid",
+    "settings:",
+    "  locale: zh-CN",
+    "  defaultVertical: software/coding",
+    "  defaultPreset: standard-task",
+    "  defaultProfile: baseline",
+    "  customVerticals:",
+    "    enabled: false",
     ""
   ].join("\n"));
   writeIfMissing(path.join(layout.standardsRoot, "repo-governance.md"), [

@@ -14,10 +14,34 @@ test("CLI init creates shared authored harness and ignored local state root", ()
 
     assert.equal(result.ok, true);
     assert.equal(result.path, "harness/harness.yaml");
-    assert.match(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), /idPolicy: random-ulid/);
+    const config = readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8");
+    assert.match(config, /idPolicy: random-ulid/);
+    assert.match(config, /defaultVertical: software\/coding/);
+    assert.match(config, /defaultPreset: standard-task/);
+    assert.match(config, /defaultProfile: baseline/);
+    assert.match(config, /locale: zh-CN/);
     assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /harness\/harness.yaml/);
     assert.match(readFileSync(path.join(rootDir, ".gitignore"), "utf8"), /^\.harness\/$/m);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy")), false);
+  });
+});
+
+test("CLI init dogfoods coding vertical defaults for new tasks", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+
+    const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"]);
+    const taskId = assertGeneratedTaskId(result.taskId);
+    const index = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-dogfood-task/INDEX.md`), "utf8");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.vertical, "software/coding");
+    assert.equal(result.report.preset, "standard-task");
+    assert.equal(result.report.profile, "baseline");
+    assert.equal(result.generated.includes("task_plan.md"), true);
+    assert.match(index, /vertical: software\/coding/);
+    assert.match(index, /preset: standard-task/);
+    assert.match(index, /profile: baseline/);
   });
 });
 

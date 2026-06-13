@@ -56,7 +56,7 @@ try {
   }
 
   const created = runJson(binPath, ["--json", "new-task", "--title", "Smoke Task"], projectDir);
-  if (created.ok !== true || typeof created.taskId !== "string" || !created.taskId.startsWith("task_")) {
+  if (created.ok !== true || typeof created.taskId !== "string" || !created.taskId.startsWith("task_") || created.report?.vertical !== "software/coding" || created.report?.preset !== "standard-task") {
     throw new Error(`unexpected new-task smoke output: ${JSON.stringify(created)}`);
   }
 

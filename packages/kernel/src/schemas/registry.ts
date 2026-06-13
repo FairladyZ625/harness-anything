@@ -20,6 +20,7 @@ const LegacyRootSchema = Schema.Literal("harness/legacy");
 const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*\/\/)(?!.*\\).+$/u));
 const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
 const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
+const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
 
 export const ActorRefSchema = Schema.Struct({
   kind: ActorKindSchema,
@@ -50,6 +51,15 @@ export const HarnessConfigSchema = Schema.Struct({
   presets: Schema.Struct({
     default: Schema.String
   }),
+  settings: Schema.optional(Schema.Struct({
+    locale: Schema.optional(LocaleSchema),
+    defaultVertical: Schema.optional(ConfigIdentifierSchema),
+    defaultPreset: Schema.optional(ConfigIdentifierSchema),
+    defaultProfile: Schema.optional(ConfigIdentifierSchema),
+    customVerticals: Schema.optional(Schema.Struct({
+      enabled: Schema.Boolean
+    }))
+  })),
   storage: Schema.Struct({
     markdownRoot: Schema.String,
     sqlitePath: Schema.String,

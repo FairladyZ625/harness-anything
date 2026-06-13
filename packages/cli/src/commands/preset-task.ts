@@ -9,6 +9,7 @@ import type { EngineError, WriteError } from "../../../kernel/src/domain/index.t
 import { createTaskPackagePath, generateTaskId } from "../../../kernel/src/layout/index.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry } from "./extensions/state.ts";
+import type { ProjectHarnessSettings } from "./settings.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
 
@@ -18,22 +19,23 @@ export function shouldUsePresetAwareNewTask(action: NewTaskAction): boolean {
 
 export function runNewTaskWithPreset(
   rootDir: string,
-  action: NewTaskAction
+  action: NewTaskAction,
+  settings?: ProjectHarnessSettings
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    const vertical = action.vertical ?? "software/coding";
+    const vertical = action.vertical ?? settings?.defaultVertical ?? "software/coding";
     if (vertical !== "software/coding") {
       return {
         ok: false,
         command: "new-task",
         error: {
           code: "custom_vertical_forbidden",
-          hint: "P08 only supports software/coding. Project custom vertical authoring is gated by P10/P11."
+          hint: "P10 only supports software/coding preset-aware task creation. Project custom vertical authoring requires P11 user authorization and remains fail-closed."
         }
       } satisfies CliResult;
     }
 
-    const presetId = action.preset ?? "standard-task";
+    const presetId = action.preset ?? settings?.defaultPreset ?? "standard-task";
     if (presetId === "module" && !action.moduleKey) {
       return {
         ok: false,
@@ -55,8 +57,8 @@ export function runNewTaskWithPreset(
     }
 
     const materialized = materializePresetTaskDocuments(preset.manifest, {
-      profileId: action.profile,
-      locale: "zh-CN"
+      profileId: action.profile ?? settings?.defaultProfile,
+      locale: settings?.locale ?? "zh-CN"
     });
     if (!materialized.ok || !materialized.profile) {
       return {

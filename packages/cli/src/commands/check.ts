@@ -7,6 +7,7 @@ import { commandRegistry } from "../cli/command-registry.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CheckProfile, CliResult } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";
+import { readProjectHarnessSettings, settingsIssue, type ProjectHarnessSettings } from "./settings.ts";
 
 const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
@@ -60,10 +61,13 @@ export function runCheckProfile(
 
 function validateCheckProfile(rootDir: string, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
   const issues: ProfileValidationIssue[] = [];
+  const settingsResult = readProjectHarnessSettings(rootDir, "check");
+  const settings = settingsResult.ok ? settingsResult.settings : undefined;
+  if (!settingsResult.ok) issues.push(settingsIssue(settingsResult));
   if (profile !== "source-package" || strict) {
     const taskDirs = listTaskIndexPaths(rootDir).map((indexPath) => path.dirname(indexPath));
     for (const taskDir of taskDirs) {
-      issues.push(...validateTaskPackageContracts(rootDir, taskDir, profile, strict));
+      issues.push(...validateTaskPackageContracts(rootDir, taskDir, profile, strict, settings));
     }
   }
 
@@ -81,7 +85,7 @@ function checkCommandName(action: { readonly profile: CheckProfile; readonly str
   return `check:${action.profile}`;
 }
 
-function validateTaskPackageContracts(rootDir: string, taskDir: string, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+function validateTaskPackageContracts(rootDir: string, taskDir: string, profile: CheckProfile, strict: boolean, settings?: ProjectHarnessSettings): ReadonlyArray<ProfileValidationIssue> {
   const issues: ProfileValidationIssue[] = [];
   const relativeTaskDir = relativePath(rootDir, taskDir);
   const indexPath = path.join(taskDir, "INDEX.md");
@@ -93,7 +97,7 @@ function validateTaskPackageContracts(rootDir: string, taskDir: string, profile:
   }
   const vertical = readScalar(frontmatter, "vertical");
   const metadataDriven = vertical === "software/coding";
-  issues.push(...validateMetadataDrivenTaskPackage(rootDir, taskDir, relativeTaskDir, frontmatter));
+  issues.push(...validateMetadataDrivenTaskPackage(rootDir, taskDir, relativeTaskDir, frontmatter, settings));
 
   const taskPlanPath = path.join(taskDir, "task_plan.md");
   if (!existsSync(taskPlanPath)) {
@@ -170,7 +174,8 @@ function validateMetadataDrivenTaskPackage(
   rootDir: string,
   taskDir: string,
   relativeTaskDir: string,
-  frontmatter: string
+  frontmatter: string,
+  settings?: ProjectHarnessSettings
 ): ReadonlyArray<ProfileValidationIssue> {
   const vertical = readScalar(frontmatter, "vertical");
   const presetId = readScalar(frontmatter, "preset");
@@ -215,7 +220,7 @@ function validateMetadataDrivenTaskPackage(
     ));
   }
 
-  const materialized = materializePresetTaskDocuments(preset.manifest, { profileId: profile, locale: "zh-CN" });
+  const materialized = materializePresetTaskDocuments(preset.manifest, { profileId: profile, locale: settings?.locale ?? "zh-CN" });
   const issues: ProfileValidationIssue[] = [];
   if (!materialized.ok) {
     issues.push(...materialized.issues.map((issue) => profileIssue(

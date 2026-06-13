@@ -24,6 +24,15 @@
   "presets": {
     "default": "standard-task"
   },
+  "settings": {
+    "locale": "zh-CN",
+    "defaultVertical": "software/coding",
+    "defaultPreset": "standard-task",
+    "defaultProfile": "baseline",
+    "customVerticals": {
+      "enabled": false
+    }
+  },
   "storage": {
     "markdownRoot": "coding-agent-harness",
     "sqlitePath": ".harness/cache/projections.sqlite",

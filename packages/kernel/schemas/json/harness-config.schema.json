@@ -11,6 +11,24 @@
     "lifecycle": { "type": "object" },
     "vertical": { "type": "object" },
     "presets": { "type": "object" },
+    "settings": {
+      "type": "object",
+      "properties": {
+        "locale": { "enum": ["zh-CN", "en-US"] },
+        "defaultVertical": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
+        "defaultPreset": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
+        "defaultProfile": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
+        "customVerticals": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "storage": { "type": "object" }
   }
 }
