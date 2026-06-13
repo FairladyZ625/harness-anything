@@ -9,7 +9,7 @@ import {
   type ExtensionValidationIssue,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
 import type { CliResult } from "../../cli/types.ts";
 import {
   bundledSoftwareCodingTemplateCatalog,
@@ -439,6 +439,11 @@ function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): Readonl
 
     for (const [selectionIndex, selection] of profile.templateSelections.entries()) {
       const path = `profiles[${profileIndex}].templateSelections[${selectionIndex}]`;
+      try {
+        normalizeRelativeDocumentPath(selection.materializeAs);
+      } catch (error) {
+        issues.push(extensionIssue("invalid_materialized_path", error instanceof Error ? error.message : `Invalid materialized path ${selection.materializeAs}.`, path));
+      }
       if (reservedMaterializedPaths.has(selection.materializeAs)) {
         issues.push(extensionIssue("reserved_materialized_path", `Preset ${manifest.id} cannot materialize reserved task package path ${selection.materializeAs}.`, path));
       }

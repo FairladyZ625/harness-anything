@@ -6,6 +6,8 @@ type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
 
 const taskPlanZh = `# {{title}}
 
+Task Contract: harness-task v1
+
 ## Goal
 
 说明本任务要完成的可验证结果。
@@ -26,6 +28,8 @@ const taskPlanZh = `# {{title}}
 `;
 
 const taskPlanEn = `# {{title}}
+
+Task Contract: harness-task v1
 
 ## Goal
 
@@ -69,8 +73,8 @@ Status: not-started
 
 ## Findings
 
-| Severity | File | Finding | Status |
-| --- | --- | --- | --- |
+| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
 `;
 
 const closeoutBody = `# Closeout

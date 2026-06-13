@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseReviewMarkdown } from "../../../application/src/index.ts";
 import { checkTaskProjection } from "../../../kernel/src/index.ts";
-import { listTaskIndexPaths, readFrontmatter, readScalar, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import { listTaskIndexPaths, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { commandRegistry } from "../cli/command-registry.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CheckProfile, CliResult } from "../cli/types.ts";
+import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";
 
 const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
@@ -90,6 +91,9 @@ function validateTaskPackageContracts(rootDir: string, taskDir: string, profile:
     issues.push(profileIssue("task-plan-contract", "task_index_frontmatter_missing", "hard-fail", `${relativeTaskDir}/INDEX.md is missing frontmatter.`, "Restore task package frontmatter before running check profiles."));
     return issues;
   }
+  const vertical = readScalar(frontmatter, "vertical");
+  const metadataDriven = vertical === "software/coding";
+  issues.push(...validateMetadataDrivenTaskPackage(rootDir, taskDir, relativeTaskDir, frontmatter));
 
   const taskPlanPath = path.join(taskDir, "task_plan.md");
   if (!existsSync(taskPlanPath)) {
@@ -134,7 +138,7 @@ function validateTaskPackageContracts(rootDir: string, taskDir: string, profile:
     if (hasTemplatePlaceholder(visualBody)) {
       issues.push(profileIssue("visual-map", "visual_map_placeholder", "hard-fail", `${relativeTaskDir}/visual_map.md still contains template placeholders.`, "Replace scaffold placeholders in the visual map."));
     }
-  } else if (profile !== "source-package") {
+  } else if (profile !== "source-package" && !metadataDriven) {
     issues.push(profileIssue("visual-map", "visual_map_missing", strictSeverity(strict), `${relativeTaskDir}/visual_map.md is missing.`, "Add visual_map.md or record why this task is exempt."));
   }
 
@@ -157,6 +161,132 @@ function validateTaskPackageContracts(rootDir: string, taskDir: string, profile:
   const status = readScalar(frontmatter, "  status");
   if ((status === "done" || status === "in_review") && !existsSync(path.join(taskDir, "walkthrough.md")) && !existsSync(path.join(taskDir, "closeout.md"))) {
     issues.push(profileIssue("completion-consistency", "closeout_missing", strictSeverity(strict), `${relativeTaskDir} is ${status} without closeout evidence.`, "Add walkthrough.md/closeout.md before claiming completion."));
+  }
+
+  return issues;
+}
+
+function validateMetadataDrivenTaskPackage(
+  rootDir: string,
+  taskDir: string,
+  relativeTaskDir: string,
+  frontmatter: string
+): ReadonlyArray<ProfileValidationIssue> {
+  const vertical = readScalar(frontmatter, "vertical");
+  const presetId = readScalar(frontmatter, "preset");
+  if (!vertical || vertical === "default") return [];
+  if (vertical !== "software/coding") {
+    return [profileIssue(
+      "metadata-contract",
+      "unsupported_vertical_metadata",
+      "hard-fail",
+      `${relativeTaskDir}/INDEX.md records unsupported vertical ${vertical}.`,
+      "Use software/coding until project custom vertical checks are enabled by P10/P11."
+    )];
+  }
+  if (!presetId || presetId === "default") {
+    return [profileIssue(
+      "metadata-contract",
+      "metadata_preset_missing",
+      "hard-fail",
+      `${relativeTaskDir}/INDEX.md records software/coding without a concrete preset.`,
+      "Record the selected preset in task frontmatter or rebuild the task package."
+    )];
+  }
+  const profile = readScalar(frontmatter, "profile") || undefined;
+
+  const preset = resolvePresetEntry(rootDir, presetId);
+  if (!preset) {
+    return [profileIssue(
+      "metadata-preset",
+      "metadata_preset_not_found",
+      "hard-fail",
+      `${relativeTaskDir}/INDEX.md references unknown preset ${presetId}.`,
+      "Install the preset or update the task frontmatter to a valid preset id."
+    )];
+  }
+  if (isInvalidPreset(preset)) {
+    return preset.issues.map((issue) => profileIssue(
+      "metadata-preset",
+      issue.code,
+      "hard-fail",
+      `${relativeTaskDir}/INDEX.md preset ${presetId} is blocked by active ${preset.layer} preset validation: ${issue.message}`,
+      "Fix or remove the active preset override before running check."
+    ));
+  }
+
+  const materialized = materializePresetTaskDocuments(preset.manifest, { profileId: profile, locale: "zh-CN" });
+  const issues: ProfileValidationIssue[] = [];
+  if (!materialized.ok) {
+    issues.push(...materialized.issues.map((issue) => profileIssue(
+      "metadata-template",
+      issue.code,
+      "hard-fail",
+      `${relativeTaskDir}/INDEX.md preset ${presetId} cannot materialize required template metadata: ${issue.message}`,
+      "Fix the preset/template metadata before running check."
+    )));
+    return issues;
+  }
+
+  for (const document of materialized.documents) {
+    let safeDocumentPath: string;
+    try {
+      safeDocumentPath = normalizeRelativeDocumentPath(document.materializeAs);
+    } catch (error) {
+      issues.push(profileIssue(
+        "metadata-template",
+        "invalid_materialized_path",
+        "hard-fail",
+        `${relativeTaskDir}/INDEX.md preset ${presetId} has invalid materialized path ${document.materializeAs}: ${error instanceof Error ? error.message : "invalid path"}.`,
+        "Fix the preset/template metadata before running check."
+      ));
+      continue;
+    }
+    const documentPath = path.join(taskDir, safeDocumentPath);
+    const relativeDocumentPath = `${relativeTaskDir}/${document.materializeAs}`;
+    if (!existsSync(documentPath)) {
+      issues.push(profileIssue(
+        "metadata-template",
+        "metadata_document_missing",
+        "hard-fail",
+        `${relativeDocumentPath} is required by vertical ${vertical} preset ${presetId}.`,
+        "Restore the required materialized document or rebuild the task package from the preset."
+      ));
+      continue;
+    }
+    let body: string;
+    try {
+      body = readFileSync(documentPath, "utf8");
+    } catch {
+      issues.push(profileIssue(
+        "metadata-template",
+        "metadata_document_unreadable",
+        "hard-fail",
+        `${relativeDocumentPath} could not be read as a file.`,
+        "Restore the required materialized document as a readable file."
+      ));
+      continue;
+    }
+    for (const anchor of document.requiredAnchors) {
+      if (!body.includes(anchor)) {
+        issues.push(profileIssue(
+          "metadata-template",
+          "metadata_required_anchor_missing",
+          "hard-fail",
+          `${relativeDocumentPath} is missing required anchor ${anchor}.`,
+          "Restore the required anchor or rebuild the document from the selected template."
+        ));
+      }
+    }
+    if (document.fallbackUsed) {
+      issues.push(profileIssue(
+        "metadata-template",
+        "metadata_locale_fallback_used",
+        "warning",
+        `${relativeDocumentPath} used locale fallback ${document.locale}.`,
+        "Review locale settings once project default locale is configured."
+      ));
+    }
   }
 
   return issues;

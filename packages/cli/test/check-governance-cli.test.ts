@@ -57,6 +57,161 @@ test("CLI target-project check profile passes valid task material contracts", ()
   });
 });
 
+test("CLI metadata check validates software coding preset task documents", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const created = runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+
+    const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.summary.hardFailCount, 0);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "visual_map_missing"), false);
+    assert.equal(readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8").includes("Task Contract: harness-task v1"), true);
+  });
+});
+
+test("CLI metadata check uses the selected persisted preset profile", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeRawPreset(rootDir, ".harness/presets/profiled-task/preset.json", makeMultiProfilePreset());
+    const created = runJson(rootDir, ["new-task", "--title", "Profiled Task", "--vertical", "software/coding", "--preset", "profiled-task", "--profile", "extra"]);
+
+    assert.equal(created.report.profile, "extra");
+    assert.equal(created.generated.includes("extra.md"), true);
+    const index = readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8");
+    assert.match(index, /profile: extra/);
+
+    const passed = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
+    assert.equal(passed.ok, true);
+
+    rmSync(path.join(rootDir, created.packagePath, "extra.md"));
+    const failed = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.warnings.some((warning: Record<string, unknown>) => warning.code === "metadata_document_missing" && warning.message.includes("extra.md")), true);
+  });
+});
+
+test("CLI task supersede preserves selected preset profile metadata", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeRawPreset(rootDir, ".harness/presets/profiled-task/preset.json", makeMultiProfilePreset());
+    const created = runJson(rootDir, ["new-task", "--title", "Profiled Task", "--vertical", "software/coding", "--preset", "profiled-task", "--profile", "extra"]);
+    const superseded = runJson(rootDir, ["task", "supersede", created.taskId, "--title", "Replacement Profiled Task", "--reason", "scope changed"]);
+
+    assert.equal(superseded.ok, true);
+    const index = readFileSync(path.join(rootDir, superseded.packagePath, "INDEX.md"), "utf8");
+    assert.match(index, /vertical: software\/coding/);
+    assert.match(index, /preset: profiled-task/);
+    assert.match(index, /profile: extra/);
+  });
+});
+
+test("CLI metadata check fails closed on missing preset-selected document and anchor", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const created = runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    rmSync(path.join(rootDir, created.packagePath, "progress.md"));
+
+    const missingDocument = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+
+    assert.equal(missingDocument.ok, false);
+    assert.equal(missingDocument.error.code, "check_profile_failed");
+    assert.equal(missingDocument.warnings.some((warning: Record<string, unknown>) => warning.code === "metadata_document_missing" && warning.severity === "hard-fail"), true);
+
+    const recreated = runJson(rootDir, ["new-task", "--title", "Anchor Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    const taskPlanPath = path.join(rootDir, recreated.packagePath, "task_plan.md");
+    writeFileSync(taskPlanPath, readFileSync(taskPlanPath, "utf8").replace("## Context", "## Notes"), "utf8");
+
+    const missingAnchor = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+
+    assert.equal(missingAnchor.ok, false);
+    assert.equal(missingAnchor.warnings.some((warning: Record<string, unknown>) => warning.code === "metadata_required_anchor_missing" && warning.message.includes("task_plan.md")), true);
+  });
+});
+
+test("CLI metadata check does not resolve preset overrides for default tasks", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeTaskPackage(rootDir, "task-1", {
+      taskPlan: validTaskPlan(),
+      review: validReview(),
+      visual: validVisualMap(),
+      execution: validExecutionStrategy(),
+      lessons: validLessonCandidates()
+    });
+    writePreset(rootDir, ".harness/presets/module/preset.json", {
+      id: "module",
+      title: "Bad Module",
+      version: "9.0.0",
+      templateSelections: [conflictingTaskPlanSelection()]
+    });
+
+    const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.source === "metadata-preset"), false);
+  });
+});
+
+test("CLI metadata check blocks invalid active preset overrides without bundled fallback", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writePreset(rootDir, ".harness/presets/standard-task/preset.json", {
+      id: "standard-task",
+      title: "Bad Standard Task",
+      version: "9.0.0",
+      templateSelections: [conflictingTaskPlanSelection()]
+    });
+
+    const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "check_profile_failed");
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "preset_required_template_conflict"), true);
+  });
+});
+
+test("CLI metadata check reports invalid materialized paths instead of crashing", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writePreset(rootDir, ".harness/presets/standard-task/preset.json", {
+      id: "standard-task",
+      title: "Bad Path Standard Task",
+      version: "9.0.0",
+      templateSelections: [invalidPathSelection()]
+    });
+
+    const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "check_profile_failed");
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "invalid_materialized_path"), true);
+  });
+});
+
+test("CLI metadata check rejects unsupported non-default verticals", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeTaskPackage(rootDir, "task-1", {
+      vertical: "custom/coding",
+      preset: "standard-task",
+      taskPlan: validTaskPlan(),
+      review: validReview(),
+      visual: validVisualMap(),
+      execution: validExecutionStrategy(),
+      lessons: validLessonCandidates()
+    });
+
+    const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "unsupported_vertical_metadata"), true);
+  });
+});
+
 test("CLI governance rebuild supports dry-run, apply, and archive modes", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
@@ -123,6 +278,8 @@ function writeTaskPackage(
   rootDir: string,
   taskId: string,
   files: {
+    readonly vertical?: string;
+    readonly preset?: string;
     readonly taskPlan: string;
     readonly review: string;
     readonly visual: string;
@@ -147,8 +304,8 @@ function writeTaskPackage(
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
     "packageDisposition: active",
-    "vertical: default",
-    "preset: module",
+    `vertical: ${files.vertical ?? "default"}`,
+    `preset: ${files.preset ?? "module"}`,
     "---",
     "",
     "# Governance Task",
@@ -159,6 +316,112 @@ function writeTaskPackage(
   writeFileSync(path.join(taskDir, "visual_map.md"), files.visual, "utf8");
   writeFileSync(path.join(taskDir, "execution_strategy.md"), files.execution, "utf8");
   writeFileSync(path.join(taskDir, "lesson_candidates.md"), files.lessons, "utf8");
+}
+
+function writePreset(rootDir: string, relativePath: string, overrides: {
+  readonly id: string;
+  readonly title: string;
+  readonly version: string;
+  readonly templateSelections?: ReadonlyArray<Record<string, unknown>>;
+}): void {
+  const filePath = path.join(rootDir, relativePath);
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(makePreset(overrides), null, 2), "utf8");
+}
+
+function writeRawPreset(rootDir: string, relativePath: string, manifest: Record<string, unknown>): void {
+  const filePath = path.join(rootDir, relativePath);
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(manifest, null, 2), "utf8");
+}
+
+function makePreset(overrides: {
+  readonly id: string;
+  readonly title: string;
+  readonly version: string;
+  readonly templateSelections?: ReadonlyArray<Record<string, unknown>>;
+}): Record<string, unknown> {
+  return {
+    schema: "preset-manifest/v1",
+    id: overrides.id,
+    title: overrides.title,
+    vertical: "software/coding",
+    version: overrides.version,
+    kernelVersionRange: {
+      min: "1.0.0",
+      maxExclusive: "2.0.0"
+    },
+    capabilityImports: [],
+    profiles: [{
+      id: "baseline",
+      title: "Baseline",
+      checkerProfile: "standard",
+      templateSelections: overrides.templateSelections ?? []
+    }],
+    defaultProfile: "baseline"
+  };
+}
+
+function conflictingTaskPlanSelection(): Record<string, unknown> {
+  return {
+    slot: "task.plan",
+    templateRef: "template://planning/progress@1",
+    materializeAs: "task_plan.md",
+    localePolicy: {
+      prefer: "project",
+      fallback: "en-US"
+    }
+  };
+}
+
+function invalidPathSelection(): Record<string, unknown> {
+  return {
+    slot: "task.extra",
+    templateRef: "template://planning/references-index@1",
+    materializeAs: ".",
+    localePolicy: {
+      prefer: "project",
+      fallback: "en-US"
+    }
+  };
+}
+
+function makeMultiProfilePreset(): Record<string, unknown> {
+  return {
+    schema: "preset-manifest/v1",
+    id: "profiled-task",
+    title: "Profiled Task",
+    vertical: "software/coding",
+    version: "1.0.0",
+    kernelVersionRange: {
+      min: "1.0.0",
+      maxExclusive: "2.0.0"
+    },
+    capabilityImports: [],
+    profiles: [
+      {
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      },
+      {
+        id: "extra",
+        title: "Extra",
+        checkerProfile: "standard",
+        templateSelections: [{
+          slot: "task.extra",
+          templateRef: "template://planning/references-index@1",
+          materializeAs: "extra.md",
+          localePolicy: {
+            prefer: "project",
+            fallback: "en-US"
+          }
+        }]
+      }
+    ],
+    defaultProfile: "baseline"
+  };
 }
 
 function validTaskPlan(): string {

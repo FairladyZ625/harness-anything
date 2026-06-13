@@ -105,5 +105,6 @@ export interface LocalTaskIndex {
   readonly packageDisposition: "active" | "archived" | "tombstoned";
   readonly vertical: string;
   readonly preset: string;
+  readonly profile?: string;
   readonly createdBy?: TaskCreatedBy;
 }

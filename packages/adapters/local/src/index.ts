@@ -170,6 +170,7 @@ function supersedeTask(
       bindingCreatedAt: clock().toISOString(),
       vertical: oldIndex.vertical,
       preset: oldIndex.preset,
+      profile: oldIndex.profile,
       createdBy: resolveTaskCreatedBy(rootDir)
     }, stablePayloadHash);
     yield* writeSupersedeTaskDocuments(coordinator, stablePayloadHash, [

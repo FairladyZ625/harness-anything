@@ -15,6 +15,7 @@
   "packageDisposition": "active",
   "vertical": "software/coding",
   "preset": "standard-task",
+  "profile": "baseline",
   "createdBy": {
     "name": "Harness User",
     "email": "harness@example.com"

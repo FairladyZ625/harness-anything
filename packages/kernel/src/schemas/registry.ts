@@ -91,6 +91,7 @@ export const TaskFrontmatterSchema = Schema.Struct({
   packageDisposition: Schema.Literal(...packageDispositions),
   vertical: Schema.String,
   preset: Schema.String,
+  profile: Schema.optional(Schema.String),
   createdBy: Schema.optional(CreatedBySchema)
 });
 

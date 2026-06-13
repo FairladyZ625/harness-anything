@@ -91,6 +91,9 @@
     "preset": {
       "type": "string"
     },
+    "profile": {
+      "type": "string"
+    },
     "createdBy": {
       "type": "object",
       "required": [

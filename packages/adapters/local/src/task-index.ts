@@ -26,6 +26,7 @@ export function makeIndex(input: {
   readonly bindingCreatedAt: string;
   readonly vertical: string;
   readonly preset: string;
+  readonly profile?: string;
   readonly createdBy?: TaskCreatedBy;
 }, hashPayload: HashPayload): LocalTaskIndex {
   const fingerprint = hashPayload({
@@ -46,6 +47,7 @@ export function makeIndex(input: {
     packageDisposition: "active",
     vertical: input.vertical,
     preset: input.preset,
+    ...(input.profile ? { profile: input.profile } : {}),
     ...(input.createdBy ? { createdBy: input.createdBy } : {})
   };
 }
@@ -68,6 +70,7 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
     `packageDisposition: ${index.packageDisposition}`,
     `vertical: ${index.vertical}`,
     `preset: ${index.preset}`,
+    ...(index.profile ? [`profile: ${index.profile}`] : []),
     ...(index.createdBy ? [
       "createdBy:",
       `  name: ${index.createdBy.name}`,
@@ -116,6 +119,7 @@ export function readIndex(rootDir: string, taskId: TaskId): LocalTaskIndex {
     packageDisposition: readPackageDisposition(frontmatter),
     vertical: readScalar(frontmatter, "vertical"),
     preset: readScalar(frontmatter, "preset"),
+    ...readProfile(frontmatter),
     ...readCreatedBy(frontmatter)
   };
 }
@@ -155,6 +159,11 @@ function readOptionalNestedScalar(block: string, key: string): string {
 function readPackageDisposition(frontmatter: string): LocalTaskIndex["packageDisposition"] {
   const value = readScalar(frontmatter, "packageDisposition");
   return isPackageDisposition(value) ? value : "active";
+}
+
+function readProfile(frontmatter: string): { readonly profile?: string } {
+  const profile = frontmatter.match(/^profile:[ \t]*(.*)$/mu)?.[1]?.trim() ?? "";
+  return profile ? { profile } : {};
 }
 
 function isNodeErrorCode(error: unknown, code: string): boolean {

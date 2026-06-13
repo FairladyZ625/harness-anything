@@ -100,8 +100,9 @@ export function runNewTaskWithPreset(
       bindingCreatedAt: createdAt,
       vertical,
       preset: preset.manifest.id,
+      profile: materialized.profile.id,
       createdBy: resolveTaskCreatedBy(rootDir)
-    }, hashPayload);
+    }, stablePayloadHash);
     const writes = [
       { taskId, path: "INDEX.md", body: renderIndex(index), packageSlug: action.slug },
       ...materialized.documents.map((document) => ({
@@ -118,7 +119,7 @@ export function runNewTaskWithPreset(
       }] : [])
     ];
     const coordinator = makeLocalWriteCoordinator({ rootDir, actor: { kind: "agent", id: "local-lifecycle" } });
-    const opId = `${Date.now()}-${hashPayload({ kind: "package_create", writes }).slice(0, 16)}`;
+    const opId = `${Date.now()}-${stablePayloadHash({ kind: "package_create", writes }).slice(0, 16)}`;
     yield* coordinator.enqueue({
       opId,
       taskId,
@@ -169,6 +170,17 @@ function renderTemplateBody(body: string, title: string): string {
   return body.replace(/\{\{title\}\}/gu, title);
 }
 
-function hashPayload(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+function stablePayloadHash(value: unknown): string {
+  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`;
 }

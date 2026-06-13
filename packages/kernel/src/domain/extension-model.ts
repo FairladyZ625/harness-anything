@@ -16,6 +16,7 @@ export interface ExtensionValidationIssue {
     | "missing_template"
     | "custom_vertical_forbidden"
     | "duplicate_materialized_path"
+    | "invalid_materialized_path"
     | "preset_required_template_conflict"
     | "preset_path_id_mismatch"
     | "reserved_materialized_path"
