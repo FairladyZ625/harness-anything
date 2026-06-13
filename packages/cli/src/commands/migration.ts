@@ -5,6 +5,7 @@ import { Schema } from "effect";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 import type { CliResult } from "../cli/types.ts";
+import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCollisionReport } from "./migration-collision.ts";
 import type { LegacyCopySafeDocsAction, LegacyIndexAction, LegacyIntakePlanAction, LegacyScanAction, LegacyVerifyAction, MigratePlanAction, MigrateRunAction, MigrateStructureAction, MigrateVerifyAction } from "./migration-types.ts";
 
 interface LegacyScanReport {
@@ -190,6 +191,17 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
       error: { code: "legacy_index_invalid", hint: "harness/legacy/index.json does not match the runtime LegacyIndexSchema." }
     };
   }
+  let collisionReport: ReturnType<typeof readCollisionReport>;
+  try {
+    collisionReport = readCollisionReport(rootDir);
+  } catch {
+    return {
+      ok: false,
+      command: "legacy-verify",
+      report: { schema: "legacy-intake-verify-report/v1", ok: false, invalidCollisionReport: true },
+      error: { code: "legacy_collision_report_invalid", hint: "harness/legacy/collision-report.json does not match the runtime LegacyCollisionReportSchema." }
+    };
+  }
   const missingTargets = index.entries
     .map((entry) => entry.storedPath)
     .filter((storedPath) => !existsSync(path.join(rootDir, storedPath)));
@@ -204,7 +216,11 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
       missingIndex: false,
       invalidIndex: false,
       missingTargets,
-      summary: index.summary
+      summary: index.summary,
+      collisionReport: collisionReport ? {
+        entryCount: collisionReport.entries.length,
+        overwriteAllowed: collisionReport.policy.overwriteAllowed
+      } : undefined
     },
     error: ok ? undefined : { code: "legacy_index_targets_missing", hint: "Legacy index references stored paths that do not exist." }
   };
@@ -310,36 +326,29 @@ function applyLegacyCopy(rootDir: string, report: LegacyScanReport): CliResult {
       }
     };
   }
-  const collisions = report.entries.filter((entry) => existsSync(path.join(rootDir, entry.storedPath)));
-  if (collisions.length > 0) {
-    return {
-      ok: false,
-      command: "legacy-copy-safe-docs",
-      migrationMode: "apply",
-      report: { ...report, collisions: collisions.map((entry) => ({ sourcePath: entry.sourcePath, targetPath: entry.storedPath })) },
-      error: {
-        code: "legacy_collision_requires_p05",
-        hint: "Legacy copy would collide with existing targets. P05 owns fixed suffix collision application; no overwrite was performed."
-      }
-    };
-  }
-  for (const entry of report.entries) {
-    const source = path.resolve(rootDir, report.sourceRoot, entry.sourcePath);
-    const target = path.join(rootDir, entry.storedPath);
-    copySource(source, target);
+  const copyPlan = buildLegacyCopyPlan(rootDir, report.sourceRoot, report.entries);
+  writeCollisionReport(rootDir, copyPlan.collisionReport);
+  for (const target of copyPlan.targets) {
+    copySource(target.sourcePath, path.join(rootDir, target.chosenPath));
   }
   return {
     ok: true,
     command: "legacy-copy-safe-docs",
     migrationMode: "apply",
     rows: report.entries.length,
-    report
+    report: {
+      ...report,
+      entries: applyCollisionReport(report.entries, copyPlan.collisionReport),
+      collisionReport: copyPlan.collisionReport
+    }
   };
 }
 
 function applyLegacyIndex(rootDir: string, report: LegacyScanReport): CliResult {
   const layout = resolveHarnessLayout(rootDir);
-  const validation = validateLegacyIndex(rootDir, report);
+  const collisionReport = readCollisionReport(rootDir);
+  const indexedReport = { ...report, entries: applyCollisionReport(report.entries, collisionReport), summary: summarize(applyCollisionReport(report.entries, collisionReport)) };
+  const validation = validateLegacyIndex(rootDir, indexedReport);
   if (!validation.ok) return validation.result;
   const index = validation.index;
   mkdirSync(path.dirname(layout.legacyIndexPath), { recursive: true });

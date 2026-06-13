@@ -88,17 +88,63 @@ test("CLI legacy copy and index write only under harness legacy storage", () => 
   });
 });
 
-test("CLI legacy copy blocks collisions in P04 without overwrite", () => {
+test("CLI legacy copy applies fixed suffix collisions and writes report", () => {
   withTempRoot((rootDir) => {
     writeLegacyTask(rootDir, "old-task", "active");
+    writeLegacyDoc(rootDir, "11-REFERENCE/testing-standard.md", "# Testing Standard\n");
     mkdirSync(path.join(rootDir, "harness/legacy/tasks/old-task"), { recursive: true });
+    mkdirSync(path.join(rootDir, "harness/legacy/tasks/old-task-legacy-import-1"), { recursive: true });
+    mkdirSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/legacy/tasks/old-task/sentinel.txt"), "keep", "utf8");
+    writeFileSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE/testing-standard.md"), "keep", "utf8");
+    writeFileSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE/testing-standard.legacy-import-1.md"), "keep-1", "utf8");
 
-    const conflict = runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"], false);
+    const copied = runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"]);
+    const indexed = runJson(rootDir, ["legacy", "index", ".", "--apply"]);
+    const verified = runJson(rootDir, ["legacy", "verify"]);
+    const collisionReport = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/collision-report.json"), "utf8"));
+    const index = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/index.json"), "utf8"));
 
-    assert.equal(conflict.ok, false);
-    assert.equal(conflict.error.code, "legacy_collision_requires_p05");
+    assert.equal(copied.ok, true);
+    assert.equal(indexed.ok, true);
+    assert.equal(verified.ok, true);
+    assert.equal(verified.report.collisionReport.entryCount, 2);
+    assert.equal(verified.report.collisionReport.overwriteAllowed, false);
     assert.equal(readFileSync(path.join(rootDir, "harness/legacy/tasks/old-task/sentinel.txt"), "utf8"), "keep");
+    assert.equal(readFileSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE/testing-standard.md"), "utf8"), "keep");
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/old-task-legacy-import-2/task_plan.md")), true);
+    assert.equal(readFileSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE/testing-standard.legacy-import-2.md"), "utf8"), "# Testing Standard\n");
+    assert.equal(collisionReport.schema, "legacy-collision-report/v1");
+    assert.equal(collisionReport.policy.overwriteAllowed, false);
+    assert.equal(collisionReport.entries.length, 2);
+    assert.equal(collisionReport.entries.some((entry: Record<string, unknown>) => entry.kind === "directory" && entry.chosenPath === "harness/legacy/tasks/old-task-legacy-import-2" && entry.suffixIndex === 2), true);
+    assert.equal(collisionReport.entries.some((entry: Record<string, unknown>) => entry.kind === "file" && entry.chosenPath === "harness/legacy/docs/11-REFERENCE/testing-standard.legacy-import-2.md" && entry.suffixIndex === 2), true);
+    assert.equal(index.entries.some((entry: Record<string, unknown>) => entry.storedPath === "harness/legacy/tasks/old-task-legacy-import-2"), true);
+    assert.equal(index.entries.some((entry: Record<string, unknown>) => entry.storedPath === "harness/legacy/docs/11-REFERENCE/testing-standard.legacy-import-2.md"), true);
+  });
+});
+
+test("CLI legacy copy suffixes planned parent directories before they can overwrite planned children", () => {
+  withTempRoot((rootDir) => {
+    writeLegacyTask(rootDir, "modules", "active");
+    writeLegacyModuleTask(rootDir, "auth", "module-task", "active");
+    mkdirSync(path.join(rootDir, "docs/09-PLANNING/TASKS/modules/auth/module-task"), { recursive: true });
+    writeFileSync(path.join(rootDir, "docs/09-PLANNING/TASKS/modules/auth/module-task/task_plan.md"), "root nested plan\n", "utf8");
+
+    runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"]);
+    runJson(rootDir, ["legacy", "index", ".", "--apply"]);
+    const verified = runJson(rootDir, ["legacy", "verify"]);
+    const collisionReport = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/collision-report.json"), "utf8"));
+    const index = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/index.json"), "utf8"));
+
+    assert.equal(verified.ok, true);
+    assert.equal(readFileSync(path.join(rootDir, "harness/legacy/tasks/modules/auth/module-task/task_plan.md"), "utf8"), "# module-task\n\nTask Contract: harness-task/v1\n");
+    assert.equal(readFileSync(path.join(rootDir, "harness/legacy/tasks/modules-legacy-import-1/auth/module-task/task_plan.md"), "utf8"), "root nested plan\n");
+    assert.equal(collisionReport.entries.length, 1);
+    assert.equal(collisionReport.entries[0].targetPath, "harness/legacy/tasks/modules");
+    assert.equal(collisionReport.entries[0].chosenPath, "harness/legacy/tasks/modules-legacy-import-1");
+    assert.equal(collisionReport.entries[0].suffixIndex, 1);
+    assert.equal(index.entries.some((entry: Record<string, unknown>) => entry.sourcePath === "docs/09-PLANNING/TASKS/modules" && entry.storedPath === "harness/legacy/tasks/modules-legacy-import-1"), true);
   });
 });
 
@@ -134,6 +180,7 @@ test("CLI migrate aliases now emit Legacy Intake semantics and retire full cutov
     assert.equal(plan.report.schema, "legacy-intake-scan/v1");
     assert.equal(plan.warnings[0].code, "migration_alias_legacy_intake");
     assert.equal(structure.ok, true);
+    assert.equal(JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/collision-report.json"), "utf8")).entries.length, 0);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/old-task/task_plan.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/old-task")), false);
     assert.equal(run.report.schema, "legacy-intake-session/v1");
