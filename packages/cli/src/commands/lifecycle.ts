@@ -3,8 +3,9 @@ import path from "node:path";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../../adapters/local/src/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../../application/src/index.ts";
-import type { ArtifactStoreError, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
+import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import { isDomainStatus, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
+import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import { checkTaskProjection, readTaskProjection } from "../../../kernel/src/index.ts";
 import { commandRegistry } from "../cli/command-registry.ts";
 import { runCheckProfile } from "./check.ts";
@@ -15,6 +16,8 @@ import { runDoctor } from "./doctor.ts";
 import { runGitDiffEvidence } from "./git-diff.ts";
 import { runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
+
+export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
 export function runCommand(
   engine: ReturnType<typeof makeLocalLifecycleEngine>,
@@ -43,15 +46,8 @@ export function runCommand(
   }
 
   if (command.action.kind === "status-set") {
-    return engine.setStatus({
-      taskId: command.action.taskId,
-      status: command.action.status
-    }).pipe(Effect.map((result): CliResult => ({
-      ok: true,
-      command: "status-set",
-      taskId: result.taskId,
-      status: result.status
-    })));
+    const action = command.action;
+    return runStatusSet(engine, command.rootDir, action.taskId, action.status, action.force, action.reason);
   }
 
   if (command.action.kind === "progress-append") {
@@ -215,12 +211,120 @@ export function runCommand(
 
   if (command.action.kind === "task-complete") {
     const action = command.action;
-    return Effect.sync(() => runTaskComplete(command.rootDir, action.taskId, action.reviewerId, action.ciGate));
+    return Effect.gen(function* () {
+      const gate = runTaskComplete(command.rootDir, action.taskId, action.reviewerId, action.ciGate);
+      if (!gate.ok) return gate;
+      const result = yield* engine.setStatus({ taskId: action.taskId, status: "done" });
+      return {
+        ...gate,
+        status: result.status
+      } satisfies CliResult;
+    });
   }
 
   return Effect.sync(() => runCheckProfile(command.rootDir, command.action.kind === "check"
     ? command.action
     : { kind: "check", profile: "source-package", strict: false, postMerge: false }));
+}
+
+function runStatusSet(
+  engine: ReturnType<typeof makeLocalLifecycleEngine>,
+  rootDir: string,
+  taskId: string,
+  status: DomainStatus,
+  force: boolean,
+  reason?: string
+): Effect.Effect<CliResult, EngineError | WriteError> {
+  if (!isTerminalStatus(status)) {
+    return engine.setStatus({ taskId, status }).pipe(Effect.map((result): CliResult => ({
+      ok: true,
+      command: "status-set",
+      taskId: result.taskId,
+      status: result.status
+    })));
+  }
+
+  const taskPolicy = readTaskStatusPolicy(rootDir, taskId);
+  if (taskPolicy?.engine === "local") {
+    if (!force) {
+      return Effect.sync(() => ({
+        ok: false,
+        command: "status-set",
+        taskId,
+        status,
+        error: {
+          code: "terminal_status_requires_task_complete",
+          hint: status === "done"
+            ? "Use task-complete after review, CI, and closeout gates pass. Use --force --reason only for recovery."
+            : "Terminal cancellation must be audited. Use --force --reason only for recovery."
+        }
+      } satisfies CliResult));
+    }
+
+    if (taskPolicy.status && !canStructurallyTransition(taskPolicy.status, status)) {
+      return Effect.sync(() => ({
+        ok: false,
+        command: "status-set",
+        taskId,
+        status,
+        error: {
+          code: "invalid_transition",
+          hint: `invalid transition: ${taskPolicy.status} -> ${status}`
+        }
+      } satisfies CliResult));
+    }
+
+    const auditText = renderForceStatusAudit(status, reason ?? "unspecified");
+    return Effect.gen(function* () {
+      const audit = yield* engine.appendProgress({ taskId, text: auditText });
+      const result = yield* engine.setStatus({ taskId, status });
+      return {
+        ok: true,
+        command: "status-set",
+        taskId: result.taskId,
+        status: result.status,
+        path: audit.path,
+        forced: true,
+        forceAudit: {
+          path: audit.path,
+          marker: FORCE_STATUS_AUDIT_MARKER
+        }
+      } satisfies CliResult;
+    });
+  }
+
+  return engine.setStatus({ taskId, status }).pipe(Effect.map((result): CliResult => ({
+    ok: true,
+    command: "status-set",
+    taskId: result.taskId,
+    status: result.status
+  })));
+}
+
+function readTaskStatusPolicy(rootDir: string, taskId: string): { readonly engine: string; readonly status: DomainStatus | null } | null {
+  const indexPath = taskDocumentPath(rootDir, taskId, "INDEX.md");
+  if (!existsSync(indexPath)) return null;
+  const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+  if (!frontmatter) return null;
+  const status = readScalar(frontmatter, "  status");
+  return {
+    engine: readScalar(frontmatter, "  engine") || "",
+    status: isDomainStatus(status) ? status : null
+  };
+}
+
+function renderForceStatusAudit(status: string, reason: string): string {
+  return `${FORCE_STATUS_AUDIT_MARKER}: forced terminal status=${status}; reason=${reason}; recordedAt=${new Date().toISOString()}`;
+}
+
+function canStructurallyTransition(from: DomainStatus, to: DomainStatus): boolean {
+  if (from === to) return true;
+  if (isTerminalStatus(from)) return false;
+  if (from === "planned") return to === "active" || to === "blocked" || to === "cancelled";
+  if (from === "active") return to === "blocked" || to === "in_review" || to === "done" || to === "cancelled";
+  if (from === "blocked") return to === "active" || to === "cancelled";
+  if (from === "in_review") return to === "active" || to === "blocked" || to === "done" || to === "cancelled";
+  return false;
 }
 
 function initializeHarness(rootDir: string): CliResult {

@@ -24,6 +24,21 @@ test("local controller service reads projection and writes through local lifecyc
     assert.match(document.body ?? "", /Task One/);
 
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "active" }), { ok: true });
+    assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "done" }), {
+      ok: false,
+      error: {
+        code: "terminal_status_requires_task_complete",
+        hint: "Use task-complete after review, CI, and closeout gates pass."
+      }
+    });
+    assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "cancelled" }), {
+      ok: false,
+      error: {
+        code: "terminal_status_requires_task_complete",
+        hint: "Terminal cancellation requires an audited recovery path."
+      }
+    });
+    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8"), /status: active/);
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "GUI update" }), { ok: true });
     assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/progress.md"), "utf8"), /GUI update/);
   } finally {

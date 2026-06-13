@@ -75,10 +75,47 @@ test("CLI rejects invalid local lifecycle transitions with a stable error code",
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
-    const failure = runJson(rootDir, ["task", "status", "set", taskId, "done"], false);
+    const failure = runJson(rootDir, ["task", "status", "set", taskId, "in_review"], false);
 
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "invalid_transition");
+  });
+});
+
+test("CLI blocks ordinary terminal status-set and requires audited force for recovery", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+
+    const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
+    assert.equal(invalidForce.ok, false);
+    assert.equal(invalidForce.error?.code, "invalid_transition");
+    assert.equal(existsSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/progress.md`)), false);
+
+    runJson(rootDir, ["task", "status", "set", taskId, "active"]);
+
+    const doneFailure = runJson(rootDir, ["task", "status", "set", taskId, "done"], false);
+    assert.equal(doneFailure.ok, false);
+    assert.equal(doneFailure.error?.code, "terminal_status_requires_task_complete");
+
+    const cancelFailure = runJson(rootDir, ["task", "status", "set", taskId, "cancelled"], false);
+    assert.equal(cancelFailure.ok, false);
+    assert.equal(cancelFailure.error?.code, "terminal_status_requires_task_complete");
+
+    const missingReason = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force"], false);
+    assert.equal(missingReason.ok, false);
+    assert.equal(missingReason.error?.code, "missing_force_reason");
+
+    const forced = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "fixture recovery"]);
+    assert.equal(forced.ok, true);
+    assert.equal(forced.status, "done");
+    assert.equal(forced.forced, true);
+    assert.equal(forced.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
+    const progressBody = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/progress.md`), "utf8");
+    assert.match(progressBody, /FORCE_STATUS_SET_AUDIT: forced terminal status=done; reason=fixture recovery/);
+
+    const check = runJson(rootDir, ["check", "--profile", "target-project"], false);
+    assert.equal(check.warnings.some((warning: Record<string, unknown>) => warning.code === "forced_terminal_status_set" && warning.severity === "warning"), true);
   });
 });
 
@@ -199,7 +236,7 @@ test("CLI task delete soft tombstones and hard delete rejects archived terminal 
     const terminal = runJson(rootDir, ["new-task", "--title", "Done Delete"]);
     const terminalTaskId = assertGeneratedTaskId(terminal.taskId);
     runJson(rootDir, ["task", "status", "set", terminalTaskId, "active"]);
-    runJson(rootDir, ["task", "status", "set", terminalTaskId, "done"]);
+    runJson(rootDir, ["task", "status", "set", terminalTaskId, "done", "--force", "--reason", "terminal fixture"]);
     const terminalFailure = runJson(rootDir, ["task", "delete", "--hard", terminalTaskId, "--reason", "remove"], false);
     assert.equal(terminalFailure.ok, false);
     assert.equal(terminalFailure.error?.code, "terminal_hard_delete_forbidden");
@@ -237,7 +274,7 @@ test("CLI task reopen restores only non-terminal package disposition", () => {
     assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-reopenable/INDEX.md`), "utf8"), /packageDisposition: active/);
 
     runJson(rootDir, ["task", "status", "set", taskId, "active"]);
-    runJson(rootDir, ["task", "status", "set", taskId, "done"]);
+    runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "terminal fixture"]);
     const failure = runJson(rootDir, ["task", "reopen", taskId, "--reason", "more work"], false);
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "terminal_reopen_requires_supersede");
@@ -477,7 +514,7 @@ test("CLI task-review fails closed on open release-blocking findings and emits p
   });
 });
 
-test("CLI task-complete evaluates review, CI, and closeout readiness without mutating lifecycle axes", () => {
+test("CLI task-complete evaluates review, CI, and closeout readiness before setting status done", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1", []);
@@ -490,6 +527,8 @@ test("CLI task-complete evaluates review, CI, and closeout readiness without mut
       packageDisposition: "active",
       closeoutReadiness: "ready"
     });
+    assert.equal(passed.status, "done");
+    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8"), /status: done/);
 
     const failed = runJson(rootDir, ["task-complete", "task-1", "--ci", "failed"], false);
     assert.equal(failed.ok, false);

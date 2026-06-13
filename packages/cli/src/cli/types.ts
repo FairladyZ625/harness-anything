@@ -32,6 +32,11 @@ export interface CliResult {
   readonly generated?: ReadonlyArray<string>;
   readonly reviewContract?: unknown;
   readonly completionGate?: unknown;
+  readonly forced?: boolean;
+  readonly forceAudit?: {
+    readonly path: string;
+    readonly marker: string;
+  };
   readonly summary?: {
     readonly taskCount: number;
     readonly byPackageDisposition: Record<string, number>;
@@ -65,7 +70,7 @@ export interface ParsedCommand {
   readonly action:
     | { readonly kind: "init" }
     | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean }
-    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus }
+    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
     | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title: string; readonly slug: string; readonly reason: string }

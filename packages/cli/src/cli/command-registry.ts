@@ -3,7 +3,7 @@ import type { CommandRegistryEntry } from "./types.ts";
 export const commandRegistry = [
   { kind: "init", primary: "harness init", resultEnvelope: "CliResult/v1" },
   { kind: "new-task", primary: "harness new-task --title <title> [--json]", resultEnvelope: "CliResult/v1" },
-  { kind: "status-set", primary: "harness task status set <id> <status>", resultEnvelope: "CliResult/v1" },
+  { kind: "status-set", primary: "harness task status set <id> <status> [--force --reason <reason>]", resultEnvelope: "CliResult/v1" },
   { kind: "progress-append", primary: "harness task progress append <id> --text <text>", resultEnvelope: "CliResult/v1" },
   { kind: "task-archive", primary: "harness task archive <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
   { kind: "task-supersede", primary: "harness task supersede <old-id> --title <title> [--slug <slug>]", resultEnvelope: "CliResult/v1" },

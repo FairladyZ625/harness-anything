@@ -7,6 +7,8 @@ import { commandRegistry } from "../cli/command-registry.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CheckProfile, CliResult } from "../cli/types.ts";
 
+const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
+
 interface ProfileValidationIssue {
   readonly code: string;
   readonly source: string;
@@ -100,6 +102,17 @@ function validateTaskPackageContracts(rootDir: string, taskDir: string, profile:
     if (hasTemplatePlaceholder(taskPlanBody)) {
       issues.push(profileIssue("task-plan-contract", "task_plan_placeholder", "hard-fail", `${relativeTaskDir}/task_plan.md still contains template placeholders.`, "Replace scaffold placeholders before treating the task package as implementation-ready."));
     }
+  }
+
+  const progressPath = path.join(taskDir, "progress.md");
+  if (existsSync(progressPath) && readFileSync(progressPath, "utf8").includes(FORCE_STATUS_AUDIT_MARKER)) {
+    issues.push(profileIssue(
+      "completion-policy",
+      "forced_terminal_status_set",
+      "warning",
+      `${relativeTaskDir}/progress.md contains forced terminal status audit evidence.`,
+      "Review FORCE_STATUS_SET_AUDIT before treating this terminal state as normal completion."
+    ));
   }
 
   const reviewPath = path.join(taskDir, "review.md");

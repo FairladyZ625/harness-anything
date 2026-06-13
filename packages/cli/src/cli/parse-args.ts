@@ -59,6 +59,11 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
     if (!isDomainStatus(args[4])) {
       return { ok: false, error: { code: "invalid_status", hint: `Unknown status: ${args[4]}` } };
     }
+    const force = args.includes("--force");
+    const reason = readOption(args, "--reason");
+    if (force && !reason) {
+      return { ok: false, error: { code: "missing_force_reason", hint: "Forced terminal status changes require --reason for audit evidence." } };
+    }
     return {
       ok: true,
       value: {
@@ -67,7 +72,9 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
         action: {
           kind: "status-set",
           taskId: args[3],
-          status: args[4]
+          status: args[4],
+          force,
+          reason
         }
       }
     };
