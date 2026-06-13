@@ -343,6 +343,7 @@ test("CLI status --json returns local projection health envelope", () => {
     assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "collaboration-gate" && axis.warningCount === 0), true);
     assert.equal(result.warnings.length, 0);
     assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "task-supersede" && entry.resultEnvelope === "CliResult/v1"), true);
+    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "preset-validate" && entry.primary === "harness preset validate <manifest> [--kernel-version <version>] [--json]"), true);
   });
 });
 

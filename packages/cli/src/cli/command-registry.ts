@@ -32,6 +32,7 @@ export const commandRegistry = [
   { kind: "legacy-verify", primary: "harness legacy verify [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "git-diff", primary: "harness git-diff [--base <ref>] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "doctor", primary: "harness doctor --json", resultEnvelope: "CliResult/v1" },
+  { kind: "preset-validate", primary: "harness preset validate <manifest> [--kernel-version <version>] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-list", primary: "harness preset list [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-inspect", primary: "harness preset inspect <id> [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-check", primary: "harness preset check <id> [--json]", resultEnvelope: "CliResult/v1" },

@@ -54,6 +54,7 @@ test("CLI target-project check profile passes valid task material contracts", ()
     assert.equal(result.report.summary.hardFailCount, 0);
     assert.equal(result.report.validators.some((validator: Record<string, unknown>) => validator.source === "task-plan-contract"), false);
     assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "lesson-promote"), true);
+    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "preset-validate" && entry.primary === "harness preset validate <manifest> [--kernel-version <version>] [--json]"), true);
   });
 });
 
