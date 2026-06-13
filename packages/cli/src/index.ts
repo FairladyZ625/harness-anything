@@ -82,7 +82,7 @@ const commandRegistry = [
   { kind: "task-delete", primary: "harness task delete (--soft|--hard) <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
   { kind: "task-reopen", primary: "harness task reopen <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
   { kind: "task-review", primary: "harness task-review <id> [--reviewer <id>]", resultEnvelope: "CliResult/v1" },
-  { kind: "task-complete", primary: "harness task-complete <id> [--ci passed|failed]", resultEnvelope: "CliResult/v1" },
+  { kind: "task-complete", primary: "harness task-complete <id> --ci passed|failed", resultEnvelope: "CliResult/v1" },
   { kind: "task-list", primary: "harness task list [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "status", primary: "harness status --json", resultEnvelope: "CliResult/v1" },
   { kind: "check", primary: "harness check [--post-merge] [--json]", resultEnvelope: "CliResult/v1" },
@@ -776,7 +776,10 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
   }
 
   if (args[0] === "task-complete" && args[1]) {
-    const ciGate = readOption(args, "--ci") ?? "passed";
+    const ciGate = readOption(args, "--ci");
+    if (!ciGate) {
+      return { ok: false, error: { code: "missing_ci_gate", hint: "task-complete requires --ci passed|failed" } };
+    }
     if (ciGate !== "passed" && ciGate !== "failed") {
       return { ok: false, error: { code: "invalid_ci_gate", hint: `Unknown CI gate: ${ciGate}` } };
     }

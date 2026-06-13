@@ -494,6 +494,10 @@ test("CLI task-complete evaluates review, CI, and closeout readiness without mut
     const failed = runJson(rootDir, ["task-complete", "task-1", "--ci", "failed"], false);
     assert.equal(failed.ok, false);
     assert.equal(failed.error?.code, "ci_not_passed");
+
+    const missingCi = runJson(rootDir, ["task-complete", "task-1"], false);
+    assert.equal(missingCi.ok, false);
+    assert.equal(missingCi.error?.code, "missing_ci_gate");
   });
 });
 
