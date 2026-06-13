@@ -107,6 +107,8 @@ harness check --post-merge --json
 M2-P7 activates `migrate-verify --full-cutover` as the final repository gate.
 The gate verifies the migration session, package release decision, package
 surface, and behavior corpus report before returning success.
+The behavior corpus must contain at least 15 classified items and zero
+`needs-decision` entries.
 
 Local final-cutover checks:
 
@@ -114,6 +116,7 @@ Local final-cutover checks:
 harness migrate-run --json
 harness migrate-verify <session.json> --full-cutover --json
 npm run harness:check-cutover-readiness
+npm run harness:smoke-full-cutover
 npm run check
 ```
 

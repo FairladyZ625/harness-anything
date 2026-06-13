@@ -18,6 +18,8 @@ export interface FullCutoverEvidence {
   readonly violations: ReadonlyArray<string>;
 }
 
+const minBehaviorCorpusItems = 15;
+
 export function evaluateFullCutoverEvidence(rootDir: string): FullCutoverEvidence {
   const violations: string[] = [];
   checkPackageDecision(rootDir, violations);
@@ -108,6 +110,9 @@ function checkBehaviorCorpus(rootDir: string, violations: string[]): FullCutover
     if (counts[category] !== expected) {
       violations.push(`${dataPath}: category ${category} count ${expected} does not match ${counts[category]} item(s)`);
     }
+  }
+  if (items.length < minBehaviorCorpusItems) {
+    violations.push(`${dataPath}: behavior corpus must include at least ${minBehaviorCorpusItems} classified items`);
   }
 
   return { dataPath, reportPath, needsDecision, itemCount: items.length };

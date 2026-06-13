@@ -9,7 +9,7 @@
     "packages/adapters/*"
   ],
   "scripts": {
-    "check": "npm run typecheck && npm test && npm run harness:check-file-complexity && npm run harness:check-import-boundaries && npm run harness:scan-forbidden-symbols && npm run harness:check-private-boundary && npm run harness:check-package-policy && npm run harness:check-implementation-contracts && npm run harness:check-schema-contracts && npm run harness:check-cutover-readiness && npm run harness:smoke-cli-package",
+    "check": "npm run typecheck && npm test && npm run harness:check-file-complexity && npm run harness:check-import-boundaries && npm run harness:scan-forbidden-symbols && npm run harness:check-private-boundary && npm run harness:check-package-policy && npm run harness:check-implementation-contracts && npm run harness:check-schema-contracts && npm run harness:check-cutover-readiness && npm run harness:smoke-full-cutover && npm run harness:smoke-cli-package",
     "typecheck": "tsc -b --pretty false",
     "test": "node tools/run-node-tests.mjs",
     "harness:check-file-complexity": "node tools/check-file-complexity.mjs",
@@ -20,6 +20,7 @@
     "harness:check-implementation-contracts": "node tools/check-implementation-contracts.mjs",
     "harness:check-schema-contracts": "node tools/check-schema-contracts.mjs",
     "harness:check-cutover-readiness": "node tools/check-cutover-readiness.mjs",
+    "harness:smoke-full-cutover": "node tools/smoke-full-cutover.mjs",
     "harness:smoke-cli-package": "node tools/smoke-cli-package.mjs"
   },
   "engines": {

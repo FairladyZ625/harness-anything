@@ -31,6 +31,7 @@ const publicCompatibilityPatterns = [
   /\bautomatic migration\b/u,
   /\bauto-migration\b/u
 ];
+const minBehaviorCorpusItems = 15;
 
 export async function evaluateCutoverReadiness(root = process.cwd()) {
   const violations = [];
@@ -155,6 +156,9 @@ function checkBehaviorCorpusReport(root, violations) {
       if (actualCounts[category] !== expectedCount) {
         violations.push(`tools/cutover/behavior-corpus-classification.json: category ${category} count ${expectedCount} does not match ${actualCounts[category]} item(s)`);
       }
+    }
+    if (data.items.length < minBehaviorCorpusItems) {
+      violations.push(`tools/cutover/behavior-corpus-classification.json: behavior corpus must include at least ${minBehaviorCorpusItems} classified items`);
     }
   } else {
     violations.push("tools/cutover/behavior-corpus-classification.json: missing items array");

@@ -153,6 +153,41 @@ test("cutover readiness requires behavior item counts to match categories", asyn
   });
 });
 
+test("cutover readiness requires a non-trivial behavior corpus", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.md"), [
+      "# Behavior Corpus Classification",
+      "",
+      "Machine-checkable source: `behavior-corpus-classification.json`.",
+      "",
+      "| Classification | Count | Notes |",
+      "| --- | ---: | --- |",
+      "| preserve | 1 | too small |",
+      "| intentional-change | 0 | none |",
+      "| old-bug | 0 | none |",
+      "| unsupported-input | 0 | none |",
+      "| needs-decision | 0 | none |",
+      ""
+    ].join("\n"));
+    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.json"), JSON.stringify({
+      categories: {
+        preserve: 1,
+        "intentional-change": 0,
+        "old-bug": 0,
+        "unsupported-input": 0,
+        "needs-decision": 0
+      },
+      items: [
+        { classification: "preserve", summary: "too small" }
+      ]
+    }));
+
+    const violations = await evaluateCutoverReadiness(root);
+
+    assert.equal(violations.some((violation) => violation.includes("at least 15 classified items")), true);
+  });
+});
+
 test("cutover readiness requires Markdown counts to match JSON categories", async () => {
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.md"), [
@@ -212,33 +247,43 @@ async function withFixtureRepo(fn) {
       }
     }));
     writeFileSync(path.join(root, "README.md"), "# Harness Anything\n");
-    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.md"), [
-      "# Behavior Corpus Classification",
-      "",
-      "Machine-checkable source: `behavior-corpus-classification.json`.",
-      "",
-      "| Classification | Count | Notes |",
-      "| --- | ---: | --- |",
-      "| preserve | 0 | none |",
-      "| intentional-change | 0 | none |",
-      "| old-bug | 0 | none |",
-      "| unsupported-input | 0 | none |",
-      "| needs-decision | 0 | none |",
-      ""
-    ].join("\n"));
-    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.json"), JSON.stringify({
-      categories: {
-        preserve: 0,
-        "intentional-change": 0,
-        "old-bug": 0,
-        "unsupported-input": 0,
-        "needs-decision": 0
-      },
-      items: []
-    }));
+    writeValidBehaviorCorpus(root);
 
     await fn(root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+function writeValidBehaviorCorpus(root) {
+  writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.md"), [
+    "# Behavior Corpus Classification",
+    "",
+    "Machine-checkable source: `behavior-corpus-classification.json`.",
+    "",
+    "| Classification | Count | Notes |",
+    "| --- | ---: | --- |",
+    "| preserve | 7 | preserved behavior |",
+    "| intentional-change | 5 | intentional differences |",
+    "| old-bug | 1 | old bug |",
+    "| unsupported-input | 2 | unsupported inputs |",
+    "| needs-decision | 0 | none |",
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.json"), JSON.stringify({
+    categories: {
+      preserve: 7,
+      "intentional-change": 5,
+      "old-bug": 1,
+      "unsupported-input": 2,
+      "needs-decision": 0
+    },
+    items: [
+      ...Array.from({ length: 7 }, (_, index) => ({ classification: "preserve", summary: `preserve ${index}` })),
+      ...Array.from({ length: 5 }, (_, index) => ({ classification: "intentional-change", summary: `intentional ${index}` })),
+      { classification: "old-bug", summary: "old compatibility promise" },
+      { classification: "unsupported-input", summary: "conflicting legacy tree" },
+      { classification: "unsupported-input", summary: "npm publishing deferred" }
+    ]
+  }));
 }

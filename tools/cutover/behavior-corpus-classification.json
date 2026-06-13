@@ -2,11 +2,12 @@
   "schema": "harness-anything-behavior-corpus-classification/v1",
   "scope": "M2 final cutover",
   "publishState": "not-published",
+  "minimumItems": 15,
   "categories": {
-    "preserve": 0,
-    "intentional-change": 2,
-    "old-bug": 0,
-    "unsupported-input": 1,
+    "preserve": 7,
+    "intentional-change": 5,
+    "old-bug": 1,
+    "unsupported-input": 2,
     "needs-decision": 0
   },
   "evidence": [
@@ -21,6 +22,11 @@
       "result": "passed"
     },
     {
+      "id": "EV-FULL-CUTOVER-SMOKE",
+      "command": "npm run harness:smoke-full-cutover",
+      "result": "passed"
+    },
+    {
       "id": "EV-FULL-CUTOVER-VERIFY",
       "command": "harness migrate-verify <session.json> --full-cutover --json",
       "result": "passed"
@@ -28,16 +34,64 @@
   ],
   "items": [
     {
-      "classification": "intentional-change",
-      "summary": "Package identity uses harness-anything rather than old package names."
+      "classification": "preserve",
+      "summary": "Local task packages remain authored Markdown under harness/planning/tasks."
+    },
+    {
+      "classification": "preserve",
+      "summary": "Local lifecycle writes continue to go through the WriteCoordinator journal before authored files are mutated."
+    },
+    {
+      "classification": "preserve",
+      "summary": "Generated task IDs remain the default identity policy; manual IDs stay limited to controlled migration mode."
+    },
+    {
+      "classification": "preserve",
+      "summary": "Six-state lifecycle vocabulary remains planned, active, blocked, in_review, done, and cancelled."
+    },
+    {
+      "classification": "preserve",
+      "summary": "External engine bindings remain immutable local references rather than agent-owned external status writes."
+    },
+    {
+      "classification": "preserve",
+      "summary": "SQLite projection is rebuildable generated cache, not the source of task truth."
+    },
+    {
+      "classification": "preserve",
+      "summary": "createdBy remains optional audit metadata sourced from local Git user configuration when available."
     },
     {
       "classification": "intentional-change",
-      "summary": "Default CLI package artifact bin is harness-anything; external npm publish remains out of scope."
+      "summary": "Root package identity uses harness-anything rather than the previous repository-level product name."
+    },
+    {
+      "classification": "intentional-change",
+      "summary": "CLI package identity uses @harness-anything/cli and exposes the harness-anything binary."
+    },
+    {
+      "classification": "intentional-change",
+      "summary": "Package release remains private and not-published during M2 final cutover."
+    },
+    {
+      "classification": "intentional-change",
+      "summary": "The old scripts-refactor and SR implementation route is blocked from production source and public docs."
+    },
+    {
+      "classification": "intentional-change",
+      "summary": "Migration is explicit evidence through migrate-run and migrate-verify rather than automatic legacy compatibility."
+    },
+    {
+      "classification": "old-bug",
+      "summary": "Old broad public compatibility promises are rejected because they hid unsupported legacy behavior."
     },
     {
       "classification": "unsupported-input",
-      "summary": "Prior task files are handled through explicit migration evidence, not by preserving previous public interfaces."
+      "summary": "Malformed or conflicting legacy task trees require migration preflight failure rather than best-effort conversion."
+    },
+    {
+      "classification": "unsupported-input",
+      "summary": "npm registry scope reservation and public publishing are outside M2 and remain deferred release work."
     }
   ]
 }

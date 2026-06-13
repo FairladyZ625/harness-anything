@@ -148,17 +148,18 @@ function writeCutoverReadySurface(rootDir: string): void {
     scope: "M2 final cutover",
     publishState: "not-published",
     categories: {
-      preserve: 0,
-      "intentional-change": 1,
-      "old-bug": 0,
-      "unsupported-input": 0,
+      preserve: 7,
+      "intentional-change": 5,
+      "old-bug": 1,
+      "unsupported-input": 2,
       "needs-decision": 0
     },
     items: [
-      {
-        classification: "intentional-change",
-        summary: "Package release remains not-published while cutover evidence is complete."
-      }
+      ...Array.from({ length: 7 }, (_, index) => ({ classification: "preserve", summary: `preserve ${index}` })),
+      ...Array.from({ length: 5 }, (_, index) => ({ classification: "intentional-change", summary: `intentional ${index}` })),
+      { classification: "old-bug", summary: "old compatibility promise" },
+      { classification: "unsupported-input", summary: "conflicting legacy tree" },
+      { classification: "unsupported-input", summary: "npm publishing deferred" }
     ]
   }), "utf8");
   writeFileSync(path.join(cutoverDir, "behavior-corpus-classification.md"), "# Behavior Corpus Classification\n", "utf8");

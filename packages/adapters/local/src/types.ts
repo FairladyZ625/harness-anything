@@ -1,0 +1,109 @@
+import type { Effect } from "effect";
+import type { DomainStatus, EngineError, PackageDisposition, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
+import type { TaskCreatedBy } from "./created-by.ts";
+
+export interface LocalJournalActor {
+  readonly kind: "agent" | "human" | "system";
+  readonly id: string;
+}
+
+export interface LocalLifecycleOptions {
+  readonly rootDir: string;
+  readonly coordinator?: WriteCoordinator;
+  readonly clock?: () => Date;
+}
+
+export interface LocalWriteCoordinatorOptions {
+  readonly rootDir: string;
+  readonly actor?: LocalJournalActor;
+}
+
+export interface CreateLocalTaskInput {
+  readonly taskId: TaskId;
+  readonly title: string;
+  readonly allowManualId?: boolean;
+  readonly slug?: string;
+  readonly vertical?: string;
+  readonly preset?: string;
+  readonly createdBy?: TaskCreatedBy;
+}
+
+export interface SetLocalStatusInput {
+  readonly taskId: TaskId;
+  readonly status: DomainStatus;
+}
+
+export interface AppendProgressInput {
+  readonly taskId: TaskId;
+  readonly text: string;
+}
+
+export interface TaskReasonInput {
+  readonly taskId: TaskId;
+  readonly reason: string;
+}
+
+export interface SupersedeTaskInput {
+  readonly oldTaskId: TaskId;
+  readonly newTaskId: TaskId;
+  readonly title: string;
+  readonly slug: string;
+  readonly reason: string;
+}
+
+export type DeleteMode = "soft" | "hard";
+
+export interface DeleteTaskInput extends TaskReasonInput {
+  readonly mode: DeleteMode;
+}
+
+export interface LocalTaskResult {
+  readonly taskId: TaskId;
+  readonly status: DomainStatus;
+  readonly engine: "local";
+  readonly packageDisposition?: PackageDisposition;
+}
+
+export interface LocalProgressResult {
+  readonly taskId: TaskId;
+  readonly path: "progress.md";
+}
+
+export interface LocalSupersedeResult {
+  readonly oldTaskId: TaskId;
+  readonly newTaskId: TaskId;
+  readonly packageDisposition: "archived";
+}
+
+export interface LocalDeleteResult {
+  readonly taskId: TaskId;
+  readonly mode: DeleteMode;
+  readonly packageDisposition?: "tombstoned";
+}
+
+export interface LocalLifecycleEngine {
+  readonly createTask: (input: CreateLocalTaskInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
+  readonly setStatus: (input: SetLocalStatusInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
+  readonly appendProgress: (input: AppendProgressInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
+  readonly archiveTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
+  readonly supersedeTask: (input: SupersedeTaskInput) => Effect.Effect<LocalSupersedeResult, EngineError | WriteError>;
+  readonly deleteTask: (input: DeleteTaskInput) => Effect.Effect<LocalDeleteResult, EngineError | WriteError>;
+  readonly reopenTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
+}
+
+export interface LocalTaskIndex {
+  readonly taskId: TaskId;
+  readonly title: string;
+  readonly engine: string;
+  readonly status: DomainStatus;
+  readonly ref: string | null;
+  readonly titleSnapshot: string | null;
+  readonly url: string | null;
+  readonly bindingCreatedAt: string;
+  readonly bindingFingerprint: string;
+  readonly packageDisposition: "active" | "archived" | "tombstoned";
+  readonly vertical: string;
+  readonly preset: string;
+  readonly createdBy?: TaskCreatedBy;
+}
