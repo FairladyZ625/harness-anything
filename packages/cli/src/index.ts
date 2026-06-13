@@ -10,7 +10,16 @@ import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../application/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/domain/index.ts";
 import { isDomainStatus } from "../../kernel/src/domain/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle, taskDocumentPath } from "../../kernel/src/layout/index.ts";
+import {
+  createTaskPackagePath,
+  generateTaskId,
+  listTaskIndexPaths,
+  readFrontmatter,
+  readScalar,
+  resolveHarnessLayout,
+  slugifyTaskTitle,
+  taskDocumentPath
+} from "../../kernel/src/layout/index.ts";
 import {
   PresetManifestSchema,
   TemplateCatalogSchema,
@@ -27,6 +36,9 @@ import {
 } from "../../kernel/src/index.ts";
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
+type CheckProfile = "source-package" | "private-harness" | "target-project";
+type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
+type LessonCommandMode = "dry-run" | "apply";
 
 export interface CliResult {
   readonly ok: boolean;
@@ -37,7 +49,7 @@ export interface CliResult {
   readonly path?: string;
   readonly packagePath?: string;
   readonly projectionPath?: string;
-  readonly mode?: "soft" | "hard";
+  readonly mode?: GovernanceRebuildMode | LessonCommandMode | "soft" | "hard";
   readonly tasks?: ReadonlyArray<unknown>;
   readonly templates?: ReadonlyArray<unknown>;
   readonly presets?: ReadonlyArray<unknown>;
@@ -50,6 +62,8 @@ export interface CliResult {
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
   readonly report?: unknown;
+  readonly profile?: CheckProfile;
+  readonly generated?: ReadonlyArray<string>;
   readonly reviewContract?: unknown;
   readonly completionGate?: unknown;
   readonly summary?: {
@@ -92,8 +106,10 @@ const commandRegistry = [
   { kind: "task-complete", primary: "harness task-complete <id> --ci passed|failed", resultEnvelope: "CliResult/v1" },
   { kind: "task-list", primary: "harness task list [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "status", primary: "harness status --json", resultEnvelope: "CliResult/v1" },
-  { kind: "check", primary: "harness check [--post-merge] [--json]", resultEnvelope: "CliResult/v1" },
-  { kind: "governance-rebuild", primary: "harness governance rebuild [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "check", primary: "harness check [--profile source-package|private-harness|target-project] [--strict] [--post-merge] [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "governance-rebuild", primary: "harness governance rebuild [--dry-run|--archive|--apply] [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "lesson-promote", primary: "harness lesson-promote <task-id> <candidate-id> [--dry-run|--apply] [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "lesson-sediment", primary: "harness lesson-sediment <task-id> <candidate-id> [--dry-run] [--title <title>] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-list", primary: "harness preset list [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-inspect", primary: "harness preset inspect <id> [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "preset-check", primary: "harness preset check <id> [--json]", resultEnvelope: "CliResult/v1" },
@@ -128,8 +144,10 @@ interface ParsedCommand {
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
     | { readonly kind: "task-list" }
     | { readonly kind: "status" }
-    | { readonly kind: "check"; readonly postMerge: boolean }
-    | { readonly kind: "governance-rebuild" }
+    | { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
+    | { readonly kind: "governance-rebuild"; readonly mode: GovernanceRebuildMode }
+    | { readonly kind: "lesson-promote"; readonly taskId: string; readonly candidateId: string; readonly mode: LessonCommandMode }
+    | { readonly kind: "lesson-sediment"; readonly taskId: string; readonly candidateId: string; readonly mode: "dry-run"; readonly title: string }
     | { readonly kind: "gui" }
     | { readonly kind: "template-list"; readonly catalogPath: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }
@@ -329,16 +347,18 @@ function runCommand(
   }
 
   if (command.action.kind === "governance-rebuild") {
-    return Effect.sync(() => {
-      const result = rebuildTaskProjection({ rootDir: command.rootDir });
-      return {
-        ok: true,
-        command: "governance-rebuild",
-        rows: result.rows.length,
-        warnings: result.warnings,
-        projectionPath: path.relative(command.rootDir, defaultTaskProjectionPath(command.rootDir)).split(path.sep).join("/")
-      } satisfies CliResult;
-    });
+    const action = command.action;
+    return Effect.sync(() => runGovernanceRebuild(command.rootDir, action.mode));
+  }
+
+  if (command.action.kind === "lesson-promote") {
+    const action = command.action;
+    return Effect.sync(() => runLessonPromote(command.rootDir, action.taskId, action.candidateId, action.mode));
+  }
+
+  if (command.action.kind === "lesson-sediment") {
+    const action = command.action;
+    return Effect.sync(() => runLessonSediment(command.rootDir, action.taskId, action.candidateId, action.title));
   }
 
   if (command.action.kind === "task-review") {
@@ -351,22 +371,9 @@ function runCommand(
     return Effect.sync(() => runTaskComplete(command.rootDir, action.taskId, action.reviewerId, action.ciGate));
   }
 
-  return Effect.sync(() => {
-    const result = checkTaskProjection({ rootDir: command.rootDir, postMerge: command.action.kind === "check" && command.action.postMerge });
-    return {
-      ok: result.ok,
-      command: command.action.kind === "check" && command.action.postMerge ? "check --post-merge" : "check",
-      rows: result.rows.length,
-      warnings: result.warnings,
-      report: result.report,
-      error: result.ok ? undefined : {
-        code: "projection_check_failed",
-        hint: command.action.kind === "check" && command.action.postMerge
-          ? "Post-merge governance checks found hard-fail warnings."
-          : "Projection cache or markdown source has contract warnings."
-      }
-    } satisfies CliResult;
-  });
+  return Effect.sync(() => runCheckProfile(command.rootDir, command.action.kind === "check"
+    ? command.action
+    : { kind: "check", profile: "source-package", strict: false, postMerge: false }));
 }
 
 function launchGui(rootDir: string): CliResult {
@@ -606,6 +613,364 @@ function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ci
     completionGate,
     reviewContract: review.reviewContract
   };
+}
+
+interface ProfileValidationIssue {
+  readonly code: string;
+  readonly source: string;
+  readonly severity: "warning" | "hard-fail";
+  readonly message: string;
+  readonly repairHint: string;
+}
+
+function runCheckProfile(
+  rootDir: string,
+  action: { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
+): CliResult {
+  const profilePostMerge = action.postMerge || action.profile === "private-harness" || action.profile === "target-project" || action.strict;
+  const projection = checkTaskProjection({ rootDir, postMerge: profilePostMerge });
+  const validatorIssues = validateCheckProfile(rootDir, action.profile, action.strict);
+  const warnings = [...projection.warnings, ...validatorIssues];
+  const validatorHardFailCount = validatorIssues.filter((issue) => issue.severity === "hard-fail").length;
+  const hardFailCount = warnings.filter((issue) => issue.severity === "hard-fail").length;
+  const ok = hardFailCount === 0;
+  const validatorSummary = summarizeValidatorIssues(validatorIssues);
+  const profileReport = {
+    schema: "harness-check-profile-report/v1",
+    profile: action.profile,
+    strict: action.strict,
+    postMerge: profilePostMerge,
+    projection: projection.report,
+    validators: validatorSummary,
+    summary: {
+      rowCount: projection.rows.length,
+      warningCount: warnings.length,
+      hardFailCount
+    }
+  };
+  return {
+    ok,
+    command: checkCommandName(action),
+    profile: action.profile,
+    rows: projection.rows.length,
+    warnings,
+    commands: commandRegistry,
+    report: action.profile === "source-package" ? projection.report : profileReport,
+    error: ok ? undefined : {
+      code: projection.report.summary.hardFailCount > 0 && validatorHardFailCount === 0 ? "projection_check_failed" : "check_profile_failed",
+      hint: `Harness check profile ${action.profile} found hard-fail issues.`
+    }
+  };
+}
+
+function validateCheckProfile(rootDir: string, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+  const issues: ProfileValidationIssue[] = [];
+  if (profile !== "source-package" || strict) {
+    const taskDirs = listTaskIndexPaths(rootDir).map((indexPath) => path.dirname(indexPath));
+    for (const taskDir of taskDirs) {
+      issues.push(...validateTaskPackageContracts(rootDir, taskDir, profile, strict));
+    }
+  }
+
+  if (profile === "private-harness" || profile === "target-project") {
+    issues.push(...validateContextDocs(rootDir, strict));
+    issues.push(...validateGovernanceGeneratedViews(rootDir, strict));
+  }
+
+  return issues;
+}
+
+function checkCommandName(action: { readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }): string {
+  if (action.profile === "source-package" && !action.strict && !action.postMerge) return "check";
+  if (action.profile === "source-package" && !action.strict && action.postMerge) return "check --post-merge";
+  return `check:${action.profile}`;
+}
+
+function validateTaskPackageContracts(rootDir: string, taskDir: string, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+  const issues: ProfileValidationIssue[] = [];
+  const relativeTaskDir = relativePath(rootDir, taskDir);
+  const indexPath = path.join(taskDir, "INDEX.md");
+  const indexBody = readFileSync(indexPath, "utf8");
+  const frontmatter = readFrontmatter(indexBody);
+  if (!frontmatter) {
+    issues.push(profileIssue("task-plan-contract", "task_index_frontmatter_missing", "hard-fail", `${relativeTaskDir}/INDEX.md is missing frontmatter.`, "Restore task package frontmatter before running check profiles."));
+    return issues;
+  }
+
+  const taskPlanPath = path.join(taskDir, "task_plan.md");
+  if (!existsSync(taskPlanPath)) {
+    issues.push(profileIssue("task-plan-contract", "task_plan_missing", "hard-fail", `${relativeTaskDir}/task_plan.md is missing.`, "Restore task_plan.md from the task template or supersede the package."));
+  } else {
+    const taskPlanBody = readFileSync(taskPlanPath, "utf8");
+    if (!/Task Contract:\s*harness-task(?:\/|\s+)v1/u.test(taskPlanBody) && profile !== "source-package") {
+      issues.push(profileIssue("task-plan-contract", "task_contract_marker_missing", strictSeverity(strict), `${relativeTaskDir}/task_plan.md lacks Task Contract: harness-task/v1.`, "Add the task contract marker or keep this package outside strict M2 profiles."));
+    }
+    if (hasTemplatePlaceholder(taskPlanBody)) {
+      issues.push(profileIssue("task-plan-contract", "task_plan_placeholder", "hard-fail", `${relativeTaskDir}/task_plan.md still contains template placeholders.`, "Replace scaffold placeholders before treating the task package as implementation-ready."));
+    }
+  }
+
+  const reviewPath = path.join(taskDir, "review.md");
+  if (existsSync(reviewPath)) {
+    const parsed = parseReviewMarkdown(readFileSync(reviewPath, "utf8"));
+    for (const issue of parsed.issues) {
+      issues.push(profileIssue("review-schema", "review_schema_invalid", "hard-fail", `${relativeTaskDir}/review.md failed review schema validation.`, JSON.stringify(issue)));
+    }
+  } else if (profile !== "source-package") {
+    issues.push(profileIssue("review-schema", "review_missing", strictSeverity(strict), `${relativeTaskDir}/review.md is missing.`, "Add review.md before strict private-harness/target-project validation."));
+  }
+
+  const visualPath = path.join(taskDir, "visual_map.md");
+  if (existsSync(visualPath)) {
+    const visualBody = readFileSync(visualPath, "utf8");
+    if (!/\| Phase ID \| Kind \| Depends On \| State \| Completion \|/u.test(visualBody)) {
+      issues.push(profileIssue("visual-map", "visual_phase_table_missing", strictSeverity(strict), `${relativeTaskDir}/visual_map.md lacks the canonical phase table.`, "Add the Visual Map Contract phase table."));
+    }
+    if (hasTemplatePlaceholder(visualBody)) {
+      issues.push(profileIssue("visual-map", "visual_map_placeholder", "hard-fail", `${relativeTaskDir}/visual_map.md still contains template placeholders.`, "Replace scaffold placeholders in the visual map."));
+    }
+  } else if (profile !== "source-package") {
+    issues.push(profileIssue("visual-map", "visual_map_missing", strictSeverity(strict), `${relativeTaskDir}/visual_map.md is missing.`, "Add visual_map.md or record why this task is exempt."));
+  }
+
+  const executionPath = path.join(taskDir, "execution_strategy.md");
+  if (existsSync(executionPath)) {
+    const executionBody = readFileSync(executionPath, "utf8");
+    if (/\| worker subagent \| pending \|/u.test(executionBody)) {
+      issues.push(profileIssue("subagent-authorization", "worker_authorization_pending", strictSeverity(strict), `${relativeTaskDir}/execution_strategy.md has pending worker authorization.`, "Resolve worker authorization as authorized, denied, or not-needed before strict validation."));
+    }
+  }
+
+  const lessonPath = path.join(taskDir, "lesson_candidates.md");
+  if (existsSync(lessonPath)) {
+    const lessonBody = readFileSync(lessonPath, "utf8");
+    if (hasTemplatePlaceholder(lessonBody) && !/Task-level status \| pending-review/u.test(lessonBody)) {
+      issues.push(profileIssue("lesson-routing", "lesson_placeholder", strictSeverity(strict), `${relativeTaskDir}/lesson_candidates.md contains unresolved placeholders.`, "Resolve lesson candidate routing before closeout."));
+    }
+  }
+
+  const status = readScalar(frontmatter, "  status");
+  if ((status === "done" || status === "in_review") && !existsSync(path.join(taskDir, "walkthrough.md")) && !existsSync(path.join(taskDir, "closeout.md"))) {
+    issues.push(profileIssue("completion-consistency", "closeout_missing", strictSeverity(strict), `${relativeTaskDir} is ${status} without closeout evidence.`, "Add walkthrough.md/closeout.md before claiming completion."));
+  }
+
+  return issues;
+}
+
+function validateContextDocs(rootDir: string, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+  const issues: ProfileValidationIssue[] = [];
+  for (const fileName of ["AGENTS.md", "CLAUDE.md"]) {
+    const filePath = path.join(rootDir, fileName);
+    if (!existsSync(filePath)) {
+      issues.push(profileIssue("context-docs", "context_doc_missing", strictSeverity(strict), `${fileName} is missing.`, `Add ${fileName} or keep the project outside strict target-project/private-harness profiles.`));
+    }
+  }
+  return issues;
+}
+
+function validateGovernanceGeneratedViews(rootDir: string, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+  const layout = resolveHarnessLayout(rootDir);
+  const issues: ProfileValidationIssue[] = [];
+  const generatedRegistry = path.join(layout.generatedRoot, "Module-Registry.md");
+  const authoredModules = path.join(layout.authoredRoot, "modules.json");
+  if (existsSync(authoredModules) && !existsSync(generatedRegistry)) {
+    issues.push(profileIssue("governance-boundary", "module_registry_projection_missing", strictSeverity(strict), ".harness/generated/Module-Registry.md is missing for authored modules.json.", "Run harness module scaffold/register or governance rebuild to regenerate local views."));
+  }
+  return issues;
+}
+
+function runGovernanceRebuild(rootDir: string, mode: GovernanceRebuildMode): CliResult {
+  const projectionPath = defaultTaskProjectionPath(rootDir);
+  const plannedRows = listTaskIndexPaths(rootDir).length;
+  if (mode === "dry-run") {
+    return {
+      ok: true,
+      command: "governance-rebuild",
+      mode,
+      rows: plannedRows,
+      projectionPath: relativePath(rootDir, projectionPath),
+      report: {
+        schema: "governance-rebuild-report/v1",
+        mode,
+        writes: [],
+        generatedViews: plannedGovernanceViews(rootDir)
+      }
+    };
+  }
+
+  const archivePath = mode === "archive" ? writeGovernanceArchive(rootDir, plannedRows) : null;
+  const result = rebuildTaskProjection({ rootDir });
+  const generated = writeGeneratedGovernanceViews(rootDir, result.rows.length);
+  return {
+    ok: true,
+    command: "governance-rebuild",
+    mode,
+    rows: result.rows.length,
+    warnings: result.warnings,
+    projectionPath: relativePath(rootDir, projectionPath),
+    generated: archivePath ? [archivePath, ...generated] : generated,
+    report: {
+      schema: "governance-rebuild-report/v1",
+      mode,
+      writes: archivePath ? [archivePath, relativePath(rootDir, projectionPath), ...generated] : [relativePath(rootDir, projectionPath), ...generated],
+      generatedViews: generated
+    }
+  };
+}
+
+function runLessonPromote(rootDir: string, taskId: string, candidateId: string, mode: LessonCommandMode): CliResult {
+  const candidate = readLessonCandidate(rootDir, taskId, candidateId);
+  if (!candidate.ok) return candidate.result;
+  const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "lessons", `${candidateId}.json`);
+  const relativeOutput = relativePath(rootDir, outputPath);
+  if (mode === "apply") {
+    mkdirSync(path.dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, JSON.stringify({
+      schema: "lesson-promotion/v1",
+      taskId,
+      candidateId,
+      title: candidate.value.title,
+      promotedAt: new Date().toISOString(),
+      source: "task-local-candidate"
+    }, null, 2), "utf8");
+  }
+  return {
+    ok: true,
+    command: "lesson-promote",
+    taskId,
+    mode,
+    generated: mode === "apply" ? [relativeOutput] : [],
+    report: {
+      schema: "lesson-promotion-report/v1",
+      mode,
+      taskId,
+      candidate: candidate.value,
+      plannedWrite: relativeOutput
+    }
+  };
+}
+
+function runLessonSediment(rootDir: string, taskId: string, candidateId: string, title: string): CliResult {
+  const candidate = readLessonCandidate(rootDir, taskId, candidateId);
+  if (!candidate.ok) return candidate.result;
+  const outputPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "lessons", `${candidateId}.md`);
+  return {
+    ok: true,
+    command: "lesson-sediment",
+    taskId,
+    mode: "dry-run",
+    generated: [],
+    report: {
+      schema: "lesson-sediment-report/v1",
+      mode: "dry-run",
+      taskId,
+      candidate: candidate.value,
+      plannedWrite: relativePath(rootDir, outputPath),
+      title
+    }
+  };
+}
+
+function readLessonCandidate(
+  rootDir: string,
+  taskId: string,
+  candidateId: string
+): { readonly ok: true; readonly value: { readonly id: string; readonly status: string; readonly title: string } } | { readonly ok: false; readonly result: CliResult } {
+  const lessonPath = taskDocumentPath(rootDir, taskId, "lesson_candidates.md");
+  if (!existsSync(lessonPath)) {
+    return { ok: false, result: { ok: false, command: "lesson", taskId, error: { code: "lesson_candidates_missing", hint: "lesson_candidates.md is required for lesson promotion or sedimentation." } } };
+  }
+  const body = readFileSync(lessonPath, "utf8");
+  const candidate = parseLessonCandidate(body, candidateId);
+  if (!candidate) {
+    return { ok: false, result: { ok: false, command: "lesson", taskId, error: { code: "lesson_candidate_not_found", hint: `candidate not found: ${candidateId}` } } };
+  }
+  if (candidate.status !== "ready-for-review" && candidate.status !== "needs-promotion" && candidate.status !== "promoted") {
+    return { ok: false, result: { ok: false, command: "lesson", taskId, error: { code: "lesson_candidate_not_promotable", hint: `candidate ${candidateId} has status ${candidate.status}` } } };
+  }
+  return { ok: true, value: candidate };
+}
+
+function parseLessonCandidate(body: string, candidateId: string): { readonly id: string; readonly status: string; readonly title: string } | null {
+  for (const line of body.split(/\r?\n/u)) {
+    const cells = line.split("|").map((cell) => cell.trim()).filter((cell) => cell.length > 0);
+    if (cells[0] === candidateId) {
+      return {
+        id: cells[0],
+        status: cells[1] ?? "",
+        title: cells[2] ?? candidateId
+      };
+    }
+  }
+  return null;
+}
+
+function profileIssue(source: string, code: string, severity: "warning" | "hard-fail", message: string, repairHint: string): ProfileValidationIssue {
+  return { source, code, severity, message, repairHint };
+}
+
+function strictSeverity(strict: boolean): "warning" | "hard-fail" {
+  return strict ? "hard-fail" : "warning";
+}
+
+function hasTemplatePlaceholder(body: string): boolean {
+  return /\[(?:用一句话|说明|为什么|路径|风险|owner|负责人|该产物|这份资料|标准 \d|步骤 \d|范围|未采用|什么时候必须确认)[^\]]*\]/u.test(body);
+}
+
+function summarizeValidatorIssues(issues: ReadonlyArray<ProfileValidationIssue>): ReadonlyArray<{ readonly source: string; readonly warningCount: number; readonly hardFailCount: number; readonly codes: ReadonlyArray<string> }> {
+  const sources = [...new Set(issues.map((issue) => issue.source))].sort();
+  return sources.map((source) => {
+    const sourceIssues = issues.filter((issue) => issue.source === source);
+    return {
+      source,
+      warningCount: sourceIssues.filter((issue) => issue.severity === "warning").length,
+      hardFailCount: sourceIssues.filter((issue) => issue.severity === "hard-fail").length,
+      codes: [...new Set(sourceIssues.map((issue) => issue.code))].sort()
+    };
+  });
+}
+
+function isCheckProfile(value: string): value is CheckProfile {
+  return value === "source-package" || value === "private-harness" || value === "target-project";
+}
+
+function plannedGovernanceViews(rootDir: string): ReadonlyArray<string> {
+  const layout = resolveHarnessLayout(rootDir);
+  return [
+    relativePath(rootDir, defaultTaskProjectionPath(rootDir)),
+    relativePath(rootDir, path.join(layout.generatedRoot, "Harness-Ledger.md"))
+  ];
+}
+
+function writeGeneratedGovernanceViews(rootDir: string, rows: number): ReadonlyArray<string> {
+  const layout = resolveHarnessLayout(rootDir);
+  const ledgerPath = path.join(layout.generatedRoot, "Harness-Ledger.md");
+  mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  writeFileSync(ledgerPath, [
+    "# Harness Ledger",
+    "",
+    "Generated projection. Authored task packages remain the source of truth.",
+    "",
+    `- Generated At: ${new Date().toISOString()}`,
+    `- Task Rows: ${rows}`,
+    ""
+  ].join("\n"), "utf8");
+  return [relativePath(rootDir, ledgerPath)];
+}
+
+function writeGovernanceArchive(rootDir: string, plannedRows: number): string {
+  const archivePath = path.join(resolveHarnessLayout(rootDir).localRoot, "archive", "governance", `${new Date().toISOString().replace(/[:.]/gu, "-")}.json`);
+  mkdirSync(path.dirname(archivePath), { recursive: true });
+  writeFileSync(archivePath, JSON.stringify({
+    schema: "governance-archive/v1",
+    archivedAt: new Date().toISOString(),
+    plannedRows
+  }, null, 2), "utf8");
+  return relativePath(rootDir, archivePath);
+}
+
+function relativePath(rootDir: string, filePath: string): string {
+  return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 
 function writeIfMissing(filePath: string, body: string): void {
@@ -862,6 +1227,10 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
   }
 
   if (args[0] === "check") {
+    const profile = readOption(args, "--profile") ?? "source-package";
+    if (!isCheckProfile(profile)) {
+      return { ok: false, error: { code: "invalid_check_profile", hint: `Unknown check profile: ${profile}` } };
+    }
     return {
       ok: true,
       value: {
@@ -869,6 +1238,8 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
         json,
         action: {
           kind: "check",
+          profile,
+          strict: args.includes("--strict"),
           postMerge: args.includes("--post-merge")
         }
       }
@@ -876,13 +1247,56 @@ function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly v
   }
 
   if (args[0] === "governance" && args[1] === "rebuild") {
+    const mode = args.includes("--dry-run") ? "dry-run" : args.includes("--archive") ? "archive" : "apply";
+    const selectedModes = [args.includes("--dry-run"), args.includes("--archive"), args.includes("--apply")].filter(Boolean).length;
+    if (selectedModes > 1) {
+      return { ok: false, error: { code: "conflicting_governance_mode", hint: "Use only one of --dry-run, --archive, or --apply." } };
+    }
     return {
       ok: true,
       value: {
         rootDir,
         json,
         action: {
-          kind: "governance-rebuild"
+          kind: "governance-rebuild",
+          mode
+        }
+      }
+    };
+  }
+
+  if (args[0] === "lesson-promote" && args[1] && args[2]) {
+    const mode = args.includes("--apply") ? "apply" : "dry-run";
+    if (args.includes("--apply") && args.includes("--dry-run")) {
+      return { ok: false, error: { code: "conflicting_lesson_mode", hint: "Use either --dry-run or --apply." } };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "lesson-promote",
+          taskId: args[1],
+          candidateId: args[2],
+          mode
+        }
+      }
+    };
+  }
+
+  if (args[0] === "lesson-sediment" && args[1] && args[2]) {
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "lesson-sediment",
+          taskId: args[1],
+          candidateId: args[2],
+          mode: "dry-run",
+          title: readOption(args, "--title") ?? args[2]
         }
       }
     };
