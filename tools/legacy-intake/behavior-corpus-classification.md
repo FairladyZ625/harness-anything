@@ -1,9 +1,9 @@
 # Behavior Corpus Classification
 
-M2 final cutover uses this report as the human-readable mirror of the
+M2 Legacy Intake readiness uses this report as the human-readable mirror of the
 machine-checkable behavior corpus. Migration intake is represented by explicit
-evidence files and `migrate-verify --full-cutover`; the public package and CLI
-surface stay on the Harness-Anything implementation.
+Legacy Intake evidence files; the public package and CLI surface stay on the
+Harness-Anything implementation.
 
 Machine-checkable source: `behavior-corpus-classification.json`.
 
@@ -31,7 +31,7 @@ Machine-checkable source: `behavior-corpus-classification.json`.
 
 - Root package identity uses `harness-anything` rather than the previous repository-level product name.
 - CLI package identity uses `@harness-anything/cli` and exposes the `harness-anything` binary.
-- Package release remains private and `not-published` during M2 final cutover.
+- Package release remains private and `not-published` during M2 Legacy Intake readiness.
 - The retired SR implementation route is blocked from production source and public docs.
 - Migration is explicit evidence through `migrate-run` and `migrate-verify` rather than automatic legacy compatibility.
 
@@ -44,12 +44,13 @@ Machine-checkable source: `behavior-corpus-classification.json`.
 - Malformed or conflicting legacy task trees require migration preflight failure rather than best-effort conversion.
 - npm registry scope reservation and public publishing are outside M2 and remain deferred release work.
 
-## Cutover Evidence Notes
+## Legacy Intake Evidence Notes
 
 - Default package identity is `harness-anything`.
 - CLI package identity is `@harness-anything/cli`.
 - The default CLI package artifact bin is `harness-anything`; external npm publish is intentionally out of scope.
-- Retired old runtime paths are blocked by `harness:check-cutover-readiness`.
-- Full cutover verification is active through `migrate-verify --full-cutover`.
-- Real repository full-cutover smoke is covered by `harness:smoke-full-cutover`.
+- Retired old runtime paths are blocked by `harness:check-legacy-intake-readiness`.
+- Legacy Intake verification is active through `legacy verify`.
+- The retired `migrate-verify --full-cutover` flag is covered as a rejection path, not as an active future gate.
+- Real repository Legacy Intake smoke is covered by `harness:smoke-legacy-intake`.
 - Package artifact executability is verified by `harness:smoke-cli-package`, which builds, packs, installs into a temporary consumer, and runs `harness-anything --json gui` with GUI dry-run enabled.

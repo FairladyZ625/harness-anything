@@ -145,7 +145,7 @@ repository.
 
 ## Project status
 
-M2 final-cutover evidence is complete for this repository workflow.
+M2 Legacy Intake readiness evidence is complete for this repository workflow.
 
 Current release boundary:
 
@@ -161,8 +161,8 @@ Expect breaking changes while the public package surface stabilizes.
 **M2 - coding vertical cutover**
 
 - [x] Kernel, CLI, package layout, governance checks, behavior corpus, and
-  final-cutover evidence.
-- [x] Local smoke coverage for the full cutover and private CLI package
+  Legacy Intake readiness evidence.
+- [x] Local smoke coverage for the Legacy Intake and private CLI package
   artifact.
 - [ ] npm package publication.
 

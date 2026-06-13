@@ -112,17 +112,22 @@ M2-P7 used `migrate-verify --full-cutover` as historical completion evidence.
 That strategy is now deprecated. Future work should not use full cutover as an
 exit gate or dogfood prerequisite.
 
-Historical M2 checks were:
+Historical M2 evidence used the now-retired full-cutover flag:
 
 ```bash
 harness migrate-run --json
 harness migrate-verify <session.json> --full-cutover --json
-npm run harness:check-cutover-readiness
-npm run harness:smoke-full-cutover
+```
+
+Current M2.5 replacements are:
+
+```bash
+npm run harness:check-legacy-intake-readiness
+npm run harness:smoke-legacy-intake
 npm run check
 ```
 
-M2.5 will replace these with Legacy Intake readiness and smoke checks.
+M2.5 replaces the active gate names with Legacy Intake readiness and smoke checks.
 
 Package release decision:
 

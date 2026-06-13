@@ -55,7 +55,7 @@ Harness Anything 围绕一个小内核和明确的扩展层组织。
 
 - 一个 local-first 的 coding-agent 任务 harness。
 - 一个 TypeScript monorepo，包含 kernel、CLI、GUI、application 和 adapter 包。
-- 一套治理表面，用于检查任务包、文件复杂度、import 边界、private/public 边界、schema 契约和 cutover readiness。
+- 一套治理表面，用于检查任务包、文件复杂度、import 边界、private/public 边界、schema 契约和 Legacy Intake readiness。
 - 面向公开 Harness 产品表面的 clean-room rewrite workspace。
 
 ## 这不是什么
@@ -113,7 +113,7 @@ Private planning、architecture、review state 和 task ledger 位于 public doc
 
 ## 项目状态
 
-这个仓库工作流的 M2 final-cutover evidence 已完成。
+这个仓库工作流的 M2 Legacy Intake readiness evidence 已完成。
 
 当前 release 边界：
 
@@ -128,8 +128,8 @@ Private planning、architecture、review state 和 task ledger 位于 public doc
 
 **M2 - coding vertical cutover**
 
-- [x] Kernel、CLI、package layout、governance checks、behavior corpus 和 final-cutover evidence。
-- [x] Full cutover 和 private CLI package artifact 的本地 smoke 覆盖。
+- [x] Kernel、CLI、package layout、governance checks、behavior corpus 和 Legacy Intake readiness evidence。
+- [x] Legacy Intake 和 private CLI package artifact 的本地 smoke 覆盖。
 - [ ] npm package publication。
 
 **Next**

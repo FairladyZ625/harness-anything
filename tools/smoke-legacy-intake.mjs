@@ -6,8 +6,8 @@ import path from "node:path";
 
 const root = process.cwd();
 const cli = path.join(root, "packages/cli/src/index.ts");
-const smokeRoot = path.join(root, ".harness/generated/full-cutover-smoke-root");
-const outDir = ".harness/generated/full-cutover-smoke";
+const smokeRoot = path.join(root, ".harness/generated/legacy-intake-smoke-root");
+const outDir = ".harness/generated/legacy-intake-smoke";
 
 function runJson(args) {
   try {
@@ -52,7 +52,7 @@ try {
     throw new Error("legacy verify did not accept current Legacy Intake index");
   }
 
-  console.log(`Full cutover smoke retired; Legacy Intake verify passed with ${legacyVerify.report.summary.entryCount} entries.`);
+  console.log(`Legacy Intake smoke passed with ${legacyVerify.report.summary.entryCount} entries.`);
 } finally {
   rmSync(smokeRoot, { recursive: true, force: true });
 }

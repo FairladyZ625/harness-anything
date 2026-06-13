@@ -72,7 +72,7 @@ jobs:
       - run: npm run harness:check-private-boundary
       - run: npm run harness:check-implementation-contracts
       - run: npm run harness:check-schema-contracts
-      - run: npm run harness:check-cutover-readiness
+      - run: npm run harness:check-legacy-intake-readiness
 
   package-policy:
     runs-on: ubuntu-latest

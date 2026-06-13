@@ -31,9 +31,15 @@ const publicCompatibilityPatterns = [
   /\bautomatic migration\b/u,
   /\bauto-migration\b/u
 ];
+const retiredPackageScriptGatePatterns = [
+  /\bcheck-cutover-readiness\b/u,
+  /\bsmoke-full-cutover\b/u,
+  /\bcutover-readiness\b/u,
+  /\bfull-cutover\b/u
+];
 const minBehaviorCorpusItems = 15;
 
-export async function evaluateCutoverReadiness(root = process.cwd()) {
+export async function evaluateLegacyIntakeReadiness(root = process.cwd()) {
   const violations = [];
 
   checkPackageSurface(root, violations);
@@ -52,6 +58,7 @@ function checkPackageSurface(root, violations) {
   if (rootPackage.private !== true) {
     violations.push("package.json: root package must stay private until explicit publish approval");
   }
+  checkRootPackageScripts(rootPackage, violations);
 
   const cliPackage = readJson(root, "packages/cli/package.json");
   if (cliPackage.name !== "@harness-anything/cli") {
@@ -74,6 +81,20 @@ function checkPackageSurface(root, violations) {
   }
   if (cliPackage.publishConfig) {
     violations.push("packages/cli/package.json: publishConfig is not allowed before explicit publish approval");
+  }
+}
+
+function checkRootPackageScripts(rootPackage, violations) {
+  const scripts = rootPackage.scripts;
+  if (!scripts || typeof scripts !== "object") return;
+  for (const [name, command] of Object.entries(scripts)) {
+    const scriptText = `${name} ${String(command)}`;
+    for (const pattern of retiredPackageScriptGatePatterns) {
+      if (pattern.test(scriptText)) {
+        violations.push(`package.json: script ${name} exposes retired full-cutover/cutover readiness gate name`);
+        break;
+      }
+    }
   }
 }
 
@@ -127,20 +148,20 @@ async function checkPublicText(root, violations) {
 }
 
 function checkBehaviorCorpusReport(root, violations) {
-  const dataPath = path.join(root, "tools/cutover/behavior-corpus-classification.json");
+  const dataPath = path.join(root, "tools/legacy-intake/behavior-corpus-classification.json");
   if (!existsSync(dataPath)) {
-    violations.push("tools/cutover/behavior-corpus-classification.json: missing machine-checkable behavior corpus classification input");
+    violations.push("tools/legacy-intake/behavior-corpus-classification.json: missing machine-checkable behavior corpus classification input");
     return;
   }
   const data = JSON.parse(readFileSync(dataPath, "utf8"));
   const categories = data?.categories;
   if (!categories || typeof categories !== "object") {
-    violations.push("tools/cutover/behavior-corpus-classification.json: missing categories object");
+    violations.push("tools/legacy-intake/behavior-corpus-classification.json: missing categories object");
     return;
   }
   for (const required of ["preserve", "intentional-change", "old-bug", "unsupported-input", "needs-decision"]) {
     if (!Number.isInteger(categories[required]) || categories[required] < 0) {
-      violations.push(`tools/cutover/behavior-corpus-classification.json: missing non-negative integer category ${required}`);
+      violations.push(`tools/legacy-intake/behavior-corpus-classification.json: missing non-negative integer category ${required}`);
     }
   }
   if (Array.isArray(data?.items)) {
@@ -149,50 +170,50 @@ function checkBehaviorCorpusReport(root, violations) {
       if (typeof item?.classification === "string" && item.classification in actualCounts) {
         actualCounts[item.classification] += 1;
       } else {
-        violations.push("tools/cutover/behavior-corpus-classification.json: item has unknown classification");
+        violations.push("tools/legacy-intake/behavior-corpus-classification.json: item has unknown classification");
       }
     }
     for (const [category, expectedCount] of Object.entries(categories)) {
       if (actualCounts[category] !== expectedCount) {
-        violations.push(`tools/cutover/behavior-corpus-classification.json: category ${category} count ${expectedCount} does not match ${actualCounts[category]} item(s)`);
+        violations.push(`tools/legacy-intake/behavior-corpus-classification.json: category ${category} count ${expectedCount} does not match ${actualCounts[category]} item(s)`);
       }
     }
     if (data.items.length < minBehaviorCorpusItems) {
-      violations.push(`tools/cutover/behavior-corpus-classification.json: behavior corpus must include at least ${minBehaviorCorpusItems} classified items`);
+      violations.push(`tools/legacy-intake/behavior-corpus-classification.json: behavior corpus must include at least ${minBehaviorCorpusItems} classified items`);
     }
   } else {
-    violations.push("tools/cutover/behavior-corpus-classification.json: missing items array");
+    violations.push("tools/legacy-intake/behavior-corpus-classification.json: missing items array");
   }
   if (categories["needs-decision"] !== 0) {
-    violations.push("tools/cutover/behavior-corpus-classification.json: unresolved needs-decision differences remain");
+    violations.push("tools/legacy-intake/behavior-corpus-classification.json: unresolved needs-decision differences remain");
   }
 
-  const reportPath = path.join(root, "tools/cutover/behavior-corpus-classification.md");
+  const reportPath = path.join(root, "tools/legacy-intake/behavior-corpus-classification.md");
   if (!existsSync(reportPath)) {
-    violations.push("tools/cutover/behavior-corpus-classification.md: missing behavior corpus classification report");
+    violations.push("tools/legacy-intake/behavior-corpus-classification.md: missing behavior corpus classification report");
     return;
   }
 
   const text = readFileSync(reportPath, "utf8");
   if (!text.includes("behavior-corpus-classification.json")) {
-    violations.push("tools/cutover/behavior-corpus-classification.md: report must reference machine-checkable JSON input");
+    violations.push("tools/legacy-intake/behavior-corpus-classification.md: report must reference machine-checkable JSON input");
   }
   for (const required of ["preserve", "intentional-change", "old-bug", "unsupported-input"]) {
     if (!text.includes(required)) {
-      violations.push(`tools/cutover/behavior-corpus-classification.md: missing ${required} classification category`);
+      violations.push(`tools/legacy-intake/behavior-corpus-classification.md: missing ${required} classification category`);
     }
   }
   for (const [category, expectedCount] of Object.entries(categories)) {
     const row = text.split(/\r?\n/u).find((line) => new RegExp(`^\\|\\s*${escapeRegExp(category)}\\s*\\|`, "u").test(line));
     const markdownCount = row?.split("|")[2]?.trim();
     if (markdownCount !== String(expectedCount)) {
-      violations.push(`tools/cutover/behavior-corpus-classification.md: Markdown category ${category} count must match JSON count ${expectedCount}`);
+      violations.push(`tools/legacy-intake/behavior-corpus-classification.md: Markdown category ${category} count must match JSON count ${expectedCount}`);
     }
   }
   const needsDecisionLine = text.split(/\r?\n/u).find((line) => /^\|\s*needs-decision\s*\|/u.test(line));
   const needsDecisionCount = needsDecisionLine?.split("|")[2]?.trim();
   if (needsDecisionCount !== "0") {
-    violations.push("tools/cutover/behavior-corpus-classification.md: unresolved needs-decision differences remain");
+    violations.push("tools/legacy-intake/behavior-corpus-classification.md: unresolved needs-decision differences remain");
   }
 }
 
@@ -265,11 +286,11 @@ function escapeRegExp(input) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const violations = await evaluateCutoverReadiness();
+  const violations = await evaluateLegacyIntakeReadiness();
   if (violations.length > 0) {
-    console.error("Cutover readiness check failed:");
+    console.error("Legacy Intake readiness check failed:");
     for (const violation of violations) console.error(`- ${violation}`);
     process.exit(1);
   }
-  console.log("Cutover readiness check passed.");
+  console.log("Legacy Intake readiness check passed.");
 }

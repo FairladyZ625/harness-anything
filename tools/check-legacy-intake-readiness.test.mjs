@@ -4,31 +4,31 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { evaluateCutoverReadiness } from "./check-cutover-readiness.mjs";
+import { evaluateLegacyIntakeReadiness } from "./check-legacy-intake-readiness.mjs";
 
-test("cutover readiness rejects old runtime production references", async () => {
+test("Legacy Intake readiness rejects old runtime production references", async () => {
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "packages/kernel/src/index.ts"), "export const oldPath = 'scripts/kernel/task';\n");
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("retired old runtime")), true);
   });
 });
 
-test("cutover readiness allows old runtime references in tests and behavior report", async () => {
+test("Legacy Intake readiness allows old runtime references in tests and behavior report", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, "packages/kernel/test"), { recursive: true });
     writeFileSync(path.join(root, "packages/kernel/src/index.ts"), "export const ok = true;\n");
     writeFileSync(path.join(root, "packages/kernel/test/legacy.test.ts"), "const oldPath = 'scripts/kernel/task';\n");
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.deepEqual(violations, []);
   });
 });
 
-test("cutover readiness ignores private harness files inside local worktrees", async () => {
+test("Legacy Intake readiness ignores private harness files inside local worktrees", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, ".worktrees/gui-prototype-private-context/.harness-private"), { recursive: true });
     writeFileSync(path.join(root, ".worktrees/gui-prototype-private-context/.harness-private/AGENTS.md"), [
@@ -38,13 +38,13 @@ test("cutover readiness ignores private harness files inside local worktrees", a
       ""
     ].join("\n"));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.deepEqual(violations, []);
   });
 });
 
-test("cutover readiness requires the harness-anything CLI package artifact bin surface", async () => {
+test("Legacy Intake readiness requires the harness-anything CLI package artifact bin surface", async () => {
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "packages/cli/package.json"), JSON.stringify({
       name: "@harness-anything/cli",
@@ -52,23 +52,23 @@ test("cutover readiness requires the harness-anything CLI package artifact bin s
       type: "module"
     }));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("bin.harness-anything")), true);
   });
 });
 
-test("cutover readiness dynamically rejects public legacy compatibility promises", async () => {
+test("Legacy Intake readiness dynamically rejects public legacy compatibility promises", async () => {
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "PUBLIC-COMPAT.md"), "This promises coding-agent-harness compatibility.\n");
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("PUBLIC-COMPAT.md")), true);
   });
 });
 
-test("cutover readiness rejects retired runtime paths in root package scripts", async () => {
+test("Legacy Intake readiness rejects retired runtime paths in root package scripts", async () => {
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "package.json"), JSON.stringify({
       name: "harness-anything",
@@ -81,23 +81,43 @@ test("cutover readiness rejects retired runtime paths in root package scripts", 
       }
     }));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("package.json") && violation.includes("retired old runtime")), true);
   });
 });
 
-test("cutover readiness rejects forbidden runtime APIs in public markdown", async () => {
+test("Legacy Intake readiness rejects retired full-cutover package script gate names", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFileSync(path.join(root, "package.json"), JSON.stringify({
+      name: "harness-anything",
+      private: true,
+      scripts: {
+        "harness:smoke-full-cutover": "node tools/smoke-full-cutover.mjs",
+        "harness:check-cutover-readiness": "node tools/check-cutover-readiness.mjs"
+      },
+      dependencies: {
+        effect: "3.21.2"
+      }
+    }));
+
+    const violations = await evaluateLegacyIntakeReadiness(root);
+
+    assert.equal(violations.some((violation) => violation.includes("smoke-full-cutover") || violation.includes("check-cutover-readiness")), true);
+  });
+});
+
+test("Legacy Intake readiness rejects forbidden runtime APIs in public markdown", async () => {
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "README.md"), "Use requestTransition for lifecycle control.\n");
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("README.md") && violation.includes("forbidden runtime-control")), true);
   });
 });
 
-test("cutover readiness rejects retired runtime paths in GitHub workflow config", async () => {
+test("Legacy Intake readiness rejects retired runtime paths in GitHub workflow config", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, ".github/workflows"), { recursive: true });
     writeFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), [
@@ -110,15 +130,15 @@ test("cutover readiness rejects retired runtime paths in GitHub workflow config"
       ""
     ].join("\n"));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes(".github/workflows/rewrite-ci.yml") && violation.includes("retired old runtime")), true);
   });
 });
 
-test("cutover readiness requires machine-checkable behavior corpus input", async () => {
+test("Legacy Intake readiness requires machine-checkable behavior corpus input", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.json"), JSON.stringify({
+    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
       categories: {
         preserve: 0,
         "intentional-change": 0,
@@ -128,15 +148,15 @@ test("cutover readiness requires machine-checkable behavior corpus input", async
       }
     }));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("needs-decision")), true);
   });
 });
 
-test("cutover readiness requires behavior item counts to match categories", async () => {
+test("Legacy Intake readiness requires behavior item counts to match categories", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.json"), JSON.stringify({
+    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
       categories: {
         preserve: 1,
         "intentional-change": 0,
@@ -147,15 +167,15 @@ test("cutover readiness requires behavior item counts to match categories", asyn
       items: []
     }));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("does not match")), true);
   });
 });
 
-test("cutover readiness requires a non-trivial behavior corpus", async () => {
+test("Legacy Intake readiness requires a non-trivial behavior corpus", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.md"), [
+    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"), [
       "# Behavior Corpus Classification",
       "",
       "Machine-checkable source: `behavior-corpus-classification.json`.",
@@ -169,7 +189,7 @@ test("cutover readiness requires a non-trivial behavior corpus", async () => {
       "| needs-decision | 0 | none |",
       ""
     ].join("\n"));
-    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.json"), JSON.stringify({
+    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
       categories: {
         preserve: 1,
         "intentional-change": 0,
@@ -182,15 +202,15 @@ test("cutover readiness requires a non-trivial behavior corpus", async () => {
       ]
     }));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("at least 15 classified items")), true);
   });
 });
 
-test("cutover readiness requires Markdown counts to match JSON categories", async () => {
+test("Legacy Intake readiness requires Markdown counts to match JSON categories", async () => {
   await withFixtureRepo(async (root) => {
-    writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.md"), [
+    writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"), [
       "# Behavior Corpus Classification",
       "",
       "Machine-checkable source: `behavior-corpus-classification.json`.",
@@ -205,7 +225,7 @@ test("cutover readiness requires Markdown counts to match JSON categories", asyn
       ""
     ].join("\n"));
 
-    const violations = await evaluateCutoverReadiness(root);
+    const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("category preserve count")), true);
   });
@@ -216,7 +236,7 @@ async function withFixtureRepo(fn) {
   try {
     mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });
     mkdirSync(path.join(root, "packages/cli"), { recursive: true });
-    mkdirSync(path.join(root, "tools/cutover"), { recursive: true });
+    mkdirSync(path.join(root, "tools/legacy-intake"), { recursive: true });
     writeFileSync(path.join(root, "package.json"), JSON.stringify({
       name: "harness-anything",
       private: true,
@@ -256,7 +276,7 @@ async function withFixtureRepo(fn) {
 }
 
 function writeValidBehaviorCorpus(root) {
-  writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.md"), [
+  writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.md"), [
     "# Behavior Corpus Classification",
     "",
     "Machine-checkable source: `behavior-corpus-classification.json`.",
@@ -270,7 +290,7 @@ function writeValidBehaviorCorpus(root) {
     "| needs-decision | 0 | none |",
     ""
   ].join("\n"));
-  writeFileSync(path.join(root, "tools/cutover/behavior-corpus-classification.json"), JSON.stringify({
+  writeFileSync(path.join(root, "tools/legacy-intake/behavior-corpus-classification.json"), JSON.stringify({
     categories: {
       preserve: 7,
       "intentional-change": 5,

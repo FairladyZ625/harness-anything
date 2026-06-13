@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-export interface FullCutoverEvidence {
-  readonly schema: "harness-full-cutover-evidence/v1";
+export interface LegacyIntakeReadinessEvidence {
+  readonly schema: "harness-legacy-intake-readiness-evidence/v1";
   readonly ok: boolean;
   readonly packageReleaseDecision: {
     readonly publishState: "not-published";
@@ -20,13 +20,13 @@ export interface FullCutoverEvidence {
 
 const minBehaviorCorpusItems = 15;
 
-export function evaluateFullCutoverEvidence(rootDir: string): FullCutoverEvidence {
+export function evaluateLegacyIntakeReadinessEvidence(rootDir: string): LegacyIntakeReadinessEvidence {
   const violations: string[] = [];
   checkPackageDecision(rootDir, violations);
   const behaviorCorpus = checkBehaviorCorpus(rootDir, violations);
 
   return {
-    schema: "harness-full-cutover-evidence/v1",
+    schema: "harness-legacy-intake-readiness-evidence/v1",
     ok: violations.length === 0,
     packageReleaseDecision: {
       publishState: "not-published",
@@ -53,7 +53,7 @@ function checkPackageDecision(rootDir: string, violations: string[]): void {
 
   for (const packagePath of packages) {
     const json = readJsonObject(rootDir, packagePath, violations);
-    if (json.private !== true) violations.push(`${packagePath}: package must remain private for M2 final cutover`);
+    if (json.private !== true) violations.push(`${packagePath}: package must remain private for M2 Legacy Intake readiness`);
     if (packagePath !== "package.json" && json.version !== "0.0.0") {
       violations.push(`${packagePath}: version must remain 0.0.0 before publish planning`);
     }
@@ -71,9 +71,9 @@ function checkPackageDecision(rootDir: string, violations: string[]): void {
   }
 }
 
-function checkBehaviorCorpus(rootDir: string, violations: string[]): FullCutoverEvidence["behaviorCorpus"] {
-  const dataPath = "tools/cutover/behavior-corpus-classification.json";
-  const reportPath = "tools/cutover/behavior-corpus-classification.md";
+function checkBehaviorCorpus(rootDir: string, violations: string[]): LegacyIntakeReadinessEvidence["behaviorCorpus"] {
+  const dataPath = "tools/legacy-intake/behavior-corpus-classification.json";
+  const reportPath = "tools/legacy-intake/behavior-corpus-classification.md";
   const dataFullPath = path.join(rootDir, dataPath);
   const reportFullPath = path.join(rootDir, reportPath);
 
@@ -89,7 +89,7 @@ function checkBehaviorCorpus(rootDir: string, violations: string[]): FullCutover
   const needsDecision = categories["needs-decision"] ?? -1;
 
   if (data.publishState !== "not-published") {
-    violations.push(`${dataPath}: publishState must remain not-published for M2 final cutover`);
+    violations.push(`${dataPath}: publishState must remain not-published for M2 Legacy Intake readiness`);
   }
   for (const category of ["preserve", "intentional-change", "old-bug", "unsupported-input", "needs-decision"]) {
     if (!Number.isInteger(categories[category]) || categories[category] < 0) {
@@ -121,7 +121,7 @@ function checkBehaviorCorpus(rootDir: string, violations: string[]): FullCutover
 function readJsonObject(rootDir: string, relativePath: string, violations: string[]): Record<string, unknown> {
   const fullPath = path.join(rootDir, relativePath);
   if (!existsSync(fullPath)) {
-    violations.push(`${relativePath}: missing required full-cutover evidence file`);
+    violations.push(`${relativePath}: missing required Legacy Intake readiness evidence file`);
     return {};
   }
   try {

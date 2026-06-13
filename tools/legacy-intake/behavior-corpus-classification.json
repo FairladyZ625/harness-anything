@@ -1,6 +1,6 @@
 {
   "schema": "harness-anything-behavior-corpus-classification/v1",
-  "scope": "M2 final cutover",
+  "scope": "M2 Legacy Intake readiness",
   "publishState": "not-published",
   "minimumItems": 15,
   "categories": {
@@ -12,8 +12,8 @@
   },
   "evidence": [
     {
-      "id": "EV-CUTOVER-READINESS",
-      "command": "npm run harness:check-cutover-readiness",
+      "id": "EV-LEGACY-INTAKE-READINESS",
+      "command": "npm run harness:check-legacy-intake-readiness",
       "result": "passed"
     },
     {
@@ -22,14 +22,14 @@
       "result": "passed"
     },
     {
-      "id": "EV-FULL-CUTOVER-SMOKE",
-      "command": "npm run harness:smoke-full-cutover",
+      "id": "EV-LEGACY-INTAKE-SMOKE",
+      "command": "npm run harness:smoke-legacy-intake",
       "result": "passed"
     },
     {
-      "id": "EV-FULL-CUTOVER-VERIFY",
+      "id": "EV-RETIRED-FULL-CUTOVER-FLAG",
       "command": "harness migrate-verify <session.json> --full-cutover --json",
-      "result": "passed"
+      "result": "rejected with full_cutover_retired"
     }
   ],
   "items": [
@@ -71,7 +71,7 @@
     },
     {
       "classification": "intentional-change",
-      "summary": "Package release remains private and not-published during M2 final cutover."
+      "summary": "Package release remains private and not-published during M2 Legacy Intake readiness."
     },
     {
       "classification": "intentional-change",
