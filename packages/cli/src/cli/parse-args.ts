@@ -377,9 +377,6 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
 
   if (args[0] === "template" && args[1] === "list") {
     const catalogPath = readOption(args, "--catalog");
-    if (!catalogPath) {
-      return { ok: false, error: { code: "missing_catalog", hint: "Use --catalog for template list." } };
-    }
     return {
       ok: true,
       value: {
@@ -395,9 +392,6 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
 
   if (args[0] === "template" && args[1] === "render" && args[2]) {
     const catalogPath = readOption(args, "--catalog");
-    if (!catalogPath) {
-      return { ok: false, error: { code: "missing_catalog", hint: "Use --catalog for template render." } };
-    }
     const locale = readOption(args, "--locale") ?? "zh-CN";
     if (locale !== "zh-CN" && locale !== "en-US") {
       return { ok: false, error: { code: "invalid_locale", hint: `Unknown locale: ${locale}` } };
@@ -506,7 +500,7 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
     return { ok: true, value: { rootDir, json, action: { kind: "module-step", moduleKey: args[1], stepId: args[2], state } } };
   }
 
-  if (args[0] === "vertical" && args[1] === "validate" && args[2]) {
+  if (args[0] === "vertical" && args[1] === "validate") {
     return {
       ok: true,
       value: {

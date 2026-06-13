@@ -11,6 +11,8 @@ export const commandRegistry = [
   { kind: "task-reopen", primary: "harness task reopen <id> --reason <reason>", resultEnvelope: "CliResult/v1" },
   { kind: "task-review", primary: "harness task-review <id> [--reviewer <id>]", resultEnvelope: "CliResult/v1" },
   { kind: "task-complete", primary: "harness task-complete <id> --ci passed|failed", resultEnvelope: "CliResult/v1" },
+  { kind: "template-list", primary: "harness template list [--catalog <path>] [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "template-render", primary: "harness template render <template-ref> [--catalog <path>] [--locale zh-CN|en-US] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "task-list", primary: "harness task list [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "status", primary: "harness status --json", resultEnvelope: "CliResult/v1" },
   { kind: "check", primary: "harness check [--profile source-package|private-harness|target-project] [--strict] [--post-merge] [--json]", resultEnvelope: "CliResult/v1" },
@@ -45,5 +47,6 @@ export const commandRegistry = [
   { kind: "module-scaffold", primary: "harness module scaffold <key> [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "module-unregister", primary: "harness module unregister <key> [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "module-step", primary: "harness module-step <key> <step> --state <state> [--json]", resultEnvelope: "CliResult/v1" },
+  { kind: "vertical-validate", primary: "harness vertical validate [software/coding|<path>] [--json]", resultEnvelope: "CliResult/v1" },
   { kind: "gui", primary: "harness gui", resultEnvelope: "CliResult/v1" }
 ] as const satisfies ReadonlyArray<CommandRegistryEntry>;

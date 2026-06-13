@@ -26,6 +26,7 @@ import {
   writeModules
 } from "./state.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { bundledTemplateCatalog, bundledVerticalDefinition } from "./bundled.ts";
 
 export function isExtensionAction(action: ParsedCommand["action"]): action is Extract<ParsedCommand["action"], {
   readonly kind:
@@ -75,7 +76,7 @@ export function isExtensionAction(action: ParsedCommand["action"]): action is Ex
 export function runExtensionCommand(command: ParsedCommand): CliResult {
   try {
     if (command.action.kind === "template-list") {
-      const decoded = decodeExtensionJsonFile("template-catalog", command.action.catalogPath, TemplateCatalogSchema);
+      const decoded = decodeTemplateCatalog(command.action.catalogPath);
       if (!decoded.ok) {
         return invalidExtensionResult("template-list", "template_catalog_invalid", "Template catalog failed validation.", decoded.issues);
       }
@@ -100,7 +101,7 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
     }
 
     if (command.action.kind === "template-render") {
-      const decoded = decodeExtensionJsonFile("template-catalog", command.action.catalogPath, TemplateCatalogSchema);
+      const decoded = decodeTemplateCatalog(command.action.catalogPath);
       if (!decoded.ok) {
         return invalidExtensionResult("template-render", "template_catalog_invalid", "Template catalog failed validation.", decoded.issues);
       }
@@ -353,7 +354,7 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
     }
 
     if (command.action.kind === "vertical-validate") {
-      const decoded = decodeExtensionJsonFile("vertical-definition", command.action.definitionPath, VerticalDefinitionSchema);
+      const decoded = decodeVerticalDefinition(command.action.definitionPath);
       if (!decoded.ok) {
         return invalidExtensionResult("vertical-validate", "vertical_definition_invalid", "Vertical definition failed validation.", decoded.issues);
       }
@@ -399,6 +400,20 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
       }
     };
   }
+}
+
+function decodeTemplateCatalog(catalogPath?: string): { readonly ok: true; readonly value: Schema.Schema.Type<typeof TemplateCatalogSchema> } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {
+  const bundled = catalogPath ? bundledTemplateCatalog(catalogPath) : bundledTemplateCatalog();
+  if (bundled) return { ok: true, value: bundled };
+  if (!catalogPath) return { ok: false, issues: [{ code: "template_catalog_not_found", path: "$", message: "Bundled template catalog was not found." }] };
+  return decodeExtensionJsonFile("template-catalog", catalogPath, TemplateCatalogSchema);
+}
+
+function decodeVerticalDefinition(definitionPath?: string): { readonly ok: true; readonly value: Schema.Schema.Type<typeof VerticalDefinitionSchema> } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {
+  const bundled = definitionPath ? bundledVerticalDefinition(definitionPath) : bundledVerticalDefinition();
+  if (bundled) return { ok: true, value: bundled };
+  if (!definitionPath) return { ok: false, issues: [{ code: "vertical_definition_not_found", path: "$", message: "Bundled vertical definition was not found." }] };
+  return decodeExtensionJsonFile("vertical-definition", definitionPath, VerticalDefinitionSchema);
 }
 
 function decodeExtensionJsonFile<A, I>(

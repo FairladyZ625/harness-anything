@@ -98,8 +98,8 @@ export interface ParsedCommand {
     | { readonly kind: "git-diff"; readonly baseRef?: string }
     | { readonly kind: "doctor" }
     | { readonly kind: "gui" }
-    | { readonly kind: "template-list"; readonly catalogPath: string }
-    | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }
+    | { readonly kind: "template-list"; readonly catalogPath?: string }
+    | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath?: string; readonly locale: "zh-CN" | "en-US" }
     | { readonly kind: "preset-validate"; readonly manifestPath: string; readonly kernelVersion: string }
     | { readonly kind: "preset-list" }
     | { readonly kind: "preset-inspect"; readonly presetId: string }
@@ -116,5 +116,5 @@ export interface ParsedCommand {
     | { readonly kind: "module-scaffold"; readonly moduleKey: string }
     | { readonly kind: "module-unregister"; readonly moduleKey: string }
     | { readonly kind: "module-step"; readonly moduleKey: string; readonly stepId: string; readonly state: "planned" | "in-progress" | "blocked" | "done" }
-    | { readonly kind: "vertical-validate"; readonly definitionPath: string };
+    | { readonly kind: "vertical-validate"; readonly definitionPath?: string };
 }

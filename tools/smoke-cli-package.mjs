@@ -75,6 +75,11 @@ try {
     throw new Error(`unexpected doctor smoke output: ${JSON.stringify(doctor)}`);
   }
 
+  const renderedTemplate = runJson(binPath, ["--json", "template", "render", "template://planning/task-plan@1", "--locale", "en-US"], projectDir);
+  if (renderedTemplate.ok !== true || renderedTemplate.document?.locale !== "en-US" || !String(renderedTemplate.document?.body ?? "").includes("## Implementation Plan")) {
+    throw new Error(`unexpected bundled template smoke output: ${JSON.stringify(renderedTemplate)}`);
+  }
+
   console.log("CLI package smoke passed.");
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
