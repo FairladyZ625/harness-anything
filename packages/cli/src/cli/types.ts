@@ -14,6 +14,7 @@ export interface CliResult {
   readonly packagePath?: string;
   readonly projectionPath?: string;
   readonly mode?: GovernanceRebuildMode | LessonCommandMode | "soft" | "hard";
+  readonly migrationMode?: "plan" | "apply";
   readonly tasks?: ReadonlyArray<unknown>;
   readonly templates?: ReadonlyArray<unknown>;
   readonly presets?: ReadonlyArray<unknown>;
@@ -26,6 +27,7 @@ export interface CliResult {
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
   readonly report?: unknown;
+  readonly snapshot?: unknown;
   readonly profile?: CheckProfile;
   readonly generated?: ReadonlyArray<string>;
   readonly reviewContract?: unknown;
@@ -77,6 +79,12 @@ export interface ParsedCommand {
     | { readonly kind: "governance-rebuild"; readonly mode: GovernanceRebuildMode }
     | { readonly kind: "lesson-promote"; readonly taskId: string; readonly candidateId: string; readonly mode: LessonCommandMode }
     | { readonly kind: "lesson-sediment"; readonly taskId: string; readonly candidateId: string; readonly mode: "dry-run"; readonly title: string }
+    | { readonly kind: "adopt-multica"; readonly taskId: string; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
+    | { readonly kind: "snapshot-multica"; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
+    | { readonly kind: "migrate-plan"; readonly limit: number }
+    | { readonly kind: "migrate-structure"; readonly mode: "plan" | "apply"; readonly confirmPlan: boolean }
+    | { readonly kind: "migrate-run"; readonly planOnly: boolean; readonly outDir: string }
+    | { readonly kind: "migrate-verify"; readonly sessionPath: string }
     | { readonly kind: "gui" }
     | { readonly kind: "template-list"; readonly catalogPath: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath: string; readonly locale: "zh-CN" | "en-US" }

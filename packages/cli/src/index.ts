@@ -8,7 +8,7 @@ import { isExtensionAction, runExtensionCommand } from "./commands/extensions/in
 import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
-import type { EngineError, WriteError } from "../../kernel/src/domain/index.ts";
+import type { ArtifactStoreError, EngineError, WriteError } from "../../kernel/src/domain/index.ts";
 import { runCommand } from "./commands/lifecycle.ts";
 import type { CliResult } from "./cli/types.ts";
 
@@ -92,7 +92,7 @@ function launchGui(rootDir: string): CliResult {
   };
 }
 
-function toCliError(error: EngineError | WriteError): CliResult["error"] {
+function toCliError(error: ArtifactStoreError | EngineError | WriteError): CliResult["error"] {
   if (error._tag === "EngineOwnsStatus") {
     return {
       code: "engine_owns_status",
@@ -102,7 +102,7 @@ function toCliError(error: EngineError | WriteError): CliResult["error"] {
   if (error._tag === "MalformedSnapshot") {
     const raw = String(error.raw);
     return {
-      code: raw.includes("invalid transition") ? "invalid_transition" : raw.includes("task not found") ? "task_not_found" : "malformed_snapshot",
+      code: raw.includes("invalid transition") ? "invalid_transition" : raw.includes("task not found") ? "task_not_found" : raw.includes("external ref already bound") ? "duplicate_external_binding" : raw.includes("adopt claim already held") ? "duplicate_adopt_claim" : raw.includes("cannot adopt stale") ? "stale_snapshot_refused" : raw.includes("task already exists") ? "task_already_exists" : "malformed_snapshot",
       hint: raw
     };
   }
@@ -135,6 +135,15 @@ function toCliError(error: EngineError | WriteError): CliResult["error"] {
   }
   if (error._tag === "WriteRejected") {
     return { code: "write_rejected", hint: error.reason };
+  }
+  if (error._tag === "ArtifactReadFailed") {
+    return { code: "artifact_read_failed", hint: "Artifact read failed." };
+  }
+  if (error._tag === "ArtifactWriteRejected") {
+    return { code: "artifact_write_rejected", hint: error.reason };
+  }
+  if (error._tag === "TaskPackageNotFound") {
+    return { code: "task_not_found", hint: `task not found: ${error.taskId}` };
   }
   if (error._tag === "JournalUnavailable") {
     return { code: "journal_unavailable", hint: "Journal is unavailable." };

@@ -1,6 +1,7 @@
 import { isDomainStatus } from "../../../kernel/src/domain/index.ts";
 import { slugifyTaskTitle } from "../../../kernel/src/layout/index.ts";
 import { commandRegistry } from "./command-registry.ts";
+import { parseMigrationArgs } from "./parse-migration-args.ts";
 import { isCheckProfile } from "../commands/check.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
@@ -318,6 +319,9 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
       }
     };
   }
+
+  const migrationCommand = parseMigrationArgs(args, rootDir, json);
+  if (migrationCommand) return migrationCommand;
 
   if (args[0] === "gui") {
     return {

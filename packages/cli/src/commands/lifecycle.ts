@@ -3,19 +3,21 @@ import path from "node:path";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../../adapters/local/src/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../../application/src/index.ts";
-import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { ArtifactStoreError, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import { checkTaskProjection, readTaskProjection } from "../../../kernel/src/index.ts";
 import { commandRegistry } from "../cli/command-registry.ts";
 import { runCheckProfile } from "./check.ts";
 import { runGovernanceRebuild } from "./governance.ts";
 import { runLessonPromote, runLessonSediment } from "./lesson.ts";
+import { runAdoptMultica, runSnapshotMultica } from "./adopt.ts";
+import { runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 export function runCommand(
   engine: ReturnType<typeof makeLocalLifecycleEngine>,
   command: ParsedCommand
-): Effect.Effect<CliResult, EngineError | WriteError> {
+): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
   if (command.action.kind === "init") {
     return Effect.sync(() => initializeHarness(command.rootDir));
   }
@@ -165,6 +167,34 @@ export function runCommand(
   if (command.action.kind === "lesson-sediment") {
     const action = command.action;
     return Effect.sync(() => runLessonSediment(command.rootDir, action.taskId, action.candidateId, action.title));
+  }
+
+  if (command.action.kind === "adopt-multica") {
+    return runAdoptMultica(command.rootDir, command.action);
+  }
+
+  if (command.action.kind === "snapshot-multica") {
+    return runSnapshotMultica(command.action);
+  }
+
+  if (command.action.kind === "migrate-plan") {
+    const action = command.action;
+    return Effect.sync(() => runMigratePlan(command.rootDir, action));
+  }
+
+  if (command.action.kind === "migrate-structure") {
+    const action = command.action;
+    return Effect.sync(() => runMigrateStructure(command.rootDir, action));
+  }
+
+  if (command.action.kind === "migrate-run") {
+    const action = command.action;
+    return Effect.sync(() => runMigrateRun(command.rootDir, action));
+  }
+
+  if (command.action.kind === "migrate-verify") {
+    const action = command.action;
+    return Effect.sync(() => runMigrateVerify(command.rootDir, action));
   }
 
   if (command.action.kind === "task-review") {

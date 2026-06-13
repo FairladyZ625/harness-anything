@@ -25,6 +25,9 @@
     },
     {
       "path": "../adapters/local"
+    },
+    {
+      "path": "../adapters/multica"
     }
   ]
 }
