@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
-import type { DomainStatus } from "../../kernel/src/index.ts";
+import type { DomainStatus, ProjectionWarning, TaskProjectionRow } from "../../kernel/src/index.ts";
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import { taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
 export {
@@ -28,31 +28,43 @@ export interface LocalControllerSuccess {
   readonly ok: true;
 }
 
+export interface LocalControllerError {
+  readonly code: string;
+  readonly hint: string;
+}
+
 export interface LocalControllerFailure {
   readonly ok: false;
-  readonly error: {
-    readonly code: string;
-    readonly hint: string;
-  };
+  readonly error: LocalControllerError;
 }
 
 export type LocalControllerResult = LocalControllerSuccess | LocalControllerFailure;
 
-export type TaskListResult = (LocalControllerSuccess & {
-  readonly tasks: ReadonlyArray<unknown>;
-  readonly warnings: ReadonlyArray<unknown>;
-}) | LocalControllerFailure;
+export interface TaskListSuccess extends LocalControllerSuccess {
+  readonly tasks: ReadonlyArray<TaskProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
 
-export type TaskDetailResult = (LocalControllerSuccess & {
-  readonly task?: unknown;
-  readonly documents?: ReadonlyArray<{ readonly path: string }>;
-}) | LocalControllerFailure;
+export type TaskListResult = TaskListSuccess | LocalControllerFailure;
 
-export type TaskDocumentResult = (LocalControllerSuccess & {
+export interface TaskDocumentDescriptor {
+  readonly path: string;
+}
+
+export interface TaskDetailSuccess extends LocalControllerSuccess {
+  readonly task?: TaskProjectionRow;
+  readonly documents?: ReadonlyArray<TaskDocumentDescriptor>;
+}
+
+export type TaskDetailResult = TaskDetailSuccess | LocalControllerFailure;
+
+export interface TaskDocumentSuccess extends LocalControllerSuccess {
   readonly taskId?: string;
   readonly path?: string;
   readonly body?: string;
-}) | LocalControllerFailure;
+}
+
+export type TaskDocumentResult = TaskDocumentSuccess | LocalControllerFailure;
 
 export interface TaskIdPayload {
   readonly taskId: string;
@@ -70,6 +82,17 @@ export interface AppendTaskProgressPayload extends TaskIdPayload {
   readonly text: string;
 }
 
+export interface ShellPanelPolicy {
+  readonly displayOnly: true;
+  readonly outputCreatesTaskState: false;
+}
+
+export interface OpenShellSuccess extends LocalControllerSuccess {
+  readonly policy: ShellPanelPolicy;
+}
+
+export type OpenShellResult = OpenShellSuccess | LocalControllerFailure;
+
 export interface LocalControllerService {
   readonly getTasks: () => TaskListResult;
   readonly getTaskDetail: (payload: TaskIdPayload) => TaskDetailResult;
@@ -79,12 +102,7 @@ export interface LocalControllerService {
   readonly appendTaskProgress: (payload: AppendTaskProgressPayload) => Promise<LocalControllerResult>;
   readonly rebuildGovernance: () => TaskListResult;
   readonly archiveTask: () => LocalControllerResult;
-  readonly openShell: () => LocalControllerResult & {
-    readonly policy: {
-      readonly displayOnly: true;
-      readonly outputCreatesTaskState: false;
-    };
-  };
+  readonly openShell: () => OpenShellResult;
 }
 
 export function makeLocalControllerService(options: LocalControllerServiceOptions): LocalControllerService {
