@@ -60,6 +60,23 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
     const explicitTitle = readOption(args, "--title");
     const title = explicitTitle ?? manualId ?? "Untitled task";
     const explicitSlug = readOption(args, "--slug");
+    const vertical = readRequiredValueOption(args, "--vertical");
+    if (!vertical.ok) return { ok: false, error: vertical.error };
+    const preset = readRequiredValueOption(args, "--preset");
+    if (!preset.ok) return { ok: false, error: preset.error };
+    const profile = readRequiredValueOption(args, "--profile");
+    if (!profile.ok) return { ok: false, error: profile.error };
+    const moduleKey = readRequiredValueOption(args, "--module");
+    if (!moduleKey.ok) return { ok: false, error: moduleKey.error };
+    if (fromLegacyId && (vertical.value || preset.value || profile.value || moduleKey.value)) {
+      return {
+        ok: false,
+        error: {
+          code: "legacy_rebuild_preset_forbidden",
+          hint: "new-task --from-legacy creates a fresh rebuild task from the legacy index; create a normal preset task separately."
+        }
+      };
+    }
     return {
       ok: true,
       value: {
@@ -73,7 +90,11 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
           allowManualId: migrationMode,
           fromLegacyId,
           titleProvided: Boolean(explicitTitle),
-          slugProvided: Boolean(explicitSlug)
+          slugProvided: Boolean(explicitSlug),
+          vertical: vertical.value,
+          preset: preset.value,
+          profile: profile.value,
+          moduleKey: moduleKey.value
         }
       }
     };
@@ -526,6 +547,21 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
 function readOption(argv: ReadonlyArray<string>, name: string): string | undefined {
   const index = argv.indexOf(name);
   return index >= 0 ? argv[index + 1] : undefined;
+}
+
+function readRequiredValueOption(argv: ReadonlyArray<string>, name: string): { readonly ok: true; readonly value?: string } | { readonly ok: false; readonly error: CliResult["error"] } {
+  if (!argv.includes(name)) return { ok: true };
+  const value = readOption(argv, name);
+  if (!value || value.startsWith("--")) {
+    return {
+      ok: false,
+      error: {
+        code: `missing_${name.slice(2).replace(/-/gu, "_")}`,
+        hint: `Use ${name} <value>.`
+      }
+    };
+  }
+  return { ok: true, value };
 }
 
 export function actionTaskId(action: ParsedCommand["action"]): string | undefined {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -64,6 +64,242 @@ test("CLI preset CRUD validates, installs, audits, and removes project presets",
     const missing = runJson(rootDir, ["preset", "inspect", "custom-task"], false);
     assert.equal(missing.ok, false);
     assert.equal(missing.error.code, "preset_not_found");
+  });
+});
+
+test("CLI new-task wires explicit coding vertical preset and module without relations", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"]);
+
+    const created = runJson(rootDir, [
+      "new-task",
+      "--title",
+      "Billing Task",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "module",
+      "--module",
+      "billing"
+    ]);
+
+    assert.equal(created.ok, true);
+    assert.equal(created.command, "new-task");
+    assert.equal(created.preset.id, "module");
+    assert.equal(created.module.key, "billing");
+    assert.equal(created.report.vertical, "software/coding");
+    assert.equal(created.report.preset, "module");
+    assert.equal(created.generated.includes("INDEX.md"), true);
+    assert.equal(created.generated.includes("task_plan.md"), true);
+    assert.equal(created.generated.includes("module.md"), true);
+
+    const index = readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8");
+    assert.match(index, /vertical: software\/coding/);
+    assert.match(index, /preset: module/);
+    assert.equal(index.includes("parent"), false);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8"), /# Billing Task/);
+
+    const moduleSelection = readFileSync(path.join(rootDir, created.packagePath, "module.md"), "utf8");
+    assert.match(moduleSelection, /Module key: billing/);
+    assert.match(moduleSelection, /does not create parent\/child, DAG, or relation semantics/);
+  });
+});
+
+test("CLI new-task fails closed on ambiguous preset and legacy/module input", () => {
+  withTempRoot((rootDir) => {
+    const missingModule = runJson(rootDir, ["new-task", "--title", "Module Task", "--vertical", "software/coding", "--preset", "module"], false);
+    assert.equal(missingModule.ok, false);
+    assert.equal(missingModule.error.code, "missing_module");
+
+    const mixedLegacy = runJson(rootDir, ["new-task", "--from-legacy", "legacy-1", "--preset", "standard-task"], false);
+    assert.equal(mixedLegacy.ok, false);
+    assert.equal(mixedLegacy.error.code, "legacy_rebuild_preset_forbidden");
+  });
+});
+
+test("CLI preset install rejects non-additive project overrides before writing", () => {
+  withTempRoot((rootDir) => {
+    const sourceDir = path.join(rootDir, "source-preset");
+    writePreset(sourceDir, "preset.json", {
+      id: "standard-task",
+      title: "Bad Standard Task",
+      version: "9.0.0",
+      templateSelections: [conflictingTaskPlanSelection()]
+    });
+
+    const installed = runJson(rootDir, ["preset", "install", sourceDir, "--project"], false);
+
+    assert.equal(installed.ok, false);
+    assert.equal(installed.command, "preset-install");
+    assert.equal(installed.error.code, "preset_manifest_invalid");
+    assert.equal(installed.issues.some((issue: Record<string, unknown>) => issue.code === "preset_required_template_conflict"), true);
+    assert.equal(existsSync(path.join(rootDir, ".harness/presets/standard-task/preset.json")), false);
+  });
+});
+
+test("CLI preset check and run reject invalid project overrides before writes", () => {
+  withTempRoot((rootDir) => {
+    writePreset(rootDir, ".harness/presets/module/preset.json", {
+      id: "module",
+      title: "Bad Module",
+      version: "9.0.0",
+      templateSelections: [conflictingTaskPlanSelection()]
+    });
+
+    const checked = runJson(rootDir, ["preset", "check", "module"], false);
+    assert.equal(checked.ok, false);
+    assert.equal(checked.error.code, "preset_manifest_invalid");
+    assert.equal(checked.issues.some((issue: Record<string, unknown>) => issue.code === "preset_required_template_conflict"), true);
+
+    const scaffolded = runJson(rootDir, ["preset", "run", "module", "scaffold", "--task", "task-1"], false);
+    assert.equal(scaffolded.ok, false);
+    assert.equal(scaffolded.command, "preset-run");
+    assert.equal(scaffolded.error.code, "preset_manifest_invalid");
+    assert.equal(existsSync(path.join(rootDir, ".harness/evidence/presets/module")), false);
+    assert.equal(existsSync(path.join(rootDir, ".harness/generated/preset-scaffold/task-1/module.md")), false);
+  });
+});
+
+test("CLI preset validation reserves task package hard-gate paths", () => {
+  withTempRoot((rootDir) => {
+    writePreset(rootDir, ".harness/presets/standard-task/preset.json", {
+      id: "standard-task",
+      title: "Bad Standard Task",
+      version: "9.0.0",
+      templateSelections: [reservedIndexSelection()]
+    });
+
+    const checked = runJson(rootDir, ["preset", "check", "standard-task"], false);
+    assert.equal(checked.ok, false);
+    assert.equal(checked.error.code, "preset_manifest_invalid");
+    assert.equal(checked.issues.some((issue: Record<string, unknown>) => issue.code === "reserved_materialized_path"), true);
+
+    const created = runJson(rootDir, ["new-task", "--title", "Bad Task", "--vertical", "software/coding", "--preset", "standard-task"], false);
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, "preset_materialization_failed");
+    assert.equal(created.issues.some((issue: Record<string, unknown>) => issue.code === "reserved_materialized_path"), true);
+  });
+});
+
+test("CLI preset list inspect and audit surface invalid active overrides", () => {
+  withTempRoot((rootDir) => {
+    writePreset(rootDir, ".harness/presets/module/preset.json", {
+      id: "module",
+      title: "Bad Module",
+      version: "9.0.0",
+      templateSelections: [conflictingTaskPlanSelection()]
+    });
+
+    const listed = runJson(rootDir, ["preset", "list"], false);
+    assert.equal(listed.ok, false);
+    assert.equal(listed.error.code, "preset_manifest_invalid");
+    const listedModule = listed.presets.find((preset: Record<string, unknown>) => preset.id === "module");
+    assert.equal(listedModule.layer, "project");
+    assert.equal(listedModule.valid, false);
+
+    const inspected = runJson(rootDir, ["preset", "inspect", "module"], false);
+    assert.equal(inspected.ok, false);
+    assert.equal(inspected.error.code, "preset_manifest_invalid");
+    assert.equal(inspected.issues.some((issue: Record<string, unknown>) => issue.code === "preset_required_template_conflict"), true);
+
+    const audited = runJson(rootDir, ["preset", "audit"], false);
+    assert.equal(audited.ok, false);
+    assert.equal(audited.error.code, "preset_manifest_invalid");
+    assert.equal(audited.issues.some((issue: Record<string, unknown>) => issue.code === "preset_required_template_conflict"), true);
+  });
+});
+
+test("CLI malformed project preset override fails closed with stable preset error", () => {
+  withTempRoot((rootDir) => {
+    const presetPath = path.join(rootDir, ".harness/presets/module/preset.json");
+    mkdirSync(path.dirname(presetPath), { recursive: true });
+    writeFileSync(presetPath, JSON.stringify({
+      schema: "preset-manifest/v1",
+      id: "module",
+      title: "Malformed Module",
+      vertical: "software/coding",
+      version: "9.0.0",
+      unknownField: true
+    }), "utf8");
+
+    const listed = runJson(rootDir, ["preset", "list"], false);
+    assert.equal(listed.ok, false);
+    assert.equal(listed.error.code, "preset_manifest_invalid");
+    const module = listed.presets.find((preset: Record<string, unknown>) => preset.id === "module");
+    assert.equal(module.valid, false);
+
+    const run = runJson(rootDir, ["preset", "run", "module", "scaffold", "--task", "task-1"], false);
+    assert.equal(run.ok, false);
+    assert.equal(run.error.code, "preset_manifest_invalid");
+    assert.equal(run.issues.some((issue: Record<string, unknown>) => issue.code === "unknown_extension_field"), true);
+
+    const created = runJson(rootDir, ["new-task", "--title", "Bad Module Task", "--vertical", "software/coding", "--preset", "module", "--module", "billing"], false);
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, "preset_manifest_invalid");
+  });
+});
+
+test("CLI malformed override directories do not fall back to builtin presets", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(path.join(rootDir, ".harness/presets/module"), { recursive: true });
+
+    const missing = runJson(rootDir, ["preset", "inspect", "module"], false);
+    assert.equal(missing.ok, false);
+    assert.equal(missing.error.code, "preset_manifest_invalid");
+    assert.equal(missing.issues.some((issue: Record<string, unknown>) => issue.code === "preset_path_id_mismatch"), true);
+
+    writePreset(rootDir, ".harness/presets/module/preset.json", {
+      id: "other",
+      title: "Wrong Id",
+      version: "1.0.0",
+      templateSelections: validTaskSelections()
+    });
+    const mismatch = runJson(rootDir, ["preset", "inspect", "module"], false);
+    assert.equal(mismatch.ok, false);
+    assert.equal(mismatch.error.code, "preset_manifest_invalid");
+    assert.equal(mismatch.issues.some((issue: Record<string, unknown>) => issue.code === "preset_path_id_mismatch"), true);
+
+    const wrongDir = path.join(rootDir, ".harness/presets/wrong-dir/preset.json");
+    mkdirSync(path.dirname(wrongDir), { recursive: true });
+    writeFileSync(wrongDir, JSON.stringify(makePreset({
+      id: "module",
+      title: "Wrong Directory Module",
+      version: "1.0.0",
+      templateSelections: validTaskSelections()
+    }), null, 2), "utf8");
+    rmSync(path.join(rootDir, ".harness/presets/module"), { recursive: true, force: true });
+
+    const claimedModule = runJson(rootDir, ["preset", "inspect", "module"], false);
+    assert.equal(claimedModule.ok, false);
+    assert.equal(claimedModule.error.code, "preset_manifest_invalid");
+    assert.equal(claimedModule.issues.some((issue: Record<string, unknown>) => issue.code === "preset_path_id_mismatch"), true);
+
+    const created = runJson(rootDir, ["new-task", "--title", "Blocked", "--vertical", "software/coding", "--preset", "module", "--module", "billing"], false);
+    assert.equal(created.ok, false);
+    assert.equal(created.error.code, "preset_manifest_invalid");
+  });
+});
+
+test("CLI preset install malformed source returns stable preset error before writing", () => {
+  withTempRoot((rootDir) => {
+    const sourceDir = path.join(rootDir, "bad-source");
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(path.join(sourceDir, "preset.json"), JSON.stringify({
+      schema: "preset-manifest/v1",
+      id: "bad-source",
+      title: "Bad Source",
+      vertical: "software/coding",
+      version: "1.0.0",
+      unknownField: true
+    }), "utf8");
+
+    const installed = runJson(rootDir, ["preset", "install", sourceDir, "--project"], false);
+
+    assert.equal(installed.ok, false);
+    assert.equal(installed.command, "preset-install");
+    assert.equal(installed.error.code, "preset_manifest_invalid");
+    assert.equal(installed.issues.some((issue: Record<string, unknown>) => issue.code === "unknown_extension_field"), true);
+    assert.equal(existsSync(path.join(rootDir, ".harness/presets/bad-source/preset.json")), false);
   });
 });
 
@@ -147,13 +383,23 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function writePreset(rootDir: string, relativePath: string, overrides: { readonly id: string; readonly title: string; readonly version: string }): void {
+function writePreset(rootDir: string, relativePath: string, overrides: {
+  readonly id: string;
+  readonly title: string;
+  readonly version: string;
+  readonly templateSelections?: ReadonlyArray<Record<string, unknown>>;
+}): void {
   const filePath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(makePreset(overrides), null, 2), "utf8");
 }
 
-function makePreset(overrides: { readonly id: string; readonly title: string; readonly version: string }): Record<string, unknown> {
+function makePreset(overrides: {
+  readonly id: string;
+  readonly title: string;
+  readonly version: string;
+  readonly templateSelections?: ReadonlyArray<Record<string, unknown>>;
+}): Record<string, unknown> {
   return {
     schema: "preset-manifest/v1",
     id: overrides.id,
@@ -169,8 +415,91 @@ function makePreset(overrides: { readonly id: string; readonly title: string; re
       id: "baseline",
       title: "Baseline",
       checkerProfile: "standard",
-      templateSelections: []
+      templateSelections: overrides.templateSelections ?? []
     }],
     defaultProfile: "baseline"
   };
+}
+
+function conflictingTaskPlanSelection(): Record<string, unknown> {
+  return {
+    slot: "task.plan",
+    templateRef: "template://planning/progress@1",
+    materializeAs: "task_plan.md",
+    localePolicy: {
+      prefer: "project",
+      fallback: "en-US"
+    }
+  };
+}
+
+function reservedIndexSelection(): Record<string, unknown> {
+  return {
+    slot: "custom.index",
+    templateRef: "template://planning/task-plan@1",
+    materializeAs: "INDEX.md",
+    localePolicy: {
+      prefer: "project",
+      fallback: "en-US"
+    }
+  };
+}
+
+function validTaskSelections(): ReadonlyArray<Record<string, unknown>> {
+  return [
+    {
+      slot: "task.plan",
+      templateRef: "template://planning/task-plan@1",
+      materializeAs: "task_plan.md",
+      localePolicy: {
+        prefer: "project",
+        fallback: "en-US"
+      }
+    },
+    {
+      slot: "task.progress",
+      templateRef: "template://planning/progress@1",
+      materializeAs: "progress.md",
+      localePolicy: {
+        prefer: "project",
+        fallback: "en-US"
+      }
+    },
+    {
+      slot: "task.review",
+      templateRef: "template://planning/review@1",
+      materializeAs: "review.md",
+      localePolicy: {
+        prefer: "project",
+        fallback: "en-US"
+      }
+    },
+    {
+      slot: "task.closeout",
+      templateRef: "template://planning/closeout@1",
+      materializeAs: "closeout.md",
+      localePolicy: {
+        prefer: "project",
+        fallback: "en-US"
+      }
+    },
+    {
+      slot: "task.references.index",
+      templateRef: "template://planning/references-index@1",
+      materializeAs: "references/INDEX.md",
+      localePolicy: {
+        prefer: "project",
+        fallback: "en-US"
+      }
+    },
+    {
+      slot: "task.artifacts.index",
+      templateRef: "template://planning/artifacts-index@1",
+      materializeAs: "artifacts/INDEX.md",
+      localePolicy: {
+        prefer: "project",
+        fallback: "en-US"
+      }
+    }
+  ];
 }

@@ -14,15 +14,22 @@ import {
 import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
 import {
   bundledPresetManifests,
+  discoverPresetEntries,
   discoverPresets,
+  isInvalidPreset,
+  isResolvedPreset,
   moduleNotFound,
   presetManifestPath,
   presetNotFound,
+  publicPresetEntrySummary,
   publicPresetSummary,
   readModules,
   readPresetManifestFromSource,
+  readPresetManifestFromSourceResult,
+  resolvePresetEntry,
   resolvePreset,
   runPresetEntrypoint,
+  validatePresetManifestForUse,
   writeModules
 } from "./state.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -150,30 +157,45 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
     }
 
     if (command.action.kind === "preset-list") {
+      const entries = discoverPresetEntries(command.rootDir);
+      const issues = entries.flatMap((entry) => isInvalidPreset(entry) ? entry.issues : validatePresetManifestForUse(entry.manifest).issues);
       return {
-        ok: true,
+        ok: issues.length === 0,
         command: "preset-list",
-        presets: discoverPresets(command.rootDir).map(publicPresetSummary)
+        presets: entries.map(publicPresetEntrySummary),
+        issues,
+        error: issues.length === 0 ? undefined : {
+          code: "preset_manifest_invalid",
+          hint: "One or more resolved presets failed validation."
+        }
       };
     }
 
     if (command.action.kind === "preset-inspect") {
-      const preset = resolvePreset(command.rootDir, command.action.presetId);
+      const preset = resolvePresetEntry(command.rootDir, command.action.presetId);
       if (!preset) return presetNotFound("preset-inspect", command.action.presetId);
+      if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-inspect", preset);
+      const validation = validatePresetManifestForUse(preset.manifest);
       return {
-        ok: true,
+        ok: validation.ok,
         command: "preset-inspect",
         preset: {
           ...publicPresetSummary(preset),
           manifest: preset.manifest
+        },
+        issues: validation.issues,
+        error: validation.ok ? undefined : {
+          code: "preset_manifest_invalid",
+          hint: "Preset manifest failed validation."
         }
       };
     }
 
     if (command.action.kind === "preset-check") {
-      const preset = resolvePreset(command.rootDir, command.action.presetId);
+      const preset = resolvePresetEntry(command.rootDir, command.action.presetId);
       if (!preset) return presetNotFound("preset-check", command.action.presetId);
-      const validation = validatePresetManifests([preset.manifest], { kernelVersion: "1.0.0" });
+      if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-check", preset);
+      const validation = validatePresetManifestForUse(preset.manifest);
       return {
         ok: validation.ok,
         command: "preset-check",
@@ -187,8 +209,17 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
     }
 
     if (command.action.kind === "preset-install") {
-      const manifest = readPresetManifestFromSource(command.action.sourcePath);
-      const validation = validatePresetManifests([manifest], { kernelVersion: "1.0.0" });
+      const decoded = readPresetManifestFromSourceResult(command.action.sourcePath);
+      if (!decoded.ok) {
+        return {
+          ok: false,
+          command: "preset-install",
+          issues: decoded.issues,
+          error: { code: "preset_manifest_invalid", hint: "Preset manifest failed validation." }
+        };
+      }
+      const manifest = decoded.value;
+      const validation = validatePresetManifestForUse(manifest);
       if (!validation.ok) {
         return {
           ok: false,
@@ -224,9 +255,10 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
     }
 
     if (command.action.kind === "preset-audit") {
-      const resolved = discoverPresets(command.rootDir);
+      const resolved = discoverPresetEntries(command.rootDir);
       const bundledById = new Map(bundledPresetManifests().map((manifest) => [manifest.id, manifest.version]));
       const drift = resolved
+        .filter(isResolvedPreset)
         .filter((preset) => preset.layer !== "builtin" && bundledById.has(preset.manifest.id) && bundledById.get(preset.manifest.id) !== preset.manifest.version)
         .map((preset) => ({
           id: preset.manifest.id,
@@ -234,13 +266,19 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
           installedVersion: preset.manifest.version,
           bundledVersion: bundledById.get(preset.manifest.id)
         }));
+      const issues = resolved.flatMap((entry) => isInvalidPreset(entry) ? entry.issues : validatePresetManifestForUse(entry.manifest).issues);
       return {
-        ok: true,
+        ok: issues.length === 0,
         command: "preset-audit",
-        presets: resolved.map(publicPresetSummary),
+        presets: resolved.map(publicPresetEntrySummary),
+        issues,
         report: {
           totalResolved: resolved.length,
           drift
+        },
+        error: issues.length === 0 ? undefined : {
+          code: "preset_manifest_invalid",
+          hint: "One or more resolved presets failed validation."
         }
       };
     }
@@ -438,6 +476,23 @@ function invalidExtensionResult(command: string, code: string, hint: string, iss
     error: {
       code,
       hint
+    }
+  };
+}
+
+function invalidResolvedPresetResult(command: string, preset: { readonly id: string; readonly layer: string; readonly issues: ReadonlyArray<unknown> }): CliResult {
+  return {
+    ok: false,
+    command,
+    preset: {
+      id: preset.id,
+      layer: preset.layer,
+      valid: false
+    },
+    issues: preset.issues,
+    error: {
+      code: "preset_manifest_invalid",
+      hint: "Preset manifest failed validation."
     }
   };
 }

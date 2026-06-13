@@ -5,9 +5,9 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "preview": "electron-vite preview"
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
   },
   "exports": {
     ".": "./src/index.ts"
@@ -19,9 +19,8 @@
   "devDependencies": {
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "5.2.0",
+    "@vitejs/plugin-react": "6.0.2",
     "electron": "42.4.0",
-    "electron-vite": "5.0.0",
-    "vite": "7.3.5"
+    "vite": "8.0.16"
   }
 }

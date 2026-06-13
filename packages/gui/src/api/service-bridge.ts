@@ -1,6 +1,12 @@
 import path from "node:path";
 import type { LocalControllerService } from "../../../application/src/index.ts";
-import { makeLocalControllerService } from "../../../application/src/index.ts";
+import {
+  makeLocalControllerService,
+  readAppendProgressPayload,
+  readSetStatusPayload,
+  readTaskDocumentPayload,
+  readTaskIdPayload
+} from "../../../application/src/index.ts";
 import { classifyShellOutput } from "../terminal/boundary.ts";
 import { validateProjectPath } from "./local-api.ts";
 
@@ -25,16 +31,34 @@ export async function dispatchGuiServiceMethod(
   payload: unknown
 ): Promise<unknown> {
   if (method === "getTasks") return service.getTasks();
-  if (method === "getTaskDetail") return service.getTaskDetail(payload);
+  if (method === "getTaskDetail") {
+    const parsed = readTaskIdPayload(payload);
+    if (!parsed.ok) return parsed;
+    return service.getTaskDetail(parsed);
+  }
   if (method === "getTaskDocument") {
     const pathDecision = validateTaskDocumentPayloadPath(rootDir, payload);
     if (!pathDecision.ok) return pathDecision;
-    return service.getTaskDocument(payload);
+    const parsed = readTaskDocumentPayload(payload);
+    if (!parsed.ok) return parsed;
+    return service.getTaskDocument(parsed);
   }
-  if (method === "setTaskStatus") return service.setTaskStatus(payload);
-  if (method === "reviewTask") return service.reviewTask(payload);
+  if (method === "setTaskStatus") {
+    const parsed = readSetStatusPayload(payload);
+    if (!parsed.ok) return parsed;
+    return service.setTaskStatus(parsed);
+  }
+  if (method === "reviewTask") {
+    const parsed = readTaskIdPayload(payload);
+    if (!parsed.ok) return parsed;
+    return service.reviewTask(parsed);
+  }
   if (method === "archiveTask") return service.archiveTask();
-  if (method === "appendTaskProgress") return service.appendTaskProgress(payload);
+  if (method === "appendTaskProgress") {
+    const parsed = readAppendProgressPayload(payload);
+    if (!parsed.ok) return parsed;
+    return service.appendTaskProgress(parsed);
+  }
   if (method === "rebuildGovernance") return service.rebuildGovernance();
   if (method === "openShell") {
     return {

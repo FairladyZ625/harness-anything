@@ -16,17 +16,47 @@ export interface GuiWindowOptions {
   readonly webPreferences: GuiWebPreferences;
 }
 
-export const guiContentSecurityPolicy = [
+export interface GuiContentSecurityPolicyOptions {
+  readonly allowDevRenderer?: boolean;
+}
+
+export function createGuiContentSecurityPolicy(options: GuiContentSecurityPolicyOptions = {}): string {
+  const connectSrc = options.allowDevRenderer
+    ? "connect-src 'self' http://127.0.0.1:5173 ws://127.0.0.1:5173"
+    : "connect-src 'self'";
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    connectSrc,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'"
+  ].join("; ");
+}
+
+export const guiContentSecurityPolicy = createGuiContentSecurityPolicy();
+
+export const allowedRendererOrigins = Object.freeze([
+  "file://",
+  "http://127.0.0.1:5173"
+] as const);
+
+export function createGuiIndexContentSecurityPolicy(): string {
+  return [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self' http://127.0.0.1:*",
+  "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'"
-].join("; ");
+  ].join("; ");
+}
 
 export function createGuiWindowOptions(preloadPath: string): GuiWindowOptions {
   return {
@@ -52,4 +82,13 @@ export function assertDevRendererUrl(url: string): true {
     throw new Error("GUI V1 may load only the local dev renderer server.");
   }
   return true;
+}
+
+export function isTrustedRendererUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "file:" || parsed.origin === "http://127.0.0.1:5173";
+  } catch {
+    return false;
+  }
 }

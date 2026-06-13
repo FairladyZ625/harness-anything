@@ -15,6 +15,7 @@ import { runAdoptMultica, runSnapshotMultica } from "./adopt.ts";
 import { runDoctor } from "./doctor.ts";
 import { runGitDiffEvidence } from "./git-diff.ts";
 import { runNewTaskFromLegacy } from "./legacy-rebuild.ts";
+import { runNewTaskWithPreset, shouldUsePresetAwareNewTask } from "./preset-task.ts";
 import { runLegacyCopySafeDocs, runLegacyIndex, runLegacyIntakePlan, runLegacyScan, runLegacyVerify, runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
@@ -32,6 +33,9 @@ export function runCommand(
     const action = command.action;
     if (action.fromLegacyId) {
       return runNewTaskFromLegacy(command.rootDir, action);
+    }
+    if (shouldUsePresetAwareNewTask(action)) {
+      return runNewTaskWithPreset(command.rootDir, action);
     }
     const taskId = action.taskId ?? generateTaskId();
     return engine.createTask({

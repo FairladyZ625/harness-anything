@@ -152,6 +152,10 @@ export function bundledVerticalDefinition(id?: string): VerticalDefinition | und
   return undefined;
 }
 
+export function bundledTaskTemplateSelections(): VerticalDefinition["templateSelections"] {
+  return taskTemplateSelections();
+}
+
 function templateDocument(
   id: string,
   version: string,
