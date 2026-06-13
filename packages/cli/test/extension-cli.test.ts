@@ -34,6 +34,31 @@ test("CLI template render materializes a selected locale without writing files",
   assert.match(result.document.body, /## Goal/);
 });
 
+test("CLI template commands use bundled software coding catalog by default", () => {
+  const listed = runJson(["template", "list"]);
+  const rendered = runJson(["template", "render", "template://planning/task-plan@1", "--locale", "en-US"]);
+
+  assert.equal(listed.ok, true);
+  assert.equal(listed.command, "template-list");
+  assert.equal(listed.templates.length, 6);
+  assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/task-plan@1" && template.materializeAs === "task_plan.md"), true);
+
+  assert.equal(rendered.ok, true);
+  assert.equal(rendered.command, "template-render");
+  assert.equal(rendered.document.locale, "en-US");
+  assert.equal(rendered.document.materializeAs, "stdout.md");
+  assert.match(rendered.document.body, /## Implementation Plan/);
+});
+
+test("CLI bundled template render fails closed on missing template refs", () => {
+  const result = runJson(["template", "render", "template://planning/does-not-exist@1"], false);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.command, "template-render");
+  assert.equal(result.error?.code, "template_render_failed");
+  assert.equal(result.issues.some((issue) => issue.code === "missing_template"), true);
+});
+
 test("CLI preset validate reports kernel version incompatibility as stable JSON", () => {
   const result = runJson(["preset", "validate", presetFixture, "--kernel-version", "0.9.0"], false);
 
@@ -45,6 +70,14 @@ test("CLI preset validate reports kernel version incompatibility as stable JSON"
 
 test("CLI vertical validate accepts the software coding vertical fixture", () => {
   const result = runJson(["vertical", "validate", verticalFixture]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.command, "vertical-validate");
+  assert.deepEqual(result.issues, []);
+});
+
+test("CLI vertical validate accepts the bundled software coding vertical", () => {
+  const result = runJson(["vertical", "validate", "software/coding"]);
 
   assert.equal(result.ok, true);
   assert.equal(result.command, "vertical-validate");
