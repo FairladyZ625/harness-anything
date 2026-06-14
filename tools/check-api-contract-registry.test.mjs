@@ -14,7 +14,7 @@ test("API contract registry rejects preload methods missing from registry", asyn
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks", "getTaskDetail"],
-      dispatchMethods: ["getTasks", "getTaskDetail"],
+      handlerMethods: ["getTasks", "getTaskDetail"],
       serviceMethods: ["getTasks", "getTaskDetail"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })]
     });
@@ -29,7 +29,7 @@ test("API contract registry rejects routes pointing at missing service methods",
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks"],
       registryEntries: [route({ serviceMethod: "missingMethod" })]
     });
@@ -44,7 +44,7 @@ test("API contract registry rejects duplicate method and path pairs", async () =
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks", "getTaskDetail"],
-      dispatchMethods: ["getTasks", "getTaskDetail"],
+      handlerMethods: ["getTasks", "getTaskDetail"],
       serviceMethods: ["getTasks", "getTaskDetail"],
       registryEntries: [
         route({ id: "tasks.list", guiBridgeMethod: "getTasks", serviceMethod: "getTasks" }),
@@ -58,11 +58,11 @@ test("API contract registry rejects duplicate method and path pairs", async () =
   });
 });
 
-test("API contract registry rejects malformed schema ids and undispatched bridge methods", async () => {
+test("API contract registry rejects malformed schema ids and unimplemented bridge methods", async () => {
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchMethods: [],
+      handlerMethods: [],
       serviceMethods: ["getTasks"],
       registryEntries: [route({ inputSchemaId: "TaskListResult", guiBridgeMethod: "getTasks" })]
     });
@@ -70,7 +70,7 @@ test("API contract registry rejects malformed schema ids and undispatched bridge
     const violations = evaluateApiContractRegistry(root);
 
     assert.equal(violations.some((violation) => violation.includes("malformed inputSchemaId")), true);
-    assert.equal(violations.some((violation) => violation.includes("GUI service dispatch")), true);
+    assert.equal(violations.some((violation) => violation.includes("active API registry GUI bridge methods")), true);
   });
 });
 
@@ -78,7 +78,7 @@ test("API contract registry rejects valid-looking but unregistered schema ids", 
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks"],
       registryEntries: [route({ inputSchemaId: "application.not-real/v1" })]
     });
@@ -89,27 +89,28 @@ test("API contract registry rejects valid-looking but unregistered schema ids", 
   });
 });
 
-test("API contract registry rejects dispatch branches calling the wrong service method", async () => {
+test("API contract registry rejects bridge handler implementations calling the wrong service method", async () => {
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchBranches: [{ method: "getTasks", serviceMethod: "getTaskDetail" }],
+      handlerImplementations: [{ method: "getTasks", serviceMethod: "getTaskDetail" }],
       serviceMethods: ["getTasks", "getTaskDetail"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })]
     });
 
     const violations = evaluateApiContractRegistry(root);
 
-    assert.equal(violations.some((violation) => violation.includes("getTasks dispatch does not call LocalControllerService.getTasks")), true);
-    assert.equal(violations.some((violation) => violation.includes("getTasks dispatch calls unexpected LocalControllerService.getTaskDetail")), true);
+    assert.equal(violations.some((violation) => violation.includes("getTasks shipped bridge handler declares getTaskDetail")), true);
+    assert.equal(violations.some((violation) => violation.includes("getTasks shipped bridge handler does not call LocalControllerService.getTasks")), true);
+    assert.equal(violations.some((violation) => violation.includes("getTasks shipped bridge handler calls unexpected LocalControllerService.getTaskDetail")), true);
   });
 });
 
-test("API contract registry rejects duplicate dispatch branches", async () => {
+test("API contract registry rejects duplicate bridge handler implementations", async () => {
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchBranches: [
+      handlerImplementations: [
         { method: "getTasks", serviceMethod: "getTaskDetail" },
         { method: "getTasks", serviceMethod: "getTasks" }
       ],
@@ -119,8 +120,8 @@ test("API contract registry rejects duplicate dispatch branches", async () => {
 
     const violations = evaluateApiContractRegistry(root);
 
-    assert.equal(violations.some((violation) => violation.includes("duplicate dispatch branch for getTasks")), true);
-    assert.equal(violations.some((violation) => violation.includes("getTasks dispatch does not call LocalControllerService.getTasks")), true);
+    assert.equal(violations.some((violation) => violation.includes("duplicate GUI bridge handler implementation for getTasks")), true);
+    assert.equal(violations.some((violation) => violation.includes("getTasks shipped bridge handler does not call LocalControllerService.getTasks")), true);
   });
 });
 
@@ -128,7 +129,7 @@ test("API contract registry covers deferred GUI bridge methods without active ro
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks", "archiveTask"],
-      dispatchMethods: ["getTasks", "archiveTask"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks", "archiveTask"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
       deferredEntries: [{
@@ -150,7 +151,7 @@ test("API contract registry rejects active route methods marked as deferred capa
       preloadCapabilities: {
         getTasks: { method: "getTasks", status: "deferred", reason: "wrongly deferred" }
       },
-      dispatchMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })]
     });
@@ -169,7 +170,7 @@ test("API contract registry rejects deferred bridge methods marked as shipped ca
         getTasks: { method: "getTasks", status: "shipped" },
         archiveTask: { method: "archiveTask", status: "shipped" }
       },
-      dispatchMethods: ["getTasks", "archiveTask"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks", "archiveTask"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
       deferredEntries: [{
@@ -193,7 +194,7 @@ test("API contract registry rejects preload methods without capability metadata"
       preloadCapabilities: {
         getTasks: { method: "getTasks", status: "shipped" }
       },
-      dispatchMethods: ["getTasks", "getTaskDetail"],
+      handlerMethods: ["getTasks", "getTaskDetail"],
       serviceMethods: ["getTasks", "getTaskDetail"],
       registryEntries: [
         route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" }),
@@ -215,7 +216,7 @@ test("API contract registry rejects deferred capability without reason", async (
         getTasks: { method: "getTasks", status: "shipped" },
         archiveTask: { method: "archiveTask", status: "deferred" }
       },
-      dispatchMethods: ["getTasks", "archiveTask"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks", "archiveTask"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
       deferredEntries: [{
@@ -232,11 +233,32 @@ test("API contract registry rejects deferred capability without reason", async (
   });
 });
 
+test("API contract registry rejects deferred bridge methods in shipped handler implementations", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks", "archiveTask"],
+      handlerMethods: ["getTasks", "archiveTask"],
+      serviceMethods: ["getTasks", "archiveTask"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
+      deferredEntries: [{
+        guiBridgeMethod: "archiveTask",
+        service: "LocalControllerService",
+        serviceMethod: "archiveTask",
+        reason: "Archive is disabled until route ownership lands."
+      }]
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("deferred archiveTask must not appear in GUI shipped bridge handler implementations")), true);
+  });
+});
+
 test("API contract registry accepts terminal service routes without preload dispatch", async () => {
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
       terminalRoutes: requiredTerminalRoutes()
@@ -250,7 +272,7 @@ test("API contract registry rejects terminal routes pointing at missing terminal
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks"],
       terminalMethods: ["createSession", "listSessions", "getSession", "attachSession", "resizeSession", "closeSession"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
@@ -269,7 +291,7 @@ test("API contract registry rejects missing required terminal routes", async () 
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
       terminalRoutes: requiredTerminalRoutes().filter((entry) => entry.id !== "terminal.sessions.attach")
@@ -285,7 +307,7 @@ test("API contract registry rejects required terminal route path drift", async (
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
       preloadMethods: ["getTasks"],
-      dispatchMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
       serviceMethods: ["getTasks"],
       registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
       terminalRoutes: requiredTerminalRoutes().map((entry) => entry.id === "terminal.sessions.get"
@@ -333,8 +355,8 @@ function writeFixture(root, options) {
       ? { method, status: "deferred", reason: `${method} is deferred in this fixture.` }
       : { method, status: "shipped" }
   ]));
-  const dispatchBranches = options.dispatchBranches
-    ?? options.dispatchMethods.map((method) => ({ method, serviceMethod: method }));
+  const handlerImplementations = options.handlerImplementations
+    ?? options.handlerMethods.map((method) => ({ method, serviceMethod: method }));
   const terminalRoutes = options.terminalRoutes ?? requiredTerminalRoutes();
   const terminalMethods = options.terminalMethods ?? [...new Set(terminalRoutes.map((entry) => entry.serviceMethod))];
   writeFileSync(path.join(root, "packages/gui/src/api/api-contract-registry.ts"), [
@@ -361,10 +383,9 @@ function writeFixture(root, options) {
     ""
   ].join("\n"), "utf8");
   writeFileSync(path.join(root, "packages/gui/src/api/service-bridge.ts"), [
-    "export function dispatchGuiServiceMethod(method: string): unknown {",
-    ...dispatchBranches.map((branch) => `  if (method === ${JSON.stringify(branch.method)}) return service.${branch.serviceMethod}();`),
-    "  return {};",
-    "}",
+    "export const guiBridgeHandlerImplementations = {",
+    ...handlerImplementations.map((handler) => `  ${handler.method}: { serviceMethod: ${JSON.stringify(handler.serviceMethod)}, invoke: () => service.${handler.serviceMethod}() },`),
+    "} as const;",
     ""
   ].join("\n"), "utf8");
   writeFileSync(path.join(root, "packages/application/src/index.ts"), [

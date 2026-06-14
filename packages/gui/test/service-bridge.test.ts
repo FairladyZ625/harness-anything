@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createLocalGuiServiceBridge } from "../src/index.ts";
+import { apiRouteContracts, createLocalGuiServiceBridge, getShippedGuiBridgeMethods } from "../src/index.ts";
 
 test("GUI service bridge reaches application service while enforcing document path guard", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
@@ -22,6 +22,33 @@ test("GUI service bridge reaches application service while enforcing document pa
     const rejected = await bridge.invoke("getTaskDocument", { taskId: "task-1", path: "../../../../.harness-private/review.md" }) as { readonly ok: boolean; readonly error?: { readonly code: string } };
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "path_is_private");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("GUI service bridge shipped methods are registry-driven and deferred methods return explicit errors", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
+  try {
+    const bridge = createLocalGuiServiceBridge(rootDir);
+    const activeGuiMethods = apiRouteContracts
+      .map((route) => "guiBridgeMethod" in route ? route.guiBridgeMethod : undefined)
+      .filter((method): method is string => typeof method === "string");
+
+    assert.deepEqual(getShippedGuiBridgeMethods(), activeGuiMethods);
+    const shippedMethods = new Set<string>(getShippedGuiBridgeMethods());
+    assert.equal(shippedMethods.has("archiveTask"), false);
+    assert.equal(shippedMethods.has("openShell"), false);
+
+    const archive = await bridge.invoke("archiveTask", null) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+    assert.equal(archive.ok, false);
+    assert.equal(archive.error?.code, "method_deferred");
+    assert.match(archive.error?.hint ?? "", /Archive/);
+
+    const shell = await bridge.invoke("openShell", null) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+    assert.equal(shell.ok, false);
+    assert.equal(shell.error?.code, "method_deferred");
+    assert.match(shell.error?.hint ?? "", /terminal sessions/i);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
