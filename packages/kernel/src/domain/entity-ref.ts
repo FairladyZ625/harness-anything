@@ -9,13 +9,18 @@ export interface ParsedEntityRef {
 }
 
 const entityRefPattern = /^(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<kind>task)\/(?<id>[A-Za-z0-9_-]+)$/u;
-const entityRefSearchPattern = /\b(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<kind>task)\/(?<id>[A-Za-z0-9_-]+)\b/gu;
+const entityRefSearchPattern = /(?<![A-Za-z0-9_/-])(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<kind>task)\/(?<id>[A-Za-z0-9_-]+)\b(?!\/)/gu;
+
+function isPlausibleTaskRefId(id: string): boolean {
+  return id.startsWith("task_") || id.includes("-");
+}
 
 export function parseEntityRef(value: string): ParsedEntityRef | null {
   const match = value.match(entityRefPattern);
   const kind = match?.groups?.kind;
   const id = match?.groups?.id;
   if (kind !== "task" || !id) return null;
+  if (!isPlausibleTaskRefId(id)) return null;
   const harnessAlias = match.groups?.alias;
   return {
     raw: value,
