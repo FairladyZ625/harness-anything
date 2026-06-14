@@ -20,6 +20,11 @@ export interface GuiContentSecurityPolicyOptions {
   readonly allowDevRenderer?: boolean;
 }
 
+export interface TrustedRendererUrlOptions {
+  readonly packagedRendererUrl?: string;
+  readonly allowDevRenderer?: boolean;
+}
+
 export function createGuiContentSecurityPolicy(options: GuiContentSecurityPolicyOptions = {}): string {
   const connectSrc = options.allowDevRenderer
     ? "connect-src 'self' http://127.0.0.1:5173 ws://127.0.0.1:5173"
@@ -84,10 +89,17 @@ export function assertDevRendererUrl(url: string): true {
   return true;
 }
 
-export function isTrustedRendererUrl(url: string): boolean {
+export function createPackagedRendererUrl(): string {
+  return new URL("../renderer/index.html", import.meta.url).href;
+}
+
+export function isTrustedRendererUrl(url: string, options: TrustedRendererUrlOptions = {}): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "file:" || parsed.origin === "http://127.0.0.1:5173";
+    if (parsed.origin === "http://127.0.0.1:5173") return options.allowDevRenderer === true;
+    if (parsed.protocol !== "file:") return false;
+    const packagedRendererUrl = options.packagedRendererUrl ?? createPackagedRendererUrl();
+    return parsed.href === new URL(packagedRendererUrl).href;
   } catch {
     return false;
   }

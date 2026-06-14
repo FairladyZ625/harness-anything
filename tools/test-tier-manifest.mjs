@@ -15,6 +15,7 @@ export const testTierManifest = {
   contract: [
     "packages/application/test/task-lifecycle-gates.test.ts",
     "packages/cli/test/package-surface.test.ts",
+    "packages/gui/test/electron-security-policy.test.ts",
     "packages/gui/test/ipc-handler-registration.test.ts",
     "packages/gui/test/distribution-update-policy.test.ts",
     "packages/gui/test/local-api-auth.test.ts",

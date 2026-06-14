@@ -6,6 +6,7 @@ export * from "./daemon/remote-tunnel.ts";
 export * from "./distribution/update-policy.ts";
 export * from "./doc-renderer/sanitize.ts";
 export * from "./main/ipc-handlers.ts";
+export * from "./main/security-policy.ts";
 export * from "./main/window-config.ts";
 export * from "./preload/allowlist.ts";
 export * from "./renderer/app-model.ts";

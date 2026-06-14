@@ -3,12 +3,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGuiServiceBridge } from "../api/service-bridge.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
-import { assertDevRendererUrl, createGuiContentSecurityPolicy, isTrustedRendererUrl } from "./window-config.ts";
+import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
+import { assertDevRendererUrl, createGuiContentSecurityPolicy, createPackagedRendererUrl } from "./window-config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(dirname, "../preload/electron-preload.mjs");
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const allowDevRenderer = Boolean(rendererUrl);
   const mainWindow = new BrowserWindow({
     title: "Harness Anything",
     width: 1440,
@@ -26,11 +29,12 @@ export function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!isTrustedRendererUrl(url)) event.preventDefault();
+    if (evaluateNavigationRequest(url, { packagedRendererUrl: createPackagedRendererUrl(), allowDevRenderer }).action === "deny") {
+      event.preventDefault();
+    }
   });
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
     assertDevRendererUrl(rendererUrl);
     void mainWindow.loadURL(rendererUrl);
@@ -42,7 +46,7 @@ export function createMainWindow(): BrowserWindow {
 
 export function installContentSecurityPolicy(): void {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+    callback(evaluatePermissionRequest().action === "allow");
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -59,11 +63,25 @@ export function installContentSecurityPolicy(): void {
 export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
-  registerHarnessIpcHandlers(ipcMain, createGuiServiceBridge(resolveGuiProjectRoot()));
-  createMainWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  const trustedWebContentsIds = new Set<number>();
+  registerHarnessIpcHandlers(ipcMain, createGuiServiceBridge(resolveGuiProjectRoot()), {
+    isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
+    rendererUrl: {
+      packagedRendererUrl: createPackagedRendererUrl(),
+      allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
+    }
   });
+  createTrustedMainWindow(trustedWebContentsIds);
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createTrustedMainWindow(trustedWebContentsIds);
+  });
+}
+
+function createTrustedMainWindow(trustedWebContentsIds: Set<number>): BrowserWindow {
+  const mainWindow = createMainWindow();
+  trustedWebContentsIds.add(mainWindow.webContents.id);
+  mainWindow.once("closed", () => trustedWebContentsIds.delete(mainWindow.webContents.id));
+  return mainWindow;
 }
 
 export function resolveGuiProjectRoot(): string {
