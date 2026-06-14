@@ -8,6 +8,7 @@ test("renderer model has no Node or Electron privileged surface", () => {
   assert.equal(rendererCapabilityModel.privilegedModulesAvailable, false);
   assert.equal(rendererCapabilityModel.receivesOnlyPreloadData, true);
   assert.deepEqual(rendererNavigation.map((item) => item.id), [
+    "workspace",
     "board",
     "list",
     "detail",

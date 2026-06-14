@@ -42,6 +42,15 @@ button {
 
 .ha-workspace {
   padding: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.ha-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .ha-header h1 {
@@ -54,20 +63,148 @@ button {
   color: #68717d;
 }
 
-.ha-columns {
+.ha-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ha-header-actions button {
+  min-height: 34px;
+  border: 1px solid #b8c0ca;
+  background: #ffffff;
+  color: #1f2933;
+}
+
+.ha-workspace-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 440px;
   gap: 12px;
 }
 
-.ha-column {
-  min-height: 360px;
+.ha-pane-zone {
   border: 1px solid #d8dde3;
   background: #ffffff;
   padding: 12px;
 }
 
-.ha-column h2 {
+.ha-pane-zone-primary {
+  min-width: 0;
+}
+
+.ha-pane-zone-dock {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.ha-zone-title {
+  margin-bottom: 10px;
+  color: #68717d;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ha-pane-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr);
+  gap: 10px;
+}
+
+.ha-pane {
+  min-height: 132px;
+  border: 1px solid #c9d0d8;
+  background: #fdfefe;
+  padding: 12px;
+}
+
+.ha-pane header {
+  display: grid;
+  gap: 6px;
+}
+
+.ha-pane span {
+  color: #52606d;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.ha-pane strong {
+  color: #111827;
+  font-size: 15px;
+}
+
+.ha-pane p {
+  margin: 18px 0 0;
+  color: #52606d;
+  font-size: 13px;
+}
+
+.ha-pane-terminal {
+  border-color: #7c93a8;
+}
+
+.ha-pane-logs {
+  border-color: #95a3b3;
+}
+
+.ha-session-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ha-session-item {
+  border: 1px solid #d8dde3;
+  background: #ffffff;
+  padding: 10px;
+  min-width: 0;
+}
+
+.ha-session-item h2 {
   margin: 0;
   font-size: 13px;
+}
+
+.ha-session-item p {
+  margin: 6px 0 0;
+  color: #68717d;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .ha-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .ha-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #d8dde3;
+    padding: 14px;
+  }
+
+  .ha-nav-item {
+    display: inline-block;
+    width: auto;
+  }
+
+  .ha-workspace {
+    padding: 16px;
+  }
+
+  .ha-header {
+    display: grid;
+  }
+
+  .ha-header-actions {
+    flex-wrap: wrap;
+  }
+
+  .ha-workspace-grid,
+  .ha-pane-row,
+  .ha-session-strip {
+    grid-template-columns: 1fr;
+  }
 }

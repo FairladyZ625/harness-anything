@@ -11,11 +11,12 @@ export const rendererCapabilityModel: RendererCapabilityModel = {
 };
 
 export interface RendererNavigationItem {
-  readonly id: "board" | "list" | "detail" | "doc-viewer" | "review-queue" | "graph";
+  readonly id: "workspace" | "board" | "list" | "detail" | "doc-viewer" | "review-queue" | "graph";
   readonly label: string;
 }
 
 export const rendererNavigation: readonly RendererNavigationItem[] = [
+  { id: "workspace", label: "Workspace" },
   { id: "board", label: "Board" },
   { id: "list", label: "List" },
   { id: "detail", label: "Detail" },
