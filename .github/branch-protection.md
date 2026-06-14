@@ -13,15 +13,24 @@ This repository accepts work through pull requests against `main`.
 
 ## Required Checks
 
-The `rewrite-ci` workflow is the required CI surface for pull requests. It must
-cover:
+The `rewrite-ci` workflow is the required CI surface for pull requests. Pull
+request checks are split by evidence tier so failures are attributable and PRs
+do not pay for duplicate full-check matrix runs.
 
-- aggregate check
+Required pull request checks must cover:
+
 - typecheck
-- unit and contract tests
+- fast and contract tests
+- integration tests
 - architecture boundaries
 - package policy
-- schema contracts
+- GUI build smoke
+- Node 26 compatibility for typecheck plus fast and contract tests
+
+The full aggregate `npm run check` matrix runs on `main`, scheduled nightly, and
+manual workflow dispatch. It remains the release-grade gate and still covers
+typecheck, all node tests, boundaries, package policy, schema/API/service gates,
+supply-chain, Legacy Intake smoke, and CLI package smoke.
 
 GitHub branch protection for `main` should require pull request review and the
 `rewrite-ci` status checks. This repository may leave administrator enforcement

@@ -5,9 +5,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+  schedule:
+    - cron: "17 19 * * *"
 
 jobs:
-  aggregate-check:
+  full-check:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -24,6 +28,7 @@ jobs:
       - run: npm run check
 
   typecheck:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -38,32 +43,39 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
 
-  unit-contract:
+  fast-contract:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm run test:fast
+      - run: npm run test:contract
 
-  boundaries:
+  integration:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
+
+  boundaries:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run harness:check-import-boundaries
@@ -75,62 +87,40 @@ jobs:
       - run: npm run harness:check-legacy-intake-readiness
 
   package-policy:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run harness:check-package-policy
       - run: npm run harness:smoke-cli-package
 
   gui-build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run -w @harness-anything/gui build
 
-  supply-chain:
+  node26-compatibility:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 26
           cache: npm
       - run: npm ci
-      - run: npm run harness:check-supply-chain
-
-  schema-contracts:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [24, 26]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
-      - run: npm run harness:check-schema-contracts
+      - run: npm run typecheck
+      - run: npm run test:fast
+      - run: npm run test:contract
