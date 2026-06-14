@@ -6,6 +6,7 @@ export interface TerminalSessionInfo {
   readonly name: string;
   readonly backend: TerminalBackend;
   readonly status: TerminalSessionStatus;
+  readonly envProfileId?: string;
   readonly hostProfileId?: string;
   readonly hostLabel: string;
   readonly projectId?: string;
@@ -38,6 +39,7 @@ export interface TerminalSessionIdPayload {
 export interface CreateTerminalSessionPayload {
   readonly name?: string;
   readonly backend?: TerminalBackend;
+  readonly envProfileId?: string;
   readonly hostProfileId?: string;
   readonly hostLabel?: string;
   readonly projectId?: string;
@@ -142,6 +144,7 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
             sessionId: createId(),
             name: payload.name ?? source.name,
             backend: payload.backend ?? source.backend,
+            envProfileId: payload.envProfileId ?? source.envProfileId,
             hostProfileId: payload.hostProfileId ?? source.hostProfileId,
             hostLabel: payload.hostLabel ?? source.hostLabel,
             projectId: payload.projectId ?? source.projectId,
@@ -162,6 +165,7 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
           name: payload.name ?? "Terminal",
           backend: payload.backend ?? defaultBackend,
           status: "active",
+          envProfileId: payload.envProfileId,
           hostProfileId: payload.hostProfileId,
           hostLabel: payload.hostLabel ?? defaultHostLabel,
           projectId: payload.projectId,
