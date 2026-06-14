@@ -13,6 +13,10 @@ export interface MigrateRunAction {
   readonly kind: "migrate-run";
   readonly planOnly: boolean;
   readonly outDir: string;
+  readonly locale?: "zh-CN" | "en-US";
+  readonly assumeLocale?: "zh-CN" | "en-US";
+  readonly allowDirty: boolean;
+  readonly sessionDir?: string;
 }
 
 export interface MigrateVerifyAction {

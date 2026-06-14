@@ -16,7 +16,26 @@ export function parseModuleArgs(args: ReadonlyArray<string>, rootDir: string, js
     const title = readOption(args, "--title");
     const scope = readOption(args, "--scope");
     if (!title || !scope) return { ok: false, error: { code: "missing_module_fields", hint: "module register requires --title and --scope." } };
-    return { ok: true, value: { rootDir, json, action: { kind: "module-register", moduleKey: args[2], title, scope } } };
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "module-register",
+          moduleKey: args[2],
+          title,
+          scope,
+          prefix: readOption(args, "--prefix"),
+          status: readOption(args, "--status"),
+          branch: readOption(args, "--branch"),
+          owner: readOption(args, "--owner"),
+          currentStep: readOption(args, "--current-step"),
+          shared: readRepeatedOption(args, "--shared"),
+          dependsOn: readRepeatedOption(args, "--depends-on")
+        }
+      }
+    };
   }
 
   if (args[0] === "module" && args[1] === "scaffold" && args[2]) {
@@ -36,4 +55,8 @@ export function parseModuleArgs(args: ReadonlyArray<string>, rootDir: string, js
   }
 
   return null;
+}
+
+function readRepeatedOption(args: ReadonlyArray<string>, flag: string): ReadonlyArray<string> {
+  return args.flatMap((arg, index) => arg === flag && args[index + 1] && !args[index + 1].startsWith("--") ? [args[index + 1]] : []);
 }

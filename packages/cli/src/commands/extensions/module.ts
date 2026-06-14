@@ -40,8 +40,14 @@ export function runModuleCommand(rootDir: string, action: ModuleAction): CliResu
     const module = {
       key: action.moduleKey,
       title: action.title,
-      status: "active",
+      ...(action.prefix ? { prefix: action.prefix } : {}),
+      status: action.status ?? "active",
+      ...(action.branch ? { branch: action.branch } : {}),
+      ...(action.owner ? { owner: action.owner } : {}),
+      ...(action.currentStep ? { currentStep: action.currentStep } : {}),
       scopes: [action.scope],
+      shared: action.shared,
+      dependsOn: action.dependsOn,
       steps: [] as Array<{ readonly id: string; readonly state: string }>
     };
     const modules = existing

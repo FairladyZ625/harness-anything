@@ -8,13 +8,13 @@ import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTas
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { createTaskPackagePath, generateTaskId } from "../../../kernel/src/layout/index.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
-import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry } from "./extensions/state.ts";
+import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModules } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
 
 export function shouldUsePresetAwareNewTask(action: NewTaskAction): boolean {
-  return Boolean(action.vertical || action.preset || action.profile || action.moduleKey);
+  return Boolean(action.vertical || action.preset || action.profile || action.moduleKey || action.registerModule || action.longRunning || action.dryRun || action.locale);
 }
 
 export function runNewTaskWithPreset(
@@ -51,7 +51,7 @@ export function runNewTaskWithPreset(
 
     const materialized = materializePresetTaskDocuments(preset.manifest, {
       profileId: action.profile ?? settings?.defaultProfile,
-      locale: settings?.locale ?? "zh-CN"
+      locale: action.locale ?? settings?.locale ?? "zh-CN"
     });
     if (!materialized.ok || !materialized.profile) {
       return {
@@ -66,7 +66,21 @@ export function runNewTaskWithPreset(
       } satisfies CliResult;
     }
 
-    const module = action.moduleKey ? readModules(rootDir).modules.find((candidate) => candidate.key === action.moduleKey && candidate.status !== "unregistered") : undefined;
+    const registeredModule = action.registerModule
+      ? {
+        key: action.registerModule.key,
+        title: action.registerModule.title,
+        ...(action.registerModule.prefix ? { prefix: action.registerModule.prefix } : {}),
+        status: "active",
+        scopes: [action.registerModule.scope],
+        shared: [],
+        dependsOn: [],
+        steps: [] as Array<{ readonly id: string; readonly state: string }>
+      }
+      : undefined;
+    const module = registeredModule
+      ? registeredModule
+      : action.moduleKey ? readModules(rootDir).modules.find((candidate) => candidate.key === action.moduleKey && candidate.status !== "unregistered") : undefined;
     if (action.moduleKey && !module) {
       return {
         ok: false,
@@ -113,6 +127,29 @@ export function runNewTaskWithPreset(
         packageSlug: action.slug
       }] : [])
     ];
+    if (action.dryRun) {
+      return {
+        ok: true,
+        command: "new-task",
+        taskId,
+        slug: action.slug,
+        status: "planned",
+        packagePath: path.relative(rootDir, createTaskPackagePath(rootDir, taskId, action.slug)).split(path.sep).join("/"),
+        preset: publicPresetSummary(preset),
+        module: module ? { key: module.key, title: module.title } : undefined,
+        generated: writes.map((write) => write.path),
+        report: {
+          schema: "preset-task-create-report/v1",
+          dryRun: true,
+          vertical,
+          preset: preset.manifest.id,
+          profile: materialized.profile.id,
+          module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
+          longRunning: action.longRunning,
+          templateCount: materialized.documents.length
+        }
+      } satisfies CliResult;
+    }
     const coordinator = makeLocalWriteCoordinator({ rootDir, actor: { kind: "agent", id: "local-lifecycle" } });
     const opId = `${Date.now()}-${stablePayloadHash({ kind: "package_create", writes }).slice(0, 16)}`;
     yield* coordinator.enqueue({
@@ -122,6 +159,14 @@ export function runNewTaskWithPreset(
       payload: { writes }
     });
     yield* coordinator.flush("explicit");
+    if (registeredModule) {
+      const registry = readModules(rootDir);
+      writeModules(rootDir, {
+        modules: registry.modules.some((candidate) => candidate.key === registeredModule.key)
+          ? registry.modules.map((candidate) => candidate.key === registeredModule.key ? registeredModule : candidate)
+          : [...registry.modules, registeredModule]
+      });
+    }
 
     return {
       ok: true,

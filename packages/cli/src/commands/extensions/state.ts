@@ -17,6 +17,7 @@ import {
   bundledVerticalDefinition,
   loadBundledPresetManifestEntries
 } from "./bundled.ts";
+import { writeModuleRegistryView } from "./module-registry-view.ts";
 import { presetScriptAuthorizationRequiredResult } from "./preset-evidence.ts";
 import { isPathInside, listGeneratedFiles, resolveDeclaredWriteScopes, uniquePermissionPaths } from "./script-scope.ts";
 
@@ -38,15 +39,21 @@ export interface InvalidPreset {
 
 export type PresetResolutionEntry = ResolvedPreset | InvalidPreset;
 
-interface ModuleRegistry {
+export interface ModuleRegistry {
   readonly modules: ReadonlyArray<ModuleRecord>;
 }
 
-interface ModuleRecord {
+export interface ModuleRecord {
   readonly key: string;
   readonly title: string;
+  readonly prefix?: string;
   readonly status: string;
+  readonly branch?: string;
+  readonly owner?: string;
+  readonly currentStep?: string;
   readonly scopes: ReadonlyArray<string>;
+  readonly shared?: ReadonlyArray<string>;
+  readonly dependsOn?: ReadonlyArray<string>;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly state: string }>;
 }
 
@@ -469,22 +476,6 @@ export function writeModules(rootDir: string, registry: ModuleRegistry): void {
 
 function modulesRegistryPath(rootDir: string): string {
   return path.join(resolveHarnessLayout(rootDir).authoredRoot, "modules.json");
-}
-
-function writeModuleRegistryView(rootDir: string, registry: ModuleRegistry): void {
-  const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "Module-Registry.md");
-  mkdirSync(path.dirname(outputPath), { recursive: true });
-  const rows = registry.modules
-    .map((module) => `| ${module.key} | ${module.title} | ${module.status} | ${module.scopes.join("<br>")} | ${module.steps.map((step) => `${step.id}:${step.state}`).join(", ")} |`)
-    .join("\n");
-  writeFileSync(outputPath, [
-    "# Module Registry",
-    "",
-    "| Key | Title | Status | Scopes | Steps |",
-    "| --- | --- | --- | --- | --- |",
-    rows,
-    ""
-  ].join("\n"), "utf8");
 }
 
 export function presetNotFound(command: string, presetId: string): CliResult {

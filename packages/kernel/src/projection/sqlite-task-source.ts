@@ -65,6 +65,7 @@ export function taskEntryToRow(rootDir: string, entry: TaskSourceEntry): TaskPro
   const packageDisposition = isPackageDisposition(rawDisposition) ? rawDisposition : "active";
   const lifecycleEngine = readScalar(entry.frontmatter, "  engine") || "local";
   const source = sourcePath(rootDir, entry.indexPath);
+  const taskDir = path.dirname(entry.indexPath);
   return {
     schema: "sqlite-task-row/v1",
     taskId: readScalar(entry.frontmatter, "task_id") || entry.taskId,
@@ -79,6 +80,9 @@ export function taskEntryToRow(rootDir: string, entry: TaskSourceEntry): TaskPro
     updatedAt: statSync(entry.indexPath).mtime.toISOString(),
     source: lifecycleEngine === "local" ? "local-document" : "external-engine",
     sourcePath: source,
+    ...readExtensionMetadata(entry.frontmatter),
+    ...readModuleMetadata(taskDir),
+    hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
     ...readCreatedBy(entry.frontmatter)
   };
 }
@@ -100,6 +104,29 @@ function readCreatedBy(frontmatter: string): { readonly createdBy?: { readonly n
   const name = readNestedScalar(block, "name");
   const email = readNestedScalar(block, "email");
   return name && email ? { createdBy: { name, email } } : {};
+}
+
+function readExtensionMetadata(frontmatter: string): { readonly vertical?: string; readonly preset?: string; readonly profile?: string } {
+  const vertical = readScalar(frontmatter, "vertical");
+  const preset = readScalar(frontmatter, "preset");
+  const profile = readScalar(frontmatter, "profile");
+  return {
+    ...(vertical ? { vertical } : {}),
+    ...(preset ? { preset } : {}),
+    ...(profile ? { profile } : {})
+  };
+}
+
+function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; readonly moduleTitle?: string } {
+  const modulePath = path.join(taskDir, "module.md");
+  if (!existsSync(modulePath)) return {};
+  const body = readFileSync(modulePath, "utf8");
+  const moduleKey = body.match(/^Module key:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
+  const moduleTitle = body.match(/^Module title:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
+  return {
+    ...(moduleKey ? { moduleKey } : {}),
+    ...(moduleTitle ? { moduleTitle } : {})
+  };
 }
 
 function readNestedScalar(block: string, key: string): string {

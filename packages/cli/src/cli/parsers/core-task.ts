@@ -6,7 +6,7 @@ import type { CliResult, ParsedCommand } from "../types.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
 export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
-  if (args[0] === "init") return ok(rootDir, json, { kind: "init" });
+  if (args[0] === "init") return ok(rootDir, json, { kind: "init", addNpmScripts: args.includes("--add-npm-scripts") });
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
   if (args[0] === "task" && args[1] === "archive" && args[2]) return parseTaskArchive(args, rootDir, json);
@@ -15,7 +15,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "reopen" && args[2]) return parseTaskReopen(args, rootDir, json);
   if (args[0] === "task-review" && args[1]) return parseTaskReview(args, rootDir, json);
   if (args[0] === "task-complete" && args[1]) return parseTaskComplete(args, rootDir, json);
-  if (args[0] === "task" && args[1] === "list") return ok(rootDir, json, { kind: "task-list" });
+  if (args[0] === "task" && args[1] === "list") return parseTaskList(args, rootDir, json);
   return null;
 }
 
@@ -42,10 +42,13 @@ function parseProgressAppend(args: ReadonlyArray<string>, rootDir: string, json:
   if (!text) {
     return { ok: false, error: { code: "missing_text", hint: "Use --text for progress append." } };
   }
+  const evidence = parseEvidence(readOption(args, "--evidence"));
+  if (!evidence.ok) return { ok: false, error: evidence.error };
   return ok(rootDir, json, {
     kind: "progress-append",
     taskId: args[3],
-    text
+    text,
+    evidence: evidence.value
   });
 }
 
@@ -57,21 +60,31 @@ function parseTaskArchive(args: ReadonlyArray<string>, rootDir: string, json: bo
   return ok(rootDir, json, {
     kind: "task-archive",
     taskId: args[2],
-    reason
+    reason,
+    archivedBy: readOption(args, "--archived-by"),
+    archiveField: readOption(args, "--archive-field")
   });
 }
 
 function parseTaskSupersede(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const title = readOption(args, "--title");
-  if (!title) {
-    return { ok: false, error: { code: "missing_title", hint: "Use --title for task supersede." } };
+  const byTaskId = readOption(args, "--by");
+  if (!title && !byTaskId) {
+    return { ok: false, error: { code: "missing_supersede_target", hint: "Use task supersede <id> --title <title> or --by <existing-task-id>." } };
+  }
+  if (title && byTaskId) {
+    return { ok: false, error: { code: "conflicting_supersede_target", hint: "Use either --title or --by, not both." } };
   }
   return ok(rootDir, json, {
     kind: "task-supersede",
     oldTaskId: args[2],
     title,
-    slug: readOption(args, "--slug") ?? slugifyTaskTitle(title),
-    reason: readOption(args, "--reason") ?? "superseded"
+    slug: title ? readOption(args, "--slug") ?? slugifyTaskTitle(title) : undefined,
+    byTaskId,
+    confirm: readOption(args, "--confirm"),
+    allowOpenFindings: args.includes("--allow-open-findings"),
+    deletedBy: readOption(args, "--deleted-by"),
+    reason: readOption(args, "--reason") ?? (byTaskId ? `superseded by ${byTaskId}` : "superseded")
   });
 }
 
@@ -80,7 +93,7 @@ function parseTaskDelete(args: ReadonlyArray<string>, rootDir: string, json: boo
     return { ok: false, error: { code: "conflicting_delete_mode", hint: "Use exactly one of --soft or --hard for task delete." } };
   }
   const mode = args.includes("--hard") ? "hard" : args.includes("--soft") ? "soft" : null;
-  const taskId = args.find((arg, index) => index > 1 && !arg.startsWith("--") && args[index - 1] !== "--reason");
+  const taskId = args.find((arg, index) => index > 1 && !arg.startsWith("--") && !optionValueFlags.has(args[index - 1]));
   if (!mode) {
     return { ok: false, error: { code: "missing_delete_mode", hint: "Use --soft or --hard for task delete." } };
   }
@@ -95,7 +108,9 @@ function parseTaskDelete(args: ReadonlyArray<string>, rootDir: string, json: boo
     kind: "task-delete",
     taskId,
     mode,
-    reason
+    reason,
+    confirm: readOption(args, "--confirm"),
+    deletedBy: readOption(args, "--deleted-by")
   });
 }
 
@@ -135,6 +150,51 @@ function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: b
   });
 }
 
+function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
+  const lessonValue = readOptionalFlagValue(args, "--lesson");
+  if (lessonValue && lessonValue !== "present" && lessonValue !== "missing") {
+    return { ok: false, error: { code: "invalid_lesson_filter", hint: "Use --lesson, --lesson present, or --lesson missing." } };
+  }
+  const lesson = lessonValue === "missing" ? "missing" : "present";
+  const state = readOption(args, "--state");
+  const moduleKey = readOption(args, "--module");
+  const queue = readOption(args, "--queue");
+  const preset = readOption(args, "--preset");
+  const review = readOption(args, "--review");
+  const search = readOption(args, "--search");
+  return ok(rootDir, json, {
+    kind: "task-list",
+    filters: {
+      ...(state ? { state } : {}),
+      ...(moduleKey ? { moduleKey } : {}),
+      ...(queue ? { queue } : {}),
+      ...(preset ? { preset } : {}),
+      ...(review ? { review } : {}),
+      ...(args.includes("--lesson") ? { lesson } : {}),
+      missingMaterials: args.includes("--missing-materials"),
+      includeArchived: args.includes("--include-archived"),
+      ...(search ? { search } : {})
+    }
+  });
+}
+
+function readOptionalFlagValue(args: ReadonlyArray<string>, flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1) return undefined;
+  const value = args[index + 1];
+  return value && !value.startsWith("--") ? value : undefined;
+}
+
+function parseEvidence(value: string | undefined):
+  | { readonly ok: true; readonly value?: { readonly type: string; readonly path: string; readonly summary: string } }
+  | { readonly ok: false; readonly error: NonNullable<CliResult["error"]> } {
+  if (!value) return { ok: true };
+  const [type, evidencePath, ...summaryParts] = value.split(":");
+  return type && evidencePath && summaryParts.length > 0
+    ? { ok: true, value: { type, path: evidencePath, summary: summaryParts.join(":") } }
+    : { ok: false, error: { code: "invalid_evidence", hint: "Use --evidence type:PATH:summary." } };
+}
+
 function ok(rootDir: string, json: boolean, action: ParsedCommand["action"]): ParseResult {
   return {
     ok: true,
@@ -145,3 +205,5 @@ function ok(rootDir: string, json: boolean, action: ParsedCommand["action"]): Pa
     }
   };
 }
+
+const optionValueFlags = new Set(["--reason", "--confirm", "--deleted-by"]);

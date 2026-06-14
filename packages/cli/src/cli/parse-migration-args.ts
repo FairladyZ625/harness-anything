@@ -64,6 +64,11 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
   }
 
   if (args[0] === "migrate-run") {
+    const locale = readOption(args, "--locale");
+    const assumeLocale = readOption(args, "--assume-locale");
+    if (locale && locale !== "zh-CN" && locale !== "en-US") return { ok: false, error: { code: "invalid_locale", hint: "Use --locale zh-CN or --locale en-US." } };
+    if (assumeLocale && assumeLocale !== "zh-CN" && assumeLocale !== "en-US") return { ok: false, error: { code: "invalid_locale", hint: "Use --assume-locale zh-CN or en-US." } };
+    const sessionDir = readOption(args, "--session-dir");
     return {
       ok: true,
       value: {
@@ -72,7 +77,11 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
         action: {
           kind: "migrate-run",
           planOnly: args.includes("--plan-only"),
-          outDir: readOption(args, "--out-dir") ?? ".harness/generated/migration-sessions/latest"
+          outDir: sessionDir ?? readOption(args, "--out-dir") ?? ".harness/generated/migration-sessions/latest",
+          locale: locale as "zh-CN" | "en-US" | undefined,
+          assumeLocale: assumeLocale as "zh-CN" | "en-US" | undefined,
+          allowDirty: args.includes("--allow-dirty"),
+          sessionDir
         }
       }
     };

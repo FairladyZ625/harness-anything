@@ -3,6 +3,25 @@ import type { DomainStatus } from "../../../kernel/src/domain/index.ts";
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
 export type LessonCommandMode = "dry-run" | "apply";
+export type TaskListLessonFilter = "present" | "missing";
+
+export interface TaskListFilters {
+  readonly state?: string;
+  readonly moduleKey?: string;
+  readonly queue?: string;
+  readonly preset?: string;
+  readonly review?: string;
+  readonly lesson?: TaskListLessonFilter;
+  readonly missingMaterials: boolean;
+  readonly includeArchived: boolean;
+  readonly search?: string;
+}
+
+export interface EvidenceAppendInput {
+  readonly type: string;
+  readonly path: string;
+  readonly summary: string;
+}
 
 export interface CliResult {
   readonly ok: boolean;
@@ -68,17 +87,17 @@ export interface ParsedCommand {
   readonly rootDir: string;
   readonly json: boolean;
   readonly action:
-    | { readonly kind: "init" }
-    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string }
+    | { readonly kind: "init"; readonly addNpmScripts: boolean }
+    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
-    | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string }
-    | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string }
-    | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title: string; readonly slug: string; readonly reason: string }
-    | { readonly kind: "task-delete"; readonly taskId: string; readonly mode: "soft" | "hard"; readonly reason: string }
+    | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: EvidenceAppendInput }
+    | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }
+    | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title?: string; readonly slug?: string; readonly reason: string; readonly byTaskId?: string; readonly confirm?: string; readonly allowOpenFindings: boolean; readonly deletedBy?: string }
+    | { readonly kind: "task-delete"; readonly taskId: string; readonly mode: "soft" | "hard"; readonly reason: string; readonly confirm?: string; readonly deletedBy?: string }
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
-    | { readonly kind: "task-list" }
+    | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
     | { readonly kind: "governance-rebuild"; readonly mode: GovernanceRebuildMode }
@@ -88,7 +107,7 @@ export interface ParsedCommand {
     | { readonly kind: "snapshot-multica"; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
     | { readonly kind: "migrate-plan"; readonly limit: number }
     | { readonly kind: "migrate-structure"; readonly mode: "plan" | "apply"; readonly confirmPlan: boolean }
-    | { readonly kind: "migrate-run"; readonly planOnly: boolean; readonly outDir: string }
+    | { readonly kind: "migrate-run"; readonly planOnly: boolean; readonly outDir: string; readonly locale?: "zh-CN" | "en-US"; readonly assumeLocale?: "zh-CN" | "en-US"; readonly allowDirty: boolean; readonly sessionDir?: string }
     | { readonly kind: "migrate-verify"; readonly sessionPath?: string; readonly fullCutover: boolean }
     | { readonly kind: "legacy-scan"; readonly sourcePath: string }
     | { readonly kind: "legacy-intake-plan"; readonly sourcePath: string; readonly outPath?: string }
@@ -112,7 +131,7 @@ export interface ParsedCommand {
     | { readonly kind: "preset-action"; readonly presetId: string; readonly actionName: string; readonly taskId: string; readonly allowScripts: boolean }
     | { readonly kind: "module-list" }
     | { readonly kind: "module-inspect"; readonly moduleKey: string }
-    | { readonly kind: "module-register"; readonly moduleKey: string; readonly title: string; readonly scope: string }
+    | { readonly kind: "module-register"; readonly moduleKey: string; readonly title: string; readonly scope: string; readonly prefix?: string; readonly status?: string; readonly branch?: string; readonly owner?: string; readonly currentStep?: string; readonly shared: ReadonlyArray<string>; readonly dependsOn: ReadonlyArray<string> }
     | { readonly kind: "module-scaffold"; readonly moduleKey: string }
     | { readonly kind: "module-unregister"; readonly moduleKey: string }
     | { readonly kind: "module-step"; readonly moduleKey: string; readonly stepId: string; readonly state: "planned" | "in-progress" | "blocked" | "done" }

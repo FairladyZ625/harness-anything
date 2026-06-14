@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../../adapters/local/src/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../../application/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { isDomainStatus, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
-import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
+import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import { checkTaskProjection, readTaskProjection } from "../../../kernel/src/index.ts";
 import { commandRegistry } from "../cli/command-registry.ts";
 import { runCheckProfile } from "./check.ts";
@@ -14,10 +14,12 @@ import { runLessonPromote, runLessonSediment } from "./lesson.ts";
 import { runAdoptMultica, runSnapshotMultica } from "./adopt.ts";
 import { runDoctor } from "./doctor.ts";
 import { runGitDiffEvidence } from "./git-diff.ts";
+import { initializeHarness } from "./init.ts";
 import { runNewTaskFromLegacy } from "./legacy-rebuild.ts";
 import { runNewTaskWithPreset, shouldUsePresetAwareNewTask } from "./preset-task.ts";
 import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "./settings.ts";
 import { runLegacyCopySafeDocs, runLegacyIndex, runLegacyIntakePlan, runLegacyScan, runLegacyVerify, runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
+import { filterTaskProjectionRows } from "./task-list-filter.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
@@ -27,7 +29,8 @@ export function runCommand(
   command: ParsedCommand
 ): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
   if (command.action.kind === "init") {
-    return Effect.sync(() => initializeHarness(command.rootDir));
+    const action = command.action;
+    return Effect.sync(() => initializeHarness(command.rootDir, action.addNpmScripts));
   }
 
   if (command.action.kind === "new-task") {
@@ -62,59 +65,142 @@ export function runCommand(
   }
 
   if (command.action.kind === "progress-append") {
+    const action = command.action;
+    const text = action.evidence
+      ? `${action.text}\n\nEvidence: ${action.evidence.type}:${action.evidence.path}:${action.evidence.summary}`
+      : action.text;
     return engine.appendProgress({
-      taskId: command.action.taskId,
-      text: command.action.text
+      taskId: action.taskId,
+      text
     }).pipe(Effect.map((result): CliResult => ({
       ok: true,
       command: "progress-append",
       taskId: result.taskId,
-      path: result.path
+      path: result.path,
+      report: action.evidence ? { schema: "progress-evidence/v1", evidence: action.evidence } : undefined
     })));
   }
 
   if (command.action.kind === "task-archive") {
+    const action = command.action;
     return engine.archiveTask({
-      taskId: command.action.taskId,
-      reason: command.action.reason
+      taskId: action.taskId,
+      reason: lifecycleReason(action.reason, {
+        archivedBy: action.archivedBy,
+        archiveField: action.archiveField
+      })
     }).pipe(Effect.map((result): CliResult => ({
       ok: true,
       command: "task-archive",
       taskId: result.taskId,
       status: result.status,
-      path: "INDEX.md"
+      path: "INDEX.md",
+      report: {
+        schema: "task-archive-report/v1",
+        archivedBy: action.archivedBy,
+        archiveField: action.archiveField
+      }
     })));
   }
 
   if (command.action.kind === "task-supersede") {
     const action = command.action;
+    if (action.confirm && action.confirm !== action.oldTaskId) {
+      return Effect.succeed({
+        ok: false,
+        command: "task-supersede",
+        taskId: action.oldTaskId,
+        error: { code: "supersede_confirm_mismatch", hint: "The --confirm value must match the superseded task id." }
+      } satisfies CliResult);
+    }
+    if (action.byTaskId) {
+      if (!action.confirm) {
+        return Effect.succeed({
+          ok: false,
+          command: "task-supersede",
+          taskId: action.oldTaskId,
+          error: { code: "supersede_confirm_required", hint: "Use --confirm <old-task-id> when superseding by an existing task." }
+        } satisfies CliResult);
+      }
+      if (!existsSync(taskDocumentPath(command.rootDir, action.byTaskId, "INDEX.md"))) {
+        return Effect.succeed({
+          ok: false,
+          command: "task-supersede",
+          taskId: action.oldTaskId,
+          error: { code: "supersede_target_not_found", hint: "The --by task id must resolve to an existing task package." }
+        } satisfies CliResult);
+      }
+      return engine.archiveTask({
+        taskId: action.oldTaskId,
+        reason: lifecycleReason(action.reason, {
+          supersededBy: action.byTaskId,
+          deletedBy: action.deletedBy,
+          allowOpenFindings: action.allowOpenFindings ? "true" : undefined
+        })
+      }).pipe(Effect.map((result): CliResult => ({
+        ok: true,
+        command: "task-supersede",
+        taskId: result.taskId,
+        path: "INDEX.md",
+        report: {
+          schema: "task-supersede-existing-report/v1",
+          supersededBy: action.byTaskId,
+          allowOpenFindings: action.allowOpenFindings,
+          deletedBy: action.deletedBy,
+          relationSemantics: "not-created"
+        }
+      })));
+    }
     const newTaskId = generateTaskId();
     return engine.supersedeTask({
       oldTaskId: action.oldTaskId,
       newTaskId,
-      title: action.title,
-      slug: action.slug,
-      reason: action.reason
+      title: action.title ?? "Replacement Task",
+      slug: action.slug ?? "replacement-task",
+      reason: lifecycleReason(action.reason, {
+        deletedBy: action.deletedBy,
+        allowOpenFindings: action.allowOpenFindings ? "true" : undefined
+      })
     }).pipe(Effect.map((result): CliResult => ({
       ok: true,
       command: "task-supersede",
       taskId: result.oldTaskId,
       path: `task/${result.newTaskId}`,
-      packagePath: path.relative(command.rootDir, createTaskPackagePath(command.rootDir, result.newTaskId, action.slug)).split(path.sep).join("/")
+      packagePath: path.relative(command.rootDir, createTaskPackagePath(command.rootDir, result.newTaskId, action.slug ?? "replacement-task")).split(path.sep).join("/")
     })));
   }
 
   if (command.action.kind === "task-delete") {
+    const action = command.action;
+    if (action.confirm && action.confirm !== action.taskId) {
+      return Effect.succeed({
+        ok: false,
+        command: "task-delete",
+        taskId: action.taskId,
+        mode: action.mode,
+        error: { code: "delete_confirm_mismatch", hint: "The --confirm value must match the deleted task id." }
+      } satisfies CliResult);
+    }
+    if (action.mode === "hard" && !action.confirm) {
+      return Effect.succeed({
+        ok: false,
+        command: "task-delete",
+        taskId: action.taskId,
+        mode: action.mode,
+        error: { code: "delete_confirm_required", hint: "Use --confirm <task-id> for hard delete." }
+      } satisfies CliResult);
+    }
     return engine.deleteTask({
-      taskId: command.action.taskId,
-      mode: command.action.mode,
-      reason: command.action.reason
+      taskId: action.taskId,
+      mode: action.mode,
+      reason: lifecycleReason(action.reason, { deletedBy: action.deletedBy })
     }).pipe(Effect.map((result): CliResult => ({
       ok: true,
       command: "task-delete",
       taskId: result.taskId,
       mode: result.mode,
-      path: result.mode
+      path: result.mode,
+      report: action.deletedBy ? { schema: "task-delete-report/v1", deletedBy: action.deletedBy } : undefined
     })));
   }
 
@@ -132,12 +218,13 @@ export function runCommand(
   }
 
   if (command.action.kind === "task-list") {
+    const filters = command.action.filters;
     return Effect.sync(() => {
       const result = readTaskProjection({ rootDir: command.rootDir });
       return {
         ok: true,
         command: "task-list",
-        tasks: result.rows,
+        tasks: filterTaskProjectionRows(result.rows, filters),
         warnings: result.warnings
       } satisfies CliResult;
     });
@@ -348,6 +435,14 @@ function renderForceStatusAudit(status: string, reason: string): string {
   return `${FORCE_STATUS_AUDIT_MARKER}: forced terminal status=${status}; reason=${reason}; recordedAt=${new Date().toISOString()}`;
 }
 
+function lifecycleReason(reason: string, fields: Readonly<Record<string, string | undefined>>): string {
+  const suffix = Object.entries(fields)
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("; ");
+  return suffix ? `${reason}\n\nMetadata: ${suffix}` : reason;
+}
+
 function canStructurallyTransition(from: DomainStatus, to: DomainStatus): boolean {
   if (from === to) return true;
   if (isTerminalStatus(from)) return false;
@@ -356,74 +451,6 @@ function canStructurallyTransition(from: DomainStatus, to: DomainStatus): boolea
   if (from === "blocked") return to === "active" || to === "cancelled";
   if (from === "in_review") return to === "active" || to === "blocked" || to === "done" || to === "cancelled";
   return false;
-}
-
-function initializeHarness(rootDir: string): CliResult {
-  const layout = resolveHarnessLayout(rootDir);
-  for (const directory of [
-    layout.authoredRoot,
-    layout.standardsRoot,
-    layout.contextRoot,
-    path.join(layout.contextRoot, "architecture"),
-    layout.planningRoot,
-    layout.tasksRoot,
-    layout.localRoot,
-    layout.generatedRoot,
-    layout.cacheRoot,
-    layout.writeJournalRoot,
-    layout.payloadsRoot,
-    layout.locksRoot
-  ]) {
-    mkdirSync(directory, { recursive: true });
-  }
-
-  writeIfMissing(path.join(layout.authoredRoot, "harness.yaml"), [
-    "schema: harness-anything/v1",
-    "name: harness-anything",
-    "layout:",
-    "  authoredRoot: harness",
-    "  localRoot: .harness",
-    "tasks:",
-    "  root: harness/planning/tasks",
-    "  idPolicy: random-ulid",
-    "settings:",
-    "  locale: zh-CN",
-    "  defaultVertical: software/coding",
-    "  defaultPreset: standard-task",
-    "  defaultProfile: baseline",
-    "  customVerticals:",
-    "    enabled: false",
-    ""
-  ].join("\n"));
-  writeIfMissing(path.join(layout.standardsRoot, "repo-governance.md"), [
-    "# Repository Governance",
-    "",
-    "- Authored shared state lives under `harness/`.",
-    "- Generated local state lives under `.harness/` and must remain untracked.",
-    "- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.",
-    ""
-  ].join("\n"));
-  writeIfMissing(path.join(layout.rootDir, "AGENTS.md"), [
-    "# Harness Agent Entry",
-    "",
-    "Read `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.",
-    "",
-    "Generated state under `.harness/` is local-only and must not be committed.",
-    ""
-  ].join("\n"));
-  writeIfMissing(path.join(layout.rootDir, "CLAUDE.md"), [
-    "# Claude Harness Entry",
-    "",
-    "Follow `AGENTS.md` and the shared authored harness under `harness/`.",
-    ""
-  ].join("\n"));
-  ensureGitignoreEntry(path.join(layout.rootDir, ".gitignore"), ".harness/");
-
-  return {
-    ok: true,
-    command: "init",
-    path: "harness/harness.yaml"
-  };
 }
 
 function summarizeStatus(
@@ -558,18 +585,4 @@ function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ci
     completionGate,
     reviewContract: review.reviewContract
   };
-}
-
-function writeIfMissing(filePath: string, body: string): void {
-  if (existsSync(filePath)) return;
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, body, "utf8");
-}
-
-function ensureGitignoreEntry(filePath: string, entry: string): void {
-  const existing = existsSync(filePath) ? readFileSync(filePath, "utf8") : "";
-  const lines = existing.split(/\r?\n/u).map((line) => line.trim());
-  if (lines.includes(entry)) return;
-  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-  writeFileSync(filePath, `${existing}${prefix}${entry}\n`, "utf8");
 }

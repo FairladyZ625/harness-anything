@@ -20,12 +20,19 @@ interface ParseCase {
 const rootDir = path.resolve("/tmp/harness-parser-root");
 
 const parseCases: ReadonlyArray<ParseCase> = [
-  { name: "init", argv: ["init"], kind: "init" },
+  { name: "init", argv: ["init"], kind: "init", fields: { addNpmScripts: false } },
+  { name: "init add npm scripts", argv: ["init", "--add-npm-scripts"], kind: "init", fields: { addNpmScripts: true } },
   {
     name: "new-task preset task",
-    argv: ["new-task", "--title", "Parser Task", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing"],
+    argv: ["new-task", "--title", "Parser Task", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
     kind: "new-task",
-    fields: { title: "Parser Task", slug: "parser-task", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false }
+    fields: { title: "Parser Task", slug: "parser-task", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false, longRunning: true, locale: "en-US" }
+  },
+  {
+    name: "new-task register module dry run",
+    argv: ["new-task", "--title", "Parser Task", "--register-module", "billing", "--module-title", "Billing", "--module-prefix", "BILL", "--module-scope", "packages/billing/**", "--dry-run"],
+    kind: "new-task",
+    fields: { registerModule: { key: "billing", title: "Billing", prefix: "BILL", scope: "packages/billing/**" }, moduleKey: "billing", dryRun: true }
   },
   {
     name: "new-task legacy rebuild",
@@ -39,14 +46,34 @@ const parseCases: ReadonlyArray<ParseCase> = [
     kind: "status-set",
     fields: { taskId: "task_1", status: "done", force: true, reason: "verified" }
   },
-  { name: "progress append", argv: ["task", "progress", "append", "task_1", "--text", "hello"], kind: "progress-append", fields: { taskId: "task_1", text: "hello" } },
-  { name: "task archive", argv: ["task", "archive", "task_1", "--reason", "done"], kind: "task-archive", fields: { taskId: "task_1", reason: "done" } },
-  { name: "task supersede", argv: ["task", "supersede", "task_old", "--title", "New Task", "--slug", "custom-slug", "--reason", "changed"], kind: "task-supersede", fields: { oldTaskId: "task_old", title: "New Task", slug: "custom-slug", reason: "changed" } },
-  { name: "task delete reason position", argv: ["task", "delete", "--hard", "--reason", "cleanup", "task_1"], kind: "task-delete", fields: { taskId: "task_1", mode: "hard", reason: "cleanup" } },
+  { name: "progress append", argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "log:artifacts/run.log:passed"], kind: "progress-append", fields: { taskId: "task_1", text: "hello", evidence: { type: "log", path: "artifacts/run.log", summary: "passed" } } },
+  { name: "task archive", argv: ["task", "archive", "task_1", "--reason", "done", "--archived-by", "alice", "--archive-field", "packageDisposition"], kind: "task-archive", fields: { taskId: "task_1", reason: "done", archivedBy: "alice", archiveField: "packageDisposition" } },
+  { name: "task supersede", argv: ["task", "supersede", "task_old", "--title", "New Task", "--slug", "custom-slug", "--reason", "changed"], kind: "task-supersede", fields: { oldTaskId: "task_old", title: "New Task", slug: "custom-slug", reason: "changed", allowOpenFindings: false } },
+  { name: "task supersede by existing", argv: ["task", "supersede", "task_old", "--by", "task_new", "--confirm", "task_old", "--allow-open-findings", "--deleted-by", "alice"], kind: "task-supersede", fields: { oldTaskId: "task_old", byTaskId: "task_new", confirm: "task_old", allowOpenFindings: true, deletedBy: "alice" } },
+  { name: "task delete reason position", argv: ["task", "delete", "--hard", "--reason", "cleanup", "--confirm", "task_1", "--deleted-by", "alice", "task_1"], kind: "task-delete", fields: { taskId: "task_1", mode: "hard", reason: "cleanup", confirm: "task_1", deletedBy: "alice" } },
+  { name: "task delete skips option values before id", argv: ["task", "delete", "--soft", "--reason", "cleanup", "--deleted-by", "alice", "task_1"], kind: "task-delete", fields: { taskId: "task_1", mode: "soft", reason: "cleanup", deletedBy: "alice" } },
   { name: "task reopen", argv: ["task", "reopen", "task_1", "--reason", "followup"], kind: "task-reopen", fields: { taskId: "task_1", reason: "followup" } },
   { name: "task review", argv: ["task-review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
   { name: "task complete", argv: ["task-complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
-  { name: "task list", argv: ["task", "list"], kind: "task-list" },
+  { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
+  {
+    name: "task list filters",
+    argv: ["task", "list", "--state", "active", "--module", "billing", "--queue", "open", "--preset", "module", "--review", "missing", "--lesson", "missing", "--missing-materials", "--include-archived", "--search", "checkout"],
+    kind: "task-list",
+    fields: {
+      filters: {
+        state: "active",
+        moduleKey: "billing",
+        queue: "open",
+        preset: "module",
+        review: "missing",
+        lesson: "missing",
+        missingMaterials: true,
+        includeArchived: true,
+        search: "checkout"
+      }
+    }
+  },
   { name: "status", argv: ["status"], kind: "status" },
   { name: "check", argv: ["check", "--profile", "target-project", "--strict", "--post-merge"], kind: "check", fields: { profile: "target-project", strict: true, postMerge: true } },
   { name: "governance rebuild", argv: ["governance", "rebuild", "--archive"], kind: "governance-rebuild", fields: { mode: "archive" } },
@@ -56,7 +83,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "snapshot multica", argv: ["snapshot", "multica", "EXT-1", "--title", "External", "--status", "todo"], kind: "snapshot-multica", fields: { ref: "EXT-1", title: "External", status: "todo" } },
   { name: "migrate plan", argv: ["migrate-plan", "--limit", "5"], kind: "migrate-plan", fields: { limit: 5 } },
   { name: "migrate structure", argv: ["migrate-structure", "--apply", "--confirm-plan"], kind: "migrate-structure", fields: { mode: "apply", confirmPlan: true } },
-  { name: "migrate run", argv: ["migrate-run", "--plan-only", "--out-dir", "out"], kind: "migrate-run", fields: { planOnly: true, outDir: "out" } },
+  { name: "migrate run", argv: ["migrate-run", "--plan-only", "--session-dir", "session", "--locale", "en-US", "--assume-locale", "zh-CN", "--allow-dirty"], kind: "migrate-run", fields: { planOnly: true, outDir: "session", sessionDir: "session", locale: "en-US", assumeLocale: "zh-CN", allowDirty: true } },
   { name: "migrate verify", argv: ["migrate-verify", "session.json"], kind: "migrate-verify", fields: { sessionPath: "session.json", fullCutover: false } },
   { name: "legacy scan", argv: ["legacy", "scan", "old"], kind: "legacy-scan", fields: { sourcePath: "old" } },
   { name: "legacy intake plan", argv: ["legacy", "intake-plan", "old", "--out", "plan.json"], kind: "legacy-intake-plan", fields: { sourcePath: "old", outPath: "plan.json" } },
@@ -82,7 +109,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "preset action allow scripts", argv: ["preset", "action", "publish-standard", "scaffold", "--task", "task_1", "--allow-scripts"], kind: "preset-action", fields: { presetId: "publish-standard", actionName: "scaffold", taskId: "task_1", allowScripts: true } },
   { name: "module list", argv: ["module", "list"], kind: "module-list" },
   { name: "module inspect", argv: ["module", "inspect", "billing"], kind: "module-inspect", fields: { moduleKey: "billing" } },
-  { name: "module register", argv: ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"], kind: "module-register", fields: { moduleKey: "billing", title: "Billing", scope: "packages/billing/**" } },
+  { name: "module register", argv: ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**", "--prefix", "BILL", "--status", "active", "--branch", "main", "--owner", "team", "--current-step", "BILL-01", "--shared", "docs/**", "--depends-on", "kernel"], kind: "module-register", fields: { moduleKey: "billing", title: "Billing", scope: "packages/billing/**", prefix: "BILL", status: "active", branch: "main", owner: "team", currentStep: "BILL-01", shared: ["docs/**"], dependsOn: ["kernel"] } },
   { name: "module scaffold", argv: ["module", "scaffold", "billing"], kind: "module-scaffold", fields: { moduleKey: "billing" } },
   { name: "module unregister", argv: ["module", "unregister", "billing"], kind: "module-unregister", fields: { moduleKey: "billing" } },
   { name: "module step", argv: ["module-step", "billing", "T-1", "--state", "done"], kind: "module-step", fields: { moduleKey: "billing", stepId: "T-1", state: "done" } },
@@ -155,6 +182,7 @@ for (const candidate of parseCases) {
 test("parseArgs pins stable parse error envelopes", () => {
   const cases = [
     { argv: ["template", "render", "template://planning/task@1", "--locale", "fr-FR"], code: "invalid_locale" },
+    { argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "broken"], code: "invalid_evidence" },
     { argv: ["preset", "run", "standard-task", "deploy", "--task", "task_1"], code: "invalid_entrypoint" },
     { argv: ["module", "register", "billing", "--title", "Billing"], code: "missing_module_fields" },
     { argv: ["module-step", "billing", "T-1", "--state", "started"], code: "invalid_module_step_state" },

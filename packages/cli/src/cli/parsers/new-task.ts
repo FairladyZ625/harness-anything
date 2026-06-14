@@ -48,7 +48,18 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
   if (!profile.ok) return { ok: false, error: profile.error };
   const moduleKey = readRequiredValueOption(args, "--module");
   if (!moduleKey.ok) return { ok: false, error: moduleKey.error };
-  if (fromLegacyId && (vertical.value || preset.value || profile.value || moduleKey.value)) {
+  const locale = readOption(args, "--locale");
+  if (locale && locale !== "zh-CN" && locale !== "en-US") {
+    return { ok: false, error: { code: "invalid_locale", hint: "Use --locale zh-CN or --locale en-US." } };
+  }
+  const registerModuleKey = readOption(args, "--register-module");
+  const moduleTitle = readOption(args, "--module-title");
+  const moduleScope = readOption(args, "--module-scope");
+  const modulePrefix = readOption(args, "--module-prefix");
+  if (registerModuleKey && (!moduleTitle || !moduleScope)) {
+    return { ok: false, error: { code: "missing_module_fields", hint: "new-task --register-module requires --module-title and --module-scope." } };
+  }
+  if (fromLegacyId && (vertical.value || preset.value || profile.value || moduleKey.value || registerModuleKey)) {
     return {
       ok: false,
       error: {
@@ -74,7 +85,13 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
         vertical: vertical.value,
         preset: preset.value,
         profile: profile.value,
-        moduleKey: moduleKey.value
+        moduleKey: moduleKey.value ?? registerModuleKey,
+        registerModule: registerModuleKey && moduleTitle && moduleScope
+          ? { key: registerModuleKey, title: moduleTitle, prefix: modulePrefix, scope: moduleScope }
+          : undefined,
+        longRunning: args.includes("--long-running"),
+        dryRun: args.includes("--dry-run"),
+        locale: locale as "zh-CN" | "en-US" | undefined
       }
     }
   };

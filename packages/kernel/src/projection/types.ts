@@ -38,6 +38,12 @@ export interface TaskProjectionRow {
   readonly updatedAt: string;
   readonly source: ProjectionSource;
   readonly sourcePath: string;
+  readonly vertical?: string;
+  readonly preset?: string;
+  readonly profile?: string;
+  readonly moduleKey?: string;
+  readonly moduleTitle?: string;
+  readonly hasLessonCandidates?: boolean;
   readonly createdBy?: TaskCreatedBy;
 }
 

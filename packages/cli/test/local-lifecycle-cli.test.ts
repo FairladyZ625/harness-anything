@@ -234,7 +234,11 @@ test("CLI task delete soft tombstones and hard delete rejects archived terminal 
     const hardTaskId = assertGeneratedTaskId(hard.taskId);
     const hardPackagePath = path.join(rootDir, `harness/planning/tasks/${hardTaskId}-hard-delete`);
     assert.equal(existsSync(hardPackagePath), true);
-    const hardResult = runJson(rootDir, ["task", "delete", "--hard", hardTaskId, "--reason", "mistaken local package"]);
+    const missingConfirm = runJson(rootDir, ["task", "delete", "--hard", hardTaskId, "--reason", "mistaken local package"], false);
+    assert.equal(missingConfirm.ok, false);
+    assert.equal(missingConfirm.error?.code, "delete_confirm_required");
+
+    const hardResult = runJson(rootDir, ["task", "delete", "--hard", hardTaskId, "--reason", "mistaken local package", "--confirm", hardTaskId]);
     assert.equal(hardResult.ok, true);
     assert.equal(hardResult.mode, "hard");
     assert.equal(existsSync(hardPackagePath), false);
@@ -254,7 +258,7 @@ test("CLI task delete soft tombstones and hard delete rejects archived terminal 
     const archived = runJson(rootDir, ["new-task", "--title", "Archived Delete"]);
     const archivedTaskId = assertGeneratedTaskId(archived.taskId);
     runJson(rootDir, ["task", "archive", archivedTaskId, "--reason", "keep audit"]);
-    const archivedFailure = runJson(rootDir, ["task", "delete", "--hard", archivedTaskId, "--reason", "remove"], false);
+    const archivedFailure = runJson(rootDir, ["task", "delete", "--hard", archivedTaskId, "--reason", "remove", "--confirm", archivedTaskId], false);
     assert.equal(archivedFailure.ok, false);
     assert.equal(archivedFailure.error?.code, "archived_hard_delete_forbidden");
 
@@ -262,14 +266,14 @@ test("CLI task delete soft tombstones and hard delete rejects archived terminal 
     const terminalTaskId = assertGeneratedTaskId(terminal.taskId);
     runJson(rootDir, ["task", "status", "set", terminalTaskId, "active"]);
     runJson(rootDir, ["task", "status", "set", terminalTaskId, "done", "--force", "--reason", "terminal fixture"]);
-    const terminalFailure = runJson(rootDir, ["task", "delete", "--hard", terminalTaskId, "--reason", "remove"], false);
+    const terminalFailure = runJson(rootDir, ["task", "delete", "--hard", terminalTaskId, "--reason", "remove", "--confirm", terminalTaskId], false);
     assert.equal(terminalFailure.ok, false);
     assert.equal(terminalFailure.error?.code, "terminal_hard_delete_forbidden");
 
     const related = runJson(rootDir, ["new-task", "--title", "Related Delete"]);
     const relatedTaskId = assertGeneratedTaskId(related.taskId);
     writeFileSync(path.join(rootDir, `harness/planning/tasks/${relatedTaskId}-related-delete/relations.md`), `target: task/${softTaskId}\n`, "utf8");
-    const relatedFailure = runJson(rootDir, ["task", "delete", "--hard", relatedTaskId, "--reason", "remove"], false);
+    const relatedFailure = runJson(rootDir, ["task", "delete", "--hard", relatedTaskId, "--reason", "remove", "--confirm", relatedTaskId], false);
     assert.equal(relatedFailure.ok, false);
     assert.equal(relatedFailure.error?.code, "related_task_hard_delete_forbidden");
   });

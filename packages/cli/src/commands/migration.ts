@@ -23,6 +23,12 @@ interface LegacyIntakeSession {
   readonly schema: "legacy-intake-session/v1";
   readonly strategy: "legacy-intake";
   readonly applied: boolean;
+  readonly compatibility?: {
+    readonly locale?: "zh-CN" | "en-US";
+    readonly assumeLocale?: "zh-CN" | "en-US";
+    readonly allowDirty: boolean;
+    readonly sessionDir?: string;
+  };
   readonly indexDigest: `sha256:${string}`;
   readonly entries: ReadonlyArray<LegacyIndexEntry>;
 }
@@ -83,6 +89,12 @@ export function runMigrateRun(rootDir: string, action: MigrateRunAction): CliRes
     schema: "legacy-intake-session/v1",
     strategy: "legacy-intake",
     applied: !action.planOnly,
+    compatibility: {
+      locale: action.locale,
+      assumeLocale: action.assumeLocale,
+      allowDirty: action.allowDirty,
+      sessionDir: action.sessionDir
+    },
     indexDigest: digestJson(toLegacyIndex(rootDir, report)),
     entries: report.entries
   };
