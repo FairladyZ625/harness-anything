@@ -7,5 +7,6 @@ export * from "./main/ipc-handlers.ts";
 export * from "./main/window-config.ts";
 export * from "./preload/allowlist.ts";
 export * from "./renderer/app-model.ts";
+export * from "./terminal/backend-policy.ts";
 export * from "./terminal/boundary.ts";
 export * from "./terminal/session-registry.ts";
