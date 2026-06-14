@@ -43,7 +43,7 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const deferredContracts = collectDeferredGuiBridgeContracts(root, paths.registryPath, violations);
   const preloadMethods = collectPreloadMethods(root, paths.allowlistPath, violations);
   const preloadCapabilities = collectPreloadCapabilities(root, paths.allowlistPath, violations);
-  const dispatchBranches = collectDispatchBranches(root, paths.bridgePath, violations);
+  const bridgeHandlers = collectGuiBridgeHandlerImplementations(root, paths.bridgePath, violations);
   const applicationDeclarations = collectTypeDeclarations(root, paths.applicationPath, violations);
   const registryDeclarations = collectTypeDeclarations(root, paths.registryPath, violations);
   const terminalDeclarations = collectTypeDeclarations(root, paths.terminalPath, violations);
@@ -70,19 +70,20 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   inspectRegistryEntries(registry, schemaContracts, serviceMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectRequiredTerminalRoutes(registry, paths.registryPath, violations);
   inspectDeferredContracts(deferredContracts, registry, localControllerMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
-  inspectDispatchBranches([...registry, ...deferredContracts], dispatchBranches, paths.bridgePath, violations);
+  inspectBridgeHandlers(registry, bridgeHandlers, paths.bridgePath, violations);
   compareSets(preloadMethods, coveredBridgeMethods, {
     leftName: "preload allowlist",
     rightName: "API registry or deferred GUI bridge contract",
     filePath: paths.registryPath,
     violations
   });
-  compareSets(new Set(dispatchBranches.keys()), coveredBridgeMethods, {
-    leftName: "GUI service dispatch",
-    rightName: "API registry or deferred GUI bridge contract",
-    filePath: paths.registryPath,
+  compareSets(new Set(bridgeHandlers.keys()), new Set(registry.map((entry) => entry.guiBridgeMethod).filter(Boolean)), {
+    leftName: "GUI shipped bridge handler implementations",
+    rightName: "active API registry GUI bridge methods",
+    filePath: paths.bridgePath,
     violations
   });
+  inspectDeferredMethodsExcludedFromBridgeHandlers(deferredContracts, bridgeHandlers, paths.bridgePath, violations);
 
   return violations;
 }
@@ -180,24 +181,33 @@ function collectPreloadCapabilities(root, relativePath, violations) {
   return capabilities;
 }
 
-function collectDispatchBranches(root, relativePath, violations) {
+function collectGuiBridgeHandlerImplementations(root, relativePath, violations) {
   const source = readSource(root, relativePath, violations);
   if (!source) return new Map();
-  const branches = new Map();
-  let foundDispatcher = false;
-
-  function visit(node) {
-    if (ts.isFunctionDeclaration(node) && node.name?.text === "dispatchGuiServiceMethod") {
-      foundDispatcher = true;
-      collectMethodBranches(node, source.file, branches, relativePath, violations);
-      return;
-    }
-    ts.forEachChild(node, visit);
+  const initializer = findVariableInitializer(source.file, "guiBridgeHandlerImplementations");
+  if (!initializer || !ts.isObjectLiteralExpression(stripAsExpression(initializer))) {
+    violations.push(`${relativePath}: missing guiBridgeHandlerImplementations object literal`);
+    return new Map();
   }
-
-  visit(source.file);
-  if (!foundDispatcher) violations.push(`${relativePath}: missing dispatchGuiServiceMethod`);
-  return branches;
+  const handlers = new Map();
+  for (const property of stripAsExpression(initializer).properties) {
+    const method = propertyName(property.name, source.file);
+    if (!method || !ts.isPropertyAssignment(property) || !ts.isObjectLiteralExpression(stripAsExpression(property.initializer))) {
+      violations.push(`${relativePath}: guiBridgeHandlerImplementations entries must be object literals`);
+      continue;
+    }
+    if (handlers.has(method)) {
+      violations.push(`${relativePath}: duplicate GUI bridge handler implementation for ${method}`);
+      continue;
+    }
+    const handler = stripAsExpression(property.initializer);
+    const metadata = readStringObject(handler, source.file);
+    handlers.set(method, {
+      serviceMethod: metadata.serviceMethod,
+      serviceCalls: collectServiceCalls(handler, source.file)
+    });
+  }
+  return handlers;
 }
 
 function collectTypeDeclarations(root, relativePath, violations) {
@@ -327,21 +337,32 @@ function inspectDeferredContracts(deferredContracts, routeContracts, serviceMeth
   }
 }
 
-function inspectDispatchBranches(contracts, dispatchBranches, relativePath, violations) {
+function inspectBridgeHandlers(contracts, bridgeHandlers, relativePath, violations) {
   for (const entry of contracts) {
     if (!entry.guiBridgeMethod || !entry.serviceMethod) continue;
-    const serviceCalls = dispatchBranches.get(entry.guiBridgeMethod);
-    if (!serviceCalls) {
-      violations.push(`${relativePath}: ${entry.guiBridgeMethod} is registered but has no dispatch branch`);
+    const handler = bridgeHandlers.get(entry.guiBridgeMethod);
+    if (!handler) {
+      violations.push(`${relativePath}: ${entry.guiBridgeMethod} is registered as active but has no shipped bridge handler implementation`);
       continue;
     }
-    if (!serviceCalls.has(entry.serviceMethod)) {
-      violations.push(`${relativePath}: ${entry.guiBridgeMethod} dispatch does not call LocalControllerService.${entry.serviceMethod}`);
+    if (handler.serviceMethod !== entry.serviceMethod) {
+      violations.push(`${relativePath}: ${entry.guiBridgeMethod} shipped bridge handler declares ${handler.serviceMethod ?? "<missing>"} but registry requires LocalControllerService.${entry.serviceMethod}`);
     }
-    for (const serviceCall of serviceCalls) {
+    if (!handler.serviceCalls.has(entry.serviceMethod)) {
+      violations.push(`${relativePath}: ${entry.guiBridgeMethod} shipped bridge handler does not call LocalControllerService.${entry.serviceMethod}`);
+    }
+    for (const serviceCall of handler.serviceCalls) {
       if (serviceCall !== entry.serviceMethod) {
-        violations.push(`${relativePath}: ${entry.guiBridgeMethod} dispatch calls unexpected LocalControllerService.${serviceCall}`);
+        violations.push(`${relativePath}: ${entry.guiBridgeMethod} shipped bridge handler calls unexpected LocalControllerService.${serviceCall}`);
       }
+    }
+  }
+}
+
+function inspectDeferredMethodsExcludedFromBridgeHandlers(deferredContracts, bridgeHandlers, relativePath, violations) {
+  for (const entry of deferredContracts) {
+    if (entry.guiBridgeMethod && bridgeHandlers.has(entry.guiBridgeMethod)) {
+      violations.push(`${relativePath}: deferred ${entry.guiBridgeMethod} must not appear in GUI shipped bridge handler implementations`);
     }
   }
 }
@@ -353,35 +374,6 @@ function compareSets(left, right, context) {
   for (const value of right) {
     if (!left.has(value)) context.violations.push(`${context.filePath}: ${value} is in ${context.rightName} but missing from ${context.leftName}`);
   }
-}
-
-function collectMethodBranches(node, sourceFile, branches, relativePath, violations) {
-  function visit(child) {
-    if (ts.isIfStatement(child)) {
-      const methodName = readMethodEquality(child.expression, sourceFile);
-      if (methodName) {
-        if (branches.has(methodName)) {
-          violations.push(`${relativePath}: duplicate dispatch branch for ${methodName}`);
-        } else {
-          branches.set(methodName, collectServiceCalls(child.thenStatement, sourceFile));
-        }
-        if (child.elseStatement) visit(child.elseStatement);
-        return;
-      }
-    }
-    ts.forEachChild(child, visit);
-  }
-
-  visit(node);
-}
-
-function readMethodEquality(expression, sourceFile) {
-  if (!ts.isBinaryExpression(expression) || expression.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken) return undefined;
-  const left = expression.left.getText(sourceFile);
-  const right = expression.right.getText(sourceFile);
-  if (left === "method" && ts.isStringLiteral(expression.right)) return expression.right.text;
-  if (right === "method" && ts.isStringLiteral(expression.left)) return expression.left.text;
-  return undefined;
 }
 
 function collectServiceCalls(node, sourceFile) {

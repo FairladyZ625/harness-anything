@@ -6,12 +6,89 @@ import {
   readTaskDocumentPayload,
   readTaskIdPayload
 } from "../../../application/src/index.ts";
-import { classifyShellOutput } from "../terminal/boundary.ts";
+import type { PreloadApiMethod } from "../preload/allowlist.ts";
+import { apiRouteContracts, deferredGuiBridgeContracts } from "./api-contract-registry.ts";
 import { validateProjectPath } from "./local-api.ts";
 
 export interface GuiServiceBridge {
   readonly invoke: (method: string, payload: unknown) => Promise<unknown>;
 }
+
+type ShippedGuiBridgeRoute = Extract<(typeof apiRouteContracts)[number], { readonly guiBridgeMethod: PreloadApiMethod }>;
+type ShippedGuiBridgeMethod = ShippedGuiBridgeRoute["guiBridgeMethod"];
+
+interface GuiBridgeHandlerContext {
+  readonly rootDir: string;
+  readonly service: LocalControllerService;
+  readonly payload: unknown;
+}
+
+interface GuiBridgeHandlerImplementation {
+  readonly serviceMethod: keyof LocalControllerService;
+  readonly invoke: (context: GuiBridgeHandlerContext) => Promise<unknown> | unknown;
+}
+
+export const guiBridgeHandlerImplementations = {
+  getTasks: {
+    serviceMethod: "getTasks",
+    invoke: ({ service }) => service.getTasks()
+  },
+  getTaskDetail: {
+    serviceMethod: "getTaskDetail",
+    invoke: ({ service, payload }) => {
+      const parsed = readTaskIdPayload(payload);
+      if (!parsed.ok) return parsed;
+      return service.getTaskDetail(parsed);
+    }
+  },
+  getTaskDocument: {
+    serviceMethod: "getTaskDocument",
+    invoke: ({ rootDir, service, payload }) => {
+      const pathDecision = validateTaskDocumentPayloadPath(rootDir, payload);
+      if (!pathDecision.ok) return pathDecision;
+      const parsed = readTaskDocumentPayload(payload);
+      if (!parsed.ok) return parsed;
+      return service.getTaskDocument(parsed);
+    }
+  },
+  setTaskStatus: {
+    serviceMethod: "setTaskStatus",
+    invoke: ({ service, payload }) => {
+      const parsed = readSetStatusPayload(payload);
+      if (!parsed.ok) return parsed;
+      return service.setTaskStatus(parsed);
+    }
+  },
+  reviewTask: {
+    serviceMethod: "reviewTask",
+    invoke: ({ service, payload }) => {
+      const parsed = readTaskIdPayload(payload);
+      if (!parsed.ok) return parsed;
+      return service.reviewTask(parsed);
+    }
+  },
+  appendTaskProgress: {
+    serviceMethod: "appendTaskProgress",
+    invoke: ({ service, payload }) => {
+      const parsed = readAppendProgressPayload(payload);
+      if (!parsed.ok) return parsed;
+      return service.appendTaskProgress(parsed);
+    }
+  },
+  rebuildGovernance: {
+    serviceMethod: "rebuildGovernance",
+    invoke: ({ service }) => service.rebuildGovernance()
+  }
+} as const satisfies Record<ShippedGuiBridgeMethod, GuiBridgeHandlerImplementation>;
+
+export function getShippedGuiBridgeMethods(): ReadonlyArray<ShippedGuiBridgeMethod> {
+  return apiRouteContracts.flatMap((route) => "guiBridgeMethod" in route && route.guiBridgeMethod ? [route.guiBridgeMethod] : []) as ReadonlyArray<ShippedGuiBridgeMethod>;
+}
+
+const shippedGuiBridgeMethods = new Set<PreloadApiMethod>(getShippedGuiBridgeMethods());
+const deferredGuiBridgeReasons = new Map<PreloadApiMethod, string>(
+  deferredGuiBridgeContracts.map((entry) => [entry.guiBridgeMethod, entry.reason])
+);
 
 export function createGuiServiceBridgeForService(rootDir: string, service: LocalControllerService): GuiServiceBridge {
   return {
@@ -25,40 +102,18 @@ export async function dispatchGuiServiceMethod(
   method: string,
   payload: unknown
 ): Promise<unknown> {
-  if (method === "getTasks") return service.getTasks();
-  if (method === "getTaskDetail") {
-    const parsed = readTaskIdPayload(payload);
-    if (!parsed.ok) return parsed;
-    return service.getTaskDetail(parsed);
+  if (shippedGuiBridgeMethods.has(method as PreloadApiMethod)) {
+    const handler = guiBridgeHandlerImplementations[method as ShippedGuiBridgeMethod];
+    return handler.invoke({ rootDir, service, payload });
   }
-  if (method === "getTaskDocument") {
-    const pathDecision = validateTaskDocumentPayloadPath(rootDir, payload);
-    if (!pathDecision.ok) return pathDecision;
-    const parsed = readTaskDocumentPayload(payload);
-    if (!parsed.ok) return parsed;
-    return service.getTaskDocument(parsed);
-  }
-  if (method === "setTaskStatus") {
-    const parsed = readSetStatusPayload(payload);
-    if (!parsed.ok) return parsed;
-    return service.setTaskStatus(parsed);
-  }
-  if (method === "reviewTask") {
-    const parsed = readTaskIdPayload(payload);
-    if (!parsed.ok) return parsed;
-    return service.reviewTask(parsed);
-  }
-  if (method === "archiveTask") return service.archiveTask();
-  if (method === "appendTaskProgress") {
-    const parsed = readAppendProgressPayload(payload);
-    if (!parsed.ok) return parsed;
-    return service.appendTaskProgress(parsed);
-  }
-  if (method === "rebuildGovernance") return service.rebuildGovernance();
-  if (method === "openShell") {
+  const deferredReason = deferredGuiBridgeReasons.get(method as PreloadApiMethod);
+  if (deferredReason) {
     return {
-      ...service.openShell(),
-      sampleClassification: classifyShellOutput("")
+      ok: false,
+      error: {
+        code: "method_deferred",
+        hint: deferredReason
+      }
     };
   }
   return {
