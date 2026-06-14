@@ -55,7 +55,7 @@ test("CLI preset CRUD validates, installs, audits, and removes project presets",
 
     const audit = runJson(rootDir, ["preset", "audit"]);
     assert.equal(audit.ok, true);
-    assert.equal(audit.report.totalResolved, 8);
+    assert.equal(audit.report.totalResolved, 9);
 
     const removed = runJson(rootDir, ["preset", "uninstall", "custom-task", "--project"]);
     assert.equal(removed.ok, true);

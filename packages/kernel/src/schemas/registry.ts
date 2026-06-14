@@ -234,6 +234,7 @@ export const PresetEntrypointSchema = Schema.Union(
   Schema.Struct({
     type: Schema.Literal("script"),
     command: Schema.String,
+    reads: Schema.optional(Schema.Array(Schema.String)),
     writes: Schema.Array(Schema.String),
     inputs: Schema.optional(Schema.Record({
       key: Schema.String,

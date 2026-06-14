@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
@@ -7,17 +7,8 @@ import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../.
 import type { CliResult } from "../cli/types.ts";
 import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCollisionReport } from "./migration-collision.ts";
 import { collectLegacyProvenanceWarnings } from "./legacy-provenance-verify.ts";
+import { buildScanReport, copyForwardDocs, copySource, renderIntakePlan, stripScanOnlyFields, summarize, type LegacyScanReport } from "./migration-scan.ts";
 import type { LegacyCopySafeDocsAction, LegacyIndexAction, LegacyIntakePlanAction, LegacyScanAction, LegacyVerifyAction, MigratePlanAction, MigrateRunAction, MigrateStructureAction, MigrateVerifyAction } from "./migration-types.ts";
-
-interface LegacyScanReport {
-  readonly schema: "legacy-intake-scan/v1";
-  readonly strategy: "legacy-intake";
-  readonly legacyRoot: "harness/legacy";
-  readonly sourceRoot: string;
-  readonly entries: ReadonlyArray<LegacyIndexEntry>;
-  readonly summary: LegacyIndex["summary"];
-  readonly deprecatedAliases: ReadonlyArray<string>;
-}
 
 interface LegacyIntakeSession {
   readonly schema: "legacy-intake-session/v1";
@@ -242,90 +233,6 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
   };
 }
 
-function buildScanReport(rootDir: string, sourcePath: string): LegacyScanReport {
-  const sourceRoot = path.resolve(rootDir, sourcePath);
-  const entries = [
-    ...collectLegacyTasks(sourceRoot),
-    ...collectLegacyDocs(sourceRoot)
-  ];
-  const summary = summarize(entries);
-  return {
-    schema: "legacy-intake-scan/v1",
-    strategy: "legacy-intake",
-    legacyRoot: "harness/legacy",
-    sourceRoot: normalizeSlashes(path.relative(rootDir, sourceRoot) || "."),
-    entries,
-    summary,
-    deprecatedAliases: ["migrate-plan", "migrate-structure", "migrate-run", "migrate-verify"]
-  };
-}
-
-function collectLegacyTasks(sourceRoot: string): ReadonlyArray<LegacyIndexEntry> {
-  const rootTasks = listDirectories(path.join(sourceRoot, "docs/09-PLANNING/TASKS"))
-    .filter((name) => !name.startsWith("_"))
-    .map((name) => taskEntry(sourceRoot, `docs/09-PLANNING/TASKS/${name}`, `harness/legacy/tasks/${name}`));
-  const moduleTasksRoot = path.join(sourceRoot, "docs/09-PLANNING/MODULES");
-  const moduleTasks = listDirectories(moduleTasksRoot).flatMap((moduleKey) => {
-    if (moduleKey.startsWith("_")) return [];
-    return listDirectories(path.join(moduleTasksRoot, moduleKey, "TASKS"))
-      .filter((name) => !name.startsWith("_"))
-      .map((name) => taskEntry(sourceRoot, `docs/09-PLANNING/MODULES/${moduleKey}/TASKS/${name}`, `harness/legacy/tasks/modules/${moduleKey}/${name}`));
-  });
-  return [...rootTasks, ...moduleTasks];
-}
-
-function collectLegacyDocs(sourceRoot: string): ReadonlyArray<LegacyIndexEntry> {
-  const docsRoot = path.join(sourceRoot, "docs");
-  return walkFiles(docsRoot)
-    .map((filePath) => normalizeSlashes(path.relative(sourceRoot, filePath)))
-    .filter((relativePath) => isSafeDocPath(relativePath))
-    .map((relativePath) => docEntry(sourceRoot, relativePath, `harness/legacy/docs/${relativePath.replace(/^docs\//u, "")}`));
-}
-
-function taskEntry(sourceRoot: string, sourcePath: string, storedPath: string): LegacyIndexEntry {
-  const fullPath = path.join(sourceRoot, sourcePath);
-  const title = readTitle(fullPath) ?? path.basename(sourcePath);
-  const status = readDetectedStatus(fullPath);
-  return {
-    id: legacyId(sourcePath),
-    category: "task",
-    sourcePath,
-    storedPath,
-    sourceDigest: digestPath(fullPath),
-    title,
-    detectedStatus: status ? { raw: status, confidence: "medium" } : { raw: "unknown", confidence: "low" },
-    evidencePointers: evidencePointers(fullPath, storedPath),
-    recommendedTreatment: status === "done" || status === "cancelled" ? "preserve" : "rebuild-required",
-    humanReviewRequired: true
-  };
-}
-
-function docEntry(sourceRoot: string, sourcePath: string, storedPath: string): LegacyIndexEntry {
-  const fullPath = path.join(sourceRoot, sourcePath);
-  return {
-    id: legacyId(sourcePath),
-    category: "doc",
-    sourcePath,
-    storedPath,
-    sourceDigest: digestPath(fullPath),
-    title: path.basename(sourcePath),
-    evidencePointers: [],
-    recommendedTreatment: "preserve",
-    humanReviewRequired: false
-  };
-}
-
-function evidencePointers(fullPath: string, storedPath: string): LegacyIndexEntry["evidencePointers"] {
-  if (!statSync(fullPath).isDirectory()) return [];
-  return ["progress.md", "review.md", "walkthrough.md"]
-    .filter((fileName) => existsSync(path.join(fullPath, fileName)))
-    .map((fileName) => ({
-      kind: fileName === "review.md" ? "review" as const : fileName === "walkthrough.md" ? "walkthrough" as const : "progress" as const,
-      path: `${storedPath}/${fileName}`,
-      label: fileName
-    }));
-}
-
 function applyLegacyCopy(rootDir: string, report: LegacyScanReport): CliResult {
   const validation = validateLegacyIndex(rootDir, report);
   if (!validation.ok) return validation.result;
@@ -347,6 +254,7 @@ function applyLegacyCopy(rootDir: string, report: LegacyScanReport): CliResult {
   for (const target of copyPlan.targets) {
     copySource(target.sourcePath, path.join(rootDir, target.chosenPath));
   }
+  copyForwardDocs(rootDir, report);
   return {
     ok: true,
     command: "legacy-copy-safe-docs",
@@ -404,24 +312,9 @@ function toLegacyIndex(rootDir: string, report: LegacyScanReport): LegacyIndex {
     legacyRoot: "harness/legacy",
     generatedAt: new Date(0).toISOString(),
     sourceRoot: report.sourceRoot,
-    entries: report.entries,
+    entries: report.entries.map(stripScanOnlyFields),
     summary: summarize(report.entries)
   };
-}
-
-function renderIntakePlan(report: LegacyScanReport): string {
-  const lines = [
-    "# Legacy Intake Plan",
-    "",
-    `Source root: ${report.sourceRoot}`,
-    `Entries: ${report.summary.entryCount}`,
-    "",
-    "| ID | Category | Source | Stored | Treatment |",
-    "| --- | --- | --- | --- | --- |",
-    ...report.entries.map((entry) => `| ${entry.id} | ${entry.category} | ${entry.sourcePath} | ${entry.storedPath} | ${entry.recommendedTreatment} |`),
-    ""
-  ];
-  return lines.join("\n");
 }
 
 function aliasResult(command: string, report: LegacyScanReport, meta: { readonly aliasOf: string; readonly hint: string; readonly migrationMode?: "plan" | "apply" }): CliResult {
@@ -460,27 +353,10 @@ function retiredMigrationWarning(command: string, aliasOf: string): Record<strin
   };
 }
 
-function summarize(entries: ReadonlyArray<LegacyIndexEntry>): LegacyIndex["summary"] {
-  return {
-    entryCount: entries.length,
-    taskCount: entries.filter((entry) => entry.category === "task").length,
-    docCount: entries.filter((entry) => entry.category === "doc").length,
-    rebuildRequiredCount: entries.filter((entry) => entry.recommendedTreatment === "rebuild-required").length
-  };
-}
-
 function limitReport(report: LegacyScanReport, limit: number): LegacyScanReport {
   if (!Number.isFinite(limit)) return report;
   const entries = report.entries.slice(0, Math.max(0, limit));
   return { ...report, entries, summary: summarize(entries) };
-}
-
-function isSafeDocPath(relativePath: string): boolean {
-  if (!relativePath.startsWith("docs/")) return false;
-  if (!/\.(?:md|mdx|txt|json|ya?ml)$/u.test(relativePath)) return false;
-  if (/^docs\/09-PLANNING\/TASKS\//u.test(relativePath)) return false;
-  if (/^docs\/09-PLANNING\/MODULES\/[^/]+\/TASKS\//u.test(relativePath)) return false;
-  return true;
 }
 
 function firstDuplicate(values: ReadonlyArray<string>): string | undefined {
@@ -490,71 +366,6 @@ function firstDuplicate(values: ReadonlyArray<string>): string | undefined {
     seen.add(value);
   }
   return undefined;
-}
-
-function copySource(source: string, target: string): void {
-  const stats = statSync(source);
-  if (stats.isDirectory()) {
-    mkdirSync(target, { recursive: true });
-    for (const entry of readdirSync(source, { withFileTypes: true })) {
-      copySource(path.join(source, entry.name), path.join(target, entry.name));
-    }
-    return;
-  }
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, readFileSync(source));
-}
-
-function walkFiles(directory: string): ReadonlyArray<string> {
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) return walkFiles(entryPath);
-    return [entryPath];
-  }).sort();
-}
-
-function listDirectories(directory: string): ReadonlyArray<string> {
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort();
-}
-
-function readTitle(directory: string): string | undefined {
-  const indexPath = path.join(directory, "INDEX.md");
-  const taskPlanPath = path.join(directory, "task_plan.md");
-  const body = existsSync(indexPath) ? readFileSync(indexPath, "utf8") : existsSync(taskPlanPath) ? readFileSync(taskPlanPath, "utf8") : "";
-  return body.match(/^title:\s*(.+)$/mu)?.[1]?.trim() ?? body.match(/^#\s+(.+)$/mu)?.[1]?.trim();
-}
-
-function readDetectedStatus(directory: string): string | undefined {
-  const indexPath = path.join(directory, "INDEX.md");
-  if (!existsSync(indexPath)) return undefined;
-  const body = readFileSync(indexPath, "utf8");
-  return body.match(/^status:\s*(.+)$/mu)?.[1]?.trim();
-}
-
-function digestPath(targetPath: string): `sha256:${string}` {
-  const hash = createHash("sha256");
-  const stats = statSync(targetPath);
-  if (stats.isDirectory()) {
-    for (const filePath of walkFiles(targetPath)) {
-      hash.update(normalizeSlashes(path.relative(targetPath, filePath)));
-      hash.update("\0");
-      hash.update(readFileSync(filePath));
-      hash.update("\0");
-    }
-  } else {
-    hash.update(readFileSync(targetPath));
-  }
-  return `sha256:${hash.digest("hex")}`;
-}
-
-function legacyId(sourcePath: string): string {
-  const digest = createHash("sha256").update(sourcePath).digest("hex").slice(0, 12);
-  return `legacy_${digest}`;
 }
 
 function digestJson(value: unknown): `sha256:${string}` {

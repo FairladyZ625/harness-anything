@@ -1,0 +1,4 @@
+interface:
+  display_name: "Preset Creator"
+  short_description: "Design Harness Anything presets"
+  default_prompt: "Design or update a Harness Anything preset using declaration-first manifest and script patterns."

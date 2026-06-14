@@ -1,0 +1,23 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "milestone-closeout",
+  "title": "Milestone Closeout",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [{ "id": "milestone-closeout-parity", "kind": "command", "version": "1", "required": false }],
+  "entrypoints": {
+    "check": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": ["{{outputRoot}}/**", "{{paths.authoredRoot}}/planning/milestones/**"],
+      "writes": ["{{outputRoot}}/**"],
+      "inputs": {
+        "milestoneCriteriaRoots": "{{paths.authoredRoot}}/planning/milestones"
+      }
+    }
+  },
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "templateSelections": [] }],
+  "defaultProfile": "baseline"
+}

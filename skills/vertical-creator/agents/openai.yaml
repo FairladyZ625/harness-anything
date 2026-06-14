@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vertical Creator"
+  short_description: "Design Harness Anything verticals"
+  default_prompt: "Design or update a Harness Anything vertical using declaration-first schemas, templates, and preset layering."

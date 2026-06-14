@@ -76,6 +76,75 @@ test("CLI process preset script entrypoint rejects undeclared output write scope
   });
 });
 
+test("CLI process preset script entrypoint rejects repository-wide declared write scope", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness/presets/root-writer/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "root-writer",
+      title: "Root Writer",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: { type: "script", command: "scripts/preset-action.mjs", writes: ["{{paths.rootDir}}/**"] }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/root-writer/scripts/preset-action.mjs", "console.log('should not execute');\n");
+
+    const result = runJson(rootDir, ["preset", "action", "root-writer", "scaffold", "--task", "task-1", "--allow-scripts"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_write_scope_invalid");
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1")), false);
+  });
+});
+
+test("CLI process preset script entrypoint rejects repository-wide recursive read scope", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness/presets/root-reader/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "root-reader",
+      title: "Root Reader",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: {
+          type: "script",
+          command: "scripts/preset-action.mjs",
+          reads: ["{{paths.rootDir}}/**"],
+          writes: ["{{outputRoot}}/**"]
+        }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/root-reader/scripts/preset-action.mjs", "console.log('should not execute');\n");
+
+    const result = runJson(rootDir, ["preset", "action", "root-reader", "scaffold", "--task", "task-1", "--allow-scripts"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_read_scope_invalid");
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1")), false);
+  });
+});
+
 test("CLI process preset script entrypoint blocks out-of-scope filesystem writes", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness/presets/escape-script/preset.json", JSON.stringify({
@@ -112,8 +181,104 @@ test("CLI process preset script entrypoint blocks out-of-scope filesystem writes
     const result = runJson(rootDir, ["preset", "action", "escape-script", "scaffold", "--task", "task-1", "--allow-scripts"], false);
 
     assert.equal(result.ok, false);
-    assert.equal(result.error.code, "preset_write_scope_violation");
+    assert.match(result.error.code, /^preset_(read|write)_scope_violation$/u);
     assert.equal(existsSync(path.join(rootDir, "escaped.txt")), false);
+  });
+});
+
+test("CLI milestone-closeout preset script red-blocks task evidence missing milestone criteria and passes after mapped evidence is complete", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/planning/milestones/m2-5/feature-breakdown.md", [
+      "# M2.5 Feature Breakdown",
+      "",
+      "## Exit Criteria",
+      "",
+      "- [x] Implemented behavior has source evidence.",
+      "- [x] Stub criterion still pending.",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/planning/tasks/task-closeout/INDEX.md", [
+      "---",
+      "schema: task-package/v2",
+      "task_id: task-closeout",
+      "title: Closeout fixture",
+      "---",
+      "# Closeout fixture",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/planning/tasks/task-closeout/task_plan.md", [
+      "# Plan",
+      "",
+      "## Task Evidence",
+      "",
+      "- [x] Implemented behavior has source evidence.",
+      ""
+    ].join("\n"));
+
+    const unauthorized = runJson(rootDir, ["preset", "action", "milestone-closeout", "check", "--task", "task-closeout"], false);
+    assert.equal(unauthorized.error.code, "preset_script_authorization_required");
+
+    const blocked = runJson(rootDir, ["preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error.code, "milestone_closeout_blocked");
+    assert.equal(blocked.report.status, "blocked");
+    assert.equal(blocked.report.criteriaSource, "milestone-feature-breakdown");
+    assert.equal(blocked.report.items.some((item: Record<string, unknown>) => item.status === "red" && item.reason === "milestone_criterion_stub_or_placeholder"), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-closeout/artifacts/milestone-closeout-report.json")), true);
+
+    writeFile(rootDir, "harness/planning/milestones/m2-5/feature-breakdown.md", [
+      "# M2.5 Feature Breakdown",
+      "",
+      "## Exit Criteria",
+      "",
+      "- [x] Implemented behavior has source evidence.",
+      "- [x] Former open criterion now has source evidence.",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/planning/tasks/task-closeout/task_plan.md", [
+      "# Plan",
+      "",
+      "## Task Evidence",
+      "",
+      "- [x] Implemented behavior has source evidence.",
+      "- [x] Former open criterion now has source evidence.",
+      ""
+    ].join("\n"));
+
+    const passed = runJson(rootDir, ["preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts"]);
+
+    assert.equal(passed.ok, true);
+    assert.equal(passed.report.status, "passed");
+    assert.equal(passed.report.summary.red, 0);
+    assert.equal(passed.report.summary.green, 2);
+  });
+});
+
+test("CLI legacy-migration preset action plans V2 task discovery and context forward evidence", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/harness.yaml", [
+      "version: 2",
+      "structure:",
+      "  harnessRoot: coding-agent-harness",
+      "  planningRoot: coding-agent-harness/planning",
+      "  tasksRoot: coding-agent-harness/planning/tasks",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/INDEX.md", "---\ntitle: V2 Task\nstatus: active\n---\n# V2 Task\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/progress.md", "progress\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/overview.md", "# Architecture\n");
+
+    const result = runJson(rootDir, ["preset", "action", "legacy-migration", "plan", "--task", "task-migration", "--allow-scripts"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "preset-action");
+    assert.equal(result.report.scan.summary.taskCount, 1);
+    assert.equal(result.report.scan.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/planning/tasks/v2-task"), true);
+    const contextEntry = result.report.scan.entries.find((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/overview.md");
+    assert.equal(contextEntry.forwardPath, "harness/context/architecture/overview.md");
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-migration/artifacts/legacy-migration-plan.json")), true);
+    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-migration/artifacts/legacy-migration-plan.md"), "utf8"), /V2 Task/u);
   });
 });
 

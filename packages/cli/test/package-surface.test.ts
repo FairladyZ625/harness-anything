@@ -41,7 +41,8 @@ test("bundled software coding assets have consistent template and process-preset
   };
   const catalogIds = new Set(catalog.documents.map((document) => document.id));
   const selectedMaterializedPaths = new Set<string>();
-  const processPresetIds = new Set(["legacy-migration", "lesson-sedimentation", "publish-standard", "release-closeout", "version-upgrade"]);
+  const processPresetIds = new Set(["legacy-migration", "lesson-sedimentation", "milestone-closeout", "publish-standard", "release-closeout", "version-upgrade"]);
+  const implementedProcessPresetIds = new Set(["legacy-migration", "milestone-closeout"]);
 
   for (const selection of vertical.templateSelections) {
     assertKnownTemplateRef(catalogIds, selection.templateRef);
@@ -61,8 +62,15 @@ test("bundled software coding assets have consistent template and process-preset
     }
     if (processPresetIds.has(presetId)) {
       assert.equal(manifest.kind, "process-action");
-      assert.match(manifest.title, /Capability Smoke/u);
+      if (!implementedProcessPresetIds.has(presetId)) {
+        assert.match(manifest.title, /Capability Smoke/u);
+      }
       assert.notEqual(Object.keys(manifest.entrypoints ?? {}).length, 0);
+      for (const entrypoint of Object.values(manifest.entrypoints ?? {})) {
+        const scriptEntrypoint = entrypoint as { readonly reads?: ReadonlyArray<string>; readonly writes?: ReadonlyArray<string> };
+        assert.equal(scriptEntrypoint.reads?.includes("{{paths.rootDir}}/**") ?? false, false, `${presetId} declares repo-wide recursive reads`);
+        assert.equal(scriptEntrypoint.writes?.includes("{{paths.rootDir}}/**") ?? false, false, `${presetId} declares repo-wide recursive writes`);
+      }
     }
   }
 });

@@ -1,5 +1,4 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import {
@@ -10,7 +9,7 @@ import {
   type ExtensionValidationIssue,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/layout/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
 import type { CliResult } from "../../cli/types.ts";
 import {
   bundledTemplateCatalog,
@@ -19,7 +18,7 @@ import {
 } from "./bundled.ts";
 import { writeModuleRegistryView } from "./module-registry-view.ts";
 import { presetScriptAuthorizationRequiredResult } from "./preset-evidence.ts";
-import { isPathInside, listGeneratedFiles, resolveDeclaredWriteScopes, uniquePermissionPaths } from "./script-scope.ts";
+import { runScriptEntrypoint, scriptCliResult } from "./preset-script-runner.ts";
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 
@@ -315,9 +314,20 @@ export function runPresetEntrypoint(
         entrypoint
       });
     }
-    const scriptResult = runScriptEntrypoint(rootDir, preset, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName);
+    const presetSummary = publicPresetSummary(preset);
+    const scriptResult = runScriptEntrypoint(rootDir, preset, presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName);
     if (!scriptResult.ok) return scriptResult.result;
     generated.push(...scriptResult.generated);
+    if (scriptResult.scriptedResult) {
+      return scriptCliResult({
+        rootDir,
+        evidenceDir,
+        commandName,
+        preset: presetSummary,
+        generated,
+        scriptedResult: scriptResult.scriptedResult
+      });
+    }
   } else if (preset.manifest.schema === "preset-manifest/v1" && entrypoint === "scaffold") {
     const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
     mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -349,114 +359,6 @@ export function runPresetEntrypoint(
     evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
     generated,
     report: evidence
-  };
-}
-
-function runScriptEntrypoint(
-  rootDir: string,
-  preset: ResolvedPreset,
-  entrypoint: Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>,
-  entrypointName: string,
-  taskId: string,
-  evidenceDir: string,
-  commandName: "preset-run" | "preset-action"
-): { readonly ok: true; readonly generated: ReadonlyArray<string> } | { readonly ok: false; readonly result: CliResult } {
-  const presetRoot = path.dirname(preset.sourcePath);
-  const scriptPath = path.resolve(presetRoot, entrypoint.command);
-  if (!isPathInside(presetRoot, scriptPath) || !existsSync(scriptPath)) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        command: commandName,
-        preset: publicPresetSummary(preset),
-        error: { code: "preset_script_not_found", hint: "Preset script entrypoint was not found inside the preset package." }
-      }
-    };
-  }
-  const layout = resolveHarnessLayout(rootDir);
-  const outputRoot = taskPackagePath(rootDir, taskId);
-  const writeScope = resolveDeclaredWriteScopes(entrypoint.writes, layout, outputRoot);
-  if (!writeScope.ok || !writeScope.roots.some((allowedRoot) => isPathInside(allowedRoot, outputRoot))) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        command: commandName,
-        preset: publicPresetSummary(preset),
-        error: { code: "preset_write_scope_invalid", hint: "Preset script writes must declare a supported scope that covers the generated output root." }
-      }
-    };
-  }
-  mkdirSync(outputRoot, { recursive: true });
-  const contextPath = path.join(evidenceDir, "context.json");
-  writeFileSync(contextPath, JSON.stringify({
-    schema: "preset-context/v1",
-    presetId: preset.manifest.id,
-    presetTitle: preset.manifest.title,
-    entrypoint: entrypointName,
-    taskId,
-    paths: {
-      rootDir: layout.rootDir,
-      authoredRoot: layout.authoredRoot,
-      tasksRoot: layout.tasksRoot,
-      generatedRoot: layout.generatedRoot,
-      localRoot: layout.localRoot
-    },
-    writeScopes: writeScope.roots,
-    outputRoot
-  }, null, 2), "utf8");
-  const beforeFiles = new Set(listGeneratedFiles(outputRoot));
-  const result = spawnSync(process.execPath, [
-    "--permission",
-    ...uniquePermissionPaths([presetRoot, realpathSync(presetRoot), contextPath, realpathSync(contextPath)]).map((allowedPath) => `--allow-fs-read=${allowedPath}`),
-    ...uniquePermissionPaths([...writeScope.roots, ...writeScope.roots.map((allowedPath) => realpathSync(allowedPath))]).map((allowedPath) => `--allow-fs-write=${allowedPath}`),
-    scriptPath
-  ], {
-    cwd: presetRoot,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      HARNESS_PRESET_CONTEXT: contextPath
-    }
-  });
-  writeFileSync(path.join(evidenceDir, "stdout.txt"), result.stdout ?? "", "utf8");
-  writeFileSync(path.join(evidenceDir, "stderr.txt"), result.stderr ?? "", "utf8");
-  if (result.status !== 0) {
-    const accessDenied = `${result.stderr ?? ""}\n${result.stdout ?? ""}`.includes("ERR_ACCESS_DENIED");
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        command: commandName,
-        preset: publicPresetSummary(preset),
-        evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
-        error: accessDenied
-          ? { code: "preset_write_scope_violation", hint: "Preset script attempted filesystem access outside its declared permission scope." }
-          : { code: "preset_script_failed", hint: `Preset script exited with status ${result.status ?? "unknown"}.` }
-      }
-    };
-  }
-  const generatedFiles = listGeneratedFiles(outputRoot);
-  const outOfScope = generatedFiles.filter((filePath) => !writeScope.roots.some((allowedRoot) => isPathInside(allowedRoot, filePath)));
-  if (outOfScope.length > 0) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        command: commandName,
-        preset: publicPresetSummary(preset),
-        evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
-        generated: generatedFiles.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
-        error: { code: "preset_write_scope_violation", hint: "Preset script produced files outside its declared write scopes." }
-      }
-    };
-  }
-  return {
-    ok: true,
-    generated: generatedFiles
-      .filter((filePath) => !beforeFiles.has(filePath))
-      .map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/"))
   };
 }
 

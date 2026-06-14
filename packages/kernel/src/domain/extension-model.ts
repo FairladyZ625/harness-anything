@@ -317,7 +317,7 @@ function validatePresetEntrypointsShape(input: unknown, path: string, issues: Ex
     const entrypointPath = `${path}.${entrypointName}`;
     if (!isRecord(entrypoint)) continue;
     if (entrypoint.type === "script") {
-      validateObjectKeys(entrypoint, entrypointPath, ["type", "command", "writes", "inputs"], issues);
+      validateObjectKeys(entrypoint, entrypointPath, ["type", "command", "reads", "writes", "inputs"], issues);
       continue;
     }
     if (entrypoint.type === "template") {

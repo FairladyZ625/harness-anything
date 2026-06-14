@@ -1,14 +1,26 @@
 {
   "schema": "preset-manifest/v2",
   "id": "legacy-migration",
-  "title": "Legacy Migration Capability Smoke",
+  "title": "Legacy Migration",
   "vertical": "software/coding",
   "version": "1.0.0",
   "kind": "process-action",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [{ "id": "legacy-migration-command", "kind": "command", "version": "1", "required": false }],
   "entrypoints": {
-    "plan": { "type": "script", "command": "scripts/preset-action.mjs", "writes": ["{{outputRoot}}/**"] }
+    "plan": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": [
+        "{{paths.rootDir}}/docs/**",
+        "{{paths.rootDir}}/harness/**",
+        "{{paths.rootDir}}/.harness-private/**",
+        "{{paths.rootDir}}/*/docs/**",
+        "{{paths.rootDir}}/*/harness/**",
+        "{{paths.rootDir}}/*/.harness-private/**"
+      ],
+      "writes": ["{{outputRoot}}/**"]
+    }
   },
   "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "templateSelections": [] }],
   "defaultProfile": "baseline"

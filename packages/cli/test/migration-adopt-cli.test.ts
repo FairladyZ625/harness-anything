@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -58,7 +58,7 @@ test("CLI legacy scan and intake-plan are readonly intake evidence", () => {
   });
 });
 
-test("CLI legacy copy and index write only under harness legacy storage", () => {
+test("CLI legacy copy preserves legacy evidence and forwards safe authored docs", () => {
   withTempRoot((rootDir) => {
     writeLegacyTask(rootDir, "done-task", "done");
     writeLegacyModuleTask(rootDir, "auth", "module-task", "active");
@@ -79,6 +79,7 @@ test("CLI legacy copy and index write only under harness legacy storage", () => 
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/done-task/task_plan.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/modules/auth/module-task/task_plan.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE/testing-standard.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/standards/testing-standard.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/done-task")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/modules/auth/tasks/module-task")), false);
     const index = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/index.json"), "utf8"));
@@ -122,6 +123,40 @@ test("CLI legacy copy applies fixed suffix collisions and writes report", () => 
     assert.equal(collisionReport.entries.some((entry: Record<string, unknown>) => entry.kind === "file" && entry.chosenPath === "harness/legacy/docs/11-REFERENCE/testing-standard.legacy-import-2.md" && entry.suffixIndex === 2), true);
     assert.equal(index.entries.some((entry: Record<string, unknown>) => entry.storedPath === "harness/legacy/tasks/old-task-legacy-import-2"), true);
     assert.equal(index.entries.some((entry: Record<string, unknown>) => entry.storedPath === "harness/legacy/docs/11-REFERENCE/testing-standard.legacy-import-2.md"), true);
+  });
+});
+
+test("CLI legacy scan discovers V2 layout tasks and forwards private harness context", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/harness.yaml", [
+      "version: 2",
+      "structure:",
+      "  harnessRoot: coding-agent-harness",
+      "  planningRoot: coding-agent-harness/planning",
+      "  tasksRoot: coding-agent-harness/planning/tasks",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/INDEX.md", "---\ntitle: V2 Task\nstatus: active\n---\n# V2 Task\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/progress.md", "progress\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/overview.md", "# Architecture\n");
+    writeFile(rootDir, "outside-secret.md", "# Secret\n");
+    symlinkSync(path.join(rootDir, "outside-secret.md"), path.join(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/leak.md"));
+
+    const scan = runJson(rootDir, ["legacy", "scan", "old"]);
+    assert.equal(scan.report.summary.taskCount, 1);
+    assert.equal(scan.report.summary.docCount, 1);
+    assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/planning/tasks/v2-task"), true);
+    assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/leak.md"), false);
+    const contextEntry = scan.report.entries.find((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/overview.md");
+    assert.equal(contextEntry.forwardPath, "harness/context/architecture/overview.md");
+
+    runJson(rootDir, ["legacy", "copy-safe-docs", "old", "--apply"]);
+    runJson(rootDir, ["legacy", "index", "old", "--apply"]);
+
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/v2-task/INDEX.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/overview.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/leak.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/docs/.harness-private/coding-agent-harness/context/architecture/overview.md")), true);
   });
 });
 
@@ -272,6 +307,12 @@ function writeTaskPackage(taskDir: string, id: string, status: string): void {
 
 function writeLegacyDoc(rootDir: string, relativePath: string, body: string): void {
   const fullPath = path.join(rootDir, "docs", relativePath);
+  mkdirSync(path.dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, body, "utf8");
+}
+
+function writeFile(rootDir: string, relativePath: string, body: string): void {
+  const fullPath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, body, "utf8");
 }

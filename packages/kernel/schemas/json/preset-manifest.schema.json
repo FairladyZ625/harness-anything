@@ -120,6 +120,7 @@
           "properties": {
             "type": { "const": "script" },
             "command": { "type": "string" },
+            "reads": { "type": "array", "items": { "type": "string" } },
             "writes": { "type": "array", "items": { "type": "string" } },
             "inputs": {
               "type": "object",
