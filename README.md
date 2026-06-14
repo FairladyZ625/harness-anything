@@ -8,6 +8,7 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#packages">Packages</a> ·
+  <a href="#documentation">Documentation</a> ·
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -47,7 +48,7 @@ layers.
 | **Kernel** | Owns domain types, schemas, task projection, lifecycle validation, and storage ports. | Implemented in `@harness-anything/kernel`. |
 | **CLI** | Exposes local commands for init, doctor, status, checks, task operations, migration evidence, and Git diff evidence. | Implemented in `@harness-anything/cli`. |
 | **Application layer** | Keeps controller/service orchestration out of UI and adapter code. | Implemented in `@harness-anything/application`. |
-| **GUI foundation** | Provides the Electron desktop shell and view model boundary. | Early foundation in `@harness-anything/gui`. |
+| **GUI foundation** | Provides the Electron desktop shell, daemon/API contracts, terminal/session policies, workspace shell model, and distribution/update policy boundary. | M2.5 GUI/daemon foundation in `@harness-anything/gui`; not a complete GUI product. |
 | **Adapters** | Connect external systems without taking ownership of harness state. | Local and Multica surfaces exist; GitHub Issues and Linear packages are explicit M4 placeholders. |
 
 The product model is intentionally composable:
@@ -151,6 +152,8 @@ workspace packages, not nested Git repositories.
 
 - [M1 minimal loop](./docs-release/m1-minimal-loop.md)
 - [M2 coding vertical](./docs-release/m2-coding-vertical.md)
+- [M2.5 product line map](./docs-release/m2-5-product-line.md)
+- [M2.5 GUI distribution and update](./docs-release/m2-5-gui-distribution.md)
 - [Harness agent skill](./docs-release/harness-agent-skill.md)
 - [Minimal example project](./examples/minimal-project/)
 
@@ -161,12 +164,18 @@ repository.
 ## Project status
 
 M2 Legacy Intake readiness evidence is complete for this repository workflow.
+M2.5 GUI/daemon foundation slices are in place for service/API mappability,
+terminal/session policy, remote tunnel control-plane behavior, workspace shell
+modeling, and distribution/update policy.
 
 Current release boundary:
 
 - Packages remain `private: true`.
 - Workspace versions remain `0.0.0`.
 - No npm package release is claimed.
+- No signed desktop installer, notarized build, or auto-update capability is
+  claimed.
+- GitHub Issues and Linear adapter packages remain M4 placeholders.
 - The full local gate is `npm run check`.
 
 Expect breaking changes while the public package surface stabilizes.
@@ -181,12 +190,24 @@ Expect breaking changes while the public package surface stabilizes.
   artifact.
 - [ ] npm package publication.
 
+**M2.5 - GUI/daemon foundation**
+
+- [x] Service/API mappability, daemon API contract registry, terminal session
+  registry, durable terminal backend policy, remote daemon tunnel policy,
+  workspace shell model, and distribution/update policy.
+- [x] Product-line docs hardening.
+- [ ] Electron browser/preview security hardening, runtime/release
+  reproducibility, supply-chain/license release gate, and placeholder/dormant
+  surface cleanup.
+
 **Next**
 
-- [ ] Public package release plan and package boundary review.
-- [ ] GUI workflow hardening beyond the current foundation.
-- [ ] External adapter implementation after the kernel/CLI contract is stable.
-- [ ] More vertical and preset examples.
+- [ ] Finish M2.5 hardening packets before claiming Harness-Anything
+  self-host migration readiness.
+- [ ] M3 task hierarchy and relation semantics.
+- [ ] M4 external adapter implementation after the kernel/CLI contract is stable.
+- [ ] M5-M7 cross-harness product line, full GUI product surface, and release
+  hardening.
 
 ## Contributing
 

@@ -1,6 +1,7 @@
 # M2.5 GUI Distribution And Update
 
-Status: architecture contract only; no signed desktop installer or auto-update is shipped yet.
+Status: architecture contract only. Signed desktop installers and auto-update
+remain unshipped M2.5 boundaries.
 
 ## Current State
 
