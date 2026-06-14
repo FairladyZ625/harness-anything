@@ -143,6 +143,95 @@ test("API contract registry covers deferred GUI bridge methods without active ro
   });
 });
 
+test("API contract registry rejects active route methods marked as deferred capabilities", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks"],
+      preloadCapabilities: {
+        getTasks: { method: "getTasks", status: "deferred", reason: "wrongly deferred" }
+      },
+      dispatchMethods: ["getTasks"],
+      serviceMethods: ["getTasks"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })]
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("getTasks must be marked shipped")), true);
+  });
+});
+
+test("API contract registry rejects deferred bridge methods marked as shipped capabilities", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks", "archiveTask"],
+      preloadCapabilities: {
+        getTasks: { method: "getTasks", status: "shipped" },
+        archiveTask: { method: "archiveTask", status: "shipped" }
+      },
+      dispatchMethods: ["getTasks", "archiveTask"],
+      serviceMethods: ["getTasks", "archiveTask"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
+      deferredEntries: [{
+        guiBridgeMethod: "archiveTask",
+        service: "LocalControllerService",
+        serviceMethod: "archiveTask",
+        reason: "Archive is disabled until route ownership lands."
+      }]
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("deferred archiveTask must be marked deferred")), true);
+  });
+});
+
+test("API contract registry rejects preload methods without capability metadata", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks", "getTaskDetail"],
+      preloadCapabilities: {
+        getTasks: { method: "getTasks", status: "shipped" }
+      },
+      dispatchMethods: ["getTasks", "getTaskDetail"],
+      serviceMethods: ["getTasks", "getTaskDetail"],
+      registryEntries: [
+        route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" }),
+        route({ id: "tasks.detail", guiBridgeMethod: "getTaskDetail", serviceMethod: "getTaskDetail" })
+      ]
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("getTaskDetail") && violation.includes("preload capability metadata")), true);
+  });
+});
+
+test("API contract registry rejects deferred capability without reason", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks", "archiveTask"],
+      preloadCapabilities: {
+        getTasks: { method: "getTasks", status: "shipped" },
+        archiveTask: { method: "archiveTask", status: "deferred" }
+      },
+      dispatchMethods: ["getTasks", "archiveTask"],
+      serviceMethods: ["getTasks", "archiveTask"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
+      deferredEntries: [{
+        guiBridgeMethod: "archiveTask",
+        service: "LocalControllerService",
+        serviceMethod: "archiveTask",
+        reason: "Archive is disabled until route ownership lands."
+      }]
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("archiveTask deferred status requires reason")), true);
+  });
+});
+
 test("API contract registry accepts terminal service routes without preload dispatch", async () => {
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
@@ -237,6 +326,13 @@ function writeFixture(root, options) {
     { id: "terminal.session-list-result/v1", owner: "gui", typeName: "TerminalSessionListResult" }
   ];
   const deferredEntries = options.deferredEntries ?? [];
+  const deferredMethods = new Set(deferredEntries.map((entry) => entry.guiBridgeMethod));
+  const preloadCapabilities = options.preloadCapabilities ?? Object.fromEntries(options.preloadMethods.map((method) => [
+    method,
+    deferredMethods.has(method)
+      ? { method, status: "deferred", reason: `${method} is deferred in this fixture.` }
+      : { method, status: "shipped" }
+  ]));
   const dispatchBranches = options.dispatchBranches
     ?? options.dispatchMethods.map((method) => ({ method, serviceMethod: method }));
   const terminalRoutes = options.terminalRoutes ?? requiredTerminalRoutes();
@@ -258,6 +354,9 @@ function writeFixture(root, options) {
   writeFileSync(path.join(root, "packages/gui/src/preload/allowlist.ts"), [
     "export const allowedPreloadApi = {",
     ...options.preloadMethods.map((method) => `  ${method}: ${JSON.stringify(method)},`),
+    "} as const;",
+    "export const preloadApiCapabilities = {",
+    ...Object.entries(preloadCapabilities).map(([method, capability]) => `  ${method}: ${JSON.stringify(capability)},`),
     "} as const;",
     ""
   ].join("\n"), "utf8");

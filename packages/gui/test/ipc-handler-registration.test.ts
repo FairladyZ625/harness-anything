@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { preloadAllowlist, registerHarnessIpcHandlers, type GuiServiceBridge } from "../src/index.ts";
+import { preloadApiCapabilities, preloadAllowlist, registerHarnessIpcHandlers, type GuiServiceBridge } from "../src/index.ts";
 
 const trustedEvent = {
   sender: {
@@ -45,4 +45,6 @@ test("main process registers one IPC handler for each preload allowlist method",
     () => handlers.get("harness:getTasks")?.({ sender: { id: 2 }, senderFrame: trustedEvent.senderFrame }, null),
     /untrusted_web_contents/i
   );
+  assert.equal(handlers.has("harness:capabilities"), false);
+  assert.equal(preloadApiCapabilities.archiveTask.status, "deferred");
 });
