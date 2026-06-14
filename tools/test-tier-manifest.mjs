@@ -23,6 +23,7 @@ export const testTierManifest = {
     "packages/gui/test/preload-allowlist.test.ts",
     "packages/gui/test/remote-tunnel.test.ts",
     "packages/gui/test/renderer-no-node.test.ts",
+    "packages/gui/test/runtime-release-readiness.test.ts",
     "packages/gui/test/service-bridge.test.ts",
     "packages/gui/test/window-config.test.ts",
     "packages/kernel/test/contracts/extension-model.test.ts",
@@ -41,7 +42,6 @@ export const testTierManifest = {
     "packages/kernel/test/publish/schema-lockdown.test.ts",
     "tools/check-api-contract-registry.test.mjs",
     "tools/check-cli-structure.test.mjs",
-    "tools/check-docs-release-map.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
     "tools/check-service-mappability.test.mjs"
   ],
@@ -61,7 +61,9 @@ export const testTierManifest = {
     "packages/kernel/test/store/journal-idempotency.test.ts",
     "packages/kernel/test/store/payload-hash.test.ts",
     "packages/kernel/test/store/same-task-fifo.test.ts",
-    "packages/kernel/test/store/sqlite-rebuild.test.ts"
+    "packages/kernel/test/store/sqlite-rebuild.test.ts",
+    "tools/check-docs-release-map.test.mjs",
+    "tools/check-runtime-release-readiness.test.mjs"
   ]
 };
 

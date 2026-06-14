@@ -74,6 +74,7 @@ function writeValidDocsMap(root, options = {}) {
     "m1-minimal-loop.md",
     "m2-coding-vertical.md",
     "m2-5-gui-distribution.md",
+    "m2-5-runtime-release.md",
     "harness-agent-skill.md"
   ];
 
@@ -83,6 +84,7 @@ function writeValidDocsMap(root, options = {}) {
     "- [M2 coding vertical](./docs-release/m2-coding-vertical.md)",
     "- [M2.5 product line map](./docs-release/m2-5-product-line.md)",
     "- [M2.5 GUI distribution and update](./docs-release/m2-5-gui-distribution.md)",
+    "- [M2.5 runtime and release readiness](./docs-release/m2-5-runtime-release.md)",
     "- [Harness agent skill](./docs-release/harness-agent-skill.md)",
     "M2.5 GUI/daemon foundation is foundation-only.",
     "Private planning lives in `.harness-private/`.",
@@ -107,6 +109,7 @@ function writeValidDocsMap(root, options = {}) {
     "- [M1 minimal loop](./m1-minimal-loop.md)",
     "- [M2 coding vertical](./m2-coding-vertical.md)",
     "- [M2.5 GUI distribution and update](./m2-5-gui-distribution.md)",
+    "- [M2.5 runtime and release readiness](./m2-5-runtime-release.md)",
     "- [Harness agent skill](./harness-agent-skill.md)",
     options.docsSuffix ?? ""
   ].join("\n"));

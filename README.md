@@ -154,6 +154,7 @@ workspace packages, not nested Git repositories.
 - [M2 coding vertical](./docs-release/m2-coding-vertical.md)
 - [M2.5 product line map](./docs-release/m2-5-product-line.md)
 - [M2.5 GUI distribution and update](./docs-release/m2-5-gui-distribution.md)
+- [M2.5 runtime and release readiness](./docs-release/m2-5-runtime-release.md)
 - [Harness agent skill](./docs-release/harness-agent-skill.md)
 - [Minimal example project](./examples/minimal-project/)
 
@@ -196,9 +197,9 @@ Expect breaking changes while the public package surface stabilizes.
   registry, durable terminal backend policy, remote daemon tunnel policy,
   workspace shell model, and distribution/update policy.
 - [x] Product-line docs hardening.
-- [ ] Electron browser/preview security hardening, runtime/release
-  reproducibility, supply-chain/license release gate, and placeholder/dormant
-  surface cleanup.
+- [x] Electron browser/preview security hardening.
+- [x] Runtime/release reproducibility.
+- [ ] Supply-chain/license release gate and placeholder/dormant surface cleanup.
 
 **Next**
 
