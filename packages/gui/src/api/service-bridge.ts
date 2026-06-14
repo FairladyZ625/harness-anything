@@ -1,7 +1,6 @@
 import path from "node:path";
 import type { LocalControllerService } from "../../../application/src/index.ts";
 import {
-  makeLocalControllerService,
   readAppendProgressPayload,
   readSetStatusPayload,
   readTaskDocumentPayload,
@@ -12,10 +11,6 @@ import { validateProjectPath } from "./local-api.ts";
 
 export interface GuiServiceBridge {
   readonly invoke: (method: string, payload: unknown) => Promise<unknown>;
-}
-
-export function createGuiServiceBridge(rootDir: string): GuiServiceBridge {
-  return createGuiServiceBridgeForService(path.resolve(rootDir), makeLocalControllerService({ rootDir }));
 }
 
 export function createGuiServiceBridgeForService(rootDir: string, service: LocalControllerService): GuiServiceBridge {

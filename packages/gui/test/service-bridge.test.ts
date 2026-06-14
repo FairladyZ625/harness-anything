@@ -3,13 +3,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createGuiServiceBridge } from "../src/index.ts";
+import { createLocalGuiServiceBridge } from "../src/index.ts";
 
 test("GUI service bridge reaches application service while enforcing document path guard", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
   try {
     writeTaskIndex(rootDir, "task-1", "Task One", "planned");
-    const bridge = createGuiServiceBridge(rootDir);
+    const bridge = createLocalGuiServiceBridge(rootDir);
 
     const list = await bridge.invoke("getTasks", null) as { readonly ok: boolean; readonly tasks: readonly unknown[] };
     assert.equal(list.ok, true);

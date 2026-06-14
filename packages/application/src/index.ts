@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
-import type { DomainStatus, ProjectionWarning, TaskProjectionRow } from "../../kernel/src/index.ts";
+import type { DomainStatus, EngineError, ProjectionWarning, TaskProjectionRow, WriteError } from "../../kernel/src/index.ts";
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import { taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
 export {
@@ -22,6 +21,7 @@ export type {
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
+  readonly taskWriter: LocalControllerTaskWriter;
 }
 
 export interface LocalControllerSuccess {
@@ -82,6 +82,21 @@ export interface AppendTaskProgressPayload extends TaskIdPayload {
   readonly text: string;
 }
 
+export interface LocalControllerStatusWriteResult {
+  readonly taskId: string;
+  readonly status: DomainStatus;
+}
+
+export interface LocalControllerProgressWriteResult {
+  readonly taskId: string;
+  readonly path: string;
+}
+
+export interface LocalControllerTaskWriter {
+  readonly setStatus: (payload: SetTaskStatusPayload) => Effect.Effect<LocalControllerStatusWriteResult, EngineError | WriteError>;
+  readonly appendProgress: (payload: AppendTaskProgressPayload) => Effect.Effect<LocalControllerProgressWriteResult, EngineError | WriteError>;
+}
+
 export interface ShellPanelPolicy {
   readonly displayOnly: true;
   readonly outputCreatesTaskState: false;
@@ -107,7 +122,7 @@ export interface LocalControllerService {
 
 export function makeLocalControllerService(options: LocalControllerServiceOptions): LocalControllerService {
   const rootDir = path.resolve(options.rootDir);
-  const engine = makeLocalLifecycleEngine({ rootDir });
+  const taskWriter = options.taskWriter;
 
   return {
     getTasks: () => {
@@ -150,7 +165,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
           }
         };
       }
-      return Effect.runPromise(engine.setStatus({ taskId: payload.taskId, status: payload.status }).pipe(
+      return Effect.runPromise(taskWriter.setStatus({ taskId: payload.taskId, status: payload.status }).pipe(
         Effect.match({
           onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Status update failed." } }),
           onSuccess: () => ({ ok: true })
@@ -159,7 +174,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
     },
     reviewTask: async (payload) => {
       validateTaskId(payload.taskId);
-      return Effect.runPromise(engine.setStatus({ taskId: payload.taskId, status: "in_review" }).pipe(
+      return Effect.runPromise(taskWriter.setStatus({ taskId: payload.taskId, status: "in_review" }).pipe(
         Effect.match({
           onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Review transition failed." } }),
           onSuccess: () => ({ ok: true })
@@ -168,7 +183,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
     },
     appendTaskProgress: async (payload) => {
       validateTaskId(payload.taskId);
-      return Effect.runPromise(engine.appendProgress({ taskId: payload.taskId, text: payload.text }).pipe(
+      return Effect.runPromise(taskWriter.appendProgress({ taskId: payload.taskId, text: payload.text }).pipe(
         Effect.match({
           onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Progress append failed." } }),
           onSuccess: () => ({ ok: true })

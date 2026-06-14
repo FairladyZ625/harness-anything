@@ -7,6 +7,19 @@ const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
 const violations = [];
 const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
+const guiAdapterCompositionRoots = new Set([
+  "packages/gui/src/main/local-composition-root.ts"
+]);
+const cliAdapterCompositionRoots = new Set([
+  "packages/cli/src/index.ts"
+]);
+const cliAdapterKnownDebt = new Set([
+  "packages/cli/src/commands/adopt.ts",
+  "packages/cli/src/commands/git-diff.ts",
+  "packages/cli/src/commands/legacy-rebuild.ts",
+  "packages/cli/src/commands/lifecycle.ts",
+  "packages/cli/src/commands/preset-task.ts"
+]);
 
 async function walk(dir) {
   let entries;
@@ -90,7 +103,7 @@ for (const sourceRoot of sourceRoots) {
       }
     }
 
-    if (rel.startsWith("packages/kernel/src/application/")) {
+    if (rel.startsWith("packages/application/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
           record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
@@ -100,7 +113,13 @@ for (const sourceRoot of sourceRoots) {
 
     if (rel.startsWith("packages/gui/")) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target) || /packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target))) {
+        if (importedPathViolates(file, specifier, (target) => {
+          if (/packages\/kernel\/src\/store\//.test(target)) return true;
+          if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
+            return !guiAdapterCompositionRoots.has(rel);
+          }
+          return false;
+        })) {
           record(file, `GUI imports store or external adapter implementation via ${specifier}`);
         }
       }
@@ -108,8 +127,14 @@ for (const sourceRoot of sourceRoots) {
 
     if (rel.startsWith("packages/cli/")) {
       for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/gui\//.test(target) || /^@harness-anything\/gui/.test(target))) {
-          record(file, `CLI imports GUI layer via ${specifier}`);
+        if (importedPathViolates(file, specifier, (target) => {
+          if (/packages\/gui\//.test(target) || /packages\/kernel\/src\/store\//.test(target) || /^@harness-anything\/gui/.test(target)) return true;
+          if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
+            return !cliAdapterCompositionRoots.has(rel) && !cliAdapterKnownDebt.has(rel);
+          }
+          return false;
+        })) {
+          record(file, `CLI imports GUI, adapter, or store implementation via ${specifier}`);
         }
       }
     }

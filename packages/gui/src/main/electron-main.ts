@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createGuiServiceBridge } from "../api/service-bridge.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
+import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy, createPackagedRendererUrl } from "./window-config.ts";
 
@@ -64,7 +64,7 @@ export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  registerHarnessIpcHandlers(ipcMain, createGuiServiceBridge(resolveGuiProjectRoot()), {
+  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(resolveGuiProjectRoot()), {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createPackagedRendererUrl(),

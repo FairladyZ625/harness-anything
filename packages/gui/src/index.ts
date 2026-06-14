@@ -8,6 +8,7 @@ export * from "./distribution/runtime-release-readiness.ts";
 export * from "./distribution/supply-chain-release-readiness.ts";
 export * from "./doc-renderer/sanitize.ts";
 export * from "./main/ipc-handlers.ts";
+export * from "./main/local-composition-root.ts";
 export * from "./main/security-policy.ts";
 export * from "./main/window-config.ts";
 export * from "./preload/allowlist.ts";

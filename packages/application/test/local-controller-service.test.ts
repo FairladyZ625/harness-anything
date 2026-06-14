@@ -3,13 +3,30 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Effect } from "effect";
 import { makeLocalControllerService } from "../src/index.ts";
 
-test("local controller service reads projection and writes through local lifecycle service path", async () => {
+test("local controller service reads projection and writes through injected task writer", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
   try {
     writeTaskIndex(rootDir, "task-1", "Task One", "planned");
-    const service = makeLocalControllerService({ rootDir });
+    const writes: string[] = [];
+    const service = makeLocalControllerService({
+      rootDir,
+      taskWriter: {
+        setStatus: (payload) => Effect.sync(() => {
+          writes.push(`status:${payload.taskId}:${payload.status}`);
+          patchTaskStatus(rootDir, payload.taskId, payload.status);
+          return { taskId: payload.taskId, status: payload.status };
+        }),
+        appendProgress: (payload) => Effect.sync(() => {
+          writes.push(`progress:${payload.taskId}:${payload.text}`);
+          const progressPath = path.join(rootDir, "harness/planning/tasks", payload.taskId, "progress.md");
+          writeFileSync(progressPath, `${payload.text}\n`, "utf8");
+          return { taskId: payload.taskId, path: "progress.md" };
+        })
+      }
+    });
 
     const list = service.getTasks();
     assert.equal(list.ok, true);
@@ -24,6 +41,7 @@ test("local controller service reads projection and writes through local lifecyc
     assert.match(document.body ?? "", /Task One/);
 
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "active" }), { ok: true });
+    assert.deepEqual(writes, ["status:task-1:active"]);
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "done" }), {
       ok: false,
       error: {
@@ -40,6 +58,7 @@ test("local controller service reads projection and writes through local lifecyc
     });
     assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8"), /status: active/);
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "GUI update" }), { ok: true });
+    assert.deepEqual(writes, ["status:task-1:active", "progress:task-1:GUI update"]);
     assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/progress.md"), "utf8"), /GUI update/);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -68,4 +87,10 @@ function writeTaskIndex(rootDir: string, taskId: string, title: string, status: 
     "---",
     ""
   ].join("\n"), "utf8");
+}
+
+function patchTaskStatus(rootDir: string, taskId: string, status: string): void {
+  const indexPath = path.join(rootDir, "harness/planning/tasks", taskId, "INDEX.md");
+  const index = readFileSync(indexPath, "utf8");
+  writeFileSync(indexPath, index.replace(/^  status: .+$/m, `  status: ${status}`), "utf8");
 }

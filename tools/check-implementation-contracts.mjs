@@ -179,7 +179,7 @@ if (hasGuiImplementation) {
   }
   for (const requiredSnippet of [
     "makeLocalControllerService",
-    "makeLocalLifecycleEngine",
+    "taskWriter",
     "readTaskProjection"
   ]) {
     if (!applicationText.includes(requiredSnippet)) record(`application service must include ${requiredSnippet}`);
@@ -203,7 +203,7 @@ if (hasGuiImplementation) {
     "preload exposes only the approved API methods",
     "main process registers one IPC handler for each preload allowlist method",
     "GUI service bridge reaches application service",
-    "local controller service reads projection and writes through local lifecycle service path",
+    "local controller service reads projection and writes through injected task writer",
     "Markdown sanitizer strips scripts",
     "local API binds localhost",
     "path guard rejects traversal",
