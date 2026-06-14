@@ -222,12 +222,33 @@ export const PresetProfileSchema = Schema.Struct({
   })))
 });
 
+export const PresetEntrypointSchema = Schema.Union(
+  Schema.Struct({
+    type: Schema.Literal("template"),
+    writes: Schema.Array(Schema.String),
+    templates: Schema.Record({
+      key: Schema.String,
+      value: Schema.String
+    })
+  }),
+  Schema.Struct({
+    type: Schema.Literal("script"),
+    command: Schema.String,
+    writes: Schema.Array(Schema.String),
+    inputs: Schema.optional(Schema.Record({
+      key: Schema.String,
+      value: Schema.String
+    }))
+  })
+);
+
 export const PresetManifestSchema = Schema.Struct({
-  schema: Schema.Literal("preset-manifest/v1"),
+  schema: Schema.Union(Schema.Literal("preset-manifest/v1"), Schema.Literal("preset-manifest/v2")),
   id: Schema.String,
   title: Schema.String,
   vertical: Schema.String,
   version: Schema.String,
+  kind: Schema.optional(Schema.Literal("template-content", "process-action")),
   extends: OptionalString,
   kernelVersionRange: Schema.Struct({
     min: Schema.String,
@@ -238,6 +259,10 @@ export const PresetManifestSchema = Schema.Struct({
     kind: Schema.Literal("checker", "scaffold", "projection", "command", "template"),
     version: Schema.String,
     required: Schema.Boolean
+  })),
+  entrypoints: Schema.optional(Schema.Record({
+    key: Schema.String,
+    value: PresetEntrypointSchema
   })),
   profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1)),
   defaultProfile: Schema.String

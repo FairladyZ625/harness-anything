@@ -71,7 +71,7 @@ function checkPackageSurface(root, violations) {
   if (cliPackage.name !== "@harness-anything/cli") {
     violations.push(`packages/cli/package.json: expected @harness-anything/cli, got ${cliPackage.name}`);
   }
-  if (cliPackage.scripts?.build !== "tsc -p tsconfig.build.json") {
+  if (!isAllowedCliPackageBuildScript(cliPackage.scripts?.build)) {
     violations.push("packages/cli/package.json: build script must compile the package artifact");
   }
   if (cliPackage.bin?.["harness-anything"] !== "./dist/cli/src/index.js") {
@@ -89,6 +89,11 @@ function checkPackageSurface(root, violations) {
   if (cliPackage.publishConfig) {
     violations.push("packages/cli/package.json: publishConfig is not allowed before explicit publish approval");
   }
+}
+
+function isAllowedCliPackageBuildScript(value) {
+  return value === "tsc -p tsconfig.build.json"
+    || value === "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs";
 }
 
 function checkRootPackageScripts(rootPackage, violations) {

@@ -2,18 +2,24 @@ import type { CliResult } from "./types.ts";
 
 export interface GlobalParseOptions {
   readonly rootDir: string;
+  readonly authoredRoot?: string;
   readonly json: boolean;
   readonly args: ReadonlyArray<string>;
 }
 
 export function stripGlobalOptions(argv: ReadonlyArray<string>, cwd = process.cwd()): GlobalParseOptions {
   const rootDir = readOption(argv, "--root") ?? cwd;
+  const authoredRoot = readOption(argv, "--authored-root");
   const json = argv.includes("--json");
   const args = argv.filter((arg, index) => {
     const previous = argv[index - 1];
-    return arg !== "--json" && arg !== "--root" && previous !== "--root";
+    return arg !== "--json"
+      && arg !== "--root"
+      && previous !== "--root"
+      && arg !== "--authored-root"
+      && previous !== "--authored-root";
   });
-  return { rootDir, json, args };
+  return { rootDir, authoredRoot, json, args };
 }
 
 export function readOption(argv: ReadonlyArray<string>, name: string): string | undefined {

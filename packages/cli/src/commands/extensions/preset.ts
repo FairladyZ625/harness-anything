@@ -3,11 +3,11 @@ import path from "node:path";
 import { validatePresetManifests } from "../../../../kernel/src/index.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
-  bundledPresetManifests,
   discoverPresetEntries,
   discoverPresets,
   isInvalidPreset,
   isResolvedPreset,
+  loadBundledPresetManifests,
   presetManifestPath,
   presetNotFound,
   publicPresetEntrySummary,
@@ -160,7 +160,7 @@ function runPresetInstall(rootDir: string, action: Extract<PresetAction, { reado
 }
 
 function runPresetSeed(rootDir: string): CliResult {
-  for (const manifest of bundledPresetManifests()) {
+  for (const manifest of loadBundledPresetManifests()) {
     const target = presetManifestPath(rootDir, "user", manifest.id);
     if (!existsSync(target)) {
       mkdirSync(path.dirname(target), { recursive: true });
@@ -176,7 +176,7 @@ function runPresetSeed(rootDir: string): CliResult {
 
 function runPresetAudit(rootDir: string): CliResult {
   const resolved = discoverPresetEntries(rootDir);
-  const bundledById = new Map(bundledPresetManifests().map((manifest) => [manifest.id, manifest.version]));
+  const bundledById = new Map(loadBundledPresetManifests().map((manifest) => [manifest.id, manifest.version]));
   const drift = resolved
     .filter(isResolvedPreset)
     .filter((preset) => preset.layer !== "builtin" && bundledById.has(preset.manifest.id) && bundledById.get(preset.manifest.id) !== preset.manifest.version)
@@ -218,7 +218,11 @@ function runPresetUninstall(rootDir: string, action: Extract<PresetAction, { rea
 }
 
 function runPresetAction(rootDir: string, action: Extract<PresetAction, { readonly kind: "preset-action" }>): CliResult {
-  if (action.actionName !== "plan" && action.actionName !== "scaffold" && action.actionName !== "check") {
+  const preset = resolvePresetEntry(rootDir, action.presetId);
+  if (!preset) return presetNotFound("preset-action", action.presetId);
+  if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-action", preset);
+  const declared = preset.manifest.entrypoints?.[action.actionName];
+  if (!declared && action.actionName !== "plan" && action.actionName !== "scaffold" && action.actionName !== "check") {
     return {
       ok: false,
       command: "preset-action",

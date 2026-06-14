@@ -21,6 +21,7 @@ const publicRuntimeSurface = [
   "LifecycleBindingSchema",
   "LifecycleEngine",
   "LinkKindSchema",
+  "PresetEntrypointSchema",
   "PresetManifestSchema",
   "PresetProfileSchema",
   "ProjectionWarningCodeSchema",

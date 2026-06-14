@@ -30,12 +30,51 @@ export interface HarnessLayout {
 
 const crockfordBase32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
+const defaultAuthoredRoot = "harness";
+const defaultLocalRoot = ".harness";
+
+interface HarnessLayoutOverrides {
+  readonly authoredRoot?: string;
+}
+
+interface HarnessConfigLocation {
+  readonly path: string;
+  readonly projectRoot: string;
+  readonly structureBase?: string;
+}
+
+interface HarnessLayoutConfig {
+  readonly authoredRoot?: string;
+  readonly localRoot?: string;
+  readonly tasksRoot?: string;
+  readonly generatedRoot?: string;
+}
+
+let layoutOverrides: HarnessLayoutOverrides = {};
+
+export function setHarnessLayoutOverrides(overrides: HarnessLayoutOverrides): void {
+  layoutOverrides = overrides;
+}
 
 export function resolveHarnessLayout(rootDir: string): HarnessLayout {
-  const resolvedRoot = path.resolve(rootDir);
-  const authoredRoot = path.join(resolvedRoot, "harness");
+  const { projectRoot, config } = resolveProjectRootAndConfig(rootDir);
+  const authoredRootSetting = layoutOverrides.authoredRoot
+    ?? process.env.HARNESS_AUTHORED_ROOT
+    ?? config.authoredRoot
+    ?? defaultAuthoredRoot;
+  const localRootSetting = config.localRoot ?? defaultLocalRoot;
+  const tasksRootSetting = config.tasksRoot;
+  const generatedRootSetting = config.generatedRoot;
+  const resolvedRoot = projectRoot;
+  const authoredRoot = resolveRootRelativePath(resolvedRoot, authoredRootSetting, "layout.authoredRoot");
   const legacyRoot = path.join(authoredRoot, "legacy");
-  const localRoot = path.join(resolvedRoot, ".harness");
+  const localRoot = resolveRootRelativePath(resolvedRoot, localRootSetting, "layout.localRoot");
+  const tasksRoot = tasksRootSetting
+    ? resolveRootRelativePath(resolvedRoot, tasksRootSetting, "tasks.root")
+    : path.join(authoredRoot, "planning", "tasks");
+  const generatedRoot = generatedRootSetting
+    ? resolveRootRelativePath(resolvedRoot, generatedRootSetting, "structure.generatedRoot")
+    : path.join(localRoot, "generated");
   const writeJournalRoot = path.join(localRoot, "write-journal");
   return {
     rootDir: resolvedRoot,
@@ -43,7 +82,7 @@ export function resolveHarnessLayout(rootDir: string): HarnessLayout {
     standardsRoot: path.join(authoredRoot, "standards"),
     contextRoot: path.join(authoredRoot, "context"),
     planningRoot: path.join(authoredRoot, "planning"),
-    tasksRoot: path.join(authoredRoot, "planning", "tasks"),
+    tasksRoot,
     legacyRoot,
     legacyTasksRoot: path.join(legacyRoot, "tasks"),
     legacyDocsRoot: path.join(legacyRoot, "docs"),
@@ -51,7 +90,7 @@ export function resolveHarnessLayout(rootDir: string): HarnessLayout {
     legacyCollisionReportPath: path.join(legacyRoot, "collision-report.json"),
     legacyRebuildGuidePath: path.join(legacyRoot, "rebuild-guide.md"),
     localRoot,
-    generatedRoot: path.join(localRoot, "generated"),
+    generatedRoot,
     cacheRoot: path.join(localRoot, "cache"),
     projectionPath: path.join(localRoot, "cache", "projections.sqlite"),
     writeJournalRoot,
@@ -61,6 +100,87 @@ export function resolveHarnessLayout(rootDir: string): HarnessLayout {
     locksRoot: path.join(localRoot, "locks"),
     claimsRoot: path.join(localRoot, "adopt-claims")
   };
+}
+
+function resolveProjectRootAndConfig(rootDir: string): {
+  readonly projectRoot: string;
+  readonly config: HarnessLayoutConfig;
+} {
+  const startingRoot = path.resolve(rootDir);
+  const configLocation = findHarnessConfigLocation(startingRoot);
+  if (!configLocation) return { projectRoot: startingRoot, config: {} };
+  return {
+    projectRoot: configLocation.projectRoot,
+    config: readLayoutConfig(configLocation)
+  };
+}
+
+function findHarnessConfigLocation(startingRoot: string): HarnessConfigLocation | undefined {
+  let current = startingRoot;
+  while (true) {
+    const publicCandidate = path.join(current, defaultAuthoredRoot, "harness.yaml");
+    if (existsSync(publicCandidate)) return { path: publicCandidate, projectRoot: current };
+    const privateRoot = path.join(current, ".harness-private");
+    const privateCandidate = path.join(privateRoot, "coding-agent-harness", "harness.yaml");
+    if (existsSync(privateCandidate)) {
+      return { path: privateCandidate, projectRoot: current, structureBase: ".harness-private" };
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig {
+  const lines = readFileSync(location.path, "utf8").split(/\r?\n/u);
+  let section: "layout" | "tasks" | "structure" | undefined;
+  let authoredRoot: string | undefined;
+  let localRoot: string | undefined;
+  let tasksRoot: string | undefined;
+  let generatedRoot: string | undefined;
+
+  for (const rawLine of lines) {
+    const withoutComment = rawLine.replace(/\s+#.*$/u, "");
+    if (!withoutComment.trim()) continue;
+    const topLevel = /^([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
+    if (topLevel) {
+      section = topLevel[1] === "layout" || topLevel[1] === "tasks" || topLevel[1] === "structure" ? topLevel[1] : undefined;
+      continue;
+    }
+    const nested = /^  ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
+    if (!nested || !section) continue;
+    const [, key, rawValue = ""] = nested;
+    const value = unquoteScalar(rawValue.trim());
+    if (!value) continue;
+    if (section === "layout" && key === "authoredRoot") authoredRoot = value;
+    if (section === "layout" && key === "localRoot") localRoot = value;
+    if (section === "tasks" && key === "root") tasksRoot = value;
+    if (section === "structure" && key === "harnessRoot") authoredRoot = structureRelativePath(location, value);
+    if (section === "structure" && key === "tasksRoot") tasksRoot = structureRelativePath(location, value);
+    if (section === "structure" && key === "generatedRoot") generatedRoot = structureRelativePath(location, value);
+  }
+
+  return { authoredRoot, localRoot, tasksRoot, generatedRoot };
+}
+
+function structureRelativePath(location: HarnessConfigLocation, value: string): string {
+  return location.structureBase ? path.join(location.structureBase, value) : value;
+}
+
+function resolveRootRelativePath(rootDir: string, value: string, field: string): string {
+  const normalized = path.normalize(value);
+  if (path.isAbsolute(value) || normalized === "." || normalized.startsWith("..") || normalized.includes(`..${path.sep}`)) {
+    throw new Error(`${field} must be a relative path inside the project root: ${value}`);
+  }
+  return path.join(rootDir, normalized);
+}
+
+function unquoteScalar(value: string): string {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 export function generateTaskId(now: Date = new Date()): TaskId {

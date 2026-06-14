@@ -1,0 +1,28 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "module",
+  "title": "Module",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "template-content",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [{ "id": "module-check", "kind": "checker", "version": "1", "required": false }],
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "standard",
+    "templateSelections": [
+      { "slot": "task.brief", "templateRef": "template://planning/brief@1", "materializeAs": "brief.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "task.execution.strategy", "templateRef": "template://planning/execution-strategy@1", "materializeAs": "execution_strategy.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "task.findings", "templateRef": "template://planning/findings@1", "materializeAs": "findings.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "task.visual.map", "templateRef": "template://planning/visual-map@1", "materializeAs": "visual_map.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "task.walkthrough", "templateRef": "template://planning/walkthrough@1", "materializeAs": "walkthrough.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "task.lesson.candidates", "templateRef": "template://planning/lesson-candidates@1", "materializeAs": "lesson_candidates.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "task.long.running.contract", "templateRef": "template://planning/long-running-task-contract@1", "materializeAs": "long-running-task-contract.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "module.plan", "templateRef": "template://planning/module-plan@1", "materializeAs": "module_plan.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "module.brief", "templateRef": "template://planning/module-brief@1", "materializeAs": "module_brief.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+      { "slot": "module.session.prompt", "templateRef": "template://planning/module-session-prompt@1", "materializeAs": "module_session_prompt.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+    ]
+  }],
+  "defaultProfile": "baseline"
+}
