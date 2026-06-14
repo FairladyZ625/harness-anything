@@ -143,11 +143,79 @@ test("API contract registry covers deferred GUI bridge methods without active ro
   });
 });
 
+test("API contract registry accepts terminal service routes without preload dispatch", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks"],
+      dispatchMethods: ["getTasks"],
+      serviceMethods: ["getTasks"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
+      terminalRoutes: requiredTerminalRoutes()
+    });
+
+    assert.deepEqual(evaluateApiContractRegistry(root), []);
+  });
+});
+
+test("API contract registry rejects terminal routes pointing at missing terminal service methods", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks"],
+      dispatchMethods: ["getTasks"],
+      serviceMethods: ["getTasks"],
+      terminalMethods: ["createSession", "listSessions", "getSession", "attachSession", "resizeSession", "closeSession"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
+      terminalRoutes: requiredTerminalRoutes().map((entry) => entry.id === "terminal.sessions.list"
+        ? { ...entry, serviceMethod: "missingTerminalMethod" }
+        : entry)
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("missing TerminalSessionService.missingTerminalMethod")), true);
+  });
+});
+
+test("API contract registry rejects missing required terminal routes", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks"],
+      dispatchMethods: ["getTasks"],
+      serviceMethods: ["getTasks"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
+      terminalRoutes: requiredTerminalRoutes().filter((entry) => entry.id !== "terminal.sessions.attach")
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("missing required terminal route terminal.sessions.attach")), true);
+  });
+});
+
+test("API contract registry rejects required terminal route path drift", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks"],
+      dispatchMethods: ["getTasks"],
+      serviceMethods: ["getTasks"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })],
+      terminalRoutes: requiredTerminalRoutes().map((entry) => entry.id === "terminal.sessions.get"
+        ? { ...entry, path: "/api/terminal/sessions/:sessionId" }
+        : entry)
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("terminal route terminal.sessions.get path must be /api/terminal/sessions/:id")), true);
+  });
+});
+
 async function withFixtureRepo(fn) {
   const root = await mkdtemp(path.join(tmpdir(), "ha-api-registry-"));
   try {
     mkdirSync(path.join(root, "packages/gui/src/api"), { recursive: true });
     mkdirSync(path.join(root, "packages/gui/src/preload"), { recursive: true });
+    mkdirSync(path.join(root, "packages/gui/src/terminal"), { recursive: true });
     mkdirSync(path.join(root, "packages/application/src"), { recursive: true });
     await fn(root);
   } finally {
@@ -159,11 +227,20 @@ function writeFixture(root, options) {
   const schemaContracts = options.schemaContracts ?? [
     { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
     { id: "application.local-controller-error/v1", owner: "application", typeName: "LocalControllerError" },
-    { id: "application.task-list-result/v1", owner: "application", typeName: "TaskListResult" }
+    { id: "application.task-list-result/v1", owner: "application", typeName: "TaskListResult" },
+    { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
+    { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
+    { id: "terminal.resize-session-payload/v1", owner: "gui", typeName: "ResizeTerminalSessionPayload" },
+    { id: "terminal.session-detail-result/v1", owner: "gui", typeName: "TerminalSessionDetailResult" },
+    { id: "terminal.session-error/v1", owner: "gui", typeName: "TerminalSessionFailure" },
+    { id: "terminal.session-id-payload/v1", owner: "gui", typeName: "TerminalSessionIdPayload" },
+    { id: "terminal.session-list-result/v1", owner: "gui", typeName: "TerminalSessionListResult" }
   ];
   const deferredEntries = options.deferredEntries ?? [];
   const dispatchBranches = options.dispatchBranches
     ?? options.dispatchMethods.map((method) => ({ method, serviceMethod: method }));
+  const terminalRoutes = options.terminalRoutes ?? requiredTerminalRoutes();
+  const terminalMethods = options.terminalMethods ?? [...new Set(terminalRoutes.map((entry) => entry.serviceMethod))];
   writeFileSync(path.join(root, "packages/gui/src/api/api-contract-registry.ts"), [
     "export interface EmptyGuiPayload {}",
     "export const apiSchemaContracts = [",
@@ -171,6 +248,7 @@ function writeFixture(root, options) {
     "] as const;",
     "export const apiRouteContracts = [",
     ...options.registryEntries.map((entry) => `  ${JSON.stringify(entry)},`),
+    ...terminalRoutes.map((entry) => `  ${JSON.stringify(entry)},`),
     "] as const;",
     "export const deferredGuiBridgeContracts = [",
     ...deferredEntries.map((entry) => `  ${JSON.stringify(entry)},`),
@@ -199,6 +277,15 @@ function writeFixture(root, options) {
     "}",
     ""
   ].join("\n"), "utf8");
+  writeFileSync(path.join(root, "packages/gui/src/terminal/session-registry.ts"), [
+    ...schemaContracts
+      .filter((entry) => entry.owner === "gui" && entry.typeName !== "EmptyGuiPayload")
+      .map((entry) => `export interface ${entry.typeName} {}`),
+    "export interface TerminalSessionService {",
+    ...terminalMethods.map((method) => `  readonly ${method}: () => unknown;`),
+    "}",
+    ""
+  ].join("\n"), "utf8");
 }
 
 function route(overrides = {}) {
@@ -215,4 +302,72 @@ function route(overrides = {}) {
     guiBridgeMethod: "getTasks",
     ...overrides
   };
+}
+
+function terminalRoute(overrides = {}) {
+  return {
+    id: "terminal.sessions.list",
+    method: "GET",
+    path: "/api/terminal/sessions",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "terminal.session-list-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "listSessions",
+    auth: "local-session-token",
+    ...overrides
+  };
+}
+
+function requiredTerminalRoutes() {
+  return [
+    terminalRoute({
+      id: "terminal.sessions.create",
+      method: "POST",
+      path: "/api/terminal/sessions",
+      inputSchemaId: "terminal.create-session-payload/v1",
+      outputSchemaId: "terminal.session-detail-result/v1",
+      serviceMethod: "createSession"
+    }),
+    terminalRoute({
+      id: "terminal.sessions.list",
+      method: "GET",
+      path: "/api/terminal/sessions",
+      inputSchemaId: "gui.empty/v1",
+      outputSchemaId: "terminal.session-list-result/v1",
+      serviceMethod: "listSessions"
+    }),
+    terminalRoute({
+      id: "terminal.sessions.get",
+      method: "GET",
+      path: "/api/terminal/sessions/:id",
+      inputSchemaId: "terminal.session-id-payload/v1",
+      outputSchemaId: "terminal.session-detail-result/v1",
+      serviceMethod: "getSession"
+    }),
+    terminalRoute({
+      id: "terminal.sessions.attach",
+      method: "WS",
+      path: "/api/terminal/sessions/:id/attach",
+      inputSchemaId: "terminal.session-id-payload/v1",
+      outputSchemaId: "terminal.attach-policy-result/v1",
+      serviceMethod: "attachSession"
+    }),
+    terminalRoute({
+      id: "terminal.sessions.resize",
+      method: "POST",
+      path: "/api/terminal/sessions/:id/resize",
+      inputSchemaId: "terminal.resize-session-payload/v1",
+      outputSchemaId: "terminal.session-detail-result/v1",
+      serviceMethod: "resizeSession"
+    }),
+    terminalRoute({
+      id: "terminal.sessions.close",
+      method: "DELETE",
+      path: "/api/terminal/sessions/:id",
+      inputSchemaId: "terminal.session-id-payload/v1",
+      outputSchemaId: "terminal.session-detail-result/v1",
+      serviceMethod: "closeSession"
+    })
+  ];
 }

@@ -9,8 +9,18 @@ const defaults = {
   registryPath: "packages/gui/src/api/api-contract-registry.ts",
   allowlistPath: "packages/gui/src/preload/allowlist.ts",
   bridgePath: "packages/gui/src/api/service-bridge.ts",
-  applicationPath: "packages/application/src/index.ts"
+  applicationPath: "packages/application/src/index.ts",
+  terminalPath: "packages/gui/src/terminal/session-registry.ts"
 };
+const supportedServices = new Set(["LocalControllerService", "TerminalSessionService"]);
+const requiredTerminalRoutes = [
+  { id: "terminal.sessions.create", method: "POST", path: "/api/terminal/sessions", serviceMethod: "createSession" },
+  { id: "terminal.sessions.list", method: "GET", path: "/api/terminal/sessions", serviceMethod: "listSessions" },
+  { id: "terminal.sessions.get", method: "GET", path: "/api/terminal/sessions/:id", serviceMethod: "getSession" },
+  { id: "terminal.sessions.attach", method: "WS", path: "/api/terminal/sessions/:id/attach", serviceMethod: "attachSession" },
+  { id: "terminal.sessions.resize", method: "POST", path: "/api/terminal/sessions/:id/resize", serviceMethod: "resizeSession" },
+  { id: "terminal.sessions.close", method: "DELETE", path: "/api/terminal/sessions/:id", serviceMethod: "closeSession" }
+];
 const validMethods = new Set(["GET", "POST", "PUT", "DELETE", "WS"]);
 const validAuthModes = new Set(["local-session-token", "ssh-tunnel-local-token", "none"]);
 const requiredFields = [
@@ -21,8 +31,7 @@ const requiredFields = [
   "errorSchemaId",
   "service",
   "serviceMethod",
-  "auth",
-  "guiBridgeMethod"
+  "auth"
 ];
 const schemaIdPattern = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*\/v[1-9][0-9]*$/u;
 
@@ -36,15 +45,24 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const dispatchBranches = collectDispatchBranches(root, paths.bridgePath, violations);
   const applicationDeclarations = collectTypeDeclarations(root, paths.applicationPath, violations);
   const registryDeclarations = collectTypeDeclarations(root, paths.registryPath, violations);
-  const serviceMethods = collectLocalControllerServiceMethods(root, paths.applicationPath, violations);
+  const terminalDeclarations = collectTypeDeclarations(root, paths.terminalPath, violations);
+  const guiDeclarations = new Set([...registryDeclarations, ...terminalDeclarations]);
+  const localControllerMethods = collectInterfaceMethods(root, paths.applicationPath, "LocalControllerService", violations);
+  const terminalSessionMethods = collectInterfaceMethods(root, paths.terminalPath, "TerminalSessionService", violations);
+  const serviceMethods = new Map([
+    ["LocalControllerService", localControllerMethods],
+    ["TerminalSessionService", terminalSessionMethods]
+  ]);
+  if (localControllerMethods.size === 0) violations.push(`${paths.applicationPath}: missing LocalControllerService methods`);
   const coveredBridgeMethods = new Set([
     ...registry.map((entry) => entry.guiBridgeMethod).filter(Boolean),
     ...deferredContracts.map((entry) => entry.guiBridgeMethod).filter(Boolean)
   ]);
 
-  inspectSchemaContracts(schemaContracts, applicationDeclarations, registryDeclarations, paths.registryPath, violations);
+  inspectSchemaContracts(schemaContracts, applicationDeclarations, guiDeclarations, paths.registryPath, violations);
   inspectRegistryEntries(registry, schemaContracts, serviceMethods, preloadMethods, paths.registryPath, violations);
-  inspectDeferredContracts(deferredContracts, registry, serviceMethods, preloadMethods, paths.registryPath, violations);
+  inspectRequiredTerminalRoutes(registry, paths.registryPath, violations);
+  inspectDeferredContracts(deferredContracts, registry, localControllerMethods, preloadMethods, paths.registryPath, violations);
   inspectDispatchBranches([...registry, ...deferredContracts], dispatchBranches, paths.bridgePath, violations);
   compareSets(preloadMethods, coveredBridgeMethods, {
     leftName: "preload allowlist",
@@ -60,6 +78,25 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   });
 
   return violations;
+}
+
+function inspectRequiredTerminalRoutes(entries, relativePath, violations) {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  for (const required of requiredTerminalRoutes) {
+    const entry = byId.get(required.id);
+    if (!entry) {
+      violations.push(`${relativePath}: missing required terminal route ${required.id}`);
+      continue;
+    }
+    for (const field of ["method", "path", "serviceMethod"]) {
+      if (entry[field] !== required[field]) {
+        violations.push(`${relativePath}: terminal route ${required.id} ${field} must be ${required[field]}`);
+      }
+    }
+    if (entry.service !== "TerminalSessionService") {
+      violations.push(`${relativePath}: terminal route ${required.id} service must be TerminalSessionService`);
+    }
+  }
 }
 
 function collectApiSchemaContracts(root, relativePath, violations) {
@@ -140,13 +177,13 @@ function collectTypeDeclarations(root, relativePath, violations) {
   return declarations;
 }
 
-function collectLocalControllerServiceMethods(root, relativePath, violations) {
+function collectInterfaceMethods(root, relativePath, interfaceName, violations) {
   const source = readSource(root, relativePath, violations);
   if (!source) return new Set();
   const methods = new Set();
 
   function visit(node) {
-    if (ts.isInterfaceDeclaration(node) && node.name.text === "LocalControllerService") {
+    if (ts.isInterfaceDeclaration(node) && node.name.text === interfaceName) {
       for (const member of node.members) {
         if (ts.isPropertySignature(member) && ts.isIdentifier(member.name)) methods.add(member.name.text);
       }
@@ -155,7 +192,6 @@ function collectLocalControllerServiceMethods(root, relativePath, violations) {
   }
 
   visit(source.file);
-  if (methods.size === 0) violations.push(`${relativePath}: missing LocalControllerService methods`);
   return methods;
 }
 
@@ -202,11 +238,18 @@ function inspectRegistryEntries(entries, schemaContracts, serviceMethods, preloa
       if (entry[field] && !schemaIdPattern.test(entry[field])) violations.push(`${relativePath}: ${label} has malformed ${field} ${entry[field]}`);
       if (entry[field] && !schemaIds.has(entry[field])) violations.push(`${relativePath}: ${label} ${field} ${entry[field]} is not registered in apiSchemaContracts`);
     }
-    if (entry.service && entry.service !== "LocalControllerService") {
+    if (entry.service && !supportedServices.has(entry.service)) {
       violations.push(`${relativePath}: ${label} unsupported service ${entry.service}`);
     }
-    if (entry.serviceMethod && !serviceMethods.has(entry.serviceMethod)) {
-      violations.push(`${relativePath}: ${label} points to missing LocalControllerService.${entry.serviceMethod}`);
+    const methodSet = serviceMethods.get(entry.service);
+    if (entry.service && entry.serviceMethod && (!methodSet || !methodSet.has(entry.serviceMethod))) {
+      violations.push(`${relativePath}: ${label} points to missing ${entry.service}.${entry.serviceMethod}`);
+    }
+    if (entry.service === "LocalControllerService" && !entry.guiBridgeMethod) {
+      violations.push(`${relativePath}: ${label} LocalControllerService route missing guiBridgeMethod`);
+    }
+    if (entry.service === "TerminalSessionService" && entry.guiBridgeMethod) {
+      violations.push(`${relativePath}: ${label} TerminalSessionService route must not declare guiBridgeMethod`);
     }
     if (entry.guiBridgeMethod && !preloadMethods.has(entry.guiBridgeMethod)) {
       violations.push(`${relativePath}: ${label} guiBridgeMethod ${entry.guiBridgeMethod} is not in preload allowlist`);

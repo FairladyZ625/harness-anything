@@ -1,8 +1,11 @@
 import type { LocalControllerService } from "../../../application/src/index.ts";
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
+import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";
+export type ApiServiceName = "LocalControllerService" | "TerminalSessionService";
+export type ApiServiceMethod = keyof LocalControllerService | keyof TerminalSessionService;
 
 export interface ApiRouteContract {
   readonly id: string;
@@ -11,10 +14,10 @@ export interface ApiRouteContract {
   readonly inputSchemaId: string;
   readonly outputSchemaId?: string;
   readonly errorSchemaId: string;
-  readonly service: "LocalControllerService";
-  readonly serviceMethod: keyof LocalControllerService;
+  readonly service: ApiServiceName;
+  readonly serviceMethod: ApiServiceMethod;
   readonly auth: ApiRouteAuth;
-  readonly guiBridgeMethod: PreloadApiMethod;
+  readonly guiBridgeMethod?: PreloadApiMethod;
 }
 
 export interface ApiSchemaContract {
@@ -44,7 +47,14 @@ export const apiSchemaContracts = [
   { id: "application.task-document-payload/v1", owner: "application", typeName: "TaskDocumentPayload" },
   { id: "application.task-document-result/v1", owner: "application", typeName: "TaskDocumentResult" },
   { id: "application.task-id-payload/v1", owner: "application", typeName: "TaskIdPayload" },
-  { id: "application.task-list-result/v1", owner: "application", typeName: "TaskListResult" }
+  { id: "application.task-list-result/v1", owner: "application", typeName: "TaskListResult" },
+  { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
+  { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
+  { id: "terminal.resize-session-payload/v1", owner: "gui", typeName: "ResizeTerminalSessionPayload" },
+  { id: "terminal.session-detail-result/v1", owner: "gui", typeName: "TerminalSessionDetailResult" },
+  { id: "terminal.session-error/v1", owner: "gui", typeName: "TerminalSessionFailure" },
+  { id: "terminal.session-id-payload/v1", owner: "gui", typeName: "TerminalSessionIdPayload" },
+  { id: "terminal.session-list-result/v1", owner: "gui", typeName: "TerminalSessionListResult" }
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
 export const apiRouteContracts = [
@@ -131,6 +141,72 @@ export const apiRouteContracts = [
     serviceMethod: "rebuildGovernance",
     auth: "local-session-token",
     guiBridgeMethod: "rebuildGovernance"
+  },
+  {
+    id: "terminal.sessions.create",
+    method: "POST",
+    path: "/api/terminal/sessions",
+    inputSchemaId: "terminal.create-session-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "createSession",
+    auth: "local-session-token"
+  },
+  {
+    id: "terminal.sessions.list",
+    method: "GET",
+    path: "/api/terminal/sessions",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "terminal.session-list-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "listSessions",
+    auth: "local-session-token"
+  },
+  {
+    id: "terminal.sessions.get",
+    method: "GET",
+    path: "/api/terminal/sessions/:id",
+    inputSchemaId: "terminal.session-id-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "getSession",
+    auth: "local-session-token"
+  },
+  {
+    id: "terminal.sessions.attach",
+    method: "WS",
+    path: "/api/terminal/sessions/:id/attach",
+    inputSchemaId: "terminal.session-id-payload/v1",
+    outputSchemaId: "terminal.attach-policy-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "attachSession",
+    auth: "local-session-token"
+  },
+  {
+    id: "terminal.sessions.resize",
+    method: "POST",
+    path: "/api/terminal/sessions/:id/resize",
+    inputSchemaId: "terminal.resize-session-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "resizeSession",
+    auth: "local-session-token"
+  },
+  {
+    id: "terminal.sessions.close",
+    method: "DELETE",
+    path: "/api/terminal/sessions/:id",
+    inputSchemaId: "terminal.session-id-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "closeSession",
+    auth: "local-session-token"
   }
 ] as const satisfies ReadonlyArray<ApiRouteContract>;
 
@@ -145,6 +221,6 @@ export const deferredGuiBridgeContracts = [
     guiBridgeMethod: "openShell",
     service: "LocalControllerService",
     serviceMethod: "openShell",
-    reason: "Shell opening is display-only GUI policy until M25GUI-P03 defines terminal session routes and metadata."
+    reason: "Legacy shell button remains a display-only GUI policy placeholder; terminal sessions use explicit terminal route contracts."
   }
 ] as const satisfies ReadonlyArray<DeferredGuiBridgeContract>;
