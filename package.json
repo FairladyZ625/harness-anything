@@ -43,7 +43,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "effect": "3.21.2"
+    "effect": "3.21.3"
   },
   "overrides": {
     "esbuild": "0.28.1"
