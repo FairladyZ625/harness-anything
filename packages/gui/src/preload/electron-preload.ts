@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   HARNESS_PRELOAD_API,
   assertPreloadPayload,
+  preloadApiCapabilities,
   preloadAllowlist,
   type PreloadApiMethod
 } from "./allowlist.ts";
@@ -14,4 +15,9 @@ const exposedApi = Object.fromEntries(preloadAllowlist.map((method) => [
   }
 ])) as Record<PreloadApiMethod, (payload?: unknown) => Promise<unknown>>;
 
-contextBridge.exposeInMainWorld(HARNESS_PRELOAD_API, exposedApi);
+const exposedHarnessApi = {
+  ...exposedApi,
+  capabilities: preloadApiCapabilities
+};
+
+contextBridge.exposeInMainWorld(HARNESS_PRELOAD_API, exposedHarnessApi);

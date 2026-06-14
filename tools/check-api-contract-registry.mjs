@@ -42,6 +42,7 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const schemaContracts = collectApiSchemaContracts(root, paths.registryPath, violations);
   const deferredContracts = collectDeferredGuiBridgeContracts(root, paths.registryPath, violations);
   const preloadMethods = collectPreloadMethods(root, paths.allowlistPath, violations);
+  const preloadCapabilities = collectPreloadCapabilities(root, paths.allowlistPath, violations);
   const dispatchBranches = collectDispatchBranches(root, paths.bridgePath, violations);
   const applicationDeclarations = collectTypeDeclarations(root, paths.applicationPath, violations);
   const registryDeclarations = collectTypeDeclarations(root, paths.registryPath, violations);
@@ -59,10 +60,16 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
     ...deferredContracts.map((entry) => entry.guiBridgeMethod).filter(Boolean)
   ]);
 
+  compareSets(preloadMethods, new Set(preloadCapabilities.keys()), {
+    leftName: "preload allowlist",
+    rightName: "preload capability metadata",
+    filePath: paths.allowlistPath,
+    violations
+  });
   inspectSchemaContracts(schemaContracts, applicationDeclarations, guiDeclarations, paths.registryPath, violations);
-  inspectRegistryEntries(registry, schemaContracts, serviceMethods, preloadMethods, paths.registryPath, violations);
+  inspectRegistryEntries(registry, schemaContracts, serviceMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectRequiredTerminalRoutes(registry, paths.registryPath, violations);
-  inspectDeferredContracts(deferredContracts, registry, localControllerMethods, preloadMethods, paths.registryPath, violations);
+  inspectDeferredContracts(deferredContracts, registry, localControllerMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectDispatchBranches([...registry, ...deferredContracts], dispatchBranches, paths.bridgePath, violations);
   compareSets(preloadMethods, coveredBridgeMethods, {
     leftName: "preload allowlist",
@@ -143,6 +150,36 @@ function collectPreloadMethods(root, relativePath, violations) {
   return new Set(stripAsExpression(initializer).properties.map((property) => propertyName(property.name, source.file)).filter(Boolean));
 }
 
+function collectPreloadCapabilities(root, relativePath, violations) {
+  const source = readSource(root, relativePath, violations);
+  if (!source) return new Map();
+  const initializer = findVariableInitializer(source.file, "preloadApiCapabilities");
+  if (!initializer || !ts.isObjectLiteralExpression(stripAsExpression(initializer))) {
+    violations.push(`${relativePath}: missing preloadApiCapabilities object literal`);
+    return new Map();
+  }
+  const capabilities = new Map();
+  for (const property of stripAsExpression(initializer).properties) {
+    const method = propertyName(property.name, source.file);
+    if (!method || !ts.isPropertyAssignment(property) || !ts.isObjectLiteralExpression(stripAsExpression(property.initializer))) {
+      violations.push(`${relativePath}: preloadApiCapabilities entries must be object literals`);
+      continue;
+    }
+    const capability = readStringObject(stripAsExpression(property.initializer), source.file);
+    capabilities.set(method, capability);
+    if (capability.method !== method) {
+      violations.push(`${relativePath}: preload capability ${method} method must equal ${method}`);
+    }
+    if (!["shipped", "deferred"].includes(capability.status)) {
+      violations.push(`${relativePath}: preload capability ${method} status must be shipped or deferred`);
+    }
+    if (capability.status === "deferred" && !capability.reason) {
+      violations.push(`${relativePath}: preload capability ${method} deferred status requires reason`);
+    }
+  }
+  return capabilities;
+}
+
 function collectDispatchBranches(root, relativePath, violations) {
   const source = readSource(root, relativePath, violations);
   if (!source) return new Map();
@@ -215,7 +252,7 @@ function inspectSchemaContracts(schemaContracts, applicationDeclarations, regist
   }
 }
 
-function inspectRegistryEntries(entries, schemaContracts, serviceMethods, preloadMethods, relativePath, violations) {
+function inspectRegistryEntries(entries, schemaContracts, serviceMethods, preloadMethods, preloadCapabilities, relativePath, violations) {
   const ids = new Set();
   const methodPaths = new Set();
   const schemaIds = new Set(schemaContracts.map((entry) => entry.id));
@@ -254,10 +291,13 @@ function inspectRegistryEntries(entries, schemaContracts, serviceMethods, preloa
     if (entry.guiBridgeMethod && !preloadMethods.has(entry.guiBridgeMethod)) {
       violations.push(`${relativePath}: ${label} guiBridgeMethod ${entry.guiBridgeMethod} is not in preload allowlist`);
     }
+    if (entry.guiBridgeMethod && preloadCapabilities.get(entry.guiBridgeMethod)?.status !== "shipped") {
+      violations.push(`${relativePath}: ${label} guiBridgeMethod ${entry.guiBridgeMethod} must be marked shipped in preload capabilities`);
+    }
   }
 }
 
-function inspectDeferredContracts(deferredContracts, routeContracts, serviceMethods, preloadMethods, relativePath, violations) {
+function inspectDeferredContracts(deferredContracts, routeContracts, serviceMethods, preloadMethods, preloadCapabilities, relativePath, violations) {
   const activeMethods = new Set(routeContracts.map((entry) => entry.guiBridgeMethod));
   const deferredMethods = new Set();
   for (const entry of deferredContracts) {
@@ -280,6 +320,9 @@ function inspectDeferredContracts(deferredContracts, routeContracts, serviceMeth
     }
     if (entry.guiBridgeMethod && !preloadMethods.has(entry.guiBridgeMethod)) {
       violations.push(`${relativePath}: ${label} is not in preload allowlist`);
+    }
+    if (entry.guiBridgeMethod && preloadCapabilities.get(entry.guiBridgeMethod)?.status !== "deferred") {
+      violations.push(`${relativePath}: ${label} must be marked deferred in preload capabilities`);
     }
   }
 }
