@@ -1,0 +1,11 @@
+{
+  "presets": [
+    "standard-task",
+    "module",
+    "legacy-migration",
+    "lesson-sedimentation",
+    "version-upgrade",
+    "publish-standard",
+    "release-closeout"
+  ]
+}

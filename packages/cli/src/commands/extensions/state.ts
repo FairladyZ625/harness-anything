@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import {
@@ -9,13 +10,14 @@ import {
   type ExtensionValidationIssue,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/layout/index.ts";
 import type { CliResult } from "../../cli/types.ts";
 import {
-  bundledSoftwareCodingTemplateCatalog,
-  bundledSoftwareCodingVerticalDefinition,
-  bundledTaskTemplateSelections
+  bundledTemplateCatalog,
+  bundledVerticalDefinition,
+  loadBundledPresetManifestEntries
 } from "./bundled.ts";
+import { isPathInside, listGeneratedFiles, resolveDeclaredWriteScopes } from "./script-scope.ts";
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 
@@ -47,16 +49,6 @@ interface ModuleRecord {
   readonly steps: ReadonlyArray<{ readonly id: string; readonly state: string }>;
 }
 
-const bundledPresetIds = [
-  "standard-task",
-  "module",
-  "legacy-migration",
-  "lesson-sedimentation",
-  "version-upgrade",
-  "publish-standard",
-  "release-closeout"
-] as const;
-
 const reservedMaterializedPaths = new Set(["INDEX.md", "module.md", "relations.json", "relations.md"]);
 
 export function isInvalidPreset(entry: PresetResolutionEntry): entry is InvalidPreset {
@@ -69,8 +61,8 @@ export function isResolvedPreset(entry: PresetResolutionEntry): entry is Resolve
 
 export function discoverPresetEntries(rootDir: string): ReadonlyArray<PresetResolutionEntry> {
   const byId = new Map<string, PresetResolutionEntry>();
-  for (const manifest of bundledPresetManifests()) {
-    byId.set(manifest.id, { manifest, layer: "builtin", sourcePath: `builtin:${manifest.id}` });
+  for (const entry of loadBundledPresetManifestEntries()) {
+    byId.set(entry.manifest.id, { manifest: entry.manifest, layer: "builtin", sourcePath: entry.sourcePath });
   }
   for (const layer of ["user", "project"] as const) {
     for (const preset of readLayerPresetEntries(rootDir, layer)) {
@@ -99,8 +91,10 @@ export function publicPresetSummary(preset: ResolvedPreset): Record<string, unkn
     id: preset.manifest.id,
     title: preset.manifest.title,
     version: preset.manifest.version,
+    kind: preset.manifest.kind ?? "template-content",
     vertical: preset.manifest.vertical,
     defaultProfile: preset.manifest.defaultProfile,
+    entrypoints: Object.keys(preset.manifest.entrypoints ?? {}).sort(),
     layer: preset.layer,
     sourcePath: safePresetSourcePath(preset.sourcePath),
     valid: validation.ok,
@@ -156,31 +150,8 @@ function readLayerPresetEntries(rootDir: string, layer: "project" | "user"): Rea
     });
 }
 
-export function bundledPresetManifests(): ReadonlyArray<PresetManifest> {
-  return bundledPresetIds.map((id): PresetManifest => ({
-    schema: "preset-manifest/v1",
-    id,
-    title: titleizePresetId(id),
-    vertical: "software/coding",
-    version: "1.0.0",
-    kernelVersionRange: {
-      min: "1.0.0",
-      maxExclusive: "2.0.0"
-    },
-    capabilityImports: [{
-      id: `${id}-check`,
-      kind: "checker",
-      version: "1",
-      required: false
-    }],
-    profiles: [{
-      id: "baseline",
-      title: "Baseline",
-      checkerProfile: "standard",
-      templateSelections: bundledTemplateSelectionsForPreset(id)
-    }],
-    defaultProfile: "baseline"
-  }));
+export function loadBundledPresetManifests(): ReadonlyArray<PresetManifest> {
+  return loadBundledPresetManifestEntries().map((entry) => entry.manifest);
 }
 
 export function validatePresetManifestForUse(manifest: PresetManifest): {
@@ -227,7 +198,7 @@ export function materializePresetTaskDocuments(
     return { ok: false, profile, documents: [], issues: validation.issues };
   }
   const materialized = planTemplateMaterialization({
-    catalog: bundledSoftwareCodingTemplateCatalog,
+    catalog: requireBundledTemplateCatalog(),
     locale: options.locale,
     selections: combineVerticalAndPresetSelections(profile.templateSelections)
   });
@@ -237,10 +208,6 @@ export function materializePresetTaskDocuments(
     documents: materialized.documents,
     issues: materialized.issues
   };
-}
-
-function titleizePresetId(id: string): string {
-  return id.split("-").map((part) => part.length > 0 ? `${part[0]?.toUpperCase()}${part.slice(1)}` : part).join(" ");
 }
 
 export function readPresetManifestFromSource(sourcePath: string): PresetManifest {
@@ -296,7 +263,7 @@ export function presetManifestPath(rootDir: string, layer: "project" | "user", p
 export function runPresetEntrypoint(
   rootDir: string,
   presetId: string,
-  entrypoint: "plan" | "scaffold" | "check",
+  entrypoint: string,
   taskId: string,
   commandName: "preset-run" | "preset-action"
 ): CliResult {
@@ -325,11 +292,23 @@ export function runPresetEntrypoint(
   const evidenceDir = path.join(resolveHarnessLayout(rootDir).localRoot, "evidence", "presets", presetId, timestampForPath());
   mkdirSync(evidenceDir, { recursive: true });
   const generated: string[] = [];
-  if (entrypoint === "scaffold") {
+  const declaredEntrypoint = preset.manifest.entrypoints?.[entrypoint];
+  if (declaredEntrypoint?.type === "script") {
+    const scriptResult = runScriptEntrypoint(rootDir, preset, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName);
+    if (!scriptResult.ok) return scriptResult.result;
+    generated.push(...scriptResult.generated);
+  } else if (preset.manifest.schema === "preset-manifest/v1" && entrypoint === "scaffold") {
     const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
     mkdirSync(path.dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, `# ${preset.manifest.title}\n\nTask: ${taskId}\n`, "utf8");
     generated.push(path.relative(rootDir, outputPath).split(path.sep).join("/"));
+  } else {
+    return {
+      ok: false,
+      command: commandName,
+      preset: publicPresetSummary(preset),
+      error: { code: "preset_action_forbidden", hint: `Preset ${presetId} does not declare action ${entrypoint}.` }
+    };
   }
   const evidence = {
     schema: "preset-evidence/v1",
@@ -346,8 +325,121 @@ export function runPresetEntrypoint(
     command: commandName,
     preset: publicPresetSummary(preset),
     evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
+    generated,
     report: evidence
   };
+}
+
+function runScriptEntrypoint(
+  rootDir: string,
+  preset: ResolvedPreset,
+  entrypoint: Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>,
+  entrypointName: string,
+  taskId: string,
+  evidenceDir: string,
+  commandName: "preset-run" | "preset-action"
+): { readonly ok: true; readonly generated: ReadonlyArray<string> } | { readonly ok: false; readonly result: CliResult } {
+  const presetRoot = path.dirname(preset.sourcePath);
+  const scriptPath = path.resolve(presetRoot, entrypoint.command);
+  if (!isPathInside(presetRoot, scriptPath) || !existsSync(scriptPath)) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        command: commandName,
+        preset: publicPresetSummary(preset),
+        error: { code: "preset_script_not_found", hint: "Preset script entrypoint was not found inside the preset package." }
+      }
+    };
+  }
+  const layout = resolveHarnessLayout(rootDir);
+  const outputRoot = taskPackagePath(rootDir, taskId);
+  const writeScope = resolveDeclaredWriteScopes(entrypoint.writes, layout, outputRoot);
+  if (!writeScope.ok || !writeScope.roots.some((allowedRoot) => isPathInside(allowedRoot, outputRoot))) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        command: commandName,
+        preset: publicPresetSummary(preset),
+        error: { code: "preset_write_scope_invalid", hint: "Preset script writes must declare a supported scope that covers the generated output root." }
+      }
+    };
+  }
+  mkdirSync(outputRoot, { recursive: true });
+  const contextPath = path.join(evidenceDir, "context.json");
+  writeFileSync(contextPath, JSON.stringify({
+    schema: "preset-context/v1",
+    presetId: preset.manifest.id,
+    presetTitle: preset.manifest.title,
+    entrypoint: entrypointName,
+    taskId,
+    paths: {
+      rootDir: layout.rootDir,
+      authoredRoot: layout.authoredRoot,
+      tasksRoot: layout.tasksRoot,
+      generatedRoot: layout.generatedRoot,
+      localRoot: layout.localRoot
+    },
+    writeScopes: writeScope.roots,
+    outputRoot
+  }, null, 2), "utf8");
+  const beforeFiles = new Set(listGeneratedFiles(outputRoot));
+  const result = spawnSync(process.execPath, [
+    "--permission",
+    ...uniquePermissionPaths([presetRoot, realpathSync(presetRoot), contextPath, realpathSync(contextPath)]).map((allowedPath) => `--allow-fs-read=${allowedPath}`),
+    ...uniquePermissionPaths([...writeScope.roots, ...writeScope.roots.map((allowedPath) => realpathSync(allowedPath))]).map((allowedPath) => `--allow-fs-write=${allowedPath}`),
+    scriptPath
+  ], {
+    cwd: presetRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HARNESS_PRESET_CONTEXT: contextPath
+    }
+  });
+  writeFileSync(path.join(evidenceDir, "stdout.txt"), result.stdout ?? "", "utf8");
+  writeFileSync(path.join(evidenceDir, "stderr.txt"), result.stderr ?? "", "utf8");
+  if (result.status !== 0) {
+    const accessDenied = `${result.stderr ?? ""}\n${result.stdout ?? ""}`.includes("ERR_ACCESS_DENIED");
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        command: commandName,
+        preset: publicPresetSummary(preset),
+        evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
+        error: accessDenied
+          ? { code: "preset_write_scope_violation", hint: "Preset script attempted filesystem access outside its declared permission scope." }
+          : { code: "preset_script_failed", hint: `Preset script exited with status ${result.status ?? "unknown"}.` }
+      }
+    };
+  }
+  const generatedFiles = listGeneratedFiles(outputRoot);
+  const outOfScope = generatedFiles.filter((filePath) => !writeScope.roots.some((allowedRoot) => isPathInside(allowedRoot, filePath)));
+  if (outOfScope.length > 0) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        command: commandName,
+        preset: publicPresetSummary(preset),
+        evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
+        generated: generatedFiles.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
+        error: { code: "preset_write_scope_violation", hint: "Preset script produced files outside its declared write scopes." }
+      }
+    };
+  }
+  return {
+    ok: true,
+    generated: generatedFiles
+      .filter((filePath) => !beforeFiles.has(filePath))
+      .map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/"))
+  };
+}
+
+function uniquePermissionPaths(paths: ReadonlyArray<string>): ReadonlyArray<string> {
+  return [...new Set(paths.map((candidate) => path.resolve(candidate)))];
 }
 
 export function readModules(rootDir: string): ModuleRegistry {
@@ -412,26 +504,21 @@ function timestampForPath(now: Date = new Date()): string {
   return now.toISOString().replace(/[:.]/gu, "-");
 }
 
-function bundledTemplateSelectionsForPreset(id: typeof bundledPresetIds[number]): PresetManifest["profiles"][number]["templateSelections"] {
-  if (id === "standard-task" || id === "module") {
-    return bundledTaskTemplateSelections();
-  }
-  return [];
-}
-
 function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): ReadonlyArray<ExtensionValidationIssue> {
   const issues: ExtensionValidationIssue[] = [];
-  if (manifest.vertical !== bundledSoftwareCodingVerticalDefinition.id) {
+  const vertical = requireBundledVerticalDefinition();
+  const catalog = requireBundledTemplateCatalog();
+  if (manifest.vertical !== vertical.id) {
     issues.push(extensionIssue("custom_vertical_forbidden", "P08 only allows software/coding preset overrides; custom vertical exposure is gated by P10/P11.", "vertical"));
   }
 
-  const requiredBySlot = new Map(bundledSoftwareCodingVerticalDefinition.templateSelections.map((selection) => [selection.slot, selection]));
-  const requiredByPath = new Map(bundledSoftwareCodingVerticalDefinition.templateSelections.map((selection) => [selection.materializeAs, selection]));
+  const requiredBySlot = new Map(vertical.templateSelections.map((selection) => [selection.slot, selection]));
+  const requiredByPath = new Map(vertical.templateSelections.map((selection) => [selection.materializeAs, selection]));
 
   for (const [profileIndex, profile] of manifest.profiles.entries()) {
     const materializedPaths = new Set<string>();
     const materialized = planTemplateMaterialization({
-      catalog: bundledSoftwareCodingTemplateCatalog,
+      catalog,
       locale: "zh-CN",
       selections: profile.templateSelections
     });
@@ -469,7 +556,7 @@ function combineVerticalAndPresetSelections(
   presetSelections: ReadonlyArray<PresetManifest["profiles"][number]["templateSelections"][number]>
 ): PresetManifest["profiles"][number]["templateSelections"] {
   const byPath = new Map<string, PresetManifest["profiles"][number]["templateSelections"][number]>();
-  for (const selection of bundledSoftwareCodingVerticalDefinition.templateSelections) {
+  for (const selection of requireBundledVerticalDefinition().templateSelections) {
     byPath.set(selection.materializeAs, selection);
   }
   for (const selection of presetSelections) {
@@ -478,6 +565,18 @@ function combineVerticalAndPresetSelections(
     byPath.set(selection.materializeAs, selection);
   }
   return [...byPath.values()];
+}
+
+function requireBundledTemplateCatalog() {
+  const catalog = bundledTemplateCatalog();
+  if (!catalog) throw new Error("bundled template catalog missing");
+  return catalog;
+}
+
+function requireBundledVerticalDefinition() {
+  const vertical = bundledVerticalDefinition();
+  if (!vertical) throw new Error("bundled vertical definition missing");
+  return vertical;
 }
 
 function extensionIssue(code: ExtensionValidationIssue["code"], message: string, pathValue: string): ExtensionValidationIssue {

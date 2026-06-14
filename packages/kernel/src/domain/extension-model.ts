@@ -293,10 +293,11 @@ function validateTemplateCatalogShape(input: unknown, path: string, issues: Exte
 }
 
 function validatePresetManifestShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "extends", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile"], issues);
+  validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "kind", "extends", "kernelVersionRange", "capabilityImports", "entrypoints", "profiles", "defaultProfile"], issues);
   if (!isRecord(input)) return;
   validateObjectKeys(input.kernelVersionRange, `${path}.kernelVersionRange`, ["min", "maxExclusive"], issues);
   validateCapabilityImportsShape(input.capabilityImports, `${path}.capabilityImports`, issues, ["id", "kind", "version", "required"]);
+  validatePresetEntrypointsShape(input.entrypoints, `${path}.entrypoints`, issues);
   if (Array.isArray(input.profiles)) {
     for (const [index, profile] of input.profiles.entries()) {
       const profilePath = `${path}.profiles[${index}]`;
@@ -306,6 +307,24 @@ function validatePresetManifestShape(input: unknown, path: string, issues: Exten
         validateCapabilityImportsShape(profile.capabilityImports, `${profilePath}.capabilityImports`, issues, ["id", "version"]);
       }
     }
+  }
+}
+
+function validatePresetEntrypointsShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
+  if (input === undefined) return;
+  if (!isRecord(input)) return;
+  for (const [entrypointName, entrypoint] of Object.entries(input)) {
+    const entrypointPath = `${path}.${entrypointName}`;
+    if (!isRecord(entrypoint)) continue;
+    if (entrypoint.type === "script") {
+      validateObjectKeys(entrypoint, entrypointPath, ["type", "command", "writes", "inputs"], issues);
+      continue;
+    }
+    if (entrypoint.type === "template") {
+      validateObjectKeys(entrypoint, entrypointPath, ["type", "writes", "templates"], issues);
+      continue;
+    }
+    validateObjectKeys(entrypoint, entrypointPath, ["type"], issues);
   }
 }
 

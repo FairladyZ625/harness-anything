@@ -6,6 +6,7 @@ import { parseArgs } from "../src/cli/parse-args.ts";
 import { parserRegistry } from "../src/cli/parser-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { extensionActionKinds, extensionExecutorGroups, isExtensionAction } from "../src/commands/extensions/index.ts";
+import { resolveHarnessLayout } from "../../kernel/src/layout/index.ts";
 
 type ParsedAction = ParsedCommand["action"];
 
@@ -91,6 +92,17 @@ test("parseArgs has characterization coverage for every command registry kind", 
   const registered = new Set(commandRegistry.map((entry) => entry.kind));
   assertNoDuplicates(commandRegistry.map((entry) => entry.kind), "command registry kind");
   assert.deepEqual(covered, registered);
+});
+
+test("parseArgs strips explicit authored root global override", () => {
+  const parsed = parseArgs(["--root", rootDir, "--authored-root", ".custom-harness", "doctor"]);
+
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.value.action.kind, "doctor");
+  assert.equal(resolveHarnessLayout(rootDir).authoredRoot, path.join(rootDir, ".custom-harness"));
+
+  parseArgs(["--root", rootDir, "doctor"]);
+  assert.equal(resolveHarnessLayout(rootDir).authoredRoot, path.join(rootDir, "harness"));
 });
 
 test("parser registry and command registry stay consistent", () => {

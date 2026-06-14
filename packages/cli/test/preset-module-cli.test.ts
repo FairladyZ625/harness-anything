@@ -105,6 +105,92 @@ test("CLI new-task wires explicit coding vertical preset and module without rela
   });
 });
 
+test("CLI standard task preset materializes rich planning documents", () => {
+  withTempRoot((rootDir) => {
+    const inspected = runJson(rootDir, ["preset", "inspect", "standard-task"]);
+    assert.equal(inspected.ok, true);
+    assert.equal(inspected.preset.kind, "template-content");
+    assert.equal(inspected.preset.manifest.schema, "preset-manifest/v2");
+
+    const created = runJson(rootDir, [
+      "new-task",
+      "--title",
+      "Rich Task",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ]);
+
+    assert.equal(created.ok, true);
+    assert.equal(created.generated.includes("brief.md"), true);
+    assert.equal(created.generated.includes("execution_strategy.md"), true);
+    assert.equal(created.generated.includes("findings.md"), true);
+    assert.equal(created.generated.includes("visual_map.md"), true);
+    assert.equal(created.generated.includes("walkthrough.md"), true);
+    assert.equal(created.generated.includes("lesson_candidates.md"), true);
+    assert.equal(created.generated.includes("long-running-task-contract.md"), true);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "brief.md"), "utf8"), /## Objective/);
+  });
+});
+
+test("CLI new-task honors harness.yaml custom authored layout", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/harness.yaml", [
+      "schema: harness-anything/v1",
+      "layout:",
+      "  authoredRoot: .harness-private/coding-agent-harness",
+      "  localRoot: .harness-local",
+      "tasks:",
+      "  root: .harness-private/coding-agent-harness/planning/tasks",
+      ""
+    ].join("\n"));
+
+    const created = runJson(rootDir, [
+      "new-task",
+      "--title",
+      "Private Layout Task",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ]);
+
+    assert.equal(created.ok, true);
+    assert.match(created.packagePath, /^\.harness-private\/coding-agent-harness\/planning\/tasks\/task_/u);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "brief.md")), true);
+    assert.equal(existsSync(path.join(rootDir, ".harness-local", "write-journal", "writes.jsonl")), true);
+  });
+});
+
+test("CLI new-task honors private self-host harness structure layout", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness-private/coding-agent-harness/harness.yaml", [
+      "version: 2",
+      "structure:",
+      "  harnessRoot: coding-agent-harness",
+      "  planningRoot: coding-agent-harness/planning",
+      "  tasksRoot: coding-agent-harness/planning/tasks",
+      "  generatedRoot: coding-agent-harness/governance/generated",
+      ""
+    ].join("\n"));
+
+    const created = runJson(rootDir, [
+      "new-task",
+      "--title",
+      "Self Host Task",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ]);
+
+    assert.equal(created.ok, true);
+    assert.match(created.packagePath, /^\.harness-private\/coding-agent-harness\/planning\/tasks\/task_/u);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "brief.md")), true);
+  });
+});
+
 test("CLI new-task fails closed on ambiguous preset and legacy/module input", () => {
   withTempRoot((rootDir) => {
     const missingModule = runJson(rootDir, ["new-task", "--title", "Module Task", "--vertical", "software/coding", "--preset", "module"], false);
@@ -303,28 +389,125 @@ test("CLI preset install malformed source returns stable preset error before wri
   });
 });
 
-test("CLI preset run writes scoped evidence bundles and rejects unknown actions", () => {
+test("CLI preset run rejects undeclared v2 actions instead of succeeding as no-ops", () => {
   withTempRoot((rootDir) => {
-    const result = runJson(rootDir, ["preset", "run", "module", "check", "--task", "task-1"]);
+    const result = runJson(rootDir, ["preset", "run", "module", "check", "--task", "task-1"], false);
 
-    assert.equal(result.ok, true);
+    assert.equal(result.ok, false);
     assert.equal(result.command, "preset-run");
-    assert.equal(result.evidenceBundle.startsWith(".harness/evidence/presets/module/"), true);
-    const evidence = JSON.parse(readFileSync(path.join(rootDir, result.evidenceBundle, "evidence.json"), "utf8"));
-    assert.equal(evidence.presetId, "module");
-    assert.equal(evidence.entrypoint, "check");
+    assert.equal(result.error.code, "preset_action_forbidden");
 
     const rejected = runJson(rootDir, ["preset", "action", "module", "deploy", "--task", "task-1"], false);
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error.code, "preset_action_forbidden");
 
-    const action = runJson(rootDir, ["preset", "action", "module", "check", "--task", "task-1"]);
-    assert.equal(action.ok, true);
-    assert.equal(action.command, "preset-action");
+    const action = runJson(rootDir, ["preset", "action", "module", "check", "--task", "task-1"], false);
+    assert.equal(action.ok, false);
+    assert.equal(action.error.code, "preset_action_forbidden");
 
     const invalidTask = runJson(rootDir, ["preset", "run", "module", "check", "--task", "../task"], false);
     assert.equal(invalidTask.ok, false);
     assert.equal(invalidTask.error.code, "invalid_registry_key");
+  });
+});
+
+test("CLI process preset script entrypoint writes generated references and artifacts", () => {
+  withTempRoot((rootDir) => {
+    const inspected = runJson(rootDir, ["preset", "inspect", "publish-standard"]);
+    assert.equal(inspected.ok, true);
+    assert.equal(inspected.preset.kind, "process-action");
+    assert.deepEqual(inspected.preset.entrypoints, ["plan", "scaffold"]);
+
+    const result = runJson(rootDir, ["preset", "action", "publish-standard", "scaffold", "--task", "task-1"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "preset-action");
+    assert.equal(result.generated.some((filePath: string) => filePath.endsWith("references/publish-standard.md")), true);
+    assert.equal(result.generated.some((filePath: string) => filePath.endsWith("artifacts/evidence.json")), true);
+    assert.equal(result.generated.every((filePath: string) => filePath.startsWith("harness/planning/tasks/task-1/")), true);
+    assert.equal(result.evidenceBundle.startsWith(".harness/evidence/presets/publish-standard/"), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "context.json")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
+    const scriptEvidence = JSON.parse(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/artifacts/evidence.json"), "utf8"));
+    assert.equal(scriptEvidence.mode, "capability-smoke");
+  });
+});
+
+test("CLI process preset script entrypoint rejects undeclared output write scope", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness/presets/bad-script/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "bad-script",
+      title: "Bad Script",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: { type: "script", command: "scripts/preset-action.mjs", writes: ["{{paths.generatedRoot}}/**"] }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/bad-script/scripts/preset-action.mjs", [
+      "#!/usr/bin/env node",
+      "console.log('should not execute');",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, ["preset", "action", "bad-script", "scaffold", "--task", "task-1"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_write_scope_invalid");
+    assert.equal(existsSync(path.join(rootDir, ".harness/generated/preset-scripts/bad-script")), false);
+  });
+});
+
+test("CLI process preset script entrypoint blocks out-of-scope filesystem writes", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness/presets/escape-script/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "escape-script",
+      title: "Escape Script",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: { type: "script", command: "scripts/preset-action.mjs", writes: ["{{outputRoot}}/**"] }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/escape-script/scripts/preset-action.mjs", [
+      "#!/usr/bin/env node",
+      "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+      "import path from 'node:path';",
+      "const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, 'utf8'));",
+      "mkdirSync(path.join(context.outputRoot, 'artifacts'), { recursive: true });",
+      "writeFileSync(path.join(context.outputRoot, 'artifacts/evidence.json'), '{}', 'utf8');",
+      "writeFileSync(path.join(context.paths.rootDir, 'escaped.txt'), 'bad', 'utf8');",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, ["preset", "action", "escape-script", "scaffold", "--task", "task-1"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_write_scope_violation");
+    assert.equal(existsSync(path.join(rootDir, "escaped.txt")), false);
   });
 });
 
@@ -381,6 +564,12 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function writeFile(rootDir: string, relativePath: string, body: string): void {
+  const filePath = path.join(rootDir, relativePath);
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, body, "utf8");
 }
 
 function writePreset(rootDir: string, relativePath: string, overrides: {

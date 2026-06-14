@@ -288,7 +288,7 @@ async function withFixtureRepo(fn) {
       private: true,
       type: "module",
       scripts: {
-        build: "tsc -p tsconfig.build.json"
+        build: "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs"
       },
       bin: {
         "harness-anything": "./dist/cli/src/index.js"

@@ -1,0 +1,36 @@
+{
+  "schema": "vertical-definition/v1",
+  "id": "software/coding",
+  "title": "Software Coding",
+  "version": "1.0.0",
+  "entityKinds": [
+    { "id": "task", "packageKind": "task-package/v2", "contractEntity": true },
+    { "id": "decision-record", "packageKind": "document/v1", "contractEntity": false }
+  ],
+  "contractEntityKinds": ["task"],
+  "packageScaffolds": [
+    {
+      "entityKind": "task",
+      "templateSelections": [
+        { "slot": "task.plan", "templateRef": "template://planning/task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+        { "slot": "task.progress", "templateRef": "template://planning/progress@1", "materializeAs": "progress.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+        { "slot": "task.review", "templateRef": "template://planning/review@1", "materializeAs": "review.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+        { "slot": "task.closeout", "templateRef": "template://planning/closeout@1", "materializeAs": "closeout.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+        { "slot": "task.references.index", "templateRef": "template://planning/references-index@1", "materializeAs": "references/INDEX.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+        { "slot": "task.artifacts.index", "templateRef": "template://planning/artifacts-index@1", "materializeAs": "artifacts/INDEX.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+      ]
+    }
+  ],
+  "templateSelections": [
+    { "slot": "task.plan", "templateRef": "template://planning/task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+    { "slot": "task.progress", "templateRef": "template://planning/progress@1", "materializeAs": "progress.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+    { "slot": "task.review", "templateRef": "template://planning/review@1", "materializeAs": "review.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+    { "slot": "task.closeout", "templateRef": "template://planning/closeout@1", "materializeAs": "closeout.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+    { "slot": "task.references.index", "templateRef": "template://planning/references-index@1", "materializeAs": "references/INDEX.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
+    { "slot": "task.artifacts.index", "templateRef": "template://planning/artifacts-index@1", "materializeAs": "artifacts/INDEX.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+  ],
+  "checkerProfile": "software-coding-standard",
+  "projectionSchemas": [
+    { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" }
+  ]
+}

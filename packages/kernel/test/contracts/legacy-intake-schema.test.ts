@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Schema } from "effect";
@@ -23,6 +25,57 @@ test("legacy storage layout is inside authored harness root", () => {
   assert.equal(layout.legacyIndexPath, path.join(layout.legacyRoot, "index.json"));
   assert.equal(layout.legacyCollisionReportPath, path.join(layout.legacyRoot, "collision-report.json"));
   assert.equal(layout.legacyRebuildGuidePath, path.join(layout.legacyRoot, "rebuild-guide.md"));
+});
+
+test("layout resolver honors harness.yaml layout roots and upward discovery", () => {
+  withTempRoot((rootDir) => {
+    const configPath = path.join(rootDir, "harness", "harness.yaml");
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(configPath, [
+      "schema: harness-anything/v1",
+      "layout:",
+      "  authoredRoot: .harness-private/coding-agent-harness",
+      "  localRoot: .harness-local",
+      "tasks:",
+      "  root: .harness-private/coding-agent-harness/planning/tasks",
+      ""
+    ].join("\n"), "utf8");
+    const nestedRoot = path.join(rootDir, "packages", "cli");
+    mkdirSync(nestedRoot, { recursive: true });
+
+    const layout = resolveHarnessLayout(nestedRoot);
+
+    assert.equal(layout.rootDir, rootDir);
+    assert.equal(layout.authoredRoot, path.join(rootDir, ".harness-private/coding-agent-harness"));
+    assert.equal(layout.localRoot, path.join(rootDir, ".harness-local"));
+    assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/planning/tasks"));
+    assert.equal(layout.legacyRoot, path.join(layout.authoredRoot, "legacy"));
+  });
+});
+
+test("layout resolver discovers private self-host structure roots", () => {
+  withTempRoot((rootDir) => {
+    const configPath = path.join(rootDir, ".harness-private", "coding-agent-harness", "harness.yaml");
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(configPath, [
+      "version: 2",
+      "structure:",
+      "  harnessRoot: coding-agent-harness",
+      "  planningRoot: coding-agent-harness/planning",
+      "  tasksRoot: coding-agent-harness/planning/tasks",
+      "  generatedRoot: coding-agent-harness/governance/generated",
+      ""
+    ].join("\n"), "utf8");
+    const nestedRoot = path.join(rootDir, "packages", "cli");
+    mkdirSync(nestedRoot, { recursive: true });
+
+    const layout = resolveHarnessLayout(nestedRoot);
+
+    assert.equal(layout.rootDir, rootDir);
+    assert.equal(layout.authoredRoot, path.join(rootDir, ".harness-private/coding-agent-harness"));
+    assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/planning/tasks"));
+    assert.equal(layout.generatedRoot, path.join(rootDir, ".harness-private/coding-agent-harness/governance/generated"));
+  });
 });
 
 test("legacy index schema decodes and encodes valid fixture", async () => {
@@ -84,3 +137,12 @@ test("legacy collision report schema rejects wrong suffix kind", async () => {
 
   assert.throws(() => Schema.decodeUnknownSync(LegacyCollisionReportSchema)(fixture));
 });
+
+function withTempRoot<T>(fn: (rootDir: string) => T): T {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-layout-contract-"));
+  try {
+    return fn(rootDir);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}

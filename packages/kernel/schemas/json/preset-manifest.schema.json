@@ -7,11 +7,12 @@
   "additionalProperties": false,
   "required": ["schema", "id", "title", "vertical", "version", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile"],
   "properties": {
-    "schema": { "const": "preset-manifest/v1" },
+    "schema": { "enum": ["preset-manifest/v1", "preset-manifest/v2"] },
     "id": { "type": "string" },
     "title": { "type": "string" },
     "vertical": { "type": "string" },
     "version": { "type": "string" },
+    "kind": { "enum": ["template-content", "process-action"] },
     "extends": { "type": "string" },
     "kernelVersionRange": {
       "type": "object",
@@ -35,6 +36,10 @@
           "required": { "type": "boolean" }
         }
       }
+    },
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/entrypoint" }
     },
     "profiles": {
       "type": "array",
@@ -91,6 +96,38 @@
           "additionalProperties": { "type": "string" }
         }
       }
+    }
+    ,
+    "entrypoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "writes", "templates"],
+          "properties": {
+            "type": { "const": "template" },
+            "writes": { "type": "array", "items": { "type": "string" } },
+            "templates": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "command", "writes"],
+          "properties": {
+            "type": { "const": "script" },
+            "command": { "type": "string" },
+            "writes": { "type": "array", "items": { "type": "string" } },
+            "inputs": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        }
+      ]
     }
   }
 }
