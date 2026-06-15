@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -256,6 +257,7 @@ async function collectPublicTextFiles(root) {
       if (rel.startsWith("node_modules/") || rel.startsWith(".git/") || rel.startsWith(".harness") || rel.startsWith("dist/") || rel.startsWith("coverage/")) {
         return false;
       }
+      if (isGitIgnored(root, rel)) return false;
       // AGENTS.md / CLAUDE.md are local-only agent entries; check-private-boundary
       // enforces they stay untracked, so they are not public text.
       if (rel === "AGENTS.md" || rel === "CLAUDE.md") return false;
@@ -263,6 +265,15 @@ async function collectPublicTextFiles(root) {
       if (/(?:^|\/)(?:test|tests|fixtures|__fixtures__)\//u.test(rel)) return false;
       return rel.endsWith(".md") || rel.endsWith(".yml") || rel.endsWith(".yaml") || rel.endsWith("package.json");
     });
+}
+
+function isGitIgnored(root, rel) {
+  try {
+    execFileSync("git", ["-C", root, "check-ignore", "-q", "--", rel], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function collectFiles(directory) {

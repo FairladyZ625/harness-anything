@@ -146,9 +146,20 @@ function toCliError(error: ArtifactStoreError | EngineError | WriteError): CliRe
     return { code: "task_not_found", hint: `task not found: ${error.taskId}` };
   }
   if (error._tag === "JournalUnavailable") {
-    return { code: "journal_unavailable", hint: "Journal is unavailable." };
+    const cause = journalUnavailableCause(error.cause);
+    return { code: "journal_unavailable", hint: cause ? `Journal is unavailable: ${cause}` : "Journal is unavailable." };
   }
   return { code: error._tag, hint: "Command failed." };
+}
+
+function journalUnavailableCause(cause: unknown): string {
+  if (cause instanceof Error) return firstLine(cause.message);
+  if (typeof cause === "string") return firstLine(cause);
+  return "";
+}
+
+function firstLine(value: string): string {
+  return value.trim().split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? "";
 }
 
 function emit(result: CliResult, json: boolean): void {

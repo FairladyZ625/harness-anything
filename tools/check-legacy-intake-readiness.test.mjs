@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -41,6 +42,34 @@ test("Legacy Intake readiness ignores private harness files inside local worktre
     const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.deepEqual(violations, []);
+  });
+});
+
+test("Legacy Intake readiness ignores git-ignored self-host harness files", async () => {
+  await withFixtureRepo(async (root) => {
+    runGit(root, "init");
+    writeFileSync(path.join(root, ".gitignore"), "/harness/\n", "utf8");
+    mkdirSync(path.join(root, "harness/legacy/tasks/old"), { recursive: true });
+    writeFileSync(path.join(root, "harness/legacy/tasks/old/task_plan.md"), [
+      "This private legacy evidence may mention scripts/kernel/task.",
+      "It may also mention full-cutover and coding-agent-harness compatibility.",
+      ""
+    ].join("\n"));
+
+    const violations = await evaluateLegacyIntakeReadiness(root);
+
+    assert.deepEqual(violations, []);
+  });
+});
+
+test("Legacy Intake readiness still scans non-ignored harness public text", async () => {
+  await withFixtureRepo(async (root) => {
+    mkdirSync(path.join(root, "harness/planning/tasks/old"), { recursive: true });
+    writeFileSync(path.join(root, "harness/planning/tasks/old/task_plan.md"), "Use scripts/kernel/task in public docs.\n");
+
+    const violations = await evaluateLegacyIntakeReadiness(root);
+
+    assert.equal(violations.some((violation) => violation.includes("harness/planning/tasks/old/task_plan.md")), true);
   });
 });
 
@@ -345,4 +374,8 @@ function writeValidBehaviorCorpus(root) {
       { classification: "unsupported-input", summary: "npm publishing deferred" }
     ]
   }));
+}
+
+function runGit(root, ...args) {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
 }

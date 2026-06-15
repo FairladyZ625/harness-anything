@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
@@ -351,32 +351,80 @@ function toDocumentWrite(op: WriteOp): DocumentWrite {
 }
 
 function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>): string {
-  if (touchedPaths.length === 0 || !isGitRepo(rootDir)) return "no-git-change";
+  if (touchedPaths.length === 0) return "no-git-change";
 
-  const relativePaths = touchedPaths.map((filePath) => path.relative(rootDir, filePath));
-  execFileSync("git", ["-C", rootDir, "add", "--", ...relativePaths], { stdio: "ignore" });
-  const staged = execFileSync("git", ["-C", rootDir, "diff", "--cached", "--name-only"], { encoding: "utf8" }).trim();
+  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(rootDir).authoredRoot);
+  if (!target) return "no-git-change";
+
+  const relativePaths = unique(touchedPaths.map((filePath) => repoRelativePath(target.repoRoot, filePath)));
+  runGit(target.repoRoot, "add", "--", ...relativePaths);
+  const staged = runGit(target.repoRoot, "diff", "--cached", "--name-only").trim();
   if (staged.length === 0) return currentGitHead(rootDir);
 
-  execFileSync("git", ["-C", rootDir, "commit", "-m", `harness write ${opIds.join(",")}`], {
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
-      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
-      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
-      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness@example.invalid"
-    }
-  });
-  return currentGitHead(rootDir);
+  runGit(target.repoRoot, "commit", "-m", `harness write ${opIds.join(",")}`);
+  return currentGitHead(target.repoRoot);
 }
 
 function isGitRepo(rootDir: string): boolean {
+  return gitTopLevel(rootDir) !== null;
+}
+
+function resolveCommitTarget(rootDir: string, authoredRoot: string): { readonly repoRoot: string } | null {
+  const rootRepo = gitTopLevel(rootDir);
+  const authoredRepo = gitTopLevel(authoredRoot);
+  if (!authoredRepo) return rootRepo ? { repoRoot: rootRepo } : null;
+  if (rootRepo && authoredRepo === rootRepo && isIgnoredByRepo(rootRepo, authoredRoot)) {
+    throw new Error("authored root is ignored by Git but is not a nested Git repository");
+  }
+  return { repoRoot: authoredRepo };
+}
+
+function gitTopLevel(inputPath: string): string | null {
   try {
-    execFileSync("git", ["-C", rootDir, "rev-parse", "--is-inside-work-tree"], { stdio: "ignore" });
+    return normalizeExistingPath(execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim());
+  } catch {
+    return null;
+  }
+}
+
+function isIgnoredByRepo(repoRoot: string, candidatePath: string): boolean {
+  const relativePath = repoRelativePath(repoRoot, candidatePath);
+  try {
+    execFileSync("git", ["-C", repoRoot, "check-ignore", "-q", "--", relativePath], { stdio: "ignore" });
     return true;
   } catch {
     return false;
+  }
+}
+
+function repoRelativePath(repoRoot: string, filePath: string): string {
+  const relativePath = path.relative(normalizeExistingPath(repoRoot), normalizeExistingPath(filePath));
+  if (relativePath.length === 0) return ".";
+  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    throw new Error("touched path is outside commit repository");
+  }
+  return relativePath.split(path.sep).join("/");
+}
+
+function normalizeExistingPath(inputPath: string): string {
+  return existsSync(inputPath) ? realpathSync(inputPath) : path.resolve(inputPath);
+}
+
+function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
+  try {
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
+        GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
+        GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
+        GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness@example.invalid"
+      }
+    });
+  } catch (error) {
+    throw new Error(`git ${args[0] ?? "command"} failed: ${gitErrorMessage(error)}`);
   }
 }
 
@@ -386,6 +434,21 @@ function currentGitHead(rootDir: string): string {
   } catch {
     return "no-git-head";
   }
+}
+
+function unique(values: ReadonlyArray<string>): ReadonlyArray<string> {
+  return [...new Set(values)];
+}
+
+function gitErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error && "stderr" in error) {
+    const stderr = (error as { readonly stderr?: unknown }).stderr;
+    const text = Buffer.isBuffer(stderr) ? stderr.toString("utf8") : typeof stderr === "string" ? stderr : "";
+    const firstLine = text.trim().split(/\r?\n/u).find((line) => line.trim().length > 0);
+    if (firstLine) return firstLine;
+  }
+  if (error instanceof Error) return error.message.split(/\r?\n/u)[0] ?? error.message;
+  return String(error);
 }
 
 function rebuildProjectionHash(rootDir: string): string {
