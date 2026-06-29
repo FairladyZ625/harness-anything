@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 
+const gitMaxBuffer = 256 * 1024 * 1024;
+
 export interface GitDiffEvidenceOptions {
   readonly rootDir: string;
   readonly baseRef?: string;
@@ -131,10 +133,19 @@ function readGit(rootDir: string, args: ReadonlyArray<string>): { readonly ok: t
       ok: true,
       stdout: execFileSync("git", ["-C", rootDir, ...args], {
         encoding: "utf8",
+        maxBuffer: gitMaxBuffer,
         stdio: ["ignore", "pipe", "ignore"]
       })
     };
-  } catch {
-    return { ok: false, error: "git command unavailable for this repository" };
+  } catch (error) {
+    return { ok: false, error: gitErrorMessage(error) };
   }
+}
+
+function gitErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error && "code" in error && typeof (error as { readonly code?: unknown }).code === "string") {
+    const code = (error as { readonly code: string }).code;
+    if (code.length > 0) return `git command failed: ${code}`;
+  }
+  return "git command unavailable for this repository";
 }

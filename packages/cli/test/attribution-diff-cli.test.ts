@@ -71,6 +71,30 @@ test("git-diff emits stable read-only evidence without creating harness state or
   });
 });
 
+test("git-diff handles status output larger than Node's default exec buffer", () => {
+  withTempRoot((rootDir) => {
+    initGit(rootDir);
+    configureGitUser(rootDir, "Diff User", "diff@example.com");
+    writeFileSync(path.join(rootDir, "README.md"), "baseline\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: rootDir, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "init"], { cwd: rootDir, stdio: "ignore" });
+
+    const segment = "nested-status-output-" + "x".repeat(150);
+    const deepDir = path.join(rootDir, segment, segment, segment, segment);
+    mkdirSync(deepDir, { recursive: true });
+    for (let index = 0; index < 1600; index += 1) {
+      writeFileSync(path.join(deepDir, `untracked-${String(index).padStart(4, "0")}.txt`), "status\n", "utf8");
+    }
+
+    const result = runJson(rootDir, ["git-diff"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.schema, "git-diff-evidence/v1");
+    assert.equal(result.report.fileCount, 1600);
+    assert.equal(result.report.files.every((file: Record<string, unknown>) => file.status === "untracked"), true);
+  });
+});
+
 function initGit(rootDir: string): void {
   execFileSync("git", ["init"], { cwd: rootDir, stdio: "ignore" });
 }
@@ -99,6 +123,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
       env: { ...process.env, ...env }
     });
     return JSON.parse(stdout) as Record<string, any>;
