@@ -33,6 +33,7 @@ const defaultActor: JournalActor = { kind: "agent", id: "local" };
 // Flush writes the full op-id set before compaction for recovery safety, then
 // trims to a bounded recent-id window only after journal compaction succeeds.
 const maxWatermarkCommittedOpIds = 128;
+const gitMaxBuffer = 256 * 1024 * 1024;
 
 export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
@@ -354,11 +355,12 @@ function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>
   if (touchedPaths.length === 0 || !isGitRepo(rootDir)) return "no-git-change";
 
   const relativePaths = touchedPaths.map((filePath) => path.relative(rootDir, filePath));
-  execFileSync("git", ["-C", rootDir, "add", "--", ...relativePaths], { stdio: "ignore" });
-  const staged = execFileSync("git", ["-C", rootDir, "diff", "--cached", "--name-only"], { encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", rootDir, "add", "--", ...relativePaths], { maxBuffer: gitMaxBuffer, stdio: "ignore" });
+  const staged = execFileSync("git", ["-C", rootDir, "diff", "--cached", "--name-only"], { encoding: "utf8", maxBuffer: gitMaxBuffer }).trim();
   if (staged.length === 0) return currentGitHead(rootDir);
 
   execFileSync("git", ["-C", rootDir, "commit", "-m", `harness write ${opIds.join(",")}`], {
+    maxBuffer: gitMaxBuffer,
     stdio: "ignore",
     env: {
       ...process.env,
@@ -373,7 +375,7 @@ function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>
 
 function isGitRepo(rootDir: string): boolean {
   try {
-    execFileSync("git", ["-C", rootDir, "rev-parse", "--is-inside-work-tree"], { stdio: "ignore" });
+    execFileSync("git", ["-C", rootDir, "rev-parse", "--is-inside-work-tree"], { maxBuffer: gitMaxBuffer, stdio: "ignore" });
     return true;
   } catch {
     return false;
@@ -382,7 +384,7 @@ function isGitRepo(rootDir: string): boolean {
 
 function currentGitHead(rootDir: string): string {
   try {
-    return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8", maxBuffer: gitMaxBuffer }).trim();
   } catch {
     return "no-git-head";
   }
