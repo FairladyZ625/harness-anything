@@ -35,6 +35,7 @@ try {
   });
 
   const binPath = path.join(consumerDir, "node_modules/.bin/harness-anything");
+  const aliasBinPath = path.join(consumerDir, "node_modules/.bin/ha");
   const stdout = execFileSync(binPath, ["--json", "gui"], {
     cwd: consumerDir,
     encoding: "utf8",
@@ -46,6 +47,14 @@ try {
   const result = JSON.parse(stdout);
   if (result.ok !== true || result.command !== "gui" || result.launchPlan?.packageName !== "@harness-anything/gui") {
     throw new Error(`unexpected CLI smoke output: ${stdout}`);
+  }
+  const aliasOutput = execFileSync(aliasBinPath, ["--json", "doctor"], {
+    cwd: consumerDir,
+    encoding: "utf8"
+  });
+  const aliasResult = JSON.parse(aliasOutput);
+  if (aliasResult.ok !== true || aliasResult.command !== "doctor" || aliasResult.report?.schema !== "harness-doctor/v1") {
+    throw new Error(`unexpected CLI alias smoke output: ${aliasOutput}`);
   }
 
   const projectDir = path.join(consumerDir, "minimal-project");

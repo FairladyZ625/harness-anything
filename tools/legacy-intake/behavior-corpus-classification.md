@@ -30,7 +30,7 @@ Machine-checkable source: `behavior-corpus-classification.json`.
 ### Intentional Change
 
 - Root package identity uses `harness-anything` rather than the previous repository-level product name.
-- CLI package identity uses `@harness-anything/cli` and exposes the `harness-anything` binary.
+- CLI package identity uses `@harness-anything/cli` and exposes the canonical `harness-anything` binary plus the `ha` alias.
 - Package release remains private and `not-published` during M2 Legacy Intake readiness.
 - The retired SR implementation route is blocked from production source and public docs.
 - Migration is explicit evidence through `migrate-run` and `migrate-verify` rather than automatic legacy compatibility.
@@ -48,9 +48,9 @@ Machine-checkable source: `behavior-corpus-classification.json`.
 
 - Default package identity is `harness-anything`.
 - CLI package identity is `@harness-anything/cli`.
-- The default CLI package artifact bin is `harness-anything`; external npm publish is intentionally out of scope.
+- The default CLI package artifact bin is `harness-anything`; `ha` is the short alias, and external npm publish is intentionally out of scope.
 - Retired old runtime paths are blocked by `harness:check-legacy-intake-readiness`.
 - Legacy Intake verification is active through `legacy verify`.
 - The retired `migrate-verify --full-cutover` flag is covered as a rejection path, not as an active future gate.
 - Real repository Legacy Intake smoke is covered by `harness:smoke-legacy-intake`.
-- Package artifact executability is verified by `harness:smoke-cli-package`, which builds, packs, installs into a temporary consumer, and runs `harness-anything --json gui` with GUI dry-run enabled.
+- Package artifact executability is verified by `harness:smoke-cli-package`, which builds, packs, installs into a temporary consumer, runs `harness-anything --json gui` with GUI dry-run enabled, and runs `ha --json doctor`.

@@ -73,8 +73,9 @@ export function initializeHarness(rootDir: string, addNpmScripts = false): CliRe
       : {};
     packageJson.scripts = {
       ...scripts,
-      harness: scripts.harness ?? "harness-anything",
-      "harness:check": scripts["harness:check"] ?? "harness-anything check"
+      "harness-anything": scripts["harness-anything"] ?? "harness-anything",
+      ha: scripts.ha ?? "ha",
+      "harness-anything:check": scripts["harness-anything:check"] ?? "harness-anything check"
     };
     writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
   }

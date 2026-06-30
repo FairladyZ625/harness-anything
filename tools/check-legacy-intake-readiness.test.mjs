@@ -84,6 +84,7 @@ test("Legacy Intake readiness requires the harness-anything CLI package artifact
     const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.equal(violations.some((violation) => violation.includes("bin.harness-anything")), true);
+    assert.equal(violations.some((violation) => violation.includes("bin.ha")), true);
   });
 });
 
@@ -153,7 +154,7 @@ test("Legacy Intake readiness rejects active cutover guidance in public markdown
       "",
       "M2 - coding vertical cutover",
       "",
-      "Run harness migrate-verify session.json --full-cutover --json as the release gate.",
+      "Run harness-anything migrate-verify session.json --full-cutover --json as the release gate.",
       ""
     ].join("\n"));
 
@@ -172,7 +173,7 @@ test("Legacy Intake readiness allows explicitly historical full-cutover evidence
       "Historical M2 evidence used the now-retired full-cutover flag:",
       "",
       "```bash",
-      "harness migrate-verify session.json --full-cutover --json",
+      "harness-anything migrate-verify session.json --full-cutover --json",
       "```",
       "",
       "Future work should not use full cutover as an exit gate.",
@@ -320,7 +321,8 @@ async function withFixtureRepo(fn) {
         build: "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs"
       },
       bin: {
-        "harness-anything": "./dist/cli/src/index.js"
+        "harness-anything": "./dist/cli/src/index.js",
+        ha: "./dist/cli/src/index.js"
       },
       exports: {
         ".": "./dist/cli/src/index.js"

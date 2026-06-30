@@ -66,6 +66,9 @@ function checkPackageDecision(rootDir: string, violations: string[]): void {
   if (cliBin["harness-anything"] !== "./dist/cli/src/index.js") {
     violations.push("packages/cli/package.json: bin.harness-anything must point at ./dist/cli/src/index.js");
   }
+  if (cliBin.ha !== "./dist/cli/src/index.js") {
+    violations.push("packages/cli/package.json: bin.ha must point at ./dist/cli/src/index.js");
+  }
   if (cliExports["."] !== "./dist/cli/src/index.js") {
     violations.push("packages/cli/package.json: exports['.'] must point at ./dist/cli/src/index.js");
   }

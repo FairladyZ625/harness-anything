@@ -109,7 +109,7 @@ function toCliError(error: ArtifactStoreError | EngineError | WriteError): CliRe
   if (error._tag === "TerminalReopenRequiresSupersede") {
     return {
       code: "terminal_reopen_requires_supersede",
-      hint: `Task ${error.taskId} is ${error.status}; create follow-up work with harness task supersede.`
+      hint: `Task ${error.taskId} is ${error.status}; create follow-up work with harness-anything task supersede.`
     };
   }
   if (error._tag === "ArchivedHardDeleteForbidden") {
@@ -169,6 +169,16 @@ function emit(result: CliResult, json: boolean): void {
   }
 
   if (result.ok) {
+    if (result.command === "help" && result.commands) {
+      console.log([
+        "Usage: harness-anything <command> [options]",
+        "Alias: ha <command> [options]",
+        "",
+        "Commands:",
+        ...result.commands.map((entry) => `  ${entry.primary}`)
+      ].join("\n"));
+      return;
+    }
     const suffix = result.status ? ` status=${result.status}` : result.path ? ` path=${result.path}` : result.rows !== undefined ? ` rows=${result.rows}` : result.launchPlan ? ` mode=${result.launchPlan.mode} package=${result.launchPlan.packageName}` : "";
     console.log(`ok command=${result.command} task=${result.taskId ?? ""}${suffix}`);
     return;

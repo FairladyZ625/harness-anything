@@ -26,7 +26,7 @@ npm run harness:smoke-cli-package
 
 ## Doctor
 
-`harness doctor --json` returns `harness-doctor/v1`.
+`harness-anything doctor --json` returns `harness-doctor/v1`.
 
 It checks:
 
@@ -42,18 +42,18 @@ packages, run repair commands, or call external services.
 ## Minimal Project Loop
 
 ```bash
-harness init --json
-harness doctor --json
-harness new-task --title "Plan the work" --json
-harness status --json
-harness check --post-merge --json
+harness-anything init --json
+harness-anything doctor --json
+harness-anything new-task --title "Plan the work" --json
+harness-anything status --json
+harness-anything check --post-merge --json
 ```
 
 For coding vertical dogfood, create new work through the vertical/preset surface:
 
 ```bash
-harness new-task --title "Implement slice" --vertical software/coding --preset standard-task --json
-harness new-task --title "Implement module slice" --vertical software/coding --preset module --module billing --json
+harness-anything new-task --title "Implement slice" --vertical software/coding --preset standard-task --json
+harness-anything new-task --title "Implement module slice" --vertical software/coding --preset module --module billing --json
 ```
 
 Project defaults can provide the same coding vertical and preset choices, but
@@ -63,15 +63,15 @@ Complete ordinary work through the terminal closeout command after review, CI,
 and local checks are ready:
 
 ```bash
-harness task-complete <task-id> --ci passed --reviewer <reviewer-id> --json
+harness-anything task-complete <task-id> --ci passed --reviewer <reviewer-id> --json
 ```
 
 Task package commands:
 
 ```bash
-harness task progress append <task-id> --text "Implemented first slice" --json
-harness task archive <task-id> --reason "superseded" --json
-harness task supersede <task-id> --title "Replacement task" --reason "scope changed" --json
+harness-anything task progress append <task-id> --text "Implemented first slice" --json
+harness-anything task archive <task-id> --reason "superseded" --json
+harness-anything task supersede <task-id> --title "Replacement task" --reason "scope changed" --json
 ```
 
 ## Legacy Intake And Evidence Commands
@@ -79,13 +79,13 @@ harness task supersede <task-id> --title "Replacement task" --reason "scope chan
 Read-only or local-only evidence commands:
 
 ```bash
-harness snapshot multica <ref> --json
-harness adopt multica <ref> --task <task-id> --json
-harness migrate-plan --json
-harness migrate-structure --plan --json
-harness migrate-run --plan-only --json
-harness migrate-verify <session.json> --json
-harness git-diff --json
+harness-anything snapshot multica <ref> --json
+harness-anything adopt multica <ref> --task <task-id> --json
+harness-anything migrate-plan --json
+harness-anything migrate-structure --plan --json
+harness-anything migrate-run --plan-only --json
+harness-anything migrate-verify <session.json> --json
+harness-anything git-diff --json
 ```
 
 M2 shipped migration evidence commands, but the project strategy changed after
@@ -94,11 +94,11 @@ input for automatic task-package conversion. Use Legacy Intake and rebuild
 unfinished work as new tasks with provenance:
 
 ```bash
-harness legacy scan <legacy-root> --json
-harness legacy copy-safe-docs <legacy-root> --apply --json
-harness legacy index <legacy-root> --apply --json
-harness legacy verify --json
-harness new-task --from-legacy <legacy-id> --json
+harness-anything legacy scan <legacy-root> --json
+harness-anything legacy copy-safe-docs <legacy-root> --apply --json
+harness-anything legacy index <legacy-root> --apply --json
+harness-anything legacy verify --json
+harness-anything new-task --from-legacy <legacy-id> --json
 ```
 
 `createdBy` is optional task audit metadata sourced from local Git
@@ -113,22 +113,22 @@ truth and does not write task state.
 If `doctor` reports no authored harness root, run:
 
 ```bash
-harness init --json
+harness-anything init --json
 ```
 
 If `status` or `check` reports generated-cache warnings, rebuild generated
 state instead of editing SQLite or journal files:
 
 ```bash
-harness governance rebuild --json
-harness check --post-merge --json
+harness-anything governance rebuild --json
+harness-anything check --post-merge --json
 ```
 
 If authored task packages have hard-fail issues, fix the markdown package and
 run the check again:
 
 ```bash
-harness check --post-merge --json
+harness-anything check --post-merge --json
 ```
 
 ## Historical Final Cutover Evidence
@@ -140,8 +140,8 @@ exit gate or dogfood prerequisite.
 Historical M2 evidence used the now-retired full-cutover flag:
 
 ```bash
-harness migrate-run --json
-harness migrate-verify <session.json> --full-cutover --json
+harness-anything migrate-run --json
+harness-anything migrate-verify <session.json> --full-cutover --json
 ```
 
 Current M2.5 replacements are:

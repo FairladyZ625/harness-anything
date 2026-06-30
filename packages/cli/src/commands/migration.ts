@@ -112,7 +112,7 @@ export function runMigrateVerify(rootDir: string, action: MigrateVerifyAction): 
       },
       error: {
         code: "full_cutover_retired",
-        hint: "Full cutover is retired. Use harness legacy verify and agent-assisted rebuild instead."
+        hint: "Full cutover is retired. Use harness-anything legacy verify and agent-assisted rebuild instead."
       }
     };
   }

@@ -56,7 +56,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "generated-cache",
       "projection_missing",
       "Projection cache was missing and has been rebuilt.",
-      "Run harness governance rebuild to materialize a fresh local projection cache before relying on generated state."
+      "Run harness-anything governance rebuild to materialize a fresh local projection cache before relying on generated state."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
     return { rows: rebuilt.rows, warnings };
@@ -79,7 +79,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "generated-cache",
       "projection_stale",
       "Projection cache was stale and has been rebuilt from markdown.",
-      "Run harness governance rebuild after authored task changes or merges."
+      "Run harness-anything governance rebuild after authored task changes or merges."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };

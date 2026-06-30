@@ -21,6 +21,14 @@ export interface ParserRegistryEntry {
 
 export const parserRegistry = [
   {
+    id: "help",
+    commandKinds: ["help"],
+    parse: (args, rootDir, json) => {
+      if (args.length > 0 && !["help", "--help", "-h"].includes(args[0] ?? "")) return null;
+      return { ok: true, value: { rootDir, json, action: { kind: "help" } } };
+    }
+  },
+  {
     id: "core-task",
     commandKinds: ["init", "status-set", "progress-append", "task-archive", "task-supersede", "task-delete", "task-reopen", "task-review", "task-complete", "task-list"],
     parse: parseCoreTaskArgs
