@@ -23,7 +23,7 @@ export interface DoctorReport {
     readonly projectionCacheExists: boolean;
   };
   readonly cli: {
-    readonly command: "harness doctor";
+    readonly command: "harness-anything doctor";
     readonly json: "CliResult/v1";
   };
   readonly recommendedCommands: readonly string[];
@@ -59,14 +59,14 @@ function collectDoctorReport(rootDir: string): DoctorReport {
       projectionCacheExists: existsSync(path.join(layout.cacheRoot, "projections.sqlite"))
     },
     cli: {
-      command: "harness doctor",
+      command: "harness-anything doctor",
       json: "CliResult/v1"
     },
     recommendedCommands: [
-      "harness init",
-      "harness status --json",
-      "harness check --post-merge --json",
-      "harness git-diff --json"
+      "harness-anything init",
+      "harness-anything status --json",
+      "harness-anything check --post-merge --json",
+      "harness-anything git-diff --json"
     ]
   };
 }

@@ -20,7 +20,7 @@ test("doctor reports read-only environment and harness diagnostics without writi
     assert.equal(result.report.harness.authoredRoot, "harness");
     assert.equal(result.report.harness.authoredRootExists, false);
     assert.equal(result.report.harness.localRootExists, false);
-    assert.equal(result.report.recommendedCommands.includes("harness check --post-merge --json"), true);
+    assert.equal(result.report.recommendedCommands.includes("harness-anything check --post-merge --json"), true);
     assert.equal(JSON.stringify(result).includes(rootDir), false);
     assert.equal(existsSync(path.join(rootDir, ".harness")), false);
   });
@@ -35,7 +35,7 @@ test("doctor sees initialized authored and generated harness roots without repai
     assert.equal(result.ok, true);
     assert.equal(result.report.harness.authoredRootExists, true);
     assert.equal(result.report.harness.localRootExists, true);
-    assert.equal(result.report.cli.command, "harness doctor");
+    assert.equal(result.report.cli.command, "harness-anything doctor");
   });
 });
 
@@ -46,7 +46,21 @@ test("status command registry includes doctor", () => {
     const result = runJson(rootDir, ["status"]);
 
     assert.equal(result.ok, true);
-    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "doctor" && entry.primary === "harness doctor --json"), true);
+    const doctor = result.commands.find((entry: Record<string, unknown>) => entry.kind === "doctor");
+    assert.equal(doctor?.primary, "harness-anything doctor --json");
+    assert.equal(doctor?.aliases.includes("ha doctor --json"), true);
+  });
+});
+
+test("CLI help prints canonical command and alias", () => {
+  withTempRoot((rootDir) => {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--help"], {
+      encoding: "utf8"
+    });
+
+    assert.match(stdout, /Usage: harness-anything <command> \[options\]/u);
+    assert.match(stdout, /Alias: ha <command> \[options\]/u);
+    assert.match(stdout, /harness-anything doctor --json/u);
   });
 });
 

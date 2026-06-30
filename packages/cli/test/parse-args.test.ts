@@ -20,6 +20,7 @@ interface ParseCase {
 const rootDir = path.resolve("/tmp/harness-parser-root");
 
 const parseCases: ReadonlyArray<ParseCase> = [
+  { name: "help", argv: ["--help"], kind: "help" },
   { name: "init", argv: ["init"], kind: "init", fields: { addNpmScripts: false } },
   { name: "init add npm scripts", argv: ["init", "--add-npm-scripts"], kind: "init", fields: { addNpmScripts: true } },
   {
@@ -186,7 +187,7 @@ test("parseArgs pins stable parse error envelopes", () => {
     { argv: ["preset", "run", "standard-task", "deploy", "--task", "task_1"], code: "invalid_entrypoint" },
     { argv: ["module", "register", "billing", "--title", "Billing"], code: "missing_module_fields" },
     { argv: ["module-step", "billing", "T-1", "--state", "started"], code: "invalid_module_step_state" },
-    { argv: ["unknown"], code: "unknown_command", hintIncludes: "harness new-task --title <title>" }
+    { argv: ["unknown"], code: "unknown_command", hintIncludes: "harness-anything new-task --title <title>" }
   ] as const;
 
   for (const candidate of cases) {
@@ -197,6 +198,15 @@ test("parseArgs pins stable parse error envelopes", () => {
     if ("hintIncludes" in candidate) {
       assert.equal(parsed.error.hint.includes(candidate.hintIncludes), true);
     }
+  }
+});
+
+test("parseArgs treats empty argv and help flags as help", () => {
+  for (const argv of [[], ["help"], ["--help"], ["-h"]] as const) {
+    const parsed = parseArgs(argv);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) continue;
+    assert.equal(parsed.value.action.kind, "help");
   }
 });
 

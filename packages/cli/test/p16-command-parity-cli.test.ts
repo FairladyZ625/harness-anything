@@ -85,8 +85,9 @@ test("P16 init and migrate compatibility flags produce explicit report fields", 
     assert.deepEqual(init.generated, ["package.json"]);
     const packageJson = JSON.parse(readFileSync(path.join(rootDir, "package.json"), "utf8"));
     assert.equal(packageJson.scripts.test, "node --test");
-    assert.equal(packageJson.scripts.harness, "harness-anything");
-    assert.equal(packageJson.scripts["harness:check"], "harness-anything check");
+    assert.equal(packageJson.scripts["harness-anything"], "harness-anything");
+    assert.equal(packageJson.scripts.ha, "ha");
+    assert.equal(packageJson.scripts["harness-anything:check"], "harness-anything check");
 
     const migrate = runJson(rootDir, ["migrate-run", "--plan-only", "--session-dir", ".harness/generated/migration-sessions/p16", "--locale", "en-US", "--assume-locale", "zh-CN", "--allow-dirty"]);
     assert.equal(migrate.ok, true);

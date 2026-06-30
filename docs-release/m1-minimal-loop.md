@@ -25,7 +25,7 @@ Local task state is the six-state domain vocabulary:
 - `done`
 - `cancelled`
 
-`done` and `cancelled` are terminal. Follow-up work after terminal state uses `harness task supersede`, not reopen. Archive and tombstone are package disposition changes; they do not invent new lifecycle states.
+`done` and `cancelled` are terminal. Follow-up work after terminal state uses `harness-anything task supersede`, not reopen. Archive and tombstone are package disposition changes; they do not invent new lifecycle states.
 
 ## Write And Projection Flow
 
@@ -48,8 +48,8 @@ Journal compaction removes `write-journal/v1` records already covered by the wat
 Use this loop for local work and after pulling or merging:
 
 ```bash
-harness status --json
-harness check --post-merge --json
+harness-anything status --json
+harness-anything check --post-merge --json
 ```
 
 If `check` reports `ok: false`, inspect `report.axes` first:
@@ -62,13 +62,13 @@ Fix authored problems in `harness/`. Fix generated cache problems by rebuilding 
 
 ## Command Boundary
 
-`harness governance rebuild` is the explicit rebuild command for generated governance projections. `harness check` validates the source package, generated cache, and collaboration gates. Keeping rebuild and check separate lets merge-time agents run a read-oriented check while still having an explicit repair command when generated state is missing or stale.
+`harness-anything governance rebuild` is the explicit rebuild command for generated governance projections. `harness-anything check` validates the source package, generated cache, and collaboration gates. Keeping rebuild and check separate lets merge-time agents run a read-oriented check while still having an explicit repair command when generated state is missing or stale.
 
 ## Exit Checklist
 
-- `harness init` creates shared authored state and ignores `.harness/`.
-- `harness new-task` creates random task IDs.
-- `harness status --json` returns task counts, command registry, warnings, and `harness-check-report/v1`.
-- `harness check --post-merge --json` returns the three-axis check report.
+- `harness-anything init` creates shared authored state and ignores `.harness/`.
+- `harness-anything new-task` creates random task IDs.
+- `harness-anything status --json` returns task counts, command registry, warnings, and `harness-check-report/v1`.
+- `harness-anything check --post-merge --json` returns the three-axis check report.
 - Write watermarks use a real projection rows hash.
 - Journal compaction keeps recovery idempotent and preserves audit records.

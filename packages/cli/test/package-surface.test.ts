@@ -20,6 +20,7 @@ test("CLI package exposes the harness-anything package artifact surface without 
   assert.equal(cliPackage.publishConfig, undefined);
   assert.equal(cliPackage.scripts?.build, "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs");
   assert.equal(cliPackage.bin?.["harness-anything"], "./dist/cli/src/index.js");
+  assert.equal(cliPackage.bin?.ha, "./dist/cli/src/index.js");
   assert.equal(cliPackage.exports?.["."], "./dist/cli/src/index.js");
   assert.equal(cliPackage.files?.includes("dist"), true);
   assert.equal(cliPackage.dependencies?.effect, "3.21.2");

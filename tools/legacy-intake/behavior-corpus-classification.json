@@ -28,7 +28,7 @@
     },
     {
       "id": "EV-RETIRED-FULL-CUTOVER-FLAG",
-      "command": "harness migrate-verify <session.json> --full-cutover --json",
+      "command": "harness-anything migrate-verify <session.json> --full-cutover --json",
       "result": "rejected with full_cutover_retired"
     }
   ],
@@ -67,7 +67,7 @@
     },
     {
       "classification": "intentional-change",
-      "summary": "CLI package identity uses @harness-anything/cli and exposes the harness-anything binary."
+      "summary": "CLI package identity uses @harness-anything/cli and exposes the canonical harness-anything binary plus the ha alias."
     },
     {
       "classification": "intentional-change",

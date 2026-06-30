@@ -28,6 +28,14 @@ export function runCommand(
   engine: ReturnType<typeof makeLocalLifecycleEngine>,
   command: ParsedCommand
 ): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
+  if (command.action.kind === "help") {
+    return Effect.sync(() => ({
+      ok: true,
+      command: "help",
+      commands: commandRegistry
+    }));
+  }
+
   if (command.action.kind === "init") {
     const action = command.action;
     return Effect.sync(() => initializeHarness(command.rootDir, action.addNpmScripts));

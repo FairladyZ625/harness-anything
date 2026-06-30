@@ -314,7 +314,7 @@ function validateGovernanceGeneratedViews(rootDir: string, strict: boolean): Rea
   const generatedRegistry = path.join(layout.generatedRoot, "Module-Registry.md");
   const authoredModules = path.join(layout.authoredRoot, "modules.json");
   if (existsSync(authoredModules) && !existsSync(generatedRegistry)) {
-    issues.push(profileIssue("governance-boundary", "module_registry_projection_missing", strictSeverity(strict), ".harness/generated/Module-Registry.md is missing for authored modules.json.", "Run harness module scaffold/register or governance rebuild to regenerate local views."));
+    issues.push(profileIssue("governance-boundary", "module_registry_projection_missing", strictSeverity(strict), ".harness/generated/Module-Registry.md is missing for authored modules.json.", "Run harness-anything module scaffold/register or governance rebuild to regenerate local views."));
   }
   return issues;
 }

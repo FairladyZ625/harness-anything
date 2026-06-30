@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs"
   },
   "bin": {
-    "harness-anything": "./dist/cli/src/index.js"
+    "harness-anything": "./dist/cli/src/index.js",
+    "ha": "./dist/cli/src/index.js"
   },
   "exports": {
     ".": "./dist/cli/src/index.js"

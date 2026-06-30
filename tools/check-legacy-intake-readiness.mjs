@@ -78,6 +78,9 @@ function checkPackageSurface(root, violations) {
   if (cliPackage.bin?.["harness-anything"] !== "./dist/cli/src/index.js") {
     violations.push("packages/cli/package.json: bin.harness-anything must point at ./dist/cli/src/index.js");
   }
+  if (cliPackage.bin?.ha !== "./dist/cli/src/index.js") {
+    violations.push("packages/cli/package.json: bin.ha must point at ./dist/cli/src/index.js");
+  }
   if (cliPackage.exports?.["."] !== "./dist/cli/src/index.js") {
     violations.push("packages/cli/package.json: exports['.'] must point at ./dist/cli/src/index.js");
   }
