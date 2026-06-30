@@ -155,7 +155,10 @@ if (hasGuiImplementation) {
     .filter((file) => relative(file).startsWith("packages/application/"))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
-  const cliText = readFileSync(path.join(root, "packages/cli/src/index.ts"), "utf8");
+  const cliText = [
+    "packages/cli/src/index.ts",
+    "packages/cli/src/cli/error-mapper.ts"
+  ].map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
   for (const requiredSnippet of [
     "nodeIntegration: false",
     "contextIsolation: true",
@@ -257,7 +260,10 @@ if (hasStoreImplementation) {
 
 if (hasLocalLifecycleImplementation) {
   const localAdapterText = readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8");
-  const cliText = readFileSync(path.join(root, "packages/cli/src/index.ts"), "utf8");
+  const cliText = [
+    "packages/cli/src/index.ts",
+    "packages/cli/src/cli/error-mapper.ts"
+  ].map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
   const cliTestPath = "packages/cli/test/local-lifecycle-cli.test.ts";
   if (!existsSync(path.join(root, cliTestPath))) record(`local lifecycle CLI requires contract test: ${cliTestPath}`);
   for (const requiredSnippet of [

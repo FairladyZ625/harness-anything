@@ -16,7 +16,7 @@ export function validateGeneratedTaskId(taskId: TaskId): EngineError | undefined
   validateTaskId(taskId);
   return isGeneratedTaskId(taskId)
     ? undefined
-    : { _tag: "MalformedSnapshot", raw: `task id must be generated: ${taskId}` };
+    : { _tag: "GeneratedTaskIdRequired", taskId };
 }
 
 export function makeIndex(input: {
@@ -90,10 +90,9 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
 export function readIndexEffect(rootDir: string, taskId: TaskId): Effect.Effect<LocalTaskIndex, EngineError> {
   return Effect.try({
     try: () => readIndex(rootDir, taskId),
-    catch: (cause): EngineError => ({
-      _tag: "MalformedSnapshot",
-      raw: isNodeErrorCode(cause, "ENOENT") ? `task not found: ${taskId}` : sanitizeReadError(cause)
-    })
+    catch: (cause): EngineError => isNodeErrorCode(cause, "ENOENT")
+      ? { _tag: "TaskNotFound", taskId }
+      : { _tag: "MalformedSnapshot", raw: sanitizeReadError(cause) }
   });
 }
 

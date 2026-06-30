@@ -6,6 +6,13 @@ export type EngineError =
   | { readonly _tag: "AdapterUnavailable"; readonly engine: EngineId; readonly cause?: unknown }
   | { readonly _tag: "AuthMissing"; readonly engine: EngineId }
   | { readonly _tag: "RefNotFound"; readonly ref: ExternalRef }
+  | { readonly _tag: "TaskAlreadyExists"; readonly taskId: TaskId }
+  | { readonly _tag: "TaskNotFound"; readonly taskId: TaskId }
+  | { readonly _tag: "InvalidTransition"; readonly taskId: TaskId; readonly from: string; readonly to: string }
+  | { readonly _tag: "DuplicateExternalBinding"; readonly engine: EngineId; readonly ref: ExternalRef }
+  | { readonly _tag: "DuplicateAdoptClaim"; readonly engine: EngineId; readonly ref: ExternalRef }
+  | { readonly _tag: "StaleSnapshotRefused"; readonly engine: EngineId; readonly ref: ExternalRef }
+  | { readonly _tag: "GeneratedTaskIdRequired"; readonly taskId: TaskId }
   | { readonly _tag: "MalformedSnapshot"; readonly raw: unknown }
   | { readonly _tag: "StatusUnmapped"; readonly rawStatus: string }
   | { readonly _tag: "EngineOwnsStatus"; readonly engine: EngineId; readonly ref: ExternalRef }

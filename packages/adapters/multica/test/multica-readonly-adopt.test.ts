@@ -112,9 +112,9 @@ test("Multica adopt rejects duplicate external bindings and task id conflicts", 
     const duplicateTask = Effect.runSyncExit(service.adopt({ taskId: "task-1", ref: "FAI-2" }));
 
     assert.equal(duplicateRef._tag, "Failure");
-    assert.match(String(duplicateRef.cause), /external ref already bound/);
+    assert.match(String(duplicateRef.cause), /DuplicateExternalBinding/);
     assert.equal(duplicateTask._tag, "Failure");
-    assert.match(String(duplicateTask.cause), /task already exists/);
+    assert.match(String(duplicateTask.cause), /TaskAlreadyExists/);
   });
 });
 
@@ -133,7 +133,7 @@ test("Multica adopt claim rejects duplicate refs before authored scan can see th
     const result = Effect.runSyncExit(service.adopt({ taskId: "task-1", ref: "FAI-1" }));
 
     assert.equal(result._tag, "Failure");
-    assert.match(String(result.cause), /adopt claim already held/);
+    assert.match(String(result.cause), /DuplicateAdoptClaim/);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
   });
 });
@@ -173,7 +173,7 @@ test("Multica adopt refuses stale snapshots instead of binding uncertain externa
     const result = Effect.runSyncExit(service.adopt({ taskId: "task-1", ref: "FAI-1" }));
 
     assert.equal(result._tag, "Failure");
-    assert.match(String(result.cause), /cannot adopt stale multica snapshot/);
+    assert.match(String(result.cause), /StaleSnapshotRefused/);
   });
 });
 

@@ -149,29 +149,32 @@ export function makeMulticaAdoptionService(options: MulticaAdoptionOptions): Mul
       const claims = yield* Effect.try({
         try: () => acquireAdoptClaims(rootDir, input.taskId, input.ref),
         catch: (): EngineError => ({
-          _tag: "MalformedSnapshot",
-          raw: `adopt claim already held: multica ${input.ref}`
+          _tag: "DuplicateAdoptClaim",
+          engine: "multica",
+          ref: input.ref
         })
       });
       try {
         if (existsSync(taskIndexPath(rootDir, input.taskId))) {
           return yield* Effect.fail({
-            _tag: "MalformedSnapshot",
-            raw: `task already exists: ${input.taskId}`
+            _tag: "TaskAlreadyExists",
+            taskId: input.taskId
           } satisfies EngineError);
         }
         const existingBinding = yield* bindingIndex.findBindingByExternalRef("multica", input.ref);
         if (Option.isSome(existingBinding)) {
           return yield* Effect.fail({
-            _tag: "MalformedSnapshot",
-            raw: `external ref already bound: multica ${input.ref}`
+            _tag: "DuplicateExternalBinding",
+            engine: "multica",
+            ref: input.ref
           } satisfies EngineError);
         }
         const snapshot = yield* engine.snapshot({ engine: "multica", ref: input.ref });
         if (snapshot.freshness !== "fresh") {
           return yield* Effect.fail({
-            _tag: "MalformedSnapshot",
-            raw: `cannot adopt stale multica snapshot: ${input.ref}`
+            _tag: "StaleSnapshotRefused",
+            engine: "multica",
+            ref: input.ref
           } satisfies EngineError);
         }
         yield* writeTaskDocument(options.coordinator, input.taskId, renderAdoptedIndex({

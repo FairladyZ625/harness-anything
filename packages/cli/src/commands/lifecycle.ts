@@ -7,19 +7,20 @@ import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "
 import { isDomainStatus, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
 import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import { checkTaskProjection, readTaskProjection } from "../../../kernel/src/index.ts";
-import { commandRegistry } from "../cli/command-registry.ts";
 import { runCheckProfile } from "./check.ts";
 import { runGovernanceRebuild } from "./governance.ts";
 import { runLessonPromote, runLessonSediment } from "./lesson.ts";
 import { runAdoptMultica, runSnapshotMultica } from "./adopt.ts";
 import { runDoctor } from "./doctor.ts";
 import { runGitDiffEvidence } from "./git-diff.ts";
+import { buildHelpResult } from "./help.ts";
 import { initializeHarness } from "./init.ts";
 import { runNewTaskFromLegacy } from "./legacy-rebuild.ts";
 import { runNewTaskWithPreset, shouldUsePresetAwareNewTask } from "./preset-task.ts";
 import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "./settings.ts";
 import { runLegacyCopySafeDocs, runLegacyIndex, runLegacyIntakePlan, runLegacyScan, runLegacyVerify, runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import { filterTaskProjectionRows } from "./task-list-filter.ts";
+import { commandRegistry } from "../cli/command-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
@@ -28,12 +29,9 @@ export function runCommand(
   engine: ReturnType<typeof makeLocalLifecycleEngine>,
   command: ParsedCommand
 ): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
-  if (command.action.kind === "help") {
-    return Effect.sync(() => ({
-      ok: true,
-      command: "help",
-      commands: commandRegistry
-    }));
+  const action = command.action;
+  if (action.kind === "help") {
+    return Effect.sync(() => buildHelpResult(action));
   }
 
   if (command.action.kind === "init") {

@@ -145,6 +145,14 @@ test("parser registry and command registry stay consistent", () => {
   assert.deepEqual(parserKinds, commandKinds);
 });
 
+test("command registry exposes help metadata for every command", () => {
+  for (const entry of commandRegistry) {
+    assert.equal(entry.commandPath.length > 0, true, entry.kind);
+    assert.equal(entry.summary.length > 0, true, entry.kind);
+    assert.equal(entry.resultEnvelope, "CliResult/v1", entry.kind);
+  }
+});
+
 test("extension parser classifier and executor mapping stay consistent", () => {
   const parsedByKind = new Map<ParsedAction["kind"], ParsedAction>();
   for (const candidate of parseCases) {
@@ -208,6 +216,37 @@ test("parseArgs treats empty argv and help flags as help", () => {
     if (!parsed.ok) continue;
     assert.equal(parsed.value.action.kind, "help");
   }
+});
+
+test("parseArgs handles command-level help before command parsers", () => {
+  const cases = [
+    { argv: ["new-task", "--help"], commandKind: "new-task" },
+    { argv: ["new-task", "-h"], commandKind: "new-task" },
+    { argv: ["help", "new-task"], commandKind: "new-task" },
+    { argv: ["task", "status", "set", "--help"], commandKind: "status-set" },
+    { argv: ["task", "--help"], commandPrefix: ["task"] }
+  ] as const;
+
+  for (const candidate of cases) {
+    const parsed = parseArgs(candidate.argv);
+    assert.equal(parsed.ok, true, candidate.argv.join(" "));
+    if (!parsed.ok) continue;
+    assert.equal(parsed.value.action.kind, "help");
+    if ("commandKind" in candidate) {
+      assert.equal(parsed.value.action.commandKind, candidate.commandKind);
+    }
+    if ("commandPrefix" in candidate) {
+      assert.deepEqual(parsed.value.action.commandPrefix, candidate.commandPrefix);
+    }
+  }
+});
+
+test("parseArgs rejects unknown help topics", () => {
+  const parsed = parseArgs(["help", "missing-command"]);
+
+  assert.equal(parsed.ok, false);
+  if (parsed.ok) return;
+  assert.equal(parsed.error.code, "unknown_help_topic");
 });
 
 function assertFields(action: ParsedAction, fields: Readonly<Record<string, unknown>>): void {

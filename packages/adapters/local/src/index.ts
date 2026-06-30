@@ -79,7 +79,7 @@ function createTask(
       validateTaskId(input.taskId);
     }
     if (existsSync(indexPath(rootDir, input.taskId))) {
-      return yield* Effect.fail({ _tag: "MalformedSnapshot", raw: `task already exists: ${input.taskId}` } satisfies EngineError);
+      return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId: input.taskId } satisfies EngineError);
     }
     const index = makeIndex({
       taskId: input.taskId,
@@ -114,8 +114,10 @@ function setStatus(
     }
     if (!canTransition(index.status, input.status)) {
       return yield* Effect.fail({
-        _tag: "MalformedSnapshot",
-        raw: `invalid transition: ${index.status} -> ${input.status}`
+        _tag: "InvalidTransition",
+        taskId: input.taskId,
+        from: index.status,
+        to: input.status
       } satisfies EngineError);
     }
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex({ ...index, status: input.status }), { kind: "transition_local" });
@@ -160,7 +162,7 @@ function supersedeTask(
     const error = validateGeneratedTaskId(input.newTaskId);
     if (error) return yield* Effect.fail(error);
     if (existsSync(indexPath(rootDir, input.newTaskId))) {
-      return yield* Effect.fail({ _tag: "MalformedSnapshot", raw: `task already exists: ${input.newTaskId}` } satisfies EngineError);
+      return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId: input.newTaskId } satisfies EngineError);
     }
     const oldIndex = yield* readIndexEffect(rootDir, input.oldTaskId);
     const newIndex = makeIndex({

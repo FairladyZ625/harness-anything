@@ -5,12 +5,12 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isExtensionAction, runExtensionCommand } from "./commands/extensions/index.ts";
+import { toCliError } from "./cli/error-mapper.ts";
 import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
-import type { ArtifactStoreError, EngineError, WriteError } from "../../kernel/src/domain/index.ts";
 import { runCommand } from "./commands/lifecycle.ts";
-import type { CliResult } from "./cli/types.ts";
+import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);
@@ -92,76 +92,6 @@ function launchGui(rootDir: string): CliResult {
   };
 }
 
-function toCliError(error: ArtifactStoreError | EngineError | WriteError): CliResult["error"] {
-  if (error._tag === "EngineOwnsStatus") {
-    return {
-      code: "engine_owns_status",
-      hint: `Status is owned by ${error.engine}; change it in that engine context.`
-    };
-  }
-  if (error._tag === "MalformedSnapshot") {
-    const raw = String(error.raw);
-    return {
-      code: raw.includes("invalid transition") ? "invalid_transition" : raw.includes("task not found") ? "task_not_found" : raw.includes("external ref already bound") ? "duplicate_external_binding" : raw.includes("adopt claim already held") ? "duplicate_adopt_claim" : raw.includes("cannot adopt stale") ? "stale_snapshot_refused" : raw.includes("task already exists") ? "task_already_exists" : "malformed_snapshot",
-      hint: raw
-    };
-  }
-  if (error._tag === "TerminalReopenRequiresSupersede") {
-    return {
-      code: "terminal_reopen_requires_supersede",
-      hint: `Task ${error.taskId} is ${error.status}; create follow-up work with harness-anything task supersede.`
-    };
-  }
-  if (error._tag === "ArchivedHardDeleteForbidden") {
-    return {
-      code: "archived_hard_delete_forbidden",
-      hint: `Task ${error.taskId} is archived; keep audit history or use soft delete.`
-    };
-  }
-  if (error._tag === "TerminalHardDeleteForbidden") {
-    return {
-      code: "terminal_hard_delete_forbidden",
-      hint: `Task ${error.taskId} is ${error.status}; terminal work cannot be hard deleted.`
-    };
-  }
-  if (error._tag === "RelatedTaskHardDeleteForbidden") {
-    return {
-      code: "related_task_hard_delete_forbidden",
-      hint: `Task ${error.taskId} has task relations; remove or supersede relations before hard delete.`
-    };
-  }
-  if (error._tag === "WriteConflict") {
-    return { code: "write_conflict", hint: error.owner ?? "Write lock is held." };
-  }
-  if (error._tag === "WriteRejected") {
-    return { code: "write_rejected", hint: error.reason };
-  }
-  if (error._tag === "ArtifactReadFailed") {
-    return { code: "artifact_read_failed", hint: "Artifact read failed." };
-  }
-  if (error._tag === "ArtifactWriteRejected") {
-    return { code: "artifact_write_rejected", hint: error.reason };
-  }
-  if (error._tag === "TaskPackageNotFound") {
-    return { code: "task_not_found", hint: `task not found: ${error.taskId}` };
-  }
-  if (error._tag === "JournalUnavailable") {
-    const cause = journalUnavailableCause(error.cause);
-    return { code: "journal_unavailable", hint: cause ? `Journal is unavailable: ${cause}` : "Journal is unavailable." };
-  }
-  return { code: error._tag, hint: "Command failed." };
-}
-
-function journalUnavailableCause(cause: unknown): string {
-  if (cause instanceof Error) return firstLine(cause.message);
-  if (typeof cause === "string") return firstLine(cause);
-  return "";
-}
-
-function firstLine(value: string): string {
-  return value.trim().split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? "";
-}
-
 function emit(result: CliResult, json: boolean): void {
   if (json) {
     console.log(JSON.stringify(result));
@@ -170,13 +100,7 @@ function emit(result: CliResult, json: boolean): void {
 
   if (result.ok) {
     if (result.command === "help" && result.commands) {
-      console.log([
-        "Usage: harness-anything <command> [options]",
-        "Alias: ha <command> [options]",
-        "",
-        "Commands:",
-        ...result.commands.map((entry) => `  ${entry.primary}`)
-      ].join("\n"));
+      console.log(renderHelp(result));
       return;
     }
     const suffix = result.status ? ` status=${result.status}` : result.path ? ` path=${result.path}` : result.rows !== undefined ? ` rows=${result.rows}` : result.launchPlan ? ` mode=${result.launchPlan.mode} package=${result.launchPlan.packageName}` : "";
@@ -185,6 +109,53 @@ function emit(result: CliResult, json: boolean): void {
   }
 
   console.error(`error code=${result.error?.code ?? "unknown"} hint=${result.error?.hint ?? "Command failed."}`);
+}
+
+function renderHelp(result: CliResult): string {
+  const commands = result.commands ?? [];
+  const report = helpReport(result.report);
+  if (report?.kind === "command" && commands.length === 1) {
+    return renderCommandHelp(commands[0]!);
+  }
+  if (report?.kind === "prefix") {
+    const prefix = Array.isArray(report.prefix) ? report.prefix.join(" ") : "";
+    return [
+      `Usage: harness-anything ${prefix} <subcommand> [options]`,
+      `Alias: ha ${prefix} <subcommand> [options]`,
+      "",
+      "Commands:",
+      ...commands.map((entry) => `  ${entry.primary} - ${entry.summary}`)
+    ].join("\n");
+  }
+  return [
+    "Usage: harness-anything <command> [options]",
+    "Alias: ha <command> [options]",
+    "",
+    "Commands:",
+    ...commands.map((entry) => `  ${entry.primary}`)
+  ].join("\n");
+}
+
+function renderCommandHelp(command: CommandRegistryEntry): string {
+  const aliases = command.aliases.length > 0 ? ["", "Aliases:", ...command.aliases.map((alias) => `  ${alias}`)] : [];
+  const options = command.options.length > 0 ? ["", "Options:", ...command.options.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`)] : [];
+  const examples = command.examples.length > 0 ? ["", "Example:", ...command.examples.map((example) => `  ${example}`)] : [];
+  return [
+    `Usage: ${command.primary}`,
+    "",
+    command.summary,
+    ...aliases,
+    ...options,
+    ...examples
+  ].join("\n");
+}
+
+function helpReport(report: unknown): { readonly kind: "global" | "command" | "prefix"; readonly prefix?: unknown } | undefined {
+  if (!report || typeof report !== "object") return undefined;
+  const candidate = report as { readonly schema?: unknown; readonly kind?: unknown; readonly prefix?: unknown };
+  if (candidate.schema !== "cli-help-report/v1") return undefined;
+  if (candidate.kind !== "global" && candidate.kind !== "command" && candidate.kind !== "prefix") return undefined;
+  return { kind: candidate.kind, prefix: candidate.prefix };
 }
 
 function isCliEntrypoint(): boolean {

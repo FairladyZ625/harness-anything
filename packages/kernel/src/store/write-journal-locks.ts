@@ -8,6 +8,16 @@ import { sha256Text } from "./hash.ts";
 import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./write-journal-durable.ts";
 import type { JournalActor, LockRecord, LockTakeoverRecord, OwnedLock } from "./write-journal-types.ts";
 
+export class WriteLockHeldError extends Error {
+  readonly owner: string;
+
+  constructor(owner: string) {
+    super(`lock already held: ${owner}`);
+    this.name = "WriteLockHeldError";
+    this.owner = owner;
+  }
+}
+
 export function withRepoLocks<T>(
   rootDir: string,
   journalPath: string,
@@ -48,14 +58,14 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
     if (existsSync(lockPath)) {
       const existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (!isStaleLock(existing, lockTtlMs)) {
-        throw new Error(`lock already held: ${relativeLockPath}`);
+        throw new WriteLockHeldError(relativeLockPath);
       }
 
       acquireTakeoverClaim(claimPath, ownerToken);
       ownsTakeoverClaim = true;
       const current = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (current.ownerToken !== existing.ownerToken) {
-        throw new Error(`lock already held: ${relativeLockPath} changed during stale takeover`);
+        throw new WriteLockHeldError(`${relativeLockPath} changed during stale takeover`);
       }
 
       staleTakeover = {
@@ -69,7 +79,7 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
       staleQuarantinePath = `${lockPath}.stale.${existing.ownerToken}.${ownerToken}`;
       renameSync(lockPath, staleQuarantinePath);
     } else if (existsSync(claimPath)) {
-      throw new Error(`lock already held: ${relativeLockPath} takeover in progress`);
+      throw new WriteLockHeldError(`${relativeLockPath} takeover in progress`);
     }
 
     let fd: number;
@@ -77,7 +87,7 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
       fd = openSync(lockPath, "wx");
     } catch (error) {
       if (isAlreadyExistsError(error)) {
-        throw new Error(`lock already held: ${relativeLockPath}`);
+        throw new WriteLockHeldError(relativeLockPath);
       }
       throw error;
     }
@@ -96,7 +106,7 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
 
     if (!ownsTakeoverClaim && existsSync(claimPath)) {
       releaseLock({ path: lockPath, ownerToken });
-      throw new Error(`lock already held: ${relativeLockPath} takeover in progress`);
+      throw new WriteLockHeldError(`${relativeLockPath} takeover in progress`);
     }
 
     if (staleTakeover) appendJsonLineDurably(journalPath, staleTakeover);
@@ -125,7 +135,7 @@ function acquireTakeoverClaim(claimPath: string, ownerToken: string): void {
     fd = openSync(claimPath, "wx");
   } catch (error) {
     if (isAlreadyExistsError(error)) {
-      throw new Error(`lock already held: ${path.basename(claimPath, ".takeover")} takeover in progress`);
+      throw new WriteLockHeldError(`${path.basename(claimPath, ".takeover")} takeover in progress`);
     }
     throw error;
   }
@@ -155,10 +165,10 @@ function clearStaleTakeoverClaim(claimPath: string, lockTtlMs: number): void {
   if (!existsSync(claimPath)) return;
   const record = readClaimRecord(claimPath);
   if (!record) {
-    throw new Error(`lock already held: ${path.basename(claimPath, ".takeover")} takeover in progress`);
+    throw new WriteLockHeldError(`${path.basename(claimPath, ".takeover")} takeover in progress`);
   }
   if (!isStaleLock(record, lockTtlMs)) {
-    throw new Error(`lock already held: ${path.basename(claimPath, ".takeover")} takeover in progress`);
+    throw new WriteLockHeldError(`${path.basename(claimPath, ".takeover")} takeover in progress`);
   }
   rmSync(claimPath, { force: true });
 }

@@ -64,6 +64,21 @@ test("CLI help prints canonical command and alias", () => {
   });
 });
 
+test("command-level help exits without creating task state", () => {
+  withTempRoot((rootDir) => {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "new-task", "--help"], {
+      encoding: "utf8"
+    });
+
+    assert.match(stdout, /Usage: harness-anything new-task --title <title>/u);
+    assert.match(stdout, /Aliases:/u);
+    assert.match(stdout, /Options:/u);
+    assert.match(stdout, /--title/u);
+    assert.equal(existsSync(path.join(rootDir, "harness")), false);
+    assert.equal(existsSync(path.join(rootDir, ".harness")), false);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-"));
   try {

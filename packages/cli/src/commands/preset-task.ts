@@ -99,7 +99,7 @@ export function runNewTaskWithPreset(
       validateTaskId(taskId);
     }
     if (existsSync(indexPath(rootDir, taskId))) {
-      return yield* Effect.fail({ _tag: "MalformedSnapshot", raw: `task already exists: ${taskId}` } satisfies EngineError);
+      return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId } satisfies EngineError);
     }
 
     const createdAt = new Date().toISOString();

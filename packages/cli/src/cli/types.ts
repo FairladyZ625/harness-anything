@@ -81,7 +81,16 @@ export interface CommandRegistryEntry {
   readonly kind: string;
   readonly primary: string;
   readonly aliases: ReadonlyArray<string>;
+  readonly commandPath: ReadonlyArray<string>;
+  readonly summary: string;
+  readonly options: ReadonlyArray<CommandHelpOption>;
+  readonly examples: ReadonlyArray<string>;
   readonly resultEnvelope: "CliResult/v1";
+}
+
+export interface CommandHelpOption {
+  readonly flag: string;
+  readonly description: string;
 }
 
 export interface ParsedCommand {
@@ -117,7 +126,7 @@ export interface ParsedCommand {
     | { readonly kind: "legacy-verify" }
     | { readonly kind: "git-diff"; readonly baseRef?: string }
     | { readonly kind: "doctor" }
-    | { readonly kind: "help" }
+    | { readonly kind: "help"; readonly commandKind?: string; readonly commandPrefix?: ReadonlyArray<string> }
     | { readonly kind: "gui" }
     | { readonly kind: "template-list"; readonly catalogPath?: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath?: string; readonly locale: "zh-CN" | "en-US" }

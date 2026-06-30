@@ -47,7 +47,7 @@ export function runNewTaskFromLegacy(
       const slug = action.slugProvided ? action.slug : slugifyTaskTitle(title);
       const taskId = generateTaskId();
       if (existsSync(indexPath(rootDir, taskId))) {
-        return Effect.fail({ _tag: "MalformedSnapshot", raw: `task already exists: ${taskId}` } satisfies EngineError);
+        return Effect.fail({ _tag: "TaskAlreadyExists", taskId } satisfies EngineError);
       }
       const createdAt = new Date().toISOString();
       const index = makeIndex({
