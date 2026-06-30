@@ -106,6 +106,11 @@ test("WriteCoordinator commits self-host authored writes inside ignored nested h
       "  root: harness/planning/tasks",
       ""
     ].join("\n"), "utf8");
+    mkdirSync(path.join(rootDir, "harness/notes"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/notes/unrelated.md"), "before\n", "utf8");
+    runGit(path.join(rootDir, "harness"), "add", ".");
+    runGit(path.join(rootDir, "harness"), "commit", "-m", "seed nested harness");
+    writeFileSync(path.join(rootDir, "harness/notes/unrelated.md"), "after\n", "utf8");
 
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-nested", "task-1", "notes.md", "nested")));
@@ -114,8 +119,45 @@ test("WriteCoordinator commits self-host authored writes inside ignored nested h
     assert.equal(report.watermark, "op-nested");
     assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "nested");
     assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /harness write op-nested/);
+    assert.equal(runGit(path.join(rootDir, "harness"), "show", "--name-only", "--format=", "HEAD"), "planning/tasks/task-1/notes.md");
+    assert.equal(runGit(path.join(rootDir, "harness"), "status", "--short"), "M notes/unrelated.md");
     assert.equal(runGit(rootDir, "status", "--short"), "");
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), true);
+  });
+});
+
+test("WriteCoordinator accepts non-native case root paths on case-insensitive filesystems", (t) => {
+  withTempStore((rootDir) => {
+    const variantRoot = caseVariantPath(rootDir);
+    if (!variantRoot || !existsSync(variantRoot)) {
+      t.skip("filesystem does not resolve mixed-case path aliases");
+      return;
+    }
+    initializeGitRepo(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "commit", "-m", "ignore private harness");
+
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    initializeGitRepo(path.join(rootDir, "harness"));
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+      "schema: harness-anything/v1",
+      "name: self-host-fixture",
+      "layout:",
+      "  authoredRoot: harness",
+      "  localRoot: .harness",
+      "tasks:",
+      "  root: harness/planning/tasks",
+      ""
+    ].join("\n"), "utf8");
+
+    const coordinator = makeJournaledWriteCoordinator({ rootDir: variantRoot });
+    Effect.runSync(coordinator.enqueue(docWrite("op-mixed-case", "task-1", "notes.md", "mixed")));
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(report.watermark, "op-mixed-case");
+    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "mixed");
+    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /harness write op-mixed-case/);
   });
 });
 
@@ -166,12 +208,12 @@ test("WriteCoordinator fails closed when ignored authored root has no nested Git
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
 
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
-    Effect.runSync(coordinator.enqueue(docWrite("op-ignored", "task-1", "notes.md", "ignored")));
 
     assert.throws(
-      () => Effect.runSync(coordinator.flush("explicit")),
+      () => Effect.runSync(coordinator.enqueue(docWrite("op-ignored", "task-1", "notes.md", "ignored"))),
       /authored root is ignored by Git but is not a nested Git repository/
     );
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
   });
 });
@@ -203,6 +245,13 @@ function indexBody(taskId: string, title: string, status: string): string {
 
 function initializeGitRepo(repoRoot: string): void {
   runGit(repoRoot, "init");
+}
+
+function caseVariantPath(inputPath: string): string | null {
+  const basename = path.basename(inputPath);
+  const toggled = basename.replace(/[A-Za-z]/u, (char) => char === char.toUpperCase() ? char.toLowerCase() : char.toUpperCase());
+  if (toggled === basename) return null;
+  return path.join(path.dirname(inputPath), toggled);
 }
 
 function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {

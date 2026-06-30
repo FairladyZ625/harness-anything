@@ -15,17 +15,16 @@ test("WriteCoordinator rejects semantic writes without document payload", () => 
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
 
-    Effect.runSync(coordinator.enqueue({
-      opId: "op-transition",
-      taskId: "task-1",
-      kind: "transition_local",
-      payload: { to: "active" }
-    }));
-
     assert.throws(
-      () => Effect.runSync(coordinator.flush("explicit")),
+      () => Effect.runSync(coordinator.enqueue({
+        opId: "op-transition",
+        taskId: "task-1",
+        kind: "transition_local",
+        payload: { to: "active" }
+      })),
       /requires path and body payload/
     );
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
   });
 });
 
@@ -33,22 +32,21 @@ test("WriteCoordinator validates supersede batch before writing any document", (
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
 
-    Effect.runSync(coordinator.enqueue({
-      opId: "op-supersede-batch-invalid",
-      taskId: "task-old",
-      kind: "package_supersede",
-      payload: {
-        writes: [
-          { taskId: "task-old", path: "INDEX.md", body: "old archived", packageSlug: "old" },
-          { taskId: "task-new", path: "/absolute.md", body: "new", packageSlug: "new" }
-        ]
-      }
-    }));
-
     assert.throws(
-      () => Effect.runSync(coordinator.flush("explicit")),
+      () => Effect.runSync(coordinator.enqueue({
+        opId: "op-supersede-batch-invalid",
+        taskId: "task-old",
+        kind: "package_supersede",
+        payload: {
+          writes: [
+            { taskId: "task-old", path: "INDEX.md", body: "old archived", packageSlug: "old" },
+            { taskId: "task-new", path: "/absolute.md", body: "new", packageSlug: "new" }
+          ]
+        }
+      })),
       /absolute paths are not allowed/
     );
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-old-old/INDEX.md")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/absolute.md")), false);
   });
@@ -58,22 +56,21 @@ test("WriteCoordinator validates package create batch before writing any documen
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
 
-    Effect.runSync(coordinator.enqueue({
-      opId: "op-create-batch-invalid",
-      taskId: "task-new",
-      kind: "package_create",
-      payload: {
-        writes: [
-          { taskId: "task-new", path: "INDEX.md", body: "index", packageSlug: "new" },
-          { taskId: "task-new", path: "/absolute.md", body: "bad", packageSlug: "new" }
-        ]
-      }
-    }));
-
     assert.throws(
-      () => Effect.runSync(coordinator.flush("explicit")),
+      () => Effect.runSync(coordinator.enqueue({
+        opId: "op-create-batch-invalid",
+        taskId: "task-new",
+        kind: "package_create",
+        payload: {
+          writes: [
+            { taskId: "task-new", path: "INDEX.md", body: "index", packageSlug: "new" },
+            { taskId: "task-new", path: "/absolute.md", body: "bad", packageSlug: "new" }
+          ]
+        }
+      })),
       /absolute paths are not allowed/
     );
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/INDEX.md")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/absolute.md")), false);
   });

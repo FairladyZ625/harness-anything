@@ -48,6 +48,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(rootDir, op);
+        preflightWriteOp(rootDir, op);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         if (state.applied.has(op.opId) || state.records.some((record) => record.opId === op.opId) || pending.some((item) => item.opId === op.opId)) {
           return { opId: op.opId, taskId: op.taskId, accepted: true };
@@ -94,10 +95,16 @@ function flushRecords(
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
+  const plannedRecords = records.map((record) => ({
+    record,
+    touchedPaths: recordTouchedPaths(rootDir, record)
+  }));
 
-  for (const record of records) {
+  resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths));
+
+  for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
     applyRecord(rootDir, journalPath, record);
-    touchedPaths.push(resolveHarnessLayout(rootDir).authoredRoot);
+    touchedPaths.push(...recordTouchedPaths);
     committedOpIds.push(record.opId);
   }
 
@@ -198,6 +205,10 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
   };
 }
 
+function preflightWriteOp(rootDir: string, op: WriteOp): void {
+  resolveCommitPlan(rootDir, opTouchedPaths(rootDir, op));
+}
+
 function recordToOp(rootDir: string, record: JournalRecord): WriteOp {
   const payload = readVerifiedPayload(rootDir, record);
   return {
@@ -255,6 +266,26 @@ function writeDocumentsAtomically(rootDir: string, writes: ReadonlyArray<Documen
     }
     throw error;
   }
+}
+
+function recordTouchedPaths(rootDir: string, record: JournalRecord): ReadonlyArray<string> {
+  if (record.kind === "package_delete_hard") {
+    return [taskPackagePath(rootDir, record.taskId)];
+  }
+  return opTouchedPaths(rootDir, recordToOp(rootDir, record));
+}
+
+function opTouchedPaths(rootDir: string, op: WriteOp): ReadonlyArray<string> {
+  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
+    return op.payload.writes.map((write) => documentTargetPath(rootDir, write));
+  }
+  if (op.kind === "package_delete_hard") {
+    return [taskPackagePath(rootDir, op.taskId)];
+  }
+  if (!documentWriteKinds.has(op.kind)) {
+    throw new Error(`unsupported write op kind: ${op.kind}`);
+  }
+  return [documentTargetPath(rootDir, toDocumentWrite(op))];
 }
 
 function documentTargetPath(rootDir: string, write: DocumentWrite): string {
@@ -354,16 +385,25 @@ function toDocumentWrite(op: WriteOp): DocumentWrite {
 function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>): string {
   if (touchedPaths.length === 0) return "no-git-change";
 
+  const plan = resolveCommitPlan(rootDir, touchedPaths);
+  if (!plan) return "no-git-change";
+
+  runGit(plan.repoRoot, "add", "--", ...plan.relativePaths);
+  const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
+  if (staged.length === 0) return currentGitHead(plan.repoRoot);
+
+  runGit(plan.repoRoot, "commit", "-m", `harness write ${opIds.join(",")}`);
+  return currentGitHead(plan.repoRoot);
+}
+
+function resolveCommitPlan(rootDir: string, touchedPaths: ReadonlyArray<string>): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
+  if (touchedPaths.length === 0) return null;
   const target = resolveCommitTarget(rootDir, resolveHarnessLayout(rootDir).authoredRoot);
-  if (!target) return "no-git-change";
-
-  const relativePaths = unique(touchedPaths.map((filePath) => repoRelativePath(target.repoRoot, filePath)));
-  runGit(target.repoRoot, "add", "--", ...relativePaths);
-  const staged = runGit(target.repoRoot, "diff", "--cached", "--name-only").trim();
-  if (staged.length === 0) return currentGitHead(target.repoRoot);
-
-  runGit(target.repoRoot, "commit", "-m", `harness write ${opIds.join(",")}`);
-  return currentGitHead(target.repoRoot);
+  if (!target) return null;
+  return {
+    repoRoot: target.repoRoot,
+    relativePaths: unique(touchedPaths.map((filePath) => repoRelativePath(target.repoRoot, filePath)))
+  };
 }
 
 function isGitRepo(rootDir: string): boolean {
@@ -408,7 +448,18 @@ function repoRelativePath(repoRoot: string, filePath: string): string {
 }
 
 function normalizeExistingPath(inputPath: string): string {
-  return existsSync(inputPath) ? realpathSync(inputPath) : path.resolve(inputPath);
+  const resolved = path.resolve(inputPath);
+  if (existsSync(resolved)) return realpathSync.native(resolved);
+
+  const pendingSegments: string[] = [];
+  let current = resolved;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return resolved;
+    pendingSegments.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.join(realpathSync.native(current), ...pendingSegments);
 }
 
 function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
@@ -513,7 +564,14 @@ function toJournalError(cause: unknown): WriteError {
       owner: message
     };
   }
-  if (message.includes("unsupported write op kind") || message.includes("payload") || message.includes("hard delete forbidden")) {
+  if (
+    message.includes("unsupported write op kind") ||
+    message.includes("payload") ||
+    message.includes("hard delete forbidden") ||
+    message.includes("absolute paths are not allowed") ||
+    message.includes("path escapes") ||
+    message.includes("invalid document path")
+  ) {
     return {
       _tag: "WriteRejected",
       taskId: "unknown",
