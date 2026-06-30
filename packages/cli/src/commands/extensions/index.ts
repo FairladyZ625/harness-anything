@@ -1,3 +1,4 @@
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { runModuleCommand } from "./module.ts";
 import { runPresetCommand } from "./preset.ts";
@@ -45,10 +46,7 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
       return {
         ok: false,
         command: action.kind,
-        error: {
-          code: "unknown_command",
-          hint: "Unsupported extension command."
-        }
+        error: cliError(CliErrorCode.UnknownCommand, "Unsupported extension command.")
       };
     }
     switch (group) {
@@ -67,19 +65,13 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
       return {
         ok: false,
         command: command.action.kind,
-        error: {
-          code: "invalid_registry_key",
-          hint: `Invalid ${label} key.`
-        }
+        error: cliError(CliErrorCode.InvalidRegistryKey, `Invalid ${label} key.`)
       };
     }
     return {
       ok: false,
       command: command.action.kind,
-      error: {
-        code: "decode_failed",
-        hint: "Input JSON failed to decode or could not be read."
-      }
+      error: cliError(CliErrorCode.DecodeFailed, "Input JSON failed to decode or could not be read.")
     };
   }
 }

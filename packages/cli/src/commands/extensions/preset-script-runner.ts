@@ -4,6 +4,7 @@ import path from "node:path";
 import { Schema } from "effect";
 import { PresetManifestSchema } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/layout/index.ts";
+import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";
 import {
@@ -37,7 +38,7 @@ export function runScriptEntrypoint(
         ok: false,
         command: commandName,
         preset: presetSummary,
-        error: { code: "preset_script_not_found", hint: "Preset script entrypoint was not found inside the preset package." }
+        error: cliError(CliErrorCode.PresetScriptNotFound, "Preset script entrypoint was not found inside the preset package.")
       }
     };
   }
@@ -54,7 +55,7 @@ export function runScriptEntrypoint(
         ok: false,
         command: commandName,
         preset: presetSummary,
-        error: { code: "preset_read_scope_invalid", hint: "Preset script reads must declare supported project-local scopes." }
+        error: cliError(CliErrorCode.PresetReadScopeInvalid, "Preset script reads must declare supported project-local scopes.")
       }
     };
   }
@@ -65,7 +66,7 @@ export function runScriptEntrypoint(
         ok: false,
         command: commandName,
         preset: presetSummary,
-        error: { code: "preset_write_scope_invalid", hint: "Preset script writes must declare a supported scope that covers the generated output root." }
+        error: cliError(CliErrorCode.PresetWriteScopeInvalid, "Preset script writes must declare a supported scope that covers the generated output root.")
       }
     };
   }
@@ -124,9 +125,9 @@ export function runScriptEntrypoint(
         evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
         error: accessDenied
           ? readDenied
-            ? { code: "preset_read_scope_violation", hint: "Preset script attempted filesystem read outside its declared permission scope." }
-            : { code: "preset_write_scope_violation", hint: "Preset script attempted filesystem write outside its declared permission scope." }
-          : { code: "preset_script_failed", hint: `Preset script exited with status ${result.status ?? "unknown"}.` }
+            ? cliError(CliErrorCode.PresetReadScopeViolation, "Preset script attempted filesystem read outside its declared permission scope.")
+            : cliError(CliErrorCode.PresetWriteScopeViolation, "Preset script attempted filesystem write outside its declared permission scope.")
+          : cliError(CliErrorCode.PresetScriptFailed, `Preset script exited with status ${result.status ?? "unknown"}.`)
       }
     };
   }
@@ -141,7 +142,7 @@ export function runScriptEntrypoint(
         preset: presetSummary,
         evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
         generated: generatedFiles.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
-        error: { code: "preset_write_scope_violation", hint: "Preset script produced files outside its declared write scopes." }
+        error: cliError(CliErrorCode.PresetWriteScopeViolation, "Preset script produced files outside its declared write scopes.")
       }
     };
   }
@@ -180,11 +181,11 @@ export function scriptCliResult(options: {
 function scriptError(value: unknown): CliResult["error"] {
   if (value && typeof value === "object" && "code" in value && "hint" in value) {
     const error = value as { readonly code?: unknown; readonly hint?: unknown };
-    if (typeof error.code === "string" && typeof error.hint === "string") {
-      return { code: error.code, hint: error.hint };
+    if (isCliErrorCode(error.code) && typeof error.hint === "string") {
+      return cliError(error.code, error.hint);
     }
   }
-  return { code: "preset_script_result_failed", hint: "Preset script reported a failed result." };
+  return cliError(CliErrorCode.PresetScriptResultFailed, "Preset script reported a failed result.");
 }
 
 function readScriptedResult(outputRoot: string): Record<string, unknown> | undefined {
@@ -196,10 +197,7 @@ function readScriptedResult(outputRoot: string): Record<string, unknown> | undef
   } catch {
     return {
       ok: false,
-      error: {
-        code: "preset_script_result_invalid",
-        hint: "Preset script wrote invalid artifacts/preset-result.json."
-      }
+      error: cliError(CliErrorCode.PresetScriptResultInvalid, "Preset script wrote invalid artifacts/preset-result.json.")
     };
   }
 }

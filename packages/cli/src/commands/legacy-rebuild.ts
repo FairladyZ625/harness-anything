@@ -8,6 +8,7 @@ import { indexPath, makeIndex, renderIndex } from "../../../adapters/local/src/t
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
@@ -109,7 +110,7 @@ function readLegacyRebuildSource(rootDir: string, legacyId: string): LegacyRebui
       result: {
         ok: false,
         command: "new-task",
-        error: { code: "legacy_index_missing", hint: "harness/legacy/index.json is missing. Run legacy index <path> --apply before rebuilding from legacy." }
+        error: cliError(CliErrorCode.LegacyIndexMissing, "harness/legacy/index.json is missing. Run legacy index <path> --apply before rebuilding from legacy.")
       }
     };
   }
@@ -122,7 +123,7 @@ function readLegacyRebuildSource(rootDir: string, legacyId: string): LegacyRebui
         result: {
           ok: false,
           command: "new-task",
-          error: { code: "legacy_entry_not_found", hint: `No legacy index entry found for id: ${legacyId}` }
+          error: cliError(CliErrorCode.LegacyEntryNotFound, `No legacy index entry found for id: ${legacyId}`)
         }
       };
     }
@@ -132,7 +133,7 @@ function readLegacyRebuildSource(rootDir: string, legacyId: string): LegacyRebui
         result: {
           ok: false,
           command: "new-task",
-          error: { code: "legacy_stored_path_missing", hint: `Legacy stored path is missing: ${entry.storedPath}` }
+          error: cliError(CliErrorCode.LegacyStoredPathMissing, `Legacy stored path is missing: ${entry.storedPath}`)
         }
       };
     }
@@ -143,7 +144,7 @@ function readLegacyRebuildSource(rootDir: string, legacyId: string): LegacyRebui
       result: {
         ok: false,
         command: "new-task",
-        error: { code: "legacy_index_invalid", hint: "harness/legacy/index.json does not match the runtime LegacyIndexSchema." }
+        error: cliError(CliErrorCode.LegacyIndexInvalid, "harness/legacy/index.json does not match the runtime LegacyIndexSchema.")
       }
     };
   }

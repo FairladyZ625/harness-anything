@@ -1,4 +1,5 @@
 import { slugifyTaskTitle } from "../../../../kernel/src/layout/index.ts";
+import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 
@@ -12,33 +13,30 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
   if (args.includes("--from-legacy") && (!fromLegacyId || fromLegacyId.startsWith("--"))) {
     return {
       ok: false,
-      error: {
-        code: "missing_legacy_id",
-        hint: "Use new-task --from-legacy <legacy-id> with an id from harness/legacy/index.json."
-      }
+      error: cliError(CliErrorCode.MissingLegacyId, "Use new-task --from-legacy <legacy-id> with an id from harness/legacy/index.json.")
     };
   }
   const manualId = readOption(args, "--id") ?? (args[1]?.startsWith("--") ? undefined : args[1]);
   if (fromLegacyId && manualId) {
     return {
       ok: false,
-      error: {
-        code: "legacy_rebuild_manual_id_forbidden",
-        hint: "new-task --from-legacy creates a fresh generated task id and cannot also use a manual id."
-      }
+      error: cliError(CliErrorCode.LegacyRebuildManualIdForbidden, "new-task --from-legacy creates a fresh generated task id and cannot also use a manual id.")
     };
   }
   if (manualId && !migrationMode) {
     return {
       ok: false,
-      error: {
-        code: "manual_task_id_forbidden",
-        hint: "Task IDs are generated as random task_<ULID> values. Use --migration, --import, or --admin only for controlled backfills."
-      }
+      error: cliError(CliErrorCode.ManualTaskIdForbidden, "Task IDs are generated as random task_<ULID> values. Use --migration, --import, or --admin only for controlled backfills.")
     };
   }
   const explicitTitle = readOption(args, "--title");
-  const title = explicitTitle ?? manualId ?? "Untitled task";
+  if (!explicitTitle && !fromLegacyId) {
+    return {
+      ok: false,
+      error: cliError(CliErrorCode.MissingTitle, "Use new-task --title <title>. Legacy rebuilds may use --from-legacy <legacy-id> without --title.")
+    };
+  }
+  const title = explicitTitle ?? "Untitled task";
   const explicitSlug = readOption(args, "--slug");
   const vertical = readRequiredValueOption(args, "--vertical");
   if (!vertical.ok) return { ok: false, error: vertical.error };
@@ -50,22 +48,19 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
   if (!moduleKey.ok) return { ok: false, error: moduleKey.error };
   const locale = readOption(args, "--locale");
   if (locale && locale !== "zh-CN" && locale !== "en-US") {
-    return { ok: false, error: { code: "invalid_locale", hint: "Use --locale zh-CN or --locale en-US." } };
+    return { ok: false, error: cliError(CliErrorCode.InvalidLocale, "Use --locale zh-CN or --locale en-US.") };
   }
   const registerModuleKey = readOption(args, "--register-module");
   const moduleTitle = readOption(args, "--module-title");
   const moduleScope = readOption(args, "--module-scope");
   const modulePrefix = readOption(args, "--module-prefix");
   if (registerModuleKey && (!moduleTitle || !moduleScope)) {
-    return { ok: false, error: { code: "missing_module_fields", hint: "new-task --register-module requires --module-title and --module-scope." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingModuleFields, "new-task --register-module requires --module-title and --module-scope.") };
   }
   if (fromLegacyId && (vertical.value || preset.value || profile.value || moduleKey.value || registerModuleKey)) {
     return {
       ok: false,
-      error: {
-        code: "legacy_rebuild_preset_forbidden",
-        hint: "new-task --from-legacy creates a fresh rebuild task from the legacy index; create a normal preset task separately."
-      }
+      error: cliError(CliErrorCode.LegacyRebuildPresetForbidden, "new-task --from-legacy creates a fresh rebuild task from the legacy index; create a normal preset task separately.")
     };
   }
   return {

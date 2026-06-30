@@ -7,6 +7,7 @@ import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts"
 import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { createTaskPackagePath, generateTaskId } from "../../../kernel/src/layout/index.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModules } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
@@ -35,7 +36,7 @@ export function runNewTaskWithPreset(
         ok: false,
         command: "new-task",
         preset: { id: presetId },
-        error: { code: "missing_module", hint: "Use new-task --preset module --module <key>." }
+        error: cliError(CliErrorCode.MissingModule, "Use new-task --preset module --module <key>.")
       } satisfies CliResult;
     }
     const preset = resolvePresetEntry(rootDir, presetId);
@@ -46,7 +47,7 @@ export function runNewTaskWithPreset(
         command: "new-task",
         preset: { id: preset.id, layer: preset.layer, valid: false },
         issues: preset.issues,
-        error: { code: "preset_manifest_invalid", hint: "Preset manifest failed validation." }
+        error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
       } satisfies CliResult;
     }
 
@@ -60,10 +61,7 @@ export function runNewTaskWithPreset(
         command: "new-task",
         preset: publicPresetSummary(preset),
         issues: materialized.issues,
-        error: {
-          code: "preset_materialization_failed",
-          hint: "Preset-selected templates could not be materialized."
-        }
+        error: cliError(CliErrorCode.PresetMaterializationFailed, "Preset-selected templates could not be materialized.")
       } satisfies CliResult;
     }
 
@@ -87,7 +85,7 @@ export function runNewTaskWithPreset(
         ok: false,
         command: "new-task",
         module: { key: action.moduleKey },
-        error: { code: "module_not_found", hint: `Module ${action.moduleKey} was not found.` }
+        error: cliError(CliErrorCode.ModuleNotFound, `Module ${action.moduleKey} was not found.`)
       } satisfies CliResult;
     }
 

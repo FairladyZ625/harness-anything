@@ -1,4 +1,5 @@
 import type { DomainStatus } from "../../../kernel/src/domain/index.ts";
+import type { CliError } from "./error-codes.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
@@ -71,10 +72,7 @@ export interface CliResult {
     readonly command: readonly string[];
     readonly pid?: number;
   };
-  readonly error?: {
-    readonly code: string;
-    readonly hint: string;
-  };
+  readonly error?: CliError;
 }
 
 export interface CommandRegistryEntry {

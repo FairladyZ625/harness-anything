@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult } from "../cli/types.ts";
 
 export type HarnessLocale = "zh-CN" | "en-US";
@@ -107,29 +108,20 @@ export function customVerticalGateResult(
     return {
       ok: false,
       command,
-      error: {
-        code: "custom_vertical_user_dev_mode_required",
-        hint: "Custom verticals require local user dev mode in .harness/user-settings.json and project settings.customVerticals.enabled."
-      }
+      error: cliError(CliErrorCode.CustomVerticalUserDevModeRequired, "Custom verticals require local user dev mode in .harness/user-settings.json and project settings.customVerticals.enabled.")
     };
   }
   if (!projectGate) {
     return {
       ok: false,
       command,
-      error: {
-        code: "custom_vertical_project_gate_required",
-        hint: "Custom verticals require project settings.customVerticals.enabled: true in harness/harness.yaml."
-      }
+      error: cliError(CliErrorCode.CustomVerticalProjectGateRequired, "Custom verticals require project settings.customVerticals.enabled: true in harness/harness.yaml.")
     };
   }
   return {
     ok: false,
     command,
-    error: {
-      code: "custom_vertical_contract_missing",
-      hint: "Custom vertical gates are enabled, but P11 does not implement custom vertical materialization or authoring."
-    }
+    error: cliError(CliErrorCode.CustomVerticalContractMissing, "Custom vertical gates are enabled, but P11 does not implement custom vertical materialization or authoring.")
   };
 }
 
@@ -285,10 +277,7 @@ function settingsError(command: string, hint: string): CliResult {
   return {
     ok: false,
     command,
-    error: {
-      code: "harness_settings_invalid",
-      hint
-    }
+    error: cliError(CliErrorCode.HarnessSettingsInvalid, hint)
   };
 }
 
@@ -296,10 +285,7 @@ function userSettingsError(command: string, hint: string): CliResult {
   return {
     ok: false,
     command,
-    error: {
-      code: "user_settings_invalid",
-      hint
-    }
+    error: cliError(CliErrorCode.UserSettingsInvalid, hint)
   };
 }
 

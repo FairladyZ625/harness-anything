@@ -1,3 +1,4 @@
+import { cliError, CliErrorCode } from "./error-codes.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -5,7 +6,7 @@ type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { read
 export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] === "adopt" && args[1] === "multica" && args[2]) {
     const taskId = readOption(args, "--task");
-    if (!taskId) return { ok: false, error: { code: "missing_task", hint: "adopt multica requires --task <task-id>." } };
+    if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTask, "adopt multica requires --task <task-id>.") };
     return {
       ok: true,
       value: {
@@ -47,7 +48,7 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
 
   if (args[0] === "migrate-structure") {
     if (args.includes("--plan") && args.includes("--apply")) {
-      return { ok: false, error: { code: "conflicting_migration_mode", hint: "Use only one of --plan or --apply." } };
+      return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --plan or --apply.") };
     }
     return {
       ok: true,
@@ -66,8 +67,8 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
   if (args[0] === "migrate-run") {
     const locale = readOption(args, "--locale");
     const assumeLocale = readOption(args, "--assume-locale");
-    if (locale && locale !== "zh-CN" && locale !== "en-US") return { ok: false, error: { code: "invalid_locale", hint: "Use --locale zh-CN or --locale en-US." } };
-    if (assumeLocale && assumeLocale !== "zh-CN" && assumeLocale !== "en-US") return { ok: false, error: { code: "invalid_locale", hint: "Use --assume-locale zh-CN or en-US." } };
+    if (locale && locale !== "zh-CN" && locale !== "en-US") return { ok: false, error: cliError(CliErrorCode.InvalidLocale, "Use --locale zh-CN or --locale en-US.") };
+    if (assumeLocale && assumeLocale !== "zh-CN" && assumeLocale !== "en-US") return { ok: false, error: cliError(CliErrorCode.InvalidLocale, "Use --assume-locale zh-CN or en-US.") };
     const sessionDir = readOption(args, "--session-dir");
     return {
       ok: true,

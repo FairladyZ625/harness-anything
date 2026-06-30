@@ -157,6 +157,7 @@ if (hasGuiImplementation) {
     .join("\n");
   const cliText = [
     "packages/cli/src/index.ts",
+    "packages/cli/src/cli/error-codes.ts",
     "packages/cli/src/cli/error-mapper.ts"
   ].map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
   for (const requiredSnippet of [
@@ -262,6 +263,7 @@ if (hasLocalLifecycleImplementation) {
   const localAdapterText = readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8");
   const cliText = [
     "packages/cli/src/index.ts",
+    "packages/cli/src/cli/error-codes.ts",
     "packages/cli/src/cli/error-mapper.ts"
   ].map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
   const cliTestPath = "packages/cli/test/local-lifecycle-cli.test.ts";

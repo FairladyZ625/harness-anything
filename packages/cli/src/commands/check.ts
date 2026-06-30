@@ -4,6 +4,7 @@ import { parseReviewMarkdown } from "../../../application/src/index.ts";
 import { checkTaskProjection } from "../../../kernel/src/index.ts";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { commandRegistry } from "../cli/command-registry.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CheckProfile, CliResult } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";
@@ -52,10 +53,10 @@ export function runCheckProfile(
     warnings,
     commands: commandRegistry,
     report: action.profile === "source-package" ? projection.report : profileReport,
-    error: ok ? undefined : {
-      code: projection.report.summary.hardFailCount > 0 && validatorHardFailCount === 0 ? "projection_check_failed" : "check_profile_failed",
-      hint: `Harness check profile ${action.profile} found hard-fail issues.`
-    }
+    error: ok ? undefined : cliError(
+      projection.report.summary.hardFailCount > 0 && validatorHardFailCount === 0 ? CliErrorCode.ProjectionCheckFailed : CliErrorCode.CheckProfileFailed,
+      `Harness check profile ${action.profile} found hard-fail issues.`
+    )
   };
 }
 

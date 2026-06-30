@@ -1,3 +1,4 @@
+import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 
@@ -23,7 +24,7 @@ export function parseTemplateArgs(args: ReadonlyArray<string>, rootDir: string, 
     const catalogPath = readOption(args, "--catalog");
     const locale = readOption(args, "--locale") ?? "zh-CN";
     if (locale !== "zh-CN" && locale !== "en-US") {
-      return { ok: false, error: { code: "invalid_locale", hint: `Unknown locale: ${locale}` } };
+      return { ok: false, error: cliError(CliErrorCode.InvalidLocale, `Unknown locale: ${locale}`) };
     }
     return {
       ok: true,

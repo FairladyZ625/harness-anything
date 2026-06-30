@@ -46,6 +46,24 @@ test("CLI help contract gate accepts complete help metadata", () => {
   });
 });
 
+test("CLI help contract gate rejects examples with undocumented flags", () => {
+  withTempRoot((rootDir) => {
+    writeRegistry(rootDir, `
+      const commandUsages = [
+        { kind: "new-task", usage: "new-task --title <title>" }
+      ] as const;
+      const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
+      const commandExamples = { "new-task": ["harness-anything new-task --title Example --module billing"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
+      function optionDescription(flag: string): string {
+        const descriptions: Record<string, string> = { "--title": "Set the task title." };
+        return descriptions[flag]!;
+      }
+    `);
+
+    assert.equal(findCliHelpContractViolations(rootDir).includes("command new-task example uses --module but usage does not list it"), true);
+  });
+});
+
 function writeRegistry(rootDir, body) {
   const dir = path.join(rootDir, "packages/cli/src/cli");
   mkdirSync(dir, { recursive: true });

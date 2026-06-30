@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CliResult, LessonCommandMode } from "../cli/types.ts";
 
@@ -64,15 +65,15 @@ function readLessonCandidate(
 ): { readonly ok: true; readonly value: { readonly id: string; readonly status: string; readonly title: string } } | { readonly ok: false; readonly result: CliResult } {
   const lessonPath = taskDocumentPath(rootDir, taskId, "lesson_candidates.md");
   if (!existsSync(lessonPath)) {
-    return { ok: false, result: { ok: false, command: "lesson", taskId, error: { code: "lesson_candidates_missing", hint: "lesson_candidates.md is required for lesson promotion or sedimentation." } } };
+    return { ok: false, result: { ok: false, command: "lesson", taskId, error: cliError(CliErrorCode.LessonCandidatesMissing, "lesson_candidates.md is required for lesson promotion or sedimentation.") } };
   }
   const body = readFileSync(lessonPath, "utf8");
   const candidate = parseLessonCandidate(body, candidateId);
   if (!candidate) {
-    return { ok: false, result: { ok: false, command: "lesson", taskId, error: { code: "lesson_candidate_not_found", hint: `candidate not found: ${candidateId}` } } };
+    return { ok: false, result: { ok: false, command: "lesson", taskId, error: cliError(CliErrorCode.LessonCandidateNotFound, `candidate not found: ${candidateId}`) } };
   }
   if (candidate.status !== "ready-for-review" && candidate.status !== "needs-promotion" && candidate.status !== "promoted") {
-    return { ok: false, result: { ok: false, command: "lesson", taskId, error: { code: "lesson_candidate_not_promotable", hint: `candidate ${candidateId} has status ${candidate.status}` } } };
+    return { ok: false, result: { ok: false, command: "lesson", taskId, error: cliError(CliErrorCode.LessonCandidateNotPromotable, `candidate ${candidateId} has status ${candidate.status}`) } };
   }
   return { ok: true, value: candidate };
 }

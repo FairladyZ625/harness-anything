@@ -1,5 +1,6 @@
 import { isDomainStatus } from "../../../../kernel/src/domain/index.ts";
 import { slugifyTaskTitle } from "../../../../kernel/src/layout/index.ts";
+import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 
@@ -21,12 +22,12 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
 
 function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   if (!isDomainStatus(args[4])) {
-    return { ok: false, error: { code: "invalid_status", hint: `Unknown status: ${args[4]}` } };
+    return { ok: false, error: cliError(CliErrorCode.InvalidStatus, `Unknown status: ${args[4]}`) };
   }
   const force = args.includes("--force");
   const reason = readOption(args, "--reason");
   if (force && !reason) {
-    return { ok: false, error: { code: "missing_force_reason", hint: "Forced terminal status changes require --reason for audit evidence." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingForceReason, "Forced terminal status changes require --reason for audit evidence.") };
   }
   return ok(rootDir, json, {
     kind: "status-set",
@@ -40,7 +41,7 @@ function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: bool
 function parseProgressAppend(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const text = readOption(args, "--text");
   if (!text) {
-    return { ok: false, error: { code: "missing_text", hint: "Use --text for progress append." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingText, "Use --text for progress append.") };
   }
   const evidence = parseEvidence(readOption(args, "--evidence"));
   if (!evidence.ok) return { ok: false, error: evidence.error };
@@ -55,7 +56,7 @@ function parseProgressAppend(args: ReadonlyArray<string>, rootDir: string, json:
 function parseTaskArchive(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const reason = readOption(args, "--reason");
   if (!reason) {
-    return { ok: false, error: { code: "missing_reason", hint: "Use --reason for task archive." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use --reason for task archive.") };
   }
   return ok(rootDir, json, {
     kind: "task-archive",
@@ -70,10 +71,10 @@ function parseTaskSupersede(args: ReadonlyArray<string>, rootDir: string, json: 
   const title = readOption(args, "--title");
   const byTaskId = readOption(args, "--by");
   if (!title && !byTaskId) {
-    return { ok: false, error: { code: "missing_supersede_target", hint: "Use task supersede <id> --title <title> or --by <existing-task-id>." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingSupersedeTarget, "Use task supersede <id> --title <title> or --by <existing-task-id>.") };
   }
   if (title && byTaskId) {
-    return { ok: false, error: { code: "conflicting_supersede_target", hint: "Use either --title or --by, not both." } };
+    return { ok: false, error: cliError(CliErrorCode.ConflictingSupersedeTarget, "Use either --title or --by, not both.") };
   }
   return ok(rootDir, json, {
     kind: "task-supersede",
@@ -90,19 +91,19 @@ function parseTaskSupersede(args: ReadonlyArray<string>, rootDir: string, json: 
 
 function parseTaskDelete(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   if (args.includes("--hard") && args.includes("--soft")) {
-    return { ok: false, error: { code: "conflicting_delete_mode", hint: "Use exactly one of --soft or --hard for task delete." } };
+    return { ok: false, error: cliError(CliErrorCode.ConflictingDeleteMode, "Use exactly one of --soft or --hard for task delete.") };
   }
   const mode = args.includes("--hard") ? "hard" : args.includes("--soft") ? "soft" : null;
   const taskId = args.find((arg, index) => index > 1 && !arg.startsWith("--") && !optionValueFlags.has(args[index - 1]));
   if (!mode) {
-    return { ok: false, error: { code: "missing_delete_mode", hint: "Use --soft or --hard for task delete." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingDeleteMode, "Use --soft or --hard for task delete.") };
   }
   if (!taskId) {
-    return { ok: false, error: { code: "missing_task_id", hint: "Provide a task id for task delete." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Provide a task id for task delete.") };
   }
   const reason = readOption(args, "--reason");
   if (!reason) {
-    return { ok: false, error: { code: "missing_reason", hint: "Use --reason for task delete." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use --reason for task delete.") };
   }
   return ok(rootDir, json, {
     kind: "task-delete",
@@ -117,7 +118,7 @@ function parseTaskDelete(args: ReadonlyArray<string>, rootDir: string, json: boo
 function parseTaskReopen(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const reason = readOption(args, "--reason");
   if (!reason) {
-    return { ok: false, error: { code: "missing_reason", hint: "Use --reason for task reopen." } };
+    return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use --reason for task reopen.") };
   }
   return ok(rootDir, json, {
     kind: "task-reopen",
@@ -137,10 +138,10 @@ function parseTaskReview(args: ReadonlyArray<string>, rootDir: string, json: boo
 function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const ciGate = readOption(args, "--ci");
   if (!ciGate) {
-    return { ok: false, error: { code: "missing_ci_gate", hint: "task-complete requires --ci passed|failed" } };
+    return { ok: false, error: cliError(CliErrorCode.MissingCiGate, "task-complete requires --ci passed|failed") };
   }
   if (ciGate !== "passed" && ciGate !== "failed") {
-    return { ok: false, error: { code: "invalid_ci_gate", hint: `Unknown CI gate: ${ciGate}` } };
+    return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}`) };
   }
   return ok(rootDir, json, {
     kind: "task-complete",
@@ -153,7 +154,7 @@ function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: b
 function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const lessonValue = readOptionalFlagValue(args, "--lesson");
   if (lessonValue && lessonValue !== "present" && lessonValue !== "missing") {
-    return { ok: false, error: { code: "invalid_lesson_filter", hint: "Use --lesson, --lesson present, or --lesson missing." } };
+    return { ok: false, error: cliError(CliErrorCode.InvalidLessonFilter, "Use --lesson, --lesson present, or --lesson missing.") };
   }
   const lesson = lessonValue === "missing" ? "missing" : "present";
   const state = readOption(args, "--state");
@@ -192,7 +193,7 @@ function parseEvidence(value: string | undefined):
   const [type, evidencePath, ...summaryParts] = value.split(":");
   return type && evidencePath && summaryParts.length > 0
     ? { ok: true, value: { type, path: evidencePath, summary: summaryParts.join(":") } }
-    : { ok: false, error: { code: "invalid_evidence", hint: "Use --evidence type:PATH:summary." } };
+    : { ok: false, error: cliError(CliErrorCode.InvalidEvidence, "Use --evidence type:PATH:summary.") };
 }
 
 function ok(rootDir: string, json: boolean, action: ParsedCommand["action"]): ParseResult {

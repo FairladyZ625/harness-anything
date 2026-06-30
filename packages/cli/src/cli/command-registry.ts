@@ -16,11 +16,11 @@ const commandUsages = [
   { kind: "status-set", usage: "task status set <id> <status> [--force --reason <reason>]" },
   { kind: "progress-append", usage: "task progress append <id> --text <text> [--evidence type:PATH:summary]" },
   { kind: "task-archive", usage: "task archive <id> --reason <reason> [--archived-by <actor>] [--archive-field <field>]" },
-  { kind: "task-supersede", usage: "task supersede <old-id> (--title <title> [--slug <slug>] | --by <existing-task-id> --confirm <old-id>) [--allow-open-findings]" },
+  { kind: "task-supersede", usage: "task supersede <old-id> (--title <title> [--slug <slug>] | --by <existing-task-id> --confirm <old-id>) [--reason <reason>] [--deleted-by <actor>] [--allow-open-findings]" },
   { kind: "task-delete", usage: "task delete (--soft <id> | --hard <id> --confirm <id>) --reason <reason> [--deleted-by <actor>]" },
   { kind: "task-reopen", usage: "task reopen <id> --reason <reason>" },
   { kind: "task-review", usage: "task-review <id> [--reviewer <id>]" },
-  { kind: "task-complete", usage: "task-complete <id> --ci passed|failed" },
+  { kind: "task-complete", usage: "task-complete <id> --ci passed|failed [--reviewer <id>]" },
   { kind: "template-list", usage: "template list [--catalog <path>] [--json]" },
   { kind: "template-render", usage: "template render <template-ref> [--catalog <path>] [--locale zh-CN|en-US] [--json]" },
   { kind: "task-list", usage: "task list [--state <state>] [--module <key>] [--queue <queue>] [--preset <id>] [--review <state>] [--lesson [present|missing]] [--missing-materials] [--include-archived] [--search <text>] [--json]" },
@@ -265,9 +265,9 @@ function optionDescription(flag: string): string {
     "--locale": "Set generated content locale.",
     "--long-running": "Mark the task as long-running.",
     "--missing-materials": "Filter tasks missing required materials.",
-    "--module": "Set or filter by module key.",
-    "--module-scope": "Set the registered module scope.",
-    "--module-title": "Set the registered module title.",
+    "--module": "Select a registered module key; use module list to discover keys.",
+    "--module-scope": "Set the registered module source scope, such as packages/name/**.",
+    "--module-title": "Set the human-readable title for a registered module.",
     "--out": "Write the generated plan to a file.",
     "--out-dir": "Set the output directory.",
     "--owner": "Set the module owner.",
@@ -275,8 +275,8 @@ function optionDescription(flag: string): string {
     "--plan-only": "Create a migration plan without applying it.",
     "--post-merge": "Run checks intended for post-merge validation.",
     "--prefix": "Set the module id prefix.",
-    "--preset": "Set or filter by preset id.",
-    "--profile": "Set the check or task profile.",
+    "--preset": "Select a preset id; new-task defaults to standard-task and preset list shows installed presets.",
+    "--profile": "Select a check or task profile; new-task defaults to baseline.",
     "--project": "Use the project preset layer.",
     "--queue": "Filter by queue.",
     "--reason": "Record the reason for the lifecycle change.",
@@ -294,8 +294,8 @@ function optionDescription(flag: string): string {
     "--strict": "Run strict checks.",
     "--task": "Set the task id.",
     "--text": "Set appended progress text.",
-    "--title": "Set the title.",
-    "--vertical": "Set the vertical definition."
+    "--title": "Set the required task title used for generated package metadata and slug.",
+    "--vertical": "Select a vertical definition; new-task defaults to software/coding."
   };
   const description = descriptions[flag];
   if (!description) {

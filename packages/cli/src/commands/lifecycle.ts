@@ -21,6 +21,7 @@ import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from 
 import { runLegacyCopySafeDocs, runLegacyIndex, runLegacyIntakePlan, runLegacyScan, runLegacyVerify, runMigratePlan, runMigrateRun, runMigrateStructure, runMigrateVerify } from "./migration.ts";
 import { filterTaskProjectionRows } from "./task-list-filter.ts";
 import { commandRegistry } from "../cli/command-registry.ts";
+import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 
 export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
@@ -116,7 +117,7 @@ export function runCommand(
         ok: false,
         command: "task-supersede",
         taskId: action.oldTaskId,
-        error: { code: "supersede_confirm_mismatch", hint: "The --confirm value must match the superseded task id." }
+        error: cliError(CliErrorCode.SupersedeConfirmMismatch, "The --confirm value must match the superseded task id.")
       } satisfies CliResult);
     }
     if (action.byTaskId) {
@@ -125,7 +126,7 @@ export function runCommand(
           ok: false,
           command: "task-supersede",
           taskId: action.oldTaskId,
-          error: { code: "supersede_confirm_required", hint: "Use --confirm <old-task-id> when superseding by an existing task." }
+          error: cliError(CliErrorCode.SupersedeConfirmRequired, "Use --confirm <old-task-id> when superseding by an existing task.")
         } satisfies CliResult);
       }
       if (!existsSync(taskDocumentPath(command.rootDir, action.byTaskId, "INDEX.md"))) {
@@ -133,7 +134,7 @@ export function runCommand(
           ok: false,
           command: "task-supersede",
           taskId: action.oldTaskId,
-          error: { code: "supersede_target_not_found", hint: "The --by task id must resolve to an existing task package." }
+          error: cliError(CliErrorCode.SupersedeTargetNotFound, "The --by task id must resolve to an existing task package.")
         } satisfies CliResult);
       }
       return engine.archiveTask({
@@ -184,7 +185,7 @@ export function runCommand(
         command: "task-delete",
         taskId: action.taskId,
         mode: action.mode,
-        error: { code: "delete_confirm_mismatch", hint: "The --confirm value must match the deleted task id." }
+        error: cliError(CliErrorCode.DeleteConfirmMismatch, "The --confirm value must match the deleted task id.")
       } satisfies CliResult);
     }
     if (action.mode === "hard" && !action.confirm) {
@@ -193,7 +194,7 @@ export function runCommand(
         command: "task-delete",
         taskId: action.taskId,
         mode: action.mode,
-        error: { code: "delete_confirm_required", hint: "Use --confirm <task-id> for hard delete." }
+        error: cliError(CliErrorCode.DeleteConfirmRequired, "Use --confirm <task-id> for hard delete.")
       } satisfies CliResult);
     }
     return engine.deleteTask({
@@ -248,10 +249,7 @@ export function runCommand(
         summary: summarizeStatus(result.rows),
         commands: commandRegistry,
         projectionPath: path.relative(command.rootDir, result.projectionPath).split(path.sep).join("/"),
-        error: result.ok ? undefined : {
-          code: "status_check_failed",
-          hint: "Harness status has warnings that require attention."
-        }
+        error: result.ok ? undefined : cliError(CliErrorCode.StatusCheckFailed, "Harness status has warnings that require attention.")
       } satisfies CliResult;
     });
   }
@@ -376,12 +374,12 @@ function runStatusSet(
         command: "status-set",
         taskId,
         status,
-        error: {
-          code: "terminal_status_requires_task_complete",
-          hint: status === "done"
+        error: cliError(
+          CliErrorCode.TerminalStatusRequiresTaskComplete,
+          status === "done"
             ? "Use task-complete after review, CI, and closeout gates pass. Use --force --reason only for recovery."
             : "Terminal cancellation must be audited. Use --force --reason only for recovery."
-        }
+        )
       } satisfies CliResult));
     }
 
@@ -391,10 +389,7 @@ function runStatusSet(
         command: "status-set",
         taskId,
         status,
-        error: {
-          code: "invalid_transition",
-          hint: `invalid transition: ${taskPolicy.status} -> ${status}`
-        }
+        error: cliError(CliErrorCode.InvalidTransition, `invalid transition: ${taskPolicy.status} -> ${status}`)
       } satisfies CliResult));
     }
 
@@ -482,10 +477,7 @@ function runTaskReview(rootDir: string, taskId: string, reviewerId: string): Cli
       ok: false,
       command: "task-review",
       taskId,
-      error: {
-        code: "review_document_missing",
-        hint: "Task review requires review.md in the task package."
-      }
+      error: cliError(CliErrorCode.ReviewDocumentMissing, "Task review requires review.md in the task package.")
     };
   }
 
@@ -496,10 +488,7 @@ function runTaskReview(rootDir: string, taskId: string, reviewerId: string): Cli
       command: "task-review",
       taskId,
       issues: parsed.issues,
-      error: {
-        code: "review_schema_invalid",
-        hint: "review.md material findings table failed validation."
-      }
+      error: cliError(CliErrorCode.ReviewSchemaInvalid, "review.md material findings table failed validation.")
     };
   }
 
@@ -516,10 +505,7 @@ function runTaskReview(rootDir: string, taskId: string, reviewerId: string): Cli
       taskId,
       report: gate,
       issues: gate.issues,
-      error: {
-        code: "release_blocking_findings",
-        hint: "Open release-blocking findings must be closed before review passes."
-      }
+      error: cliError(CliErrorCode.ReleaseBlockingFindings, "Open release-blocking findings must be closed before review passes.")
     };
   }
 
@@ -541,10 +527,7 @@ function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ci
       taskId,
       report: review.report,
       issues: review.issues,
-      error: {
-        code: "review_not_passed",
-        hint: "Task completion requires a passed task-review gate."
-      }
+      error: cliError(CliErrorCode.ReviewNotPassed, "Task completion requires a passed task-review gate.")
     };
   }
 
@@ -555,10 +538,7 @@ function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ci
       ok: false,
       command: "task-complete",
       taskId,
-      error: {
-        code: "task_not_found",
-        hint: `task not found: ${taskId}`
-      }
+      error: cliError(CliErrorCode.TaskNotFound, `task not found: ${taskId}`)
     };
   }
 
@@ -577,10 +557,7 @@ function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ci
       taskId,
       completionGate,
       issues: completionGate.issues,
-      error: {
-        code: completionGate.issues[0]?.code ?? "completion_gate_failed",
-        hint: "Task completion gate failed."
-      }
+      error: cliError(completionGateErrorCode(completionGate.issues), "Task completion gate failed.")
     };
   }
 
@@ -591,4 +568,9 @@ function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ci
     completionGate,
     reviewContract: review.reviewContract
   };
+}
+
+function completionGateErrorCode(issues: ReadonlyArray<{ readonly code: string }>): CliErrorCodeValue {
+  const code = issues[0]?.code;
+  return isCliErrorCode(code) ? code : CliErrorCode.CompletionGateFailed;
 }

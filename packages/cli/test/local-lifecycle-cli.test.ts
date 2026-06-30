@@ -60,6 +60,16 @@ test("CLI creates a local task with generated identity and stable JSON output", 
   });
 });
 
+test("CLI refuses untitled new tasks before creating task files", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["new-task"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "missing_title");
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks")), false);
+  });
+});
+
 test("CLI refuses default manual task IDs", () => {
   withTempRoot((rootDir) => {
     const positional = runJson(rootDir, ["new-task", "task-1", "--title", "Task One"], false);

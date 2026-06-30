@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { validatePresetManifests } from "../../../../kernel/src/index.ts";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
   discoverPresetEntries,
@@ -61,7 +62,7 @@ export function runPresetCommand(rootDir: string, action: PresetAction): CliResu
 function runPresetValidate(action: Extract<PresetAction, { readonly kind: "preset-validate" }>): CliResult {
   const decoded = decodePresetManifest(action.manifestPath);
   if (!decoded.ok) {
-    return invalidExtensionResult("preset-validate", "preset_manifest_invalid", "Preset manifest failed validation.", decoded.issues);
+    return invalidExtensionResult("preset-validate", CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.", decoded.issues);
   }
   const manifest = decoded.value;
   const validation = validatePresetManifests([manifest], { kernelVersion: action.kernelVersion });
@@ -69,10 +70,7 @@ function runPresetValidate(action: Extract<PresetAction, { readonly kind: "prese
     ok: validation.ok,
     command: "preset-validate",
     issues: validation.issues,
-    error: validation.ok ? undefined : {
-      code: "preset_manifest_invalid",
-      hint: "Preset manifest failed validation."
-    }
+    error: validation.ok ? undefined : cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
   };
 }
 
@@ -84,10 +82,7 @@ function runPresetList(rootDir: string): CliResult {
     command: "preset-list",
     presets: entries.map(publicPresetEntrySummary),
     issues,
-    error: issues.length === 0 ? undefined : {
-      code: "preset_manifest_invalid",
-      hint: "One or more resolved presets failed validation."
-    }
+    error: issues.length === 0 ? undefined : cliError(CliErrorCode.PresetManifestInvalid, "One or more resolved presets failed validation.")
   };
 }
 
@@ -104,10 +99,7 @@ function runPresetInspect(rootDir: string, presetId: string): CliResult {
       manifest: preset.manifest
     },
     issues: validation.issues,
-    error: validation.ok ? undefined : {
-      code: "preset_manifest_invalid",
-      hint: "Preset manifest failed validation."
-    }
+    error: validation.ok ? undefined : cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
   };
 }
 
@@ -121,10 +113,7 @@ function runPresetCheck(rootDir: string, presetId: string): CliResult {
     command: "preset-check",
     preset: publicPresetSummary(preset),
     issues: validation.issues,
-    error: validation.ok ? undefined : {
-      code: "preset_manifest_invalid",
-      hint: "Preset manifest failed validation."
-    }
+    error: validation.ok ? undefined : cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
   };
 }
 
@@ -135,7 +124,7 @@ function runPresetInstall(rootDir: string, action: Extract<PresetAction, { reado
       ok: false,
       command: "preset-install",
       issues: decoded.issues,
-      error: { code: "preset_manifest_invalid", hint: "Preset manifest failed validation." }
+      error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
   const manifest = decoded.value;
@@ -146,7 +135,7 @@ function runPresetInstall(rootDir: string, action: Extract<PresetAction, { reado
       command: "preset-install",
       preset: { id: manifest.id },
       issues: validation.issues,
-      error: { code: "preset_manifest_invalid", hint: "Preset manifest failed validation." }
+      error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
   const target = presetManifestPath(rootDir, action.layer, manifest.id);
@@ -196,10 +185,7 @@ function runPresetAudit(rootDir: string): CliResult {
       totalResolved: resolved.length,
       drift
     },
-    error: issues.length === 0 ? undefined : {
-      code: "preset_manifest_invalid",
-      hint: "One or more resolved presets failed validation."
-    }
+    error: issues.length === 0 ? undefined : cliError(CliErrorCode.PresetManifestInvalid, "One or more resolved presets failed validation.")
   };
 }
 
@@ -227,7 +213,7 @@ function runPresetAction(rootDir: string, action: Extract<PresetAction, { readon
       ok: false,
       command: "preset-action",
       preset: { id: action.presetId },
-      error: { code: "preset_action_forbidden", hint: `Preset action ${action.actionName} is not declared.` }
+      error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.actionName} is not declared.`)
     };
   }
   return runPresetEntrypoint(rootDir, action.presetId, action.actionName, action.taskId, "preset-action", action.allowScripts);

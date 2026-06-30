@@ -1,3 +1,4 @@
+import { cliError, missingRequiredOptionErrorCode } from "./error-codes.ts";
 import type { CliResult } from "./types.ts";
 
 export interface GlobalParseOptions {
@@ -33,10 +34,7 @@ export function readRequiredValueOption(argv: ReadonlyArray<string>, name: strin
   if (!value || value.startsWith("--")) {
     return {
       ok: false,
-      error: {
-        code: `missing_${name.slice(2).replace(/-/gu, "_")}`,
-        hint: `Use ${name} <value>.`
-      }
+      error: cliError(missingRequiredOptionErrorCode(name), `Use ${name} <value>.`)
     };
   }
   return { ok: true, value };

@@ -10,6 +10,7 @@ import {
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import {
   bundledTemplateCatalog,
@@ -283,7 +284,7 @@ export function runPresetEntrypoint(
       command: commandName,
       preset: { id: preset.id, layer: preset.layer, valid: false },
       issues: preset.issues,
-      error: { code: "preset_manifest_invalid", hint: "Preset manifest failed validation." }
+      error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
   const validation = validatePresetManifestForUse(preset.manifest);
@@ -293,7 +294,7 @@ export function runPresetEntrypoint(
       command: commandName,
       preset: publicPresetSummary(preset),
       issues: validation.issues,
-      error: { code: "preset_manifest_invalid", hint: "Preset manifest failed validation." }
+      error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
   validateRegistryKey(taskId, "task");
@@ -338,7 +339,7 @@ export function runPresetEntrypoint(
       ok: false,
       command: commandName,
       preset: publicPresetSummary(preset),
-      error: { code: "preset_action_forbidden", hint: `Preset ${presetId} does not declare action ${entrypoint}.` }
+      error: cliError(CliErrorCode.PresetActionForbidden, `Preset ${presetId} does not declare action ${entrypoint}.`)
     };
   }
   const evidence = {
@@ -385,7 +386,7 @@ export function presetNotFound(command: string, presetId: string): CliResult {
     ok: false,
     command,
     preset: { id: presetId },
-    error: { code: "preset_not_found", hint: `Preset ${presetId} was not found.` }
+    error: cliError(CliErrorCode.PresetNotFound, `Preset ${presetId} was not found.`)
   };
 }
 
@@ -394,7 +395,7 @@ export function moduleNotFound(command: string, moduleKey: string): CliResult {
     ok: false,
     command,
     module: { key: moduleKey },
-    error: { code: "module_not_found", hint: `Module ${moduleKey} was not found.` }
+    error: cliError(CliErrorCode.ModuleNotFound, `Module ${moduleKey} was not found.`)
   };
 }
 

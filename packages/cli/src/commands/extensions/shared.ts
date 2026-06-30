@@ -7,6 +7,7 @@ import {
   VerticalDefinitionSchema,
   validateExtensionInputShape
 } from "../../../../kernel/src/index.ts";
+import { cliError, CliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { bundledTemplateCatalog, bundledVerticalDefinition } from "./bundled.ts";
 
@@ -42,15 +43,12 @@ export function decodeExtensionJsonFile<A, I>(
   return { ok: true, value: Schema.decodeUnknownSync(schema)(raw) };
 }
 
-export function invalidExtensionResult(command: string, code: string, hint: string, issues: ReadonlyArray<unknown>): CliResult {
+export function invalidExtensionResult(command: string, code: CliErrorCodeValue, hint: string, issues: ReadonlyArray<unknown>): CliResult {
   return {
     ok: false,
     command,
     issues,
-    error: {
-      code,
-      hint
-    }
+    error: cliError(code, hint)
   };
 }
 
@@ -64,10 +62,7 @@ export function invalidResolvedPresetResult(command: string, preset: { readonly 
       valid: false
     },
     issues: preset.issues,
-    error: {
-      code: "preset_manifest_invalid",
-      hint: "Preset manifest failed validation."
-    }
+    error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
   };
 }
 

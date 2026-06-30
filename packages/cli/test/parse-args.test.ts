@@ -195,6 +195,7 @@ test("parseArgs pins stable parse error envelopes", () => {
     { argv: ["preset", "run", "standard-task", "deploy", "--task", "task_1"], code: "invalid_entrypoint" },
     { argv: ["module", "register", "billing", "--title", "Billing"], code: "missing_module_fields" },
     { argv: ["module-step", "billing", "T-1", "--state", "started"], code: "invalid_module_step_state" },
+    { argv: ["new-task"], code: "missing_title" },
     { argv: ["unknown"], code: "unknown_command", hintIncludes: "harness-anything new-task --title <title>" }
   ] as const;
 

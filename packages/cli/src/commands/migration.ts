@@ -4,6 +4,7 @@ import path from "node:path";
 import { Schema } from "effect";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult } from "../cli/types.ts";
 import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCollisionReport } from "./migration-collision.ts";
 import { collectLegacyProvenanceWarnings } from "./legacy-provenance-verify.ts";
@@ -51,10 +52,7 @@ export function runMigrateStructure(rootDir: string, action: MigrateStructureAct
       command: "migrate-structure",
       migrationMode: "apply",
       report,
-      error: {
-        code: "plan_confirmation_required",
-        hint: "Run migrate-structure --plan first, inspect the Legacy Intake plan, then rerun --apply --confirm-plan."
-      }
+      error: cliError(CliErrorCode.PlanConfirmationRequired, "Run migrate-structure --plan first, inspect the Legacy Intake plan, then rerun --apply --confirm-plan.")
     };
   }
   const copied = applyLegacyCopy(rootDir, report);
@@ -110,10 +108,7 @@ export function runMigrateVerify(rootDir: string, action: MigrateVerifyAction): 
         strategy: "legacy-intake",
         fullCutover: "retired"
       },
-      error: {
-        code: "full_cutover_retired",
-        hint: "Full cutover is retired. Use harness-anything legacy verify and agent-assisted rebuild instead."
-      }
+      error: cliError(CliErrorCode.FullCutoverRetired, "Full cutover is retired. Use harness-anything legacy verify and agent-assisted rebuild instead.")
     };
   }
   return runLegacyVerify(rootDir, { kind: "legacy-verify" });
@@ -181,7 +176,7 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
       ok: false,
       command: "legacy-verify",
       report: { schema: "legacy-intake-verify-report/v1", ok: false, missingIndex: true },
-      error: { code: "legacy_index_missing", hint: "harness/legacy/index.json is missing. Run legacy index <path> --apply." }
+      error: cliError(CliErrorCode.LegacyIndexMissing, "harness/legacy/index.json is missing. Run legacy index <path> --apply.")
     };
   }
   let index: LegacyIndex;
@@ -192,7 +187,7 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
       ok: false,
       command: "legacy-verify",
       report: { schema: "legacy-intake-verify-report/v1", ok: false, invalidIndex: true },
-      error: { code: "legacy_index_invalid", hint: "harness/legacy/index.json does not match the runtime LegacyIndexSchema." }
+      error: cliError(CliErrorCode.LegacyIndexInvalid, "harness/legacy/index.json does not match the runtime LegacyIndexSchema.")
     };
   }
   let collisionReport: ReturnType<typeof readCollisionReport>;
@@ -203,7 +198,7 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
       ok: false,
       command: "legacy-verify",
       report: { schema: "legacy-intake-verify-report/v1", ok: false, invalidCollisionReport: true },
-      error: { code: "legacy_collision_report_invalid", hint: "harness/legacy/collision-report.json does not match the runtime LegacyCollisionReportSchema." }
+      error: cliError(CliErrorCode.LegacyCollisionReportInvalid, "harness/legacy/collision-report.json does not match the runtime LegacyCollisionReportSchema.")
     };
   }
   const missingTargets = index.entries
@@ -229,7 +224,7 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
         overwriteAllowed: collisionReport.policy.overwriteAllowed
       } : undefined
     },
-    error: ok ? undefined : { code: "legacy_index_targets_missing", hint: "Legacy index references stored paths that do not exist." }
+    error: ok ? undefined : cliError(CliErrorCode.LegacyIndexTargetsMissing, "Legacy index references stored paths that do not exist.")
   };
 }
 
@@ -243,10 +238,7 @@ function applyLegacyCopy(rootDir: string, report: LegacyScanReport): CliResult {
       command: "legacy-copy-safe-docs",
       migrationMode: "apply",
       report,
-      error: {
-        code: "legacy_duplicate_target",
-        hint: `Legacy Intake plan has duplicate target: ${duplicateTarget}`
-      }
+      error: cliError(CliErrorCode.LegacyDuplicateTarget, `Legacy Intake plan has duplicate target: ${duplicateTarget}`)
     };
   }
   const copyPlan = buildLegacyCopyPlan(rootDir, report.sourceRoot, report.entries);
@@ -297,10 +289,7 @@ function validateLegacyIndex(rootDir: string, report: LegacyScanReport): LegacyI
         ok: false,
         command: "legacy-index",
         report,
-        error: {
-          code: "legacy_index_schema_invalid",
-          hint: "Generated Legacy Intake index failed runtime LegacyIndexSchema validation."
-        }
+        error: cliError(CliErrorCode.LegacyIndexSchemaInvalid, "Generated Legacy Intake index failed runtime LegacyIndexSchema validation.")
       }
     };
   }

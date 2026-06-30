@@ -13,8 +13,10 @@ export function findCliHelpContractViolations(rootDir = process.cwd()) {
   const violations = [];
 
   const commandKinds = [...commandUsageSource.matchAll(/\{\s*kind:\s*"([^"]+)"/gu)].map((match) => match[1]);
+  const usageByKind = commandUsageByKind(commandUsageSource);
   const summaryKinds = objectKeys(summarySource);
   const exampleKinds = objectKeys(exampleSource);
+  const examplesByKind = objectArrayEntries(exampleSource);
   const descriptionFlags = objectKeys(descriptionSource);
   const usageFlags = [...new Set([...commandUsageSource.matchAll(/--[a-z0-9-]+/gu)].map((match) => match[0]))];
 
@@ -30,6 +32,14 @@ export function findCliHelpContractViolations(rootDir = process.cwd()) {
   }
   for (const flag of usageFlags) {
     if (!descriptionFlags.has(flag)) violations.push(`option ${flag} is missing help description`);
+  }
+  for (const [kind, exampleBody] of examplesByKind) {
+    const usageFlagSet = new Set(flagsFromText(usageByKind.get(kind) ?? ""));
+    for (const flag of flagsFromText(exampleBody)) {
+      if (!usageFlagSet.has(flag)) {
+        violations.push(`command ${kind} example uses ${flag} but usage does not list it`);
+      }
+    }
   }
   if (/humanizeKind|Set this command option/u.test(source)) {
     violations.push("command help must not use generic summary or option-description fallback text");
@@ -79,6 +89,18 @@ function extractAssignedLiteral(source, constName) {
 
 function objectKeys(source) {
   return new Set([...source.matchAll(/"([^"]+)"\s*:/gu)].map((match) => match[1]));
+}
+
+function commandUsageByKind(source) {
+  return new Map([...source.matchAll(/\{\s*kind:\s*"([^"]+)"\s*,\s*usage:\s*"([^"]+)"/gu)].map((match) => [match[1], match[2]]));
+}
+
+function objectArrayEntries(source) {
+  return new Map([...source.matchAll(/"([^"]+)"\s*:\s*\[([\s\S]*?)\]\s*(?:,|\})/gu)].map((match) => [match[1], match[2]]));
+}
+
+function flagsFromText(source) {
+  return [...new Set([...source.matchAll(/--[a-z0-9-]+/gu)].map((match) => match[0]))];
 }
 
 function main() {

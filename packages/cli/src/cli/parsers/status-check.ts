@@ -1,4 +1,5 @@
 import { isCheckProfile } from "../../commands/check.ts";
+import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 
@@ -21,7 +22,7 @@ export function parseStatusCheckArgs(args: ReadonlyArray<string>, rootDir: strin
   if (args[0] === "check") {
     const profile = readOption(args, "--profile") ?? "source-package";
     if (!isCheckProfile(profile)) {
-      return { ok: false, error: { code: "invalid_check_profile", hint: `Unknown check profile: ${profile}` } };
+      return { ok: false, error: cliError(CliErrorCode.InvalidCheckProfile, `Unknown check profile: ${profile}`) };
     }
     return {
       ok: true,
@@ -42,7 +43,7 @@ export function parseStatusCheckArgs(args: ReadonlyArray<string>, rootDir: strin
     const mode = args.includes("--dry-run") ? "dry-run" : args.includes("--archive") ? "archive" : "apply";
     const selectedModes = [args.includes("--dry-run"), args.includes("--archive"), args.includes("--apply")].filter(Boolean).length;
     if (selectedModes > 1) {
-      return { ok: false, error: { code: "conflicting_governance_mode", hint: "Use only one of --dry-run, --archive, or --apply." } };
+      return { ok: false, error: cliError(CliErrorCode.ConflictingGovernanceMode, "Use only one of --dry-run, --archive, or --apply.") };
     }
     return {
       ok: true,
@@ -60,7 +61,7 @@ export function parseStatusCheckArgs(args: ReadonlyArray<string>, rootDir: strin
   if (args[0] === "lesson-promote" && args[1] && args[2]) {
     const mode = args.includes("--apply") ? "apply" : "dry-run";
     if (args.includes("--apply") && args.includes("--dry-run")) {
-      return { ok: false, error: { code: "conflicting_lesson_mode", hint: "Use either --dry-run or --apply." } };
+      return { ok: false, error: cliError(CliErrorCode.ConflictingLessonMode, "Use either --dry-run or --apply.") };
     }
     return {
       ok: true,

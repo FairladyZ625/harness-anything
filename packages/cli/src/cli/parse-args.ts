@@ -1,4 +1,5 @@
 import { commandRegistry, findCommandHelpMatch } from "./command-registry.ts";
+import { cliError, CliErrorCode } from "./error-codes.ts";
 import { parseRegisteredCommand } from "./parser-registry.ts";
 import { stripGlobalOptions } from "./parse-options.ts";
 import { setHarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
@@ -15,10 +16,7 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
   if (parsed) return parsed;
   return {
     ok: false,
-    error: {
-      code: "unknown_command",
-      hint: `Supported commands: ${commandRegistry.map((entry) => entry.primary).join("; ")}, template list, template render, preset validate, vertical validate.`
-    }
+    error: cliError(CliErrorCode.UnknownCommand, `Supported commands: ${commandRegistry.map((entry) => entry.primary).join("; ")}, template list, template render, preset validate, vertical validate.`)
   };
 }
 
@@ -47,10 +45,7 @@ function parseHelpRequest(args: ReadonlyArray<string>, rootDir: string, json: bo
   }
   return {
     ok: false,
-    error: {
-      code: "unknown_help_topic",
-      hint: `Unknown help topic: ${topic.join(" ")}`
-    }
+    error: cliError(CliErrorCode.UnknownHelpTopic, `Unknown help topic: ${topic.join(" ")}`)
   };
 }
 

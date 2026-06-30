@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 
 export function presetScriptAuthorizationRequiredResult(options: {
@@ -30,9 +31,6 @@ export function presetScriptAuthorizationRequiredResult(options: {
     preset: options.presetSummary,
     evidenceBundle: path.relative(options.rootDir, options.evidenceDir).split(path.sep).join("/"),
     report: evidence,
-    error: {
-      code: "preset_script_authorization_required",
-      hint: "Preset script entrypoints require explicit --allow-scripts authorization."
-    }
+    error: cliError(CliErrorCode.PresetScriptAuthorizationRequired, "Preset script entrypoints require explicit --allow-scripts authorization.")
   };
 }

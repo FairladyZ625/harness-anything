@@ -2,6 +2,7 @@ import {
   planTemplateMaterialization,
   validateTemplateCatalog
 } from "../../../../kernel/src/index.ts";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { decodeTemplateCatalog, invalidExtensionResult } from "./shared.ts";
 
@@ -11,7 +12,7 @@ export function runTemplateCommand(action: TemplateAction): CliResult {
   if (action.kind === "template-list") {
     const decoded = decodeTemplateCatalog(action.catalogPath);
     if (!decoded.ok) {
-      return invalidExtensionResult("template-list", "template_catalog_invalid", "Template catalog failed validation.", decoded.issues);
+      return invalidExtensionResult("template-list", CliErrorCode.TemplateCatalogInvalid, "Template catalog failed validation.", decoded.issues);
     }
     const catalog = decoded.value;
     const validation = validateTemplateCatalog(catalog);
@@ -26,16 +27,13 @@ export function runTemplateCommand(action: TemplateAction): CliResult {
         locales: document.locales.map((variant) => variant.locale)
       })),
       issues: validation.issues,
-      error: validation.ok ? undefined : {
-        code: "template_catalog_invalid",
-        hint: "Template catalog failed validation."
-      }
+      error: validation.ok ? undefined : cliError(CliErrorCode.TemplateCatalogInvalid, "Template catalog failed validation.")
     };
   }
 
   const decoded = decodeTemplateCatalog(action.catalogPath);
   if (!decoded.ok) {
-    return invalidExtensionResult("template-render", "template_catalog_invalid", "Template catalog failed validation.", decoded.issues);
+    return invalidExtensionResult("template-render", CliErrorCode.TemplateCatalogInvalid, "Template catalog failed validation.", decoded.issues);
   }
   const catalog = decoded.value;
   const materialized = planTemplateMaterialization({
@@ -56,9 +54,6 @@ export function runTemplateCommand(action: TemplateAction): CliResult {
     command: "template-render",
     document: materialized.documents[0],
     issues: materialized.issues,
-    error: materialized.ok ? undefined : {
-      code: "template_render_failed",
-      hint: "Template selection could not be materialized."
-    }
+    error: materialized.ok ? undefined : cliError(CliErrorCode.TemplateRenderFailed, "Template selection could not be materialized.")
   };
 }
