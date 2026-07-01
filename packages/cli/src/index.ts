@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isExtensionAction, runExtensionCommand } from "./commands/extensions/index.ts";
@@ -28,6 +28,11 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   if (parsed.value.action.kind === "gui") {
     const result = launchGui(parsed.value.rootDir);
     emit(result, parsed.value.json);
+    return 0;
+  }
+
+  if (parsed.value.action.kind === "version") {
+    emit({ ok: true, command: "version", version: resolveCliVersion() }, parsed.value.json);
     return 0;
   }
 
@@ -99,6 +104,10 @@ function emit(result: CliResult, json: boolean): void {
   }
 
   if (result.ok) {
+    if (result.command === "version") {
+      console.log(`harness-anything ${result.version ?? "unknown"}`);
+      return;
+    }
     if (result.command === "help" && result.commands) {
       console.log(renderHelp(result));
       return;
@@ -156,6 +165,28 @@ function helpReport(report: unknown): { readonly kind: "global" | "command" | "p
   if (candidate.schema !== "cli-help-report/v1") return undefined;
   if (candidate.kind !== "global" && candidate.kind !== "command" && candidate.kind !== "prefix") return undefined;
   return { kind: candidate.kind, prefix: candidate.prefix };
+}
+
+function resolveCliVersion(): string {
+  // Walk up from this module to the @harness-anything/cli package.json. Robust
+  // across layouts: src (packages/cli/src), built dist (packages/cli/dist/cli/src),
+  // and installed (node_modules/@harness-anything/cli/dist/cli/src).
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (let depth = 0; depth < 8; depth += 1) {
+    const candidate = path.join(dir, "package.json");
+    if (existsSync(candidate)) {
+      try {
+        const pkg = JSON.parse(readFileSync(candidate, "utf8")) as { readonly name?: unknown; readonly version?: unknown };
+        if (pkg.name === "@harness-anything/cli" && typeof pkg.version === "string") return pkg.version;
+      } catch {
+        // malformed package.json: keep walking
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return "0.0.0";
 }
 
 function isCliEntrypoint(): boolean {

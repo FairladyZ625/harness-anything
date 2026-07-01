@@ -125,6 +125,14 @@ test("parseArgs has characterization coverage for every command registry kind", 
   assert.deepEqual(covered, registered);
 });
 
+test("parseArgs recognizes version as a global flag, short flag, and bare command", () => {
+  for (const argv of [["--version"], ["-v"], ["version"], ["status", "--version"]]) {
+    const parsed = parseArgs(argv);
+    assert.equal(parsed.ok, true, argv.join(" "));
+    assert.equal(parsed.ok && parsed.value.action.kind, "version", argv.join(" "));
+  }
+});
+
 test("parseArgs strips explicit authored root global override", () => {
   const parsed = parseArgs(["--root", rootDir, "--authored-root", ".custom-harness", "doctor"]);
 

@@ -15,6 +15,12 @@ Harness Anything is a repo-native harness. Public code and docs live in this rep
 3. Add or update tests for behavior changes.
 4. Run `npm run check` before requesting review.
 5. In the PR, list the verification commands and any deferred work.
+6. If you changed CLI code and use the built bin (`npx ha`), rebuild the
+   workspace dist (`npm run build -w @harness-anything/cli`); running from
+   source (`node packages/cli/src/index.ts`) is always fresh. Refresh a global
+   install only when cutting a version. Local distribution and release steps
+   live in the private harness `ci-cd-standard.md`; there is no public npm
+   publish yet.
 
 ## Review Expectations
 

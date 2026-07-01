@@ -37,6 +37,12 @@ export function initializeHarness(rootDir: string, addNpmScripts = false, projec
     "",
     "Read `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.",
     "",
+    "## Harness CLI",
+    "",
+    "- Invoke via `npx harness-anything <command>` (alias: `ha`). Create task packages with `new-task`; never hand-scaffold directories under the tasks root.",
+    "- Task lifecycle: `task status set <id> <planned|active|blocked|in_review|done|cancelled>`, `task progress append <id> --text <text> [--evidence type:PATH:summary]`, `task-review <id>`, `task-complete <id> --ci passed|failed`. Completion is gated on review + closeout; setting `done` directly is rejected.",
+    "- Writes that go through the harness CLI (new-task, status set, progress append, review, complete) are auto-committed as `harness write <opId>` when the harness root is inside a git repository. A clean `git status` right after these commands is expected: do not re-verify, re-commit, or treat it as data loss. Only hand-edited files need manual commits.",
+    "",
     "Generated state under `.harness/` is local-only and must not be committed.",
     ""
   ].join("\n"));
