@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Schema } from "effect";
-import { resolveHarnessLayout } from "../../src/layout/index.ts";
+import { createTaskPackagePath, resolveHarnessLayout, taskDocumentPath, taskPackagePath } from "../../src/layout/index.ts";
 import {
   LegacyCollisionReportSchema,
   LegacyIndexSchema
@@ -25,6 +25,9 @@ test("legacy storage layout is inside authored harness root", () => {
   assert.equal(layout.legacyIndexPath, path.join(layout.legacyRoot, "index.json"));
   assert.equal(layout.legacyCollisionReportPath, path.join(layout.legacyRoot, "collision-report.json"));
   assert.equal(layout.legacyRebuildGuidePath, path.join(layout.legacyRoot, "rebuild-guide.md"));
+  assert.equal(layout.taskPackagePath("task_1"), taskPackagePath("/repo", "task_1"));
+  assert.equal(layout.createTaskPackagePath("task_1", "Layout Task"), createTaskPackagePath("/repo", "task_1", "Layout Task"));
+  assert.equal(layout.taskDocumentPath("task_1", "task_plan.md"), taskDocumentPath("/repo", "task_1", "task_plan.md"));
 });
 
 test("layout resolver honors harness.yaml layout roots and upward discovery", () => {

@@ -4,7 +4,8 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isExtensionAction, runExtensionCommand } from "./commands/extensions/index.ts";
+import { runExtensionCommand } from "./commands/extensions/index.ts";
+import { runnerIdForAction } from "./cli/command-registry.ts";
 import { toCliError } from "./cli/error-mapper.ts";
 import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { Effect } from "effect";
@@ -19,19 +20,20 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     return 2;
   }
 
-  if (isExtensionAction(parsed.value.action)) {
+  const runnerId = runnerIdForAction(parsed.value.action.kind);
+  if (runnerId === "extension") {
     const result = runExtensionCommand(parsed.value);
     emit(result, parsed.value.json);
     return result.ok ? 0 : 1;
   }
 
-  if (parsed.value.action.kind === "gui") {
+  if (runnerId === "gui") {
     const result = launchGui(parsed.value.rootDir);
     emit(result, parsed.value.json);
     return 0;
   }
 
-  if (parsed.value.action.kind === "version") {
+  if (runnerId === "version") {
     emit({ ok: true, command: "version", version: resolveCliVersion() }, parsed.value.json);
     return 0;
   }

@@ -12,10 +12,6 @@ export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; rea
   const help = parseHelpRequest(args, rootDir, json);
   if (help) return help;
 
-  if (args[0] === "version" || args.includes("--version") || args.includes("-v")) {
-    return { ok: true, value: { rootDir, json, action: { kind: "version" } } };
-  }
-
   const parsed = parseRegisteredCommand(args, rootDir, json);
   if (parsed) return parsed;
   return {

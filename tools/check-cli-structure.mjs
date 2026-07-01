@@ -23,6 +23,7 @@ const extensionExecutorFiles = [
 checkFileLines(parserFiles, 250, "CLI parser file");
 checkFileLines(extensionExecutorFiles, 250, "extension executor file");
 checkFunctions([...parserFiles, ...extensionExecutorFiles], { maxLines: 120, maxBranches: 40 });
+checkCliCommandDescriptorization();
 
 if (violations.length > 0) {
   console.error(violations.join("\n"));
@@ -59,6 +60,27 @@ function checkFunctions(files, limits) {
         violations.push(`${file}:${fn.startLine}: function ${fn.name} has ${fn.branches} branch markers; max ${limits.maxBranches}`);
       }
     }
+  }
+}
+
+function checkCliCommandDescriptorization() {
+  const commandRegistry = readSource("packages/cli/src/cli/command-registry.ts");
+  const parserRegistry = readSource("packages/cli/src/cli/parser-registry.ts");
+  const cliEntrypoint = readSource("packages/cli/src/index.ts");
+  if (!/\bexport\s+const\s+commandDescriptors\b/u.test(commandRegistry)) {
+    violations.push("packages/cli/src/cli/command-registry.ts: missing exported commandDescriptors registry");
+  }
+  if (!/\bparserId\b/u.test(commandRegistry) || !/\brunnerId\b/u.test(commandRegistry)) {
+    violations.push("packages/cli/src/cli/command-registry.ts: command descriptors must include parserId and runnerId");
+  }
+  if (!/\bcommandKindsForParser\b/u.test(parserRegistry)) {
+    violations.push("packages/cli/src/cli/parser-registry.ts: parser commandKinds must be derived from command descriptors");
+  }
+  if (/\bcommandKinds:\s*\[/u.test(parserRegistry)) {
+    violations.push("packages/cli/src/cli/parser-registry.ts: commandKinds arrays must not be hand-authored");
+  }
+  if (!/\brunnerIdForAction\b/u.test(cliEntrypoint)) {
+    violations.push("packages/cli/src/index.ts: command dispatch must use descriptor runnerIdForAction");
   }
 }
 

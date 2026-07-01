@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
 import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { ArtifactStore, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { findTaskIdByExternalRef, resolveHarnessLayout, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
+import { stablePayloadHash, writeCoordinatedPayload } from "../../../kernel/src/write-coordination/write-helpers.ts";
 
 export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
 import type { TaskSnapshot } from "../../../kernel/src/schemas/registry.ts";
@@ -263,16 +263,15 @@ function writeTaskDocument(
   body: string
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
-    yield* coordinator.enqueue({
-      opId: `multica-adopt-${stableHash({ taskId, body }).slice(0, 16)}`,
+    yield* writeCoordinatedPayload(coordinator, stableHash, {
       taskId,
       kind: "doc_write",
       payload: {
         path: "INDEX.md",
         body
-      }
+      },
+      opIdPrefix: "multica-adopt"
     });
-    yield* coordinator.flush("explicit");
   });
 }
 
@@ -331,20 +330,9 @@ function readScalar(frontmatter: string, key: string): string {
 }
 
 function stableHash(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value)).digest("hex");
+  return stablePayloadHash(value);
 }
 
 export function stableMulticaBindingFingerprint(input: MulticaBindingFingerprintInput): `sha256:${string}` {
   return `sha256:${stableHash(input)}`;
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }

@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../../adapters/local/src/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "../../../application/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
-import { isDomainStatus, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
+import { explainStatusTransition, isDomainStatus, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
 import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import { checkTaskProjection, readTaskProjection } from "../../../kernel/src/index.ts";
 import { runCheckProfile } from "./check.ts";
@@ -383,7 +383,7 @@ function runStatusSet(
       } satisfies CliResult));
     }
 
-    if (taskPolicy.status && !canStructurallyTransition(taskPolicy.status, status)) {
+    if (taskPolicy.status && !explainStatusTransition(taskPolicy.status, status).allowed) {
       return Effect.sync(() => ({
         ok: false,
         command: "status-set",
@@ -442,16 +442,6 @@ function lifecycleReason(reason: string, fields: Readonly<Record<string, string 
     .map(([key, value]) => `${key}=${value}`)
     .join("; ");
   return suffix ? `${reason}\n\nMetadata: ${suffix}` : reason;
-}
-
-function canStructurallyTransition(from: DomainStatus, to: DomainStatus): boolean {
-  if (from === to) return true;
-  if (isTerminalStatus(from)) return false;
-  if (from === "planned") return to === "active" || to === "blocked" || to === "cancelled";
-  if (from === "active") return to === "blocked" || to === "in_review" || to === "done" || to === "cancelled";
-  if (from === "blocked") return to === "active" || to === "cancelled";
-  if (from === "in_review") return to === "active" || to === "blocked" || to === "done" || to === "cancelled";
-  return false;
 }
 
 function summarizeStatus(

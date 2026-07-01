@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { DomainStatus, EngineError, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
-import { isTerminalStatus } from "../../../kernel/src/domain/index.ts";
+import type { EngineError, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import { explainStatusTransition, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/store/hash.ts";
@@ -112,7 +112,7 @@ function setStatus(
         ref: index.ref ?? input.taskId
       } satisfies EngineError);
     }
-    if (!canTransition(index.status, input.status)) {
+    if (!explainStatusTransition(index.status, input.status).allowed) {
       return yield* Effect.fail({
         _tag: "InvalidTransition",
         taskId: input.taskId,
@@ -222,14 +222,4 @@ function reopenTask(
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex({ ...index, packageDisposition: "active" }, input.reason), { kind: "package_reopen" });
     return { taskId: input.taskId, status: index.status, engine: "local", packageDisposition: "active" } satisfies LocalTaskResult;
   });
-}
-
-function canTransition(from: DomainStatus, to: DomainStatus): boolean {
-  if (from === to) return true;
-  if (isTerminalStatus(from)) return false;
-  if (from === "planned") return to === "active" || to === "blocked" || to === "cancelled";
-  if (from === "active") return to === "blocked" || to === "in_review" || to === "done" || to === "cancelled";
-  if (from === "blocked") return to === "active" || to === "cancelled";
-  if (from === "in_review") return to === "active" || to === "blocked" || to === "done" || to === "cancelled";
-  return false;
 }

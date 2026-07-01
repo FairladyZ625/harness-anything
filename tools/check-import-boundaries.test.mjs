@@ -101,6 +101,68 @@ test("import boundary check blocks new CLI adapter imports outside allowlisted d
   }
 });
 
+test("import boundary check rejects package modules that are only re-exported by the root barrel", () => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/gui/src/distribution"), { recursive: true });
+    writeFileSync(path.join(root, "packages/gui/src/index.ts"), [
+      "export { unusedPolicy } from './distribution/unused-policy.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/gui/src/distribution/unused-policy.ts"), [
+      "export const unusedPolicy = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/gui\/src\/distribution\/unused-policy\.ts/);
+    assert.match(result.stderr, /only re-exported from its package barrel/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check treats tools imports as real package module consumers", () => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/gui/src/distribution"), { recursive: true });
+    mkdirSync(path.join(root, "tools"), { recursive: true });
+    writeFileSync(path.join(root, "packages/gui/src/index.ts"), [
+      "export { releaseGate } from './distribution/release-gate.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/gui/src/distribution/release-gate.ts"), [
+      "export const releaseGate = true;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "tools/check-release-gate.mjs"), [
+      "import { releaseGate } from '../packages/gui/src/distribution/release-gate.ts';",
+      "if (!releaseGate) process.exit(1);"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check allows explicitly slice-activated package modules", () => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/gui/src/distribution"), { recursive: true });
+    writeFileSync(path.join(root, "packages/gui/src/index.ts"), [
+      "export { plannedPolicy } from './distribution/planned-policy.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/gui/src/distribution/planned-policy.ts"), [
+      "/** @slice-activation M4 packaging owns this policy surface. */",
+      "export const plannedPolicy = true;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-"));
   for (const dir of [

@@ -12,17 +12,23 @@ test("error classification gate rejects substring classification", () => {
     writeFileSync(path.join(sourceDir, "bad.ts"), [
       "const message = error.message;",
       "if (message.includes(\"task not found\")) throw error;",
+      "if (message.startsWith(\"invalid_registry_key:\")) throw error;",
+      "if (error.message.startsWith(\"invalid_registry_key:\")) throw error;",
       "if (raw.includes(\"invalid transition\")) throw error;",
-      "if (String(cause).includes(\"lock\")) throw error;"
+      "if (String(cause).includes(\"lock\")) throw error;",
+      "return assertNever(error);"
     ].join("\n"));
 
     const violations = findErrorClassificationViolations(rootDir, ["packages/cli/src"]);
 
-    assert.equal(violations.length, 3);
+    assert.equal(violations.length, 6);
     assert.deepEqual(violations.map((violation) => violation.rule), [
       "message-includes",
+      "message-starts-with",
+      "message-starts-with",
       "raw-includes",
-      "stringified-error-includes"
+      "stringified-error-includes",
+      "cli-error-assert-never"
     ]);
   });
 });

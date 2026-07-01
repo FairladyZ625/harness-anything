@@ -35,6 +35,22 @@ function writeFixtureTree(root) {
   for (const file of files) {
     writeFile(root, file, "export function ok(): void {}\n");
   }
+  writeFile(root, "packages/cli/src/cli/command-registry.ts", [
+    "export const commandDescriptors = [{ parserId: 'help', runnerId: 'core' }];",
+    "export function commandKindsForParser(): readonly string[] { return []; }",
+    "export function runnerIdForAction(): string { return 'core'; }",
+    ""
+  ].join("\n"));
+  writeFile(root, "packages/cli/src/cli/parser-registry.ts", [
+    "import { commandKindsForParser } from './command-registry.ts';",
+    "export const parserRegistry = [{ id: 'help', commandKinds: commandKindsForParser() }];",
+    ""
+  ].join("\n"));
+  writeFile(root, "packages/cli/src/index.ts", [
+    "import { runnerIdForAction } from './cli/command-registry.ts';",
+    "void runnerIdForAction;",
+    ""
+  ].join("\n"));
   writeFile(root, "packages/cli/src/commands/extensions/shared.ts", genericLongFunction());
 }
 

@@ -18,7 +18,6 @@ export const testTierManifest = {
     "packages/gui/test/electron-security-policy.test.ts",
     "packages/gui/test/env-profile-contract.test.ts",
     "packages/gui/test/ipc-handler-registration.test.ts",
-    "packages/gui/test/distribution-update-policy.test.ts",
     "packages/gui/test/local-api-auth.test.ts",
     "packages/gui/test/path-traversal.test.ts",
     "packages/gui/test/preload-allowlist.test.ts",

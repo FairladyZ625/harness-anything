@@ -57,16 +57,98 @@ function resolveImport(file, specifier) {
   return relative(resolved);
 }
 
+function resolveImportFile(file, specifier, knownFiles) {
+  if (!specifier.startsWith(".")) return null;
+  const base = path.normalize(path.join(path.dirname(file), specifier));
+  const baseRel = relative(base);
+  const candidates = [
+    baseRel,
+    `${baseRel}.ts`,
+    `${baseRel}.tsx`,
+    `${baseRel}.mts`,
+    `${baseRel}.js`,
+    `${baseRel}.jsx`,
+    `${baseRel}.mjs`,
+    `${baseRel}/index.ts`,
+    `${baseRel}/index.tsx`,
+    `${baseRel}/index.mts`,
+    `${baseRel}/index.js`,
+    `${baseRel}/index.jsx`,
+    `${baseRel}/index.mjs`
+  ];
+  return candidates.find((candidate) => knownFiles.has(candidate)) ?? null;
+}
+
 function importedPathViolates(file, specifier, isForbidden) {
   const resolved = resolveImport(file, specifier);
   return isForbidden(resolved);
 }
 
-for (const sourceRoot of sourceRoots) {
-  for (const file of await walk(sourceRoot)) {
+async function collectImportEdges(files, knownFiles) {
+  const edges = [];
+  for (const file of files) {
     const text = await readFile(file, "utf8");
     const rel = relative(file);
-    const isTestOrFixture = /(?:^|\/)(?:__fixtures__|fixtures|test|tests)\//.test(rel) || /\.test\.[cm]?[jt]s$/.test(rel);
+    const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
+    for (const specifier of imports) {
+      const target = resolveImportFile(file, specifier, knownFiles);
+      if (target) edges.push({ importer: rel, target, specifier });
+    }
+  }
+  return edges;
+}
+
+function isTestOrFixturePath(rel) {
+  return /(?:^|\/)(?:__fixtures__|fixtures|test|tests)\//.test(rel) || /\.test\.[cm]?[jt]s$/.test(rel);
+}
+
+function packageNameFromSourcePath(rel) {
+  const match = /^packages\/([^/]+)\/src\//u.exec(rel);
+  return match?.[1];
+}
+
+function isOrphanGateCandidate(rel) {
+  return /^packages\/gui\/src\/distribution\//u.test(rel);
+}
+
+async function checkOrphanPackageModules(packageFiles, importEdges) {
+  const packageFileSet = new Set(packageFiles.map(relative));
+  const barrelTargets = new Set();
+  for (const edge of importEdges) {
+    const packageName = packageNameFromSourcePath(edge.importer);
+    if (!packageName || edge.importer !== `packages/${packageName}/src/index.ts`) continue;
+    if (packageNameFromSourcePath(edge.target) !== packageName) continue;
+    if (edge.target.endsWith("/index.ts")) continue;
+    if (isTestOrFixturePath(edge.target)) continue;
+    if (!isOrphanGateCandidate(edge.target)) continue;
+    if (packageFileSet.has(edge.target)) barrelTargets.add(edge.target);
+  }
+
+  for (const target of barrelTargets) {
+    const targetText = await readFile(path.join(root, target), "utf8");
+    if (/@slice-activation\b/u.test(targetText)) continue;
+    const hasRealConsumer = importEdges.some((edge) => {
+      if (edge.target !== target || edge.importer === target) return false;
+      if (isTestOrFixturePath(edge.importer)) return false;
+      const packageName = packageNameFromSourcePath(target);
+      if (packageName && edge.importer === `packages/${packageName}/src/index.ts`) return false;
+      return edge.importer.startsWith("packages/") || edge.importer.startsWith("tools/");
+    });
+    if (!hasRealConsumer) {
+      record(path.join(root, target), "package source module is only re-exported from its package barrel; add @slice-activation with an owning slice or remove it from src");
+    }
+  }
+}
+
+const packageSourceFiles = (await Promise.all(sourceRoots.map((sourceRoot) => walk(sourceRoot)))).flat();
+const toolSourceFiles = await walk(path.join(root, "tools"));
+const knownImportFiles = new Set([...packageSourceFiles, ...toolSourceFiles].map(relative));
+const importEdges = await collectImportEdges([...packageSourceFiles, ...toolSourceFiles], knownImportFiles);
+
+for (const file of packageSourceFiles) {
+    const text = await readFile(file, "utf8");
+    const rel = relative(file);
+    const isTestOrFixture = isTestOrFixturePath(rel);
 
     if (rel.startsWith("packages/kernel/src/domain/")) {
       if (/\bfrom\s+["'][^"']*(?:legacy|scripts\/kernel\/task)[^"']*["']/.test(text)) {
@@ -149,8 +231,9 @@ for (const sourceRoot of sourceRoots) {
         record(file, "production package references old runtime symbol or path");
       }
     }
-  }
 }
+
+await checkOrphanPackageModules(packageSourceFiles, importEdges);
 
 if (violations.length > 0) {
   console.error("Import boundary violations:");

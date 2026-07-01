@@ -399,9 +399,19 @@ export function moduleNotFound(command: string, moduleKey: string): CliResult {
   };
 }
 
+export class InvalidRegistryKeyError extends Error {
+  readonly label: string;
+
+  constructor(label: string) {
+    super(`Invalid ${label} key.`);
+    this.name = "InvalidRegistryKeyError";
+    this.label = label;
+  }
+}
+
 function validateRegistryKey(value: string, label: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(value)) {
-    throw new Error(`invalid_registry_key:${label}`);
+    throw new InvalidRegistryKeyError(label);
   }
 }
 

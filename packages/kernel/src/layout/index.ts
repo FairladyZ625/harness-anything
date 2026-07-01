@@ -26,6 +26,9 @@ export interface HarnessLayout {
   readonly payloadsRoot: string;
   readonly locksRoot: string;
   readonly claimsRoot: string;
+  readonly taskPackagePath: (taskId: TaskId) => string;
+  readonly createTaskPackagePath: (taskId: TaskId, slug?: string) => string;
+  readonly taskDocumentPath: (taskId: TaskId, documentPath: string) => string;
 }
 
 const crockfordBase32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -50,6 +53,14 @@ interface HarnessLayoutConfig {
   readonly generatedRoot?: string;
 }
 
+interface HarnessLayoutSettings {
+  readonly resolvedRoot: string;
+  readonly authoredRootSetting: string;
+  readonly localRootSetting: string;
+  readonly tasksRootSetting?: string;
+  readonly generatedRootSetting?: string;
+}
+
 let layoutOverrides: HarnessLayoutOverrides = {};
 
 export function setHarnessLayoutOverrides(overrides: HarnessLayoutOverrides): void {
@@ -57,15 +68,26 @@ export function setHarnessLayoutOverrides(overrides: HarnessLayoutOverrides): vo
 }
 
 export function resolveHarnessLayout(rootDir: string): HarnessLayout {
+  return buildHarnessLayout(resolveHarnessLayoutSettings(rootDir));
+}
+
+function resolveHarnessLayoutSettings(rootDir: string): HarnessLayoutSettings {
   const { projectRoot, config } = resolveProjectRootAndConfig(rootDir);
   const authoredRootSetting = layoutOverrides.authoredRoot
     ?? process.env.HARNESS_AUTHORED_ROOT
     ?? config.authoredRoot
     ?? defaultAuthoredRoot;
-  const localRootSetting = config.localRoot ?? defaultLocalRoot;
-  const tasksRootSetting = config.tasksRoot;
-  const generatedRootSetting = config.generatedRoot;
-  const resolvedRoot = projectRoot;
+  return {
+    resolvedRoot: projectRoot,
+    authoredRootSetting,
+    localRootSetting: config.localRoot ?? defaultLocalRoot,
+    tasksRootSetting: config.tasksRoot,
+    generatedRootSetting: config.generatedRoot
+  };
+}
+
+function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
+  const { resolvedRoot, authoredRootSetting, localRootSetting, tasksRootSetting, generatedRootSetting } = settings;
   const authoredRoot = resolveRootRelativePath(resolvedRoot, authoredRootSetting, "layout.authoredRoot");
   const legacyRoot = path.join(authoredRoot, "legacy");
   const localRoot = resolveRootRelativePath(resolvedRoot, localRootSetting, "layout.localRoot");
@@ -98,7 +120,20 @@ export function resolveHarnessLayout(rootDir: string): HarnessLayout {
     watermarkPath: path.join(writeJournalRoot, "watermark.json"),
     payloadsRoot: path.join(writeJournalRoot, "payloads"),
     locksRoot: path.join(localRoot, "locks"),
-    claimsRoot: path.join(localRoot, "adopt-claims")
+    claimsRoot: path.join(localRoot, "adopt-claims"),
+    taskPackagePath: (taskId) => {
+      validateTaskIdSyntax(taskId);
+      return findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId);
+    },
+    createTaskPackagePath: (taskId, slug) => {
+      validateTaskIdSyntax(taskId);
+      const suffix = slug ? `-${normalizeTaskSlug(slug)}` : "";
+      return path.join(tasksRoot, `${taskId}${suffix}`);
+    },
+    taskDocumentPath: (taskId, documentPath) => {
+      const safePath = normalizeRelativeDocumentPath(documentPath);
+      return path.join(findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId), safePath);
+    }
   };
 }
 
@@ -210,24 +245,22 @@ export function validateTaskIdSyntax(taskId: TaskId): void {
 }
 
 export function taskPackagePath(rootDir: string, taskId: TaskId): string {
-  validateTaskIdSyntax(taskId);
-  const existing = findTaskPackagePath(rootDir, taskId);
-  return existing ?? path.join(resolveHarnessLayout(rootDir).tasksRoot, taskId);
+  return resolveHarnessLayout(rootDir).taskPackagePath(taskId);
 }
 
 export function createTaskPackagePath(rootDir: string, taskId: TaskId, slug?: string): string {
-  validateTaskIdSyntax(taskId);
-  const suffix = slug ? `-${normalizeTaskSlug(slug)}` : "";
-  return path.join(resolveHarnessLayout(rootDir).tasksRoot, `${taskId}${suffix}`);
+  return resolveHarnessLayout(rootDir).createTaskPackagePath(taskId, slug);
 }
 
 export function taskDocumentPath(rootDir: string, taskId: TaskId, documentPath: string): string {
-  const safePath = normalizeRelativeDocumentPath(documentPath);
-  return path.join(taskPackagePath(rootDir, taskId), safePath);
+  return resolveHarnessLayout(rootDir).taskDocumentPath(taskId, documentPath);
 }
 
 export function listTaskIndexPaths(rootDir: string): ReadonlyArray<string> {
-  const tasksRoot = resolveHarnessLayout(rootDir).tasksRoot;
+  return listTaskIndexPathsInTasksRoot(resolveHarnessLayout(rootDir).tasksRoot);
+}
+
+function listTaskIndexPathsInTasksRoot(tasksRoot: string): ReadonlyArray<string> {
   if (!existsSync(tasksRoot)) return [];
   return readdirSync(tasksRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -237,10 +270,14 @@ export function listTaskIndexPaths(rootDir: string): ReadonlyArray<string> {
 }
 
 export function findTaskPackagePath(rootDir: string, taskId: TaskId): string | null {
-  const tasksRoot = resolveHarnessLayout(rootDir).tasksRoot;
+  return findTaskPackagePathInTasksRoot(resolveHarnessLayout(rootDir).tasksRoot, taskId);
+}
+
+function findTaskPackagePathInTasksRoot(tasksRoot: string, taskId: TaskId): string | null {
+  validateTaskIdSyntax(taskId);
   const exact = path.join(tasksRoot, taskId, "INDEX.md");
   if (existsSync(exact)) return path.dirname(exact);
-  for (const indexPath of listTaskIndexPaths(rootDir)) {
+  for (const indexPath of listTaskIndexPathsInTasksRoot(tasksRoot)) {
     const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8")) ?? "";
     if (readScalar(frontmatter, "task_id") === taskId) return path.dirname(indexPath);
   }

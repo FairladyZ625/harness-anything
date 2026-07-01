@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
@@ -25,6 +24,7 @@ import {
 } from "../layout/index.ts";
 import { hashTaskProjectionRows, rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
+import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
 import { withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
 import type { DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { JournalActor, JournaledWriteCoordinatorOptions } from "./write-journal-types.ts";
@@ -33,7 +33,6 @@ const defaultActor: JournalActor = { kind: "agent", id: "local" };
 // Flush writes the full op-id set before compaction for recovery safety, then
 // trims to a bounded recent-id window only after journal compaction succeeds.
 const maxWatermarkCommittedOpIds = 128;
-const gitMaxBuffer = 256 * 1024 * 1024;
 
 class WriteRejectedError extends Error {
   readonly reason: string;
@@ -390,132 +389,6 @@ function toDocumentWrite(op: WriteOp): DocumentWrite {
     body: payload.body,
     packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
   };
-}
-
-function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>): string {
-  if (touchedPaths.length === 0) return "no-git-change";
-
-  const plan = resolveCommitPlan(rootDir, touchedPaths);
-  if (!plan) return "no-git-change";
-
-  runGit(plan.repoRoot, "add", "--", ...plan.relativePaths);
-  const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
-  if (staged.length === 0) return currentGitHead(plan.repoRoot);
-
-  runGit(plan.repoRoot, "commit", "-m", `harness write ${opIds.join(",")}`);
-  return currentGitHead(plan.repoRoot);
-}
-
-function resolveCommitPlan(rootDir: string, touchedPaths: ReadonlyArray<string>): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
-  if (touchedPaths.length === 0) return null;
-  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(rootDir).authoredRoot);
-  if (!target) return null;
-  return {
-    repoRoot: target.repoRoot,
-    relativePaths: unique(touchedPaths.map((filePath) => repoRelativePath(target.repoRoot, filePath)))
-  };
-}
-
-function isGitRepo(rootDir: string): boolean {
-  return gitTopLevel(rootDir) !== null;
-}
-
-function resolveCommitTarget(rootDir: string, authoredRoot: string): { readonly repoRoot: string } | null {
-  const rootRepo = gitTopLevel(rootDir);
-  const authoredRepo = gitTopLevel(authoredRoot);
-  if (!authoredRepo) return rootRepo ? { repoRoot: rootRepo } : null;
-  if (rootRepo && authoredRepo === rootRepo && isIgnoredByRepo(rootRepo, authoredRoot)) {
-    throw new Error("authored root is ignored by Git but is not a nested Git repository");
-  }
-  return { repoRoot: authoredRepo };
-}
-
-function gitTopLevel(inputPath: string): string | null {
-  try {
-    return normalizeExistingPath(execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], { encoding: "utf8", maxBuffer: gitMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }).trim());
-  } catch {
-    return null;
-  }
-}
-
-function isIgnoredByRepo(repoRoot: string, candidatePath: string): boolean {
-  const relativePath = repoRelativePath(repoRoot, candidatePath);
-  try {
-    execFileSync("git", ["-C", repoRoot, "check-ignore", "-q", "--", relativePath], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function repoRelativePath(repoRoot: string, filePath: string): string {
-  const relativePath = path.relative(normalizeExistingPath(repoRoot), normalizeExistingPath(filePath));
-  if (relativePath.length === 0) return ".";
-  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
-    throw new Error("touched path is outside commit repository");
-  }
-  return relativePath.split(path.sep).join("/");
-}
-
-function normalizeExistingPath(inputPath: string): string {
-  const resolved = path.resolve(inputPath);
-  if (existsSync(resolved)) return realpathSync.native(resolved);
-
-  const pendingSegments: string[] = [];
-  let current = resolved;
-  while (!existsSync(current)) {
-    const parent = path.dirname(current);
-    if (parent === current) return resolved;
-    pendingSegments.unshift(path.basename(current));
-    current = parent;
-  }
-  return path.join(realpathSync.native(current), ...pendingSegments);
-}
-
-function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
-  try {
-    return execFileSync("git", ["-C", repoRoot, ...args], {
-      encoding: "utf8",
-      maxBuffer: gitMaxBuffer,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
-        GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
-        GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
-        GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness@example.invalid"
-      }
-    });
-  } catch (error) {
-    throw new Error(`git ${args[0] ?? "command"} failed: ${gitErrorMessage(error)}`);
-  }
-}
-
-function currentGitHead(rootDir: string): string {
-  try {
-    return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8", maxBuffer: gitMaxBuffer }).trim();
-  } catch {
-    return "no-git-head";
-  }
-}
-
-function unique(values: ReadonlyArray<string>): ReadonlyArray<string> {
-  return [...new Set(values)];
-}
-
-function gitErrorMessage(error: unknown): string {
-  if (typeof error === "object" && error && "code" in error && typeof (error as { readonly code?: unknown }).code === "string") {
-    const code = (error as { readonly code: string }).code;
-    if (code.length > 0) return code;
-  }
-  if (typeof error === "object" && error && "stderr" in error) {
-    const stderr = (error as { readonly stderr?: unknown }).stderr;
-    const text = Buffer.isBuffer(stderr) ? stderr.toString("utf8") : typeof stderr === "string" ? stderr : "";
-    const firstLine = text.trim().split(/\r?\n/u).find((line) => line.trim().length > 0);
-    if (firstLine) return firstLine;
-  }
-  if (error instanceof Error) return error.message.split(/\r?\n/u)[0] ?? error.message;
-  return String(error);
 }
 
 function rebuildProjectionHash(rootDir: string): string {
