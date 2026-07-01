@@ -151,7 +151,7 @@ function executeSourceRunSmoke() {
   try {
     const stdout = execFileSync(executable, args, { cwd: root, encoding: "utf8" });
     const result = JSON.parse(stdout);
-    if (result.ok !== true || result.command !== "doctor" || result.report?.readOnly !== true) {
+    if (result.ok !== true || result.receipt !== "CommandReceipt/v1" || result.command !== "doctor" || result.data?.report?.readOnly !== true) {
       record(`source-run command returned unexpected output: ${stdout}`);
     }
   } catch (error) {

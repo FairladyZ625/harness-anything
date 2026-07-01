@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -122,7 +123,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8"
     });
-    return JSON.parse(stdout) as Record<string, any>;
+    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };
