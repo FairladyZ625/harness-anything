@@ -11,6 +11,7 @@ import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
 import { runCommand } from "./commands/lifecycle.ts";
+import { renderReceiptText, toCommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
@@ -100,30 +101,30 @@ function launchGui(rootDir: string): CliResult {
 }
 
 function emit(result: CliResult, json: boolean): void {
+  const output = toCommandReceipt(result);
   if (json) {
-    console.log(JSON.stringify(result));
+    console.log(JSON.stringify(output));
     return;
   }
 
-  if (result.ok) {
-    if (result.command === "version") {
-      console.log(`harness-anything ${result.version ?? "unknown"}`);
+  if (output.ok) {
+    if (output.command === "version") {
+      console.log(`harness-anything ${String(output.data?.version ?? "unknown")}`);
       return;
     }
-    if (result.command === "help" && result.commands) {
-      console.log(renderHelp(result));
+    if (output.command === "help" && Array.isArray(output.data?.commands)) {
+      console.log(renderHelp(output.data));
       return;
     }
-    const suffix = result.status ? ` status=${result.status}` : result.path ? ` path=${result.path}` : result.rows !== undefined ? ` rows=${result.rows}` : result.launchPlan ? ` mode=${result.launchPlan.mode} package=${result.launchPlan.packageName}` : "";
-    console.log(`ok command=${result.command} task=${result.taskId ?? ""}${suffix}`);
+    console.log(renderReceiptText(output));
     return;
   }
 
-  console.error(`error code=${result.error?.code ?? "unknown"} hint=${result.error?.hint ?? "Command failed."}`);
+  console.error(`error code=${output.error?.code ?? "unknown"} hint=${output.error?.hint ?? "Command failed."}`);
 }
 
-function renderHelp(result: CliResult): string {
-  const commands = result.commands ?? [];
+function renderHelp(result: Record<string, unknown>): string {
+  const commands = Array.isArray(result.commands) ? result.commands as ReadonlyArray<CommandRegistryEntry> : [];
   const report = helpReport(result.report);
   if (report?.kind === "command" && commands.length === 1) {
     return renderCommandHelp(commands[0]!);

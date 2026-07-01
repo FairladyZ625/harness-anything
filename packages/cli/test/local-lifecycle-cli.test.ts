@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,8 +56,10 @@ test("CLI creates a local task with generated identity and stable JSON output", 
     assert.equal(result.slug, "task-one");
     assert.equal(result.status, "planned");
     assert.equal(result.packagePath, `harness/planning/tasks/${taskId}-task-one`);
+    assert.equal(result.paths.package, result.packagePath);
     assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /engine: local/);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
+    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command=new-task task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/planning\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path summary=/u);
   });
 });
 
@@ -356,7 +359,7 @@ test("CLI status --json returns local projection health envelope", () => {
     assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "generated-cache" && axis.warningCount === 0), true);
     assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "collaboration-gate" && axis.warningCount === 0), true);
     assert.equal(result.warnings.length, 0);
-    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "task-supersede" && entry.resultEnvelope === "CliResult/v1"), true);
+    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "task-supersede" && entry.resultEnvelope === "CommandReceipt/v1"), true);
     assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "preset-validate" && entry.primary === "harness-anything preset validate <manifest> [--kernel-version <version>] [--json]"), true);
   });
 });
@@ -583,17 +586,15 @@ test("CLI task-complete evaluates review, CI, and closeout readiness before sett
 test("CLI gui command delegates to the local desktop controller without importing GUI", () => {
   const result = runJson(process.cwd(), ["gui"], true, { HARNESS_GUI_DRY_RUN: "1" });
 
-  assert.deepEqual(result, {
-    ok: true,
-    command: "gui",
-    launchPlan: {
-      packageName: "@harness-anything/gui",
-      mode: "local-desktop-controller",
-      apiHost: "127.0.0.1",
-      delegated: true,
-      dryRun: true,
-      command: ["npm", "--workspace", "@harness-anything/gui", "run", "dev"]
-    }
+  assert.equal(result.ok, true);
+  assert.equal(result.command, "gui");
+  assert.deepEqual(result.launchPlan, {
+    packageName: "@harness-anything/gui",
+    mode: "local-desktop-controller",
+    apiHost: "127.0.0.1",
+    delegated: true,
+    dryRun: true,
+    command: ["npm", "--workspace", "@harness-anything/gui", "run", "dev"]
   });
 });
 
@@ -674,7 +675,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
       encoding: "utf8",
       env: { ...process.env, ...env }
     });
-    return JSON.parse(stdout) as Record<string, any>;
+    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };

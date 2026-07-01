@@ -134,7 +134,7 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
   writeFile(root, "docs-release/m2-5-runtime-release.md", options.runtimeDocBody ?? validRuntimeDoc());
   writeFile(root, "docs-release/m2-5-gui-distribution.md", "# Distribution\n");
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
-  writeFile(root, "packages/cli/src/index.ts", "console.log(JSON.stringify({ ok: true, command: \"doctor\", report: { readOnly: true } }));\n");
+  writeFile(root, "packages/cli/src/index.ts", "console.log(JSON.stringify({ ok: true, receipt: \"CommandReceipt/v1\", command: \"doctor\", summary: \"completed doctor\", data: { report: { readOnly: true } } }));\n");
 }
 
 function validRuntimeDoc() {

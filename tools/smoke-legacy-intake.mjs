@@ -16,7 +16,7 @@ function runJson(args) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
     });
-    return JSON.parse(output);
+    return unwrapReceipt(JSON.parse(output));
   } catch (error) {
     const failure = error;
     const body = failure.stdout && failure.stdout.toString().trim().length > 0
@@ -55,4 +55,23 @@ try {
   console.log(`Legacy Intake smoke passed with ${legacyVerify.report.summary.entryCount} entries.`);
 } finally {
   rmSync(smokeRoot, { recursive: true, force: true });
+}
+
+function unwrapReceipt(value) {
+  if (value.ok !== true) return value;
+  if (value.receipt !== "CommandReceipt/v1") {
+    throw new Error(`unexpected CommandReceipt/v1 output: ${JSON.stringify(value)}`);
+  }
+  const data = value.data && typeof value.data === "object" ? value.data : {};
+  const paths = value.paths && typeof value.paths === "object" ? value.paths : {};
+  return {
+    ...data,
+    ok: value.ok,
+    command: value.command,
+    receipt: value.receipt,
+    path: paths.primary,
+    packagePath: paths.package,
+    projectionPath: paths.projection,
+    warnings: Array.isArray(value.warnings) ? value.warnings : []
+  };
 }
