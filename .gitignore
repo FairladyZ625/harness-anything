@@ -20,3 +20,6 @@ tmp/
 *.log
 *.tsbuildinfo
 .harness/
+
+# release tarballs (npm pack output)
+*.tgz
