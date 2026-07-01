@@ -14,11 +14,6 @@ try {
   mkdirSync(packDir, { recursive: true });
   mkdirSync(consumerDir, { recursive: true });
 
-  execFileSync("npm", ["--workspace", "@harness-anything/cli", "run", "build"], {
-    cwd: root,
-    stdio: "inherit"
-  });
-
   const packOutput = execFileSync("npm", ["pack", "--workspace", "@harness-anything/cli", "--pack-destination", packDir, "--json"], {
     cwd: root,
     encoding: "utf8"

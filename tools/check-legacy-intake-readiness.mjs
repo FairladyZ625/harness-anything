@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -254,13 +254,12 @@ function checkBehaviorCorpusReport(root, violations) {
 
 async function collectPublicTextFiles(root) {
   const files = await collectFiles(root);
-  return files
+  const candidates = files
     .map((file) => relative(root, file))
     .filter((rel) => {
       if (rel.startsWith("node_modules/") || rel.startsWith(".git/") || rel.startsWith(".harness") || rel.startsWith("dist/") || rel.startsWith("coverage/")) {
         return false;
       }
-      if (isGitIgnored(root, rel)) return false;
       // AGENTS.md / CLAUDE.md are local-only agent entries; check-private-boundary
       // enforces they stay untracked, so they are not public text.
       if (rel === "AGENTS.md" || rel === "CLAUDE.md") return false;
@@ -268,15 +267,22 @@ async function collectPublicTextFiles(root) {
       if (/(?:^|\/)(?:test|tests|fixtures|__fixtures__)\//u.test(rel)) return false;
       return rel.endsWith(".md") || rel.endsWith(".yml") || rel.endsWith(".yaml") || rel.endsWith("package.json");
     });
+
+  const ignoredFiles = collectGitIgnoredFiles(root, candidates);
+  return candidates.filter((rel) => !ignoredFiles.has(rel));
 }
 
-function isGitIgnored(root, rel) {
-  try {
-    execFileSync("git", ["-C", root, "check-ignore", "-q", "--", rel], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
+function collectGitIgnoredFiles(root, files) {
+  if (files.length === 0) return new Set();
+
+  const result = spawnSync("git", ["-C", root, "check-ignore", "-z", "--stdin"], {
+    encoding: "utf8",
+    input: `${files.join("\0")}\0`,
+    stdio: ["pipe", "pipe", "ignore"]
+  });
+  if (result.status !== 0) return new Set();
+
+  return new Set(result.stdout.split("\0").filter(Boolean));
 }
 
 async function collectFiles(directory) {
