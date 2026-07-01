@@ -3,8 +3,9 @@ import path from "node:path";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import type { CliResult } from "../cli/types.ts";
 
-export function initializeHarness(rootDir: string, addNpmScripts = false): CliResult {
+export function initializeHarness(rootDir: string, addNpmScripts = false, projectName?: string): CliResult {
   const layout = resolveHarnessLayout(rootDir);
+  const resolvedProjectName = projectName ?? path.basename(rootDir);
   for (const directory of [
     layout.authoredRoot,
     layout.standardsRoot,
@@ -22,24 +23,7 @@ export function initializeHarness(rootDir: string, addNpmScripts = false): CliRe
     mkdirSync(directory, { recursive: true });
   }
 
-  writeIfMissing(path.join(layout.authoredRoot, "harness.yaml"), [
-    "schema: harness-anything/v1",
-    "name: harness-anything",
-    "layout:",
-    "  authoredRoot: harness",
-    "  localRoot: .harness",
-    "tasks:",
-    "  root: harness/planning/tasks",
-    "  idPolicy: random-ulid",
-    "settings:",
-    "  locale: zh-CN",
-    "  defaultVertical: software/coding",
-    "  defaultPreset: standard-task",
-    "  defaultProfile: baseline",
-    "  customVerticals:",
-    "    enabled: false",
-    ""
-  ].join("\n"));
+  writeHarnessYaml(path.join(layout.authoredRoot, "harness.yaml"), resolvedProjectName, projectName !== undefined);
   writeIfMissing(path.join(layout.standardsRoot, "repo-governance.md"), [
     "# Repository Governance",
     "",
@@ -86,6 +70,41 @@ export function initializeHarness(rootDir: string, addNpmScripts = false): CliRe
     path: "harness/harness.yaml",
     generated: addNpmScripts ? ["package.json"] : []
   };
+}
+
+function writeHarnessYaml(filePath: string, projectName: string, forceNameUpdate: boolean): void {
+  const bodyLines = [
+    "schema: harness-anything/v1",
+    `name: ${projectName}`,
+    "layout:",
+    "  authoredRoot: harness",
+    "  localRoot: .harness",
+    "tasks:",
+    "  root: harness/planning/tasks",
+    "  idPolicy: random-ulid",
+    "settings:",
+    "  locale: zh-CN",
+    "  defaultVertical: software/coding",
+    "  defaultPreset: standard-task",
+    "  defaultProfile: baseline",
+    "  customVerticals:",
+    "    enabled: false",
+    ""
+  ];
+  const body = bodyLines.join("\n");
+
+  if (!existsSync(filePath)) {
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, body, "utf8");
+    return;
+  }
+
+  if (!forceNameUpdate) return;
+  const existing = readFileSync(filePath, "utf8");
+  const next = /^name:[ \t]*.*$/mu.test(existing)
+    ? existing.replace(/^name:[ \t]*.*$/mu, `name: ${projectName}`)
+    : existing.replace(/^(schema:[ \t]*.*)$/mu, `$1\nname: ${projectName}`);
+  writeFileSync(filePath, next, "utf8");
 }
 
 function writeIfMissing(filePath: string, body: string): void {

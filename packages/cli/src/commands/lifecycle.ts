@@ -37,7 +37,7 @@ export function runCommand(
 
   if (command.action.kind === "init") {
     const action = command.action;
-    return Effect.sync(() => initializeHarness(command.rootDir, action.addNpmScripts));
+    return Effect.sync(() => initializeHarness(command.rootDir, action.addNpmScripts, action.projectName));
   }
 
   if (command.action.kind === "new-task") {

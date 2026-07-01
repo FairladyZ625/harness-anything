@@ -7,7 +7,13 @@ import type { CliResult, ParsedCommand } from "../types.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
 export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
-  if (args[0] === "init") return ok(rootDir, json, { kind: "init", addNpmScripts: args.includes("--add-npm-scripts") });
+  if (args[0] === "init") {
+    return ok(rootDir, json, {
+      kind: "init",
+      addNpmScripts: args.includes("--add-npm-scripts"),
+      projectName: readOption(args, "--name")
+    });
+  }
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
   if (args[0] === "task" && args[1] === "archive" && args[2]) return parseTaskArchive(args, rootDir, json);

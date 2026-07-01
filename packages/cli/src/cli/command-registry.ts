@@ -11,7 +11,7 @@ interface CommandUsage {
 
 const commandUsages = [
   { kind: "help", usage: "help", aliases: ["--help", "-h"] },
-  { kind: "init", usage: "init [--add-npm-scripts]" },
+  { kind: "init", usage: "init [--name <name>] [--add-npm-scripts]" },
   { kind: "new-task", usage: "new-task --title <title> [--vertical software/coding --preset <id> --module <key>] [--register-module <key> --module-title <title> --module-scope <path>] [--long-running] [--dry-run] [--locale zh-CN|en-US] [--from-legacy <legacy-id>] [--json]" },
   { kind: "status-set", usage: "task status set <id> <status> [--force --reason <reason>]" },
   { kind: "progress-append", usage: "task progress append <id> --text <text> [--evidence type:PATH:summary]" },
@@ -119,7 +119,7 @@ const commandSummaries = {
 
 const commandExamples = {
   "help": [`${cliCommandName} help new-task`],
-  "init": [`${cliCommandName} init --add-npm-scripts`],
+  "init": [`${cliCommandName} init --name my-project --add-npm-scripts`],
   "new-task": [`${cliCommandName} new-task --title "Normalize CLI help" --vertical software/coding --preset standard-task`],
   "status-set": [`${cliCommandName} task status set task_01ABC active --reason "work started"`],
   "progress-append": [`${cliCommandName} task progress append task_01ABC --text "Implemented parser guard" --evidence log:artifacts/check.log:passed`],
@@ -268,6 +268,7 @@ function optionDescription(flag: string): string {
     "--module": "Select a registered module key; use module list to discover keys.",
     "--module-scope": "Set the registered module source scope, such as packages/name/**.",
     "--module-title": "Set the human-readable title for a registered module.",
+    "--name": "Set the project name written to harness.yaml.",
     "--out": "Write the generated plan to a file.",
     "--out-dir": "Set the output directory.",
     "--owner": "Set the module owner.",

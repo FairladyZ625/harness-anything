@@ -23,6 +23,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "help", argv: ["--help"], kind: "help" },
   { name: "init", argv: ["init"], kind: "init", fields: { addNpmScripts: false } },
   { name: "init add npm scripts", argv: ["init", "--add-npm-scripts"], kind: "init", fields: { addNpmScripts: true } },
+  { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
   {
     name: "new-task preset task",
     argv: ["new-task", "--title", "Parser Task", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],

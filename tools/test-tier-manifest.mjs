@@ -58,6 +58,7 @@ export const testTierManifest = {
     "packages/cli/test/check-governance-cli.test.ts",
     "packages/cli/test/doctor-cli.test.ts",
     "packages/cli/test/extension-cli.test.ts",
+    "packages/cli/test/init-cli.test.ts",
     "packages/cli/test/local-lifecycle-cli.test.ts",
     "packages/cli/test/migration-adopt-cli.test.ts",
     "packages/cli/test/p16-command-parity-cli.test.ts",
