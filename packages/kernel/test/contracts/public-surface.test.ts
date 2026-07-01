@@ -46,6 +46,7 @@ const publicRuntimeSurface = [
   "createTaskIdentity",
   "defaultTaskProjectionPath",
   "domainStatuses",
+  "explainStatusTransition",
   "findEntityRefs",
   "formatTemplateRef",
   "hashTaskProjectionRows",

@@ -436,8 +436,18 @@ for (const file of files) {
   if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
     record(`${rel}: store must not import engine adapter implementations`);
   }
+  if (
+    rel.startsWith("packages/kernel/src/store/") &&
+    rel !== "packages/kernel/src/store/write-journal-git.ts" &&
+    (/\bfrom\s+["']node:child_process["']/.test(text) || /\brunGit\s*\(/.test(text))
+  ) {
+    record(`${rel}: WriteCoordinator git process calls must stay isolated in write-journal-git.ts`);
+  }
 
   if (rel.startsWith("packages/adapters/") && !isTestOrFixture) {
+    if (/\bcoordinator\.(?:enqueue|flush)\s*\(/.test(text)) {
+      record(`${rel}: adapters must use kernel store write helpers instead of directly calling WriteCoordinator.enqueue/flush`);
+    }
     if (/(^|[^\w])(:\s*any\b|as\s+(?:any|never|unknown|TaskSnapshot|PublishableProjection)\b|<any>)/.test(text)) {
       record(`${rel}: adapters must decode raw input instead of returning or casting any`);
     }

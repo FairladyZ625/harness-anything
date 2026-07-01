@@ -1,3 +1,4 @@
+import { commandKindsForParser } from "./command-registry.ts";
 import { parseDoctorArgs } from "./parse-doctor-args.ts";
 import { parseGitDiffArgs } from "./parse-git-diff-args.ts";
 import { parseMigrationArgs } from "./parse-migration-args.ts";
@@ -22,35 +23,43 @@ export interface ParserRegistryEntry {
 export const parserRegistry = [
   {
     id: "help",
-    commandKinds: ["help"],
+    commandKinds: commandKindsForParser("help"),
     parse: (args, rootDir, json) => {
       if (args.length > 0 && !["help", "--help", "-h"].includes(args[0] ?? "")) return null;
       return { ok: true, value: { rootDir, json, action: { kind: "help" } } };
     }
   },
   {
+    id: "version",
+    commandKinds: commandKindsForParser("version"),
+    parse: (args, rootDir, json) => {
+      if (args[0] !== "version" && !args.includes("--version") && !args.includes("-v")) return null;
+      return { ok: true, value: { rootDir, json, action: { kind: "version" } } };
+    }
+  },
+  {
     id: "core-task",
-    commandKinds: ["init", "status-set", "progress-append", "task-archive", "task-supersede", "task-delete", "task-reopen", "task-review", "task-complete", "task-list"],
+    commandKinds: commandKindsForParser("core-task"),
     parse: parseCoreTaskArgs
   },
   {
     id: "new-task",
-    commandKinds: ["new-task"],
+    commandKinds: commandKindsForParser("new-task"),
     parse: parseNewTaskArgs
   },
   {
     id: "status-check",
-    commandKinds: ["status", "check", "governance-rebuild", "lesson-promote", "lesson-sediment"],
+    commandKinds: commandKindsForParser("status-check"),
     parse: parseStatusCheckArgs
   },
   {
     id: "migration",
-    commandKinds: ["adopt-multica", "snapshot-multica", "migrate-plan", "migrate-structure", "migrate-run", "migrate-verify", "legacy-scan", "legacy-intake-plan", "legacy-copy-safe-docs", "legacy-index", "legacy-verify"],
+    commandKinds: commandKindsForParser("migration"),
     parse: parseMigrationArgs
   },
   {
     id: "git-diff",
-    commandKinds: ["git-diff"],
+    commandKinds: commandKindsForParser("git-diff"),
     parse: (args, rootDir, json) => {
       const parsed = parseGitDiffArgs(args, rootDir, json);
       return parsed ? { ok: true, value: parsed } : null;
@@ -58,7 +67,7 @@ export const parserRegistry = [
   },
   {
     id: "doctor",
-    commandKinds: ["doctor"],
+    commandKinds: commandKindsForParser("doctor"),
     parse: (args, rootDir, json) => {
       const parsed = parseDoctorArgs(args, rootDir, json);
       return parsed ? { ok: true, value: parsed } : null;
@@ -66,7 +75,7 @@ export const parserRegistry = [
   },
   {
     id: "gui",
-    commandKinds: ["gui"],
+    commandKinds: commandKindsForParser("gui"),
     parse: (args, rootDir, json) => {
       const parsed = parseGuiArgs(args, rootDir, json);
       return parsed ? { ok: true, value: parsed } : null;
@@ -74,22 +83,22 @@ export const parserRegistry = [
   },
   {
     id: "template",
-    commandKinds: ["template-list", "template-render"],
+    commandKinds: commandKindsForParser("template"),
     parse: parseTemplateArgs
   },
   {
     id: "preset",
-    commandKinds: ["preset-validate", "preset-list", "preset-inspect", "preset-check", "preset-install", "preset-seed", "preset-audit", "preset-uninstall", "preset-run", "preset-action"],
+    commandKinds: commandKindsForParser("preset"),
     parse: parsePresetArgs
   },
   {
     id: "module",
-    commandKinds: ["module-list", "module-inspect", "module-register", "module-scaffold", "module-unregister", "module-step"],
+    commandKinds: commandKindsForParser("module"),
     parse: parseModuleArgs
   },
   {
     id: "vertical",
-    commandKinds: ["vertical-validate"],
+    commandKinds: commandKindsForParser("vertical"),
     parse: (args, rootDir, json) => {
       const parsed = parseVerticalArgs(args, rootDir, json);
       return parsed ? { ok: true, value: parsed } : null;

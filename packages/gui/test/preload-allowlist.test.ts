@@ -18,9 +18,9 @@ test("preload exposes only the approved API methods", () => {
     "getTaskDocument",
     "setTaskStatus",
     "reviewTask",
-    "archiveTask",
     "appendTaskProgress",
     "rebuildGovernance",
+    "archiveTask",
     "openShell"
   ]);
   assert.equal(isAllowedPreloadApiMethod("getTasks"), true);

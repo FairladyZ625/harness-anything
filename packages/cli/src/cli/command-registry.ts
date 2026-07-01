@@ -1,16 +1,34 @@
-import type { CommandRegistryEntry } from "./types.ts";
+import type { CommandRegistryEntry, ParsedCommand } from "./types.ts";
 
 export const cliCommandName = "harness-anything";
 export const cliCommandAlias = "ha";
 
-interface CommandUsage {
-  readonly kind: CommandRegistryEntry["kind"];
+export type CommandKind = ParsedCommand["action"]["kind"];
+export type CommandParserId =
+  | "help"
+  | "version"
+  | "core-task"
+  | "new-task"
+  | "status-check"
+  | "migration"
+  | "git-diff"
+  | "doctor"
+  | "gui"
+  | "template"
+  | "preset"
+  | "module"
+  | "vertical";
+export type CommandRunnerId = "core" | "extension" | "gui" | "version";
+
+export interface CommandUsage {
+  readonly kind: CommandKind;
   readonly usage: string;
   readonly aliases?: ReadonlyArray<string>;
 }
 
 const commandUsages = [
   { kind: "help", usage: "help", aliases: ["--help", "-h"] },
+  { kind: "version", usage: "version", aliases: ["--version", "-v"] },
   { kind: "init", usage: "init [--name <name>] [--add-npm-scripts]" },
   { kind: "new-task", usage: "new-task --title <title> [--vertical software/coding --preset <id> --module <key>] [--register-module <key> --module-title <title> --module-scope <path>] [--long-running] [--dry-run] [--locale zh-CN|en-US] [--from-legacy <legacy-id>] [--json]" },
   { kind: "status-set", usage: "task status set <id> <status> [--force --reason <reason>]" },
@@ -62,10 +80,119 @@ const commandUsages = [
   { kind: "gui", usage: "gui" }
 ] as const satisfies ReadonlyArray<CommandUsage>;
 
-type CommandKind = (typeof commandUsages)[number]["kind"];
+type RegisteredCommandKind = (typeof commandUsages)[number]["kind"];
+
+const commandParserIds = {
+  "help": "help",
+  "version": "version",
+  "init": "core-task",
+  "new-task": "new-task",
+  "status-set": "core-task",
+  "progress-append": "core-task",
+  "task-archive": "core-task",
+  "task-supersede": "core-task",
+  "task-delete": "core-task",
+  "task-reopen": "core-task",
+  "task-review": "core-task",
+  "task-complete": "core-task",
+  "template-list": "template",
+  "template-render": "template",
+  "task-list": "core-task",
+  "status": "status-check",
+  "check": "status-check",
+  "governance-rebuild": "status-check",
+  "lesson-promote": "status-check",
+  "lesson-sediment": "status-check",
+  "adopt-multica": "migration",
+  "snapshot-multica": "migration",
+  "migrate-plan": "migration",
+  "migrate-structure": "migration",
+  "migrate-run": "migration",
+  "migrate-verify": "migration",
+  "legacy-scan": "migration",
+  "legacy-intake-plan": "migration",
+  "legacy-copy-safe-docs": "migration",
+  "legacy-index": "migration",
+  "legacy-verify": "migration",
+  "git-diff": "git-diff",
+  "doctor": "doctor",
+  "preset-validate": "preset",
+  "preset-list": "preset",
+  "preset-inspect": "preset",
+  "preset-check": "preset",
+  "preset-install": "preset",
+  "preset-seed": "preset",
+  "preset-audit": "preset",
+  "preset-uninstall": "preset",
+  "preset-run": "preset",
+  "preset-action": "preset",
+  "module-list": "module",
+  "module-inspect": "module",
+  "module-register": "module",
+  "module-scaffold": "module",
+  "module-unregister": "module",
+  "module-step": "module",
+  "vertical-validate": "vertical",
+  "gui": "gui"
+} as const satisfies Record<CommandKind, CommandParserId>;
+
+const commandRunnerIds = {
+  "help": "core",
+  "version": "version",
+  "init": "core",
+  "new-task": "core",
+  "status-set": "core",
+  "progress-append": "core",
+  "task-archive": "core",
+  "task-supersede": "core",
+  "task-delete": "core",
+  "task-reopen": "core",
+  "task-review": "core",
+  "task-complete": "core",
+  "template-list": "extension",
+  "template-render": "extension",
+  "task-list": "core",
+  "status": "core",
+  "check": "core",
+  "governance-rebuild": "core",
+  "lesson-promote": "core",
+  "lesson-sediment": "core",
+  "adopt-multica": "core",
+  "snapshot-multica": "core",
+  "migrate-plan": "core",
+  "migrate-structure": "core",
+  "migrate-run": "core",
+  "migrate-verify": "core",
+  "legacy-scan": "core",
+  "legacy-intake-plan": "core",
+  "legacy-copy-safe-docs": "core",
+  "legacy-index": "core",
+  "legacy-verify": "core",
+  "git-diff": "core",
+  "doctor": "core",
+  "preset-validate": "extension",
+  "preset-list": "extension",
+  "preset-inspect": "extension",
+  "preset-check": "extension",
+  "preset-install": "extension",
+  "preset-seed": "extension",
+  "preset-audit": "extension",
+  "preset-uninstall": "extension",
+  "preset-run": "extension",
+  "preset-action": "extension",
+  "module-list": "extension",
+  "module-inspect": "extension",
+  "module-register": "extension",
+  "module-scaffold": "extension",
+  "module-unregister": "extension",
+  "module-step": "extension",
+  "vertical-validate": "extension",
+  "gui": "gui"
+} as const satisfies Record<CommandKind, CommandRunnerId>;
 
 const commandSummaries = {
   "help": "Show global help or detailed help for one command.",
+  "version": "Print the installed CLI version.",
   "init": "Create the harness directory layout and optional npm shortcuts.",
   "new-task": "Create a new task package, optionally through a vertical or preset.",
   "status-set": "Move a local task to a new lifecycle status.",
@@ -119,6 +246,7 @@ const commandSummaries = {
 
 const commandExamples = {
   "help": [`${cliCommandName} help new-task`],
+  "version": [`${cliCommandName} version`],
   "init": [`${cliCommandName} init --name my-project --add-npm-scripts`],
   "new-task": [`${cliCommandName} new-task --title "Normalize CLI help" --vertical software/coding --preset standard-task`],
   "status-set": [`${cliCommandName} task status set task_01ABC active --reason "work started"`],
@@ -170,7 +298,22 @@ const commandExamples = {
   "gui": [`${cliCommandName} gui`]
 } satisfies Record<CommandKind, ReadonlyArray<string>>;
 
-export const commandRegistry = commandUsages.map((entry) => {
+export interface CommandDescriptor extends CommandUsage {
+  readonly parserId: CommandParserId;
+  readonly runnerId: CommandRunnerId;
+  readonly summary: string;
+  readonly examples: ReadonlyArray<string>;
+}
+
+export const commandDescriptors = commandUsages.map((entry) => ({
+  ...entry,
+  parserId: commandParserIds[entry.kind],
+  runnerId: commandRunnerIds[entry.kind],
+  summary: commandSummaries[entry.kind],
+  examples: commandExamples[entry.kind]
+})) satisfies ReadonlyArray<CommandDescriptor>;
+
+export const commandRegistry = commandDescriptors.map((entry) => {
   const shortAliases = "aliases" in entry ? entry.aliases : [];
   return {
     kind: entry.kind,
@@ -181,12 +324,30 @@ export const commandRegistry = commandUsages.map((entry) => {
       ...shortAliases.map((alias) => `${cliCommandAlias} ${alias}`)
     ],
     commandPath: commandPathFromUsage(entry.usage),
-    summary: commandSummaries[entry.kind],
+    summary: entry.summary,
     options: optionsFromUsage(entry.usage),
-    examples: commandExamples[entry.kind],
+    examples: entry.examples,
     resultEnvelope: "CliResult/v1"
   };
 }) satisfies ReadonlyArray<CommandRegistryEntry>;
+
+export function commandKindsForParser(parserId: CommandParserId): ReadonlyArray<RegisteredCommandKind> {
+  return commandDescriptors
+    .filter((entry) => entry.parserId === parserId)
+    .map((entry) => entry.kind);
+}
+
+export function findCommandDescriptorByKind(kind: string): CommandDescriptor | undefined {
+  return commandDescriptors.find((entry) => entry.kind === kind);
+}
+
+export function runnerIdForAction(kind: CommandKind): CommandRunnerId {
+  const descriptor = findCommandDescriptorByKind(kind);
+  if (!descriptor) {
+    throw new Error(`missing command descriptor for action kind: ${kind}`);
+  }
+  return descriptor.runnerId;
+}
 
 export function findCommandByKind(kind: string): CommandRegistryEntry | undefined {
   return commandRegistry.find((entry) => entry.kind === kind);
@@ -296,7 +457,8 @@ function optionDescription(flag: string): string {
     "--task": "Set the task id.",
     "--text": "Set appended progress text.",
     "--title": "Set the required task title used for generated package metadata and slug.",
-    "--vertical": "Select a vertical definition; new-task defaults to software/coding."
+    "--vertical": "Select a vertical definition; new-task defaults to software/coding.",
+    "--version": "Print the installed CLI version."
   };
   const description = descriptions[flag];
   if (!description) {

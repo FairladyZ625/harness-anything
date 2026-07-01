@@ -2,6 +2,7 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { runModuleCommand } from "./module.ts";
 import { runPresetCommand } from "./preset.ts";
+import { InvalidRegistryKeyError } from "./state.ts";
 import { runTemplateCommand } from "./template.ts";
 import { runVerticalCommand } from "./vertical.ts";
 
@@ -60,12 +61,11 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
         return runVerticalCommand(action as Extract<ExtensionAction, { readonly kind: "vertical-validate" }>);
     }
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("invalid_registry_key:")) {
-      const label = error.message.split(":")[1] ?? "registry";
+    if (error instanceof InvalidRegistryKeyError) {
       return {
         ok: false,
         command: command.action.kind,
-        error: cliError(CliErrorCode.InvalidRegistryKey, `Invalid ${label} key.`)
+        error: cliError(CliErrorCode.InvalidRegistryKey, error.message)
       };
     }
     return {

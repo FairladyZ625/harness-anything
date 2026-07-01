@@ -77,6 +77,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
     }
   },
   { name: "status", argv: ["status"], kind: "status" },
+  { name: "version", argv: ["version"], kind: "version" },
   { name: "check", argv: ["check", "--profile", "target-project", "--strict", "--post-merge"], kind: "check", fields: { profile: "target-project", strict: true, postMerge: true } },
   { name: "governance rebuild", argv: ["governance", "rebuild", "--archive"], kind: "governance-rebuild", fields: { mode: "archive" } },
   { name: "lesson promote", argv: ["lesson-promote", "task_1", "candidate-1", "--apply"], kind: "lesson-promote", fields: { taskId: "task_1", candidateId: "candidate-1", mode: "apply" } },

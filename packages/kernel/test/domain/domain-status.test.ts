@@ -3,6 +3,7 @@ import test from "node:test";
 import { Schema } from "effect";
 import {
   domainStatuses,
+  explainStatusTransition,
   needsReviewArtifacts,
   statusCoarseClass
 } from "../../src/domain/lifecycle-status.ts";
@@ -38,4 +39,36 @@ test("status schema decodes every domain status and rejects non-domain snapshot 
   }
 
   assert.throws(() => Schema.decodeUnknownSync(DomainStatusSchema)("unknown"));
+});
+
+test("domain owns canonical lifecycle status transition semantics", () => {
+  const allowed = new Set([
+    "planned->planned",
+    "planned->active",
+    "planned->blocked",
+    "planned->cancelled",
+    "active->active",
+    "active->blocked",
+    "active->in_review",
+    "active->done",
+    "active->cancelled",
+    "blocked->blocked",
+    "blocked->active",
+    "blocked->cancelled",
+    "in_review->in_review",
+    "in_review->active",
+    "in_review->blocked",
+    "in_review->done",
+    "in_review->cancelled",
+    "done->done",
+    "cancelled->cancelled"
+  ]);
+
+  for (const from of domainStatuses) {
+    for (const to of domainStatuses) {
+      assert.equal(explainStatusTransition(from, to).allowed, allowed.has(`${from}->${to}`), `${from} -> ${to}`);
+    }
+  }
+  assert.deepEqual(explainStatusTransition("done", "active"), { allowed: false, reason: "terminal_status" });
+  assert.deepEqual(explainStatusTransition("planned", "done"), { allowed: false, reason: "unsupported_transition" });
 });

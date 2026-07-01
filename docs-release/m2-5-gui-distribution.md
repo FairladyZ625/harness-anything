@@ -28,8 +28,8 @@ Unsigned artifacts are development-only. Production distribution requires
 platform signing policy, and macOS production distribution requires notarization
 policy.
 
-## Implementation Interfaces
+## Gate Interfaces
 
-The executable policy lives in `@harness-anything/gui` as
-`harnessDistributionPolicy` and `validateDistributionPolicy`. Future packaging
-tasks should extend that contract instead of introducing a second release model.
+Executable gates currently cover runtime release readiness and supply-chain
+release readiness. Installer/update policy remains a public architecture
+contract here until a packaging task turns it into shipped code.

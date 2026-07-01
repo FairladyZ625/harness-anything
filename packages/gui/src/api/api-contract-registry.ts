@@ -1,5 +1,4 @@
 import type { LocalControllerService } from "../../../application/src/index.ts";
-import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
@@ -17,7 +16,7 @@ export interface ApiRouteContract {
   readonly service: ApiServiceName;
   readonly serviceMethod: ApiServiceMethod;
   readonly auth: ApiRouteAuth;
-  readonly guiBridgeMethod?: PreloadApiMethod;
+  readonly guiBridgeMethod?: string;
 }
 
 export interface ApiSchemaContract {
@@ -27,7 +26,7 @@ export interface ApiSchemaContract {
 }
 
 export interface DeferredGuiBridgeContract {
-  readonly guiBridgeMethod: PreloadApiMethod;
+  readonly guiBridgeMethod: string;
   readonly service: "LocalControllerService";
   readonly serviceMethod: keyof LocalControllerService;
   readonly reason: string;

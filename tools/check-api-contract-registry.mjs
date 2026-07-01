@@ -41,8 +41,13 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const registry = collectApiRouteContracts(root, paths.registryPath, violations);
   const schemaContracts = collectApiSchemaContracts(root, paths.registryPath, violations);
   const deferredContracts = collectDeferredGuiBridgeContracts(root, paths.registryPath, violations);
-  const preloadMethods = collectPreloadMethods(root, paths.allowlistPath, violations);
-  const preloadCapabilities = collectPreloadCapabilities(root, paths.allowlistPath, violations);
+  const preloadProjection = inspectPreloadProjection(root, paths.allowlistPath, violations);
+  const preloadMethods = preloadProjection === "registry-derived"
+    ? derivePreloadMethods(registry, deferredContracts)
+    : collectPreloadMethods(root, paths.allowlistPath, violations);
+  const preloadCapabilities = preloadProjection === "registry-derived"
+    ? derivePreloadCapabilities(registry, deferredContracts)
+    : collectPreloadCapabilities(root, paths.allowlistPath, violations);
   const bridgeHandlers = collectGuiBridgeHandlerImplementations(root, paths.bridgePath, violations);
   const applicationDeclarations = collectTypeDeclarations(root, paths.applicationPath, violations);
   const registryDeclarations = collectTypeDeclarations(root, paths.registryPath, violations);
@@ -117,6 +122,54 @@ function collectDeferredGuiBridgeContracts(root, relativePath, violations) {
 
 function collectApiRouteContracts(root, relativePath, violations) {
   return collectStringObjectArray(root, relativePath, "apiRouteContracts", violations);
+}
+
+function inspectPreloadProjection(root, relativePath, violations) {
+  const source = readSource(root, relativePath, violations);
+  if (!source) return "literal";
+  const allowedInitializer = findVariableInitializer(source.file, "allowedPreloadApi");
+  const capabilitiesInitializer = findVariableInitializer(source.file, "preloadApiCapabilities");
+  const hasLiteralAllowlist = allowedInitializer && ts.isObjectLiteralExpression(stripAsExpression(allowedInitializer));
+  const hasLiteralCapabilities = capabilitiesInitializer && ts.isObjectLiteralExpression(stripAsExpression(capabilitiesInitializer));
+  if (hasLiteralAllowlist && hasLiteralCapabilities) return "literal";
+
+  const requiredPatterns = [
+    { pattern: /\bapiRouteContracts\b/u, label: "apiRouteContracts" },
+    { pattern: /\bdeferredGuiBridgeContracts\b/u, label: "deferredGuiBridgeContracts" },
+    { pattern: /\bshippedPreloadMethods\b/u, label: "shippedPreloadMethods" },
+    { pattern: /\bdeferredPreloadMethods\b/u, label: "deferredPreloadMethods" },
+    { pattern: /\bpreloadAllowlist\b/u, label: "preloadAllowlist" },
+    { pattern: /\ballowedPreloadApi\b/u, label: "allowedPreloadApi" },
+    { pattern: /\bpreloadApiCapabilities\b/u, label: "preloadApiCapabilities" }
+  ];
+  for (const required of requiredPatterns) {
+    if (!required.pattern.test(source.text)) {
+      violations.push(`${relativePath}: registry-derived preload projection missing ${required.label}`);
+    }
+  }
+  return "registry-derived";
+}
+
+function derivePreloadMethods(registry, deferredContracts) {
+  return new Set([
+    ...registry.map((entry) => entry.guiBridgeMethod).filter(Boolean),
+    ...deferredContracts.map((entry) => entry.guiBridgeMethod).filter(Boolean)
+  ]);
+}
+
+function derivePreloadCapabilities(registry, deferredContracts) {
+  const capabilities = new Map();
+  for (const entry of registry) {
+    if (entry.guiBridgeMethod) capabilities.set(entry.guiBridgeMethod, { method: entry.guiBridgeMethod, status: "shipped" });
+  }
+  for (const entry of deferredContracts) {
+    if (entry.guiBridgeMethod) capabilities.set(entry.guiBridgeMethod, {
+      method: entry.guiBridgeMethod,
+      status: "deferred",
+      reason: entry.reason
+    });
+  }
+  return capabilities;
 }
 
 function collectStringObjectArray(root, relativePath, variableName, violations) {

@@ -15,6 +15,11 @@ const forbiddenPatterns = [
     reason: "classify errors with typed error tags or Error subclasses, not message.includes"
   },
   {
+    name: "message-starts-with",
+    pattern: /\bmessage\.startsWith\s*\(/u,
+    reason: "classify errors with typed error tags or Error subclasses, not message.startsWith"
+  },
+  {
     name: "raw-includes",
     pattern: /\braw\.includes\s*\(/u,
     reason: "classify errors with typed error tags, not MalformedSnapshot.raw text"
@@ -23,6 +28,11 @@ const forbiddenPatterns = [
     name: "stringified-error-includes",
     pattern: /\bString\s*\([^)\n]*(?:error|cause|raw|message)[^)\n]*\)\.includes\s*\(/u,
     reason: "do not classify stringified errors by substring"
+  },
+  {
+    name: "cli-error-assert-never",
+    pattern: /\bassertNever\s*\(/u,
+    reason: "CLI error mapping must be keyed by kernel error tag union, not runtime assertNever fallthrough"
   }
 ];
 

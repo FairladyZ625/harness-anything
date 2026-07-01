@@ -7,7 +7,9 @@ const sourceFile = /\.(?:ts|mts|js|mjs)$/;
 const forbidden = [
   "requestTransition",
   "syncMode",
-  "bindingRole"
+  "bindingRole",
+  "canStructurallyTransition",
+  "canTransition"
 ];
 const violations = [];
 

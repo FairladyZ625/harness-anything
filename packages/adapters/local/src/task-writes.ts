@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import type { TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import type { WriteOpKind } from "../../../kernel/src/ports/write-coordinator.ts";
+import { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "../../../kernel/src/write-coordination/write-helpers.ts";
 import type { HashPayload } from "./task-index.ts";
 
 export interface TaskDocumentWrite {
@@ -44,22 +45,7 @@ export function writeTaskDocuments(
   hashPayload: HashPayload,
   writes: ReadonlyArray<TaskDocumentWrite>
 ): Effect.Effect<void, WriteError> {
-  return Effect.gen(function* () {
-    for (const write of writes) {
-      const opId = `${Date.now()}-${hashPayload(write).slice(0, 16)}`;
-      yield* coordinator.enqueue({
-        opId,
-        taskId: write.taskId,
-        kind: write.kind,
-        payload: {
-          path: write.path,
-          body: write.body,
-          ...(write.packageSlug ? { packageSlug: write.packageSlug } : {})
-        }
-      });
-    }
-    yield* coordinator.flush("explicit");
-  });
+  return writeCoordinatedTaskDocuments(coordinator, hashPayload, writes);
 }
 
 export function writeSupersedeTaskDocuments(
@@ -68,14 +54,11 @@ export function writeSupersedeTaskDocuments(
   writes: ReadonlyArray<SupersedeDocumentWrite>
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
-    const opId = `${Date.now()}-${hashPayload({ kind: "package_supersede", writes }).slice(0, 16)}`;
-    yield* coordinator.enqueue({
-      opId,
+    yield* writeCoordinatedPayload(coordinator, hashPayload, {
       taskId: writes[0]?.taskId ?? "unknown",
       kind: "package_supersede",
       payload: { writes }
     });
-    yield* coordinator.flush("explicit");
   });
 }
 
@@ -86,13 +69,10 @@ export function deleteTaskPackage(
   reason: string
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
-    const opId = `${Date.now()}-${hashPayload({ taskId, reason, kind: "package_delete_hard" }).slice(0, 16)}`;
-    yield* coordinator.enqueue({
-      opId,
+    yield* writeCoordinatedPayload(coordinator, hashPayload, {
       taskId,
       kind: "package_delete_hard",
       payload: { reason }
     });
-    yield* coordinator.flush("explicit");
   });
 }
