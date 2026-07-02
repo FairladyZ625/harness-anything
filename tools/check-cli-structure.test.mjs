@@ -21,6 +21,26 @@ test("CLI structure check catches multiline generic function declarations", asyn
   assert.match(result.stderr, /shared\.ts:1: function genericMonolith has 12[1-9] lines; max 120/u);
 });
 
+test("CLI structure check rejects duplicate CLI utility helpers", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "harness-cli-structure-utilities-"));
+  writeFixtureTree(root);
+  writeFile(root, "packages/cli/src/commands/migration.ts", [
+    "function readOption(argv, name) {",
+    "  const index = argv.indexOf(name);",
+    "  return index >= 0 ? argv[index + 1] : undefined;",
+    "}",
+    ""
+  ].join("\n"));
+
+  const result = spawnSync(process.execPath, [scriptPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /migration\.ts:1: duplicate readOption implementation; import from packages\/cli\/src\/cli\/parse-options\.ts/u);
+});
+
 function writeFixtureTree(root) {
   const files = [
     "packages/cli/src/cli/parse-args.ts",

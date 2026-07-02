@@ -1,6 +1,9 @@
 import { existsSync, realpathSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import { isPathInside } from "../../cli/path.ts";
+
+export { isPathInside } from "../../cli/path.ts";
 
 export interface ResolvedScopeSet {
   readonly roots: ReadonlyArray<string>;
@@ -67,11 +70,6 @@ function resolveDeclaredScopes(
     roots: uniquePermissionPaths(roots),
     permissions: uniquePermissionPaths(permissions)
   } : { ok: false };
-}
-
-export function isPathInside(parent: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 export function uniquePermissionPaths(paths: ReadonlyArray<string>): ReadonlyArray<string> {

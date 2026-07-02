@@ -6,10 +6,11 @@ import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
+import { isGeneratedOrVendorPath, isPathInside, normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCollisionReport } from "./migration-collision.ts";
 import { collectLegacyProvenanceWarnings } from "./legacy-provenance-verify.ts";
-import { buildScanReport, canonicalPath, copyForwardDocs, copySource, renderIntakePlan, stripScanOnlyFields, summarize, type LegacyScanReport } from "./migration-scan.ts";
+import { buildScanReport, copyForwardDocs, copySource, renderIntakePlan, stripScanOnlyFields, summarize, type LegacyScanReport } from "./migration-scan.ts";
 import type { LegacyCopySafeDocsAction, LegacyIndexAction, LegacyIntakePlanAction, LegacyScanAction, LegacyVerifyAction, MigratePlanAction, MigrateRunAction, MigrateStructureAction, MigrateVerifyAction } from "./migration-types.ts";
 
 interface LegacyIntakeSession {
@@ -387,41 +388,16 @@ function firstDuplicate(values: ReadonlyArray<string>): string | undefined {
 function firstUnsafeLegacySource(rootInput: HarnessLayoutInput, report: LegacyScanReport): string | undefined {
   const unsafeRoot = unsafeLegacySourceRoot(rootInput, report);
   if (unsafeRoot) return unsafeRoot;
-  return report.entries.find((entry) => isUnsafeLegacySourcePath(entry.sourcePath))?.sourcePath;
+  return report.entries.find((entry) => isGeneratedOrVendorPath(entry.sourcePath))?.sourcePath;
 }
 
 function unsafeLegacySourceRoot(rootInput: HarnessLayoutInput, report: LegacyScanReport): string | undefined {
   const layout = resolveHarnessLayout(rootInput);
   const sourceRoot = path.resolve(layout.rootDir, report.sourceRoot);
   const guardedRoots = [layout.authoredRoot, layout.localRoot, layout.legacyRoot];
-  return guardedRoots.some((guardedRoot) => isSamePath(sourceRoot, guardedRoot) || isPathInside(guardedRoot, sourceRoot))
+  return guardedRoots.some((guardedRoot) => isPathInside(guardedRoot, sourceRoot))
     ? report.sourceRoot
     : undefined;
-}
-
-function isUnsafeLegacySourcePath(sourcePath: string): boolean {
-  const normalized = sourcePath.split(path.sep).join("/");
-  const segments = normalized.split("/");
-  return segments.includes("node_modules")
-    || segments.includes(".git")
-    || segments.includes(".next")
-    || segments.includes(".turbo")
-    || segments.includes("dist")
-    || segments.includes("build")
-    || segments.includes("coverage")
-    || normalized === ".harness/generated"
-    || normalized.startsWith(".harness/generated/")
-    || normalized === "harness/legacy"
-    || normalized.startsWith("harness/legacy/");
-}
-
-function isSamePath(left: string, right: string): boolean {
-  return canonicalPath(left) === canonicalPath(right);
-}
-
-function isPathInside(parent: string, candidate: string): boolean {
-  const relativePath = path.relative(canonicalPath(parent), canonicalPath(candidate));
-  return relativePath.length > 0 && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
 }
 
 function digestJson(value: unknown): `sha256:${string}` {
@@ -434,10 +410,6 @@ function writeSession(rootDir: string, outDir: string, session: LegacyIntakeSess
   const sessionPath = path.join(directory, "session.json");
   writeFileSync(sessionPath, `${JSON.stringify(session, null, 2)}\n`, "utf8");
   return sessionPath;
-}
-
-function normalizeSlashes(value: string): string {
-  return value.split(path.sep).join("/");
 }
 
 function relative(rootDir: string, targetPath: string): string {

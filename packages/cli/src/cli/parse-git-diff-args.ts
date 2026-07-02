@@ -1,4 +1,5 @@
 import type { ParsedCommand } from "./types.ts";
+import { readOption } from "./parse-options.ts";
 
 export function parseGitDiffArgs(
   args: ReadonlyArray<string>,
@@ -14,9 +15,4 @@ export function parseGitDiffArgs(
       baseRef: readOption(args, "--base")
     }
   };
-}
-
-function readOption(argv: ReadonlyArray<string>, name: string): string | undefined {
-  const index = argv.indexOf(name);
-  return index >= 0 ? argv[index + 1] : undefined;
 }
