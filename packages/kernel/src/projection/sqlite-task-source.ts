@@ -46,11 +46,15 @@ export function readMarkdownSource(rootInput: HarnessLayoutInput): {
 
   return {
     entries,
-    hash: hashText(JSON.stringify(entries.map((entry) => ({
-      taskId: entry.taskId,
-      sourcePath: sourcePath(rootDir, entry.indexPath),
-      body: entry.body
-    })))),
+    hash: hashText(JSON.stringify([
+      ...entries.map((entry) => ({
+        kind: "task-index",
+        taskId: entry.taskId,
+        sourcePath: sourcePath(rootDir, entry.indexPath),
+        body: entry.body
+      })),
+      ...readRelationGraphSourceInputs(rootDir, layout.authoredRoot, entries)
+    ])),
     warnings
   };
 }
@@ -127,6 +131,39 @@ function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; rea
     ...(moduleKey ? { moduleKey } : {}),
     ...(moduleTitle ? { moduleTitle } : {})
   };
+}
+
+function readRelationGraphSourceInputs(
+  rootDir: string,
+  authoredRoot: string,
+  entries: ReadonlyArray<TaskSourceEntry>
+): ReadonlyArray<{ readonly kind: string; readonly sourcePath: string; readonly body: string }> {
+  const factsInputs = entries
+    .map((entry) => path.join(path.dirname(entry.indexPath), "facts.md"))
+    .filter((factsPath) => existsSync(factsPath))
+    .map((factsPath) => ({
+      kind: "task-facts",
+      sourcePath: sourcePath(rootDir, factsPath),
+      body: readFileSync(factsPath, "utf8")
+    }));
+  const decisionInputs = listDecisionDocuments(path.join(authoredRoot, "decisions"))
+    .map((decisionPath) => ({
+      kind: "decision-document",
+      sourcePath: sourcePath(rootDir, decisionPath),
+      body: readFileSync(decisionPath, "utf8")
+    }));
+  return [...factsInputs, ...decisionInputs].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
+}
+
+function listDecisionDocuments(decisionsRoot: string): ReadonlyArray<string> {
+  if (!existsSync(decisionsRoot)) return [];
+  const stat = statSync(decisionsRoot);
+  if (stat.isFile()) return path.basename(decisionsRoot) === "decision.md" ? [decisionsRoot] : [];
+  if (!stat.isDirectory()) return [];
+  return readdirSync(decisionsRoot, { withFileTypes: true })
+    .filter((entry) => entry.name !== ".git" && entry.name !== "node_modules")
+    .flatMap((entry) => listDecisionDocuments(path.join(decisionsRoot, entry.name)))
+    .sort();
 }
 
 function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStatus {

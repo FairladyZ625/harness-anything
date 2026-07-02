@@ -3,7 +3,9 @@ import path from "node:path";
 import { createHarnessRuntimeContext } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
-import { writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
+import type { RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
+import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
+import { readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
 export type {
@@ -35,9 +37,13 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   const source = readMarkdownSource(runtimeContext);
   const rows = source.entries.map((entry) => taskEntryToRow(runtimeContext, entry)).sort(compareRows);
   const rowsHash = hashExactRows(rows);
+  const relationGraph = buildRelationGraphProjection(runtimeContext);
   writeProjectionDatabase(projectionPath, rows, {
     sourceHash: source.hash,
     rowsHash
+  }, {
+    relationEdges: relationGraph.edges,
+    coverageRows: relationGraph.coverageRows
   });
   return {
     rows,
@@ -101,6 +107,45 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
   return {
     rows: [...existing.rows].sort(compareRows),
     warnings
+  };
+}
+
+export function readRelationGraphProjection(options: TaskProjectionOptions): {
+  readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly warnings: ProjectionReadResult["warnings"];
+} {
+  const rootDir = path.resolve(options.rootDir);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const taskProjection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  try {
+    const graphRows = readRelationGraphRows(projectionPath);
+    return {
+      edges: graphRows.relationEdges,
+      coverageRows: graphRows.coverageRows,
+      warnings: taskProjection.warnings
+    };
+  } catch {
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const graphRows = readRelationGraphRows(projectionPath);
+    return {
+      edges: graphRows.relationEdges,
+      coverageRows: graphRows.coverageRows,
+      warnings: [...taskProjection.warnings, ...rebuilt.warnings]
+    };
+  }
+}
+
+export function readDecisionFactCoverage(options: TaskProjectionOptions & { readonly decisionId: string }): {
+  readonly rows: ReadonlyArray<RelationCoverageRow>;
+  readonly warnings: ProjectionReadResult["warnings"];
+} {
+  const projection = readRelationGraphProjection(options);
+  const decisionRef = `decision/${options.decisionId}`;
+  return {
+    rows: projection.coverageRows.filter((row) => row.decisionRef === decisionRef),
+    warnings: projection.warnings
   };
 }
 
