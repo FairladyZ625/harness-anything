@@ -8,6 +8,7 @@ import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumen
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
+export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
 export { readDecisionDocument } from "./decision-document-reader.ts";
 export type { EnvironmentCurrentSessionProbeOptions, HumanFallbackSessionProbeOptions, RuntimeSessionEnvCandidate } from "./current-session-probe.ts";
 export type {
@@ -29,6 +30,13 @@ export type {
   FactWriteService,
   FactWriteServiceOptions
 } from "./fact-write-service.ts";
+export type {
+  ProvenanceSessionDocument,
+  ProvenanceSessionExporter,
+  ProvenanceSessionExporterOptions,
+  ProvenanceSessionExporterRejected,
+  ProvenanceSessionExportResult
+} from "./provenance-session-exporter.ts";
 import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 export {
   evaluateCompletionGate,
