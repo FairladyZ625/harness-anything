@@ -58,6 +58,7 @@ export const CliErrorCode = {
   MissingLegacyId: "missing_legacy_id",
   MissingModule: "missing_module",
   MissingModuleFields: "missing_module_fields",
+  MissingName: "missing_name",
   MissingPreset: "missing_preset",
   MissingProfile: "missing_profile",
   MissingReason: "missing_reason",
@@ -225,6 +226,7 @@ export const cliErrorCodeRegistry = {
   [CliErrorCode.MissingLegacyId]: { category: "parse", defaultHint: "Legacy id is required." },
   [CliErrorCode.MissingModule]: { category: "parse", defaultHint: "Module key is required." },
   [CliErrorCode.MissingModuleFields]: { category: "parse", defaultHint: "Module title and scope are required." },
+  [CliErrorCode.MissingName]: { category: "parse", defaultHint: "Name is required." },
   [CliErrorCode.MissingPreset]: { category: "parse", defaultHint: "Preset id is required." },
   [CliErrorCode.MissingProfile]: { category: "parse", defaultHint: "Profile id is required." },
   [CliErrorCode.MissingReason]: { category: "parse", defaultHint: "Reason is required." },
@@ -298,6 +300,8 @@ export function cliErrorFamily(code: CliErrorCode): CliErrorFamily {
 
 export function missingRequiredOptionErrorCode(name: string): CliErrorCode {
   switch (name) {
+    case "--name":
+      return CliErrorCode.MissingName;
     case "--module":
       return CliErrorCode.MissingModule;
     case "--preset":
