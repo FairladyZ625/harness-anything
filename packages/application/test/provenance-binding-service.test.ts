@@ -120,7 +120,7 @@ function decisionCreateInput(): DecisionCreateInput {
 
 function createHarnessRoot(): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-provenance-binding-"));
-  mkdirSync(path.join(rootDir, "harness", "planning", "tasks", "task_OWNER"), { recursive: true });
+  mkdirSync(path.join(rootDir, "harness", "tasks", "task_OWNER"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
   return rootDir;
 }

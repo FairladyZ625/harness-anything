@@ -12,7 +12,7 @@ import { docWrite } from "./helpers.ts";
 test("markdown artifact store rejects case-insensitive authored document path collisions when the host filesystem can materialize them", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-portable-path-"));
   try {
-    const taskRoot = path.join(rootDir, "harness/planning/tasks/task-1");
+    const taskRoot = path.join(rootDir, "harness/tasks/task-1");
     mkdirSync(path.join(taskRoot, "notes"), { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), indexBody("task-1"), "utf8");
     writeFileSync(path.join(taskRoot, "notes/Progress.md"), "A\n", "utf8");
@@ -39,7 +39,7 @@ test("markdown artifact store rejects case-insensitive authored document path co
 test("markdown artifact store rejects writes that would collide with an existing portable document path", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-portable-path-write-"));
   try {
-    const taskRoot = path.join(rootDir, "harness/planning/tasks/task-1");
+    const taskRoot = path.join(rootDir, "harness/tasks/task-1");
     mkdirSync(path.join(taskRoot, "notes"), { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), indexBody("task-1"), "utf8");
     writeFileSync(path.join(taskRoot, "notes/Progress.md"), "A\n", "utf8");
@@ -58,7 +58,7 @@ test("markdown artifact store rejects writes that would collide with an existing
 test("WriteCoordinator rejects portable document path collisions before enqueueing the write", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-portable-path-coordinator-"));
   try {
-    const taskRoot = path.join(rootDir, "harness/planning/tasks/task-1");
+    const taskRoot = path.join(rootDir, "harness/tasks/task-1");
     mkdirSync(path.join(taskRoot, "notes"), { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), indexBody("task-1"), "utf8");
     writeFileSync(path.join(taskRoot, "notes/Progress.md"), "A\n", "utf8");

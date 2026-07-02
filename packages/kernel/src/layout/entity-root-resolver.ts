@@ -34,11 +34,11 @@ export function resolveEntityRootForLayout(
     }
     case "decision": {
       const decisionId = normalizeEntitySegment(entityRef.id, "decision id");
-      const rootPath = path.join(layout.authoredRoot, "decisions", `decision-${decisionId}`);
+      const rootPath = layout.decisionPackagePath(decisionId);
       return {
         entityRef,
         rootPath,
-        documentPath: path.join(rootPath, "decision.md"),
+        documentPath: layout.decisionDocumentPath(decisionId),
         ...(entityRef.anchor ? { anchor: entityRef.anchor } : {})
       };
     }
@@ -50,7 +50,7 @@ export function resolveEntityRootForLayout(
       return {
         entityRef,
         rootPath,
-        documentPath: path.join(rootPath, "facts.md"),
+        documentPath: layout.taskFactDocumentPath(ownerTaskId as TaskId),
         anchor: factId
       };
     }

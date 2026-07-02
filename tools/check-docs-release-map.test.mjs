@@ -22,7 +22,7 @@ test("docs release map check accepts the expected public documentation map", asy
 test("docs release map check rejects README private planning subpaths", async () => {
   await withFixtureRepo((root) => {
     writeValidDocsMap(root, {
-      readmeSuffix: "Read `.harness-private/coding-agent-harness/planning/task`.\n"
+      readmeSuffix: "Read `.harness-private/coding-agent-harness/task`.\n"
     });
 
     const result = runDocsMapCheck(root);

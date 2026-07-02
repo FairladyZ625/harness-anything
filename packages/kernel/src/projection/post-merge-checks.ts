@@ -149,7 +149,7 @@ function findDecisionWatermarkIssues(rootInput: HarnessLayoutInput): ReadonlyArr
   const layout = resolveHarnessLayout(rootInput);
   const seen = new Map<string, string>();
   const warnings: ProjectionWarning[] = [];
-  for (const filePath of listTextFiles(path.join(layout.authoredRoot, "decisions"))) {
+  for (const filePath of listTextFiles(layout.decisionsRoot)) {
     if (path.basename(filePath) !== "decision.md") continue;
     const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
@@ -239,7 +239,7 @@ function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArr
   const factRefs = new Set<string>();
   for (const entry of entries) {
     const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
-    const factsPath = path.join(path.dirname(entry.indexPath), "facts.md");
+    const factsPath = path.join(path.dirname(entry.indexPath), layout.factDocumentName);
     if (!existsSync(factsPath)) continue;
     for (const record of parseFactFlowRecords(readFileSync(factsPath, "utf8"))) {
       factRefs.add(`${taskId}/${record.fact_id}`);
@@ -248,7 +248,7 @@ function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArr
 
   const decisionIds = new Set<string>();
   const decisionAnchors = new Set<string>();
-  for (const filePath of listTextFiles(path.join(layout.authoredRoot, "decisions"))) {
+  for (const filePath of listTextFiles(layout.decisionsRoot)) {
     if (path.basename(filePath) !== "decision.md") continue;
     const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;

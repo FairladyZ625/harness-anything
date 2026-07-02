@@ -33,7 +33,7 @@ test("CLI init dogfoods coding vertical defaults for new tasks", () => {
 
     const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"]);
     const taskId = assertGeneratedTaskId(result.taskId);
-    const index = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-dogfood-task/INDEX.md`), "utf8");
+    const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-dogfood-task/INDEX.md`), "utf8");
 
     assert.equal(result.ok, true);
     assert.equal(result.report.vertical, "software/coding");
@@ -55,11 +55,11 @@ test("CLI creates a local task with generated identity and stable JSON output", 
     assert.equal(result.command, "new-task");
     assert.equal(result.slug, "task-one");
     assert.equal(result.status, "planned");
-    assert.equal(result.packagePath, `harness/planning/tasks/${taskId}-task-one`);
+    assert.equal(result.packagePath, `harness/tasks/${taskId}-task-one`);
     assert.equal(result.paths.package, result.packagePath);
-    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /engine: local/);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /engine: local/);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
-    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command=new-task task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/planning\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path summary=/u);
+    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command=new-task task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path summary=/u);
   });
 });
 
@@ -69,7 +69,7 @@ test("CLI refuses untitled new tasks before creating task files", () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, "missing_title");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks")), false);
   });
 });
 
@@ -91,8 +91,8 @@ test("CLI accepts manual task IDs only in controlled migration mode", () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.taskId, "legacy-task-1");
-    assert.equal(result.packagePath, "harness/planning/tasks/legacy-task-1-imported-task");
-    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/legacy-task-1-imported-task/INDEX.md"), "utf8"), /task_id: legacy-task-1/);
+    assert.equal(result.packagePath, "harness/tasks/legacy-task-1-imported-task");
+    assert.match(readFileSync(path.join(rootDir, "harness/tasks/legacy-task-1-imported-task/INDEX.md"), "utf8"), /task_id: legacy-task-1/);
   });
 });
 
@@ -104,7 +104,7 @@ test("CLI status set mutates local task state through the write journal", () => 
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "active");
-    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /status: active/);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /status: active/);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
   });
 });
@@ -128,7 +128,7 @@ test("CLI blocks ordinary terminal status-set and requires audited force for rec
     const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
     assert.equal(invalidForce.ok, false);
     assert.equal(invalidForce.error?.code, "invalid_transition");
-    assert.equal(existsSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/progress.md`)), false);
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
     runJson(rootDir, ["task", "status", "set", taskId, "active"]);
 
@@ -149,7 +149,7 @@ test("CLI blocks ordinary terminal status-set and requires audited force for rec
     assert.equal(forced.status, "done");
     assert.equal(forced.forced, true);
     assert.equal(forced.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
-    const progressBody = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/progress.md`), "utf8");
+    const progressBody = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8");
     assert.match(progressBody, /FORCE_STATUS_SET_AUDIT: forced terminal status=done; reason=fixture recovery/);
 
     const check = runJson(rootDir, ["check", "--profile", "target-project"], false);
@@ -201,7 +201,7 @@ test("CLI appends progress through the write journal", () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.path, "progress.md");
-    assert.equal(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/progress.md`), "utf8"), "Implemented local CLI\n");
+    assert.equal(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8"), "Implemented local CLI\n");
     const payloadBodies = readdirSync(path.join(rootDir, ".harness/write-journal/payloads"))
       .map((entry) => readFileSync(path.join(rootDir, ".harness/write-journal/payloads", entry), "utf8"));
     assert.equal(payloadBodies.some((body) => body.includes("\"path\":\"progress.md\"")), true);
@@ -216,7 +216,7 @@ test("CLI task archive writes disposition through committed watermark", () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.command, "task-archive");
-    const indexBody = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8");
+    const indexBody = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8");
     assert.match(indexBody, /packageDisposition: archived/);
     assert.match(indexBody, /superseded by newer plan/);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
@@ -234,9 +234,9 @@ test("CLI task supersede archives old task and creates relation to new task", ()
     assert.equal(result.ok, true);
     assert.equal(result.command, "task-supersede");
     assert.equal(result.taskId, oldTaskId);
-    assert.equal(result.packagePath, `harness/planning/tasks/${newTaskId}-replacement-task`);
-    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${oldTaskId}-original-task/INDEX.md`), "utf8"), /packageDisposition: archived/);
-    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${newTaskId}-replacement-task/relations.md`), "utf8"), new RegExp(`type: supersedes[\\s\\S]*task/${oldTaskId}`));
+    assert.equal(result.packagePath, `harness/tasks/${newTaskId}-replacement-task`);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${oldTaskId}-original-task/INDEX.md`), "utf8"), /packageDisposition: archived/);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${newTaskId}-replacement-task/relations.md`), "utf8"), new RegExp(`type: supersedes[\\s\\S]*task/${oldTaskId}`));
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
   });
 });
@@ -245,7 +245,7 @@ test("CLI task delete soft tombstones and hard delete rejects archived terminal 
   withTempRoot((rootDir) => {
     const hard = runJson(rootDir, ["new-task", "--title", "Hard Delete"]);
     const hardTaskId = assertGeneratedTaskId(hard.taskId);
-    const hardPackagePath = path.join(rootDir, `harness/planning/tasks/${hardTaskId}-hard-delete`);
+    const hardPackagePath = path.join(rootDir, `harness/tasks/${hardTaskId}-hard-delete`);
     assert.equal(existsSync(hardPackagePath), true);
     const missingConfirm = runJson(rootDir, ["task", "delete", "--hard", hardTaskId, "--reason", "mistaken local package"], false);
     assert.equal(missingConfirm.ok, false);
@@ -266,7 +266,7 @@ test("CLI task delete soft tombstones and hard delete rejects archived terminal 
     const softTaskId = assertGeneratedTaskId(soft.taskId);
     const softResult = runJson(rootDir, ["task", "delete", "--soft", softTaskId, "--reason", "not needed"]);
     assert.equal(softResult.ok, true);
-    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${softTaskId}-soft-delete/INDEX.md`), "utf8"), /packageDisposition: tombstoned/);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${softTaskId}-soft-delete/INDEX.md`), "utf8"), /packageDisposition: tombstoned/);
 
     const archived = runJson(rootDir, ["new-task", "--title", "Archived Delete"]);
     const archivedTaskId = assertGeneratedTaskId(archived.taskId);
@@ -285,7 +285,7 @@ test("CLI task delete soft tombstones and hard delete rejects archived terminal 
 
     const related = runJson(rootDir, ["new-task", "--title", "Related Delete"]);
     const relatedTaskId = assertGeneratedTaskId(related.taskId);
-    writeFileSync(path.join(rootDir, `harness/planning/tasks/${relatedTaskId}-related-delete/relations.md`), `target: task/${softTaskId}\n`, "utf8");
+    writeFileSync(path.join(rootDir, `harness/tasks/${relatedTaskId}-related-delete/relations.md`), `target: task/${softTaskId}\n`, "utf8");
     const relatedFailure = runJson(rootDir, ["task", "delete", "--hard", relatedTaskId, "--reason", "remove", "--confirm", relatedTaskId], false);
     assert.equal(relatedFailure.ok, false);
     assert.equal(relatedFailure.error?.code, "related_task_hard_delete_forbidden");
@@ -300,7 +300,7 @@ test("CLI task delete rejects conflicting delete modes", () => {
 
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "conflicting_delete_mode");
-    assert.equal(existsSync(path.join(rootDir, `harness/planning/tasks/${taskId}-mode-conflict/INDEX.md`)), true);
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-mode-conflict/INDEX.md`)), true);
   });
 });
 
@@ -313,7 +313,7 @@ test("CLI task reopen restores only non-terminal package disposition", () => {
     const reopened = runJson(rootDir, ["task", "reopen", taskId, "--reason", "resume"]);
 
     assert.equal(reopened.ok, true);
-    assert.match(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-reopenable/INDEX.md`), "utf8"), /packageDisposition: active/);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-reopenable/INDEX.md`), "utf8"), /packageDisposition: active/);
 
     runJson(rootDir, ["task", "status", "set", taskId, "active"]);
     runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "terminal fixture"]);
@@ -335,8 +335,8 @@ test("CLI task list reads from rebuildable SQLite projection", () => {
     assert.equal(Array.isArray(result.tasks), true);
     assert.equal(result.tasks[0].taskId, taskId);
     assert.equal(result.tasks[0].canonicalStatus, "planned");
-    assert.equal(result.tasks[0].sourcePath, `harness/planning/tasks/${taskId}-task-one/INDEX.md`);
-    assert.equal(readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-task-one/INDEX.md`), "utf8").includes("projections.sqlite"), false);
+    assert.equal(result.tasks[0].sourcePath, `harness/tasks/${taskId}-task-one/INDEX.md`);
+    assert.equal(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8").includes("projections.sqlite"), false);
   });
 });
 
@@ -478,7 +478,7 @@ test("CLI check --post-merge does not mistake Markdown setext headings for confl
 test("CLI check --post-merge stores prefixed external EntityRefs without resolving them", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-a", "A", "planned");
-    writeFileSync(path.join(rootDir, "harness/planning/tasks/task-a/relations.md"), "external relation other-harness:task/missing-remote\n", "utf8");
+    writeFileSync(path.join(rootDir, "harness/tasks/task-a/relations.md"), "external relation other-harness:task/missing-remote\n", "utf8");
 
     const result = runJson(rootDir, ["check", "--post-merge"]);
 
@@ -513,7 +513,7 @@ test("CLI task-complete evaluates review, CI, and closeout readiness before sett
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1", []);
-    writeFileSync(path.join(rootDir, "harness/planning/tasks/task-1/closeout.md"), "# Closeout\n", "utf8");
+    writeFileSync(path.join(rootDir, "harness/tasks/task-1/closeout.md"), "# Closeout\n", "utf8");
 
     const passed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
     assert.equal(passed.ok, true);
@@ -523,7 +523,7 @@ test("CLI task-complete evaluates review, CI, and closeout readiness before sett
       closeoutReadiness: "ready"
     });
     assert.equal(passed.status, "done");
-    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8"), /status: done/);
+    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /status: done/);
 
     const failed = runJson(rootDir, ["task-complete", "task-1", "--ci", "failed"], false);
     assert.equal(failed.ok, false);
@@ -570,8 +570,8 @@ function writeIndex(
   const bindingFingerprint = options.bindingFingerprint ?? (engine === "local" && ref === ""
     ? "sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7"
     : "sha256:fixture");
-  mkdirSync(path.join(rootDir, "harness/planning/tasks", directoryName), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/planning/tasks", directoryName, "INDEX.md"), [
+  mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,
@@ -596,7 +596,7 @@ function writeIndex(
 }
 
 function writeReview(rootDir: string, directoryName: string, findingRows: ReadonlyArray<string>): void {
-  writeFileSync(path.join(rootDir, "harness/planning/tasks", directoryName, "review.md"), [
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "review.md"), [
     "# Review",
     "",
     "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",

@@ -70,8 +70,8 @@ function collectV2Tasks(sourceRoot) {
   const publicRoot = path.join(sourceRoot, "harness");
   const authoredRoot = existsSync(path.join(privateRoot, "harness.yaml")) ? privateRoot : existsSync(path.join(publicRoot, "harness.yaml")) ? publicRoot : undefined;
   if (!authoredRoot) return [];
-  const tasksRoot = path.join(authoredRoot, "planning/tasks");
-  const moduleRoot = path.join(authoredRoot, "planning/modules");
+  const tasksRoot = path.join(authoredRoot, "tasks");
+  const moduleRoot = path.join(authoredRoot, "modules");
   const rootTasks = listDirectories(tasksRoot)
     .filter((name) => !name.startsWith("_"))
     .map((name) => taskEntry(sourceRoot, toSlash(path.relative(sourceRoot, path.join(tasksRoot, name))), `harness/legacy/tasks/${name}`));

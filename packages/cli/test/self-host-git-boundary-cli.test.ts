@@ -22,7 +22,7 @@ test("CLI reports actionable journal cause when authored root is ignored without
       "  authoredRoot: harness",
       "  localRoot: .harness",
       "tasks:",
-      "  root: harness/planning/tasks",
+      "  root: harness/tasks",
       ""
     ].join("\n"), "utf8");
 

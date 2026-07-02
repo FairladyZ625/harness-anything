@@ -32,7 +32,7 @@ test("CLI check --post-merge reports each hard-fail governance code", () => {
     }],
     ["dangling_entity_ref", (rootDir) => {
       writeIndex(rootDir, "task-a", "A", "planned");
-      writeFileSync(path.join(rootDir, "harness/planning/tasks/task-a/relations.md"), "depends on task/missing-task\n", "utf8");
+      writeFileSync(path.join(rootDir, "harness/tasks/task-a/relations.md"), "depends on task/missing-task\n", "utf8");
     }],
     ["relation_cycle_detected", (rootDir) => {
       writeIndex(rootDir, "task-a", "A", "planned", {
@@ -103,8 +103,8 @@ function writeIndex(
   const bindingFingerprint = options.bindingFingerprint ?? (engine === "local" && ref === ""
     ? "sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7"
     : "sha256:fixture");
-  mkdirSync(path.join(rootDir, "harness/planning/tasks", directoryName), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/planning/tasks", directoryName, "INDEX.md"), [
+  mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,

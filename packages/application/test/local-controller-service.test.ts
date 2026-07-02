@@ -21,7 +21,7 @@ test("local controller service reads projection and writes through injected task
         }),
         appendProgress: (payload) => Effect.sync(() => {
           writes.push(`progress:${payload.taskId}:${payload.text}`);
-          const progressPath = path.join(rootDir, "harness/planning/tasks", payload.taskId, "progress.md");
+          const progressPath = path.join(rootDir, "harness/tasks", payload.taskId, "progress.md");
           writeFileSync(progressPath, `${payload.text}\n`, "utf8");
           return { taskId: payload.taskId, path: "progress.md" };
         })
@@ -69,10 +69,10 @@ test("local controller service reads projection and writes through injected task
         hint: "Terminal cancellation requires an audited recovery path."
       }
     });
-    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8"), /status: active/);
+    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /status: active/);
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "GUI update" }), { ok: true });
     assert.deepEqual(writes, ["status:task-1:active", "progress:task-1:GUI update"]);
-    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/progress.md"), "utf8"), /GUI update/);
+    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), /GUI update/);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -89,7 +89,7 @@ test("local controller service honors explicit authored root for reads and write
       taskWriter: {
         setStatus: (payload) => Effect.sync(() => ({ taskId: payload.taskId, status: payload.status })),
         appendProgress: (payload) => Effect.sync(() => {
-          const progressPath = path.join(rootDir, layoutOverrides.authoredRoot, "planning/tasks", payload.taskId, "progress.md");
+          const progressPath = path.join(rootDir, layoutOverrides.authoredRoot, "tasks", payload.taskId, "progress.md");
           writeFileSync(progressPath, `${payload.text}\n`, "utf8");
           return { taskId: payload.taskId, path: "progress.md" };
         })
@@ -103,16 +103,16 @@ test("local controller service honors explicit authored root for reads and write
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Custom Task/);
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "custom progress" }), { ok: true });
-    assert.match(readFileSync(path.join(rootDir, ".custom-harness/planning/tasks/task-1/progress.md"), "utf8"), /custom progress/);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+    assert.match(readFileSync(path.join(rootDir, ".custom-harness/tasks/task-1/progress.md"), "utf8"), /custom progress/);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
 function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string, authoredRoot = "harness"): void {
-  mkdirSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId), { recursive: true });
-  writeFileSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId, "INDEX.md"), [
+  mkdirSync(path.join(rootDir, authoredRoot, "tasks", taskId), { recursive: true });
+  writeFileSync(path.join(rootDir, authoredRoot, "tasks", taskId, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,
@@ -135,7 +135,7 @@ function writeTaskIndex(rootDir: string, taskId: string, title: string, status: 
 }
 
 function patchTaskStatus(rootDir: string, taskId: string, status: string): void {
-  const indexPath = path.join(rootDir, "harness/planning/tasks", taskId, "INDEX.md");
+  const indexPath = path.join(rootDir, "harness/tasks", taskId, "INDEX.md");
   const index = readFileSync(indexPath, "utf8");
   writeFileSync(indexPath, index.replace(/^  status: .+$/m, `  status: ${status}`), "utf8");
 }

@@ -17,7 +17,7 @@ test("WriteCoordinator flushes same-task writes in FIFO order", () => {
 
     const report = Effect.runSync(coordinator.flush("explicit"));
     assert.equal(report.watermark, "op-2");
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "second");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "second");
   });
 });
 
@@ -32,12 +32,12 @@ test("WriteCoordinator preserves same-task FIFO across two coordinators", () => 
     const secondReport = Effect.runSync(secondCoordinator.flush("explicit"));
     assert.equal(secondReport.opCount, 2);
     assert.equal(secondReport.watermark, "op-2");
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "second");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "second");
 
     const firstReport = Effect.runSync(firstCoordinator.flush("explicit"));
     assert.equal(firstReport.opCount, 0);
     assert.equal(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8").includes("\"op-1\",\"op-2\""), true);
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "second");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "second");
   });
 });
 
@@ -58,7 +58,7 @@ test("WriteCoordinator records real projection hash and compacts watermark-cover
 
     const recovered = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
     assert.equal(recovered.replayedOps, 0);
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8"), indexBody("task-1", "Task One", "planned"));
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), indexBody("task-1", "Task One", "planned"));
   });
 });
 
@@ -83,7 +83,7 @@ test("WriteCoordinator bounds committed op ids in watermark after successful com
     const duplicateRecent = Effect.runSync(coordinator.enqueue(docWrite("op-139", "task-1", "notes.md", "duplicate")));
     assert.equal(duplicateRecent.accepted, true);
     assert.equal(Effect.runSync(coordinator.flush("explicit")).opCount, 0);
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "write 139");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "write 139");
   });
 });
 
@@ -103,7 +103,7 @@ test("WriteCoordinator commits self-host authored writes inside ignored nested h
       "  authoredRoot: harness",
       "  localRoot: .harness",
       "tasks:",
-      "  root: harness/planning/tasks",
+      "  root: harness/tasks",
       ""
     ].join("\n"), "utf8");
     mkdirSync(path.join(rootDir, "harness/notes"), { recursive: true });
@@ -117,9 +117,9 @@ test("WriteCoordinator commits self-host authored writes inside ignored nested h
     const report = Effect.runSync(coordinator.flush("explicit"));
 
     assert.equal(report.watermark, "op-nested");
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "nested");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "nested");
     assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /harness write op-nested/);
-    assert.equal(runGit(path.join(rootDir, "harness"), "show", "--name-only", "--format=", "HEAD"), "planning/tasks/task-1/notes.md");
+    assert.equal(runGit(path.join(rootDir, "harness"), "show", "--name-only", "--format=", "HEAD"), "tasks/task-1/notes.md");
     assert.equal(runGit(path.join(rootDir, "harness"), "status", "--short"), "M notes/unrelated.md");
     assert.equal(runGit(rootDir, "status", "--short"), "");
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), true);
@@ -147,7 +147,7 @@ test("WriteCoordinator accepts non-native case root paths on case-insensitive fi
       "  authoredRoot: harness",
       "  localRoot: .harness",
       "tasks:",
-      "  root: harness/planning/tasks",
+      "  root: harness/tasks",
       ""
     ].join("\n"), "utf8");
 
@@ -156,7 +156,7 @@ test("WriteCoordinator accepts non-native case root paths on case-insensitive fi
     const report = Effect.runSync(coordinator.flush("explicit"));
 
     assert.equal(report.watermark, "op-mixed-case");
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/notes.md"), "utf8"), "mixed");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "mixed");
     assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /harness write op-mixed-case/);
   });
 });
@@ -170,7 +170,7 @@ test("WriteCoordinator records nested harness HEAD when self-host flush has no s
     const parentHead = runGit(rootDir, "rev-parse", "HEAD");
 
     const harnessRoot = path.join(rootDir, "harness");
-    mkdirSync(path.join(harnessRoot, "planning/tasks/task-1"), { recursive: true });
+    mkdirSync(path.join(harnessRoot, "tasks/task-1"), { recursive: true });
     initializeGitRepo(harnessRoot);
     writeFileSync(path.join(harnessRoot, "harness.yaml"), [
       "schema: harness-anything/v1",
@@ -179,10 +179,10 @@ test("WriteCoordinator records nested harness HEAD when self-host flush has no s
       "  authoredRoot: harness",
       "  localRoot: .harness",
       "tasks:",
-      "  root: harness/planning/tasks",
+      "  root: harness/tasks",
       ""
     ].join("\n"), "utf8");
-    writeFileSync(path.join(harnessRoot, "planning/tasks/task-1/notes.md"), "already committed", "utf8");
+    writeFileSync(path.join(harnessRoot, "tasks/task-1/notes.md"), "already committed", "utf8");
     runGit(harnessRoot, "add", ".");
     runGit(harnessRoot, "commit", "-m", "seed harness");
     const nestedHead = runGit(harnessRoot, "rev-parse", "HEAD");

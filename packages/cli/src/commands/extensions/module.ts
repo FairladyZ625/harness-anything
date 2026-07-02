@@ -64,7 +64,7 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     const registry = readModules(rootInput);
     const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-scaffold", action.moduleKey);
-    const moduleRoot = path.join(layout.planningRoot, "modules", module.key);
+    const moduleRoot = path.join(layout.authoredRoot, "modules", module.key);
     mkdirSync(moduleRoot, { recursive: true });
     writeIfMissing(path.join(moduleRoot, "brief.md"), `# ${module.title}\n\nModule key: ${module.key}\n`);
     writeIfMissing(path.join(moduleRoot, "module_plan.md"), `# ${module.title} Module Plan\n\n| Step | State |\n| --- | --- |\n`);

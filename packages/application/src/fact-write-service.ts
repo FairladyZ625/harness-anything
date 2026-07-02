@@ -45,7 +45,7 @@ export interface FactWriteResult {
   readonly taskId: TaskId;
   readonly factId: string;
   readonly ref: string;
-  readonly path: "facts.md";
+  readonly path: string;
 }
 
 export interface FactWriteRejected {
@@ -65,7 +65,7 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
   return {
     record: (request) => Effect.gen(function* () {
       const layout = resolveHarnessLayout(options.rootInput);
-      const factsPath = layout.taskDocumentPath(request.ownerTaskId, "facts.md");
+      const factsPath = layout.taskFactDocumentPath(request.ownerTaskId);
       const existingBody = existsSync(factsPath) ? readFileSync(factsPath, "utf8") : "";
       const existingFacts = parseFactFlowRecords(existingBody);
       const factId = request.factId ?? generateFactId();
@@ -95,7 +95,7 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
           entityId: taskEntityId(request.ownerTaskId),
           kind: "doc_write",
           payload: {
-            path: "facts.md",
+            path: layout.factDocumentName,
             body: nextBody
           },
           ...(request.opIdPrefix ? { opIdPrefix: request.opIdPrefix } : {})
@@ -105,7 +105,7 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
         taskId: request.ownerTaskId,
         factId,
         ref: `fact/${request.ownerTaskId}/${factId}`,
-        path: "facts.md"
+        path: layout.factDocumentName
       };
     })
   };

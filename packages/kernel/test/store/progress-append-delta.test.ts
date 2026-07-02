@@ -9,7 +9,7 @@ import { progressAppendDelta, progressAppendSnapshot, withTempStore } from "./he
 // ADR-0016 D2 / 37-write-coordination-contract §10.2 focused tests.
 
 function progressPath(rootDir: string, taskId: string): string {
-  return path.join(rootDir, `harness/planning/tasks/${taskId}/progress.md`);
+  return path.join(rootDir, `harness/tasks/${taskId}/progress.md`);
 }
 
 test("progress_append delta accumulates appends with correct separators", () => {

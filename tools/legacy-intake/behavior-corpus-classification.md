@@ -19,7 +19,7 @@ Machine-checkable source: `behavior-corpus-classification.json`.
 
 ### Preserve
 
-- Local task packages remain authored Markdown under `harness/planning/tasks`.
+- Local task packages remain authored Markdown under `harness/tasks`.
 - Local lifecycle writes continue to go through the `WriteCoordinator` journal before authored files are mutated.
 - Generated task IDs remain the default identity policy; manual IDs stay limited to controlled migration mode.
 - Six-state lifecycle vocabulary remains `planned`, `active`, `blocked`, `in_review`, `done`, and `cancelled`.

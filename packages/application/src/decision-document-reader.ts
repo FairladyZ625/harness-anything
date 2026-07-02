@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { Schema } from "effect";
 import {
   DecisionPackageSchema,
@@ -16,7 +15,7 @@ export interface DecisionDocumentReadResult {
 
 export function readDecisionDocument(rootInput: HarnessLayoutInput, decisionId: string): DecisionDocumentReadResult {
   const layout = resolveHarnessLayout(rootInput);
-  const documentPath = path.join(layout.authoredRoot, "decisions", `decision-${decisionId}`, "decision.md");
+  const documentPath = layout.decisionDocumentPath(decisionId);
   const documentBody = readFileSync(documentPath, "utf8");
   const frontmatter = readFrontmatter(documentBody);
   if (!frontmatter) throw new Error(`decision document missing frontmatter: ${decisionId}`);

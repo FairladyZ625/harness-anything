@@ -17,7 +17,7 @@ test("CLI exposes Multica snapshot as readonly JSON evidence", () => {
     assert.equal(result.command, "snapshot-multica");
     assert.equal(result.report.externalWrites, false);
     assert.equal(result.report.snapshot.canonicalStatus, "in_review");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks")), false);
   });
 });
 
@@ -29,7 +29,7 @@ test("CLI adopts Multica tasks locally and rejects duplicate external refs", () 
     assert.equal(adopted.ok, true);
     assert.equal(adopted.report.externalWrites, false);
     assert.equal(adopted.report.writeBoundary, "local-authored-task-package");
-    const index = readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8");
+    const index = readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8");
     assert.match(index, /engine: multica/);
     assert.match(index, /ref: FAI-1/);
     assert.equal(/^  status:/mu.test(index), false);
@@ -44,9 +44,9 @@ test("CLI adopt multica honors explicit authored root for receipts and duplicate
     const duplicate = runJson(rootDir, ["--authored-root", ".custom-harness", "adopt", "multica", "FAI-1", "--task", "task-2", "--status", "Active"], false);
 
     assert.equal(adopted.ok, true);
-    assert.equal(adopted.path, ".custom-harness/planning/tasks/task-1");
-    assert.equal(existsSync(path.join(rootDir, ".custom-harness/planning/tasks/task-1/INDEX.md")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+    assert.equal(adopted.path, ".custom-harness/tasks/task-1");
+    assert.equal(existsSync(path.join(rootDir, ".custom-harness/tasks/task-1/INDEX.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md")), false);
     assert.equal(duplicate.ok, false);
     assert.equal(duplicate.error.code, "duplicate_external_binding");
   });
@@ -95,8 +95,8 @@ test("CLI legacy copy preserves legacy evidence and forwards safe authored docs"
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/modules/auth/module-task/task_plan.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/docs/11-REFERENCE/testing-standard.md")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/standards/testing-standard.md")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/done-task")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/modules/auth/tasks/module-task")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/done-task")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/modules/auth/tasks/module-task")), false);
     const index = JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/index.json"), "utf8"));
     assert.equal(index.schema, "legacy-index/v1");
     assert.equal(index.summary.taskCount, 2);
@@ -162,12 +162,11 @@ test("CLI legacy scan discovers V2 layout tasks and forwards private harness con
       "version: 2",
       "structure:",
       "  harnessRoot: coding-agent-harness",
-      "  planningRoot: coding-agent-harness/planning",
-      "  tasksRoot: coding-agent-harness/planning/tasks",
+      "  tasksRoot: coding-agent-harness/tasks",
       ""
     ].join("\n"));
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/INDEX.md", "---\ntitle: V2 Task\nstatus: active\n---\n# V2 Task\n");
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/progress.md", "progress\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/tasks/v2-task/INDEX.md", "---\ntitle: V2 Task\nstatus: active\n---\n# V2 Task\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/tasks/v2-task/progress.md", "progress\n");
     writeFile(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/overview.md", "# Architecture\n");
     writeFile(rootDir, "outside-secret.md", "# Secret\n");
     symlinkSync(path.join(rootDir, "outside-secret.md"), path.join(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/leak.md"));
@@ -175,7 +174,7 @@ test("CLI legacy scan discovers V2 layout tasks and forwards private harness con
     const scan = runJson(rootDir, ["legacy", "scan", "old"]);
     assert.equal(scan.report.summary.taskCount, 1);
     assert.equal(scan.report.summary.docCount, 1);
-    assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/planning/tasks/v2-task"), true);
+    assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/tasks/v2-task"), true);
     assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/leak.md"), false);
     const contextEntry = scan.report.entries.find((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/overview.md");
     assert.equal(contextEntry.forwardPath, "harness/context/architecture/overview.md");
@@ -193,7 +192,7 @@ test("CLI legacy scan discovers V2 layout tasks and forwards private harness con
 test("CLI legacy scan skips self-host active harness and generated directories", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, "harness/harness.yaml", "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n");
-    writeFile(rootDir, "harness/planning/tasks/active-task/INDEX.md", "---\ntitle: Active Task\nstatus: active\n---\n# Active Task\n");
+    writeFile(rootDir, "harness/tasks/active-task/INDEX.md", "---\ntitle: Active Task\nstatus: active\n---\n# Active Task\n");
     writeFile(rootDir, "harness/legacy/tasks/old-import/task_plan.md", "# Already Imported\n");
     writeFile(rootDir, "harness/context/architecture/prototype/node_modules/pkg/README.md", "# Package Readme\n");
     writeFile(rootDir, "harness/context/architecture/prototype/node_modules/pkg/package.json", "{\"name\":\"pkg\"}\n");
@@ -206,7 +205,7 @@ test("CLI legacy scan skips self-host active harness and generated directories",
     assert.equal(scan.ok, true);
     assert.equal(sourcePaths.includes("docs/09-PLANNING/TASKS/old-task"), true);
     assert.equal(sourcePaths.includes("harness/context/architecture/real-design.md"), false);
-    assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.startsWith("harness/planning/tasks/")), false);
+    assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.startsWith("harness/tasks/")), false);
     assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.startsWith("harness/legacy/")), false);
     assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.startsWith("harness/context/")), false);
     assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.includes("/node_modules/")), false);
@@ -353,7 +352,7 @@ test("CLI rebuilds a fresh local task from a legacy index entry with provenance"
     assert.equal(provenance.detectedStatus.raw, "active");
     assert.match(provenance.rebuiltAt, /^\d{4}-\d{2}-\d{2}T/u);
     assert.notEqual(provenance.rebuiltAt, "1970-01-01T00:00:00.000Z");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks", legacyEntry.id)), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks", legacyEntry.id)), false);
     assert.equal(existsSync(path.join(rootDir, legacyEntry.storedPath)), true);
 
     writeFileSync(path.join(taskDir, "legacy-provenance.json"), "{\"schema\":\"legacy-rebuild-provenance/v1\",\"legacyId\":\"legacy_bad\"}\n", "utf8");
@@ -383,7 +382,7 @@ test("CLI migrate aliases now emit Legacy Intake semantics and retire full cutov
     assert.equal(structure.ok, true);
     assert.equal(JSON.parse(readFileSync(path.join(rootDir, "harness/legacy/collision-report.json"), "utf8")).entries.length, 0);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy/tasks/old-task/task_plan.md")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/old-task")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/old-task")), false);
     assert.equal(run.report.schema, "legacy-intake-session/v1");
     assert.equal(retired.error.code, "full_cutover_retired");
     assert.equal(retired.report.fullCutover, "retired");

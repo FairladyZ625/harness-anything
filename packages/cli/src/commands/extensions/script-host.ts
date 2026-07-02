@@ -92,8 +92,10 @@ export function runScriptHost(options: {
       rootDir: layout.rootDir,
       authoredRoot: layout.authoredRoot,
       tasksRoot: layout.tasksRoot,
-      decisionsRoot: path.join(layout.authoredRoot, "decisions"),
-      sessionsRoot: path.join(layout.authoredRoot, "sessions"),
+      decisionsRoot: layout.decisionsRoot,
+      sessionsRoot: layout.sessionsRoot,
+      adrRoot: layout.adrRoot,
+      milestonesRoot: layout.milestonesRoot,
       generatedRoot: layout.generatedRoot,
       localRoot: layout.localRoot
     },
@@ -307,10 +309,11 @@ function resolveProducePattern(pattern: string, layout: ReturnType<typeof resolv
   return path.resolve(pattern
     .replaceAll("{{paths.authoredRoot}}", layout.authoredRoot)
     .replaceAll("{{paths.contextRoot}}", layout.contextRoot)
-    .replaceAll("{{paths.planningRoot}}", layout.planningRoot)
     .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot)
-    .replaceAll("{{paths.decisionsRoot}}", path.join(layout.authoredRoot, "decisions"))
-    .replaceAll("{{paths.sessionsRoot}}", path.join(layout.authoredRoot, "sessions"))
+    .replaceAll("{{paths.decisionsRoot}}", layout.decisionsRoot)
+    .replaceAll("{{paths.sessionsRoot}}", layout.sessionsRoot)
+    .replaceAll("{{paths.adrRoot}}", layout.adrRoot)
+    .replaceAll("{{paths.milestonesRoot}}", layout.milestonesRoot)
     .replaceAll("{{outputRoot}}", outputRoot));
 }
 

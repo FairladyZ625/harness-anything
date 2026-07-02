@@ -19,6 +19,11 @@ const collisionInvalidUrl = new URL("../../fixtures/schemas/legacy-collision-rep
 test("legacy storage layout is inside authored harness root", () => {
   const layout = resolveHarnessLayout("/repo");
 
+  assert.equal(layout.tasksRoot, path.join("/repo", "harness", "tasks"));
+  assert.equal(layout.decisionsRoot, path.join("/repo", "harness", "decisions"));
+  assert.equal(layout.sessionsRoot, path.join("/repo", "harness", "sessions"));
+  assert.equal(layout.adrRoot, path.join("/repo", "harness", "adr"));
+  assert.equal(layout.milestonesRoot, path.join("/repo", "harness", "milestones"));
   assert.equal(layout.legacyRoot, path.join("/repo", "harness", "legacy"));
   assert.equal(layout.legacyTasksRoot, path.join(layout.legacyRoot, "tasks"));
   assert.equal(layout.legacyDocsRoot, path.join(layout.legacyRoot, "docs"));
@@ -40,7 +45,7 @@ test("layout resolver honors harness.yaml layout roots and upward discovery", ()
       "  authoredRoot: .harness-private/coding-agent-harness",
       "  localRoot: .harness-local",
       "tasks:",
-      "  root: .harness-private/coding-agent-harness/planning/tasks",
+      "  root: .harness-private/coding-agent-harness/tasks",
       ""
     ].join("\n"), "utf8");
     const nestedRoot = path.join(rootDir, "packages", "cli");
@@ -51,7 +56,7 @@ test("layout resolver honors harness.yaml layout roots and upward discovery", ()
     assert.equal(layout.rootDir, rootDir);
     assert.equal(layout.authoredRoot, path.join(rootDir, ".harness-private/coding-agent-harness"));
     assert.equal(layout.localRoot, path.join(rootDir, ".harness-local"));
-    assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/planning/tasks"));
+    assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/tasks"));
     assert.equal(layout.legacyRoot, path.join(layout.authoredRoot, "legacy"));
   });
 });
@@ -64,8 +69,7 @@ test("layout resolver discovers private self-host structure roots", () => {
       "version: 2",
       "structure:",
       "  harnessRoot: coding-agent-harness",
-      "  planningRoot: coding-agent-harness/planning",
-      "  tasksRoot: coding-agent-harness/planning/tasks",
+      "  tasksRoot: coding-agent-harness/tasks",
       "  generatedRoot: coding-agent-harness/governance/generated",
       ""
     ].join("\n"), "utf8");
@@ -76,7 +80,7 @@ test("layout resolver discovers private self-host structure roots", () => {
 
     assert.equal(layout.rootDir, rootDir);
     assert.equal(layout.authoredRoot, path.join(rootDir, ".harness-private/coding-agent-harness"));
-    assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/planning/tasks"));
+    assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/tasks"));
     assert.equal(layout.generatedRoot, path.join(rootDir, ".harness-private/coding-agent-harness/governance/generated"));
   });
 });
@@ -120,7 +124,7 @@ test("layout resolver finds the outer project config from inside a self-hosted n
     const authoredRoot = path.join(rootDir, "harness");
     mkdirSync(path.join(authoredRoot, ".git"), { recursive: true });
     writeFileSync(path.join(authoredRoot, "harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
-    const nestedCwd = path.join(authoredRoot, "planning", "tasks");
+    const nestedCwd = path.join(authoredRoot, "tasks");
     mkdirSync(nestedCwd, { recursive: true });
 
     const layout = resolveHarnessLayout(nestedCwd);

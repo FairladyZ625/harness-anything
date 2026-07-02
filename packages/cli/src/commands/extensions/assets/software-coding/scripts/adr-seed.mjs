@@ -11,7 +11,7 @@ if (!contextPath || !resultPath) {
 const context = JSON.parse(readFileSync(contextPath, "utf8"));
 const catalog = JSON.parse(readFileSync(new URL("../template-catalog.json", import.meta.url), "utf8"));
 const locale = context.inputs?.locale === "zh-CN" ? "zh-CN" : "en-US";
-const adrRoot = path.join(context.paths.authoredRoot, "adr");
+const adrRoot = context.paths.adrRoot;
 
 mkdirSync(adrRoot, { recursive: true });
 const produced = [
@@ -26,7 +26,7 @@ writeFileSync(resultPath, JSON.stringify({
     scriptId: context.scriptId,
     source: context.source,
     verticalId: context.verticalId,
-    adrRoot: "adr",
+    adrRoot: path.relative(context.paths.authoredRoot, adrRoot).split(path.sep).join("/"),
     templateRefs: ["template://repository/adr-readme@1", "template://repository/adr-template@1"]
   },
   produced

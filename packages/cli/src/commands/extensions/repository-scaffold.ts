@@ -45,8 +45,10 @@ function resolveScaffoldPath(template: string, layout: ReturnType<typeof resolve
     .replaceAll("{{paths.authoredRoot}}", layout.authoredRoot)
     .replaceAll("{{paths.standardsRoot}}", layout.standardsRoot)
     .replaceAll("{{paths.contextRoot}}", layout.contextRoot)
-    .replaceAll("{{paths.planningRoot}}", layout.planningRoot)
-    .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot);
+    .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot)
+    .replaceAll("{{paths.decisionsRoot}}", layout.decisionsRoot)
+    .replaceAll("{{paths.sessionsRoot}}", layout.sessionsRoot)
+    .replaceAll("{{paths.adrRoot}}", layout.adrRoot);
   if (resolved.includes("{{") || resolved.includes("}}")) {
     throw new Error(`unsupported repository scaffold path: ${template}`);
   }

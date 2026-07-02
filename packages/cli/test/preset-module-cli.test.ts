@@ -136,7 +136,7 @@ test("CLI new-task honors harness.yaml custom authored layout", () => {
       "  authoredRoot: .harness-private/coding-agent-harness",
       "  localRoot: .harness-local",
       "tasks:",
-      "  root: .harness-private/coding-agent-harness/planning/tasks",
+      "  root: .harness-private/coding-agent-harness/tasks",
       ""
     ].join("\n"));
 
@@ -151,7 +151,7 @@ test("CLI new-task honors harness.yaml custom authored layout", () => {
     ]);
 
     assert.equal(created.ok, true);
-    assert.match(created.packagePath, /^\.harness-private\/coding-agent-harness\/planning\/tasks\/task_/u);
+    assert.match(created.packagePath, /^\.harness-private\/coding-agent-harness\/tasks\/task_/u);
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "closeout.md")), true);
     assert.equal(existsSync(path.join(rootDir, ".harness-local", "write-journal", "writes.jsonl")), true);
   });
@@ -172,9 +172,9 @@ test("CLI new-task honors explicit authored root context without global pollutio
     ]);
 
     assert.equal(created.ok, true);
-    assert.match(created.packagePath, /^\.custom-harness\/planning\/tasks\/task_/u);
+    assert.match(created.packagePath, /^\.custom-harness\/tasks\/task_/u);
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "INDEX.md")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness", "planning", "tasks")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness", "tasks")), false);
 
     const defaultRun = runJson(rootDir, [
       "new-task",
@@ -185,7 +185,7 @@ test("CLI new-task honors explicit authored root context without global pollutio
       "--preset",
       "standard-task"
     ]);
-    assert.match(defaultRun.packagePath, /^harness\/planning\/tasks\/task_/u);
+    assert.match(defaultRun.packagePath, /^harness\/tasks\/task_/u);
   });
 });
 
@@ -195,8 +195,7 @@ test("CLI new-task honors private self-host harness structure layout", () => {
       "version: 2",
       "structure:",
       "  harnessRoot: coding-agent-harness",
-      "  planningRoot: coding-agent-harness/planning",
-      "  tasksRoot: coding-agent-harness/planning/tasks",
+      "  tasksRoot: coding-agent-harness/tasks",
       "  generatedRoot: coding-agent-harness/governance/generated",
       ""
     ].join("\n"));
@@ -212,7 +211,7 @@ test("CLI new-task honors private self-host harness structure layout", () => {
     ]);
 
     assert.equal(created.ok, true);
-    assert.match(created.packagePath, /^\.harness-private\/coding-agent-harness\/planning\/tasks\/task_/u);
+    assert.match(created.packagePath, /^\.harness-private\/coding-agent-harness\/tasks\/task_/u);
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "closeout.md")), true);
   });
 });
@@ -455,7 +454,7 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
 
     const scaffolded = runJson(rootDir, ["module", "scaffold", "billing"]);
     assert.equal(scaffolded.ok, true);
-    assert.equal(scaffolded.path, "harness/planning/modules/billing/module_plan.md");
+    assert.equal(scaffolded.path, "harness/modules/billing/module_plan.md");
 
     const stepped = runJson(rootDir, ["module-step", "billing", "BILL-01", "--state", "done"]);
     assert.equal(stepped.ok, true);

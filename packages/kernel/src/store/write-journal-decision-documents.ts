@@ -32,5 +32,5 @@ export function decisionDocumentTargetPath(rootInput: HarnessLayoutInput, op: Pi
   if (isDecisionDocumentPayload(op.payload) && op.payload.decision.decision_id !== decisionId) {
     rejectWrite(`decision payload id ${op.payload.decision.decision_id} does not match entity ${op.entityId}`, op.entityId);
   }
-  return path.join(resolveHarnessLayout(rootInput).authoredRoot, "decisions", `decision-${decisionId}`, "decision.md");
+  return resolveHarnessLayout(rootInput).decisionDocumentPath(decisionId);
 }

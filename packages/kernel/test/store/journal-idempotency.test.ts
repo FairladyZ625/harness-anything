@@ -17,7 +17,7 @@ test("WriteCoordinator accepts duplicate op ids idempotently", () => {
 
     const report = Effect.runSync(coordinator.flush("explicit"));
     assert.equal(report.opCount, 1);
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/progress.md"), "utf8"), "first");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), "first");
   });
 });
 

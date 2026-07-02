@@ -85,7 +85,7 @@ test("Multica adopt writes only local binding and does not write external status
     });
 
     const result = Effect.runSync(service.adopt({ taskId: "task-1", ref: "FAI-1" }));
-    const index = readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md"), "utf8");
+    const index = readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8");
 
     assert.deepEqual(result, { taskId: "task-1", engine: "multica", ref: "FAI-1" });
     assert.match(index, /engine: multica/);
@@ -133,8 +133,8 @@ test("Multica adopt uses explicit authored root for reads, claims, and writes", 
     const duplicateRef = Effect.runSyncExit(service.adopt({ taskId: "task-2", ref: "FAI-1" }));
     const duplicateTask = Effect.runSyncExit(service.adopt({ taskId: "task-1", ref: "FAI-2" }));
 
-    assert.equal(existsSync(path.join(rootDir, ".custom-harness/planning/tasks/task-1/INDEX.md")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, ".custom-harness/tasks/task-1/INDEX.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md")), false);
     assert.equal(duplicateRef._tag, "Failure");
     assert.match(String(duplicateRef.cause), /DuplicateExternalBinding/);
     assert.equal(duplicateTask._tag, "Failure");
@@ -158,7 +158,7 @@ test("Multica adopt claim rejects duplicate refs before authored scan can see th
 
     assert.equal(result._tag, "Failure");
     assert.match(String(result.cause), /DuplicateAdoptClaim/);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md")), false);
   });
 });
 

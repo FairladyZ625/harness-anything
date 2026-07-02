@@ -289,7 +289,7 @@ function writeTaskPackage(
     readonly lessons: string;
   }
 ): void {
-  const taskDir = path.join(rootDir, "harness/planning/tasks", taskId);
+  const taskDir = path.join(rootDir, "harness/tasks", taskId);
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(path.join(taskDir, "INDEX.md"), [
     "---",

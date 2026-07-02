@@ -67,7 +67,7 @@ function writeIndex(
     readonly lessonCandidates?: boolean;
   }
 ): void {
-  const taskDir = path.join(rootDir, "harness/planning/tasks", directoryName);
+  const taskDir = path.join(rootDir, "harness/tasks", directoryName);
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(path.join(taskDir, "INDEX.md"), [
     "---",

@@ -50,8 +50,8 @@ test("WriteCoordinator validates supersede batch before writing any document", (
       /absolute paths are not allowed/
     );
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-old-old/INDEX.md")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/absolute.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-old-old/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-new-new/absolute.md")), false);
   });
 });
 
@@ -74,8 +74,8 @@ test("WriteCoordinator validates package create batch before writing any documen
       /absolute paths are not allowed/
     );
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/INDEX.md")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-new-new/absolute.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-new-new/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-new-new/absolute.md")), false);
   });
 });
 
@@ -94,8 +94,8 @@ test("WriteCoordinator rejects hard delete before journaling when policy payload
     );
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
 
-    mkdirSync(path.join(rootDir, "harness/planning/tasks/task-hard"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/planning/tasks/task-hard/INDEX.md"), [
+    mkdirSync(path.join(rootDir, "harness/tasks/task-hard"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/tasks/task-hard/INDEX.md"), [
       "---",
       "schema: task-package/v2",
       "task_id: task-hard",
@@ -125,7 +125,7 @@ test("WriteCoordinator rejects hard delete before journaling when policy payload
       })),
       /invalid package disposition/
     );
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-hard/INDEX.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-hard/INDEX.md")), true);
   });
 });
 
@@ -369,7 +369,7 @@ test("double stale lock takeover race keeps a single committer", async () => {
       execFileAsync(process.execPath, ["--input-type=module", "-e", childScript], { cwd: process.cwd() })
     ]);
 
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/race.md"), "utf8"), "second");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/race.md"), "utf8"), "second");
     assert.equal(readdirSync(path.join(rootDir, ".harness/locks")).length, 0);
     assert.deepEqual(
       readdirSync(path.join(rootDir, ".harness/write-journal")).filter((entry) => entry.includes(".stale.")),

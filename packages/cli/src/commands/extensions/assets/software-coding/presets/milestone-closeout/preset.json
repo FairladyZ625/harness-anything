@@ -11,10 +11,10 @@
     "check": {
       "type": "script",
       "command": "scripts/preset-action.mjs",
-      "reads": ["{{outputRoot}}/**", "{{paths.authoredRoot}}/planning/milestones/**"],
+      "reads": ["{{outputRoot}}/**", "{{paths.milestonesRoot}}/**"],
       "writes": ["{{outputRoot}}/**"],
       "inputs": {
-        "milestoneCriteriaRoots": "{{paths.authoredRoot}}/planning/milestones"
+        "milestoneCriteriaRoots": "{{paths.milestonesRoot}}"
       }
     }
   },

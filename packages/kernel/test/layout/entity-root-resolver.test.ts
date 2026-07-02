@@ -8,7 +8,7 @@ import { resolveEntityRoot } from "../../src/layout/index.ts";
 
 function makeHarnessRoot(): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-root-"));
-  const tasksRoot = path.join(rootDir, "harness", "planning", "tasks");
+  const tasksRoot = path.join(rootDir, "harness", "tasks");
   mkdirSync(path.join(tasksRoot, "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
   writeFileSync(path.join(tasksRoot, "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner", "INDEX.md"), [
@@ -26,7 +26,7 @@ test("entity root resolver maps task refs to the task package index", () => {
 
   const resolved = resolveEntityRoot(rootDir, "task/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q");
 
-  assert.equal(resolved.rootPath, path.join(rootDir, "harness", "planning", "tasks", "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner"));
+  assert.equal(resolved.rootPath, path.join(rootDir, "harness", "tasks", "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner"));
   assert.equal(resolved.documentPath, path.join(resolved.rootPath, "INDEX.md"));
 });
 
@@ -45,7 +45,7 @@ test("entity root resolver maps fact refs to the owner task facts ledger", () =>
 
   const resolved = resolveEntityRoot(rootDir, "fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/F-a3f2");
 
-  assert.equal(resolved.rootPath, path.join(rootDir, "harness", "planning", "tasks", "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner"));
+  assert.equal(resolved.rootPath, path.join(rootDir, "harness", "tasks", "task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q-owner"));
   assert.equal(resolved.documentPath, path.join(resolved.rootPath, "facts.md"));
   assert.equal(resolved.anchor, "F-a3f2");
 });

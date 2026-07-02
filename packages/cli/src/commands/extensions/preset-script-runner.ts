@@ -109,6 +109,10 @@ export function runScriptEntrypoint(
       rootDir: layout.rootDir,
       authoredRoot: layout.authoredRoot,
       tasksRoot: layout.tasksRoot,
+      decisionsRoot: layout.decisionsRoot,
+      sessionsRoot: layout.sessionsRoot,
+      adrRoot: layout.adrRoot,
+      milestonesRoot: layout.milestonesRoot,
       generatedRoot: layout.generatedRoot,
       localRoot: layout.localRoot
     },

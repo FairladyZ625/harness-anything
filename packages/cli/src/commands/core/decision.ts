@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Effect } from "effect";
 import {
   readDecisionDocument,
@@ -6,6 +7,7 @@ import {
   type DecisionWriteRejected
 } from "../../../../application/src/index.ts";
 import type { DecisionPackage, DecisionState, WriteError } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -26,7 +28,7 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
   const service = context.decisionWriteService;
   switch (action.kind) {
     case "decision-propose":
-      return runPropose(service, action);
+      return runPropose(context.layoutInput, service, action);
     case "decision-accept":
     case "decision-reject":
     case "decision-defer":
@@ -39,16 +41,17 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
 };
 
 function runPropose(
+  rootInput: HarnessLayoutInput,
   service: DecisionWriteService,
   action: Extract<DecisionAction, { readonly kind: "decision-propose" }>
 ): Effect.Effect<CliResult, WriteError> {
   const now = new Date().toISOString();
   const decision = proposedDecision(action, now);
-  if (action.dryRun) return Effect.succeed(decisionResult("decision-propose", decision.decision_id, decision.state, true));
+  if (action.dryRun) return Effect.succeed(decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true));
   return service.propose({ decision, body: action.body }).pipe(
     Effect.match({
       onFailure: (error): CliResult => decisionFailure("decision-propose", decision.decision_id, error),
-      onSuccess: (result): CliResult => decisionResult("decision-propose", result.decisionId, result.state, false)
+      onSuccess: (result): CliResult => decisionResult(rootInput, "decision-propose", result.decisionId, result.state, false)
     })
   );
 }
@@ -65,18 +68,18 @@ function runTransition(
     Effect.flatMap((current) => {
       const arbiter = parseActor(action.arbiter) ?? current.arbiter;
       const request = { current, arbiter, decidedAt: action.decidedAt, body: action.body };
-      if (action.dryRun) return Effect.succeed(decisionResult(action.kind, current.decision_id, transitionState(action.kind), true));
+      if (action.dryRun) return Effect.succeed(decisionResult(rootInput, action.kind, current.decision_id, transitionState(action.kind), true));
       switch (action.kind) {
         case "decision-accept":
-          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(action.kind, result.decisionId, result.state, false) }));
+          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
         case "decision-reject":
-          return service.reject(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(action.kind, result.decisionId, result.state, false) }));
+          return service.reject(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
         case "decision-defer":
-          return service.defer(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(action.kind, result.decisionId, result.state, false) }));
+          return service.defer(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
         case "decision-supersede":
-          return service.supersede(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(action.kind, result.decisionId, result.state, false) }));
+          return service.supersede(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
         case "decision-retire":
-          return service.retire(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(action.kind, result.decisionId, result.state, false) }));
+          return service.retire(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
       }
     }),
     Effect.catchTag("DecisionReadFailed", () => Effect.succeed({
@@ -99,11 +102,11 @@ function runAmend(
   }).pipe(
     Effect.flatMap((current) => {
       const next = { ...current, ...(action.title ? { title: action.title } : {}) };
-      if (action.dryRun) return Effect.succeed(decisionResult("decision-amend", current.decision_id, current.state, true));
+      if (action.dryRun) return Effect.succeed(decisionResult(rootInput, "decision-amend", current.decision_id, current.state, true));
       return service.amend({ current, next, body: action.body }).pipe(
         Effect.match({
           onFailure: (error): CliResult => decisionFailure("decision-amend", current.decision_id, error),
-          onSuccess: (result): CliResult => decisionResult("decision-amend", result.decisionId, result.state, false)
+          onSuccess: (result): CliResult => decisionResult(rootInput, "decision-amend", result.decisionId, result.state, false)
         })
       );
     }),
@@ -164,13 +167,15 @@ function transitionState(kind: TransitionAction["kind"]): DecisionState {
   }
 }
 
-function decisionResult(command: string, decisionId: string, state: string, dryRun: boolean): CliResult {
+function decisionResult(rootInput: HarnessLayoutInput, command: string, decisionId: string, state: string, dryRun: boolean): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const documentPath = layout.decisionDocumentPath(decisionId);
   return {
     ok: true,
     command,
     decisionId,
     decisionState: state,
-    path: `harness/decisions/decision-${decisionId}/decision.md`,
+    path: path.relative(layout.rootDir, documentPath).split(path.sep).join("/"),
     report: { schema: "decision-write-cli-report/v1", dryRun }
   };
 }

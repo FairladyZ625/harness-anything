@@ -29,16 +29,15 @@
   "repositoryScaffold": {
     "entityRoots": [
       { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" },
-      { "entityKind": "decision", "path": "{{paths.authoredRoot}}/decisions", "create": "lazy" }
+      { "entityKind": "decision", "path": "{{paths.decisionsRoot}}", "create": "lazy" }
     ],
     "dirs": [
       { "path": "{{paths.authoredRoot}}", "create": "init" },
       { "path": "{{paths.authoredRoot}}/standards", "create": "init" },
       { "path": "{{paths.authoredRoot}}/context", "create": "init" },
       { "path": "{{paths.authoredRoot}}/context/architecture", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/adr", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/planning", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/sessions", "create": "lazy" }
+      { "path": "{{paths.adrRoot}}", "create": "init" },
+      { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
     ],
     "seededDocs": [
       {
@@ -81,15 +80,15 @@
       "type": "script",
       "command": "scripts/adr-seed.mjs",
       "reads": [],
-      "writes": ["{{paths.authoredRoot}}/adr/**"],
+      "writes": ["{{paths.adrRoot}}/**"],
       "inputs": { "locale": "en-US" },
       "metadata": {
         "description": "Seed repository ADR README and template documents.",
         "purpose": "scaffold",
         "contractVersion": "script-entry/v1",
         "produces": [
-          "{{paths.authoredRoot}}/adr/README.md",
-          "{{paths.authoredRoot}}/adr/0000-template.md"
+          "{{paths.adrRoot}}/README.md",
+          "{{paths.adrRoot}}/0000-template.md"
         ]
       }
     }

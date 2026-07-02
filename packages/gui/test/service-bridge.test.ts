@@ -44,7 +44,7 @@ test("GUI service bridge honors explicit authored root context", async () => {
     const document = await bridge.invoke("getTaskDocument", { taskId: "task-1", path: "INDEX.md" }) as { readonly ok: boolean; readonly body?: string };
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Custom GUI Task/);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -104,8 +104,8 @@ test("GUI service bridge shipped methods are registry-driven and deferred method
 });
 
 function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string, authoredRoot = "harness"): void {
-  mkdirSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId), { recursive: true });
-  writeFileSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId, "INDEX.md"), [
+  mkdirSync(path.join(rootDir, authoredRoot, "tasks", taskId), { recursive: true });
+  writeFileSync(path.join(rootDir, authoredRoot, "tasks", taskId, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,

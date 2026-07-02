@@ -20,7 +20,7 @@ test("WriteCoordinator recovers queued journal entries after crash before waterm
 
     assert.equal(report.replayedOps, 1);
     assert.equal(report.recoveredWatermark, "op-1");
-    assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/progress.md"), "utf8"), "replayed");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), "replayed");
   });
 });
 

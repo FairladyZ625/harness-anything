@@ -61,7 +61,7 @@ function writeHarnessYaml(filePath: string, projectName: string, forceNameUpdate
     "  authoredRoot: harness",
     "  localRoot: .harness",
     "tasks:",
-    "  root: harness/planning/tasks",
+    "  root: harness/tasks",
     "  idPolicy: random-ulid",
     "settings:",
     "  locale: zh-CN",

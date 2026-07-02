@@ -130,7 +130,7 @@ function collectRelationEdges(
       }
     }
 
-    const factsPath = path.join(taskDir, "facts.md");
+    const factsPath = path.join(taskDir, layout.factDocumentName);
     if (existsSync(factsPath)) {
       const factsBody = readFileSync(factsPath, "utf8");
       edges.push(...recordsToEdges({
@@ -256,7 +256,7 @@ function readDecisionSources(rootInput: HarnessLayoutInput): ReadonlyArray<Decis
   const layout = resolveHarnessLayout(rootInput);
   const decisions: Array<Omit<DecisionSource, "visible"> & { readonly watermark: string }> = [];
   const watermarkCounts = new Map<string, number>();
-  for (const filePath of listTextFiles(path.join(layout.authoredRoot, "decisions"))) {
+  for (const filePath of listTextFiles(layout.decisionsRoot)) {
     if (path.basename(filePath) !== "decision.md") continue;
     const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
@@ -287,7 +287,7 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
     const taskId = readTaskPackageId(taskDir);
     taskIds.add(taskId);
-    const factsPath = path.join(taskDir, "facts.md");
+    const factsPath = path.join(taskDir, layout.factDocumentName);
     if (!existsSync(factsPath)) continue;
     for (const record of parseFactFlowRecords(readFileSync(factsPath, "utf8"))) {
       factRefs.add(`${taskId}/${record.fact_id}`);

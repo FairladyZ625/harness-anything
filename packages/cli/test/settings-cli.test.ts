@@ -181,7 +181,7 @@ test("CLI custom vertical gates require user dev mode and project gate", () => {
 
     const bothGates = runJson(rootDir, ["new-task", "--title", "Both Gates"], false);
     assert.equal(bothGates.error.code, "custom_vertical_contract_missing");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks")), false);
   });
 });
 

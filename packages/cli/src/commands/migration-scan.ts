@@ -110,7 +110,7 @@ function collectV2Tasks(sourceRoot: string): ReadonlyArray<LegacyScanEntry> {
       .filter((name) => !name.startsWith("_"))
       .map((name) => taskEntry(sourceRoot, normalizeSlashes(path.relative(sourceRoot, path.join(layout.tasksRoot, name))), `harness/legacy/tasks/${name}`)));
   }
-  const modulesRoot = path.join(layout.planningRoot, "modules");
+  const modulesRoot = path.join(layout.authoredRoot, "modules");
   if (isPathInside(sourceRoot, modulesRoot)) {
     for (const moduleKey of listDirectories(modulesRoot)) {
       if (moduleKey.startsWith("_")) continue;

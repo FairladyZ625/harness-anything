@@ -50,13 +50,13 @@
   "repositoryScaffold": {
     "entityRoots": [
       { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" },
-      { "entityKind": "decision", "path": "{{paths.authoredRoot}}/decisions", "create": "lazy" }
+      { "entityKind": "decision", "path": "{{paths.decisionsRoot}}", "create": "lazy" }
     ],
     "dirs": [
       { "path": "{{paths.authoredRoot}}/standards", "create": "init" },
       { "path": "{{paths.authoredRoot}}/context", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/adr", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/sessions", "create": "lazy" }
+      { "path": "{{paths.adrRoot}}", "create": "init" },
+      { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
     ],
     "seededDocs": [
       {

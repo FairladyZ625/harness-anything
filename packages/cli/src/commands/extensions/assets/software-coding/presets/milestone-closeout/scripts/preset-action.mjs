@@ -10,7 +10,7 @@ const artifactsDir = path.join(taskRoot, "artifacts");
 mkdirSync(artifactsDir, { recursive: true });
 
 const criteriaRoots = [
-  path.join(context.paths.authoredRoot, "planning", "milestones")
+  context.paths.milestonesRoot
 ];
 const criteria = criteriaRoots
   .flatMap((root) => walkMarkdown(root))

@@ -35,7 +35,7 @@
   "items": [
     {
       "classification": "preserve",
-      "summary": "Local task packages remain authored Markdown under harness/planning/tasks."
+      "summary": "Local task packages remain authored Markdown under harness/tasks."
     },
     {
       "classification": "preserve",

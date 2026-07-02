@@ -53,8 +53,10 @@ function resolveDeclaredScopes(
       .replaceAll("{{paths.localRoot}}", layout.localRoot)
       .replaceAll("{{paths.authoredRoot}}", layout.authoredRoot)
       .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot)
-      .replaceAll("{{paths.decisionsRoot}}", path.join(layout.authoredRoot, "decisions"))
-      .replaceAll("{{paths.sessionsRoot}}", path.join(layout.authoredRoot, "sessions"))
+      .replaceAll("{{paths.decisionsRoot}}", layout.decisionsRoot)
+      .replaceAll("{{paths.sessionsRoot}}", layout.sessionsRoot)
+      .replaceAll("{{paths.adrRoot}}", layout.adrRoot)
+      .replaceAll("{{paths.milestonesRoot}}", layout.milestonesRoot)
       .replaceAll("{{outputRoot}}", outputRoot);
     if (allowRootRead) {
       resolved = resolved.replaceAll("{{paths.rootDir}}", layout.rootDir);
@@ -97,9 +99,8 @@ function forbiddenWriteRoots(layout: ReturnType<typeof resolveHarnessLayout>): R
     layout.writeJournalRoot,
     layout.projectionPath,
     layout.tasksRoot,
-    path.join(layout.authoredRoot, "tasks"),
-    path.join(layout.authoredRoot, "decisions"),
-    path.join(layout.authoredRoot, "sessions"),
+    layout.decisionsRoot,
+    layout.sessionsRoot,
     path.join(layout.rootDir, ".git")
   ];
 }

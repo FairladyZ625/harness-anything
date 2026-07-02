@@ -21,8 +21,11 @@ export interface HarnessLayout {
   readonly authoredRoot: string;
   readonly standardsRoot: string;
   readonly contextRoot: string;
-  readonly planningRoot: string;
   readonly tasksRoot: string;
+  readonly decisionsRoot: string;
+  readonly sessionsRoot: string;
+  readonly adrRoot: string;
+  readonly milestonesRoot: string;
   readonly legacyRoot: string;
   readonly legacyTasksRoot: string;
   readonly legacyDocsRoot: string;
@@ -39,9 +42,14 @@ export interface HarnessLayout {
   readonly payloadsRoot: string;
   readonly locksRoot: string;
   readonly claimsRoot: string;
+  readonly factDocumentName: "facts.md";
   readonly taskPackagePath: (taskId: TaskId) => string;
   readonly createTaskPackagePath: (taskId: TaskId, slug?: string) => string;
   readonly taskDocumentPath: (taskId: TaskId, documentPath: string) => string;
+  readonly taskFactDocumentPath: (taskId: TaskId) => string;
+  readonly decisionPackagePath: (decisionId: string) => string;
+  readonly decisionDocumentPath: (decisionId: string) => string;
+  readonly sessionDocumentPath: (sessionId: string) => string;
 }
 
 const crockfordBase32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -140,19 +148,27 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
   const localRoot = resolveRootRelativePath(resolvedRoot, localRootSetting, "layout.localRoot");
   const tasksRoot = tasksRootSetting
     ? resolveRootRelativePath(resolvedRoot, tasksRootSetting, "tasks.root")
-    : path.join(authoredRoot, "planning", "tasks");
+    : path.join(authoredRoot, "tasks");
+  const decisionsRoot = path.join(authoredRoot, "decisions");
+  const sessionsRoot = path.join(authoredRoot, "sessions");
+  const adrRoot = path.join(authoredRoot, "adr");
+  const milestonesRoot = path.join(authoredRoot, "milestones");
   const generatedRoot = generatedRootSetting
     ? resolveRootRelativePath(resolvedRoot, generatedRootSetting, "structure.generatedRoot")
     : path.join(localRoot, "generated");
   const writeJournalRoot = path.join(localRoot, "write-journal");
+  const factDocumentName = "facts.md";
   return {
     rootDir: resolvedRoot,
     configPath: settings.configPath,
     authoredRoot,
     standardsRoot: path.join(authoredRoot, "standards"),
     contextRoot: path.join(authoredRoot, "context"),
-    planningRoot: path.join(authoredRoot, "planning"),
     tasksRoot,
+    decisionsRoot,
+    sessionsRoot,
+    adrRoot,
+    milestonesRoot,
     legacyRoot,
     legacyTasksRoot: path.join(legacyRoot, "tasks"),
     legacyDocsRoot: path.join(legacyRoot, "docs"),
@@ -169,6 +185,7 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     payloadsRoot: path.join(writeJournalRoot, "payloads"),
     locksRoot: path.join(localRoot, "locks"),
     claimsRoot: path.join(localRoot, "adopt-claims"),
+    factDocumentName,
     taskPackagePath: (taskId) => {
       validateTaskIdSyntax(taskId);
       return findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId);
@@ -181,6 +198,22 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     taskDocumentPath: (taskId, documentPath) => {
       const safePath = normalizeRelativeDocumentPath(documentPath);
       return path.join(findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId), safePath);
+    },
+    taskFactDocumentPath: (taskId) => {
+      validateTaskIdSyntax(taskId);
+      return path.join(findTaskPackagePathInTasksRoot(tasksRoot, taskId) ?? path.join(tasksRoot, taskId), factDocumentName);
+    },
+    decisionPackagePath: (decisionId) => {
+      const safeDecisionId = normalizeEntityRootSegment(decisionId, "decision id");
+      return path.join(decisionsRoot, `decision-${safeDecisionId}`);
+    },
+    decisionDocumentPath: (decisionId) => {
+      const safeDecisionId = normalizeEntityRootSegment(decisionId, "decision id");
+      return path.join(decisionsRoot, `decision-${safeDecisionId}`, "decision.md");
+    },
+    sessionDocumentPath: (sessionId) => {
+      const safeSessionId = normalizeEntityRootSegment(sessionId, "session id");
+      return path.join(sessionsRoot, `${safeSessionId}.md`);
     }
   };
 }
@@ -370,6 +403,14 @@ function normalizeTaskSlug(value: string): string {
   const normalized = slugifyTaskTitle(value);
   if (normalized.includes("/") || normalized.includes("..")) {
     throw new Error(`invalid task slug: ${value}`);
+  }
+  return normalized;
+}
+
+function normalizeEntityRootSegment(value: string, label: string): string {
+  const normalized = normalizeRelativeDocumentPath(value);
+  if (normalized !== value || normalized.includes("/")) {
+    throw new Error(`${label} must be a portable single path segment: ${value}`);
   }
   return normalized;
 }

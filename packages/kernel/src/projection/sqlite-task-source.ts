@@ -53,7 +53,7 @@ export function readMarkdownSource(rootInput: HarnessLayoutInput): {
         sourcePath: sourcePath(rootDir, entry.indexPath),
         body: entry.body
       })),
-      ...readRelationGraphSourceInputs(rootDir, layout.authoredRoot, entries)
+      ...readRelationGraphSourceInputs(rootDir, layout, entries)
     ])),
     warnings
   };
@@ -135,18 +135,18 @@ function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; rea
 
 function readRelationGraphSourceInputs(
   rootDir: string,
-  authoredRoot: string,
+  layout: ReturnType<typeof resolveHarnessLayout>,
   entries: ReadonlyArray<TaskSourceEntry>
 ): ReadonlyArray<{ readonly kind: string; readonly sourcePath: string; readonly body: string }> {
   const factsInputs = entries
-    .map((entry) => path.join(path.dirname(entry.indexPath), "facts.md"))
+    .map((entry) => path.join(path.dirname(entry.indexPath), layout.factDocumentName))
     .filter((factsPath) => existsSync(factsPath))
     .map((factsPath) => ({
       kind: "task-facts",
       sourcePath: sourcePath(rootDir, factsPath),
       body: readFileSync(factsPath, "utf8")
     }));
-  const decisionInputs = listDecisionDocuments(path.join(authoredRoot, "decisions"))
+  const decisionInputs = listDecisionDocuments(layout.decisionsRoot)
     .map((decisionPath) => ({
       kind: "decision-document",
       sourcePath: sourcePath(rootDir, decisionPath),

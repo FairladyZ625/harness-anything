@@ -234,7 +234,7 @@ test("post-merge typed relation cycle detection terminates across decision and f
 });
 
 function writeIndex(rootDir: string, taskDirName: string, title: string, taskId = taskDirName): void {
-  const taskRoot = path.join(rootDir, "harness/planning/tasks", taskDirName);
+  const taskRoot = path.join(rootDir, "harness/tasks", taskDirName);
   mkdirSync(taskRoot, { recursive: true });
   writeFileSync(path.join(taskRoot, "INDEX.md"), [
     "---",
@@ -263,7 +263,7 @@ function writeIndex(rootDir: string, taskDirName: string, title: string, taskId 
 type FactFixture = Omit<FactRecord, "provenance"> & Partial<Pick<FactRecord, "provenance">>;
 
 function writeFacts(rootDir: string, taskId: string, facts: ReadonlyArray<FactFixture>, relations: ReadonlyArray<EntityRelationRecord> = []): void {
-  const taskRoot = path.join(rootDir, "harness/planning/tasks", taskId);
+  const taskRoot = path.join(rootDir, "harness/tasks", taskId);
   mkdirSync(taskRoot, { recursive: true });
   writeFileSync(path.join(taskRoot, "facts.md"), [
     "# Facts",

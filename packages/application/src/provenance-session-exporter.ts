@@ -108,10 +108,10 @@ function readSessionDocument(
 function resolveSessionPath(rootInput: HarnessLayoutInput, sessionId: string): { readonly absolutePath: string; readonly relativePath: string } {
   assertSafeSessionId(sessionId);
   const layout = resolveHarnessLayout(rootInput);
-  const relativePath = `sessions/${sessionId}.md`;
+  const absolutePath = layout.sessionDocumentPath(sessionId);
   return {
-    absolutePath: path.join(layout.authoredRoot, "sessions", `${sessionId}.md`),
-    relativePath
+    absolutePath,
+    relativePath: path.relative(layout.authoredRoot, absolutePath).split(path.sep).join("/")
   };
 }
 

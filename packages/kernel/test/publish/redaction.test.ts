@@ -10,7 +10,7 @@ test("publishable projection rejects unsafe payloads before producing public out
     links: [
       {
         label: "Private artifact",
-        href: "PRIVATE:coding-agent-harness/planning/tasks/kr-07/review.md",
+        href: "PRIVATE:coding-agent-harness/tasks/kr-07/review.md",
         kind: "artifact"
       }
     ],

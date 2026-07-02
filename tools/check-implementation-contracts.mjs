@@ -459,6 +459,21 @@ for (const file of files) {
     record(`${rel}: Multica source may be referenced only from private design docs, never from public implementation`);
   }
 
+  if (rel.startsWith("packages/") && rel.includes("/src/") && rel !== "packages/kernel/src/layout/index.ts") {
+    if (/planning\/tasks|planningRoot|\{\{paths\.authoredRoot\}\}\/planning|path\.join\([^)]*["']planning["']/.test(text)) {
+      record(`${rel}: authored planning roots must use layout root fields; planning/tasks, planningRoot, and authoredRoot/planning path concatenation are no longer valid production roots`);
+    }
+    if (
+      /path\.join\([^)]*(?:authoredRoot|context\.paths\.authoredRoot)[^)]*["'](?:decisions|sessions|adr)["']/.test(text) ||
+      /\{\{paths\.authoredRoot\}\}\/(?:decisions|sessions|adr)\b/.test(text)
+    ) {
+      record(`${rel}: decision/session/adr roots must come from HarnessLayout or ScriptHost context path tokens, not authoredRoot string concatenation`);
+    }
+    if (/path\.join\([^)]*["']facts\.md["']/.test(text)) {
+      record(`${rel}: fact document paths must use layout.factDocumentName or layout.taskFactDocumentPath`);
+    }
+  }
+
   if (rel.startsWith("packages/kernel/src/domain/")) {
     if (/\bfrom\s+["']effect["']|\bimport\s*\(\s*["']effect["']\s*\)|\b(?:Effect|Context|Layer|Queue|Semaphore)\b/.test(text)) {
       record(`${rel}: domain must not use Effect runtime, Context, Layer, Queue, or Semaphore`);

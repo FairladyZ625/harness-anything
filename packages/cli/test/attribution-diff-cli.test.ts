@@ -16,7 +16,7 @@ test("new-task records optional createdBy from local git user config and project
 
     const created = runJson(rootDir, ["new-task", "--title", "Attribution Task"]);
     const taskId = assertGeneratedTaskId(created.taskId);
-    const indexBody = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-attribution-task/INDEX.md`), "utf8");
+    const indexBody = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-attribution-task/INDEX.md`), "utf8");
 
     assert.match(indexBody, /createdBy:\n  name: M2 Commander\n  email: m2@example\.com/);
 
@@ -39,7 +39,7 @@ test("new-task omits createdBy deterministically when git user config is unavail
       HOME: path.join(rootDir, "home")
     });
     const taskId = assertGeneratedTaskId(created.taskId);
-    const indexBody = readFileSync(path.join(rootDir, `harness/planning/tasks/${taskId}-anonymous-task/INDEX.md`), "utf8");
+    const indexBody = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-anonymous-task/INDEX.md`), "utf8");
 
     assert.equal(indexBody.includes("createdBy:"), false);
   });

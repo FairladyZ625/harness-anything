@@ -22,7 +22,7 @@ test("CLI process preset script entrypoint requires authorization and writes evi
     assert.equal(unauthorized.report.scriptAuthorized, false);
     assert.equal(unauthorized.evidenceBundle.startsWith(".harness/evidence/presets/publish-standard/"), true);
     assert.equal(existsSync(path.join(rootDir, unauthorized.evidenceBundle, "evidence.json")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/artifacts/evidence.json")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/artifacts/evidence.json")), false);
 
     const result = runJson(rootDir, ["preset", "action", "publish-standard", "scaffold", "--task", "task-1", "--allow-scripts"]);
 
@@ -31,12 +31,12 @@ test("CLI process preset script entrypoint requires authorization and writes evi
     assert.equal(result.report.scriptAuthorized, true);
     assert.equal(result.generated.some((filePath: string) => filePath.endsWith("references/publish-standard.md")), true);
     assert.equal(result.generated.some((filePath: string) => filePath.endsWith("artifacts/evidence.json")), true);
-    assert.equal(result.generated.every((filePath: string) => filePath.startsWith("harness/planning/tasks/task-1/")), true);
+    assert.equal(result.generated.every((filePath: string) => filePath.startsWith("harness/tasks/task-1/")), true);
     assert.equal(result.evidenceBundle.startsWith(".harness/evidence/presets/publish-standard/"), true);
     assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "context.json")), true);
     assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
     assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
-    const scriptEvidence = JSON.parse(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/artifacts/evidence.json"), "utf8"));
+    const scriptEvidence = JSON.parse(readFileSync(path.join(rootDir, "harness/tasks/task-1/artifacts/evidence.json"), "utf8"));
     assert.equal(scriptEvidence.mode, "capability-smoke");
   });
 });
@@ -109,7 +109,7 @@ test("CLI script command discovers and runs the vertical ADR seed scaffold", () 
     assert.equal(inspected.ok, true);
     assert.equal(inspected.script.id, "vertical:software-coding:adr-seed");
     assert.equal(inspected.script.source, "vertical");
-    assert.deepEqual(inspected.script.writes, ["{{paths.authoredRoot}}/adr/**"]);
+    assert.deepEqual(inspected.script.writes, ["{{paths.adrRoot}}/**"]);
 
     const result = runJson(rootDir, ["script", "run", "vertical:software-coding:adr-seed"]);
 
@@ -199,7 +199,7 @@ test("CLI script command rejects broad authored entity write roots before execut
 
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "script_scope_invalid_write");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1")), false);
   });
 });
 
@@ -267,7 +267,7 @@ test("CLI process preset script entrypoint rejects repository-wide declared writ
 
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "preset_write_scope_invalid");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1")), false);
   });
 });
 
@@ -304,7 +304,7 @@ test("CLI process preset script entrypoint rejects repository-wide recursive rea
 
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "preset_read_scope_invalid");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1")), false);
   });
 });
 
@@ -351,7 +351,7 @@ test("CLI process preset script entrypoint blocks out-of-scope filesystem writes
 
 test("CLI milestone-closeout preset script red-blocks task evidence missing milestone criteria and passes after mapped evidence is complete", () => {
   withTempRoot((rootDir) => {
-    writeFile(rootDir, "harness/planning/milestones/m2-5/feature-breakdown.md", [
+    writeFile(rootDir, "harness/milestones/m2-5/feature-breakdown.md", [
       "# M2.5 Feature Breakdown",
       "",
       "## Exit Criteria",
@@ -360,7 +360,7 @@ test("CLI milestone-closeout preset script red-blocks task evidence missing mile
       "- [x] Stub criterion still pending.",
       ""
     ].join("\n"));
-    writeFile(rootDir, "harness/planning/tasks/task-closeout/INDEX.md", [
+    writeFile(rootDir, "harness/tasks/task-closeout/INDEX.md", [
       "---",
       "schema: task-package/v2",
       "task_id: task-closeout",
@@ -369,7 +369,7 @@ test("CLI milestone-closeout preset script red-blocks task evidence missing mile
       "# Closeout fixture",
       ""
     ].join("\n"));
-    writeFile(rootDir, "harness/planning/tasks/task-closeout/task_plan.md", [
+    writeFile(rootDir, "harness/tasks/task-closeout/task_plan.md", [
       "# Plan",
       "",
       "## Task Evidence",
@@ -388,9 +388,9 @@ test("CLI milestone-closeout preset script red-blocks task evidence missing mile
     assert.equal(blocked.report.status, "blocked");
     assert.equal(blocked.report.criteriaSource, "milestone-feature-breakdown");
     assert.equal(blocked.report.items.some((item: Record<string, unknown>) => item.status === "red" && item.reason === "milestone_criterion_stub_or_placeholder"), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-closeout/artifacts/milestone-closeout-report.json")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-closeout/artifacts/milestone-closeout-report.json")), true);
 
-    writeFile(rootDir, "harness/planning/milestones/m2-5/feature-breakdown.md", [
+    writeFile(rootDir, "harness/milestones/m2-5/feature-breakdown.md", [
       "# M2.5 Feature Breakdown",
       "",
       "## Exit Criteria",
@@ -399,7 +399,7 @@ test("CLI milestone-closeout preset script red-blocks task evidence missing mile
       "- [x] Former open criterion now has source evidence.",
       ""
     ].join("\n"));
-    writeFile(rootDir, "harness/planning/tasks/task-closeout/task_plan.md", [
+    writeFile(rootDir, "harness/tasks/task-closeout/task_plan.md", [
       "# Plan",
       "",
       "## Task Evidence",
@@ -424,12 +424,11 @@ test("CLI legacy-migration preset action plans V2 task discovery and context for
       "version: 2",
       "structure:",
       "  harnessRoot: coding-agent-harness",
-      "  planningRoot: coding-agent-harness/planning",
-      "  tasksRoot: coding-agent-harness/planning/tasks",
+      "  tasksRoot: coding-agent-harness/tasks",
       ""
     ].join("\n"));
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/INDEX.md", "---\ntitle: V2 Task\nstatus: active\n---\n# V2 Task\n");
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/planning/tasks/v2-task/progress.md", "progress\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/tasks/v2-task/INDEX.md", "---\ntitle: V2 Task\nstatus: active\n---\n# V2 Task\n");
+    writeFile(rootDir, "old/.harness-private/coding-agent-harness/tasks/v2-task/progress.md", "progress\n");
     writeFile(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/overview.md", "# Architecture\n");
 
     const result = runJson(rootDir, ["preset", "action", "legacy-migration", "plan", "--task", "task-migration", "--allow-scripts"]);
@@ -437,11 +436,11 @@ test("CLI legacy-migration preset action plans V2 task discovery and context for
     assert.equal(result.ok, true);
     assert.equal(result.command, "preset-action");
     assert.equal(result.report.scan.summary.taskCount, 1);
-    assert.equal(result.report.scan.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/planning/tasks/v2-task"), true);
+    assert.equal(result.report.scan.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/tasks/v2-task"), true);
     const contextEntry = result.report.scan.entries.find((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/overview.md");
     assert.equal(contextEntry.forwardPath, "harness/context/architecture/overview.md");
-    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-migration/artifacts/legacy-migration-plan.json")), true);
-    assert.match(readFileSync(path.join(rootDir, "harness/planning/tasks/task-migration/artifacts/legacy-migration-plan.md"), "utf8"), /V2 Task/u);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-migration/artifacts/legacy-migration-plan.json")), true);
+    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-migration/artifacts/legacy-migration-plan.md"), "utf8"), /V2 Task/u);
   });
 });
 

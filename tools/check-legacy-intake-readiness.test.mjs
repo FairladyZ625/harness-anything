@@ -112,12 +112,12 @@ test("Legacy Intake readiness feeds check-ignore chunks over stdin without a liv
 
 test("Legacy Intake readiness still scans non-ignored harness public text", async () => {
   await withFixtureRepo(async (root) => {
-    mkdirSync(path.join(root, "harness/planning/tasks/old"), { recursive: true });
-    writeFileSync(path.join(root, "harness/planning/tasks/old/task_plan.md"), "Use scripts/kernel/task in public docs.\n");
+    mkdirSync(path.join(root, "harness/tasks/old"), { recursive: true });
+    writeFileSync(path.join(root, "harness/tasks/old/task_plan.md"), "Use scripts/kernel/task in public docs.\n");
 
     const violations = await evaluateLegacyIntakeReadiness(root);
 
-    assert.equal(violations.some((violation) => violation.includes("harness/planning/tasks/old/task_plan.md")), true);
+    assert.equal(violations.some((violation) => violation.includes("harness/tasks/old/task_plan.md")), true);
   });
 });
 
