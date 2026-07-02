@@ -58,6 +58,31 @@ test("CLI check --post-merge reports each hard-fail governance code", () => {
   }
 });
 
+test("CLI check --post-merge visibly fails hand-written decision watermarks", () => {
+  withTempRoot((rootDir) => {
+    writeDecision(rootDir, "dec_MISSING", "");
+    writeDecision(rootDir, "dec_DUPLICATE_A", "wm-duplicate");
+    writeDecision(rootDir, "dec_DUPLICATE_B", "wm-duplicate");
+
+    const result = runJson(rootDir, ["check", "--post-merge"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "projection_check_failed");
+    const missing = result.warnings.find((warning: any) => warning.code === "decision_watermark_missing");
+    const duplicate = result.warnings.find((warning: any) => warning.code === "decision_watermark_duplicate");
+    assert.ok(missing);
+    assert.equal(missing.severity, "hard-fail");
+    assert.match(missing.message, /dec_MISSING/);
+    assert.match(missing.message, /harness\/decisions\/decision-dec_MISSING\/decision\.md/);
+    assert.ok(duplicate);
+    assert.equal(duplicate.severity, "hard-fail");
+    assert.match(duplicate.message, /dec_DUPLICATE_B/);
+    assert.match(duplicate.message, /decision-dec_DUPLICATE_A\/decision\.md/);
+    assert.match(duplicate.repairHint, /decision write coordinator path/);
+    assert.equal(result.report.summary.hardFailCount >= 2, true);
+  });
+});
+
 function writeIndex(
   rootDir: string,
   directoryName: string,
@@ -103,6 +128,23 @@ function writeIndex(
     "---",
     "",
     `# ${title}`,
+    ""
+  ].join("\n"), "utf8");
+}
+
+function writeDecision(rootDir: string, decisionId: string, watermark: string): void {
+  const decisionRoot = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
+  mkdirSync(decisionRoot, { recursive: true });
+  writeFileSync(path.join(decisionRoot, "decision.md"), [
+    "---",
+    "schema: decision-package/v1",
+    `decision_id: ${decisionId}`,
+    ...(watermark ? [`_coordinatorWatermark: ${watermark}`] : []),
+    `title: ${decisionId}`,
+    "state: active",
+    "---",
+    "",
+    `# ${decisionId}`,
     ""
   ].join("\n"), "utf8");
 }
