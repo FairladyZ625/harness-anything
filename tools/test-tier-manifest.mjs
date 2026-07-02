@@ -54,6 +54,7 @@ export const testTierManifest = {
     "tools/check-cli-error-codes.test.mjs",
     "tools/check-cli-help-contract.test.mjs",
     "tools/check-cli-structure.test.mjs",
+    "tools/check-duplicate-definitions.test.mjs",
     "tools/check-error-classification.test.mjs",
     "tools/check-integrity-single-source.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
