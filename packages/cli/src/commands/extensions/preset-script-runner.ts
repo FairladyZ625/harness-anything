@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import { PresetManifestSchema } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -20,7 +21,7 @@ type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 type ScriptEntrypoint = Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>;
 
 export function runScriptEntrypoint(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   preset: ResolvedPreset,
   presetSummary: unknown,
   entrypoint: ScriptEntrypoint,
@@ -29,6 +30,8 @@ export function runScriptEntrypoint(
   evidenceDir: string,
   commandName: "preset-run" | "preset-action"
 ): { readonly ok: true; readonly generated: ReadonlyArray<string>; readonly scriptedResult?: Record<string, unknown> } | { readonly ok: false; readonly result: CliResult } {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   const presetRoot = path.dirname(preset.sourcePath);
   const scriptPath = path.resolve(presetRoot, entrypoint.command);
   if (!isPathInside(presetRoot, scriptPath) || !existsSync(scriptPath)) {
@@ -42,8 +45,7 @@ export function runScriptEntrypoint(
       }
     };
   }
-  const layout = resolveHarnessLayout(rootDir);
-  const outputRoot = taskPackagePath(rootDir, taskId);
+  const outputRoot = taskPackagePath(rootInput, taskId);
   const writeScope = resolveDeclaredWriteScopes(entrypoint.writes, layout, outputRoot);
   const readScope = entrypoint.reads
     ? resolveDeclaredReadScopes(entrypoint.reads, layout, outputRoot)

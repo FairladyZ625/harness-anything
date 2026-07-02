@@ -5,25 +5,25 @@ import { taskDocumentPath } from "../../../../kernel/src/layout/index.ts";
 import { readTaskProjection } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
-import type { CommandRunner } from "../../cli/runner-registry.ts";
+import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-review" | "task-complete" }>;
 
 export const runTaskGatesCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskGateAction;
   if (action.kind === "task-review") {
-    return Effect.sync(() => runTaskReview(command.rootDir, action.taskId, action.reviewerId));
+    return Effect.sync(() => runTaskReview(context, action.taskId, action.reviewerId));
   }
   return Effect.gen(function* () {
-    const gate = runTaskComplete(command.rootDir, action.taskId, action.reviewerId, action.ciGate);
+    const gate = runTaskComplete(context, action.taskId, action.reviewerId, action.ciGate);
     if (!gate.ok) return gate;
     const result = yield* context.engine.setStatus({ taskId: action.taskId, status: "done" });
     return { ...gate, status: result.status } satisfies CliResult;
   });
 };
 
-function runTaskReview(rootDir: string, taskId: string, reviewerId: string): CliResult {
-  const reviewPath = taskDocumentPath(rootDir, taskId, "review.md");
+function runTaskReview(context: CommandRunnerContext, taskId: string, reviewerId: string): CliResult {
+  const reviewPath = taskDocumentPath(context.layoutInput, taskId, "review.md");
   if (!existsSync(reviewPath)) {
     return {
       ok: false,
@@ -64,8 +64,8 @@ function runTaskReview(rootDir: string, taskId: string, reviewerId: string): Cli
   return { ok: true, command: "task-review", taskId, report: gate, reviewContract: gate.contract };
 }
 
-function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ciGate: "passed" | "failed"): CliResult {
-  const review = runTaskReview(rootDir, taskId, reviewerId);
+function runTaskComplete(context: CommandRunnerContext, taskId: string, reviewerId: string, ciGate: "passed" | "failed"): CliResult {
+  const review = runTaskReview(context, taskId, reviewerId);
   if (!review.ok) {
     return {
       ok: false,
@@ -77,7 +77,7 @@ function runTaskComplete(rootDir: string, taskId: string, reviewerId: string, ci
     };
   }
 
-  const projection = readTaskProjection({ rootDir });
+  const projection = readTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides });
   const row = projection.rows.find((item) => item.taskId === taskId);
   if (!row) {
     return {

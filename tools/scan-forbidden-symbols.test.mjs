@@ -24,6 +24,21 @@ test("forbidden symbol scan rejects unknown write task sentinel", () => {
   );
 });
 
+test("forbidden symbol scan rejects layout override globals", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-forbidden-symbols-"));
+  mkdirSync(path.join(root, "packages/cli/src"), { recursive: true });
+  writeFileSync(
+    path.join(root, "packages/cli/src/bad.ts"),
+    "setHarnessLayoutOverrides({ authoredRoot: 'harness' });",
+    "utf8"
+  );
+
+  assert.throws(
+    () => execFileSync(process.execPath, [scriptPath], { cwd: root, encoding: "utf8", stdio: "pipe" }),
+    /forbidden symbol setHarnessLayoutOverrides/
+  );
+});
+
 test("forbidden symbol scan accepts package source without banned tokens", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-forbidden-symbols-"));
   mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });

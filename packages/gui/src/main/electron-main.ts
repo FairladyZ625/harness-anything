@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
@@ -64,7 +65,7 @@ export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
-  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(resolveGuiProjectRoot()), {
+  registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(resolveGuiProjectRoot(), resolveGuiLayoutOverrides()), {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
       packagedRendererUrl: createPackagedRendererUrl(),
@@ -86,6 +87,11 @@ function createTrustedMainWindow(trustedWebContentsIds: Set<number>): BrowserWin
 
 export function resolveGuiProjectRoot(): string {
   return path.resolve(process.env.HARNESS_GUI_ROOT ?? process.cwd());
+}
+
+export function resolveGuiLayoutOverrides(): HarnessLayoutOverrides | undefined {
+  const authoredRoot = process.env.HARNESS_AUTHORED_ROOT;
+  return authoredRoot && authoredRoot.length > 0 ? { authoredRoot } : undefined;
 }
 
 app.on("window-all-closed", () => {

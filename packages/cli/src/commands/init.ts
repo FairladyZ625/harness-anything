@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import type { CliResult } from "../cli/types.ts";
 
-export function initializeHarness(rootDir: string, addNpmScripts = false, projectName?: string): CliResult {
-  const layout = resolveHarnessLayout(rootDir);
+export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   const resolvedProjectName = projectName ?? path.basename(rootDir);
   for (const directory of [
     layout.authoredRoot,

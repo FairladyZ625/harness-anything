@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sha256Text } from "../../../kernel/src/integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import type { LegacyIndex, LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 
@@ -19,11 +20,12 @@ export interface LegacyScanReport {
   readonly deprecatedAliases: ReadonlyArray<string>;
 }
 
-export function buildScanReport(rootDir: string, sourcePath: string): LegacyScanReport {
+export function buildScanReport(rootInput: HarnessLayoutInput, sourcePath: string): LegacyScanReport {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const sourceRoot = path.resolve(rootDir, sourcePath);
   const entries = [
     ...collectLegacyTasks(sourceRoot),
-    ...collectLegacyDocs(rootDir, sourceRoot)
+    ...collectLegacyDocs(rootInput, sourceRoot)
   ];
   const summary = summarize(entries);
   return {
@@ -120,7 +122,8 @@ function collectV2Tasks(sourceRoot: string): ReadonlyArray<LegacyScanEntry> {
   return entries;
 }
 
-function collectLegacyDocs(rootDir: string, sourceRoot: string): ReadonlyArray<LegacyScanEntry> {
+function collectLegacyDocs(rootInput: HarnessLayoutInput, sourceRoot: string): ReadonlyArray<LegacyScanEntry> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const docsRoot = path.join(sourceRoot, "docs");
   const docsEntries = walkFiles(docsRoot)
     .map((filePath) => normalizeSlashes(path.relative(sourceRoot, filePath)))
@@ -133,8 +136,8 @@ function collectLegacyDocs(rootDir: string, sourceRoot: string): ReadonlyArray<L
     return docsEntries;
   }
   const authoredDocRoots = [
-    { root: layout.contextRoot, forwardRoot: resolveHarnessLayout(rootDir).contextRoot },
-    { root: layout.standardsRoot, forwardRoot: resolveHarnessLayout(rootDir).standardsRoot }
+    { root: layout.contextRoot, forwardRoot: resolveHarnessLayout(rootInput).contextRoot },
+    { root: layout.standardsRoot, forwardRoot: resolveHarnessLayout(rootInput).standardsRoot }
   ];
   const authoredEntries = authoredDocRoots.flatMap(({ root, forwardRoot }) => {
     if (!isPathInside(sourceRoot, root)) return [];

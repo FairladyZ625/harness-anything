@@ -82,7 +82,7 @@ function runStatusSet(
     })));
   }
 
-  const taskPolicy = readTaskStatusPolicy(context.rootDir, taskId);
+  const taskPolicy = readTaskStatusPolicy(context, taskId);
   if (taskPolicy?.engine !== "local") {
     return context.engine.setStatus({ taskId, status }).pipe(Effect.map((result): CliResult => ({
       ok: true,
@@ -167,8 +167,8 @@ function runTaskDelete(
   })));
 }
 
-function readTaskStatusPolicy(rootDir: string, taskId: string): { readonly engine: string; readonly status: DomainStatus | null } | null {
-  const indexPath = taskDocumentPath(rootDir, taskId, "INDEX.md");
+function readTaskStatusPolicy(context: CommandRunnerContext, taskId: string): { readonly engine: string; readonly status: DomainStatus | null } | null {
+  const indexPath = taskDocumentPath(context.layoutInput, taskId, "INDEX.md");
   if (!existsSync(indexPath)) return null;
   const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
   if (!frontmatter) return null;

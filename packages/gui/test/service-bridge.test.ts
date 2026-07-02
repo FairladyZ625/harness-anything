@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,6 +26,25 @@ test("GUI service bridge reaches application service while enforcing document pa
     const windowsPath = await bridge.invoke("getTaskDocument", { taskId: "task-1", path: "C:\\Users\\name\\secret.md" }) as { readonly ok: boolean; readonly error?: { readonly code: string } };
     assert.equal(windowsPath.ok, false);
     assert.equal(windowsPath.error?.code, "invalid_payload");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("GUI service bridge honors explicit authored root context", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
+  try {
+    writeTaskIndex(rootDir, "task-1", "Custom GUI Task", "planned", ".custom-harness");
+    const bridge = createLocalGuiServiceBridge(rootDir, { authoredRoot: ".custom-harness" });
+
+    const list = await bridge.invoke("getTasks", null) as { readonly ok: boolean; readonly tasks: readonly unknown[] };
+    assert.equal(list.ok, true);
+    assert.equal(list.tasks.length, 1);
+
+    const document = await bridge.invoke("getTaskDocument", { taskId: "task-1", path: "INDEX.md" }) as { readonly ok: boolean; readonly body?: string };
+    assert.equal(document.ok, true);
+    assert.match(document.body ?? "", /Custom GUI Task/);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -58,9 +77,9 @@ test("GUI service bridge shipped methods are registry-driven and deferred method
   }
 });
 
-function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string): void {
-  mkdirSync(path.join(rootDir, "harness/planning/tasks", taskId), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/planning/tasks", taskId, "INDEX.md"), [
+function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string, authoredRoot = "harness"): void {
+  mkdirSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId), { recursive: true });
+  writeFileSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,

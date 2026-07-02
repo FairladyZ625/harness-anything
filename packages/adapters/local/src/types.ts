@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type { DomainStatus, EngineError, PackageDisposition, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import type { TaskCreatedBy } from "./created-by.ts";
 
@@ -10,12 +11,14 @@ export interface LocalJournalActor {
 
 export interface LocalLifecycleOptions {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly coordinator?: WriteCoordinator;
   readonly clock?: () => Date;
 }
 
 export interface LocalWriteCoordinatorOptions {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly actor?: LocalJournalActor;
 }
 

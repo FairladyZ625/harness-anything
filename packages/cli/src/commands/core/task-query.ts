@@ -9,11 +9,11 @@ import { filterTaskProjectionRows } from "../task-list-filter.ts";
 
 type TaskQueryAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-list" | "status" }>;
 
-export const runTaskQueryCommand: CommandRunner = (_context, command) => {
+export const runTaskQueryCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskQueryAction;
   if (action.kind === "task-list") {
     return Effect.sync(() => {
-      const result = readTaskProjection({ rootDir: command.rootDir });
+      const result = readTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides });
       return {
         ok: true,
         command: "task-list",
@@ -23,7 +23,7 @@ export const runTaskQueryCommand: CommandRunner = (_context, command) => {
     });
   }
   return Effect.sync(() => {
-    const result = checkTaskProjection({ rootDir: command.rootDir, postMerge: true });
+    const result = checkTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides, postMerge: true });
     return {
       ok: result.ok,
       command: "status",

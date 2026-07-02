@@ -5,8 +5,8 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 
 type DiagnosticsAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "git-diff" | "doctor" }>;
 
-export const runDiagnosticsCommand: CommandRunner = (_context, command) => {
+export const runDiagnosticsCommand: CommandRunner = (context, command) => {
   const action = command.action as DiagnosticsAction;
   if (action.kind === "git-diff") return Effect.sync(() => runGitDiffEvidence(command.rootDir, action.baseRef));
-  return Effect.sync(() => runDoctor(command.rootDir));
+  return Effect.sync(() => runDoctor(context.layoutInput));
 };

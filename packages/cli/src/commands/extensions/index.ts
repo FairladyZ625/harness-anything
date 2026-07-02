@@ -1,5 +1,6 @@
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { createHarnessRuntimeContext } from "../../../../kernel/src/layout/index.ts";
 import { runModuleCommand } from "./module.ts";
 import { runPresetCommand } from "./preset.ts";
 import { InvalidRegistryKeyError } from "./state.ts";
@@ -42,6 +43,7 @@ export function isExtensionAction(action: ParsedCommand["action"]): action is Ex
 export function runExtensionCommand(command: ParsedCommand): CliResult {
   try {
     const action = command.action;
+    const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
     const group = extensionExecutorGroups[action.kind as ExtensionActionKind] as ExtensionExecutorGroup | undefined;
     if (!group) {
       return {
@@ -54,9 +56,9 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
       case "template":
         return runTemplateCommand(action as Extract<ExtensionAction, { readonly kind: "template-list" | "template-render" }>);
       case "preset":
-        return runPresetCommand(command.rootDir, action as Extract<ExtensionAction, { readonly kind: `preset-${string}` }>);
+        return runPresetCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: `preset-${string}` }>);
       case "module":
-        return runModuleCommand(command.rootDir, action as Extract<ExtensionAction, { readonly kind: "module-list" | "module-inspect" | "module-register" | "module-scaffold" | "module-unregister" | "module-step" }>);
+        return runModuleCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: "module-list" | "module-inspect" | "module-register" | "module-scaffold" | "module-unregister" | "module-step" }>);
       case "vertical":
         return runVerticalCommand(action as Extract<ExtensionAction, { readonly kind: "vertical-validate" }>);
     }

@@ -4,6 +4,7 @@ import { hostname } from "node:os";
 import path from "node:path";
 import type { TaskId } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./write-journal-durable.ts";
 import type { JournalActor, LockRecord, LockTakeoverRecord, OwnedLock } from "./write-journal-types.ts";
@@ -33,6 +34,7 @@ export class WriteLockHeldError extends Error {
 
 export function withRepoLocks<T>(
   rootDir: string,
+  layoutInput: HarnessLayoutInput,
   journalPath: string,
   actor: JournalActor,
   lockTtlMs: number,
@@ -42,7 +44,7 @@ export function withRepoLocks<T>(
   const locks: OwnedLock[] = [];
 
   try {
-    const lockRoot = path.relative(rootDir, resolveHarnessLayout(rootDir).locksRoot).split(path.sep).join("/");
+    const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
     locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs));
     const state = readJournal(journalPath, rootDir);
     const lockedTaskIds = new Set([...taskIds, ...state.map((record) => record.taskId)]);

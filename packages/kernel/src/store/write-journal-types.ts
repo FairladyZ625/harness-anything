@@ -1,8 +1,10 @@
 import type { TaskId } from "../domain/index.ts";
+import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 
 export interface JournaledWriteCoordinatorOptions {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly journalPath?: string;
   readonly watermarkPath?: string;
   readonly actor?: JournalActor;

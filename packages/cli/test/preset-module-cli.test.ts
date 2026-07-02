@@ -157,6 +157,38 @@ test("CLI new-task honors harness.yaml custom authored layout", () => {
   });
 });
 
+test("CLI new-task honors explicit authored root context without global pollution", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, [
+      "--authored-root",
+      ".custom-harness",
+      "new-task",
+      "--title",
+      "Explicit Layout Task",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ]);
+
+    assert.equal(created.ok, true);
+    assert.match(created.packagePath, /^\.custom-harness\/planning\/tasks\/task_/u);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "INDEX.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness", "planning", "tasks")), false);
+
+    const defaultRun = runJson(rootDir, [
+      "new-task",
+      "--title",
+      "Default Layout Task",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ]);
+    assert.match(defaultRun.packagePath, /^harness\/planning\/tasks\/task_/u);
+  });
+});
+
 test("CLI new-task honors private self-host harness structure layout", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness-private/coding-agent-harness/harness.yaml", [

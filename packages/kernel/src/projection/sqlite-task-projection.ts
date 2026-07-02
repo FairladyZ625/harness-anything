@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { createHarnessRuntimeContext } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import { writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
@@ -29,9 +30,10 @@ export function defaultTaskProjectionPath(rootDir: string): string {
 
 export function rebuildTaskProjection(options: TaskProjectionOptions): ProjectionReadResult {
   const rootDir = path.resolve(options.rootDir);
-  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : defaultTaskProjectionPath(rootDir);
-  const source = readMarkdownSource(rootDir);
-  const rows = source.entries.map((entry) => taskEntryToRow(rootDir, entry)).sort(compareRows);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const source = readMarkdownSource(runtimeContext);
+  const rows = source.entries.map((entry) => taskEntryToRow(runtimeContext, entry)).sort(compareRows);
   const rowsHash = hashExactRows(rows);
   writeProjectionDatabase(projectionPath, rows, {
     sourceHash: source.hash,
@@ -45,8 +47,9 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
 
 export function readTaskProjection(options: TaskProjectionOptions): ProjectionReadResult {
   const rootDir = path.resolve(options.rootDir);
-  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : defaultTaskProjectionPath(rootDir);
-  const source = readMarkdownSource(rootDir);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const source = readMarkdownSource(runtimeContext);
   const warnings = [...source.warnings];
 
   if (!existsSync(projectionPath)) {
@@ -56,7 +59,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection cache was missing and has been rebuilt.",
       "Run harness-anything governance rebuild to materialize a fresh local projection cache before relying on generated state."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
     return { rows: rebuilt.rows, warnings };
   }
 
@@ -68,7 +71,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection cache could not be read and has been rebuilt from markdown.",
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
@@ -79,7 +82,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection cache was stale and has been rebuilt from markdown.",
       "Run harness-anything governance rebuild after authored task changes or merges."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
@@ -91,7 +94,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection rows no longer match their recorded hash.",
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
@@ -103,9 +106,10 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
 
 export function checkTaskProjection(options: TaskProjectionOptions): ProjectionCheckResult {
   const rootDir = path.resolve(options.rootDir);
-  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : defaultTaskProjectionPath(rootDir);
-  const result = readTaskProjection({ rootDir, projectionPath });
-  const postMergeWarnings = options.postMerge ? runPostMergeChecks(rootDir) : [];
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  const postMergeWarnings = options.postMerge ? runPostMergeChecks(runtimeContext) : [];
   const warnings = [...result.warnings, ...postMergeWarnings];
   const ok = warnings.every((item) => item.severity !== "hard-fail");
   return {

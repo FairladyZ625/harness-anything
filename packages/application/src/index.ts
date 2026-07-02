@@ -3,7 +3,8 @@ import path from "node:path";
 import { Effect } from "effect";
 import type { DomainStatus, EngineError, ProjectionWarning, TaskProjectionRow, WriteError } from "../../kernel/src/index.ts";
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
-import { normalizeRelativeDocumentPath, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
+import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
 export {
   evaluateCompletionGate,
   evaluateReviewGate,
@@ -21,6 +22,7 @@ export type {
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly taskWriter: LocalControllerTaskWriter;
 }
 
@@ -122,29 +124,30 @@ export interface LocalControllerService {
 
 export function makeLocalControllerService(options: LocalControllerServiceOptions): LocalControllerService {
   const rootDir = path.resolve(options.rootDir);
+  const layoutInput = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const taskWriter = options.taskWriter;
 
   return {
     getTasks: () => {
-      const result = readTaskProjection({ rootDir });
+      const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
       return { ok: true, tasks: result.rows, warnings: result.warnings };
     },
     getTaskDetail: (payload) => {
       validateTaskId(payload.taskId);
-      const projection = readTaskProjection({ rootDir });
+      const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
       const task = projection.rows.find((row) => row.taskId === payload.taskId);
       if (!task) return taskNotFound(payload.taskId);
       return {
         ok: true,
         task,
-        documents: listKnownTaskDocuments(rootDir, payload.taskId)
+        documents: listKnownTaskDocuments(layoutInput, payload.taskId)
       };
     },
     getTaskDocument: (payload) => {
       validateTaskId(payload.taskId);
       const parsed = readTaskDocumentPayload(payload);
       if (!parsed.ok) return parsed;
-      const documentPath = taskDocumentPath(rootDir, parsed.taskId, parsed.path);
+      const documentPath = taskDocumentPath(layoutInput, parsed.taskId, parsed.path);
       if (!existsSync(documentPath)) return { ok: false, error: { code: "document_not_found", hint: parsed.path } };
       return {
         ok: true,
@@ -192,7 +195,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       ));
     },
     rebuildGovernance: () => {
-      const result = readTaskProjection({ rootDir });
+      const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
       return { ok: true, tasks: result.rows, warnings: result.warnings };
     },
     archiveTask: () => ({
@@ -212,15 +215,15 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
   };
 }
 
-function listKnownTaskDocuments(rootDir: string, taskId: string): ReadonlyArray<{ readonly path: string }> {
+function listKnownTaskDocuments(rootInput: HarnessLayoutInput, taskId: string): ReadonlyArray<{ readonly path: string }> {
   return ["INDEX.md", "progress.md", "review.md", "findings.md"]
-    .filter((documentPath) => existsSync(taskDocumentPath(rootDir, taskId, documentPath)))
+    .filter((documentPath) => existsSync(taskDocumentPath(rootInput, taskId, documentPath)))
     .map((documentPath) => ({ path: documentPath }));
 }
 
-function taskDocumentPath(rootDir: string, taskId: string, documentPath: string): string {
+function taskDocumentPath(rootInput: HarnessLayoutInput, taskId: string, documentPath: string): string {
   validateTaskId(taskId);
-  return harnessTaskDocumentPath(rootDir, taskId, documentPath);
+  return harnessTaskDocumentPath(rootInput, taskId, documentPath);
 }
 
 export function readTaskIdPayload(payload: unknown): { readonly ok: true; readonly taskId: string } | LocalControllerFailure {

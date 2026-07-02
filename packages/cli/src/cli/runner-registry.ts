@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
+import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
 import type { CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
@@ -20,6 +22,8 @@ import {
 
 export interface CommandRunnerContext {
   readonly rootDir: string;
+  readonly layoutInput: HarnessLayoutInput;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly engine: CommandRunnerEngine;
 }
 
@@ -90,5 +94,10 @@ export function runRegisteredCommand(
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
-  return runner({ rootDir: command.rootDir, engine }, command);
+  return runner({
+    rootDir: command.rootDir,
+    layoutInput: createHarnessRuntimeContext(command.rootDir, command.layoutOverrides),
+    layoutOverrides: command.layoutOverrides,
+    engine
+  }, command);
 }

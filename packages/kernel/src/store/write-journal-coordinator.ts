@@ -16,7 +16,9 @@ import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
+  createHarnessRuntimeContext,
   createTaskPackagePath,
+  type HarnessLayoutInput,
   normalizeRelativeDocumentPath,
   resolveHarnessLayout,
   taskPackagePath
@@ -50,7 +52,8 @@ type JournalMappedError = WriteLockHeldError | WriteRejectedError;
 
 export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
-  const layout = resolveHarnessLayout(rootDir);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const layout = resolveHarnessLayout(runtimeContext);
   const journalPath = options.journalPath ?? layout.journalPath;
   const watermarkPath = options.watermarkPath ?? layout.watermarkPath;
   const actor = options.actor ?? defaultActor;
@@ -60,8 +63,8 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   return {
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
-        validateOp(rootDir, op);
-        preflightWriteOp(rootDir, op);
+        validateOp(runtimeContext, op);
+        preflightWriteOp(rootDir, runtimeContext, op);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         if (state.applied.has(op.opId) || state.records.some((record) => record.opId === op.opId) || pending.some((item) => item.opId === op.opId)) {
           return { opId: op.opId, taskId: op.taskId, accepted: true };
@@ -75,19 +78,19 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       catch: (cause): WriteError => toJournalError(cause, { taskId: op.taskId })
     }),
     flush: (reason) => Effect.try({
-      try: () => withRepoLocks(rootDir, journalPath, actor, lockTtlMs, pending.map((op) => op.taskId), () => {
+      try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.taskId), () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         pending.splice(0, pending.length);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        return flushRecords(reason, rootDir, journalPath, watermarkPath, state.watermark, pendingRecords);
+        return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords);
       }),
       catch: (cause): WriteError => toJournalError(cause)
     }),
     recover: Effect.try({
-      try: (): RecoveryReport => withRepoLocks(rootDir, journalPath, actor, lockTtlMs, [], () => {
+      try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        const report = flushRecords("recovery", rootDir, journalPath, watermarkPath, state.watermark, pendingRecords);
+        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords);
         return {
           replayedOps: report.opCount,
           recoveredWatermark: report.watermark
@@ -101,6 +104,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
 function flushRecords(
   reason: FlushReason,
   rootDir: string,
+  rootInput: HarnessLayoutInput,
   journalPath: string,
   watermarkPath: string,
   previousWatermark: WriteWatermark | null,
@@ -110,19 +114,19 @@ function flushRecords(
   const committedOpIds: string[] = [];
   const plannedRecords = records.map((record) => ({
     record,
-    touchedPaths: recordTouchedPaths(rootDir, record)
+    touchedPaths: recordTouchedPaths(rootDir, rootInput, record)
   }));
 
-  resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths));
+  resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput);
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
-    applyRecord(rootDir, journalPath, record);
+    applyRecord(rootDir, rootInput, journalPath, record);
     touchedPaths.push(...recordTouchedPaths);
     committedOpIds.push(record.opId);
   }
 
-  const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds);
-  const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir) : previousWatermark?.projectionHash ?? "no-projection-change";
+  const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds, rootInput);
+  const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir, rootInput) : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const recentCommitted = recentOpIds(allCommitted);
   const watermark = committedOpIds.at(-1);
@@ -153,11 +157,11 @@ function flushRecords(
   };
 }
 
-function applyRecord(rootDir: string, journalPath: string, record: JournalRecord): void {
+function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath: string, record: JournalRecord): void {
   if (record.kind === "package_delete_hard") {
     const payload = readHardDeletePayload(rootDir, record);
-    assertHardDeleteAllowed(rootDir, record.taskId, { allowMissing: true });
-    rmSync(taskPackagePath(rootDir, record.taskId), { recursive: true, force: true });
+    assertHardDeleteAllowed(rootInput, record.taskId, { allowMissing: true });
+    rmSync(taskPackagePath(rootInput, record.taskId), { recursive: true, force: true });
     appendJsonLineDurably(journalPath, {
       schema: "delete-audit/v1",
       opId: `${record.opId}:applied`,
@@ -169,19 +173,19 @@ function applyRecord(rootDir: string, journalPath: string, record: JournalRecord
     });
     return;
   }
-  applyOp(rootDir, recordToOp(rootDir, record));
+  applyOp(rootInput, recordToOp(rootDir, record));
 }
 
-function applyOp(rootDir: string, op: WriteOp): DocumentWrite | null {
+function applyOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    writeDocumentsAtomically(rootDir, op.payload.writes, op.taskId);
+    writeDocumentsAtomically(rootInput, op.payload.writes, op.taskId);
     return null;
   }
   if (!documentWriteKinds.has(op.kind)) {
     rejectWrite(`unsupported write op kind: ${op.kind}`, op.taskId);
   }
   const write = toDocumentWrite(op);
-  writeDocument(rootDir, write);
+  writeDocument(rootInput, write);
   return write;
 }
 
@@ -218,8 +222,8 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
   };
 }
 
-function preflightWriteOp(rootDir: string, op: WriteOp): void {
-  resolveCommitPlan(rootDir, opTouchedPaths(rootDir, op));
+function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp): void {
+  resolveCommitPlan(rootDir, opTouchedPaths(rootInput, op), rootInput);
 }
 
 function recordToOp(rootDir: string, record: JournalRecord): WriteOp {
@@ -248,11 +252,11 @@ function isBatchDocumentWritePayload(payload: unknown): payload is BatchDocument
   return Array.isArray((payload as { readonly writes?: unknown }).writes);
 }
 
-function writeDocumentsAtomically(rootDir: string, writes: ReadonlyArray<DocumentWrite>, taskId: TaskId): void {
+function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: ReadonlyArray<DocumentWrite>, taskId: TaskId): void {
   if (writes.length === 0) rejectWrite("batch document write requires at least one write", taskId);
   const entries = writes.map((write) => ({
     write,
-    targetPath: documentTargetPath(rootDir, write)
+    targetPath: documentTargetPath(rootInput, write)
   }));
   const targetPaths = new Set<string>();
   for (const entry of entries) {
@@ -267,7 +271,7 @@ function writeDocumentsAtomically(rootDir: string, writes: ReadonlyArray<Documen
   }));
 
   try {
-    for (const entry of entries) writeDocument(rootDir, entry.write);
+    for (const entry of entries) writeDocument(rootInput, entry.write);
   } catch (error) {
     for (const backup of backups.reverse()) {
       if (backup.existed && backup.body !== null) {
@@ -281,31 +285,31 @@ function writeDocumentsAtomically(rootDir: string, writes: ReadonlyArray<Documen
   }
 }
 
-function recordTouchedPaths(rootDir: string, record: JournalRecord): ReadonlyArray<string> {
+function recordTouchedPaths(rootDir: string, rootInput: HarnessLayoutInput, record: JournalRecord): ReadonlyArray<string> {
   if (record.kind === "package_delete_hard") {
-    return [taskPackagePath(rootDir, record.taskId)];
+    return [taskPackagePath(rootInput, record.taskId)];
   }
-  return opTouchedPaths(rootDir, recordToOp(rootDir, record));
+  return opTouchedPaths(rootInput, recordToOp(rootDir, record));
 }
 
-function opTouchedPaths(rootDir: string, op: WriteOp): ReadonlyArray<string> {
+function opTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    return op.payload.writes.map((write) => documentTargetPath(rootDir, write));
+    return op.payload.writes.map((write) => documentTargetPath(rootInput, write));
   }
   if (op.kind === "package_delete_hard") {
-    return [taskPackagePath(rootDir, op.taskId)];
+    return [taskPackagePath(rootInput, op.taskId)];
   }
   if (!documentWriteKinds.has(op.kind)) {
     rejectWrite(`unsupported write op kind: ${op.kind}`);
   }
-  return [documentTargetPath(rootDir, toDocumentWrite(op))];
+  return [documentTargetPath(rootInput, toDocumentWrite(op))];
 }
 
-function documentTargetPath(rootDir: string, write: DocumentWrite): string {
+function documentTargetPath(rootInput: HarnessLayoutInput, write: DocumentWrite): string {
   const safePath = normalizeWriteDocumentPath(write.path, write.taskId);
-  const rootPath = existsSync(taskPackagePath(rootDir, write.taskId))
-    ? taskPackagePath(rootDir, write.taskId)
-    : createTaskPackagePath(rootDir, write.taskId, write.packageSlug);
+  const rootPath = existsSync(taskPackagePath(rootInput, write.taskId))
+    ? taskPackagePath(rootInput, write.taskId)
+    : createTaskPackagePath(rootInput, write.taskId, write.packageSlug);
   return path.join(rootPath, safePath);
 }
 
@@ -328,11 +332,11 @@ function readVerifiedPayload(rootDir: string, record: JournalRecord): Record<str
 }
 
 function assertHardDeleteAllowed(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   taskId: TaskId,
   options: { readonly allowMissing?: boolean } = {}
 ): void {
-  const packagePath = taskPackagePath(rootDir, taskId);
+  const packagePath = taskPackagePath(rootInput, taskId);
   const indexPath = path.join(packagePath, "INDEX.md");
   if (!existsSync(indexPath)) {
     if (options.allowMissing) return;
@@ -353,13 +357,13 @@ function assertHardDeleteAllowed(
   if (isTerminalStatus(status)) {
     rejectWrite(`hard delete forbidden for terminal task: ${taskId}`, taskId);
   }
-  if (hasTaskRelations(rootDir, taskId, packagePath)) {
+  if (hasTaskRelations(rootInput, taskId, packagePath)) {
     rejectWrite(`hard delete forbidden for related task: ${taskId}`, taskId);
   }
 }
 
-function hasTaskRelations(rootDir: string, taskId: TaskId, ownPackage: string): boolean {
-  for (const filePath of listTextFiles(resolveHarnessLayout(rootDir).authoredRoot)) {
+function hasTaskRelations(rootInput: HarnessLayoutInput, taskId: TaskId, ownPackage: string): boolean {
+  for (const filePath of listTextFiles(resolveHarnessLayout(rootInput).authoredRoot)) {
     const body = readFileSync(filePath, "utf8");
     const refs = findEntityRefs(body);
     if (refs.some((ref) => !ref.externalHarness && ref.id === taskId)) return true;
@@ -395,8 +399,9 @@ function toDocumentWrite(op: WriteOp): DocumentWrite {
   };
 }
 
-function rebuildProjectionHash(rootDir: string): string {
-  return hashTaskProjectionRows(rebuildTaskProjection({ rootDir }).rows);
+function rebuildProjectionHash(rootDir: string, rootInput: HarnessLayoutInput): string {
+  const layoutOverrides = typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
+  return hashTaskProjectionRows(rebuildTaskProjection({ rootDir, layoutOverrides }).rows);
 }
 
 function recentOpIds(opIds: ReadonlyArray<string>): ReadonlyArray<string> {
@@ -430,7 +435,7 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
   writeFileDurably(journalPath, retained.length === 0 ? "" : `${retained.join("\n")}\n`);
 }
 
-function validateOp(rootDir: string, op: WriteOp): void {
+function validateOp(rootInput: HarnessLayoutInput, op: WriteOp): void {
   if (op.opId.length === 0) rejectWrite("opId is required", op.taskId);
   if (op.taskId.length === 0) rejectWrite("taskId is required", op.taskId);
   if (op.kind === "package_delete_hard") {
@@ -438,7 +443,7 @@ function validateOp(rootDir: string, op: WriteOp): void {
     if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
       rejectWrite(`hard delete requires reason payload: ${op.opId}`, op.taskId);
     }
-    assertHardDeleteAllowed(rootDir, op.taskId);
+    assertHardDeleteAllowed(rootInput, op.taskId);
   }
 }
 

@@ -4,6 +4,8 @@ import { Effect } from "effect";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { explainStatusTransition, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
+import { createHarnessRuntimeContext, harnessRuntimeRoot } from "../../../kernel/src/layout/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
 import { resolveTaskCreatedBy } from "./created-by.ts";
@@ -51,34 +53,40 @@ export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions)
 
 export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalLifecycleEngine {
   const rootDir = path.resolve(options.rootDir);
-  const coordinator = options.coordinator ?? makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "local-lifecycle" } });
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const coordinator = options.coordinator ?? makeJournaledWriteCoordinator({
+    rootDir,
+    layoutOverrides: options.layoutOverrides,
+    actor: { kind: "agent", id: "local-lifecycle" }
+  });
   const clock = options.clock ?? (() => new Date());
 
   return {
-    createTask: (input) => createTask(rootDir, coordinator, clock, input),
-    setStatus: (input) => setStatus(rootDir, coordinator, input),
-    appendProgress: (input) => appendProgress(rootDir, coordinator, input),
-    archiveTask: (input) => archiveTask(rootDir, coordinator, input),
-    supersedeTask: (input) => supersedeTask(rootDir, coordinator, clock, input),
-    deleteTask: (input) => deleteTask(rootDir, coordinator, input),
-    reopenTask: (input) => reopenTask(rootDir, coordinator, input)
+    createTask: (input) => createTask(runtimeContext, coordinator, clock, input),
+    setStatus: (input) => setStatus(runtimeContext, coordinator, input),
+    appendProgress: (input) => appendProgress(runtimeContext, coordinator, input),
+    archiveTask: (input) => archiveTask(runtimeContext, coordinator, input),
+    supersedeTask: (input) => supersedeTask(runtimeContext, coordinator, clock, input),
+    deleteTask: (input) => deleteTask(runtimeContext, coordinator, input),
+    reopenTask: (input) => reopenTask(runtimeContext, coordinator, input)
   };
 }
 
 function createTask(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   clock: () => Date,
   input: CreateLocalTaskInput
 ): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
   return Effect.gen(function* () {
+    const rootDir = harnessRuntimeRoot(rootInput);
     if (!input.allowManualId) {
       const error = validateGeneratedTaskId(input.taskId);
       if (error) return yield* Effect.fail(error);
     } else {
       validateTaskId(input.taskId);
     }
-    if (existsSync(indexPath(rootDir, input.taskId))) {
+    if (existsSync(indexPath(rootInput, input.taskId))) {
       return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId: input.taskId } satisfies EngineError);
     }
     const index = makeIndex({
@@ -99,12 +107,12 @@ function createTask(
 }
 
 function setStatus(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: SetLocalStatusInput
 ): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    const index = yield* readIndexEffect(rootDir, input.taskId);
+    const index = yield* readIndexEffect(rootInput, input.taskId);
     if (index.engine !== "local") {
       return yield* Effect.fail({
         _tag: "EngineOwnsStatus",
@@ -126,13 +134,13 @@ function setStatus(
 }
 
 function appendProgress(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: AppendProgressInput
 ): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    yield* readIndexEffect(rootDir, input.taskId);
-    const existingPath = taskDocumentPath(rootDir, input.taskId, "progress.md");
+    yield* readIndexEffect(rootInput, input.taskId);
+    const existingPath = taskDocumentPath(rootInput, input.taskId, "progress.md");
     const existing = existsSync(existingPath) ? readFileSync(existingPath, "utf8") : "";
     const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "progress.md", `${existing}${separator}${input.text}\n`, { kind: "progress_append" });
@@ -141,30 +149,31 @@ function appendProgress(
 }
 
 function archiveTask(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: TaskReasonInput
 ): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    const index = yield* readIndexEffect(rootDir, input.taskId);
+    const index = yield* readIndexEffect(rootInput, input.taskId);
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex({ ...index, packageDisposition: "archived" }, input.reason), { kind: "package_archive" });
     return { taskId: input.taskId, status: index.status, engine: "local", packageDisposition: "archived" } satisfies LocalTaskResult;
   });
 }
 
 function supersedeTask(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   clock: () => Date,
   input: SupersedeTaskInput
 ): Effect.Effect<LocalSupersedeResult, EngineError | WriteError> {
   return Effect.gen(function* () {
+    const rootDir = harnessRuntimeRoot(rootInput);
     const error = validateGeneratedTaskId(input.newTaskId);
     if (error) return yield* Effect.fail(error);
-    if (existsSync(indexPath(rootDir, input.newTaskId))) {
+    if (existsSync(indexPath(rootInput, input.newTaskId))) {
       return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId: input.newTaskId } satisfies EngineError);
     }
-    const oldIndex = yield* readIndexEffect(rootDir, input.oldTaskId);
+    const oldIndex = yield* readIndexEffect(rootInput, input.oldTaskId);
     const newIndex = makeIndex({
       taskId: input.newTaskId,
       title: input.title,
@@ -185,12 +194,12 @@ function supersedeTask(
 }
 
 function deleteTask(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: DeleteTaskInput
 ): Effect.Effect<LocalDeleteResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    const index = yield* readIndexEffect(rootDir, input.taskId);
+    const index = yield* readIndexEffect(rootInput, input.taskId);
     if (input.mode === "soft") {
       yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex({ ...index, packageDisposition: "tombstoned" }, input.reason), { kind: "package_tombstone" });
       return { taskId: input.taskId, mode: "soft", packageDisposition: "tombstoned" } satisfies LocalDeleteResult;
@@ -201,7 +210,7 @@ function deleteTask(
     if (isTerminalStatus(index.status)) {
       return yield* Effect.fail({ _tag: "TerminalHardDeleteForbidden", taskId: input.taskId, status: index.status } satisfies EngineError);
     }
-    if (hasTaskRelations(rootDir, input.taskId)) {
+    if (hasTaskRelations(rootInput, input.taskId)) {
       return yield* Effect.fail({ _tag: "RelatedTaskHardDeleteForbidden", taskId: input.taskId } satisfies EngineError);
     }
     yield* deleteTaskPackage(coordinator, stablePayloadHash, input.taskId, input.reason);
@@ -210,12 +219,12 @@ function deleteTask(
 }
 
 function reopenTask(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   input: TaskReasonInput
 ): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    const index = yield* readIndexEffect(rootDir, input.taskId);
+    const index = yield* readIndexEffect(rootInput, input.taskId);
     if (isTerminalStatus(index.status)) {
       return yield* Effect.fail({ _tag: "TerminalReopenRequiresSupersede", taskId: input.taskId, status: index.status } satisfies EngineError);
     }

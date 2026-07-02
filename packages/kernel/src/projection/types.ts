@@ -1,4 +1,5 @@
 import type { CloseoutReadiness, DomainStatus, PackageDisposition } from "../domain/index.ts";
+import type { HarnessLayoutOverrides } from "../layout/index.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
@@ -87,6 +88,7 @@ export interface ProjectionCheckResult extends ProjectionReadResult {
 
 export interface TaskProjectionOptions {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly projectionPath?: string;
   readonly postMerge?: boolean;
 }

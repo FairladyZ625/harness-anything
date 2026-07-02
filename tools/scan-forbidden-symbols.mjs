@@ -10,7 +10,8 @@ const forbidden = [
   { label: "bindingRole", pattern: /bindingRole/u },
   { label: "canStructurallyTransition", pattern: /canStructurallyTransition/u },
   { label: "canTransition", pattern: /canTransition/u },
-  { label: "taskId: \"unknown\"", pattern: /taskId\s*:\s*["']unknown["']/u }
+  { label: "taskId: \"unknown\"", pattern: /taskId\s*:\s*["']unknown["']/u },
+  { label: "setHarnessLayoutOverrides", pattern: /setHarnessLayoutOverrides/u }
 ];
 const violations = [];
 

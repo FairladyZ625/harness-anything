@@ -1,14 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CliResult, LessonCommandMode } from "../cli/types.ts";
 
-export function runLessonPromote(rootDir: string, taskId: string, candidateId: string, mode: LessonCommandMode): CliResult {
-  const candidate = readLessonCandidate(rootDir, taskId, candidateId);
+export function runLessonPromote(rootInput: HarnessLayoutInput, taskId: string, candidateId: string, mode: LessonCommandMode): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const candidate = readLessonCandidate(rootInput, taskId, candidateId);
   if (!candidate.ok) return candidate.result;
-  const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "lessons", `${candidateId}.json`);
+  const outputPath = path.join(layout.generatedRoot, "lessons", `${candidateId}.json`);
   const relativeOutput = relativePath(rootDir, outputPath);
   if (mode === "apply") {
     mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -37,10 +40,12 @@ export function runLessonPromote(rootDir: string, taskId: string, candidateId: s
   };
 }
 
-export function runLessonSediment(rootDir: string, taskId: string, candidateId: string, title: string): CliResult {
-  const candidate = readLessonCandidate(rootDir, taskId, candidateId);
+export function runLessonSediment(rootInput: HarnessLayoutInput, taskId: string, candidateId: string, title: string): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const candidate = readLessonCandidate(rootInput, taskId, candidateId);
   if (!candidate.ok) return candidate.result;
-  const outputPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "lessons", `${candidateId}.md`);
+  const outputPath = path.join(layout.authoredRoot, "lessons", `${candidateId}.md`);
   return {
     ok: true,
     command: "lesson-sediment",
@@ -59,11 +64,11 @@ export function runLessonSediment(rootDir: string, taskId: string, candidateId: 
 }
 
 function readLessonCandidate(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   taskId: string,
   candidateId: string
 ): { readonly ok: true; readonly value: { readonly id: string; readonly status: string; readonly title: string } } | { readonly ok: false; readonly result: CliResult } {
-  const lessonPath = taskDocumentPath(rootDir, taskId, "lesson_candidates.md");
+  const lessonPath = taskDocumentPath(rootInput, taskId, "lesson_candidates.md");
   if (!existsSync(lessonPath)) {
     return { ok: false, result: { ok: false, command: "lesson", taskId, error: cliError(CliErrorCode.LessonCandidatesMissing, "lesson_candidates.md is required for lesson promotion or sedimentation.") } };
   }

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -29,16 +30,16 @@ type LegacyIndexValidation =
   | { readonly ok: true; readonly index: LegacyIndex }
   | { readonly ok: false; readonly result: CliResult };
 
-export function runMigratePlan(rootDir: string, action: MigratePlanAction): CliResult {
-  const report = limitReport(buildScanReport(rootDir, "."), action.limit);
+export function runMigratePlan(rootInput: HarnessLayoutInput, action: MigratePlanAction): CliResult {
+  const report = limitReport(buildScanReport(rootInput, "."), action.limit);
   return aliasResult("migrate-plan", report, {
     aliasOf: "legacy scan",
     hint: "migrate-plan is a Legacy Intake compatibility alias. It does not promise automatic migration or full cutover."
   });
 }
 
-export function runMigrateStructure(rootDir: string, action: MigrateStructureAction): CliResult {
-  const report = buildScanReport(rootDir, ".");
+export function runMigrateStructure(rootInput: HarnessLayoutInput, action: MigrateStructureAction): CliResult {
+  const report = buildScanReport(rootInput, ".");
   if (action.mode === "plan") {
     return aliasResult("migrate-structure", report, {
       aliasOf: "legacy copy-safe-docs",
@@ -55,9 +56,9 @@ export function runMigrateStructure(rootDir: string, action: MigrateStructureAct
       error: cliError(CliErrorCode.PlanConfirmationRequired, "Run migrate-structure --plan first, inspect the Legacy Intake plan, then rerun --apply --confirm-plan.")
     };
   }
-  const copied = applyLegacyCopy(rootDir, report);
+  const copied = applyLegacyCopy(rootInput, report);
   if (!copied.ok) return aliasFailure("migrate-structure", copied);
-  const indexResult = applyLegacyIndex(rootDir, report);
+  const indexResult = applyLegacyIndex(rootInput, report);
   if (!indexResult.ok) return aliasFailure("migrate-structure", indexResult);
   return aliasResult("migrate-structure", report, {
     aliasOf: "legacy copy-safe-docs + legacy index",
@@ -66,12 +67,13 @@ export function runMigrateStructure(rootDir: string, action: MigrateStructureAct
   });
 }
 
-export function runMigrateRun(rootDir: string, action: MigrateRunAction): CliResult {
-  const report = buildScanReport(rootDir, ".");
+export function runMigrateRun(rootInput: HarnessLayoutInput, action: MigrateRunAction): CliResult {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const report = buildScanReport(rootInput, ".");
   if (!action.planOnly) {
-    const copied = applyLegacyCopy(rootDir, report);
+    const copied = applyLegacyCopy(rootInput, report);
     if (!copied.ok) return aliasFailure("migrate-run", copied);
-    const indexed = applyLegacyIndex(rootDir, report);
+    const indexed = applyLegacyIndex(rootInput, report);
     if (!indexed.ok) return aliasFailure("migrate-run", indexed);
   }
   const session: LegacyIntakeSession = {
@@ -98,7 +100,7 @@ export function runMigrateRun(rootDir: string, action: MigrateRunAction): CliRes
   };
 }
 
-export function runMigrateVerify(rootDir: string, action: MigrateVerifyAction): CliResult {
+export function runMigrateVerify(rootInput: HarnessLayoutInput, action: MigrateVerifyAction): CliResult {
   if (action.fullCutover) {
     return {
       ok: false,
@@ -111,11 +113,11 @@ export function runMigrateVerify(rootDir: string, action: MigrateVerifyAction): 
       error: cliError(CliErrorCode.FullCutoverRetired, "Full cutover is retired. Use harness-anything legacy verify and agent-assisted rebuild instead.")
     };
   }
-  return runLegacyVerify(rootDir, { kind: "legacy-verify" });
+  return runLegacyVerify(rootInput, { kind: "legacy-verify" });
 }
 
-export function runLegacyScan(rootDir: string, action: LegacyScanAction): CliResult {
-  const report = buildScanReport(rootDir, action.sourcePath);
+export function runLegacyScan(rootInput: HarnessLayoutInput, action: LegacyScanAction): CliResult {
+  const report = buildScanReport(rootInput, action.sourcePath);
   return {
     ok: true,
     command: "legacy-scan",
@@ -124,8 +126,9 @@ export function runLegacyScan(rootDir: string, action: LegacyScanAction): CliRes
   };
 }
 
-export function runLegacyIntakePlan(rootDir: string, action: LegacyIntakePlanAction): CliResult {
-  const report = buildScanReport(rootDir, action.sourcePath);
+export function runLegacyIntakePlan(rootInput: HarnessLayoutInput, action: LegacyIntakePlanAction): CliResult {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const report = buildScanReport(rootInput, action.sourcePath);
   const body = renderIntakePlan(report);
   if (action.outPath) {
     const outPath = path.resolve(rootDir, action.outPath);
@@ -141,8 +144,8 @@ export function runLegacyIntakePlan(rootDir: string, action: LegacyIntakePlanAct
   };
 }
 
-export function runLegacyCopySafeDocs(rootDir: string, action: LegacyCopySafeDocsAction): CliResult {
-  const report = buildScanReport(rootDir, action.sourcePath);
+export function runLegacyCopySafeDocs(rootInput: HarnessLayoutInput, action: LegacyCopySafeDocsAction): CliResult {
+  const report = buildScanReport(rootInput, action.sourcePath);
   if (!action.apply) {
     return {
       ok: true,
@@ -152,11 +155,12 @@ export function runLegacyCopySafeDocs(rootDir: string, action: LegacyCopySafeDoc
       report
     };
   }
-  return applyLegacyCopy(rootDir, report);
+  return applyLegacyCopy(rootInput, report);
 }
 
-export function runLegacyIndex(rootDir: string, action: LegacyIndexAction): CliResult {
-  const report = buildScanReport(rootDir, action.sourcePath);
+export function runLegacyIndex(rootInput: HarnessLayoutInput, action: LegacyIndexAction): CliResult {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const report = buildScanReport(rootInput, action.sourcePath);
   if (!action.apply) {
     return {
       ok: true,
@@ -166,11 +170,12 @@ export function runLegacyIndex(rootDir: string, action: LegacyIndexAction): CliR
       report: toLegacyIndex(rootDir, report)
     };
   }
-  return applyLegacyIndex(rootDir, report);
+  return applyLegacyIndex(rootInput, report);
 }
 
-export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): CliResult {
-  const layout = resolveHarnessLayout(rootDir);
+export function runLegacyVerify(rootInput: HarnessLayoutInput, _action: LegacyVerifyAction): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   if (!existsSync(layout.legacyIndexPath)) {
     return {
       ok: false,
@@ -192,7 +197,7 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
   }
   let collisionReport: ReturnType<typeof readCollisionReport>;
   try {
-    collisionReport = readCollisionReport(rootDir);
+    collisionReport = readCollisionReport(rootInput);
   } catch {
     return {
       ok: false,
@@ -205,7 +210,7 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
     .map((entry) => entry.storedPath)
     .filter((storedPath) => !existsSync(path.join(rootDir, storedPath)));
   const ok = missingTargets.length === 0;
-  const provenanceWarnings = collectLegacyProvenanceWarnings(rootDir);
+  const provenanceWarnings = collectLegacyProvenanceWarnings(rootInput);
   return {
     ok,
     command: "legacy-verify",
@@ -228,7 +233,8 @@ export function runLegacyVerify(rootDir: string, _action: LegacyVerifyAction): C
   };
 }
 
-function applyLegacyCopy(rootDir: string, report: LegacyScanReport): CliResult {
+function applyLegacyCopy(rootInput: HarnessLayoutInput, report: LegacyScanReport): CliResult {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const validation = validateLegacyIndex(rootDir, report);
   if (!validation.ok) return validation.result;
   const duplicateTarget = firstDuplicate(report.entries.map((entry) => entry.storedPath));
@@ -242,7 +248,7 @@ function applyLegacyCopy(rootDir: string, report: LegacyScanReport): CliResult {
     };
   }
   const copyPlan = buildLegacyCopyPlan(rootDir, report.sourceRoot, report.entries);
-  writeCollisionReport(rootDir, copyPlan.collisionReport);
+  writeCollisionReport(rootInput, copyPlan.collisionReport);
   for (const target of copyPlan.targets) {
     copySource(target.sourcePath, path.join(rootDir, target.chosenPath));
   }
@@ -260,9 +266,10 @@ function applyLegacyCopy(rootDir: string, report: LegacyScanReport): CliResult {
   };
 }
 
-function applyLegacyIndex(rootDir: string, report: LegacyScanReport): CliResult {
-  const layout = resolveHarnessLayout(rootDir);
-  const collisionReport = readCollisionReport(rootDir);
+function applyLegacyIndex(rootInput: HarnessLayoutInput, report: LegacyScanReport): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const collisionReport = readCollisionReport(rootInput);
   const indexedReport = { ...report, entries: applyCollisionReport(report.entries, collisionReport), summary: summarize(applyCollisionReport(report.entries, collisionReport)) };
   const validation = validateLegacyIndex(rootDir, indexedReport);
   if (!validation.ok) return validation.result;

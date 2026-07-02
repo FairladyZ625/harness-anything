@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { TaskId } from "../../../kernel/src/domain/index.ts";
 import { findEntityRefs } from "../../../kernel/src/domain/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout, taskPackagePath } from "../../../kernel/src/layout/index.ts";
 
 export function renderSupersedesRelation(newTaskId: TaskId, oldTaskId: TaskId, reason: string): string {
@@ -28,9 +29,9 @@ export function renderSupersedesRelation(newTaskId: TaskId, oldTaskId: TaskId, r
   ].join("\n");
 }
 
-export function hasTaskRelations(rootDir: string, taskId: TaskId): boolean {
-  const layout = resolveHarnessLayout(rootDir);
-  const ownPackage = taskPackagePath(rootDir, taskId);
+export function hasTaskRelations(rootInput: HarnessLayoutInput, taskId: TaskId): boolean {
+  const layout = resolveHarnessLayout(rootInput);
+  const ownPackage = taskPackagePath(rootInput, taskId);
   for (const filePath of listTextFiles(layout.authoredRoot)) {
     const body = readFileSync(filePath, "utf8");
     const refs = findEntityRefs(body);

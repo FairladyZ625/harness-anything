@@ -3,16 +3,19 @@ import path from "node:path";
 import type { CloseoutReadiness } from "../domain/index.ts";
 import { isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
 import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskProjectionRow } from "./types.ts";
 
-export function readMarkdownSource(rootDir: string): {
+export function readMarkdownSource(rootInput: HarnessLayoutInput): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
   readonly hash: string;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 } {
-  const tasksDir = resolveHarnessLayout(rootDir).tasksRoot;
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const tasksDir = layout.tasksRoot;
   if (!existsSync(tasksDir)) {
     return { entries: [], hash: hashText("[]"), warnings: [] };
   }
@@ -59,7 +62,8 @@ export interface TaskSourceEntry {
   readonly frontmatter: string;
 }
 
-export function taskEntryToRow(rootDir: string, entry: TaskSourceEntry): TaskProjectionRow {
+export function taskEntryToRow(rootInput: HarnessLayoutInput, entry: TaskSourceEntry): TaskProjectionRow {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const rawStatus = readScalar(entry.frontmatter, "  status") || "unknown";
   const canonicalStatus = isDomainStatus(rawStatus) ? rawStatus : "unknown";
   const rawDisposition = readScalar(entry.frontmatter, "packageDisposition") || "active";
@@ -75,7 +79,7 @@ export function taskEntryToRow(rootDir: string, entry: TaskSourceEntry): TaskPro
     coordinationStatus: coordinationStatus(canonicalStatus),
     rawStatus,
     packageDisposition,
-    closeoutReadiness: closeoutReadiness(rootDir, entry.taskId, canonicalStatus),
+    closeoutReadiness: closeoutReadiness(rootInput, entry.taskId, canonicalStatus),
     lifecycleEngine,
     freshness: canonicalStatus === "unknown" || !isPackageDisposition(rawDisposition) ? "stale-but-usable" : "fresh",
     updatedAt: statSync(entry.indexPath).mtime.toISOString(),
@@ -132,10 +136,10 @@ function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStat
   return isTerminalStatus(status) ? "terminal" : "open";
 }
 
-function closeoutReadiness(rootDir: string, taskId: string, status: ProjectionCanonicalStatus): CloseoutReadiness {
+function closeoutReadiness(rootInput: HarnessLayoutInput, taskId: string, status: ProjectionCanonicalStatus): CloseoutReadiness {
   if (status === "unknown") return "missing";
   if (!isTerminalStatus(status) && status !== "in_review") return "not_required";
-  const taskDir = path.join(resolveHarnessLayout(rootDir).tasksRoot, taskId);
+  const taskDir = path.join(resolveHarnessLayout(rootInput).tasksRoot, taskId);
   if (existsSync(path.join(taskDir, "closeout.md"))) return "ready";
   return "missing";
 }

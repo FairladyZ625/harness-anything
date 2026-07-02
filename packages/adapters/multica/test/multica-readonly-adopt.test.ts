@@ -118,6 +118,30 @@ test("Multica adopt rejects duplicate external bindings and task id conflicts", 
   });
 });
 
+test("Multica adopt uses explicit authored root for reads, claims, and writes", () => {
+  withTempRoot((rootDir) => {
+    const layoutOverrides = { authoredRoot: ".custom-harness" };
+    const service = makeMulticaAdoptionService({
+      rootDir,
+      layoutOverrides,
+      client: fakeClient([issue("FAI-1", "Active")]),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, layoutOverrides }),
+      clock: fixedClock
+    });
+
+    Effect.runSync(service.adopt({ taskId: "task-1", ref: "FAI-1" }));
+    const duplicateRef = Effect.runSyncExit(service.adopt({ taskId: "task-2", ref: "FAI-1" }));
+    const duplicateTask = Effect.runSyncExit(service.adopt({ taskId: "task-1", ref: "FAI-2" }));
+
+    assert.equal(existsSync(path.join(rootDir, ".custom-harness/planning/tasks/task-1/INDEX.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+    assert.equal(duplicateRef._tag, "Failure");
+    assert.match(String(duplicateRef.cause), /DuplicateExternalBinding/);
+    assert.equal(duplicateTask._tag, "Failure");
+    assert.match(String(duplicateTask.cause), /TaskAlreadyExists/);
+  });
+});
+
 test("Multica adopt claim rejects duplicate refs before authored scan can see them", () => {
   withTempRoot((rootDir) => {
     mkdirSync(path.join(rootDir, ".harness/adopt-claims", "binding", "d8469170d66bc64c333119e46da4697d62ed8e4cf611864b128b5ef5df48301c"), {

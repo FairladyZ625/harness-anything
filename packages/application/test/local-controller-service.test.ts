@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -78,9 +78,41 @@ test("local controller service reads projection and writes through injected task
   }
 });
 
-function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string): void {
-  mkdirSync(path.join(rootDir, "harness/planning/tasks", taskId), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/planning/tasks", taskId, "INDEX.md"), [
+test("local controller service honors explicit authored root for reads and writes", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
+  const layoutOverrides = { authoredRoot: ".custom-harness" };
+  try {
+    writeTaskIndex(rootDir, "task-1", "Custom Task", "planned", layoutOverrides.authoredRoot);
+    const service = makeLocalControllerService({
+      rootDir,
+      layoutOverrides,
+      taskWriter: {
+        setStatus: (payload) => Effect.sync(() => ({ taskId: payload.taskId, status: payload.status })),
+        appendProgress: (payload) => Effect.sync(() => {
+          const progressPath = path.join(rootDir, layoutOverrides.authoredRoot, "planning/tasks", payload.taskId, "progress.md");
+          writeFileSync(progressPath, `${payload.text}\n`, "utf8");
+          return { taskId: payload.taskId, path: "progress.md" };
+        })
+      }
+    });
+
+    const list = service.getTasks();
+    assert.equal(list.ok, true);
+    assert.equal(list.tasks.length, 1);
+    const document = service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
+    assert.equal(document.ok, true);
+    assert.match(document.body ?? "", /Custom Task/);
+    assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "custom progress" }), { ok: true });
+    assert.match(readFileSync(path.join(rootDir, ".custom-harness/planning/tasks/task-1/progress.md"), "utf8"), /custom progress/);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string, authoredRoot = "harness"): void {
+  mkdirSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId), { recursive: true });
+  writeFileSync(path.join(rootDir, authoredRoot, "planning/tasks", taskId, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
     `task_id: ${taskId}`,

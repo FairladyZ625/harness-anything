@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { Effect } from "effect";
 import type { DomainStatus, EngineError, TaskId } from "../../../kernel/src/domain/index.ts";
 import { isDomainStatus, isPackageDisposition } from "../../../kernel/src/domain/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../../../kernel/src/markdown/frontmatter.ts";
 import type { TaskCreatedBy } from "./created-by.ts";
@@ -88,18 +89,18 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
   return lines.join("\n");
 }
 
-export function readIndexEffect(rootDir: string, taskId: TaskId): Effect.Effect<LocalTaskIndex, EngineError> {
+export function readIndexEffect(rootInput: HarnessLayoutInput, taskId: TaskId): Effect.Effect<LocalTaskIndex, EngineError> {
   return Effect.try({
-    try: () => readIndex(rootDir, taskId),
+    try: () => readIndex(rootInput, taskId),
     catch: (cause): EngineError => isNodeErrorCode(cause, "ENOENT")
       ? { _tag: "TaskNotFound", taskId }
       : { _tag: "MalformedSnapshot", raw: sanitizeReadError(cause) }
   });
 }
 
-export function readIndex(rootDir: string, taskId: TaskId): LocalTaskIndex {
+export function readIndex(rootInput: HarnessLayoutInput, taskId: TaskId): LocalTaskIndex {
   validateTaskId(taskId);
-  const body = readFileSync(indexPath(rootDir, taskId), "utf8");
+  const body = readFileSync(indexPath(rootInput, taskId), "utf8");
   const frontmatter = readFrontmatter(body);
   if (!frontmatter) throw new Error(`INDEX.md missing frontmatter: ${taskId}`);
 
@@ -124,12 +125,12 @@ export function readIndex(rootDir: string, taskId: TaskId): LocalTaskIndex {
   };
 }
 
-export function indexPath(rootDir: string, taskId: TaskId): string {
-  return taskDocumentPath(rootDir, taskId, "INDEX.md");
+export function indexPath(rootInput: HarnessLayoutInput, taskId: TaskId): string {
+  return taskDocumentPath(rootInput, taskId, "INDEX.md");
 }
 
-export function taskDocumentPath(rootDir: string, taskId: TaskId, documentPath: string): string {
-  return harnessTaskDocumentPath(rootDir, taskId, documentPath);
+export function taskDocumentPath(rootInput: HarnessLayoutInput, taskId: TaskId, documentPath: string): string {
+  return harnessTaskDocumentPath(rootInput, taskId, documentPath);
 }
 
 function nullIfEmpty(value: string): string | null {

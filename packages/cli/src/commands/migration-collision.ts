@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { LegacyCollisionReportSchema, type LegacyCollisionReport, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 
@@ -56,15 +57,15 @@ export function buildLegacyCopyPlan(rootDir: string, sourceRoot: string, entries
   };
 }
 
-export function writeCollisionReport(rootDir: string, report: LegacyCollisionReport): void {
-  const layout = resolveHarnessLayout(rootDir);
+export function writeCollisionReport(rootInput: HarnessLayoutInput, report: LegacyCollisionReport): void {
+  const layout = resolveHarnessLayout(rootInput);
   const validated = validateCollisionReport(report);
   mkdirSync(path.dirname(layout.legacyCollisionReportPath), { recursive: true });
   writeFileSync(layout.legacyCollisionReportPath, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
 }
 
-export function readCollisionReport(rootDir: string): LegacyCollisionReport | null {
-  const layout = resolveHarnessLayout(rootDir);
+export function readCollisionReport(rootInput: HarnessLayoutInput): LegacyCollisionReport | null {
+  const layout = resolveHarnessLayout(rootInput);
   if (!existsSync(layout.legacyCollisionReportPath)) return null;
   return validateCollisionReport(JSON.parse(readFileSync(layout.legacyCollisionReportPath, "utf8")));
 }

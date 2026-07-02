@@ -3,20 +3,22 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { findEntityRefs } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
+import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readScalar } from "../markdown/frontmatter.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 
-export function runPostMergeChecks(rootDir: string): ReadonlyArray<ProjectionWarning> {
-  const source = readMarkdownSource(rootDir);
+export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const source = readMarkdownSource(rootInput);
   const warnings: ProjectionWarning[] = [];
   warnings.push(...findDuplicateTaskIds(rootDir, source.entries));
   warnings.push(...findDuplicateExternalBindings(source.entries));
   warnings.push(...findTrackedGeneratedFiles(rootDir));
   warnings.push(...findTamperedBindings(source.entries));
-  warnings.push(...findConflictMarkers(rootDir));
-  warnings.push(...findDanglingEntityRefs(rootDir, source.entries));
+  warnings.push(...findConflictMarkers(rootInput));
+  warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
   warnings.push(...findRelationCycles(source.entries));
   return warnings;
 }
@@ -123,8 +125,9 @@ function findTamperedBindings(entries: ReadonlyArray<TaskSourceEntry>): Readonly
   return warnings;
 }
 
-function findConflictMarkers(rootDir: string): ReadonlyArray<ProjectionWarning> {
-  const layout = resolveHarnessLayout(rootDir);
+function findConflictMarkers(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   const roots = [layout.authoredRoot, path.join(layout.rootDir, "AGENTS.md"), path.join(layout.rootDir, "CLAUDE.md")];
   for (const candidate of roots.flatMap((entry) => listTextFiles(entry))) {
     const body = readFileSync(candidate, "utf8");
@@ -140,10 +143,11 @@ function findConflictMarkers(rootDir: string): ReadonlyArray<ProjectionWarning> 
   return [];
 }
 
-function findDanglingEntityRefs(rootDir: string, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
+function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const knownTaskIds = new Set(entries.map((entry) => readScalar(entry.frontmatter, "task_id") || entry.taskId));
   const warnings: ProjectionWarning[] = [];
-  const files = listTextFiles(resolveHarnessLayout(rootDir).authoredRoot);
+  const files = listTextFiles(resolveHarnessLayout(rootInput).authoredRoot);
   for (const filePath of files) {
     const body = readFileSync(filePath, "utf8");
     for (const ref of findEntityRefs(body)) {

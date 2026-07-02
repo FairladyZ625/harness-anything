@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 
-export function collectLegacyProvenanceWarnings(rootDir: string): ReadonlyArray<Record<string, string>> {
-  const layout = resolveHarnessLayout(rootDir);
+export function collectLegacyProvenanceWarnings(rootInput: HarnessLayoutInput): ReadonlyArray<Record<string, string>> {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   if (!existsSync(layout.tasksRoot)) return [];
   return readdirSync(layout.tasksRoot, { withFileTypes: true }).flatMap((entry) => {
     if (!entry.isDirectory()) return [];

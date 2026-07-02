@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult } from "../cli/types.ts";
@@ -43,8 +44,8 @@ const EMPTY_USER_SETTINGS: UserHarnessSettings = {
 const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
 const SETTINGS_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u;
 
-export function readProjectHarnessSettings(rootDir: string, command = "settings"): SettingsResult {
-  const configPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");
+export function readProjectHarnessSettings(rootInput: HarnessLayoutInput, command = "settings"): SettingsResult {
+  const configPath = path.join(resolveHarnessLayout(rootInput).authoredRoot, "harness.yaml");
   if (!existsSync(configPath)) return { ok: true, settings: EMPTY_SETTINGS };
 
   try {
@@ -60,8 +61,8 @@ export function readProjectHarnessSettings(rootDir: string, command = "settings"
   }
 }
 
-export function readUserHarnessSettings(rootDir: string, command = "settings"): UserSettingsResult {
-  const configPath = path.join(resolveHarnessLayout(rootDir).localRoot, "user-settings.json");
+export function readUserHarnessSettings(rootInput: HarnessLayoutInput, command = "settings"): UserSettingsResult {
+  const configPath = path.join(resolveHarnessLayout(rootInput).localRoot, "user-settings.json");
   if (!existsSync(configPath)) return { ok: true, settings: EMPTY_USER_SETTINGS };
 
   try {
@@ -95,11 +96,11 @@ export function readUserHarnessSettings(rootDir: string, command = "settings"): 
 }
 
 export function customVerticalGateResult(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   command: string,
   projectSettings: ProjectHarnessSettings | undefined
 ): CliResult {
-  const userSettings = readUserHarnessSettings(rootDir, command);
+  const userSettings = readUserHarnessSettings(rootInput, command);
   if (!userSettings.ok) return userSettings.result;
 
   const userGate = userSettings.settings.customVerticalsDevMode;

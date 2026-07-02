@@ -1,4 +1,5 @@
 import type { DomainStatus } from "../../../kernel/src/domain/index.ts";
+import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import type { CliError } from "./error-codes.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
@@ -96,6 +97,7 @@ export interface CommandHelpOption {
 
 export interface ParsedCommand {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly json: boolean;
   readonly action:
     | { readonly kind: "init"; readonly addNpmScripts: boolean; readonly projectName?: string }

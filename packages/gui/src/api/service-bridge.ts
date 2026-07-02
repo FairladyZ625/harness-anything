@@ -6,7 +6,8 @@ import {
   readTaskDocumentPayload,
   readTaskIdPayload
 } from "../../../application/src/index.ts";
-import { normalizeRelativeDocumentPath } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
+import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, deferredGuiBridgeContracts } from "./api-contract-registry.ts";
 import { validateProjectPath } from "./local-api.ts";
@@ -20,6 +21,7 @@ type ShippedGuiBridgeMethod = ShippedGuiBridgeRoute["guiBridgeMethod"];
 
 interface GuiBridgeHandlerContext {
   readonly rootDir: string;
+  readonly layoutInput: HarnessLayoutInput;
   readonly service: LocalControllerService;
   readonly payload: unknown;
 }
@@ -44,8 +46,8 @@ export const guiBridgeHandlerImplementations = {
   },
   getTaskDocument: {
     serviceMethod: "getTaskDocument",
-    invoke: ({ rootDir, service, payload }) => {
-      const pathDecision = validateTaskDocumentPayloadPath(rootDir, payload);
+    invoke: ({ rootDir, layoutInput, service, payload }) => {
+      const pathDecision = validateTaskDocumentPayloadPath(rootDir, layoutInput, payload);
       if (!pathDecision.ok) return pathDecision;
       const parsed = readTaskDocumentPayload(payload);
       if (!parsed.ok) return parsed;
@@ -91,21 +93,27 @@ const deferredGuiBridgeReasons = new Map<PreloadApiMethod, string>(
   deferredGuiBridgeContracts.map((entry) => [entry.guiBridgeMethod, entry.reason])
 );
 
-export function createGuiServiceBridgeForService(rootDir: string, service: LocalControllerService): GuiServiceBridge {
+export function createGuiServiceBridgeForService(
+  rootDir: string,
+  service: LocalControllerService,
+  layoutOverrides?: HarnessLayoutOverrides
+): GuiServiceBridge {
+  const layoutInput = createHarnessRuntimeContext(rootDir, layoutOverrides);
   return {
-    invoke: async (method, payload) => dispatchGuiServiceMethod(rootDir, service, method, payload)
+    invoke: async (method, payload) => dispatchGuiServiceMethod(rootDir, layoutInput, service, method, payload)
   };
 }
 
 export async function dispatchGuiServiceMethod(
   rootDir: string,
+  layoutInput: HarnessLayoutInput,
   service: LocalControllerService,
   method: string,
   payload: unknown
 ): Promise<unknown> {
   if (shippedGuiBridgeMethods.has(method as PreloadApiMethod)) {
     const handler = guiBridgeHandlerImplementations[method as ShippedGuiBridgeMethod];
-    return handler.invoke({ rootDir, service, payload });
+    return handler.invoke({ rootDir, layoutInput, service, payload });
   }
   const deferredReason = deferredGuiBridgeReasons.get(method as PreloadApiMethod);
   if (deferredReason) {
@@ -126,7 +134,11 @@ export async function dispatchGuiServiceMethod(
   };
 }
 
-function validateTaskDocumentPayloadPath(rootDir: string, payload: unknown): { readonly ok: true } | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string } } {
+function validateTaskDocumentPayloadPath(
+  rootDir: string,
+  layoutInput: HarnessLayoutInput,
+  payload: unknown
+): { readonly ok: true } | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string } } {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     return { ok: false, error: { code: "invalid_payload", hint: "taskId and path are required." } };
   }
@@ -140,7 +152,13 @@ function validateTaskDocumentPayloadPath(rootDir: string, payload: unknown): { r
   } catch {
     return { ok: false, error: { code: "invalid_payload", hint: "Portable document path is required." } };
   }
-  const decision = validateProjectPath(rootDir, path.join("harness", "planning", "tasks", record.taskId, documentPath));
+  let relativeDocumentPath: string;
+  try {
+    relativeDocumentPath = path.relative(rootDir, taskDocumentPath(layoutInput, record.taskId, documentPath));
+  } catch {
+    return { ok: false, error: { code: "invalid_payload", hint: "taskId is invalid." } };
+  }
+  const decision = validateProjectPath(rootDir, relativeDocumentPath);
   if (!decision.ok) {
     return {
       ok: false,

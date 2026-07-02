@@ -6,6 +6,7 @@ import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts"
 import { indexPath, makeIndex, renderIndex } from "../../../adapters/local/src/task-index.ts";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -34,20 +35,21 @@ interface LegacyProvenance {
 }
 
 export function runNewTaskFromLegacy(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   action: NewTaskAction
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   if (!action.fromLegacyId) {
     throw new Error("runNewTaskFromLegacy requires fromLegacyId");
   }
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const fromLegacyId = action.fromLegacyId;
-  return Effect.sync(() => readLegacyRebuildSource(rootDir, fromLegacyId)).pipe(
+  return Effect.sync(() => readLegacyRebuildSource(rootInput, fromLegacyId)).pipe(
     Effect.flatMap((legacySource): Effect.Effect<CliResult, EngineError | WriteError> => {
       if (!legacySource.ok) return Effect.succeed(legacySource.result);
       const title = action.titleProvided ? action.title : legacySource.entry.title ?? legacySource.entry.id;
       const slug = action.slugProvided ? action.slug : slugifyTaskTitle(title);
       const taskId = generateTaskId();
-      if (existsSync(indexPath(rootDir, taskId))) {
+      if (existsSync(indexPath(rootInput, taskId))) {
         return Effect.fail({ _tag: "TaskAlreadyExists", taskId } satisfies EngineError);
       }
       const createdAt = new Date().toISOString();
@@ -60,10 +62,14 @@ export function runNewTaskFromLegacy(
         preset: "default",
         createdBy: resolveTaskCreatedBy(rootDir)
       }, hashPayload);
-      const packagePath = createTaskPackagePath(rootDir, taskId, slug);
+      const packagePath = createTaskPackagePath(rootInput, taskId, slug);
       const provenance = buildLegacyProvenance(legacySource.entry, createdAt);
       const provenanceMd = renderLegacyProvenanceMarkdown(rootDir, packagePath, legacySource.entry);
-      const coordinator = makeLocalWriteCoordinator({ rootDir, actor: { kind: "agent", id: "local-lifecycle" } });
+      const coordinator = makeLocalWriteCoordinator({
+        rootDir,
+        layoutOverrides: layoutOverridesFromInput(rootInput),
+        actor: { kind: "agent", id: "local-lifecycle" }
+      });
       const writes = [
         { taskId, path: "INDEX.md", body: renderIndex(index), packageSlug: slug },
         { taskId, path: "legacy-provenance.json", body: `${JSON.stringify(provenance, null, 2)}\n`, packageSlug: slug },
@@ -102,8 +108,9 @@ function hashPayload(value: unknown): string {
   return stablePayloadHash(value);
 }
 
-function readLegacyRebuildSource(rootDir: string, legacyId: string): LegacyRebuildSource {
-  const layout = resolveHarnessLayout(rootDir);
+function readLegacyRebuildSource(rootInput: HarnessLayoutInput, legacyId: string): LegacyRebuildSource {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   if (!existsSync(layout.legacyIndexPath)) {
     return {
       ok: false,
@@ -148,6 +155,10 @@ function readLegacyRebuildSource(rootDir: string, legacyId: string): LegacyRebui
       }
     };
   }
+}
+
+function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {
+  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }
 
 function buildLegacyProvenance(entry: LegacyIndexEntry, rebuiltAt: string): LegacyProvenance {

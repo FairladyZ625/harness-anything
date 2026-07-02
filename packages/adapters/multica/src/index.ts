@@ -4,7 +4,8 @@ import { Effect, Either, Option } from "effect";
 import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { ArtifactStore, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
-import { findTaskIdByExternalRef, resolveHarnessLayout, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
+import { createHarnessRuntimeContext, findTaskIdByExternalRef, resolveHarnessLayout, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
 import { writeCoordinatedPayload } from "../../../kernel/src/write-coordination/write-helpers.ts";
 
 export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
@@ -31,6 +32,7 @@ export interface MulticaLifecycleOptions {
 
 export interface MulticaAdoptionOptions extends MulticaLifecycleOptions {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly coordinator: WriteCoordinator;
   readonly bindingIndex?: BindingLookup;
 }
@@ -140,15 +142,16 @@ function snapshotMulticaRef(
 
 export function makeMulticaAdoptionService(options: MulticaAdoptionOptions): MulticaAdoptionService {
   const rootDir = path.resolve(options.rootDir);
+  const layoutInput = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const clock = options.clock ?? (() => new Date());
   const engine = makeMulticaLifecycleEngine(options);
-  const bindingIndex = options.bindingIndex ?? makeMarkdownBindingIndex(rootDir);
+  const bindingIndex = options.bindingIndex ?? makeMarkdownBindingIndex(layoutInput);
 
   return {
     adopt: (input) => Effect.gen(function* () {
       validateTaskId(input.taskId);
       const claims = yield* Effect.try({
-        try: () => acquireAdoptClaims(rootDir, input.taskId, input.ref),
+        try: () => acquireAdoptClaims(layoutInput, input.taskId, input.ref),
         catch: (): EngineError => ({
           _tag: "DuplicateAdoptClaim",
           engine: "multica",
@@ -156,7 +159,7 @@ export function makeMulticaAdoptionService(options: MulticaAdoptionOptions): Mul
         })
       });
       try {
-        if (existsSync(taskIndexPath(rootDir, input.taskId))) {
+        if (existsSync(taskIndexPath(layoutInput, input.taskId))) {
           return yield* Effect.fail({
             _tag: "TaskAlreadyExists",
             taskId: input.taskId
@@ -199,9 +202,9 @@ export function makeMulticaAdoptionService(options: MulticaAdoptionOptions): Mul
   };
 }
 
-function acquireAdoptClaims(rootDir: string, taskId: TaskId, ref: ExternalRef): ReadonlyArray<string> {
-  const taskClaimPath = claimPath(rootDir, "task", taskId);
-  const bindingClaimPath = claimPath(rootDir, "binding", `multica:${ref}`);
+function acquireAdoptClaims(rootInput: HarnessLayoutInput, taskId: TaskId, ref: ExternalRef): ReadonlyArray<string> {
+  const taskClaimPath = claimPath(rootInput, "task", taskId);
+  const bindingClaimPath = claimPath(rootInput, "binding", `multica:${ref}`);
   const acquired: string[] = [];
   try {
     mkdirSync(path.dirname(taskClaimPath), { recursive: true });
@@ -250,10 +253,10 @@ function mapStatus(rawStatus: string): { readonly canonicalStatus: TaskSnapshot[
   return { canonicalStatus: "unknown", warning: "status_unmapped" };
 }
 
-function makeMarkdownBindingIndex(rootDir: string): BindingLookup {
+function makeMarkdownBindingIndex(rootInput: HarnessLayoutInput): BindingLookup {
   return {
     findBindingByExternalRef: (engine, ref) => Effect.sync(() => {
-      return Option.fromNullable(findTaskIdByExternalRef(rootDir, engine, ref));
+      return Option.fromNullable(findTaskIdByExternalRef(rootInput, engine, ref));
     })
   };
 }
@@ -317,12 +320,12 @@ function validateTaskId(taskId: TaskId): void {
   validateTaskIdSyntax(taskId);
 }
 
-function taskIndexPath(rootDir: string, taskId: TaskId): string {
-  return taskDocumentPath(rootDir, taskId, "INDEX.md");
+function taskIndexPath(rootInput: HarnessLayoutInput, taskId: TaskId): string {
+  return taskDocumentPath(rootInput, taskId, "INDEX.md");
 }
 
-function claimPath(rootDir: string, kind: "binding" | "task", key: string): string {
-  return path.join(resolveHarnessLayout(rootDir).claimsRoot, kind, stableHash(key));
+function claimPath(rootInput: HarnessLayoutInput, kind: "binding" | "task", key: string): string {
+  return path.join(resolveHarnessLayout(rootInput).claimsRoot, kind, stableHash(key));
 }
 
 function stableHash(value: unknown): string {

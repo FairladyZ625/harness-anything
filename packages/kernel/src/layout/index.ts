@@ -45,9 +45,16 @@ const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 const defaultAuthoredRoot = "harness";
 const defaultLocalRoot = ".harness";
 
-interface HarnessLayoutOverrides {
+export interface HarnessLayoutOverrides {
   readonly authoredRoot?: string;
 }
+
+export interface HarnessRuntimeContext {
+  readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
+}
+
+export type HarnessLayoutInput = string | HarnessRuntimeContext;
 
 interface HarnessConfigLocation {
   readonly path: string;
@@ -70,20 +77,28 @@ interface HarnessLayoutSettings {
   readonly generatedRootSetting?: string;
 }
 
-let layoutOverrides: HarnessLayoutOverrides = {};
-
-export function setHarnessLayoutOverrides(overrides: HarnessLayoutOverrides): void {
-  layoutOverrides = overrides;
+export function createHarnessRuntimeContext(
+  rootDir: string,
+  layoutOverrides?: HarnessLayoutOverrides
+): HarnessRuntimeContext {
+  return {
+    rootDir: path.resolve(rootDir),
+    ...(layoutOverrides && layoutOverrides.authoredRoot ? { layoutOverrides } : {})
+  };
 }
 
-export function resolveHarnessLayout(rootDir: string): HarnessLayout {
-  return buildHarnessLayout(resolveHarnessLayoutSettings(rootDir));
+export function harnessRuntimeRoot(input: HarnessLayoutInput): string {
+  return typeof input === "string" ? path.resolve(input) : input.rootDir;
 }
 
-function resolveHarnessLayoutSettings(rootDir: string): HarnessLayoutSettings {
+export function resolveHarnessLayout(input: HarnessLayoutInput): HarnessLayout {
+  return buildHarnessLayout(resolveHarnessLayoutSettings(input));
+}
+
+function resolveHarnessLayoutSettings(input: HarnessLayoutInput): HarnessLayoutSettings {
+  const rootDir = harnessRuntimeRoot(input);
   const { projectRoot, config } = resolveProjectRootAndConfig(rootDir);
-  const authoredRootSetting = layoutOverrides.authoredRoot
-    ?? process.env.HARNESS_AUTHORED_ROOT
+  const authoredRootSetting = layoutInputOverrides(input).authoredRoot
     ?? config.authoredRoot
     ?? defaultAuthoredRoot;
   return {
@@ -93,6 +108,10 @@ function resolveHarnessLayoutSettings(rootDir: string): HarnessLayoutSettings {
     tasksRootSetting: config.tasksRoot,
     generatedRootSetting: config.generatedRoot
   };
+}
+
+function layoutInputOverrides(input: HarnessLayoutInput): HarnessLayoutOverrides {
+  return typeof input === "string" ? {} : input.layoutOverrides ?? {};
 }
 
 function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
@@ -253,20 +272,20 @@ export function validateTaskIdSyntax(taskId: TaskId): void {
   }
 }
 
-export function taskPackagePath(rootDir: string, taskId: TaskId): string {
-  return resolveHarnessLayout(rootDir).taskPackagePath(taskId);
+export function taskPackagePath(input: HarnessLayoutInput, taskId: TaskId): string {
+  return resolveHarnessLayout(input).taskPackagePath(taskId);
 }
 
-export function createTaskPackagePath(rootDir: string, taskId: TaskId, slug?: string): string {
-  return resolveHarnessLayout(rootDir).createTaskPackagePath(taskId, slug);
+export function createTaskPackagePath(input: HarnessLayoutInput, taskId: TaskId, slug?: string): string {
+  return resolveHarnessLayout(input).createTaskPackagePath(taskId, slug);
 }
 
-export function taskDocumentPath(rootDir: string, taskId: TaskId, documentPath: string): string {
-  return resolveHarnessLayout(rootDir).taskDocumentPath(taskId, documentPath);
+export function taskDocumentPath(input: HarnessLayoutInput, taskId: TaskId, documentPath: string): string {
+  return resolveHarnessLayout(input).taskDocumentPath(taskId, documentPath);
 }
 
-export function listTaskIndexPaths(rootDir: string): ReadonlyArray<string> {
-  return listTaskIndexPathsInTasksRoot(resolveHarnessLayout(rootDir).tasksRoot);
+export function listTaskIndexPaths(input: HarnessLayoutInput): ReadonlyArray<string> {
+  return listTaskIndexPathsInTasksRoot(resolveHarnessLayout(input).tasksRoot);
 }
 
 function listTaskIndexPathsInTasksRoot(tasksRoot: string): ReadonlyArray<string> {
@@ -278,8 +297,8 @@ function listTaskIndexPathsInTasksRoot(tasksRoot: string): ReadonlyArray<string>
     .sort();
 }
 
-export function findTaskPackagePath(rootDir: string, taskId: TaskId): string | null {
-  return findTaskPackagePathInTasksRoot(resolveHarnessLayout(rootDir).tasksRoot, taskId);
+export function findTaskPackagePath(input: HarnessLayoutInput, taskId: TaskId): string | null {
+  return findTaskPackagePathInTasksRoot(resolveHarnessLayout(input).tasksRoot, taskId);
 }
 
 function findTaskPackagePathInTasksRoot(tasksRoot: string, taskId: TaskId): string | null {
@@ -293,8 +312,8 @@ function findTaskPackagePathInTasksRoot(tasksRoot: string, taskId: TaskId): stri
   return null;
 }
 
-export function findTaskIdByExternalRef(rootDir: string, engine: string, ref: string): TaskId | null {
-  for (const indexPath of listTaskIndexPaths(rootDir)) {
+export function findTaskIdByExternalRef(input: HarnessLayoutInput, engine: string, ref: string): TaskId | null {
+  for (const indexPath of listTaskIndexPaths(input)) {
     const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8")) ?? "";
     if (readScalar(frontmatter, "  engine") === engine && readScalar(frontmatter, "  ref") === ref) {
       return (readScalar(frontmatter, "task_id") || path.basename(path.dirname(indexPath))) as TaskId;

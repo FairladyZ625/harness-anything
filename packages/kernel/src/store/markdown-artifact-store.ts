@@ -15,29 +15,32 @@ import { isPackageDisposition } from "../domain/index.ts";
 import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../layout/index.ts";
 import { assertNoPortablePathCollisions, createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath, validateTaskIdSyntax } from "../layout/index.ts";
 
 export interface MarkdownArtifactStoreOptions {
   readonly rootDir: string;
+  readonly layoutOverrides?: HarnessLayoutOverrides;
 }
 
 export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions): ArtifactStore {
   const rootDir = path.resolve(options.rootDir);
+  const rootInput = options.layoutOverrides ? { rootDir, layoutOverrides: options.layoutOverrides } : rootDir;
 
   return {
     readTaskPackage: (taskId) => Effect.try({
-      try: () => readTaskPackage(rootDir, taskId),
+      try: () => readTaskPackage(rootInput, taskId),
       catch: (cause): ArtifactStoreError => ({
         _tag: "ArtifactReadFailed",
-        path: packagePath(rootDir, taskId),
+        path: packagePath(rootInput, taskId),
         cause
       })
     }),
     findBindingByExternalRef: (engine, ref) => Effect.try({
-      try: () => findBindingByExternalRef(rootDir, engine, ref),
+      try: () => findBindingByExternalRef(rootInput, engine, ref),
       catch: (cause): ArtifactStoreError => ({
         _tag: "ArtifactReadFailed",
-        path: resolveHarnessLayout(rootDir).tasksRoot,
+        path: resolveHarnessLayout(rootInput).tasksRoot,
         cause
       })
     })
@@ -46,10 +49,11 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
 
 export function makeMarkdownArtifactStoreWriter(options: MarkdownArtifactStoreOptions): ArtifactStoreWriter {
   const rootDir = path.resolve(options.rootDir);
+  const rootInput = options.layoutOverrides ? { rootDir, layoutOverrides: options.layoutOverrides } : rootDir;
 
   return {
     writeDocument: (write) => Effect.try({
-      try: () => writeDocument(rootDir, write),
+      try: () => writeDocument(rootInput, write),
       catch: (cause): ArtifactStoreError => ({
         _tag: "ArtifactWriteRejected",
         path: write.path,
@@ -57,10 +61,10 @@ export function makeMarkdownArtifactStoreWriter(options: MarkdownArtifactStoreOp
       })
     }),
     archivePackage: (taskId) => Effect.try({
-      try: () => archiveTaskPackage(rootDir, taskId),
+      try: () => archiveTaskPackage(rootInput, taskId),
       catch: (cause): ArtifactStoreError => ({
         _tag: "ArtifactWriteRejected",
-        path: packagePath(rootDir, taskId),
+        path: packagePath(rootInput, taskId),
         reason: cause instanceof Error ? cause.message : "archive failed"
       })
     })
@@ -68,15 +72,15 @@ export function makeMarkdownArtifactStoreWriter(options: MarkdownArtifactStoreOp
 }
 
 export function findBindingByExternalRef(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   engine: EngineId,
   ref: ExternalRef
 ): Option.Option<TaskId> {
-  return Option.fromNullable(findTaskIdByExternalRef(rootDir, engine, ref));
+  return Option.fromNullable(findTaskIdByExternalRef(rootInput, engine, ref));
 }
 
-export function writeDocument(rootDir: string, write: DocumentWrite): ArtifactWriteReceipt {
-  const targetPath = documentPath(rootDir, write);
+export function writeDocument(rootInput: HarnessLayoutInput, write: DocumentWrite): ArtifactWriteReceipt {
+  const targetPath = documentPath(rootInput, write);
   mkdirSync(path.dirname(targetPath), { recursive: true });
 
   const tempPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
@@ -90,8 +94,8 @@ export function writeDocument(rootDir: string, write: DocumentWrite): ArtifactWr
   };
 }
 
-export function readTaskPackage(rootDir: string, taskId: TaskId): TaskPackageRead {
-  const rootPath = packagePath(rootDir, taskId);
+export function readTaskPackage(rootInput: HarnessLayoutInput, taskId: TaskId): TaskPackageRead {
+  const rootPath = packagePath(rootInput, taskId);
   if (!existsSync(rootPath)) {
     throw new Error(`task package not found: ${taskId}`);
   }
@@ -119,11 +123,11 @@ function readPackageDisposition(rootPath: string, taskId: TaskId): PackageDispos
   return disposition;
 }
 
-function archiveTaskPackage(rootDir: string, taskId: TaskId): TaskPackageRead {
-  const sourcePath = packagePath(rootDir, taskId);
+function archiveTaskPackage(rootInput: HarnessLayoutInput, taskId: TaskId): TaskPackageRead {
+  const sourcePath = packagePath(rootInput, taskId);
   if (!existsSync(sourcePath)) throw new Error(`task package not found: ${taskId}`);
 
-  const archiveRoot = path.join(rootDir, ".archived");
+  const archiveRoot = path.join(resolveHarnessLayout(rootInput).rootDir, ".archived");
   const targetPath = path.join(archiveRoot, taskId);
   mkdirSync(archiveRoot, { recursive: true });
   renameSync(sourcePath, targetPath);
@@ -161,16 +165,16 @@ function readDocuments(rootPath: string): ReadonlyArray<ArtifactDocument> {
   return documents.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function documentPath(rootDir: string, write: DocumentWrite): string {
+function documentPath(rootInput: HarnessLayoutInput, write: DocumentWrite): string {
   const safePath = normalizeRelativeDocumentPath(write.path);
-  const rootPath = existsSync(taskPackagePath(rootDir, write.taskId))
-    ? taskPackagePath(rootDir, write.taskId)
-    : createTaskPackagePath(rootDir, write.taskId, write.packageSlug);
+  const rootPath = existsSync(taskPackagePath(rootInput, write.taskId))
+    ? taskPackagePath(rootInput, write.taskId)
+    : createTaskPackagePath(rootInput, write.taskId, write.packageSlug);
   return path.join(rootPath, safePath);
 }
 
-function packagePath(rootDir: string, taskId: TaskId): string {
-  return taskPackagePath(rootDir, normalizeTaskId(taskId));
+function packagePath(rootInput: HarnessLayoutInput, taskId: TaskId): string {
+  return taskPackagePath(rootInput, normalizeTaskId(taskId));
 }
 
 function normalizeTaskId(taskId: TaskId): string {

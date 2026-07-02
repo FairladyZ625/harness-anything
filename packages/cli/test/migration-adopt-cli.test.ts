@@ -38,6 +38,20 @@ test("CLI adopts Multica tasks locally and rejects duplicate external refs", () 
   });
 });
 
+test("CLI adopt multica honors explicit authored root for receipts and duplicate guards", () => {
+  withTempRoot((rootDir) => {
+    const adopted = runJson(rootDir, ["--authored-root", ".custom-harness", "adopt", "multica", "FAI-1", "--task", "task-1", "--status", "Active", "--title", "Custom Multica"]);
+    const duplicate = runJson(rootDir, ["--authored-root", ".custom-harness", "adopt", "multica", "FAI-1", "--task", "task-2", "--status", "Active"], false);
+
+    assert.equal(adopted.ok, true);
+    assert.equal(adopted.path, ".custom-harness/planning/tasks/task-1");
+    assert.equal(existsSync(path.join(rootDir, ".custom-harness/planning/tasks/task-1/INDEX.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1/INDEX.md")), false);
+    assert.equal(duplicate.ok, false);
+    assert.equal(duplicate.error.code, "duplicate_external_binding");
+  });
+});
+
 test("CLI legacy scan and intake-plan are readonly intake evidence", () => {
   withTempRoot((rootDir) => {
     writeLegacyTask(rootDir, "old-task", "active");

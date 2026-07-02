@@ -139,10 +139,33 @@ test("parseArgs strips explicit authored root global override", () => {
 
   assert.equal(parsed.ok, true);
   assert.equal(parsed.value.action.kind, "doctor");
-  assert.equal(resolveHarnessLayout(rootDir).authoredRoot, path.join(rootDir, ".custom-harness"));
-
-  parseArgs(["--root", rootDir, "doctor"]);
+  assert.deepEqual(parsed.value.layoutOverrides, { authoredRoot: ".custom-harness" });
+  assert.equal(resolveHarnessLayout({ rootDir, layoutOverrides: parsed.value.layoutOverrides }).authoredRoot, path.join(rootDir, ".custom-harness"));
   assert.equal(resolveHarnessLayout(rootDir).authoredRoot, path.join(rootDir, "harness"));
+
+  const next = parseArgs(["--root", rootDir, "doctor"]);
+  assert.equal(next.ok, true);
+  assert.equal(next.value.layoutOverrides, undefined);
+  assert.equal(resolveHarnessLayout(rootDir).authoredRoot, path.join(rootDir, "harness"));
+});
+
+test("parseArgs reads authored root env into command context only", () => {
+  const previous = process.env.HARNESS_AUTHORED_ROOT;
+  process.env.HARNESS_AUTHORED_ROOT = ".env-harness";
+  try {
+    const parsed = parseArgs(["--root", rootDir, "doctor"]);
+
+    assert.equal(parsed.ok, true);
+    assert.deepEqual(parsed.value.layoutOverrides, { authoredRoot: ".env-harness" });
+    assert.equal(resolveHarnessLayout({ rootDir, layoutOverrides: parsed.value.layoutOverrides }).authoredRoot, path.join(rootDir, ".env-harness"));
+    assert.equal(resolveHarnessLayout(rootDir).authoredRoot, path.join(rootDir, "harness"));
+  } finally {
+    if (previous === undefined) {
+      delete process.env.HARNESS_AUTHORED_ROOT;
+    } else {
+      process.env.HARNESS_AUTHORED_ROOT = previous;
+    }
+  }
 });
 
 test("parser registry and command registry stay consistent", () => {

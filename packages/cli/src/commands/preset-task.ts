@@ -6,7 +6,8 @@ import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts"
 import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
-import { createTaskPackagePath, generateTaskId } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
+import { createTaskPackagePath, generateTaskId, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModules } from "./extensions/state.ts";
@@ -19,14 +20,15 @@ export function shouldUsePresetAwareNewTask(action: NewTaskAction): boolean {
 }
 
 export function runNewTaskWithPreset(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   action: NewTaskAction,
   settings?: ProjectHarnessSettings
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   return Effect.gen(function* () {
+    const rootDir = resolveHarnessLayout(rootInput).rootDir;
     const vertical = action.vertical ?? settings?.defaultVertical ?? "software/coding";
     if (vertical !== "software/coding") {
-      return customVerticalGateResult(rootDir, "new-task", settings);
+      return customVerticalGateResult(rootInput, "new-task", settings);
     }
 
     let presetId = action.preset ?? settings?.defaultPreset ?? "standard-task";
@@ -39,7 +41,7 @@ export function runNewTaskWithPreset(
         error: cliError(CliErrorCode.MissingModule, "Use new-task --preset module --module <key>.")
       } satisfies CliResult;
     }
-    const preset = resolvePresetEntry(rootDir, presetId);
+    const preset = resolvePresetEntry(rootInput, presetId);
     if (!preset) return presetNotFound("new-task", presetId);
     if (isInvalidPreset(preset)) {
       return {
@@ -79,7 +81,7 @@ export function runNewTaskWithPreset(
       : undefined;
     const module = registeredModule
       ? registeredModule
-      : action.moduleKey ? readModules(rootDir).modules.find((candidate) => candidate.key === action.moduleKey && candidate.status !== "unregistered") : undefined;
+      : action.moduleKey ? readModules(rootInput).modules.find((candidate) => candidate.key === action.moduleKey && candidate.status !== "unregistered") : undefined;
     if (action.moduleKey && !module) {
       return {
         ok: false,
@@ -96,7 +98,7 @@ export function runNewTaskWithPreset(
     } else {
       validateTaskId(taskId);
     }
-    if (existsSync(indexPath(rootDir, taskId))) {
+    if (existsSync(indexPath(rootInput, taskId))) {
       return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId } satisfies EngineError);
     }
 
@@ -133,7 +135,7 @@ export function runNewTaskWithPreset(
         taskId,
         slug: action.slug,
         status: "planned",
-        packagePath: path.relative(rootDir, createTaskPackagePath(rootDir, taskId, action.slug)).split(path.sep).join("/"),
+        packagePath: path.relative(rootDir, createTaskPackagePath(rootInput, taskId, action.slug)).split(path.sep).join("/"),
         preset: publicPresetSummary(preset),
         module: module ? { key: module.key, title: module.title } : undefined,
         generated: writes.map((write) => write.path),
@@ -149,7 +151,11 @@ export function runNewTaskWithPreset(
         }
       } satisfies CliResult;
     }
-    const coordinator = makeLocalWriteCoordinator({ rootDir, actor: { kind: "agent", id: "local-lifecycle" } });
+    const coordinator = makeLocalWriteCoordinator({
+      rootDir,
+      layoutOverrides: layoutOverridesFromInput(rootInput),
+      actor: { kind: "agent", id: "local-lifecycle" }
+    });
     const opId = `${Date.now()}-${stablePayloadHash({ kind: "package_create", writes }).slice(0, 16)}`;
     yield* coordinator.enqueue({
       opId,
@@ -159,8 +165,8 @@ export function runNewTaskWithPreset(
     });
     yield* coordinator.flush("explicit");
     if (registeredModule) {
-      const registry = readModules(rootDir);
-      writeModules(rootDir, {
+      const registry = readModules(rootInput);
+      writeModules(rootInput, {
         modules: registry.modules.some((candidate) => candidate.key === registeredModule.key)
           ? registry.modules.map((candidate) => candidate.key === registeredModule.key ? registeredModule : candidate)
           : [...registry.modules, registeredModule]
@@ -173,7 +179,7 @@ export function runNewTaskWithPreset(
       taskId,
       slug: action.slug,
       status: "planned",
-      packagePath: path.relative(rootDir, createTaskPackagePath(rootDir, taskId, action.slug)).split(path.sep).join("/"),
+      packagePath: path.relative(rootDir, createTaskPackagePath(rootInput, taskId, action.slug)).split(path.sep).join("/"),
       preset: publicPresetSummary(preset),
       module: module ? { key: module.key, title: module.title } : undefined,
       generated: writes.map((write) => write.path),
@@ -187,6 +193,10 @@ export function runNewTaskWithPreset(
       }
     } satisfies CliResult;
   });
+}
+
+function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {
+  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }
 
 function renderModuleSelection(module: { readonly key: string; readonly title: string; readonly scopes: ReadonlyArray<string> }): string {

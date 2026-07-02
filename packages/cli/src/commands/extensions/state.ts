@@ -9,6 +9,7 @@ import {
   type ExtensionValidationIssue,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -67,29 +68,29 @@ export function isResolvedPreset(entry: PresetResolutionEntry): entry is Resolve
   return !isInvalidPreset(entry);
 }
 
-export function discoverPresetEntries(rootDir: string): ReadonlyArray<PresetResolutionEntry> {
+export function discoverPresetEntries(rootInput: HarnessLayoutInput): ReadonlyArray<PresetResolutionEntry> {
   const byId = new Map<string, PresetResolutionEntry>();
   for (const entry of loadBundledPresetManifestEntries()) {
     byId.set(entry.manifest.id, { manifest: entry.manifest, layer: "builtin", sourcePath: entry.sourcePath });
   }
   for (const layer of ["user", "project"] as const) {
-    for (const preset of readLayerPresetEntries(rootDir, layer)) {
+    for (const preset of readLayerPresetEntries(rootInput, layer)) {
       byId.set(presetEntryId(preset), preset);
     }
   }
   return [...byId.values()].sort((left, right) => presetEntryId(left).localeCompare(presetEntryId(right)));
 }
 
-export function discoverPresets(rootDir: string): ReadonlyArray<ResolvedPreset> {
-  return discoverPresetEntries(rootDir).filter(isResolvedPreset);
+export function discoverPresets(rootInput: HarnessLayoutInput): ReadonlyArray<ResolvedPreset> {
+  return discoverPresetEntries(rootInput).filter(isResolvedPreset);
 }
 
-export function resolvePresetEntry(rootDir: string, presetId: string): PresetResolutionEntry | undefined {
-  return discoverPresetEntries(rootDir).find((preset) => presetEntryId(preset) === presetId);
+export function resolvePresetEntry(rootInput: HarnessLayoutInput, presetId: string): PresetResolutionEntry | undefined {
+  return discoverPresetEntries(rootInput).find((preset) => presetEntryId(preset) === presetId);
 }
 
-export function resolvePreset(rootDir: string, presetId: string): ResolvedPreset | undefined {
-  const entry = resolvePresetEntry(rootDir, presetId);
+export function resolvePreset(rootInput: HarnessLayoutInput, presetId: string): ResolvedPreset | undefined {
+  const entry = resolvePresetEntry(rootInput, presetId);
   return entry && !isInvalidPreset(entry) ? entry : undefined;
 }
 
@@ -125,8 +126,8 @@ function safePresetSourcePath(sourcePath: string): string {
   return sourcePath.startsWith("builtin:") ? sourcePath : sourcePath.split(path.sep).slice(-3).join("/");
 }
 
-function readLayerPresetEntries(rootDir: string, layer: "project" | "user"): ReadonlyArray<PresetResolutionEntry> {
-  const layerRoot = presetLayerRoot(rootDir, layer);
+function readLayerPresetEntries(rootInput: HarnessLayoutInput, layer: "project" | "user"): ReadonlyArray<PresetResolutionEntry> {
+  const layerRoot = presetLayerRoot(rootInput, layer);
   if (!existsSync(layerRoot)) return [];
   return readdirSync(layerRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -248,27 +249,29 @@ function decodePresetManifestFileResult(presetPath: string): { readonly ok: true
   }
 }
 
-function presetLayerRoot(rootDir: string, layer: "project" | "user"): string {
-  const layout = resolveHarnessLayout(rootDir);
+function presetLayerRoot(rootInput: HarnessLayoutInput, layer: "project" | "user"): string {
+  const layout = resolveHarnessLayout(rootInput);
   return layer === "project"
     ? path.join(layout.localRoot, "presets")
     : path.join(layout.localRoot, "user-presets");
 }
 
-export function presetManifestPath(rootDir: string, layer: "project" | "user", presetId: string): string {
+export function presetManifestPath(rootInput: HarnessLayoutInput, layer: "project" | "user", presetId: string): string {
   validateRegistryKey(presetId, "preset");
-  return path.join(presetLayerRoot(rootDir, layer), presetId, "preset.json");
+  return path.join(presetLayerRoot(rootInput, layer), presetId, "preset.json");
 }
 
 export function runPresetEntrypoint(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   presetId: string,
   entrypoint: string,
   taskId: string,
   commandName: "preset-run" | "preset-action",
   allowScripts = false
 ): CliResult {
-  const preset = resolvePresetEntry(rootDir, presetId);
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const preset = resolvePresetEntry(rootInput, presetId);
   if (!preset) return presetNotFound("preset-run", presetId);
   if (isInvalidPreset(preset)) {
     return {
@@ -290,7 +293,7 @@ export function runPresetEntrypoint(
     };
   }
   validateRegistryKey(taskId, "task");
-  const evidenceDir = path.join(resolveHarnessLayout(rootDir).localRoot, "evidence", "presets", presetId, timestampForPath());
+  const evidenceDir = path.join(layout.localRoot, "evidence", "presets", presetId, timestampForPath());
   mkdirSync(evidenceDir, { recursive: true });
   const generated: string[] = [];
   const declaredEntrypoint = preset.manifest.entrypoints?.[entrypoint];
@@ -308,7 +311,7 @@ export function runPresetEntrypoint(
       });
     }
     const presetSummary = publicPresetSummary(preset);
-    const scriptResult = runScriptEntrypoint(rootDir, preset, presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName);
+    const scriptResult = runScriptEntrypoint(rootInput, preset, presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName);
     if (!scriptResult.ok) return scriptResult.result;
     generated.push(...scriptResult.generated);
     if (scriptResult.scriptedResult) {
@@ -322,7 +325,7 @@ export function runPresetEntrypoint(
       });
     }
   } else if (preset.manifest.schema === "preset-manifest/v1" && entrypoint === "scaffold") {
-    const outputPath = path.join(resolveHarnessLayout(rootDir).generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
+    const outputPath = path.join(layout.generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
     mkdirSync(path.dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, `# ${preset.manifest.title}\n\nTask: ${taskId}\n`, "utf8");
     generated.push(path.relative(rootDir, outputPath).split(path.sep).join("/"));
@@ -355,22 +358,22 @@ export function runPresetEntrypoint(
   };
 }
 
-export function readModules(rootDir: string): ModuleRegistry {
-  const registryPath = modulesRegistryPath(rootDir);
+export function readModules(rootInput: HarnessLayoutInput): ModuleRegistry {
+  const registryPath = modulesRegistryPath(rootInput);
   if (!existsSync(registryPath)) return { modules: [] };
   const parsed = JSON.parse(readFileSync(registryPath, "utf8")) as { readonly modules?: ReadonlyArray<ModuleRecord> };
   return { modules: parsed.modules ?? [] };
 }
 
-export function writeModules(rootDir: string, registry: ModuleRegistry): void {
-  const registryPath = modulesRegistryPath(rootDir);
+export function writeModules(rootInput: HarnessLayoutInput, registry: ModuleRegistry): void {
+  const registryPath = modulesRegistryPath(rootInput);
   mkdirSync(path.dirname(registryPath), { recursive: true });
   writeFileSync(registryPath, JSON.stringify({ schema: "module-registry/v1", modules: registry.modules }, null, 2), "utf8");
-  writeModuleRegistryView(rootDir, registry);
+  writeModuleRegistryView(rootInput, registry);
 }
 
-function modulesRegistryPath(rootDir: string): string {
-  return path.join(resolveHarnessLayout(rootDir).authoredRoot, "modules.json");
+function modulesRegistryPath(rootInput: HarnessLayoutInput): string {
+  return path.join(resolveHarnessLayout(rootInput).authoredRoot, "modules.json");
 }
 
 export function presetNotFound(command: string, presetId: string): CliResult {

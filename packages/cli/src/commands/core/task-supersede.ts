@@ -31,7 +31,7 @@ export function runTaskSupersede(
       error: cliError(CliErrorCode.SupersedeConfirmRequired, "Use --confirm <old-task-id> when superseding by an existing task.")
     } satisfies CliResult);
   }
-  if (!existsSync(taskDocumentPath(context.rootDir, action.byTaskId, "INDEX.md"))) {
+  if (!existsSync(taskDocumentPath(context.layoutInput, action.byTaskId, "INDEX.md"))) {
     return Effect.succeed({
       ok: false,
       command: "task-supersede",
@@ -81,6 +81,6 @@ function createReplacementTask(
     command: "task-supersede",
     taskId: result.oldTaskId,
     path: `task/${result.newTaskId}`,
-    packagePath: path.relative(context.rootDir, createTaskPackagePath(context.rootDir, result.newTaskId, slug)).split(path.sep).join("/")
+    packagePath: path.relative(context.rootDir, createTaskPackagePath(context.layoutInput, result.newTaskId, slug)).split(path.sep).join("/")
   })));
 }

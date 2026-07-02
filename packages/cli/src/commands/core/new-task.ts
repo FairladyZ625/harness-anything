@@ -9,12 +9,12 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 
 export const runNewTaskCommand: CommandRunner = (context, command) => {
   const action = command.action as Extract<typeof command.action, { readonly kind: "new-task" }>;
-  if (action.fromLegacyId) return runNewTaskFromLegacy(command.rootDir, action);
+  if (action.fromLegacyId) return runNewTaskFromLegacy(context.layoutInput, action);
 
-  const settingsResult = readProjectHarnessSettings(command.rootDir, "new-task");
+  const settingsResult = readProjectHarnessSettings(context.layoutInput, "new-task");
   if (!settingsResult.ok) return Effect.succeed(settingsResult.result);
   if (shouldUsePresetAwareNewTask(action) || shouldUseSettingsPresetAwareNewTask(settingsResult.settings)) {
-    return runNewTaskWithPreset(command.rootDir, action, settingsResult.settings);
+    return runNewTaskWithPreset(context.layoutInput, action, settingsResult.settings);
   }
 
   const taskId = action.taskId ?? generateTaskId();
@@ -29,6 +29,6 @@ export const runNewTaskCommand: CommandRunner = (context, command) => {
     taskId: result.taskId,
     slug: action.slug,
     status: result.status,
-    packagePath: path.relative(command.rootDir, createTaskPackagePath(command.rootDir, result.taskId, action.slug)).split(path.sep).join("/")
+    packagePath: path.relative(command.rootDir, createTaskPackagePath(context.layoutInput, result.taskId, action.slug)).split(path.sep).join("/")
   })));
 };

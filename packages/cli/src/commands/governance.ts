@@ -1,13 +1,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { defaultTaskProjectionPath, rebuildTaskProjection } from "../../../kernel/src/index.ts";
+import { rebuildTaskProjection } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { listTaskIndexPaths, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CliResult, GovernanceRebuildMode } from "../cli/types.ts";
 
-export function runGovernanceRebuild(rootDir: string, mode: GovernanceRebuildMode): CliResult {
-  const projectionPath = defaultTaskProjectionPath(rootDir);
-  const plannedRows = listTaskIndexPaths(rootDir).length;
+export function runGovernanceRebuild(rootInput: HarnessLayoutInput, mode: GovernanceRebuildMode): CliResult {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const projectionPath = resolveHarnessLayout(rootInput).projectionPath;
+  const plannedRows = listTaskIndexPaths(rootInput).length;
   if (mode === "dry-run") {
     return {
       ok: true,
@@ -19,14 +21,14 @@ export function runGovernanceRebuild(rootDir: string, mode: GovernanceRebuildMod
         schema: "governance-rebuild-report/v1",
         mode,
         writes: [],
-        generatedViews: plannedGovernanceViews(rootDir)
+        generatedViews: plannedGovernanceViews(rootInput)
       }
     };
   }
 
-  const archivePath = mode === "archive" ? writeGovernanceArchive(rootDir, plannedRows) : null;
-  const result = rebuildTaskProjection({ rootDir });
-  const generated = writeGeneratedGovernanceViews(rootDir, result.rows.length);
+  const archivePath = mode === "archive" ? writeGovernanceArchive(rootInput, plannedRows) : null;
+  const result = rebuildTaskProjection({ rootDir, layoutOverrides: layoutOverridesFromInput(rootInput) });
+  const generated = writeGeneratedGovernanceViews(rootInput, result.rows.length);
   return {
     ok: true,
     command: "governance-rebuild",
@@ -44,16 +46,18 @@ export function runGovernanceRebuild(rootDir: string, mode: GovernanceRebuildMod
   };
 }
 
-function plannedGovernanceViews(rootDir: string): ReadonlyArray<string> {
-  const layout = resolveHarnessLayout(rootDir);
+function plannedGovernanceViews(rootInput: HarnessLayoutInput): ReadonlyArray<string> {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   return [
-    relativePath(rootDir, defaultTaskProjectionPath(rootDir)),
+    relativePath(rootDir, layout.projectionPath),
     relativePath(rootDir, path.join(layout.generatedRoot, "Harness-Ledger.md"))
   ];
 }
 
-function writeGeneratedGovernanceViews(rootDir: string, rows: number): ReadonlyArray<string> {
-  const layout = resolveHarnessLayout(rootDir);
+function writeGeneratedGovernanceViews(rootInput: HarnessLayoutInput, rows: number): ReadonlyArray<string> {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   const ledgerPath = path.join(layout.generatedRoot, "Harness-Ledger.md");
   mkdirSync(path.dirname(ledgerPath), { recursive: true });
   writeFileSync(ledgerPath, [
@@ -68,8 +72,10 @@ function writeGeneratedGovernanceViews(rootDir: string, rows: number): ReadonlyA
   return [relativePath(rootDir, ledgerPath)];
 }
 
-function writeGovernanceArchive(rootDir: string, plannedRows: number): string {
-  const archivePath = path.join(resolveHarnessLayout(rootDir).localRoot, "archive", "governance", `${new Date().toISOString().replace(/[:.]/gu, "-")}.json`);
+function writeGovernanceArchive(rootInput: HarnessLayoutInput, plannedRows: number): string {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const archivePath = path.join(layout.localRoot, "archive", "governance", `${new Date().toISOString().replace(/[:.]/gu, "-")}.json`);
   mkdirSync(path.dirname(archivePath), { recursive: true });
   writeFileSync(archivePath, JSON.stringify({
     schema: "governance-archive/v1",
@@ -77,4 +83,8 @@ function writeGovernanceArchive(rootDir: string, plannedRows: number): string {
     plannedRows
   }, null, 2), "utf8");
   return relativePath(rootDir, archivePath);
+}
+
+function layoutOverridesFromInput(rootInput: HarnessLayoutInput) {
+  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }

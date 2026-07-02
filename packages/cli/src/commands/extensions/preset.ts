@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { validatePresetManifests } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
@@ -34,28 +35,28 @@ type PresetAction = Extract<ParsedCommand["action"], {
     | "preset-action"
 }>;
 
-export function runPresetCommand(rootDir: string, action: PresetAction): CliResult {
+export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAction): CliResult {
   switch (action.kind) {
     case "preset-validate":
       return runPresetValidate(action);
     case "preset-list":
-      return runPresetList(rootDir);
+      return runPresetList(rootInput);
     case "preset-inspect":
-      return runPresetInspect(rootDir, action.presetId);
+      return runPresetInspect(rootInput, action.presetId);
     case "preset-check":
-      return runPresetCheck(rootDir, action.presetId);
+      return runPresetCheck(rootInput, action.presetId);
     case "preset-install":
-      return runPresetInstall(rootDir, action);
+      return runPresetInstall(rootInput, action);
     case "preset-seed":
-      return runPresetSeed(rootDir);
+      return runPresetSeed(rootInput);
     case "preset-audit":
-      return runPresetAudit(rootDir);
+      return runPresetAudit(rootInput);
     case "preset-uninstall":
-      return runPresetUninstall(rootDir, action);
+      return runPresetUninstall(rootInput, action);
     case "preset-run":
-      return runPresetEntrypoint(rootDir, action.presetId, action.entrypoint, action.taskId, "preset-run", action.allowScripts);
+      return runPresetEntrypoint(rootInput, action.presetId, action.entrypoint, action.taskId, "preset-run", action.allowScripts);
     case "preset-action":
-      return runPresetAction(rootDir, action);
+      return runPresetAction(rootInput, action);
   }
 }
 
@@ -74,8 +75,8 @@ function runPresetValidate(action: Extract<PresetAction, { readonly kind: "prese
   };
 }
 
-function runPresetList(rootDir: string): CliResult {
-  const entries = discoverPresetEntries(rootDir);
+function runPresetList(rootInput: HarnessLayoutInput): CliResult {
+  const entries = discoverPresetEntries(rootInput);
   const issues = entries.flatMap((entry) => isInvalidPreset(entry) ? entry.issues : validatePresetManifestForUse(entry.manifest).issues);
   return {
     ok: issues.length === 0,
@@ -86,8 +87,8 @@ function runPresetList(rootDir: string): CliResult {
   };
 }
 
-function runPresetInspect(rootDir: string, presetId: string): CliResult {
-  const preset = resolvePresetEntry(rootDir, presetId);
+function runPresetInspect(rootInput: HarnessLayoutInput, presetId: string): CliResult {
+  const preset = resolvePresetEntry(rootInput, presetId);
   if (!preset) return presetNotFound("preset-inspect", presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-inspect", preset);
   const validation = validatePresetManifestForUse(preset.manifest);
@@ -103,8 +104,8 @@ function runPresetInspect(rootDir: string, presetId: string): CliResult {
   };
 }
 
-function runPresetCheck(rootDir: string, presetId: string): CliResult {
-  const preset = resolvePresetEntry(rootDir, presetId);
+function runPresetCheck(rootInput: HarnessLayoutInput, presetId: string): CliResult {
+  const preset = resolvePresetEntry(rootInput, presetId);
   if (!preset) return presetNotFound("preset-check", presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-check", preset);
   const validation = validatePresetManifestForUse(preset.manifest);
@@ -117,7 +118,7 @@ function runPresetCheck(rootDir: string, presetId: string): CliResult {
   };
 }
 
-function runPresetInstall(rootDir: string, action: Extract<PresetAction, { readonly kind: "preset-install" }>): CliResult {
+function runPresetInstall(rootInput: HarnessLayoutInput, action: Extract<PresetAction, { readonly kind: "preset-install" }>): CliResult {
   const decoded = readPresetManifestFromSourceResult(action.sourcePath);
   if (!decoded.ok) {
     return {
@@ -138,7 +139,7 @@ function runPresetInstall(rootDir: string, action: Extract<PresetAction, { reado
       error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
-  const target = presetManifestPath(rootDir, action.layer, manifest.id);
+  const target = presetManifestPath(rootInput, action.layer, manifest.id);
   mkdirSync(path.dirname(target), { recursive: true });
   writeFileSync(target, JSON.stringify(manifest, null, 2), "utf8");
   return {
@@ -148,9 +149,9 @@ function runPresetInstall(rootDir: string, action: Extract<PresetAction, { reado
   };
 }
 
-function runPresetSeed(rootDir: string): CliResult {
+function runPresetSeed(rootInput: HarnessLayoutInput): CliResult {
   for (const manifest of loadBundledPresetManifests()) {
-    const target = presetManifestPath(rootDir, "user", manifest.id);
+    const target = presetManifestPath(rootInput, "user", manifest.id);
     if (!existsSync(target)) {
       mkdirSync(path.dirname(target), { recursive: true });
       writeFileSync(target, JSON.stringify(manifest, null, 2), "utf8");
@@ -159,12 +160,12 @@ function runPresetSeed(rootDir: string): CliResult {
   return {
     ok: true,
     command: "preset-seed",
-    presets: discoverPresets(rootDir).filter((preset) => preset.layer === "user").map(publicPresetSummary)
+    presets: discoverPresets(rootInput).filter((preset) => preset.layer === "user").map(publicPresetSummary)
   };
 }
 
-function runPresetAudit(rootDir: string): CliResult {
-  const resolved = discoverPresetEntries(rootDir);
+function runPresetAudit(rootInput: HarnessLayoutInput): CliResult {
+  const resolved = discoverPresetEntries(rootInput);
   const bundledById = new Map(loadBundledPresetManifests().map((manifest) => [manifest.id, manifest.version]));
   const drift = resolved
     .filter(isResolvedPreset)
@@ -189,8 +190,8 @@ function runPresetAudit(rootDir: string): CliResult {
   };
 }
 
-function runPresetUninstall(rootDir: string, action: Extract<PresetAction, { readonly kind: "preset-uninstall" }>): CliResult {
-  const target = presetManifestPath(rootDir, action.layer, action.presetId);
+function runPresetUninstall(rootInput: HarnessLayoutInput, action: Extract<PresetAction, { readonly kind: "preset-uninstall" }>): CliResult {
+  const target = presetManifestPath(rootInput, action.layer, action.presetId);
   if (!existsSync(target)) return presetNotFound("preset-uninstall", action.presetId);
   rmSync(path.dirname(target), { recursive: true, force: true });
   return {
@@ -203,8 +204,8 @@ function runPresetUninstall(rootDir: string, action: Extract<PresetAction, { rea
   };
 }
 
-function runPresetAction(rootDir: string, action: Extract<PresetAction, { readonly kind: "preset-action" }>): CliResult {
-  const preset = resolvePresetEntry(rootDir, action.presetId);
+function runPresetAction(rootInput: HarnessLayoutInput, action: Extract<PresetAction, { readonly kind: "preset-action" }>): CliResult {
+  const preset = resolvePresetEntry(rootInput, action.presetId);
   if (!preset) return presetNotFound("preset-action", action.presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-action", preset);
   const declared = preset.manifest.entrypoints?.[action.actionName];
@@ -216,5 +217,5 @@ function runPresetAction(rootDir: string, action: Extract<PresetAction, { readon
       error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.actionName} is not declared.`)
     };
   }
-  return runPresetEntrypoint(rootDir, action.presetId, action.actionName, action.taskId, "preset-action", action.allowScripts);
+  return runPresetEntrypoint(rootInput, action.presetId, action.actionName, action.taskId, "preset-action", action.allowScripts);
 }

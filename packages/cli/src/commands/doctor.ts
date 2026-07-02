@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import type { CliResult } from "../cli/types.ts";
 
@@ -16,9 +17,9 @@ export interface DoctorReport {
     readonly insideWorkTree: boolean;
   };
   readonly harness: {
-    readonly authoredRoot: "harness";
+    readonly authoredRoot: string;
     readonly authoredRootExists: boolean;
-    readonly localRoot: ".harness";
+    readonly localRoot: string;
     readonly localRootExists: boolean;
     readonly projectionCacheExists: boolean;
   };
@@ -29,8 +30,8 @@ export interface DoctorReport {
   readonly recommendedCommands: readonly string[];
 }
 
-export function runDoctor(rootDir: string): CliResult {
-  const report = collectDoctorReport(rootDir);
+export function runDoctor(rootInput: HarnessLayoutInput): CliResult {
+  const report = collectDoctorReport(rootInput);
   return {
     ok: true,
     command: "doctor",
@@ -38,8 +39,9 @@ export function runDoctor(rootDir: string): CliResult {
   };
 }
 
-function collectDoctorReport(rootDir: string): DoctorReport {
-  const layout = resolveHarnessLayout(rootDir);
+function collectDoctorReport(rootInput: HarnessLayoutInput): DoctorReport {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   return {
     schema: "harness-doctor/v1",
     readOnly: true,
@@ -52,9 +54,9 @@ function collectDoctorReport(rootDir: string): DoctorReport {
       insideWorkTree: isInsideGitWorkTree(rootDir)
     },
     harness: {
-      authoredRoot: "harness",
+      authoredRoot: relativeLayoutPath(rootDir, layout.authoredRoot),
       authoredRootExists: existsSync(layout.authoredRoot),
-      localRoot: ".harness",
+      localRoot: relativeLayoutPath(rootDir, layout.localRoot),
       localRootExists: existsSync(layout.localRoot),
       projectionCacheExists: existsSync(path.join(layout.cacheRoot, "projections.sqlite"))
     },
@@ -69,6 +71,10 @@ function collectDoctorReport(rootDir: string): DoctorReport {
       "harness-anything git-diff --json"
     ]
   };
+}
+
+function relativeLayoutPath(rootDir: string, filePath: string): string {
+  return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 
 function isInsideGitWorkTree(rootDir: string): boolean {

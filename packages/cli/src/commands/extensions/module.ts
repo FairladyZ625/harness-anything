@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
@@ -19,23 +20,25 @@ type ModuleAction = Extract<ParsedCommand["action"], {
     | "module-step"
 }>;
 
-export function runModuleCommand(rootDir: string, action: ModuleAction): CliResult {
+export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAction): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   if (action.kind === "module-list") {
     return {
       ok: true,
       command: "module-list",
-      modules: readModules(rootDir).modules.filter((module) => module.status !== "unregistered")
+      modules: readModules(rootInput).modules.filter((module) => module.status !== "unregistered")
     };
   }
 
   if (action.kind === "module-inspect") {
-    const module = readModules(rootDir).modules.find((candidate) => candidate.key === action.moduleKey);
+    const module = readModules(rootInput).modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-inspect", action.moduleKey);
     return { ok: true, command: "module-inspect", module };
   }
 
   if (action.kind === "module-register") {
-    const registry = readModules(rootDir);
+    const registry = readModules(rootInput);
     const existing = registry.modules.find((module) => module.key === action.moduleKey);
     const module = {
       key: action.moduleKey,
@@ -53,15 +56,15 @@ export function runModuleCommand(rootDir: string, action: ModuleAction): CliResu
     const modules = existing
       ? registry.modules.map((candidate) => candidate.key === action.moduleKey ? module : candidate)
       : [...registry.modules, module];
-    writeModules(rootDir, { modules });
+    writeModules(rootInput, { modules });
     return { ok: true, command: "module-register", module };
   }
 
   if (action.kind === "module-scaffold") {
-    const registry = readModules(rootDir);
+    const registry = readModules(rootInput);
     const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-scaffold", action.moduleKey);
-    const moduleRoot = path.join(resolveHarnessLayout(rootDir).planningRoot, "modules", module.key);
+    const moduleRoot = path.join(layout.planningRoot, "modules", module.key);
     mkdirSync(moduleRoot, { recursive: true });
     writeIfMissing(path.join(moduleRoot, "brief.md"), `# ${module.title}\n\nModule key: ${module.key}\n`);
     writeIfMissing(path.join(moduleRoot, "module_plan.md"), `# ${module.title} Module Plan\n\n| Step | State |\n| --- | --- |\n`);
@@ -74,17 +77,17 @@ export function runModuleCommand(rootDir: string, action: ModuleAction): CliResu
   }
 
   if (action.kind === "module-unregister") {
-    const registry = readModules(rootDir);
+    const registry = readModules(rootInput);
     const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-unregister", action.moduleKey);
     const next = { ...module, status: "unregistered" };
-    writeModules(rootDir, {
+    writeModules(rootInput, {
       modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
     });
     return { ok: true, command: "module-unregister", module: next };
   }
 
-  const registry = readModules(rootDir);
+  const registry = readModules(rootInput);
   const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
   if (!module || module.status === "unregistered") return moduleNotFound("module-step", action.moduleKey);
   const step = { id: action.stepId, state: action.state };
@@ -92,7 +95,7 @@ export function runModuleCommand(rootDir: string, action: ModuleAction): CliResu
     ? module.steps.map((candidate) => candidate.id === step.id ? step : candidate)
     : [...module.steps, step];
   const next = { ...module, steps };
-  writeModules(rootDir, {
+  writeModules(rootInput, {
     modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
   });
   return { ok: true, command: "module-step", module: next };

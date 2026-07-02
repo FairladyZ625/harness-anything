@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseReviewMarkdown } from "../../../application/src/index.ts";
 import { checkTaskProjection } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { readFrontmatter, readScalar } from "../../../kernel/src/markdown/frontmatter.ts";
 import { commandRegistry } from "../cli/command-registry.ts";
@@ -22,12 +23,14 @@ interface ProfileValidationIssue {
 }
 
 export function runCheckProfile(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   action: { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
 ): CliResult {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
   const profilePostMerge = action.postMerge || action.profile === "private-harness" || action.profile === "target-project" || action.strict;
-  const projection = checkTaskProjection({ rootDir, postMerge: profilePostMerge });
-  const validatorIssues = validateCheckProfile(rootDir, action.profile, action.strict);
+  const projection = checkTaskProjection({ rootDir, layoutOverrides: layoutOverridesFromInput(rootInput), postMerge: profilePostMerge });
+  const validatorIssues = validateCheckProfile(rootInput, action.profile, action.strict);
   const warnings = [...projection.warnings, ...validatorIssues];
   const validatorHardFailCount = validatorIssues.filter((issue) => issue.severity === "hard-fail").length;
   const hardFailCount = warnings.filter((issue) => issue.severity === "hard-fail").length;
@@ -61,21 +64,22 @@ export function runCheckProfile(
   };
 }
 
-function validateCheckProfile(rootDir: string, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const issues: ProfileValidationIssue[] = [];
-  const settingsResult = readProjectHarnessSettings(rootDir, "check");
+  const settingsResult = readProjectHarnessSettings(rootInput, "check");
   const settings = settingsResult.ok ? settingsResult.settings : undefined;
   if (!settingsResult.ok) issues.push(settingsIssue(settingsResult));
   if (profile !== "source-package" || strict) {
-    const taskDirs = listTaskIndexPaths(rootDir).map((indexPath) => path.dirname(indexPath));
+    const taskDirs = listTaskIndexPaths(rootInput).map((indexPath) => path.dirname(indexPath));
     for (const taskDir of taskDirs) {
-      issues.push(...validateTaskPackageContracts(rootDir, taskDir, profile, strict, settings));
+      issues.push(...validateTaskPackageContracts(rootInput, taskDir, profile, strict, settings));
     }
   }
 
   if (profile === "private-harness" || profile === "target-project") {
     issues.push(...validateContextDocs(rootDir, strict));
-    issues.push(...validateGovernanceGeneratedViews(rootDir, strict));
+    issues.push(...validateGovernanceGeneratedViews(rootInput, strict));
   }
 
   return issues;
@@ -87,7 +91,8 @@ function checkCommandName(action: { readonly profile: CheckProfile; readonly str
   return `check:${action.profile}`;
 }
 
-function validateTaskPackageContracts(rootDir: string, taskDir: string, profile: CheckProfile, strict: boolean, settings?: ProjectHarnessSettings): ReadonlyArray<ProfileValidationIssue> {
+function validateTaskPackageContracts(rootInput: HarnessLayoutInput, taskDir: string, profile: CheckProfile, strict: boolean, settings?: ProjectHarnessSettings): ReadonlyArray<ProfileValidationIssue> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const issues: ProfileValidationIssue[] = [];
   const relativeTaskDir = relativePath(rootDir, taskDir);
   const indexPath = path.join(taskDir, "INDEX.md");
@@ -99,7 +104,7 @@ function validateTaskPackageContracts(rootDir: string, taskDir: string, profile:
   }
   const vertical = readScalar(frontmatter, "vertical");
   const metadataDriven = vertical === "software/coding";
-  issues.push(...validateMetadataDrivenTaskPackage(rootDir, taskDir, relativeTaskDir, frontmatter, settings));
+  issues.push(...validateMetadataDrivenTaskPackage(rootInput, taskDir, relativeTaskDir, frontmatter, settings));
 
   const taskPlanPath = path.join(taskDir, "task_plan.md");
   if (!existsSync(taskPlanPath)) {
@@ -173,7 +178,7 @@ function validateTaskPackageContracts(rootDir: string, taskDir: string, profile:
 }
 
 function validateMetadataDrivenTaskPackage(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   taskDir: string,
   relativeTaskDir: string,
   frontmatter: string,
@@ -202,7 +207,7 @@ function validateMetadataDrivenTaskPackage(
   }
   const profile = readScalar(frontmatter, "profile") || undefined;
 
-  const preset = resolvePresetEntry(rootDir, presetId);
+  const preset = resolvePresetEntry(rootInput, presetId);
   if (!preset) {
     return [profileIssue(
       "metadata-preset",
@@ -310,8 +315,8 @@ function validateContextDocs(rootDir: string, strict: boolean): ReadonlyArray<Pr
   return issues;
 }
 
-function validateGovernanceGeneratedViews(rootDir: string, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
-  const layout = resolveHarnessLayout(rootDir);
+function validateGovernanceGeneratedViews(rootInput: HarnessLayoutInput, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
+  const layout = resolveHarnessLayout(rootInput);
   const issues: ProfileValidationIssue[] = [];
   const generatedRegistry = path.join(layout.generatedRoot, "Module-Registry.md");
   const authoredModules = path.join(layout.authoredRoot, "modules.json");
@@ -319,6 +324,10 @@ function validateGovernanceGeneratedViews(rootDir: string, strict: boolean): Rea
     issues.push(profileIssue("governance-boundary", "module_registry_projection_missing", strictSeverity(strict), ".harness/generated/Module-Registry.md is missing for authored modules.json.", "Run harness-anything module scaffold/register or governance rebuild to regenerate local views."));
   }
   return issues;
+}
+
+function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {
+  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }
 
 function profileIssue(source: string, code: string, severity: "warning" | "hard-fail", message: string, repairHint: string): ProfileValidationIssue {

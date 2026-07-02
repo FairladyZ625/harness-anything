@@ -1,7 +1,10 @@
 import { Effect } from "effect";
+import path from "node:path";
 import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts";
 import { makeMulticaAdoptionService, makeMulticaLifecycleEngine, type MulticaClient, type MulticaRawIssue } from "../../../adapters/multica/src/index.ts";
 import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
+import { resolveHarnessLayout, taskPackagePath } from "../../../kernel/src/layout/index.ts";
 import type { CliResult } from "../cli/types.ts";
 
 export interface AdoptMulticaAction {
@@ -22,13 +25,21 @@ export interface SnapshotMulticaAction {
 }
 
 export function runAdoptMultica(
-  rootDir: string,
+  rootInput: HarnessLayoutInput,
   action: AdoptMulticaAction
 ): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const layoutOverrides = typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
   const service = makeMulticaAdoptionService({
     rootDir,
+    layoutOverrides,
     client: fixtureClient(action),
-    coordinator: makeLocalWriteCoordinator({ rootDir, actor: { kind: "agent", id: "adopt-multica-cli" } })
+    coordinator: makeLocalWriteCoordinator({
+      rootDir,
+      layoutOverrides,
+      actor: { kind: "agent", id: "adopt-multica-cli" }
+    })
   });
 
   return service.adopt({ taskId: action.taskId as TaskId, ref: action.ref as ExternalRef }).pipe(
@@ -36,7 +47,7 @@ export function runAdoptMultica(
       ok: true,
       command: "adopt-multica",
       taskId: result.taskId,
-      path: `harness/planning/tasks/${result.taskId}`,
+      path: path.relative(rootDir, taskPackagePath(rootInput, result.taskId)).split(path.sep).join("/"),
       report: {
         schema: "harness-adopt-report/v1",
         engine: result.engine,

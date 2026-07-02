@@ -1,14 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
+import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024;
 
-export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>): string {
+export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir): string {
   if (touchedPaths.length === 0) return "no-git-change";
 
-  const plan = resolveCommitPlan(rootDir, touchedPaths);
+  const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput);
   if (!plan) return "no-git-change";
 
   runGit(plan.repoRoot, "add", "--", ...plan.relativePaths);
@@ -19,9 +20,9 @@ export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<
   return currentGitHead(plan.repoRoot);
 }
 
-export function resolveCommitPlan(rootDir: string, touchedPaths: ReadonlyArray<string>): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
+export function resolveCommitPlan(rootDir: string, touchedPaths: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
   if (touchedPaths.length === 0) return null;
-  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(rootDir).authoredRoot);
+  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(layoutInput).authoredRoot);
   if (!target) return null;
   return {
     repoRoot: target.repoRoot,
