@@ -1,20 +1,40 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import path from "node:path";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import type { DeleteAuditRecord, JournalRecord, LockTakeoverRecord, PayloadRef, WriteWatermark } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, JournalRecord, LockTakeoverRecord, PayloadRef, WriteWatermark } from "./write-journal-types.ts";
 
 export function readDurableState(journalPath: string, watermarkPath: string, rootDir: string): {
   readonly records: ReadonlyArray<JournalRecord>;
   readonly watermark: WriteWatermark | null;
   readonly applied: ReadonlySet<string>;
+  readonly fileApplied: ReadonlySet<string>;
 } {
   const watermark = readWatermark(watermarkPath);
   const records = readJournal(journalPath, rootDir);
   return {
     records,
     watermark,
-    applied: new Set(watermark?.lastCommittedOpIds ?? [])
+    applied: new Set(watermark?.lastCommittedOpIds ?? []),
+    fileApplied: readApplyMarkers(journalPath)
   };
+}
+
+// Op ids whose file mutation already happened (apply-marker/v1 lines). Replay must
+// not re-run these non-idempotent writes even though the watermark does not cover
+// them yet.
+export function readApplyMarkers(journalPath: string): ReadonlySet<string> {
+  if (!existsSync(journalPath)) return new Set();
+  const body = readFileSync(journalPath, "utf8").trim();
+  if (body.length === 0) return new Set();
+
+  const markers = new Set<string>();
+  for (const line of body.split("\n")) {
+    const parsed = JSON.parse(line) as Partial<ApplyMarkerRecord>;
+    if (parsed.schema === "apply-marker/v1" && typeof parsed.opId === "string") {
+      markers.add(parsed.opId);
+    }
+  }
+  return markers;
 }
 
 export function readJournal(journalPath: string, rootDir: string): ReadonlyArray<JournalRecord> {
@@ -24,9 +44,10 @@ export function readJournal(journalPath: string, rootDir: string): ReadonlyArray
 
   const records: JournalRecord[] = [];
   for (const line of body.split("\n")) {
-    const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord>;
+    const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord>;
     if (parsed.schema === "lock-takeover/v1") continue;
     if (parsed.schema === "delete-audit/v1") continue;
+    if (parsed.schema === "apply-marker/v1") continue;
     if (parsed.schema !== "write-journal/v1") {
       throw new Error("malformed journal record: unsupported schema");
     }
@@ -84,7 +105,7 @@ export function readPayloadRef(rootDir: string, record: JournalRecord): Record<s
   return JSON.parse(body) as Record<string, unknown>;
 }
 
-export function appendJsonLineDurably(filePath: string, value: JournalRecord | LockTakeoverRecord | DeleteAuditRecord): void {
+export function appendJsonLineDurably(filePath: string, value: JournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
   const fd = openSync(filePath, "a");
   try {

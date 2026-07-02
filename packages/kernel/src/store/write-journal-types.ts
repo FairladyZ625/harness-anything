@@ -53,6 +53,17 @@ export interface DeleteAuditRecord {
   readonly reason: string;
 }
 
+// Durable mark that a non-idempotent op (delta progress_append) already mutated
+// the target file. Replay skips the file write for marked ops but still commits
+// and watermarks them, so a crash between apply and watermark cannot append the
+// same delta twice (ADR-0016 D2).
+export interface ApplyMarkerRecord {
+  readonly schema: "apply-marker/v1";
+  readonly opId: string;
+  readonly taskId: TaskId;
+  readonly at: string;
+}
+
 export interface WriteWatermark {
   readonly schema: "write-watermark/v1";
   readonly lastCommittedOpIds: ReadonlyArray<string>;

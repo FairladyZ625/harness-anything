@@ -27,7 +27,7 @@ import { hashTaskProjectionRows, rebuildTaskProjection } from "../projection/sql
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
 import { withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
-import type { DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { JournalActor, JournaledWriteCoordinatorOptions } from "./write-journal-types.ts";
 
 const defaultActor: JournalActor = { kind: "agent", id: "local" };
@@ -82,7 +82,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         pending.splice(0, pending.length);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords);
+        return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied);
       }),
       catch: (cause): WriteError => toJournalError(cause)
     }),
@@ -90,7 +90,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords);
+        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied);
         return {
           replayedOps: report.opCount,
           recoveredWatermark: report.watermark
@@ -108,7 +108,8 @@ function flushRecords(
   journalPath: string,
   watermarkPath: string,
   previousWatermark: WriteWatermark | null,
-  records: ReadonlyArray<JournalRecord>
+  records: ReadonlyArray<JournalRecord>,
+  fileApplied: ReadonlySet<string>
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
@@ -120,7 +121,11 @@ function flushRecords(
   resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput);
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
-    applyRecord(rootDir, rootInput, journalPath, record);
+    // Ops with a durable apply marker already mutated their file before a crash;
+    // skip the (non-idempotent) file write but still commit and watermark them.
+    if (!fileApplied.has(record.opId)) {
+      applyRecord(rootDir, rootInput, journalPath, record);
+    }
     touchedPaths.push(...recordTouchedPaths);
     committedOpIds.push(record.opId);
   }
@@ -173,7 +178,19 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
     });
     return;
   }
-  applyOp(rootInput, recordToOp(rootDir, record));
+  const op = recordToOp(rootDir, record);
+  applyOp(rootInput, op);
+  // Delta appends are not idempotent: replaying one after a crash between apply and
+  // watermark would duplicate the text. Mark the file mutation durably so replay
+  // skips the write while still committing and watermarking the op (ADR-0016 D2).
+  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
+    appendJsonLineDurably(journalPath, {
+      schema: "apply-marker/v1",
+      opId: record.opId,
+      taskId: record.taskId,
+      at: new Date().toISOString()
+    });
+  }
 }
 
 function applyOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
@@ -204,7 +221,9 @@ interface ProgressAppendDeltaPayload {
 function isProgressAppendDeltaPayload(payload: unknown): payload is ProgressAppendDeltaPayload {
   if (!payload || typeof payload !== "object") return false;
   const candidate = payload as { readonly path?: unknown; readonly append?: unknown };
-  return typeof candidate.path === "string" && typeof candidate.append === "string";
+  // An ambiguous payload carrying both `append` and `body` falls through to the
+  // legacy snapshot path instead of silently ignoring `body` here.
+  return typeof candidate.path === "string" && typeof candidate.append === "string" && !("body" in candidate);
 }
 
 function progressAppendDeltaWrite(op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
@@ -361,6 +380,9 @@ function documentWritesForOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   if (op.kind === "package_delete_hard") {
     return [];
   }
+  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
+    return [progressAppendDeltaWrite(op, op.payload)];
+  }
   if (!documentWriteKinds.has(op.kind)) {
     rejectWrite(`unsupported write op kind: ${op.kind}`);
   }
@@ -451,7 +473,7 @@ function listTextFiles(inputPath: string): ReadonlyArray<string> {
 function toDocumentWrite(op: WriteOp): DocumentWrite {
   const payload = op.payload as Partial<DocumentWrite> | undefined;
   if (!payload || typeof payload.path !== "string" || typeof payload.body !== "string") {
-    rejectWrite(`doc_write op requires path and body payload: ${op.opId}`, op.taskId);
+    rejectWrite(`${op.kind} op requires path and body payload: ${op.opId}`, op.taskId);
   }
   return {
     taskId: op.taskId,
@@ -490,8 +512,8 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .filter((line) => {
-      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord>;
-      if (parsed.schema !== "write-journal/v1") return true;
+      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord>;
+      if (parsed.schema !== "write-journal/v1" && parsed.schema !== "apply-marker/v1") return true;
       return typeof parsed.opId !== "string" || !coveredOpIds.has(parsed.opId);
     });
   writeFileDurably(journalPath, retained.length === 0 ? "" : `${retained.join("\n")}\n`);

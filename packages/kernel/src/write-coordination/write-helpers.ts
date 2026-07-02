@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import type { TaskId, WriteError } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
@@ -48,7 +49,13 @@ export function writeCoordinatedPayload(
   options: { readonly flush?: boolean } = {}
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
-    const opId = `${input.opIdPrefix ?? Date.now()}-${hashPayload({
+    // Default op ids carry random entropy: delta-shaped payloads (e.g. progress_append)
+    // are constant for identical text, so timestamp+hash alone would collide within one
+    // millisecond and silently dedupe a legitimate second append. Callers that pass an
+    // explicit opIdPrefix opt into deterministic ids for intentional idempotency. The
+    // hash still folds in taskId/kind so distinct ops never share a payload hash.
+    const prefix = input.opIdPrefix ?? `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const opId = `${prefix}-${hashPayload({
       taskId: input.taskId,
       kind: input.kind,
       payload: input.payload
