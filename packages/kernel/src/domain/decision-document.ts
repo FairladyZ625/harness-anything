@@ -13,6 +13,8 @@ export function isDecisionDocumentPayload(payload: unknown): payload is Decision
 }
 
 export function serializeDecisionDocument(payload: DecisionDocumentPayload, watermark: string): string {
+  // This per-decision marker is the authoring op id. It is distinct from the
+  // global write-watermark/v1 file that records committed coordinator state.
   const decision = { ...payload.decision, _coordinatorWatermark: watermark };
   return [
     "---",

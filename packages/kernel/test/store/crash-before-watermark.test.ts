@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
+import { checkTaskProjection } from "../../src/index.ts";
 import { decisionEntityId, type DecisionPackage } from "../../src/domain/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
@@ -42,7 +43,56 @@ test("WriteCoordinator writes decision documents with per-decision coordinator w
   });
 });
 
-function decisionPackage(): DecisionPackage {
+test("WriteCoordinator recovers queued decision writes after crash before global watermark", () => {
+  withTempStore((rootDir) => {
+    const firstCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(firstCoordinator.enqueue({
+      opId: "op-decision-recover",
+      entityId: decisionEntityId("dec_RECOVER"),
+      kind: "decision_propose",
+      payload: {
+        decision: decisionPackage({ decision_id: "dec_RECOVER" })
+      }
+    }));
+
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions/decision-dec_RECOVER/decision.md")), false);
+
+    const recoveredCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const report = Effect.runSync(recoveredCoordinator.recover);
+
+    assert.equal(report.replayedOps, 1);
+    assert.equal(report.recoveredWatermark, "op-decision-recover");
+    const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_RECOVER/decision.md"), "utf8");
+    assert.match(body, /^_coordinatorWatermark: op-decision-recover$/mu);
+    assert.equal(checkTaskProjection({ rootDir, postMerge: true }).warnings.some((warning) => warning.code.startsWith("decision_watermark_")), false);
+  });
+});
+
+test("post-merge gate fails closed on half-written decision documents without coordinator op id", () => {
+  withTempStore((rootDir) => {
+    const decisionRoot = path.join(rootDir, "harness/decisions/decision-dec_HALF_WRITTEN");
+    mkdirSync(decisionRoot, { recursive: true });
+    writeFileSync(path.join(decisionRoot, "decision.md"), [
+      "---",
+      "schema: decision-package/v1",
+      "decision_id: dec_HALF_WRITTEN",
+      "title: Half written decision",
+      "state: proposed",
+      "---",
+      "",
+      "# Half written decision",
+      ""
+    ].join("\n"));
+
+    const result = checkTaskProjection({ rootDir, postMerge: true });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.warnings.some((warning) => warning.code === "decision_watermark_missing"), true);
+  });
+});
+
+function decisionPackage(overrides: Partial<DecisionPackage> = {}): DecisionPackage {
   return {
     schema: "decision-package/v1",
     decision_id: "dec_TEST",
@@ -68,6 +118,7 @@ function decisionPackage(): DecisionPackage {
     chosen: [{ id: "CH1", text: "Write it through the coordinator." }],
     rejected: [{ id: "RJ1", text: "Write it by hand.", why_not: "Machine-readable decision frontmatter needs a coordinator watermark." }],
     claims: [{ id: "C1", text: "Coordinator writes are auditable." }],
-    relations: []
+    relations: [],
+    ...overrides
   };
 }

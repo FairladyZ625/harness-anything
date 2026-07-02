@@ -73,6 +73,8 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
     accept: (request) => transitionDecision(options.coordinator, hashPayload, "decision_accept", request, "active", timestamp()),
     reject: (request) => transitionDecision(options.coordinator, hashPayload, "decision_reject", request, "rejected", timestamp()),
     defer: (request) => transitionDecision(options.coordinator, hashPayload, "decision_defer", request, "deferred", timestamp()),
+    // M3 has no separate superseded DecisionState; the distinct op records
+    // supersede intent while sharing the retired terminal state.
     supersede: (request) => transitionDecision(options.coordinator, hashPayload, "decision_supersede", request, "retired", timestamp()),
     amend: (request) => {
       if (request.current.decision_id !== request.next.decision_id) {
