@@ -286,12 +286,16 @@ export function collectGitIgnoredFiles(root, files, options = {}) {
       input: `${chunk.join("\0")}\0`,
       stdio: ["pipe", "pipe", "ignore"]
     });
-    if (result.error) throw result.error;
+    if (result.error && !isBenignGitCheckIgnorePipeError(result)) throw result.error;
     if (result.status !== 0) continue;
-    for (const file of result.stdout.split("\0").filter(Boolean)) ignored.add(file);
+    for (const file of (result.stdout ?? "").split("\0").filter(Boolean)) ignored.add(file);
   }
 
   return ignored;
+}
+
+function isBenignGitCheckIgnorePipeError(result) {
+  return result.error?.code === "EPIPE" && (result.status === 0 || result.status === 1);
 }
 
 function chunkGitCheckIgnoreInput(files, maxInputBytes) {

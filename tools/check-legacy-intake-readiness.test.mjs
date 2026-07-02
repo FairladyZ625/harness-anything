@@ -83,6 +83,30 @@ test("Legacy Intake readiness batches git check-ignore input and reports spawn e
   });
 });
 
+test("Legacy Intake readiness tolerates benign git check-ignore EPIPE", async () => {
+  await withFixtureRepo(async (root) => {
+    const ignored = collectGitIgnoredFiles(root, [
+      "harness/private-a.md",
+      "public.md"
+    ], {
+      spawnSync: () => ({
+        error: Object.assign(new Error("spawnSync git EPIPE"), { code: "EPIPE", errno: -32 }),
+        status: 0,
+        stdout: "harness/private-a.md\0"
+      })
+    });
+
+    assert.deepEqual([...ignored], ["harness/private-a.md"]);
+    assert.deepEqual([...collectGitIgnoredFiles(root, ["public.md"], {
+      spawnSync: () => ({
+        error: Object.assign(new Error("spawnSync git EPIPE"), { code: "EPIPE", errno: -32 }),
+        status: 1,
+        stdout: ""
+      })
+    })], []);
+  });
+});
+
 test("Legacy Intake readiness still scans non-ignored harness public text", async () => {
   await withFixtureRepo(async (root) => {
     mkdirSync(path.join(root, "harness/planning/tasks/old"), { recursive: true });
