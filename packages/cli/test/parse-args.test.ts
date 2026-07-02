@@ -245,6 +245,15 @@ test("parseArgs pins stable parse error envelopes", () => {
   }
 });
 
+test("parseArgs preserves option values that look like flags for optional parsers", () => {
+  const parsed = parseArgs(["task", "progress", "append", "task_1", "--text", "--literal-value"]);
+
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.value.action.kind, "progress-append");
+  assert.equal(parsed.value.action.text, "--literal-value");
+});
+
 test("parseArgs treats empty argv and help flags as help", () => {
   for (const argv of [[], ["help"], ["--help"], ["-h"]] as const) {
     const parsed = parseArgs(argv);

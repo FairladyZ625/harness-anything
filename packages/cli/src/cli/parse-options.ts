@@ -30,8 +30,7 @@ function nonEmptyEnv(name: string): string | undefined {
 
 export function readOption(argv: ReadonlyArray<string>, name: string): string | undefined {
   const index = argv.indexOf(name);
-  const value = index >= 0 ? argv[index + 1] : undefined;
-  return value && !value.startsWith("--") ? value : undefined;
+  return index >= 0 ? argv[index + 1] : undefined;
 }
 
 export function readRequiredValueOption(argv: ReadonlyArray<string>, name: string): { readonly ok: true; readonly value?: string } | { readonly ok: false; readonly error: CliResult["error"] } {
