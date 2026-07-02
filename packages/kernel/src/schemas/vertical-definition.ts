@@ -19,6 +19,21 @@ const TemplateSelectionSchema = Schema.Struct({
 
 const RepositoryScaffoldCreateModeSchema = Schema.Literal("init", "lazy");
 
+const RepositorySeededDocSchema = Schema.Struct({
+  slot: Schema.String,
+  templateRef: Schema.String,
+  materializeAs: Schema.String,
+  localePolicy: Schema.Struct({
+    prefer: Schema.Literal("project", "preset", "explicit"),
+    fallback: LocaleSchema
+  }),
+  requiredWhen: Schema.optional(Schema.Record({
+    key: Schema.String,
+    value: Schema.String
+  })),
+  overwrite: Schema.optional(Schema.Boolean)
+});
+
 const RepositoryScaffoldSchema = Schema.Struct({
   entityRoots: Schema.Array(Schema.Struct({
     entityKind: Schema.String,
@@ -29,11 +44,7 @@ const RepositoryScaffoldSchema = Schema.Struct({
     path: Schema.String,
     create: RepositoryScaffoldCreateModeSchema
   })),
-  seededDocs: Schema.Array(Schema.Struct({
-    path: Schema.String,
-    body: Schema.String,
-    overwrite: Schema.optional(Schema.Boolean)
-  }))
+  seededDocs: Schema.Array(RepositorySeededDocSchema)
 });
 
 const VerticalScriptSchema = Schema.Struct({

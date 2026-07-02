@@ -40,6 +40,13 @@ test("bundled software coding assets have consistent template and process-preset
       readonly entityKind: string;
       readonly templateSelections: ReadonlyArray<TemplateSelection>;
     }>;
+    readonly repositoryScaffold: {
+      readonly seededDocs: ReadonlyArray<TemplateSelection & { readonly body?: unknown; readonly path?: unknown }>;
+    };
+    readonly scripts: ReadonlyArray<{
+      readonly id: string;
+      readonly metadata: { readonly purpose: string };
+    }>;
   };
   const index = JSON.parse(readFileSync(path.join(assetRoot, "presets/index.json"), "utf8")) as {
     readonly presets: ReadonlyArray<string>;
@@ -57,6 +64,13 @@ test("bundled software coding assets have consistent template and process-preset
     assert.equal(selectedMaterializedPaths.has(selection.materializeAs), false, `duplicate materialized path ${selection.materializeAs}`);
     selectedMaterializedPaths.add(selection.materializeAs);
   }
+
+  for (const selection of vertical.repositoryScaffold.seededDocs) {
+    assertKnownTemplateRef(catalogIds, selection.templateRef);
+    assert.equal(selection.body, undefined, `${selection.templateRef} must not inline seeded doc body`);
+    assert.equal(selection.path, undefined, `${selection.templateRef} must use materializeAs instead of path`);
+  }
+  assert.equal(vertical.scripts.some((script) => script.id === "vertical:software-coding:adr-seed" && script.metadata.purpose === "scaffold"), true);
 
   for (const presetId of index.presets) {
     const manifest = JSON.parse(readFileSync(path.join(assetRoot, "presets", presetId, "preset.json"), "utf8")) as PresetAsset;

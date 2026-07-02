@@ -19,6 +19,8 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/decisions")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/sessions")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/adr/README.md")), false);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/repo-governance.md"), "utf8"), /Repository Governance/u);
     assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /Harness Agent Entry/u);
     assert.match(readFileSync(path.join(rootDir, "CLAUDE.md"), "utf8"), /Claude Harness Entry/u);

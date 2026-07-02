@@ -55,12 +55,18 @@
     "dirs": [
       { "path": "{{paths.authoredRoot}}/standards", "create": "init" },
       { "path": "{{paths.authoredRoot}}/context", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/adr", "create": "init" },
       { "path": "{{paths.authoredRoot}}/sessions", "create": "lazy" }
     ],
     "seededDocs": [
       {
-        "path": "{{paths.authoredRoot}}/standards/repo-governance.md",
-        "body": "# Repository Governance\n"
+        "slot": "repository.governance",
+        "templateRef": "template://planning/task-flow@1",
+        "materializeAs": "{{paths.authoredRoot}}/standards/repo-governance.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
       }
     ]
   },

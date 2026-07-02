@@ -96,6 +96,33 @@ test("CLI script command lists, inspects, and runs vertical script entries throu
   });
 });
 
+test("CLI script command discovers and runs the vertical ADR seed scaffold", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const listed = runJson(rootDir, ["script", "list", "--source", "vertical", "--purpose", "scaffold"]);
+
+    assert.equal(listed.ok, true);
+    assert.equal(listed.scripts.some((script: Record<string, unknown>) => script.id === "vertical:software-coding:adr-seed"), true);
+
+    const inspected = runJson(rootDir, ["script", "inspect", "vertical:software-coding:adr-seed"]);
+
+    assert.equal(inspected.ok, true);
+    assert.equal(inspected.script.id, "vertical:software-coding:adr-seed");
+    assert.equal(inspected.script.source, "vertical");
+    assert.deepEqual(inspected.script.writes, ["{{paths.authoredRoot}}/adr/**"]);
+
+    const result = runJson(rootDir, ["script", "run", "vertical:software-coding:adr-seed"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "script-run");
+    assert.equal(result.script.id, "vertical:software-coding:adr-seed");
+    assert.equal(result.generated.includes("harness/adr/README.md"), true);
+    assert.equal(result.generated.includes("harness/adr/0000-template.md"), true);
+    assert.match(readFileSync(path.join(rootDir, "harness/adr/README.md"), "utf8"), /# ADR/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/adr/0000-template.md"), "utf8"), /## Decision/u);
+  });
+});
+
 test("CLI script command runs with an explicit environment allowlist", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness/presets/env-check/preset.json", JSON.stringify({

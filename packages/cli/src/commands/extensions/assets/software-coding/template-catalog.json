@@ -231,6 +231,76 @@
         { "locale": "zh-CN", "anchors": ["## Session Prompt", "## Required Context"], "body": "# Module Session Prompt\n\n## Session Prompt\n\n给执行 agent 的任务提示。\n\n## Required Context\n\n列出 agent 必须先读的上下文。\n" },
         { "locale": "en-US", "anchors": ["## Session Prompt", "## Required Context"], "body": "# Module Session Prompt\n\n## Session Prompt\n\nPrompt for the executing agent.\n\n## Required Context\n\nList context the agent must read first.\n" }
       ]
+    },
+    {
+      "id": "repository/repo-governance",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.governance",
+      "materializeAs": "harness/standards/repo-governance.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": [], "body": "# Repository Governance\n\n- Authored shared state lives under `harness/`.\n- Generated local state lives under `.harness/` and must remain untracked.\n- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.\n" },
+        { "locale": "en-US", "anchors": [], "body": "# Repository Governance\n\n- Authored shared state lives under `harness/`.\n- Generated local state lives under `.harness/` and must remain untracked.\n- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.\n" }
+      ]
+    },
+    {
+      "id": "repository/agent-entry",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.agent.entry",
+      "materializeAs": "AGENTS.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Harness CLI"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Harness CLI"], "body": "# Harness Agent Entry\n\nRead `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.\n\n## Harness CLI\n\n- Invoke via `npx harness-anything <command>` (alias: `ha`). Create task packages with `new-task`; never hand-scaffold directories under the tasks root.\n- Task lifecycle: `task status set <id> <planned|active|blocked|in_review|done|cancelled>`, `task progress append <id> --text <text> [--evidence type:PATH:summary]`, `task-review <id>`, `task-complete <id> --ci passed|failed`. Completion is gated on review + closeout; setting `done` directly is rejected.\n- Writes that go through the harness CLI (new-task, status set, progress append, review, complete) are auto-committed as `harness write <opId>` when the harness root is inside a git repository. A clean `git status` right after these commands is expected: do not re-verify, re-commit, or treat it as data loss. Only hand-edited files need manual commits.\n- Boundary (ADR-0016 D1): machine-read fields (INDEX.md frontmatter — status, engine, binding, packageDisposition — and relations) must be written through the CLI commands above; never hand-edit them. Human-read prose (`progress.md`, `task_plan.md` bodies) may be edited directly, but then commit those files yourself.\n\nGenerated state under `.harness/` is local-only and must not be committed.\n" },
+        { "locale": "en-US", "anchors": ["## Harness CLI"], "body": "# Harness Agent Entry\n\nRead `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.\n\n## Harness CLI\n\n- Invoke via `npx harness-anything <command>` (alias: `ha`). Create task packages with `new-task`; never hand-scaffold directories under the tasks root.\n- Task lifecycle: `task status set <id> <planned|active|blocked|in_review|done|cancelled>`, `task progress append <id> --text <text> [--evidence type:PATH:summary]`, `task-review <id>`, `task-complete <id> --ci passed|failed`. Completion is gated on review + closeout; setting `done` directly is rejected.\n- Writes that go through the harness CLI (new-task, status set, progress append, review, complete) are auto-committed as `harness write <opId>` when the harness root is inside a git repository. A clean `git status` right after these commands is expected: do not re-verify, re-commit, or treat it as data loss. Only hand-edited files need manual commits.\n- Boundary (ADR-0016 D1): machine-read fields (INDEX.md frontmatter — status, engine, binding, packageDisposition — and relations) must be written through the CLI commands above; never hand-edit them. Human-read prose (`progress.md`, `task_plan.md` bodies) may be edited directly, but then commit those files yourself.\n\nGenerated state under `.harness/` is local-only and must not be committed.\n" }
+      ]
+    },
+    {
+      "id": "repository/claude-entry",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.claude.entry",
+      "materializeAs": "CLAUDE.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": [], "body": "# Claude Harness Entry\n\nFollow `AGENTS.md` and the shared authored harness under `harness/`.\n" },
+        { "locale": "en-US", "anchors": [], "body": "# Claude Harness Entry\n\nFollow `AGENTS.md` and the shared authored harness under `harness/`.\n" }
+      ]
+    },
+    {
+      "id": "repository/adr-readme",
+      "version": "1",
+      "documentKind": "adr-readme",
+      "slot": "repository.adr.readme",
+      "materializeAs": "adr/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Usage"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Usage"], "body": "# ADR\n\n## Usage\n\n- Store lightweight architecture decision records in this directory when a repository-local ADR is more appropriate than a task package.\n- Start from `0000-template.md` and keep accepted decisions linked from the relevant task or decision entity.\n" },
+        { "locale": "en-US", "anchors": ["## Usage"], "body": "# ADR\n\n## Usage\n\n- Store lightweight architecture decision records in this directory when a repository-local ADR is more appropriate than a task package.\n- Start from `0000-template.md` and keep accepted decisions linked from the relevant task or decision entity.\n" }
+      ]
+    },
+    {
+      "id": "repository/adr-template",
+      "version": "1",
+      "documentKind": "adr-template",
+      "slot": "repository.adr.template",
+      "materializeAs": "adr/0000-template.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Status", "## Context", "## Decision", "## Consequences"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Status", "## Context", "## Decision", "## Consequences"], "body": "# ADR-0000 Title\n\n## Status\n\nProposed\n\n## Context\n\nDescribe the forces, constraints, and alternatives.\n\n## Decision\n\nDescribe the chosen direction.\n\n## Consequences\n\nDescribe expected tradeoffs, follow-up work, and validation evidence.\n" },
+        { "locale": "en-US", "anchors": ["## Status", "## Context", "## Decision", "## Consequences"], "body": "# ADR-0000 Title\n\n## Status\n\nProposed\n\n## Context\n\nDescribe the forces, constraints, and alternatives.\n\n## Decision\n\nDescribe the chosen direction.\n\n## Consequences\n\nDescribe expected tradeoffs, follow-up work, and validation evidence.\n" }
+      ]
     }
   ]
 }

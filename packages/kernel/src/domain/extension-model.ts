@@ -417,7 +417,11 @@ function validateRepositoryScaffoldShape(input: unknown, path: string, issues: E
   }
   if (Array.isArray(input.seededDocs)) {
     for (const [index, document] of input.seededDocs.entries()) {
-      validateObjectKeys(document, `${path}.seededDocs[${index}]`, ["path", "body", "overwrite"], issues);
+      const documentPath = `${path}.seededDocs[${index}]`;
+      validateObjectKeys(document, documentPath, ["slot", "templateRef", "materializeAs", "localePolicy", "requiredWhen", "overwrite"], issues);
+      if (isRecord(document)) {
+        validateObjectKeys(document.localePolicy, `${documentPath}.localePolicy`, ["prefer", "fallback"], issues);
+      }
     }
   }
 }
