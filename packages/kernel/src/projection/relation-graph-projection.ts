@@ -113,7 +113,7 @@ function collectRelationEdges(
   const seen = new Set<string>();
 
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
-    const taskId = path.basename(taskDir);
+    const taskId = readTaskPackageId(taskDir);
     const indexPath = path.join(taskDir, "INDEX.md");
     if (existsSync(indexPath)) {
       const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
@@ -285,7 +285,7 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
   const taskIds = new Set<string>();
   const factRefs = new Set<string>();
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
-    const taskId = path.basename(taskDir);
+    const taskId = readTaskPackageId(taskDir);
     taskIds.add(taskId);
     const factsPath = path.join(taskDir, "facts.md");
     if (!existsSync(factsPath)) continue;
@@ -427,6 +427,13 @@ function readFlowObjectBlock(frontmatter: string, key: string): string {
     if (/^\S/u.test(line)) break;
   }
   return output.join("\n");
+}
+
+function readTaskPackageId(taskDir: string): string {
+  const indexPath = path.join(taskDir, "INDEX.md");
+  if (!existsSync(indexPath)) return path.basename(taskDir);
+  const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+  return (frontmatter ? readScalar(frontmatter, "task_id") : "") || path.basename(taskDir);
 }
 
 function listTaskDirs(tasksRoot: string): ReadonlyArray<string> {
