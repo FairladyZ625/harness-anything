@@ -41,6 +41,115 @@ test("CLI process preset script entrypoint requires authorization and writes evi
   });
 });
 
+test("CLI script command lists, inspects, and runs preset script entries through ScriptHost", () => {
+  withTempRoot((rootDir) => {
+    const listed = runJson(rootDir, ["script", "list", "--source", "preset", "--purpose", "scaffold"]);
+
+    assert.equal(listed.ok, true);
+    assert.equal(listed.command, "script-list");
+    assert.equal(listed.scripts.some((script: Record<string, unknown>) => script.id === "preset:publish-standard:scaffold"), true);
+
+    const inspected = runJson(rootDir, ["script", "inspect", "preset:publish-standard:scaffold"]);
+
+    assert.equal(inspected.ok, true);
+    assert.equal(inspected.script.id, "preset:publish-standard:scaffold");
+    assert.equal(inspected.script.contractVersion, "script-entry/v1");
+    assert.deepEqual(inspected.script.writes, ["{{outputRoot}}/**"]);
+
+    const result = runJson(rootDir, ["script", "run", "preset:publish-standard:scaffold", "--task", "task-1"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "script-run");
+    assert.equal(result.script.id, "preset:publish-standard:scaffold");
+    assert.equal(result.evidenceBundle.startsWith(".harness/script-runs/"), true);
+    assert.equal(result.generated.some((filePath: string) => filePath.endsWith("references/publish-standard.md")), true);
+    assert.equal(result.generated.some((filePath: string) => filePath.endsWith("artifacts/evidence.json")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "context.json")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
+  });
+});
+
+test("CLI script command runs with an explicit environment allowlist", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness/presets/env-check/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "env-check",
+      title: "Env Check",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: { type: "script", command: "scripts/env-check.mjs", writes: ["{{outputRoot}}/**"] }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/env-check/scripts/env-check.mjs", [
+      "#!/usr/bin/env node",
+      "import { writeFileSync } from 'node:fs';",
+      "const envKeys = Object.keys(process.env).sort();",
+      "writeFileSync(process.env.HARNESS_SCRIPT_RESULT, JSON.stringify({",
+      "  schema: 'script-result/v1',",
+      "  ok: true,",
+      "  report: { envKeys, hasHome: Object.hasOwn(process.env, 'HOME') },",
+      "  produced: []",
+      "}), 'utf8');",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, ["script", "run", "preset:env-check:scaffold", "--task", "task-1"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.envKeys.includes("HARNESS_PRESET_CONTEXT"), true);
+    assert.equal(result.report.envKeys.includes("HARNESS_SCRIPT_CONTEXT"), true);
+    assert.equal(result.report.envKeys.includes("HARNESS_SCRIPT_RESULT"), true);
+    assert.equal(result.report.hasHome, false);
+    assert.equal(result.report.envKeys.includes("PATH"), false);
+    assert.equal(result.report.envKeys.includes("USER"), false);
+    assert.equal(result.report.envKeys.every((key: string) => key.startsWith("HARNESS_") || key === "__CF_USER_TEXT_ENCODING"), true);
+  });
+});
+
+test("CLI script command rejects broad authored entity write roots before execution", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness/presets/task-root-writer/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "task-root-writer",
+      title: "Task Root Writer",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: { type: "script", command: "scripts/task-root-writer.mjs", writes: ["{{paths.tasksRoot}}/**"] }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/task-root-writer/scripts/task-root-writer.mjs", "console.log('should not execute');\n");
+
+    const result = runJson(rootDir, ["script", "run", "preset:task-root-writer:scaffold", "--task", "task-1"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "script_scope_invalid_write");
+    assert.equal(existsSync(path.join(rootDir, "harness/planning/tasks/task-1")), false);
+  });
+});
+
 test("CLI process preset script entrypoint rejects undeclared output write scope", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness/presets/bad-script/preset.json", JSON.stringify({

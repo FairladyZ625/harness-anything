@@ -8,6 +8,7 @@ import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/la
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";
+import type { ScriptEntry } from "./script-host.ts";
 import {
   isPathInside,
   listGeneratedFiles,
@@ -19,6 +20,30 @@ import {
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 type ScriptEntrypoint = Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>;
+
+export function presetScriptEntry(preset: ResolvedPreset, entrypoint: ScriptEntrypoint, entrypointName: string): ScriptEntry {
+  return {
+    id: `preset:${preset.manifest.id}:${entrypointName}`,
+    source: "preset",
+    type: "script",
+    command: entrypoint.command,
+    reads: entrypoint.reads ?? [],
+    writes: entrypoint.writes,
+    inputs: entrypoint.inputs ?? {},
+    metadata: {
+      description: `${preset.manifest.title} ${entrypointName}`,
+      purpose: presetScriptPurpose(entrypointName),
+      contractVersion: "script-entry/v1",
+      produces: entrypoint.writes
+    }
+  };
+}
+
+function presetScriptPurpose(entrypointName: string): ScriptEntry["metadata"]["purpose"] {
+  if (entrypointName === "scaffold") return "scaffold";
+  if (entrypointName === "check" || entrypointName === "audit") return "audit";
+  return "generate";
+}
 
 export function runScriptEntrypoint(
   rootInput: HarnessLayoutInput,

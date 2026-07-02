@@ -3,6 +3,7 @@ import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { createHarnessRuntimeContext } from "../../../../kernel/src/layout/index.ts";
 import { runModuleCommand } from "./module.ts";
 import { runPresetCommand } from "./preset.ts";
+import { runScriptCommand } from "./script.ts";
 import { InvalidRegistryKeyError } from "./state.ts";
 import { runTemplateCommand } from "./template.ts";
 import { runVerticalCommand } from "./vertical.ts";
@@ -20,6 +21,9 @@ export const extensionExecutorGroups = {
   "preset-uninstall": "preset",
   "preset-run": "preset",
   "preset-action": "preset",
+  "script-list": "script",
+  "script-inspect": "script",
+  "script-run": "script",
   "module-list": "module",
   "module-inspect": "module",
   "module-register": "module",
@@ -57,6 +61,8 @@ export function runExtensionCommand(command: ParsedCommand): CliResult {
         return runTemplateCommand(action as Extract<ExtensionAction, { readonly kind: "template-list" | "template-render" }>);
       case "preset":
         return runPresetCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: `preset-${string}` }>);
+      case "script":
+        return runScriptCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: "script-list" | "script-inspect" | "script-run" }>);
       case "module":
         return runModuleCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: "module-list" | "module-inspect" | "module-register" | "module-scaffold" | "module-unregister" | "module-step" }>);
       case "vertical":

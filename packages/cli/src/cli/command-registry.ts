@@ -18,6 +18,7 @@ export type CommandParserId =
   | "gui"
   | "template"
   | "preset"
+  | "script"
   | "module"
   | "vertical";
 export type CommandRunnerId =
@@ -84,6 +85,9 @@ const commandUsages = [
   { kind: "preset-uninstall", usage: "preset uninstall <id> [--project] [--json]" },
   { kind: "preset-run", usage: "preset run <id> <plan|scaffold|check> --task <id> [--allow-scripts] [--json]" },
   { kind: "preset-action", usage: "preset action <id> <action> --task <id> [--allow-scripts] [--json]" },
+  { kind: "script-list", usage: "script list [--source user|vertical|preset] [--purpose scaffold|generate|transform|audit] [--json]" },
+  { kind: "script-inspect", usage: "script inspect <id> [--json]" },
+  { kind: "script-run", usage: "script run <id> [--task <id>] [--input key=value] [--dry-run] [--json]" },
   { kind: "module-list", usage: "module list [--json]" },
   { kind: "module-inspect", usage: "module inspect <key> [--json]" },
   { kind: "module-register", usage: "module register <key> --title <title> --scope <path> [--prefix <prefix>] [--status <status>] [--branch <branch>] [--owner <owner>] [--current-step <step>] [--shared <path>] [--depends-on <module>] [--json]" },
@@ -140,6 +144,9 @@ const commandParserIds = {
   "preset-uninstall": "preset",
   "preset-run": "preset",
   "preset-action": "preset",
+  "script-list": "script",
+  "script-inspect": "script",
+  "script-run": "script",
   "module-list": "module",
   "module-inspect": "module",
   "module-register": "module",
@@ -194,6 +201,9 @@ const commandRunnerIds = {
   "preset-uninstall": "extension",
   "preset-run": "extension",
   "preset-action": "extension",
+  "script-list": "extension",
+  "script-inspect": "extension",
+  "script-run": "extension",
   "module-list": "extension",
   "module-inspect": "extension",
   "module-register": "extension",
@@ -248,6 +258,9 @@ const commandSummaries = {
   "preset-uninstall": "Remove a preset from the project or user layer.",
   "preset-run": "Run a preset entrypoint for a task package.",
   "preset-action": "Run a named preset action for a task package.",
+  "script-list": "List script-entry/v1 entries exposed by installed extensions.",
+  "script-inspect": "Inspect one script-entry/v1 contract.",
+  "script-run": "Run one script-entry/v1 entry through the ScriptHost permission boundary.",
   "module-list": "List registered project modules.",
   "module-inspect": "Inspect one registered module.",
   "module-register": "Register or update a project module definition.",
@@ -302,6 +315,9 @@ const commandExamples = {
   "preset-uninstall": [`${cliCommandName} preset uninstall standard-task --project`],
   "preset-run": [`${cliCommandName} preset run standard-task plan --task task_01ABC`],
   "preset-action": [`${cliCommandName} preset action standard-task scaffold --task task_01ABC`],
+  "script-list": [`${cliCommandName} script list --source preset`],
+  "script-inspect": [`${cliCommandName} script inspect preset:publish-standard:scaffold`],
+  "script-run": [`${cliCommandName} script run preset:publish-standard:scaffold --task task_01ABC --input mode=smoke`],
   "module-list": [`${cliCommandName} module list --json`],
   "module-inspect": [`${cliCommandName} module inspect kernel`],
   "module-register": [`${cliCommandName} module register kernel --title "Kernel" --scope "packages/kernel/**"`],
@@ -441,6 +457,7 @@ function optionDescription(flag: string): string {
     "--hard": "Hard-delete the selected task.",
     "--help": "Show help output.",
     "--include-archived": "Include archived task packages.",
+    "--input": "Provide one script input as key=value; repeat for multiple inputs.",
     "--json": "Emit CommandReceipt/v1 JSON.",
     "--kernel-version": "Validate against a kernel version.",
     "--lesson": "Filter by lesson state.",
@@ -462,6 +479,7 @@ function optionDescription(flag: string): string {
     "--preset": "Select a preset id; new-task defaults to standard-task and preset list shows installed presets.",
     "--profile": "Select a check or task profile; new-task defaults to baseline.",
     "--project": "Use the project preset layer.",
+    "--purpose": "Filter script entries by declared purpose.",
     "--queue": "Filter by queue.",
     "--reason": "Record the reason for the lifecycle change.",
     "--register-module": "Register a module while creating the task.",
@@ -473,6 +491,7 @@ function optionDescription(flag: string): string {
     "--slug": "Set the task slug.",
     "--scope": "Set the module scope.",
     "--soft": "Soft-delete the selected task.",
+    "--source": "Filter script entries by source layer.",
     "--state": "Set or filter by state.",
     "--status": "Set the external or module status.",
     "--strict": "Run strict checks.",

@@ -40,6 +40,9 @@ export interface CliResult {
   readonly templates?: ReadonlyArray<unknown>;
   readonly presets?: ReadonlyArray<unknown>;
   readonly preset?: unknown;
+  readonly scripts?: ReadonlyArray<unknown>;
+  readonly script?: unknown;
+  readonly runId?: string;
   readonly modules?: ReadonlyArray<unknown>;
   readonly module?: unknown;
   readonly document?: unknown;
@@ -144,6 +147,9 @@ export interface ParsedCommand {
     | { readonly kind: "preset-uninstall"; readonly presetId: string; readonly layer: "project" | "user" }
     | { readonly kind: "preset-run"; readonly presetId: string; readonly entrypoint: "plan" | "scaffold" | "check"; readonly taskId: string; readonly allowScripts: boolean }
     | { readonly kind: "preset-action"; readonly presetId: string; readonly actionName: string; readonly taskId: string; readonly allowScripts: boolean }
+    | { readonly kind: "script-list"; readonly source?: "user" | "vertical" | "preset"; readonly purpose?: "scaffold" | "generate" | "transform" | "audit" }
+    | { readonly kind: "script-inspect"; readonly scriptId: string }
+    | { readonly kind: "script-run"; readonly scriptId: string; readonly taskId?: string; readonly dryRun: boolean; readonly inputs: Record<string, string> }
     | { readonly kind: "module-list" }
     | { readonly kind: "module-inspect"; readonly moduleKey: string }
     | { readonly kind: "module-register"; readonly moduleKey: string; readonly title: string; readonly scope: string; readonly prefix?: string; readonly status?: string; readonly branch?: string; readonly owner?: string; readonly currentStep?: string; readonly shared: ReadonlyArray<string>; readonly dependsOn: ReadonlyArray<string> }

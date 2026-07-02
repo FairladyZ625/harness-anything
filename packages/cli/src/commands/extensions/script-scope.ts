@@ -25,7 +25,7 @@ export function resolveDeclaredWriteScopes(
   layout: ReturnType<typeof resolveHarnessLayout>,
   outputRoot: string
 ): { readonly ok: true } & ResolvedScopeSet | { readonly ok: false } {
-  return resolveDeclaredScopes(scopes, layout, outputRoot, false);
+  return resolveDeclaredScopes(scopes, layout, outputRoot, false, "write");
 }
 
 export function resolveDeclaredReadScopes(
@@ -33,14 +33,15 @@ export function resolveDeclaredReadScopes(
   layout: ReturnType<typeof resolveHarnessLayout>,
   outputRoot: string
 ): { readonly ok: true } & ResolvedScopeSet | { readonly ok: false } {
-  return resolveDeclaredScopes(scopes, layout, outputRoot, true);
+  return resolveDeclaredScopes(scopes, layout, outputRoot, true, "read");
 }
 
 function resolveDeclaredScopes(
   scopes: ReadonlyArray<string>,
   layout: ReturnType<typeof resolveHarnessLayout>,
   outputRoot: string,
-  allowRootRead: boolean
+  allowRootRead: boolean,
+  mode: "read" | "write"
 ): { readonly ok: true } & ResolvedScopeSet | { readonly ok: false } {
   const roots: string[] = [];
   const permissions: string[] = [];
@@ -61,15 +62,48 @@ function resolveDeclaredScopes(
       const absolute = path.resolve(expanded);
       if (!isPathInside(layout.rootDir, absolute)) return { ok: false };
       if (recursive && absolute === path.resolve(layout.rootDir)) return { ok: false };
+      if (mode === "write" && !isAllowedWriteScope(absolute, layout, outputRoot)) return { ok: false };
       roots.push(absolute);
       permissions.push(...permissionPathsForScope(absolute, recursive));
     }
   }
-  return roots.length > 0 ? {
+  return mode === "write" && roots.length === 0 ? {
+    ok: true,
+    roots: [],
+    permissions: []
+  } : roots.length > 0 ? {
     ok: true,
     roots: uniquePermissionPaths(roots),
     permissions: uniquePermissionPaths(permissions)
   } : { ok: false };
+}
+
+function isAllowedWriteScope(root: string, layout: ReturnType<typeof resolveHarnessLayout>, outputRoot: string): boolean {
+  const absolute = path.resolve(root);
+  if (!isPathInside(layout.authoredRoot, absolute)) return false;
+  if (isPathInside(absolute, layout.authoredRoot)) return false;
+  const resolvedOutputRoot = path.resolve(outputRoot);
+  if (absolute === resolvedOutputRoot || isPathInside(resolvedOutputRoot, absolute)) return true;
+  return !forbiddenWriteRoots(layout).some((forbiddenRoot) => scopesOverlap(absolute, forbiddenRoot));
+}
+
+function forbiddenWriteRoots(layout: ReturnType<typeof resolveHarnessLayout>): ReadonlyArray<string> {
+  return [
+    layout.localRoot,
+    layout.generatedRoot,
+    layout.cacheRoot,
+    layout.writeJournalRoot,
+    layout.projectionPath,
+    layout.tasksRoot,
+    path.join(layout.authoredRoot, "tasks"),
+    path.join(layout.authoredRoot, "decisions"),
+    path.join(layout.authoredRoot, "sessions"),
+    path.join(layout.rootDir, ".git")
+  ];
+}
+
+function scopesOverlap(left: string, right: string): boolean {
+  return isPathInside(left, right) || isPathInside(right, left);
 }
 
 export function uniquePermissionPaths(paths: ReadonlyArray<string>): ReadonlyArray<string> {

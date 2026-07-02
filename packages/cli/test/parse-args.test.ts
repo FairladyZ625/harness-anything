@@ -110,6 +110,9 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "preset run allow scripts", argv: ["preset", "run", "publish-standard", "plan", "--task", "task_1", "--allow-scripts"], kind: "preset-run", fields: { presetId: "publish-standard", entrypoint: "plan", taskId: "task_1", allowScripts: true } },
   { name: "preset action", argv: ["preset", "action", "standard-task", "scaffold", "--task", "task_1"], kind: "preset-action", fields: { presetId: "standard-task", actionName: "scaffold", taskId: "task_1", allowScripts: false } },
   { name: "preset action allow scripts", argv: ["preset", "action", "publish-standard", "scaffold", "--task", "task_1", "--allow-scripts"], kind: "preset-action", fields: { presetId: "publish-standard", actionName: "scaffold", taskId: "task_1", allowScripts: true } },
+  { name: "script list", argv: ["script", "list", "--source", "preset", "--purpose", "scaffold"], kind: "script-list", fields: { source: "preset", purpose: "scaffold" } },
+  { name: "script inspect", argv: ["script", "inspect", "preset:publish-standard:scaffold"], kind: "script-inspect", fields: { scriptId: "preset:publish-standard:scaffold" } },
+  { name: "script run", argv: ["script", "run", "preset:publish-standard:scaffold", "--task", "task_1", "--input", "mode=smoke", "--dry-run"], kind: "script-run", fields: { scriptId: "preset:publish-standard:scaffold", taskId: "task_1", inputs: { mode: "smoke" }, dryRun: true } },
   { name: "module list", argv: ["module", "list"], kind: "module-list" },
   { name: "module inspect", argv: ["module", "inspect", "billing"], kind: "module-inspect", fields: { moduleKey: "billing" } },
   { name: "module register", argv: ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**", "--prefix", "BILL", "--status", "active", "--branch", "main", "--owner", "team", "--current-step", "BILL-01", "--shared", "docs/**", "--depends-on", "kernel"], kind: "module-register", fields: { moduleKey: "billing", title: "Billing", scope: "packages/billing/**", prefix: "BILL", status: "active", branch: "main", owner: "team", currentStep: "BILL-01", shared: ["docs/**"], dependsOn: ["kernel"] } },
@@ -200,7 +203,7 @@ test("extension parser classifier and executor mapping stay consistent", () => {
     const action = parsedByKind.get(kind);
     assert.notEqual(action, undefined, `${kind} parser coverage`);
     assert.equal(isExtensionAction(action!), true, `${kind} classifier coverage`);
-    assert.equal(["template", "preset", "module", "vertical"].includes(extensionExecutorGroups[kind]), true, `${kind} executor group`);
+    assert.equal(["template", "preset", "script", "module", "vertical"].includes(extensionExecutorGroups[kind]), true, `${kind} executor group`);
   }
 
   const parsedExtensionKinds = new Set([...parsedByKind.values()].filter(isExtensionAction).map((action) => action.kind));

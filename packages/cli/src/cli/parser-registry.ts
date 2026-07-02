@@ -5,6 +5,7 @@ import { parseMigrationArgs } from "./parse-migration-args.ts";
 import { parseCoreTaskArgs } from "./parsers/core-task.ts";
 import { parseModuleArgs } from "./parsers/extensions-module.ts";
 import { parsePresetArgs } from "./parsers/extensions-preset.ts";
+import { parseScriptArgs } from "./parsers/extensions-script.ts";
 import { parseTemplateArgs } from "./parsers/extensions-template.ts";
 import { parseVerticalArgs } from "./parsers/extensions-vertical.ts";
 import { parseGuiArgs } from "./parsers/gui.ts";
@@ -90,6 +91,11 @@ export const parserRegistry = [
     id: "preset",
     commandKinds: commandKindsForParser("preset"),
     parse: parsePresetArgs
+  },
+  {
+    id: "script",
+    commandKinds: commandKindsForParser("script"),
+    parse: parseScriptArgs
   },
   {
     id: "module",
