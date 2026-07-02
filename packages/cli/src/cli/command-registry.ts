@@ -39,6 +39,11 @@ export interface CommandUsage {
   readonly aliases?: ReadonlyArray<string>;
 }
 
+export interface CommandReceiptContract {
+  readonly data: ReadonlyArray<string>;
+  readonly paths: ReadonlyArray<string>;
+}
+
 const commandUsages = [
   { kind: "help", usage: "help", aliases: ["--help", "-h"] },
   { kind: "version", usage: "version", aliases: ["--version", "-v"] },
@@ -311,11 +316,66 @@ const commandExamples = {
   "gui": [`${cliCommandName} gui`]
 } satisfies Record<CommandKind, ReadonlyArray<string>>;
 
+const commandReceiptContractsByKind = {
+  "help": { data: ["commands", "report"], paths: [] },
+  "version": { data: ["version"], paths: [] },
+  "init": { data: ["generated"], paths: ["primary", "config"] },
+  "new-task": { data: ["taskId", "slug", "status", "preset", "module", "generated", "report"], paths: ["package"] },
+  "status-set": { data: ["taskId", "status", "forced", "forceAudit"], paths: ["forceAudit"] },
+  "progress-append": { data: ["taskId", "report"], paths: ["primary", "progress"] },
+  "task-archive": { data: ["taskId", "status", "report"], paths: [] },
+  "task-supersede": { data: ["taskId", "status", "report"], paths: ["primary", "package"] },
+  "task-delete": { data: ["taskId", "mode", "report"], paths: [] },
+  "task-reopen": { data: ["taskId", "status", "report"], paths: [] },
+  "task-review": { data: ["taskId", "reviewContract", "report"], paths: [] },
+  "task-complete": { data: ["taskId", "status", "completionGate", "report"], paths: [] },
+  "template-list": { data: ["templates"], paths: [] },
+  "template-render": { data: ["document"], paths: [] },
+  "task-list": { data: ["tasks", "rows"], paths: [] },
+  "status": { data: ["rows", "summary", "report", "commands"], paths: ["projection"] },
+  "check": { data: ["profile", "rows", "summary", "report"], paths: ["projection"] },
+  "governance-rebuild": { data: ["mode", "rows", "generated", "report"], paths: ["projection"] },
+  "lesson-promote": { data: ["taskId", "mode", "report"], paths: [] },
+  "lesson-sediment": { data: ["taskId", "mode", "report"], paths: [] },
+  "adopt-multica": { data: ["taskId", "status", "report"], paths: [] },
+  "snapshot-multica": { data: ["report"], paths: [] },
+  "migrate-plan": { data: ["rows", "report"], paths: [] },
+  "migrate-structure": { data: ["mode", "report"], paths: [] },
+  "migrate-run": { data: ["migrationMode", "report"], paths: ["primary", "session"] },
+  "migrate-verify": { data: ["report"], paths: [] },
+  "legacy-scan": { data: ["report"], paths: [] },
+  "legacy-intake-plan": { data: ["report"], paths: ["primary", "plan"] },
+  "legacy-copy-safe-docs": { data: ["report"], paths: [] },
+  "legacy-index": { data: ["summary", "report"], paths: ["primary", "index"] },
+  "legacy-verify": { data: ["report"], paths: [] },
+  "git-diff": { data: ["report"], paths: [] },
+  "doctor": { data: ["report"], paths: [] },
+  "preset-validate": { data: ["preset", "report"], paths: [] },
+  "preset-list": { data: ["presets"], paths: [] },
+  "preset-inspect": { data: ["preset"], paths: [] },
+  "preset-check": { data: ["preset", "report"], paths: [] },
+  "preset-install": { data: ["preset", "report"], paths: [] },
+  "preset-seed": { data: ["presets", "report"], paths: [] },
+  "preset-audit": { data: ["presets", "report"], paths: [] },
+  "preset-uninstall": { data: ["preset", "report"], paths: [] },
+  "preset-run": { data: ["taskId", "preset", "generated", "report"], paths: [] },
+  "preset-action": { data: ["taskId", "preset", "generated", "report"], paths: [] },
+  "module-list": { data: ["modules"], paths: [] },
+  "module-inspect": { data: ["module"], paths: [] },
+  "module-register": { data: ["module"], paths: [] },
+  "module-scaffold": { data: ["module"], paths: ["primary", "modulePlan"] },
+  "module-unregister": { data: ["module"], paths: [] },
+  "module-step": { data: ["module"], paths: [] },
+  "vertical-validate": { data: ["report"], paths: [] },
+  "gui": { data: ["launchPlan"], paths: [] }
+} satisfies Record<CommandKind, CommandReceiptContract>;
+
 export interface CommandDescriptor extends CommandUsage {
   readonly parserId: CommandParserId;
   readonly runnerId: CommandRunnerId;
   readonly summary: string;
   readonly examples: ReadonlyArray<string>;
+  readonly receiptContract: CommandReceiptContract;
 }
 
 export const commandDescriptors = commandUsages.map((entry) => ({
@@ -323,8 +383,14 @@ export const commandDescriptors = commandUsages.map((entry) => ({
   parserId: commandParserIds[entry.kind],
   runnerId: commandRunnerIds[entry.kind],
   summary: commandSummaries[entry.kind],
-  examples: commandExamples[entry.kind]
+  examples: commandExamples[entry.kind],
+  receiptContract: commandReceiptContractsByKind[entry.kind]
 })) satisfies ReadonlyArray<CommandDescriptor>;
+
+export const commandReceiptContracts = commandDescriptors.map((entry) => ({
+  kind: entry.kind,
+  ...entry.receiptContract
+}));
 
 export const commandRegistry = commandDescriptors.map((entry) => {
   const shortAliases = "aliases" in entry ? entry.aliases : [];

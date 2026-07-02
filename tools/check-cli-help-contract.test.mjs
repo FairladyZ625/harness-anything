@@ -13,6 +13,7 @@ test("CLI help contract gate rejects missing command help metadata", () => {
       ] as const;
       const commandSummaries = {} satisfies Record<CommandKind, string>;
       const commandExamples = {} satisfies Record<CommandKind, ReadonlyArray<string>>;
+      const commandReceiptContractsByKind = { "new-task": { data: ["taskId"], paths: ["package"] } } satisfies Record<CommandKind, CommandReceiptContract>;
       function optionDescription(flag: string): string {
         const descriptions: Record<string, string> = { "--json": "Emit JSON." };
         return descriptions[flag] ?? "Set this command option.";
@@ -36,6 +37,7 @@ test("CLI help contract gate accepts complete help metadata", () => {
       ] as const;
       const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
       const commandExamples = { "new-task": ["harness-anything new-task --title Example"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
+      const commandReceiptContractsByKind = { "new-task": { data: ["taskId"], paths: ["package"] } } satisfies Record<CommandKind, CommandReceiptContract>;
       function optionDescription(flag: string): string {
         const descriptions: Record<string, string> = { "--title": "Set the task title.", "--json": "Emit JSON." };
         return descriptions[flag]!;
@@ -54,17 +56,14 @@ test("CLI help contract gate rejects missing receipt contracts", () => {
       ] as const;
       const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
       const commandExamples = { "new-task": ["harness-anything new-task --title Example"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
+      const commandReceiptContractsByKind = {} satisfies Record<CommandKind, CommandReceiptContract>;
       function optionDescription(flag: string): string {
         const descriptions: Record<string, string> = { "--title": "Set the task title.", "--json": "Emit JSON." };
         return descriptions[flag]!;
       }
-    `, `
-      export const commandReceiptContracts = [
-        { kind: "version", data: ["version"], paths: [] }
-      ] as const;
     `);
 
-    assert.equal(findCliHelpContractViolations(rootDir).includes("command new-task is missing commandReceiptContracts entry"), true);
+    assert.equal(findCliHelpContractViolations(rootDir).includes("command new-task is missing command descriptor receipt contract"), true);
   });
 });
 
@@ -76,6 +75,7 @@ test("CLI help contract gate rejects examples with undocumented flags", () => {
       ] as const;
       const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
       const commandExamples = { "new-task": ["harness-anything new-task --title Example --module billing"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
+      const commandReceiptContractsByKind = { "new-task": { data: ["taskId"], paths: ["package"] } } satisfies Record<CommandKind, CommandReceiptContract>;
       function optionDescription(flag: string): string {
         const descriptions: Record<string, string> = { "--title": "Set the task title." };
         return descriptions[flag]!;
@@ -86,12 +86,7 @@ test("CLI help contract gate rejects examples with undocumented flags", () => {
   });
 });
 
-function writeRegistry(rootDir, body, receiptBody = `
-  export const commandReceiptContracts = [
-    { kind: "new-task", data: ["taskId"], paths: ["package"] },
-    { kind: "version", data: ["version"], paths: [] }
-  ] as const;
-`) {
+function writeRegistry(rootDir, body, receiptBody = "") {
   const dir = path.join(rootDir, "packages/cli/src/cli");
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "command-registry.ts"), body);

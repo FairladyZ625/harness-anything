@@ -20,66 +20,6 @@ export interface CommandReceiptWrite {
   readonly paths?: ReadonlyArray<string>;
 }
 
-interface CommandReceiptContract {
-  readonly kind: string;
-  readonly data: ReadonlyArray<string>;
-  readonly paths: ReadonlyArray<string>;
-}
-
-export const commandReceiptContracts = [
-  { kind: "help", data: ["commands", "report"], paths: [] },
-  { kind: "init", data: ["generated"], paths: ["primary", "config"] },
-  { kind: "new-task", data: ["taskId", "slug", "status", "preset", "module", "generated", "report"], paths: ["package"] },
-  { kind: "status-set", data: ["taskId", "status", "forced", "forceAudit"], paths: ["forceAudit"] },
-  { kind: "progress-append", data: ["taskId", "report"], paths: ["primary", "progress"] },
-  { kind: "task-archive", data: ["taskId", "status", "report"], paths: [] },
-  { kind: "task-supersede", data: ["taskId", "status", "report"], paths: ["primary", "package"] },
-  { kind: "task-delete", data: ["taskId", "mode", "report"], paths: [] },
-  { kind: "task-reopen", data: ["taskId", "status", "report"], paths: [] },
-  { kind: "task-review", data: ["taskId", "reviewContract", "report"], paths: [] },
-  { kind: "task-complete", data: ["taskId", "status", "completionGate", "report"], paths: [] },
-  { kind: "template-list", data: ["templates"], paths: [] },
-  { kind: "template-render", data: ["document"], paths: [] },
-  { kind: "task-list", data: ["tasks", "rows"], paths: [] },
-  { kind: "status", data: ["rows", "summary", "report", "commands"], paths: ["projection"] },
-  { kind: "check", data: ["profile", "rows", "summary", "report"], paths: ["projection"] },
-  { kind: "governance-rebuild", data: ["mode", "rows", "generated", "report"], paths: ["projection"] },
-  { kind: "lesson-promote", data: ["taskId", "mode", "report"], paths: [] },
-  { kind: "lesson-sediment", data: ["taskId", "mode", "report"], paths: [] },
-  { kind: "adopt-multica", data: ["taskId", "status", "report"], paths: [] },
-  { kind: "snapshot-multica", data: ["report"], paths: [] },
-  { kind: "migrate-plan", data: ["rows", "report"], paths: [] },
-  { kind: "migrate-structure", data: ["mode", "report"], paths: [] },
-  { kind: "migrate-run", data: ["migrationMode", "report"], paths: ["primary", "session"] },
-  { kind: "migrate-verify", data: ["report"], paths: [] },
-  { kind: "legacy-scan", data: ["report"], paths: [] },
-  { kind: "legacy-intake-plan", data: ["report"], paths: ["primary", "plan"] },
-  { kind: "legacy-copy-safe-docs", data: ["report"], paths: [] },
-  { kind: "legacy-index", data: ["summary", "report"], paths: ["primary", "index"] },
-  { kind: "legacy-verify", data: ["report"], paths: [] },
-  { kind: "git-diff", data: ["report"], paths: [] },
-  { kind: "doctor", data: ["report"], paths: [] },
-  { kind: "preset-validate", data: ["preset", "report"], paths: [] },
-  { kind: "preset-list", data: ["presets"], paths: [] },
-  { kind: "preset-inspect", data: ["preset"], paths: [] },
-  { kind: "preset-check", data: ["preset", "report"], paths: [] },
-  { kind: "preset-install", data: ["preset", "report"], paths: [] },
-  { kind: "preset-seed", data: ["presets", "report"], paths: [] },
-  { kind: "preset-audit", data: ["presets", "report"], paths: [] },
-  { kind: "preset-uninstall", data: ["preset", "report"], paths: [] },
-  { kind: "preset-run", data: ["taskId", "preset", "generated", "report"], paths: [] },
-  { kind: "preset-action", data: ["taskId", "preset", "generated", "report"], paths: [] },
-  { kind: "module-list", data: ["modules"], paths: [] },
-  { kind: "module-inspect", data: ["module"], paths: [] },
-  { kind: "module-register", data: ["module"], paths: [] },
-  { kind: "module-scaffold", data: ["module"], paths: ["primary", "modulePlan"] },
-  { kind: "module-unregister", data: ["module"], paths: [] },
-  { kind: "module-step", data: ["module"], paths: [] },
-  { kind: "vertical-validate", data: ["report"], paths: [] },
-  { kind: "gui", data: ["launchPlan"], paths: [] },
-  { kind: "version", data: ["version"], paths: [] }
-] as const satisfies ReadonlyArray<CommandReceiptContract>;
-
 const baseResultKeys = new Set(["ok", "command", "error", "path", "packagePath", "projectionPath", "warnings"]);
 
 type CliFailureResult = CliResult & { readonly ok: false };

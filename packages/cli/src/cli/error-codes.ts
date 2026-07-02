@@ -118,6 +118,40 @@ export const CliErrorCode = {
 export type CliErrorCode = (typeof CliErrorCode)[keyof typeof CliErrorCode];
 
 export type CliErrorCategory = "parse" | "command" | "domain" | "settings" | "extension" | "migration";
+export type CliErrorFamily = "kernel-mapped" | "command-local";
+
+export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([
+  CliErrorCode.ArchivedHardDeleteForbidden,
+  CliErrorCode.ArtifactReadFailed,
+  CliErrorCode.ArtifactWriteRejected,
+  CliErrorCode.DuplicateAdoptClaim,
+  CliErrorCode.DuplicateExternalBinding,
+  CliErrorCode.EngineOwnsStatus,
+  CliErrorCode.GeneratedTaskIdRequired,
+  CliErrorCode.InvalidTransition,
+  CliErrorCode.JournalUnavailable,
+  CliErrorCode.MalformedSnapshot,
+  CliErrorCode.RelatedTaskHardDeleteForbidden,
+  CliErrorCode.StaleSnapshotRefused,
+  CliErrorCode.TaskAlreadyExists,
+  CliErrorCode.TaskNotFound,
+  CliErrorCode.TerminalHardDeleteForbidden,
+  CliErrorCode.TerminalReopenRequiresSupersede,
+  CliErrorCode.WriteConflict,
+  CliErrorCode.WriteRejected,
+  CliErrorCode.EngineNotEnabled,
+  CliErrorCode.AdapterUnavailable,
+  CliErrorCode.AuthMissing,
+  CliErrorCode.RefNotFound,
+  CliErrorCode.StatusUnmapped,
+  CliErrorCode.RateLimited,
+  CliErrorCode.EngineUnreachable,
+  CliErrorCode.Timeout
+]);
+
+export const cliCommandLocalErrorCodes = new Set<CliErrorCode>(
+  Object.values(CliErrorCode).filter((code): code is CliErrorCode => !cliKernelMappedErrorCodes.has(code as CliErrorCode))
+);
 
 export interface CliError {
   readonly code: CliErrorCode;
@@ -252,6 +286,10 @@ export function cliError(code: CliErrorCode, hint?: string): CliError {
 
 export function isCliErrorCode(value: unknown): value is CliErrorCode {
   return typeof value === "string" && Object.hasOwn(cliErrorCodeRegistry, value);
+}
+
+export function cliErrorFamily(code: CliErrorCode): CliErrorFamily {
+  return cliKernelMappedErrorCodes.has(code) ? "kernel-mapped" : "command-local";
 }
 
 export function missingRequiredOptionErrorCode(name: string): CliErrorCode {

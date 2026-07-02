@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
 import { Effect } from "effect";
+import { readTaskLifecyclePolicy } from "../../../../application/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/domain/index.ts";
-import { explainStatusTransition, isDomainStatus, isTerminalStatus } from "../../../../kernel/src/domain/index.ts";
-import { readFrontmatter, readScalar, taskDocumentPath } from "../../../../kernel/src/layout/index.ts";
+import { explainStatusTransition, isTerminalStatus } from "../../../../kernel/src/domain/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
@@ -82,7 +81,7 @@ function runStatusSet(
     })));
   }
 
-  const taskPolicy = readTaskStatusPolicy(context, taskId);
+  const taskPolicy = readTaskLifecyclePolicy(context.layoutInput, taskId);
   if (taskPolicy?.engine !== "local") {
     return context.engine.setStatus({ taskId, status }).pipe(Effect.map((result): CliResult => ({
       ok: true,
@@ -165,15 +164,6 @@ function runTaskDelete(
     path: result.mode,
     report: action.deletedBy ? { schema: "task-delete-report/v1", deletedBy: action.deletedBy } : undefined
   })));
-}
-
-function readTaskStatusPolicy(context: CommandRunnerContext, taskId: string): { readonly engine: string; readonly status: DomainStatus | null } | null {
-  const indexPath = taskDocumentPath(context.layoutInput, taskId, "INDEX.md");
-  if (!existsSync(indexPath)) return null;
-  const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
-  if (!frontmatter) return null;
-  const status = readScalar(frontmatter, "  status");
-  return { engine: readScalar(frontmatter, "  engine") || "", status: isDomainStatus(status) ? status : null };
 }
 
 function renderForceStatusAudit(status: string, reason: string): string {
