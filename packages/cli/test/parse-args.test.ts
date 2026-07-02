@@ -254,6 +254,14 @@ test("parseArgs preserves option values that look like flags for optional parser
   assert.equal(parsed.value.action.text, "--literal-value");
 });
 
+test("parseArgs rejects flag-like tokens for required value options", () => {
+  const parsed = parseArgs(["new-task", "--title", "Parser Task", "--vertical", "--preset", "standard-task"]);
+
+  assert.equal(parsed.ok, false);
+  if (parsed.ok) return;
+  assert.equal(parsed.error.code, "missing_vertical");
+});
+
 test("parseArgs treats empty argv and help flags as help", () => {
   for (const argv of [[], ["help"], ["--help"], ["-h"]] as const) {
     const parsed = parseArgs(argv);

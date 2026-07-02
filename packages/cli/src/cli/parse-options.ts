@@ -33,6 +33,10 @@ export function readOption(argv: ReadonlyArray<string>, name: string): string | 
   return index >= 0 ? argv[index + 1] : undefined;
 }
 
+/**
+ * Reads a required value option and rejects a following flag token as a missing value.
+ * Optional parsers use readOption directly when flag-like literals are valid values.
+ */
 export function readRequiredValueOption(argv: ReadonlyArray<string>, name: string): { readonly ok: true; readonly value?: string } | { readonly ok: false; readonly error: CliResult["error"] } {
   if (!argv.includes(name)) return { ok: true };
   const value = readOption(argv, name);

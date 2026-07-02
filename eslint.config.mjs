@@ -52,6 +52,7 @@ export default tseslint.config(
   {
     ignores: [
       ".git/",
+      ".claude/",
       ".gstack/",
       ".harness/",
       ".harness-private/",

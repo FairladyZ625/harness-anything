@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sha256Text } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import type { LegacyIndex, LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
+import { isGeneratedOrVendorPath, isPathInside, isSamePath, normalizeSlashes } from "../cli/path.ts";
 
 export interface LegacyScanEntry extends LegacyIndexEntry {
   readonly forwardPath?: string;
@@ -263,32 +264,6 @@ function isSafeRelativePath(relativePath: string): boolean {
   return relativePath.length > 0 && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
 }
 
-function isPathInside(parent: string, candidate: string): boolean {
-  const relativePath = path.relative(canonicalPath(parent), canonicalPath(candidate));
-  return relativePath === "" || isSafeRelativePath(relativePath);
-}
-
-function isSamePath(left: string, right: string): boolean {
-  return canonicalPath(left) === canonicalPath(right);
-}
-
-export function canonicalPath(target: string): string {
-  const resolved = path.resolve(target);
-  let current = resolved;
-  let suffix = "";
-  while (true) {
-    try {
-      const real = realpathSync(current);
-      return suffix ? path.join(real, suffix) : real;
-    } catch {
-      const parent = path.dirname(current);
-      if (parent === current) return resolved;
-      suffix = suffix ? path.join(path.basename(current), suffix) : path.basename(current);
-      current = parent;
-    }
-  }
-}
-
 export function copySource(source: string, target: string): void {
   const linkStats = lstatSync(source);
   if (linkStats.isSymbolicLink()) return;
@@ -315,22 +290,6 @@ function walkFiles(directory: string): ReadonlyArray<string> {
     }
     return [entryPath];
   }).sort();
-}
-
-function isGeneratedOrVendorPath(relativePath: string): boolean {
-  const normalized = normalizeSlashes(relativePath);
-  const segments = normalized.split("/");
-  return segments.includes("node_modules")
-    || segments.includes(".git")
-    || segments.includes(".next")
-    || segments.includes(".turbo")
-    || segments.includes("dist")
-    || segments.includes("build")
-    || segments.includes("coverage")
-    || normalized === ".harness/generated"
-    || normalized.startsWith(".harness/generated/")
-    || normalized === "harness/legacy"
-    || normalized.startsWith("harness/legacy/");
 }
 
 function listDirectories(directory: string): ReadonlyArray<string> {
@@ -374,8 +333,4 @@ function digestPath(targetPath: string): `sha256:${string}` {
 function legacyId(sourcePath: string): string {
   const digest = sha256Text(sourcePath).slice(0, 12);
   return `legacy_${digest}`;
-}
-
-function normalizeSlashes(value: string): string {
-  return value.split(path.sep).join("/");
 }

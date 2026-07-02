@@ -2,6 +2,7 @@ export const testTierManifest = {
   fast: [
     "packages/adapters/local/test/task-writes.test.ts",
     "packages/cli/test/parse-args.test.ts",
+    "packages/cli/test/path-utils.test.ts",
     "packages/gui/test/markdown-sanitize.test.ts",
     "packages/gui/test/terminal-backend-policy.test.ts",
     "packages/gui/test/terminal-no-ingestion.test.ts",

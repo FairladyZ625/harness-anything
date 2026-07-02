@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import { normalizeSlashes } from "../cli/path.ts";
 
 export function collectLegacyProvenanceWarnings(rootInput: HarnessLayoutInput): ReadonlyArray<Record<string, string>> {
   const layout = resolveHarnessLayout(rootInput);
@@ -46,8 +47,4 @@ function legacyProvenanceWarning(code: string, taskPackage: string, legacyId: st
     legacyId,
     storedPath
   };
-}
-
-function normalizeSlashes(value: string): string {
-  return value.split(path.sep).join("/");
 }

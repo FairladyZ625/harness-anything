@@ -1,4 +1,5 @@
 import { cliError, CliErrorCode } from "./error-codes.ts";
+import { readOption } from "./parse-options.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -124,9 +125,4 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
   }
 
   return null;
-}
-
-function readOption(argv: ReadonlyArray<string>, name: string): string | undefined {
-  const index = argv.indexOf(name);
-  return index >= 0 ? argv[index + 1] : undefined;
 }

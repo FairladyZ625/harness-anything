@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 
 export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string): CliResult {
@@ -127,8 +128,4 @@ function ensureGitignoreEntry(filePath: string, entry: string): void {
   if (existing.split(/\r?\n/u).includes(entry)) return;
   const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
   writeFileSync(filePath, `${existing}${prefix}${entry}\n`, "utf8");
-}
-
-function normalizeSlashes(value: string): string {
-  return value.split(path.sep).join("/");
 }

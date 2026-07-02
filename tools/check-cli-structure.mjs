@@ -30,6 +30,7 @@ checkFileLines(existingFiles(extensionExecutorFiles), 250, "extension executor f
 checkFileLines(existingFiles(coreRunnerFiles), 250, "core runner file");
 checkFunctions(existingFiles([...parserFiles, ...extensionExecutorFiles, ...coreRunnerFiles]), { maxLines: 120, maxBranches: 40 });
 checkCliCommandDescriptorization();
+checkCliUtilitySingleSource();
 
 if (violations.length > 0) {
   console.error(violations.join("\n"));
@@ -50,6 +51,22 @@ function listTsFiles(relativeDir) {
   return entries
     .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".d.ts"))
     .map((entry) => `${relativeDir}/${entry}`);
+}
+
+function listTsFilesRecursive(relativeDir) {
+  const absolute = path.join(root, relativeDir);
+  let entries;
+  try {
+    entries = readdirSync(absolute, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+  return entries.flatMap((entry) => {
+    const relativePath = `${relativeDir}/${entry.name}`;
+    if (entry.isDirectory()) return listTsFilesRecursive(relativePath);
+    return entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") ? [relativePath] : [];
+  });
 }
 
 function checkFileLines(files, limit, label) {
@@ -117,6 +134,28 @@ function checkCliCommandDescriptorization() {
   }
   if (/\bfunction\s+runCommand\b/u.test(lifecycleExecutor)) {
     violations.push("packages/cli/src/commands/lifecycle.ts: lifecycle.ts must not contain catch-all runCommand dispatcher");
+  }
+}
+
+function checkCliUtilitySingleSource() {
+  const utilityAuthorities = new Map([
+    ["canonicalPath", "packages/cli/src/cli/path.ts"],
+    ["isGeneratedOrVendorPath", "packages/cli/src/cli/path.ts"],
+    ["isPathInside", "packages/cli/src/cli/path.ts"],
+    ["isSamePath", "packages/cli/src/cli/path.ts"],
+    ["normalizeSlashes", "packages/cli/src/cli/path.ts"],
+    ["readOption", "packages/cli/src/cli/parse-options.ts"],
+    ["readRequiredValueOption", "packages/cli/src/cli/parse-options.ts"]
+  ]);
+  for (const file of listTsFilesRecursive("packages/cli/src")) {
+    const sourceText = readSource(file);
+    const sourceFile = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    for (const fn of findFunctions(sourceFile)) {
+      const authority = utilityAuthorities.get(fn.name);
+      if (authority && file !== authority) {
+        violations.push(`${file}:${fn.startLine}: duplicate ${fn.name} implementation; import from ${authority}`);
+      }
+    }
   }
 }
 
