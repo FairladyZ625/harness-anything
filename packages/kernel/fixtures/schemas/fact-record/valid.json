@@ -1,0 +1,8 @@
+{
+  "schema": "fact-record/v1",
+  "fact_id": "F-DEADBEEF",
+  "statement": "Decision CLI has a human terminal fallback.",
+  "source": "PR #108 verification",
+  "observedAt": "2026-07-03T00:00:00.000Z",
+  "confidence": "high"
+}

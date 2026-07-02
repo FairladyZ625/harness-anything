@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { DecisionWriteService } from "../../../application/src/index.ts";
+import type { DecisionWriteService, FactWriteService } from "../../../application/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
@@ -8,12 +8,13 @@ import { runnerIdForAction } from "./command-registry.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 import {
   runDiagnosticsCommand,
+  runDecisionCommand,
   runExtensionRunnerCommand,
+  runFactCommand,
   runGovernanceCommand,
   runGuiCommand,
   runHelpCommand,
   runInitCommand,
-  runDecisionCommand,
   runMigrationCommand,
   runNewTaskCommand,
   runTaskGatesCommand,
@@ -28,6 +29,7 @@ export interface CommandRunnerContext {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly engine: CommandRunnerEngine;
   readonly decisionWriteService: DecisionWriteService;
+  readonly factWriteService: FactWriteService;
 }
 
 export type CommandRunnerEffect = Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError>;
@@ -82,6 +84,7 @@ export const runnerRegistry = {
   init: runInitCommand,
   "new-task": runNewTaskCommand,
   decision: runDecisionCommand,
+  fact: runFactCommand,
   "task-lifecycle": runTaskLifecycleCommand,
   "task-gates": runTaskGatesCommand,
   "task-query": runTaskQueryCommand,
@@ -95,12 +98,14 @@ export const runnerRegistry = {
 export function runRegisteredCommand(
   command: ParsedCommand,
   makeEngine: () => CommandRunnerEngine,
-  makeDecisionWriteService: () => DecisionWriteService
+  makeDecisionWriteService: () => DecisionWriteService,
+  makeFactWriteService: () => FactWriteService
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
   let engine: CommandRunnerEngine | undefined;
   let decisionWriteService: DecisionWriteService | undefined;
+  let factWriteService: FactWriteService | undefined;
   return runner({
     rootDir: command.rootDir,
     layoutInput: createHarnessRuntimeContext(command.rootDir, command.layoutOverrides),
@@ -112,6 +117,10 @@ export function runRegisteredCommand(
     get decisionWriteService() {
       decisionWriteService ??= makeDecisionWriteService();
       return decisionWriteService;
+    },
+    get factWriteService() {
+      factWriteService ??= makeFactWriteService();
+      return factWriteService;
     }
   }, command);
 }

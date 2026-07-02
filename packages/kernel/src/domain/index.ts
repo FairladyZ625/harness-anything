@@ -36,6 +36,14 @@ export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 export { decisionEntityId, decisionIdFromEntityId, parseWriteEntityId, taskEntityId, taskIdFromEntityId } from "./entity-id.ts";
 export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
+export {
+  factConfidenceLevels,
+  formatFactFlowRecord,
+  isFactId,
+  parseFactFlowRecords
+} from "./fact-record.ts";
+export type { FactConfidence, FactRecord } from "./fact-record.ts";
+
 export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
 export type {
   EntityKindDeclaration,

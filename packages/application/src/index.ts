@@ -6,6 +6,7 @@ import { isDomainStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
+export { makeFactWriteService } from "./fact-write-service.ts";
 export { readDecisionDocument } from "./decision-document-reader.ts";
 export type {
   DecisionDocumentReadResult
@@ -19,6 +20,13 @@ export type {
   DecisionWriteService,
   DecisionWriteServiceOptions
 } from "./decision-write-service.ts";
+export type {
+  FactRecordRequest,
+  FactWriteRejected,
+  FactWriteResult,
+  FactWriteService,
+  FactWriteServiceOptions
+} from "./fact-write-service.ts";
 import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 export {
   evaluateCompletionGate,

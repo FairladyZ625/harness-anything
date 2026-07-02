@@ -11,6 +11,7 @@ import { parseTemplateArgs } from "./parsers/extensions-template.ts";
 import { parseVerticalArgs } from "./parsers/extensions-vertical.ts";
 import { parseGuiArgs } from "./parsers/gui.ts";
 import { parseNewTaskArgs } from "./parsers/new-task.ts";
+import { parseRecordArgs } from "./parsers/record.ts";
 import { parseStatusCheckArgs } from "./parsers/status-check.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
@@ -53,6 +54,11 @@ export const parserRegistry = [
     id: "decision",
     commandKinds: commandKindsForParser("decision"),
     parse: parseDecisionArgs
+  },
+  {
+    id: "record",
+    commandKinds: commandKindsForParser("record"),
+    parse: parseRecordArgs
   },
   {
     id: "status-check",
