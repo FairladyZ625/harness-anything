@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { evaluateLegacyIntakeReadiness } from "./check-legacy-intake-readiness.mjs";
+import { collectGitIgnoredFiles, evaluateLegacyIntakeReadiness } from "./check-legacy-intake-readiness.mjs";
 
 test("Legacy Intake readiness rejects old runtime production references", async () => {
   await withFixtureRepo(async (root) => {
@@ -59,6 +59,54 @@ test("Legacy Intake readiness ignores git-ignored self-host harness files", asyn
     const violations = await evaluateLegacyIntakeReadiness(root);
 
     assert.deepEqual(violations, []);
+  });
+});
+
+test("Legacy Intake readiness batches git check-ignore input and reports spawn errors", async () => {
+  await withFixtureRepo(async (root) => {
+    runGit(root, "init");
+    writeFileSync(path.join(root, ".gitignore"), "/harness/\n", "utf8");
+
+    const ignored = collectGitIgnoredFiles(root, [
+      "harness/private-a.md",
+      "public.md",
+      "harness/private-b.md"
+    ], { maxInputBytes: 24 });
+
+    assert.deepEqual([...ignored].sort(), ["harness/private-a.md", "harness/private-b.md"]);
+    assert.throws(
+      () => collectGitIgnoredFiles(root, ["harness/private-a.md"], {
+        spawnSync: () => ({ error: new Error("spawn ENOBUFS") })
+      }),
+      /spawn ENOBUFS/u
+    );
+  });
+});
+
+test("Legacy Intake readiness feeds check-ignore chunks over stdin without a live pipe on Linux", async () => {
+  await withFixtureRepo(async (root) => {
+    runGit(root, "init");
+    writeFileSync(path.join(root, ".gitignore"), "/harness/\n", "utf8");
+
+    // Real git over the default (temp-file fd) stdin path: no EPIPE, correct result.
+    const ignored = collectGitIgnoredFiles(root, [
+      "harness/private-a.md",
+      "public.md",
+      "harness/private-b.md"
+    ], { maxInputBytes: 24 });
+    assert.deepEqual([...ignored].sort(), ["harness/private-a.md", "harness/private-b.md"]);
+
+    // Injected spawnSync still receives the paths as NUL-delimited stdin input.
+    const calls = [];
+    collectGitIgnoredFiles(root, ["harness/private-a.md", "public.md"], {
+      maxInputBytes: 24,
+      spawnSync: (command, args, spawnOptions) => {
+        calls.push(spawnOptions.input);
+        return { status: 1, stdout: "" };
+      }
+    });
+    assert.ok(calls.length > 0);
+    assert.ok(calls.every((input) => typeof input === "string" && input.endsWith("\0")));
   });
 });
 

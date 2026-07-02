@@ -1,17 +1,19 @@
 import { isDomainStatus } from "../../../../kernel/src/domain/index.ts";
 import { slugifyTaskTitle } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
-import { readOption } from "../parse-options.ts";
+import { readOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
 export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] === "init") {
+    const projectName = readRequiredValueOption(args, "--name");
+    if (!projectName.ok) return projectName;
     return ok(rootDir, json, {
       kind: "init",
       addNpmScripts: args.includes("--add-npm-scripts"),
-      projectName: readOption(args, "--name")
+      projectName: projectName.value
     });
   }
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);

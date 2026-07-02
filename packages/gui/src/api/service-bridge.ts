@@ -7,7 +7,7 @@ import {
   readTaskIdPayload
 } from "../../../application/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
-import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
+import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, resolveHarnessRuntimeContext, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, deferredGuiBridgeContracts } from "./api-contract-registry.ts";
 import { validateProjectPath } from "./local-api.ts";
@@ -98,9 +98,9 @@ export function createGuiServiceBridgeForService(
   service: LocalControllerService,
   layoutOverrides?: HarnessLayoutOverrides
 ): GuiServiceBridge {
-  const layoutInput = createHarnessRuntimeContext(rootDir, layoutOverrides);
+  const layoutInput = resolveHarnessRuntimeContext(createHarnessRuntimeContext(rootDir, layoutOverrides));
   return {
-    invoke: async (method, payload) => dispatchGuiServiceMethod(rootDir, layoutInput, service, method, payload)
+    invoke: async (method, payload) => dispatchGuiServiceMethod(layoutInput.rootDir, layoutInput, service, method, payload)
   };
 }
 

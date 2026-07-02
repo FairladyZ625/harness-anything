@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { preloadApiCapabilities, preloadAllowlist, registerHarnessIpcHandlers, type GuiServiceBridge } from "../src/index.ts";
+import { assertUniqueHarnessIpcChannels, preloadApiCapabilities, preloadAllowlist, registerHarnessIpcHandlers, type GuiServiceBridge } from "../src/index.ts";
 
 const trustedEvent = {
   sender: {
@@ -47,4 +47,11 @@ test("main process registers one IPC handler for each preload allowlist method",
   );
   assert.equal(handlers.has("harness:capabilities"), false);
   assert.equal(preloadApiCapabilities.archiveTask.status, "deferred");
+});
+
+test("main process rejects duplicate IPC handler channels before registration", () => {
+  assert.throws(
+    () => assertUniqueHarnessIpcChannels(["getTasks", "getTasks"]),
+    /Duplicate Harness IPC handler channel: harness:getTasks/u
+  );
 });

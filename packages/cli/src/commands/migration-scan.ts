@@ -127,7 +127,7 @@ function collectLegacyDocs(rootInput: HarnessLayoutInput, sourceRoot: string): R
   const docsRoot = path.join(sourceRoot, "docs");
   const docsEntries = walkFiles(docsRoot)
     .map((filePath) => normalizeSlashes(path.relative(sourceRoot, filePath)))
-    .flatMap((relativePath) => safeDocEntry(rootDir, sourceRoot, relativePath));
+    .flatMap((relativePath) => safeDocEntry(rootInput, sourceRoot, relativePath));
   if (!hasExplicitHarnessConfig(sourceRoot)) return docsEntries;
   if (isSamePath(rootDir, sourceRoot)) return docsEntries;
   let layout: ReturnType<typeof resolveHarnessLayout>;
@@ -194,9 +194,10 @@ function evidencePointers(fullPath: string, storedPath: string): LegacyIndexEntr
     }));
 }
 
-function safeDocEntry(rootDir: string, sourceRoot: string, relativePath: string): ReadonlyArray<LegacyScanEntry> {
+function safeDocEntry(rootInput: HarnessLayoutInput, sourceRoot: string, relativePath: string): ReadonlyArray<LegacyScanEntry> {
   if (!isSafeDocPath(relativePath)) return [];
-  const targetLayout = resolveHarnessLayout(rootDir);
+  const targetLayout = resolveHarnessLayout(rootInput);
+  const rootDir = targetLayout.rootDir;
   const forwardPath = forwardPathForDocsPath(rootDir, targetLayout, relativePath);
   return [docEntry(sourceRoot, relativePath, `harness/legacy/docs/${relativePath.replace(/^docs\//u, "")}`, forwardPath)];
 }

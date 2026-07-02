@@ -7,7 +7,7 @@ import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
-import { renderReceiptText, toCommandReceipt } from "./cli/receipt.ts";
+import { renderReceiptText, toCommandReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
@@ -17,11 +17,10 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     return 2;
   }
 
-  const engine = makeLocalLifecycleEngine({
+  const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides
-  });
-  const result = await Effect.runPromise(runRegisteredCommand(engine, parsed.value).pipe(
+  })).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,
@@ -33,12 +32,12 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     })
   ));
 
-  emit(result, parsed.value.json);
-  return result.ok ? 0 : 1;
+  const output = toCommandReceipt(result);
+  emit(output, parsed.value.json);
+  return output.ok ? 0 : 1;
 }
 
-function emit(result: CliResult, json: boolean): void {
-  const output = toCommandReceipt(result);
+function emit(output: CommandReceipt | (CliResult & { readonly ok: false }), json: boolean): void {
   if (json) {
     console.log(JSON.stringify(output));
     return;

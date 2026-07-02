@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -50,19 +50,55 @@ test("CLI init updates only the project name when explicitly requested", () => {
   });
 });
 
-function writeExistingHarnessConfig(rootDir: string, name: string): string {
+test("CLI init updates the discovered config for a custom authored root project", () => {
+  withTempRoot((rootDir) => {
+    const configPath = writeExistingHarnessConfig(rootDir, "old-project", ".custom-harness");
+    mkdirSync(path.join(rootDir, ".custom-harness"), { recursive: true });
+
+    const result = runJson(rootDir, ["init", "--name", "new-project"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.path, "harness/harness.yaml");
+    assert.equal(readFileSync(configPath, "utf8"), existingHarnessConfig("new-project", ".custom-harness"));
+    assert.equal(existsSync(path.join(rootDir, ".custom-harness/harness.yaml")), false);
+  });
+});
+
+test("CLI readonly version and gui commands do not create a lifecycle engine before dispatch", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness", "harness.yaml"), [
+      "schema: harness-anything/v1",
+      "name: broken-layout",
+      "layout:",
+      "  authoredRoot: /not/relative",
+      ""
+    ].join("\n"), "utf8");
+
+    const version = runJson(rootDir, ["version"]);
+    const gui = runJson(rootDir, ["gui"], { HARNESS_GUI_DRY_RUN: "1" });
+
+    assert.equal(version.ok, true);
+    assert.equal(version.command, "version");
+    assert.equal(gui.ok, true);
+    assert.equal(gui.command, "gui");
+    assert.equal(gui.launchPlan.dryRun, true);
+  });
+});
+
+function writeExistingHarnessConfig(rootDir: string, name: string, authoredRoot = "harness"): string {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   const configPath = path.join(rootDir, "harness/harness.yaml");
-  writeFileSync(configPath, existingHarnessConfig(name), "utf8");
+  writeFileSync(configPath, existingHarnessConfig(name, authoredRoot), "utf8");
   return configPath;
 }
 
-function existingHarnessConfig(name: string): string {
+function existingHarnessConfig(name: string, authoredRoot = "harness"): string {
   return [
     "schema: harness-anything/v1",
     `name: ${name}`,
     "layout:",
-    "  authoredRoot: harness",
+    `  authoredRoot: ${authoredRoot}`,
     "  localRoot: .harness",
     "settings:",
     "  locale: en-US",
@@ -79,9 +115,10 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+function runJson(rootDir: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv): Record<string, any> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-    encoding: "utf8"
+    encoding: "utf8",
+    env: env ? { ...process.env, ...env } : process.env
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }

@@ -1,5 +1,6 @@
 export const testTierManifest = {
   fast: [
+    "packages/adapters/local/test/task-writes.test.ts",
     "packages/cli/test/parse-args.test.ts",
     "packages/gui/test/markdown-sanitize.test.ts",
     "packages/gui/test/terminal-backend-policy.test.ts",
@@ -13,12 +14,14 @@ export const testTierManifest = {
     "packages/kernel/test/layout/portable-path.test.ts",
     "packages/kernel/test/markdown/frontmatter.test.ts",
     "packages/kernel/test/publish/idempotency.test.ts",
+    "packages/kernel/test/write-coordination/write-helpers.test.ts",
     "tools/run-gui-tests.test.mjs",
     "tools/run-node-tests.test.mjs"
   ],
   contract: [
     "packages/application/test/task-lifecycle-gates.test.ts",
     "packages/cli/test/package-surface.test.ts",
+    "packages/cli/test/receipt-contracts.test.ts",
     "packages/gui/test/electron-security-policy.test.ts",
     "packages/gui/test/env-profile-contract.test.ts",
     "packages/gui/test/ipc-handler-registration.test.ts",
@@ -54,6 +57,7 @@ export const testTierManifest = {
     "tools/check-integrity-single-source.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
     "tools/check-service-mappability.test.mjs",
+    "tools/smoke-cli-package.test.mjs",
     "tools/scan-forbidden-symbols.test.mjs"
   ],
   integration: [

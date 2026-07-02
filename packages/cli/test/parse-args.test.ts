@@ -228,6 +228,8 @@ test("parseArgs pins stable parse error envelopes", () => {
     { argv: ["preset", "run", "standard-task", "deploy", "--task", "task_1"], code: "invalid_entrypoint" },
     { argv: ["module", "register", "billing", "--title", "Billing"], code: "missing_module_fields" },
     { argv: ["module-step", "billing", "T-1", "--state", "started"], code: "invalid_module_step_state" },
+    { argv: ["init", "--name"], code: "missing_name" },
+    { argv: ["init", "--name", "--add-npm-scripts"], code: "missing_name" },
     { argv: ["new-task"], code: "missing_title" },
     { argv: ["unknown"], code: "unknown_command", hintIncludes: "harness-anything new-task --title <title>" }
   ] as const;
@@ -241,6 +243,15 @@ test("parseArgs pins stable parse error envelopes", () => {
       assert.equal(parsed.error.hint.includes(candidate.hintIncludes), true);
     }
   }
+});
+
+test("parseArgs preserves option values that look like flags for optional parsers", () => {
+  const parsed = parseArgs(["task", "progress", "append", "task_1", "--text", "--literal-value"]);
+
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.value.action.kind, "progress-append");
+  assert.equal(parsed.value.action.text, "--literal-value");
 });
 
 test("parseArgs treats empty argv and help flags as help", () => {

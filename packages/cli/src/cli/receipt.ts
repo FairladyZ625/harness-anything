@@ -1,4 +1,6 @@
 import type { CliResult } from "./types.ts";
+import { cliError, CliErrorCode } from "./error-codes.ts";
+import { commandReceiptContractsByKind } from "./receipt-contracts.ts";
 
 export const commandReceiptEnvelope = "CommandReceipt/v1" as const;
 
@@ -45,7 +47,7 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CliFailure
     setPath(paths, "forceAudit", (forceAudit as { path: string }).path);
   }
 
-  return {
+  const receipt = {
     ok: true,
     receipt: commandReceiptEnvelope,
     command: result.command,
@@ -53,7 +55,16 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CliFailure
     ...(Object.keys(data).length > 0 ? { data } : {}),
     ...(Object.keys(paths).length > 0 ? { paths } : {}),
     ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {})
-  };
+  } satisfies CommandReceipt;
+  const contractViolation = validateReceiptContract(receipt);
+  if (contractViolation) {
+    return {
+      ok: false,
+      command: result.command,
+      error: cliError(CliErrorCode.CommandReceiptContractMismatch, contractViolation)
+    } satisfies CliFailureResult;
+  }
+  return receipt;
 }
 
 export function renderReceiptText(receipt: CommandReceipt): string {
@@ -74,6 +85,24 @@ export function renderReceiptText(receipt: CommandReceipt): string {
 
 function setPath(paths: Record<string, string>, key: string, value: unknown): void {
   if (typeof value === "string" && value.length > 0) paths[key] = value;
+}
+
+function validateReceiptContract(receipt: CommandReceipt): string | undefined {
+  const contract = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
+  if (!contract) return `missing receipt contract for command ${receipt.command}`;
+  const allowedData: ReadonlySet<string> = new Set(contract.data);
+  const allowedPaths: ReadonlySet<string> = new Set(contract.paths);
+  const dataKeys = Object.keys(receipt.data ?? {});
+  const pathKeys = Object.keys(receipt.paths ?? {});
+  const unexpectedData = dataKeys.filter((key) => !allowedData.has(key));
+  const unexpectedPaths = pathKeys.filter((key) => !allowedPaths.has(key));
+  const violations = [
+    ...unexpectedData.map((key) => `data.${key}`),
+    ...unexpectedPaths.map((key) => `paths.${key}`)
+  ];
+  return violations.length > 0
+    ? `receipt for command ${receipt.command} emitted undeclared fields: ${violations.join(", ")}`
+    : undefined;
 }
 
 function classifyPrimaryPath(command: string, paths: Record<string, string>, value: unknown): void {

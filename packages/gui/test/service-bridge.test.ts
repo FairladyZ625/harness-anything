@@ -50,6 +50,32 @@ test("GUI service bridge honors explicit authored root context", async () => {
   }
 });
 
+test("GUI service bridge resolves project root before guarding task documents", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
+  try {
+    mkdirSync(path.join(rootDir, "workspace", "nested"), { recursive: true });
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness", "harness.yaml"), [
+      "schema: harness-anything/v1",
+      "name: gui-subdir",
+      "layout:",
+      "  authoredRoot: harness",
+      "  localRoot: .harness",
+      ""
+    ].join("\n"), "utf8");
+    writeTaskIndex(rootDir, "task-1", "Subdir GUI Task", "planned");
+    const bridge = createLocalGuiServiceBridge(path.join(rootDir, "workspace", "nested"));
+
+    const document = await bridge.invoke("getTaskDocument", { taskId: "task-1", path: "INDEX.md" }) as { readonly ok: boolean; readonly body?: string; readonly error?: { readonly code: string } };
+
+    assert.equal(document.ok, true);
+    assert.match(document.body ?? "", /Subdir GUI Task/);
+    assert.notEqual(document.error?.code, "path_outside_project");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("GUI service bridge shipped methods are registry-driven and deferred methods return explicit errors", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
   try {

@@ -29,7 +29,7 @@ test("CLI check profiles expose stable JSON and fail closed on strict task contr
     const result = runJson(rootDir, ["check", "--profile", "private-harness", "--strict"], false);
 
     assert.equal(result.ok, false);
-    assert.equal(result.command, "check:private-harness");
+    assert.equal(result.command, "check");
     assert.equal(result.profile, "private-harness");
     assert.equal(result.error.code, "check_profile_failed");
     assert.equal(result.report.schema, "harness-check-profile-report/v1");
@@ -51,7 +51,7 @@ test("CLI target-project check profile passes valid task material contracts", ()
     const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
 
     assert.equal(result.ok, true);
-    assert.equal(result.command, "check:target-project");
+    assert.equal(result.command, "check");
     assert.equal(result.report.summary.hardFailCount, 0);
     assert.equal(result.report.validators.some((validator: Record<string, unknown>) => validator.source === "task-plan-contract"), false);
     assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "lesson-promote"), true);

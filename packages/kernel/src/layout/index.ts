@@ -14,6 +14,7 @@ export {
 
 export interface HarnessLayout {
   readonly rootDir: string;
+  readonly configPath?: string;
   readonly authoredRoot: string;
   readonly standardsRoot: string;
   readonly contextRoot: string;
@@ -71,6 +72,7 @@ interface HarnessLayoutConfig {
 
 interface HarnessLayoutSettings {
   readonly resolvedRoot: string;
+  readonly configPath?: string;
   readonly authoredRootSetting: string;
   readonly localRootSetting: string;
   readonly tasksRootSetting?: string;
@@ -87,6 +89,11 @@ export function createHarnessRuntimeContext(
   };
 }
 
+export function resolveHarnessRuntimeContext(input: HarnessLayoutInput): HarnessRuntimeContext {
+  const layout = resolveHarnessLayout(input);
+  return createHarnessRuntimeContext(layout.rootDir, layoutInputOverrides(input));
+}
+
 export function harnessRuntimeRoot(input: HarnessLayoutInput): string {
   return typeof input === "string" ? path.resolve(input) : input.rootDir;
 }
@@ -97,12 +104,13 @@ export function resolveHarnessLayout(input: HarnessLayoutInput): HarnessLayout {
 
 function resolveHarnessLayoutSettings(input: HarnessLayoutInput): HarnessLayoutSettings {
   const rootDir = harnessRuntimeRoot(input);
-  const { projectRoot, config } = resolveProjectRootAndConfig(rootDir);
+  const { projectRoot, configPath, config } = resolveProjectRootAndConfig(rootDir);
   const authoredRootSetting = layoutInputOverrides(input).authoredRoot
     ?? config.authoredRoot
     ?? defaultAuthoredRoot;
   return {
     resolvedRoot: projectRoot,
+    configPath,
     authoredRootSetting,
     localRootSetting: config.localRoot ?? defaultLocalRoot,
     tasksRootSetting: config.tasksRoot,
@@ -128,6 +136,7 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
   const writeJournalRoot = path.join(localRoot, "write-journal");
   return {
     rootDir: resolvedRoot,
+    configPath: settings.configPath,
     authoredRoot,
     standardsRoot: path.join(authoredRoot, "standards"),
     contextRoot: path.join(authoredRoot, "context"),
@@ -167,6 +176,7 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
 
 function resolveProjectRootAndConfig(rootDir: string): {
   readonly projectRoot: string;
+  readonly configPath?: string;
   readonly config: HarnessLayoutConfig;
 } {
   const startingRoot = path.resolve(rootDir);
@@ -174,6 +184,7 @@ function resolveProjectRootAndConfig(rootDir: string): {
   if (!discovery.location) return { projectRoot: discovery.boundaryRoot ?? startingRoot, config: {} };
   return {
     projectRoot: discovery.location.projectRoot,
+    configPath: discovery.location.path,
     config: readLayoutConfig(discovery.location)
   };
 }

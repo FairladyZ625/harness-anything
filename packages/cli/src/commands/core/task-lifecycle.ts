@@ -31,7 +31,6 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
         command: "task-archive",
         taskId: result.taskId,
         status: result.status,
-        path: "INDEX.md",
         report: { schema: "task-archive-report/v1", archivedBy: action.archivedBy, archiveField: action.archiveField }
       })));
     case "task-supersede":
@@ -161,7 +160,6 @@ function runTaskDelete(
     command: "task-delete",
     taskId: result.taskId,
     mode: result.mode,
-    path: result.mode,
     report: action.deletedBy ? { schema: "task-delete-report/v1", deletedBy: action.deletedBy } : undefined
   })));
 }

@@ -25,6 +25,23 @@ test("API contract registry rejects preload methods missing from registry", asyn
   });
 });
 
+test("API contract registry rejects registry-derived preload projection", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks"],
+      registryDerivedPreload: true,
+      handlerMethods: ["getTasks"],
+      serviceMethods: ["getTasks"],
+      registryEntries: [route({ guiBridgeMethod: "getTasks", serviceMethod: "getTasks" })]
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("real preload API surface")), true);
+    assert.equal(violations.some((violation) => violation.includes("real preload API metadata")), true);
+  });
+});
+
 test("API contract registry rejects routes pointing at missing service methods", async () => {
   await withFixtureRepo(async (root) => {
     writeFixture(root, {
@@ -55,6 +72,24 @@ test("API contract registry rejects duplicate method and path pairs", async () =
     const violations = evaluateApiContractRegistry(root);
 
     assert.equal(violations.some((violation) => violation.includes("duplicate route method/path GET /api/tasks")), true);
+  });
+});
+
+test("API contract registry rejects duplicate active GUI bridge methods", async () => {
+  await withFixtureRepo(async (root) => {
+    writeFixture(root, {
+      preloadMethods: ["getTasks"],
+      handlerMethods: ["getTasks"],
+      serviceMethods: ["getTasks", "getTaskDetail"],
+      registryEntries: [
+        route({ id: "tasks.list", path: "/api/tasks", guiBridgeMethod: "getTasks", serviceMethod: "getTasks" }),
+        route({ id: "tasks.alias", path: "/api/task-alias", guiBridgeMethod: "getTasks", serviceMethod: "getTaskDetail" })
+      ]
+    });
+
+    const violations = evaluateApiContractRegistry(root);
+
+    assert.equal(violations.some((violation) => violation.includes("duplicate active guiBridgeMethod getTasks")), true);
   });
 });
 
@@ -373,15 +408,26 @@ function writeFixture(root, options) {
     "] as const;",
     ""
   ].join("\n"), "utf8");
-  writeFileSync(path.join(root, "packages/gui/src/preload/allowlist.ts"), [
-    "export const allowedPreloadApi = {",
-    ...options.preloadMethods.map((method) => `  ${method}: ${JSON.stringify(method)},`),
-    "} as const;",
-    "export const preloadApiCapabilities = {",
-    ...Object.entries(preloadCapabilities).map(([method, capability]) => `  ${method}: ${JSON.stringify(capability)},`),
-    "} as const;",
-    ""
-  ].join("\n"), "utf8");
+  writeFileSync(path.join(root, "packages/gui/src/preload/allowlist.ts"), options.registryDerivedPreload
+    ? [
+        "import { apiRouteContracts, deferredGuiBridgeContracts } from '../api/api-contract-registry.ts';",
+        "export const preloadAllowlist = apiRouteContracts",
+        "  .map((route) => route.guiBridgeMethod)",
+        "  .filter(Boolean)",
+        "  .concat(deferredGuiBridgeContracts.map((contract) => contract.guiBridgeMethod));",
+        "export const allowedPreloadApi = Object.fromEntries(preloadAllowlist.map((method) => [method, method]));",
+        "export const preloadApiCapabilities = Object.fromEntries(preloadAllowlist.map((method) => [method, { method, status: 'shipped' }]));",
+        ""
+      ].join("\n")
+    : [
+        "export const allowedPreloadApi = {",
+        ...options.preloadMethods.map((method) => `  ${method}: ${JSON.stringify(method)},`),
+        "} as const;",
+        "export const preloadApiCapabilities = {",
+        ...Object.entries(preloadCapabilities).map(([method, capability]) => `  ${method}: ${JSON.stringify(capability)},`),
+        "} as const;",
+        ""
+      ].join("\n"), "utf8");
   writeFileSync(path.join(root, "packages/gui/src/api/service-bridge.ts"), [
     "export const guiBridgeHandlerImplementations = {",
     ...handlerImplementations.map((handler) => `  ${handler.method}: { serviceMethod: ${JSON.stringify(handler.serviceMethod)}, invoke: () => service.${handler.serviceMethod}() },`),

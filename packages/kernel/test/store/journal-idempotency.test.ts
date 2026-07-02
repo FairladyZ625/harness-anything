@@ -19,3 +19,31 @@ test("WriteCoordinator accepts duplicate op ids idempotently", () => {
     assert.equal(readFileSync(path.join(rootDir, "harness/planning/tasks/task-1/progress.md"), "utf8"), "first");
   });
 });
+
+test("WriteCoordinator reports duplicate batch write conflicts on the conflicting write task", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(coordinator.enqueue({
+      opId: "op-batch-duplicate",
+      taskId: "task-batch",
+      kind: "package_supersede",
+      payload: {
+        writes: [
+          { taskId: "task-conflict", path: "INDEX.md", body: "first" },
+          { taskId: "task-conflict", path: "INDEX.md", body: "second" }
+        ]
+      }
+    }));
+
+    const result = Effect.runSync(Effect.either(coordinator.flush("explicit")));
+
+    assert.equal(result._tag, "Left");
+    if (result._tag === "Left") {
+      assert.deepEqual(result.left, {
+        _tag: "WriteRejected",
+        taskId: "task-conflict",
+        reason: "duplicate batch write target: INDEX.md"
+      });
+    }
+  });
+});

@@ -105,6 +105,21 @@ test("CLI legacy copy preserves legacy evidence and forwards safe authored docs"
   });
 });
 
+test("CLI legacy copy safe docs preserves authored root override for forwards", () => {
+  withTempRoot((rootDir) => {
+    writeLegacyDoc(rootDir, "11-REFERENCE/testing-standard.md", "# Testing Standard\n");
+
+    const dryRun = runJson(rootDir, ["--authored-root", ".custom-harness", "legacy", "copy-safe-docs", "."]);
+    const forwardedEntry = dryRun.report.entries.find((entry: Record<string, unknown>) => entry.forwardPath === ".custom-harness/standards/testing-standard.md");
+
+    assert.notEqual(forwardedEntry, undefined);
+    runJson(rootDir, ["--authored-root", ".custom-harness", "legacy", "copy-safe-docs", ".", "--apply"]);
+
+    assert.equal(existsSync(path.join(rootDir, ".custom-harness/standards/testing-standard.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/standards/testing-standard.md")), false);
+  });
+});
+
 test("CLI legacy copy applies fixed suffix collisions and writes report", () => {
   withTempRoot((rootDir) => {
     writeLegacyTask(rootDir, "old-task", "active");

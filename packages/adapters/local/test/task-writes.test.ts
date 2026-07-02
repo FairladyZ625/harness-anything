@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { Effect } from "effect";
+import type { WriteCoordinator, WriteOp } from "../../../kernel/src/ports/index.ts";
+import { writeSupersedeTaskDocuments } from "../src/task-writes.ts";
+
+test("supersede document writes use the explicit operation task id", () => {
+  const enqueued: WriteOp[] = [];
+  const coordinator: WriteCoordinator = {
+    enqueue: (op) => Effect.sync(() => {
+      enqueued.push(op);
+      return { opId: op.opId, taskId: op.taskId, accepted: true };
+    }),
+    flush: () => Effect.succeed({ reason: "explicit", opCount: enqueued.length, committed: true }),
+    recover: Effect.succeed({ replayedOps: 0 })
+  };
+
+  Effect.runSync(writeSupersedeTaskDocuments(coordinator, stableHash, "task-old", [
+    { taskId: "task-new", path: "INDEX.md", body: "replacement" }
+  ]));
+
+  assert.equal(enqueued.length, 1);
+  assert.equal(enqueued[0]?.taskId, "task-old");
+  assert.equal(enqueued[0]?.kind, "package_supersede");
+});
+
+function stableHash(value: unknown): string {
+  return JSON.stringify(value);
+}
