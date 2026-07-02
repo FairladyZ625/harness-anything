@@ -6,7 +6,8 @@ import { toCliError } from "./cli/error-mapper.ts";
 import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
-import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
+import { makeLocalLifecycleEngine, makeLocalWriteCoordinator } from "../../adapters/local/src/index.ts";
+import { makeDecisionWriteService } from "../../application/src/index.ts";
 import { renderReceiptText, toCommandReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
@@ -20,6 +21,12 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides
+  }), () => makeDecisionWriteService({
+    coordinator: makeLocalWriteCoordinator({
+      rootDir: parsed.value.rootDir,
+      layoutOverrides: parsed.value.layoutOverrides,
+      actor: { kind: "agent", id: "decision-cli" }
+    })
   })).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({

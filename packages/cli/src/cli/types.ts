@@ -29,6 +29,8 @@ export interface CliResult {
   readonly ok: boolean;
   readonly command: string;
   readonly taskId?: string;
+  readonly decisionId?: string;
+  readonly decisionState?: string;
   readonly slug?: string;
   readonly status?: DomainStatus;
   readonly path?: string;
@@ -113,6 +115,9 @@ export interface ParsedCommand {
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
+    | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: string; readonly rejected: string; readonly whyNot: string; readonly claim?: string; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly proposedBy?: string; readonly arbiter?: string; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly body?: string; readonly dryRun: boolean }
+    | { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire"; readonly decisionId: string; readonly arbiter?: string; readonly decidedAt?: string; readonly body?: string; readonly dryRun: boolean }
+    | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "version" }

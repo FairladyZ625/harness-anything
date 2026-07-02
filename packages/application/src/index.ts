@@ -6,6 +6,10 @@ import { isDomainStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
+export { readDecisionDocument } from "./decision-document-reader.ts";
+export type {
+  DecisionDocumentReadResult
+} from "./decision-document-reader.ts";
 export type {
   DecisionAmendRequest,
   DecisionTransitionRequest,

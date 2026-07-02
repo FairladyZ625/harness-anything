@@ -57,6 +57,18 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task reopen", argv: ["task", "reopen", "task_1", "--reason", "followup"], kind: "task-reopen", fields: { taskId: "task_1", reason: "followup" } },
   { name: "task review", argv: ["task-review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
   { name: "task complete", argv: ["task-complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
+  {
+    name: "decision propose",
+    argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--dry-run"],
+    kind: "decision-propose",
+    fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: "Chosen", rejected: "Rejected", whyNot: "Because", riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], dryRun: true }
+  },
+  { name: "decision accept", argv: ["decision", "accept", "dec_TEST", "--arbiter", "human:ZeyuLi"], kind: "decision-accept", fields: { decisionId: "dec_TEST", arbiter: "human:ZeyuLi" } },
+  { name: "decision reject", argv: ["decision", "reject", "dec_TEST"], kind: "decision-reject", fields: { decisionId: "dec_TEST" } },
+  { name: "decision defer", argv: ["decision", "defer", "dec_TEST"], kind: "decision-defer", fields: { decisionId: "dec_TEST" } },
+  { name: "decision supersede", argv: ["decision", "supersede", "dec_TEST"], kind: "decision-supersede", fields: { decisionId: "dec_TEST" } },
+  { name: "decision amend", argv: ["decision", "amend", "dec_TEST", "--title", "Updated"], kind: "decision-amend", fields: { decisionId: "dec_TEST", title: "Updated" } },
+  { name: "decision retire", argv: ["decision", "retire", "dec_TEST"], kind: "decision-retire", fields: { decisionId: "dec_TEST" } },
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
   {
     name: "task list filters",

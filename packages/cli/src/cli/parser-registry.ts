@@ -3,6 +3,7 @@ import { parseDoctorArgs } from "./parse-doctor-args.ts";
 import { parseGitDiffArgs } from "./parse-git-diff-args.ts";
 import { parseMigrationArgs } from "./parse-migration-args.ts";
 import { parseCoreTaskArgs } from "./parsers/core-task.ts";
+import { parseDecisionArgs } from "./parsers/decision.ts";
 import { parseModuleArgs } from "./parsers/extensions-module.ts";
 import { parsePresetArgs } from "./parsers/extensions-preset.ts";
 import { parseScriptArgs } from "./parsers/extensions-script.ts";
@@ -47,6 +48,11 @@ export const parserRegistry = [
     id: "new-task",
     commandKinds: commandKindsForParser("new-task"),
     parse: parseNewTaskArgs
+  },
+  {
+    id: "decision",
+    commandKinds: commandKindsForParser("decision"),
+    parse: parseDecisionArgs
   },
   {
     id: "status-check",
