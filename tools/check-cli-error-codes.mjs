@@ -15,6 +15,7 @@ export function findCliErrorCodeViolations(rootDir = process.cwd()) {
   const registrySource = readFileSync(path.join(rootDir, registryPath), "utf8");
   const codeEntries = cliErrorCodeEntries(registrySource);
   const codeNames = new Set(codeEntries.map((entry) => entry.name));
+  const kernelMappedNames = cliErrorFamilyNames(registrySource, "cliKernelMappedErrorCodes");
   const codeValues = new Map();
   const duplicateValues = new Set();
 
@@ -38,6 +39,22 @@ export function findCliErrorCodeViolations(rootDir = process.cwd()) {
       violations.push(`${registryPath} must export ${exportedName}`);
     }
   }
+  for (const exportedName of ["cliKernelMappedErrorCodes", "cliCommandLocalErrorCodes", "cliErrorFamily"]) {
+    if (!registrySource.includes(`export const ${exportedName}`) && !registrySource.includes(`export function ${exportedName}`)) {
+      violations.push(`${registryPath} must export ${exportedName}`);
+    }
+  }
+  for (const name of kernelMappedNames) {
+    if (!codeNames.has(name)) violations.push(`cliKernelMappedErrorCodes has stale CliErrorCode.${name}`);
+  }
+  for (const entry of codeEntries) {
+    if (/^[A-Z][A-Za-z0-9]+$/u.test(entry.value) && !kernelMappedNames.has(entry.name)) {
+      violations.push(`PascalCase kernel adapter code CliErrorCode.${entry.name} must be in cliKernelMappedErrorCodes`);
+    }
+  }
+  if (!/cliCommandLocalErrorCodes\s*=\s*new Set<\s*CliErrorCode\s*>\s*\(\s*Object\.values\(CliErrorCode\)\.filter/u.test(registrySource)) {
+    violations.push("cliCommandLocalErrorCodes must be derived from CliErrorCode minus cliKernelMappedErrorCodes");
+  }
 
   for (const file of walkFiles(path.join(rootDir, sourceRoot))) {
     const relative = path.relative(rootDir, file);
@@ -58,6 +75,24 @@ function cliErrorCodeEntries(source) {
 function cliErrorRegistryNames(source) {
   const registrySource = extractAssignedLiteral(source, "cliErrorCodeRegistry");
   return new Set([...registrySource.matchAll(/\[\s*CliErrorCode\.([A-Za-z0-9]+)\s*\]\s*:/gmu)].map((match) => match[1]));
+}
+
+function cliErrorFamilyNames(source, constName) {
+  const start = source.indexOf(`export const ${constName}`);
+  if (start < 0) return new Set();
+  const bodyStart = source.indexOf("[", start);
+  if (bodyStart < 0) return new Set();
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "[") depth += 1;
+    if (char === "]") depth -= 1;
+    if (depth === 0) {
+      const body = source.slice(bodyStart, index + 1);
+      return new Set([...body.matchAll(/CliErrorCode\.([A-Za-z0-9]+)/gmu)].map((match) => match[1]));
+    }
+  }
+  return new Set();
 }
 
 function inlineCliResultErrorViolations(relativePath, source) {

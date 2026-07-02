@@ -13,6 +13,10 @@ test("CLI error code gate rejects missing registry metadata and inline CliResult
         UnknownCommand: "unknown_command"
       } as const;
       export type CliErrorCode = typeof CliErrorCode[keyof typeof CliErrorCode];
+      export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([]);
+      export const cliCommandLocalErrorCodes = new Set<CliErrorCode>(
+        Object.values(CliErrorCode).filter((code): code is CliErrorCode => !cliKernelMappedErrorCodes.has(code as CliErrorCode))
+      );
       export const cliErrorCodeRegistry = {
         [CliErrorCode.UnknownCommand]: { category: "parse", defaultHint: "Unknown command." }
       };
@@ -21,6 +25,9 @@ test("CLI error code gate rejects missing registry metadata and inline CliResult
       }
       export function isCliErrorCode(value: string): value is CliErrorCode {
         return Object.values(CliErrorCode).includes(value as CliErrorCode);
+      }
+      export function cliErrorFamily(code: CliErrorCode) {
+        return cliKernelMappedErrorCodes.has(code) ? "kernel-mapped" : "command-local";
       }
     `);
     writeFile(rootDir, "packages/cli/src/commands/new-task.ts", `
@@ -47,6 +54,10 @@ test("CLI error code gate accepts registry helpers and validation issue codes", 
         UnknownCommand: "unknown_command"
       } as const;
       export type CliErrorCode = typeof CliErrorCode[keyof typeof CliErrorCode];
+      export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([]);
+      export const cliCommandLocalErrorCodes = new Set<CliErrorCode>(
+        Object.values(CliErrorCode).filter((code): code is CliErrorCode => !cliKernelMappedErrorCodes.has(code as CliErrorCode))
+      );
       export const cliErrorCodeRegistry = {
         [CliErrorCode.MissingTitle]: { category: "parse", defaultHint: "Use --title." },
         [CliErrorCode.UnknownCommand]: { category: "parse", defaultHint: "Unknown command." }
@@ -56,6 +67,9 @@ test("CLI error code gate accepts registry helpers and validation issue codes", 
       }
       export function isCliErrorCode(value: string): value is CliErrorCode {
         return Object.values(CliErrorCode).includes(value as CliErrorCode);
+      }
+      export function cliErrorFamily(code: CliErrorCode) {
+        return cliKernelMappedErrorCodes.has(code) ? "kernel-mapped" : "command-local";
       }
     `);
     writeFile(rootDir, "packages/cli/src/commands/new-task.ts", `
@@ -67,6 +81,40 @@ test("CLI error code gate accepts registry helpers and validation issue codes", 
     `);
 
     assert.deepEqual(findCliErrorCodeViolations(rootDir), []);
+  });
+});
+
+test("CLI error code gate rejects PascalCase adapter codes outside the kernel mapped family", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "packages/cli/src/cli/error-codes.ts", `
+      export const CliErrorCode = {
+        EngineUnreachable: "EngineUnreachable",
+        UnknownCommand: "unknown_command"
+      } as const;
+      export type CliErrorCode = typeof CliErrorCode[keyof typeof CliErrorCode];
+      export const cliKernelMappedErrorCodes = new Set<CliErrorCode>([]);
+      export const cliCommandLocalErrorCodes = new Set<CliErrorCode>(
+        Object.values(CliErrorCode).filter((code): code is CliErrorCode => !cliKernelMappedErrorCodes.has(code as CliErrorCode))
+      );
+      export const cliErrorCodeRegistry = {
+        [CliErrorCode.EngineUnreachable]: { category: "domain", defaultHint: "Engine unreachable." },
+        [CliErrorCode.UnknownCommand]: { category: "parse", defaultHint: "Unknown command." }
+      };
+      export function cliError(code: CliErrorCode, hint?: string) {
+        return { code, hint: hint ?? cliErrorCodeRegistry[code].defaultHint };
+      }
+      export function isCliErrorCode(value: string): value is CliErrorCode {
+        return Object.values(CliErrorCode).includes(value as CliErrorCode);
+      }
+      export function cliErrorFamily(code: CliErrorCode) {
+        return cliKernelMappedErrorCodes.has(code) ? "kernel-mapped" : "command-local";
+      }
+    `);
+
+    assert.equal(
+      findCliErrorCodeViolations(rootDir).includes("PascalCase kernel adapter code CliErrorCode.EngineUnreachable must be in cliKernelMappedErrorCodes"),
+      true
+    );
   });
 });
 

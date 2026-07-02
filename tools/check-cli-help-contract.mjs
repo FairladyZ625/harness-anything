@@ -14,12 +14,12 @@ export function findCliHelpContractViolations(rootDir = process.cwd()) {
   const summarySource = extractAssignedLiteral(source, "commandSummaries");
   const exampleSource = extractAssignedLiteral(source, "commandExamples");
   const descriptionSource = extractAssignedLiteral(source, "descriptions");
-  const receiptContractSource = extractAssignedLiteral(receiptSource, "commandReceiptContracts");
+  const receiptContractSource = extractAssignedLiteral(source, "commandReceiptContractsByKind");
   const violations = [];
 
   const commandKinds = [...commandUsageSource.matchAll(/\{\s*kind:\s*"([^"]+)"/gu)].map((match) => match[1]);
-  const receiptKinds = [...receiptContractSource.matchAll(/\{\s*kind:\s*"([^"]+)"/gu)].map((match) => match[1]);
-  const expectedReceiptKinds = [...commandKinds, "version"];
+  const receiptKinds = objectKeys(receiptContractSource);
+  const expectedReceiptKinds = commandKinds;
   const usageByKind = commandUsageByKind(commandUsageSource);
   const summaryKinds = objectKeys(summarySource);
   const exampleKinds = objectKeys(exampleSource);
@@ -38,7 +38,7 @@ export function findCliHelpContractViolations(rootDir = process.cwd()) {
     if (!commandKinds.includes(kind)) violations.push(`commandExamples has stale command ${kind}`);
   }
   for (const kind of expectedReceiptKinds) {
-    if (!receiptKinds.includes(kind)) violations.push(`command ${kind} is missing commandReceiptContracts entry`);
+    if (!receiptKinds.has(kind)) violations.push(`command ${kind} is missing command descriptor receipt contract`);
   }
   for (const kind of receiptKinds) {
     if (!expectedReceiptKinds.includes(kind)) violations.push(`commandReceiptContracts has stale command ${kind}`);

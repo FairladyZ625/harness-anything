@@ -2,15 +2,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { DomainStatus, EngineError, ProjectionWarning, TaskProjectionRow, WriteError } from "../../kernel/src/index.ts";
-import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
+import { isDomainStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
+import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 export {
   evaluateCompletionGate,
   evaluateReviewGate,
   parseReviewMarkdown,
   validatePhaseRows
 } from "./task-lifecycle-gates.ts";
+export {
+  makeTaskLifecycleOrchestrator,
+  readTaskLifecyclePolicy
+} from "./task-lifecycle-orchestrator.ts";
 export type {
   CompletionGateInput,
   PhaseRow,
@@ -19,6 +24,18 @@ export type {
   ReviewGateResult,
   VerifierBackedReviewContract
 } from "./task-lifecycle-gates.ts";
+export type {
+  TaskLifecycleError,
+  TaskLifecycleFailure,
+  TaskLifecycleOrchestrator,
+  TaskLifecycleOrchestratorOptions,
+  TaskLifecyclePolicy,
+  TaskLifecycleProgressWriteResult,
+  TaskLifecycleResult,
+  TaskLifecycleStatusWriteResult,
+  TaskLifecycleSuccess,
+  TaskLifecycleWriter
+} from "./task-lifecycle-orchestrator.ts";
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
@@ -126,6 +143,11 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
   const rootDir = path.resolve(options.rootDir);
   const layoutInput = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const taskWriter = options.taskWriter;
+  const lifecycleOrchestrator = makeTaskLifecycleOrchestrator({
+    rootDir,
+    layoutOverrides: options.layoutOverrides,
+    taskWriter
+  });
 
   return {
     getTasks: () => {
@@ -158,32 +180,11 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
     },
     setTaskStatus: async (payload) => {
       validateTaskId(payload.taskId);
-      if (isTerminalStatus(payload.status)) {
-        return {
-          ok: false,
-          error: {
-            code: "terminal_status_requires_task_complete",
-            hint: payload.status === "done"
-              ? "Use task-complete after review, CI, and closeout gates pass."
-              : "Terminal cancellation requires an audited recovery path."
-          }
-        };
-      }
-      return Effect.runPromise(taskWriter.setStatus({ taskId: payload.taskId, status: payload.status }).pipe(
-        Effect.match({
-          onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Status update failed." } }),
-          onSuccess: () => ({ ok: true })
-        })
-      ));
+      return Effect.runPromise(lifecycleOrchestrator.setTaskStatus(payload).pipe(Effect.map(toLocalControllerResult)));
     },
     reviewTask: async (payload) => {
       validateTaskId(payload.taskId);
-      return Effect.runPromise(taskWriter.setStatus({ taskId: payload.taskId, status: "in_review" }).pipe(
-        Effect.match({
-          onFailure: (error) => ({ ok: false, error: { code: error._tag, hint: "Review transition failed." } }),
-          onSuccess: () => ({ ok: true })
-        })
-      ));
+      return Effect.runPromise(lifecycleOrchestrator.startTaskReview(payload).pipe(Effect.map(toLocalControllerResult)));
     },
     appendTaskProgress: async (payload) => {
       validateTaskId(payload.taskId);
@@ -279,6 +280,10 @@ function invalidPayload(hint: string): LocalControllerFailure {
 
 function taskNotFound(taskId: string): LocalControllerFailure {
   return { ok: false, error: { code: "task_not_found", hint: `task not found: ${taskId}` } };
+}
+
+function toLocalControllerResult(result: { readonly ok: true } | { readonly ok: false; readonly error: LocalControllerError }): LocalControllerResult {
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
