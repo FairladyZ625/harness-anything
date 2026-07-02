@@ -4,10 +4,11 @@
   "title": "Software Coding",
   "version": "1.0.0",
   "entityKinds": [
-    { "id": "task", "packageKind": "task-package/v2", "contractEntity": true },
-    { "id": "decision-record", "packageKind": "document/v1", "contractEntity": false }
+    { "id": "task", "entityType": "lifecycle", "packageKind": "task-package/v2", "contractEntity": true },
+    { "id": "decision", "entityType": "lifecycle", "packageKind": "decision-package/v1", "contractEntity": true },
+    { "id": "fact", "entityType": "schema", "schemaRef": "schema://fact-record", "contractEntity": true }
   ],
-  "contractEntityKinds": ["task"],
+  "contractEntityKinds": ["task", "decision", "fact"],
   "packageScaffolds": [
     {
       "entityKind": "task",
@@ -19,18 +20,17 @@
         { "slot": "task.artifacts.keep", "templateRef": "template://planning/keep-file@1", "materializeAs": "artifacts/.gitkeep", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
         { "slot": "task.references.keep", "templateRef": "template://planning/keep-file@1", "materializeAs": "references/.gitkeep", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
       ]
+    },
+    {
+      "entityKind": "decision",
+      "templateSelections": []
     }
   ],
-  "templateSelections": [
-    { "slot": "task.plan", "templateRef": "template://planning/task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-    { "slot": "task.progress", "templateRef": "template://planning/progress@1", "materializeAs": "progress.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-    { "slot": "task.review", "templateRef": "template://planning/review@1", "materializeAs": "review.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-    { "slot": "task.closeout", "templateRef": "template://planning/closeout@1", "materializeAs": "closeout.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-    { "slot": "task.artifacts.keep", "templateRef": "template://planning/keep-file@1", "materializeAs": "artifacts/.gitkeep", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-    { "slot": "task.references.keep", "templateRef": "template://planning/keep-file@1", "materializeAs": "references/.gitkeep", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
-  ],
+  "templateSelections": [],
   "checkerProfile": "software-coding-standard",
   "projectionSchemas": [
-    { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" }
+    { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" },
+    { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },
+    { "id": "fact-record", "schemaRef": "schema://fact-record" }
   ]
 }

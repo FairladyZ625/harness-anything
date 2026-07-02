@@ -36,6 +36,10 @@ test("bundled software coding assets have consistent template and process-preset
   };
   const vertical = JSON.parse(readFileSync(path.join(assetRoot, "vertical.json"), "utf8")) as {
     readonly templateSelections: ReadonlyArray<TemplateSelection>;
+    readonly packageScaffolds: ReadonlyArray<{
+      readonly entityKind: string;
+      readonly templateSelections: ReadonlyArray<TemplateSelection>;
+    }>;
   };
   const index = JSON.parse(readFileSync(path.join(assetRoot, "presets/index.json"), "utf8")) as {
     readonly presets: ReadonlyArray<string>;
@@ -45,7 +49,10 @@ test("bundled software coding assets have consistent template and process-preset
   const processPresetIds = new Set(["legacy-migration", "lesson-sedimentation", "milestone-closeout", "publish-standard", "release-closeout", "version-upgrade"]);
   const implementedProcessPresetIds = new Set(["legacy-migration", "milestone-closeout"]);
 
-  for (const selection of vertical.templateSelections) {
+  assert.equal(vertical.templateSelections.length, 0, "vertical top-level templateSelections stay deduplicated");
+  const taskScaffoldSelections = vertical.packageScaffolds.find((scaffold) => scaffold.entityKind === "task")?.templateSelections ?? [];
+
+  for (const selection of taskScaffoldSelections) {
     assertKnownTemplateRef(catalogIds, selection.templateRef);
     assert.equal(selectedMaterializedPaths.has(selection.materializeAs), false, `duplicate materialized path ${selection.materializeAs}`);
     selectedMaterializedPaths.add(selection.materializeAs);

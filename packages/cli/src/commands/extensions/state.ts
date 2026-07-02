@@ -422,8 +422,9 @@ function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): Readonl
     issues.push(extensionIssue("custom_vertical_forbidden", "P08 only allows software/coding preset overrides; custom vertical exposure is gated by P10/P11.", "vertical"));
   }
 
-  const requiredBySlot = new Map(vertical.templateSelections.map((selection) => [selection.slot, selection]));
-  const requiredByPath = new Map(vertical.templateSelections.map((selection) => [selection.materializeAs, selection]));
+  const requiredSelections = verticalTaskTemplateSelections(vertical);
+  const requiredBySlot = new Map(requiredSelections.map((selection) => [selection.slot, selection]));
+  const requiredByPath = new Map(requiredSelections.map((selection) => [selection.materializeAs, selection]));
 
   for (const [profileIndex, profile] of manifest.profiles.entries()) {
     const materializedPaths = new Set<string>();
@@ -466,7 +467,7 @@ function combineVerticalAndPresetSelections(
   presetSelections: ReadonlyArray<PresetManifest["profiles"][number]["templateSelections"][number]>
 ): PresetManifest["profiles"][number]["templateSelections"] {
   const byPath = new Map<string, PresetManifest["profiles"][number]["templateSelections"][number]>();
-  for (const selection of requireBundledVerticalDefinition().templateSelections) {
+  for (const selection of verticalTaskTemplateSelections(requireBundledVerticalDefinition())) {
     byPath.set(selection.materializeAs, selection);
   }
   for (const selection of presetSelections) {
@@ -475,6 +476,12 @@ function combineVerticalAndPresetSelections(
     byPath.set(selection.materializeAs, selection);
   }
   return [...byPath.values()];
+}
+
+function verticalTaskTemplateSelections(
+  vertical: ReturnType<typeof requireBundledVerticalDefinition>
+): PresetManifest["profiles"][number]["templateSelections"] {
+  return vertical.packageScaffolds.find((scaffold) => scaffold.entityKind === "task")?.templateSelections ?? vertical.templateSelections;
 }
 
 function requireBundledTemplateCatalog() {

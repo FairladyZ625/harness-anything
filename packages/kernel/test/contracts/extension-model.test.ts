@@ -123,6 +123,73 @@ test("vertical validation rejects lifecycle status mapping ownership", async () 
   assert.equal(result.issues.some((issue) => issue.code === "status_mapping_forbidden"), true);
 });
 
+test("vertical validation accepts decision lifecycle and fact schema entity kinds", async () => {
+  const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
+  const byId = new Map(vertical.entityKinds.map((entity) => [entity.id, entity]));
+
+  assert.deepEqual([...byId.keys()], ["task", "decision", "fact"]);
+  assert.equal(byId.get("decision")?.entityType, "lifecycle");
+  assert.equal(byId.get("fact")?.entityType, "schema");
+  assert.deepEqual(vertical.contractEntityKinds, ["task", "decision", "fact"]);
+  assert.equal(validateVerticalDefinition(vertical).ok, true);
+});
+
+test("vertical schema rejects composite entity kinds in M3", async () => {
+  const vertical = await readFixture(verticalDefinitionUrl) as Record<string, any>;
+  vertical.entityKinds = [
+    ...vertical.entityKinds,
+    {
+      id: "milestone",
+      entityType: "composite",
+      contractEntity: true
+    }
+  ];
+
+  assert.throws(() => Schema.decodeUnknownSync(VerticalDefinitionSchema)(vertical));
+});
+
+test("vertical validation rejects schema entity package scaffolds", async () => {
+  const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
+  const contaminated: VerticalDefinition = {
+    ...vertical,
+    packageScaffolds: [
+      ...vertical.packageScaffolds,
+      {
+        entityKind: "fact",
+        templateSelections: []
+      }
+    ]
+  };
+  const result = validateVerticalDefinition(contaminated);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issues.some((issue) => issue.code === "vertical_schema_scaffold_forbidden"), true);
+});
+
+test("vertical validation rejects lifecycle entities without package scaffolds", async () => {
+  const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
+  const contaminated: VerticalDefinition = {
+    ...vertical,
+    packageScaffolds: vertical.packageScaffolds.filter((scaffold) => scaffold.entityKind !== "decision")
+  };
+  const result = validateVerticalDefinition(contaminated);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issues.some((issue) => issue.code === "vertical_lifecycle_scaffold_missing"), true);
+});
+
+test("vertical validation rejects contract entity declarations that are not contract-bearing", async () => {
+  const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
+  const contaminated: VerticalDefinition = {
+    ...vertical,
+    entityKinds: vertical.entityKinds.map((entity) => entity.id === "decision" ? { ...entity, contractEntity: false } : entity)
+  };
+  const result = validateVerticalDefinition(contaminated);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issues.some((issue) => issue.code === "vertical_contract_entity_disabled"), true);
+});
+
 async function readFixture(url: URL): Promise<unknown> {
   return JSON.parse(await readFile(url, "utf8")) as unknown;
 }

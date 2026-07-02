@@ -274,11 +274,20 @@ export const VerticalDefinitionSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   version: Schema.String,
-  entityKinds: Schema.Array(Schema.Struct({
-    id: Schema.String,
-    packageKind: Schema.String,
-    contractEntity: Schema.Boolean
-  })).pipe(Schema.minItems(1)),
+  entityKinds: Schema.Array(Schema.Union(
+    Schema.Struct({
+      id: Schema.String,
+      entityType: Schema.Literal("lifecycle"),
+      packageKind: Schema.String,
+      contractEntity: Schema.Boolean
+    }),
+    Schema.Struct({
+      id: Schema.String,
+      entityType: Schema.Literal("schema"),
+      schemaRef: Schema.String,
+      contractEntity: Schema.Boolean
+    })
+  )).pipe(Schema.minItems(1)),
   contractEntityKinds: StringArray,
   packageScaffolds: Schema.Array(Schema.Struct({
     entityKind: Schema.String,

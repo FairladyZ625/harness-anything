@@ -15,14 +15,30 @@
       "type": "array",
       "minItems": 1,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "packageKind", "contractEntity"],
-        "properties": {
-          "id": { "type": "string" },
-          "packageKind": { "type": "string" },
-          "contractEntity": { "type": "boolean" }
-        }
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "entityType", "packageKind", "contractEntity"],
+            "properties": {
+              "id": { "type": "string" },
+              "entityType": { "const": "lifecycle" },
+              "packageKind": { "type": "string" },
+              "contractEntity": { "type": "boolean" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "entityType", "schemaRef", "contractEntity"],
+            "properties": {
+              "id": { "type": "string" },
+              "entityType": { "const": "schema" },
+              "schemaRef": { "type": "string" },
+              "contractEntity": { "type": "boolean" }
+            }
+          }
+        ]
       }
     },
     "contractEntityKinds": {

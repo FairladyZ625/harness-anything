@@ -24,7 +24,11 @@ export interface ExtensionValidationIssue {
     | "status_mapping_forbidden"
     | "template_locale_structure_mismatch"
     | "unknown_extension_field"
-    | "vertical_contract_entity_missing";
+    | "vertical_contract_entity_disabled"
+    | "vertical_contract_entity_missing"
+    | "vertical_lifecycle_scaffold_missing"
+    | "vertical_scaffold_entity_missing"
+    | "vertical_schema_scaffold_forbidden";
   readonly message: string;
   readonly path: string;
 }
@@ -150,18 +154,42 @@ export function validatePresetManifests(
 
 export function validateVerticalDefinition(vertical: VerticalDefinition): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
-  const entityIds = new Set<string>();
+  const entityById = new Map<string, VerticalDefinition["entityKinds"][number]>();
+  const scaffoldEntityKinds = new Set<string>();
 
   for (const [entityIndex, entity] of vertical.entityKinds.entries()) {
-    if (entityIds.has(entity.id)) {
+    if (entityById.has(entity.id)) {
       issues.push(issue("duplicate_vertical_entity", `Duplicate vertical entity kind ${entity.id}.`, `entityKinds[${entityIndex}].id`));
     }
-    entityIds.add(entity.id);
+    entityById.set(entity.id, entity);
   }
 
   for (const [contractIndex, entityKind] of vertical.contractEntityKinds.entries()) {
-    if (!entityIds.has(entityKind)) {
+    const entity = entityById.get(entityKind);
+    if (!entity) {
       issues.push(issue("vertical_contract_entity_missing", `Contract entity ${entityKind} is not declared in entityKinds.`, `contractEntityKinds[${contractIndex}]`));
+      continue;
+    }
+    if (!entity.contractEntity) {
+      issues.push(issue("vertical_contract_entity_disabled", `Contract entity ${entityKind} must be marked contractEntity: true.`, `contractEntityKinds[${contractIndex}]`));
+    }
+  }
+
+  for (const [scaffoldIndex, scaffold] of vertical.packageScaffolds.entries()) {
+    scaffoldEntityKinds.add(scaffold.entityKind);
+    const entity = entityById.get(scaffold.entityKind);
+    if (!entity) {
+      issues.push(issue("vertical_scaffold_entity_missing", `Package scaffold entity ${scaffold.entityKind} is not declared in entityKinds.`, `packageScaffolds[${scaffoldIndex}].entityKind`));
+      continue;
+    }
+    if (entity.entityType === "schema") {
+      issues.push(issue("vertical_schema_scaffold_forbidden", `Schema entity ${scaffold.entityKind} must not declare a package scaffold.`, `packageScaffolds[${scaffoldIndex}].entityKind`));
+    }
+  }
+
+  for (const [entityIndex, entity] of vertical.entityKinds.entries()) {
+    if (entity.entityType === "lifecycle" && !scaffoldEntityKinds.has(entity.id)) {
+      issues.push(issue("vertical_lifecycle_scaffold_missing", `Lifecycle entity ${entity.id} must declare a package scaffold.`, `entityKinds[${entityIndex}].id`));
     }
   }
 
@@ -333,7 +361,7 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
   if (!isRecord(input)) return;
   if (Array.isArray(input.entityKinds)) {
     for (const [index, entity] of input.entityKinds.entries()) {
-      validateObjectKeys(entity, `${path}.entityKinds[${index}]`, ["id", "packageKind", "contractEntity"], issues);
+      validateObjectKeys(entity, `${path}.entityKinds[${index}]`, ["id", "entityType", "packageKind", "schemaRef", "contractEntity"], issues);
     }
   }
   if (Array.isArray(input.packageScaffolds)) {

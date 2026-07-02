@@ -41,7 +41,10 @@ export function loadBundledPresetManifestEntries(): ReadonlyArray<BundledPresetM
 }
 
 export function bundledTaskTemplateSelections(): VerticalDefinition["templateSelections"] {
-  return bundledVerticalDefinition()?.templateSelections ?? [];
+  const vertical = bundledVerticalDefinition();
+  return vertical?.packageScaffolds.find((scaffold) => scaffold.entityKind === "task")?.templateSelections
+    ?? vertical?.templateSelections
+    ?? [];
 }
 
 function readBundledJson<A, I>(relativePath: string, schema: Schema.Schema<A, I, never>): A {

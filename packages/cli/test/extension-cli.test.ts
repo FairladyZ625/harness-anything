@@ -124,6 +124,27 @@ test("CLI vertical validate fails closed on unknown lifecycle mapping fields", (
   });
 });
 
+test("CLI vertical validate fails closed when fact declares a package scaffold", () => {
+  withTempFile("vertical.json", () => {
+    const vertical = JSON.parse(readFileSync(verticalFixture, "utf8")) as Record<string, any>;
+    vertical.packageScaffolds = [
+      ...vertical.packageScaffolds,
+      {
+        entityKind: "fact",
+        templateSelections: []
+      }
+    ];
+    return JSON.stringify(vertical);
+  }, (filePath) => {
+    const result = runJson(["vertical", "validate", filePath], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "vertical_definition_invalid");
+    assert.equal(result.issues.some((issue) => issue.code === "vertical_schema_scaffold_forbidden"), true);
+    assert.equal(JSON.stringify(result).includes(filePath), false);
+  });
+});
+
 test("CLI preset validate fails closed on budget fields before they can become task entities", () => {
   withTempFile("preset.json", () => {
     const preset = JSON.parse(readFileSync(presetFixture, "utf8")) as Record<string, any>;
