@@ -4,6 +4,7 @@ export { runGovernanceCommand } from "./governance.ts";
 export { runGuiCommand } from "./gui.ts";
 export { runHelpCommand } from "./help.ts";
 export { runInitCommand } from "./init.ts";
+export { runDecisionCommand } from "./decision.ts";
 export { runMigrationCommand } from "./migration.ts";
 export { runNewTaskCommand } from "./new-task.ts";
 export { runTaskGatesCommand } from "./task-gates.ts";

@@ -11,6 +11,7 @@ export type CommandParserId =
   | "version"
   | "core-task"
   | "new-task"
+  | "decision"
   | "status-check"
   | "migration"
   | "git-diff"
@@ -26,6 +27,7 @@ export type CommandRunnerId =
   | "version"
   | "init"
   | "new-task"
+  | "decision"
   | "task-lifecycle"
   | "task-gates"
   | "task-query"
@@ -54,6 +56,13 @@ const commandUsages = [
   { kind: "task-reopen", usage: "task reopen <id> --reason <reason>" },
   { kind: "task-review", usage: "task-review <id> [--reviewer <id>]" },
   { kind: "task-complete", usage: "task-complete <id> --ci passed|failed [--reviewer <id>]" },
+  { kind: "decision-propose", usage: "decision propose --title <title> --question <text> --chosen <text> --rejected <text> --why-not <text> [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--proposed-by kind:id] [--arbiter kind:id] [--claim <text>] [--body <text>] [--dry-run] [--json]" },
+  { kind: "decision-accept", usage: "decision accept <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
+  { kind: "decision-reject", usage: "decision reject <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
+  { kind: "decision-defer", usage: "decision defer <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
+  { kind: "decision-supersede", usage: "decision supersede <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
+  { kind: "decision-amend", usage: "decision amend <decision-id> [--title <title>] [--body <text>] [--dry-run] [--json]" },
+  { kind: "decision-retire", usage: "decision retire <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
   { kind: "template-list", usage: "template list [--catalog <path>] [--json]" },
   { kind: "template-render", usage: "template render <template-ref> [--catalog <path>] [--locale zh-CN|en-US] [--json]" },
   { kind: "task-list", usage: "task list [--state <state>] [--module <key>] [--queue <queue>] [--preset <id>] [--review <state>] [--lesson [present|missing]] [--missing-materials] [--include-archived] [--search <text>] [--json]" },
@@ -105,6 +114,13 @@ const commandParserIds = {
   "version": "version",
   "init": "core-task",
   "new-task": "new-task",
+  "decision-propose": "decision",
+  "decision-accept": "decision",
+  "decision-reject": "decision",
+  "decision-defer": "decision",
+  "decision-supersede": "decision",
+  "decision-amend": "decision",
+  "decision-retire": "decision",
   "status-set": "core-task",
   "progress-append": "core-task",
   "task-archive": "core-task",
@@ -162,6 +178,13 @@ const commandRunnerIds = {
   "version": "version",
   "init": "init",
   "new-task": "new-task",
+  "decision-propose": "decision",
+  "decision-accept": "decision",
+  "decision-reject": "decision",
+  "decision-defer": "decision",
+  "decision-supersede": "decision",
+  "decision-amend": "decision",
+  "decision-retire": "decision",
   "status-set": "task-lifecycle",
   "progress-append": "task-lifecycle",
   "task-archive": "task-lifecycle",
@@ -227,6 +250,13 @@ const commandSummaries = {
   "task-reopen": "Reopen a non-terminal archived or tombstoned task package.",
   "task-review": "Evaluate the review gate for a task package.",
   "task-complete": "Evaluate the completion gate after CI has passed or failed.",
+  "decision-propose": "Create a proposed decision through the decision write service.",
+  "decision-accept": "Accept a proposed decision through the decision write service.",
+  "decision-reject": "Reject a proposed decision through the decision write service.",
+  "decision-defer": "Defer a proposed decision through the decision write service.",
+  "decision-supersede": "Supersede a decision through the decision write service.",
+  "decision-amend": "Amend a decision without changing its lifecycle state.",
+  "decision-retire": "Retire a decision through the decision write service.",
   "template-list": "List available task and document templates.",
   "template-render": "Render a template reference with a selected locale.",
   "task-list": "List task packages with state, module, review, and search filters.",
@@ -284,6 +314,13 @@ const commandExamples = {
   "task-reopen": [`${cliCommandName} task reopen task_01ABC --reason "follow-up needed"`],
   "task-review": [`${cliCommandName} task-review task_01ABC --reviewer reviewer-id`],
   "task-complete": [`${cliCommandName} task-complete task_01ABC --ci passed --reviewer reviewer-id`],
+  "decision-propose": [`${cliCommandName} decision propose --title "Adopt CLI decision loop" --question "Should M3 expose decision CLI?" --chosen "Expose it" --rejected "Keep write API only" --why-not "No human fallback path"`],
+  "decision-accept": [`${cliCommandName} decision accept dec_01ABC --arbiter human:ZeyuLi`],
+  "decision-reject": [`${cliCommandName} decision reject dec_01ABC --arbiter human:ZeyuLi`],
+  "decision-defer": [`${cliCommandName} decision defer dec_01ABC --arbiter human:ZeyuLi`],
+  "decision-supersede": [`${cliCommandName} decision supersede dec_01ABC --arbiter human:ZeyuLi`],
+  "decision-amend": [`${cliCommandName} decision amend dec_01ABC --title "Updated title"`],
+  "decision-retire": [`${cliCommandName} decision retire dec_01ABC --arbiter human:ZeyuLi`],
   "template-list": [`${cliCommandName} template list --json`],
   "template-render": [`${cliCommandName} template render template://planning/task@1 --locale zh-CN`],
   "task-list": [`${cliCommandName} task list --state active --module kernel --review missing`],
@@ -439,15 +476,20 @@ function optionDescription(flag: string): string {
     "--archive": "Archive generated governance output.",
     "--archive-field": "Set the field used for archive disposition.",
     "--archived-by": "Record the actor archiving the task.",
+    "--arbiter": "Set the decision arbiter as agent:<id>, human:<id>, or system:<id>.",
     "--assume-locale": "Set the assumed locale for migrated content.",
     "--base": "Set the git base ref.",
     "--branch": "Set the module branch.",
+    "--body": "Set authored body content for the generated decision document.",
     "--by": "Supersede by an existing task id.",
     "--catalog": "Use a template catalog file.",
+    "--chosen": "Set the selected decision option text.",
     "--ci": "Set the completion CI gate result.",
+    "--claim": "Set the primary supporting claim text for a decision.",
     "--confirm": "Confirm a destructive or relation-changing action.",
     "--confirm-plan": "Confirm a migration plan before applying it.",
     "--current-step": "Set the current module step.",
+    "--decided-at": "Set the decision timestamp for transition commands.",
     "--deleted-by": "Record the actor deleting or superseding the task.",
     "--depends-on": "Register a module dependency.",
     "--dry-run": "Preview the operation without writing changes.",
@@ -456,6 +498,7 @@ function optionDescription(flag: string): string {
     "--from-legacy": "Create from a legacy task id.",
     "--hard": "Hard-delete the selected task.",
     "--help": "Show help output.",
+    "--id": "Set the explicit entity id when the command supports one.",
     "--include-archived": "Include archived task packages.",
     "--input": "Provide one script input as key=value; repeat for multiple inputs.",
     "--json": "Emit CommandReceipt/v1 JSON.",
@@ -477,14 +520,19 @@ function optionDescription(flag: string): string {
     "--post-merge": "Run checks intended for post-merge validation.",
     "--prefix": "Set the module id prefix.",
     "--preset": "Select a preset id; new-task defaults to standard-task and preset list shows installed presets.",
+    "--product-line": "Attach a comma-separated product line list to a decision.",
     "--profile": "Select a check or task profile; new-task defaults to baseline.",
     "--project": "Use the project preset layer.",
+    "--proposed-by": "Set the decision proposer as agent:<id>, human:<id>, or system:<id>.",
     "--purpose": "Filter script entries by declared purpose.",
+    "--question": "Set the decision question being answered.",
     "--queue": "Filter by queue.",
     "--reason": "Record the reason for the lifecycle change.",
+    "--rejected": "Set a rejected decision option text.",
     "--register-module": "Register a module while creating the task.",
     "--review": "Filter by review state.",
     "--reviewer": "Set the reviewer id.",
+    "--risk-tier": "Set decision risk tier as low, medium, or high.",
     "--search": "Search task metadata and prose.",
     "--session-dir": "Set the migration session directory.",
     "--shared": "Register a shared path for the module.",
@@ -498,8 +546,10 @@ function optionDescription(flag: string): string {
     "--task": "Set the task id.",
     "--text": "Progress text appended as-is (no Markdown formatting or normalization).",
     "--title": "Set the required task title used for generated package metadata and slug.",
+    "--urgency": "Set decision urgency as low, medium, or high.",
     "--vertical": "Select a vertical definition; new-task defaults to software/coding.",
-    "--version": "Print the installed CLI version."
+    "--version": "Print the installed CLI version.",
+    "--why-not": "Set the rationale for rejecting the alternative."
   };
   const description = descriptions[flag];
   if (!description) {

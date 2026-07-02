@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type { DecisionWriteService } from "../../../application/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
@@ -12,6 +13,7 @@ import {
   runGuiCommand,
   runHelpCommand,
   runInitCommand,
+  runDecisionCommand,
   runMigrationCommand,
   runNewTaskCommand,
   runTaskGatesCommand,
@@ -25,6 +27,7 @@ export interface CommandRunnerContext {
   readonly layoutInput: HarnessLayoutInput;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly engine: CommandRunnerEngine;
+  readonly decisionWriteService: DecisionWriteService;
 }
 
 export type CommandRunnerEffect = Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError>;
@@ -78,6 +81,7 @@ export const runnerRegistry = {
   version: runVersionCommand,
   init: runInitCommand,
   "new-task": runNewTaskCommand,
+  decision: runDecisionCommand,
   "task-lifecycle": runTaskLifecycleCommand,
   "task-gates": runTaskGatesCommand,
   "task-query": runTaskQueryCommand,
@@ -90,11 +94,13 @@ export const runnerRegistry = {
 
 export function runRegisteredCommand(
   command: ParsedCommand,
-  makeEngine: () => CommandRunnerEngine
+  makeEngine: () => CommandRunnerEngine,
+  makeDecisionWriteService: () => DecisionWriteService
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
   let engine: CommandRunnerEngine | undefined;
+  let decisionWriteService: DecisionWriteService | undefined;
   return runner({
     rootDir: command.rootDir,
     layoutInput: createHarnessRuntimeContext(command.rootDir, command.layoutOverrides),
@@ -102,6 +108,10 @@ export function runRegisteredCommand(
     get engine() {
       engine ??= makeEngine();
       return engine;
+    },
+    get decisionWriteService() {
+      decisionWriteService ??= makeDecisionWriteService();
+      return decisionWriteService;
     }
   }, command);
 }
