@@ -190,9 +190,9 @@ function validateDoneTaskDocumentPlaceholders(rootInput: HarnessLayoutInput): Re
       issues.push(profileIssue(
         "completion-consistency",
         "closeout_placeholder",
-        "warning",
+        "hard-fail",
         `${relativeTaskDir}/closeout.md still contains template placeholder text.`,
-        "Replace closeout.md placeholders with Summary, Verification, and Residual Risk evidence; this warning is intended to become a hard-fail after existing packages are backfilled."
+        "Replace closeout.md placeholders with Summary, Verification, and Residual Risk evidence before treating the task as done."
       ));
     }
 
@@ -201,9 +201,9 @@ function validateDoneTaskDocumentPlaceholders(rootInput: HarnessLayoutInput): Re
       issues.push(profileIssue(
         "completion-consistency",
         "review_placeholder",
-        "warning",
+        "hard-fail",
         `${relativeTaskDir}/review.md is still the initial not-started review with no findings.`,
-        "Record the actual review result before treating the task as complete; this warning is intended to become a hard-fail after existing packages are backfilled."
+        "Record the actual review result before treating the task as done."
       ));
     }
   }
