@@ -1,0 +1,62 @@
+import type { ParsedCommand } from "./types.ts";
+
+export interface CommandReceiptContract {
+  readonly data: ReadonlyArray<string>;
+  readonly paths: ReadonlyArray<string>;
+}
+
+export type CommandKind = ParsedCommand["action"]["kind"];
+
+export const commandReceiptContractsByKind = {
+  "help": { data: ["commands", "report"], paths: [] },
+  "version": { data: ["version"], paths: [] },
+  "init": { data: ["generated"], paths: ["primary", "config"] },
+  "new-task": { data: ["taskId", "slug", "status", "preset", "module", "generated", "report"], paths: ["package"] },
+  "status-set": { data: ["taskId", "status", "forced", "forceAudit"], paths: ["primary", "forceAudit"] },
+  "progress-append": { data: ["taskId", "report"], paths: ["primary", "progress"] },
+  "task-archive": { data: ["taskId", "status", "report"], paths: [] },
+  "task-supersede": { data: ["taskId", "status", "report"], paths: ["primary", "package", "replacement"] },
+  "task-delete": { data: ["taskId", "mode", "report"], paths: [] },
+  "task-reopen": { data: ["taskId", "status", "report"], paths: ["primary"] },
+  "task-review": { data: ["taskId", "reviewContract", "completionGate", "report"], paths: [] },
+  "task-complete": { data: ["taskId", "status", "reviewContract", "completionGate", "report"], paths: [] },
+  "template-list": { data: ["templates", "issues"], paths: [] },
+  "template-render": { data: ["document", "issues"], paths: [] },
+  "task-list": { data: ["tasks", "rows"], paths: [] },
+  "status": { data: ["rows", "summary", "report", "commands"], paths: ["projection"] },
+  "check": { data: ["profile", "rows", "summary", "report", "commands"], paths: ["projection"] },
+  "governance-rebuild": { data: ["mode", "rows", "generated", "report"], paths: ["projection"] },
+  "lesson-promote": { data: ["taskId", "mode", "generated", "report"], paths: [] },
+  "lesson-sediment": { data: ["taskId", "mode", "generated", "report"], paths: [] },
+  "adopt-multica": { data: ["taskId", "status", "report"], paths: ["primary"] },
+  "snapshot-multica": { data: ["report"], paths: [] },
+  "migrate-plan": { data: ["rows", "report"], paths: [] },
+  "migrate-structure": { data: ["migrationMode", "rows", "report"], paths: [] },
+  "migrate-run": { data: ["migrationMode", "rows", "report"], paths: ["primary", "session"] },
+  "migrate-verify": { data: ["report"], paths: [] },
+  "legacy-scan": { data: ["rows", "report"], paths: [] },
+  "legacy-intake-plan": { data: ["rows", "report"], paths: ["primary", "plan"] },
+  "legacy-copy-safe-docs": { data: ["migrationMode", "rows", "report"], paths: [] },
+  "legacy-index": { data: ["migrationMode", "rows", "summary", "report"], paths: ["primary", "index"] },
+  "legacy-verify": { data: ["rows", "report"], paths: [] },
+  "git-diff": { data: ["report"], paths: [] },
+  "doctor": { data: ["report"], paths: [] },
+  "preset-validate": { data: ["preset", "report"], paths: [] },
+  "preset-list": { data: ["presets", "issues"], paths: [] },
+  "preset-inspect": { data: ["preset", "issues"], paths: [] },
+  "preset-check": { data: ["preset", "issues"], paths: [] },
+  "preset-install": { data: ["preset", "report"], paths: [] },
+  "preset-seed": { data: ["presets", "report"], paths: [] },
+  "preset-audit": { data: ["presets", "issues", "report"], paths: [] },
+  "preset-uninstall": { data: ["preset"], paths: [] },
+  "preset-run": { data: ["taskId", "preset", "evidenceBundle", "generated", "rows", "report"], paths: [] },
+  "preset-action": { data: ["taskId", "preset", "evidenceBundle", "generated", "rows", "report"], paths: [] },
+  "module-list": { data: ["modules"], paths: [] },
+  "module-inspect": { data: ["module"], paths: [] },
+  "module-register": { data: ["module"], paths: [] },
+  "module-scaffold": { data: ["module"], paths: ["primary", "modulePlan"] },
+  "module-unregister": { data: ["module"], paths: [] },
+  "module-step": { data: ["module"], paths: [] },
+  "vertical-validate": { data: ["issues"], paths: [] },
+  "gui": { data: ["launchPlan"], paths: [] }
+} as const satisfies Record<CommandKind, CommandReceiptContract>;

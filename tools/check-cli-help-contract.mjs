@@ -4,17 +4,19 @@ import { fileURLToPath } from "node:url";
 
 const registryPath = "packages/cli/src/cli/command-registry.ts";
 const receiptPath = "packages/cli/src/cli/receipt.ts";
+const receiptContractsPath = "packages/cli/src/cli/receipt-contracts.ts";
 const entrypointPath = "packages/cli/src/index.ts";
 
 export function findCliHelpContractViolations(rootDir = process.cwd()) {
   const source = readFileSync(path.join(rootDir, registryPath), "utf8");
   const receiptSource = readFileSync(path.join(rootDir, receiptPath), "utf8");
+  const receiptContractsSource = readFileSync(path.join(rootDir, receiptContractsPath), "utf8");
   const entrypointSource = readFileSync(path.join(rootDir, entrypointPath), "utf8");
   const commandUsageSource = extractAssignedLiteral(source, "commandUsages");
   const summarySource = extractAssignedLiteral(source, "commandSummaries");
   const exampleSource = extractAssignedLiteral(source, "commandExamples");
   const descriptionSource = extractAssignedLiteral(source, "descriptions");
-  const receiptContractSource = extractAssignedLiteral(source, "commandReceiptContractsByKind");
+  const receiptContractSource = extractAssignedLiteral(receiptContractsSource, "commandReceiptContractsByKind");
   const violations = [];
 
   const commandKinds = [...commandUsageSource.matchAll(/\{\s*kind:\s*"([^"]+)"/gu)].map((match) => match[1]);

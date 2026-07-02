@@ -91,6 +91,7 @@ function writeRegistry(rootDir, body, receiptBody = "") {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "command-registry.ts"), body);
   writeFileSync(path.join(dir, "receipt.ts"), receiptBody);
+  writeFileSync(path.join(dir, "receipt-contracts.ts"), body);
   writeFileSync(path.join(rootDir, "packages/cli/src/index.ts"), "console.log(JSON.stringify(output));\n");
 }
 

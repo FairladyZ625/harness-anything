@@ -67,11 +67,25 @@ function runPresetValidate(action: Extract<PresetAction, { readonly kind: "prese
   }
   const manifest = decoded.value;
   const validation = validatePresetManifests([manifest], { kernelVersion: action.kernelVersion });
+  if (!validation.ok) {
+    return {
+      ok: false,
+      command: "preset-validate",
+      issues: validation.issues,
+      error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
+    };
+  }
   return {
-    ok: validation.ok,
+    ok: true,
     command: "preset-validate",
-    issues: validation.issues,
-    error: validation.ok ? undefined : cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
+    preset: {
+      id: manifest.id,
+      version: manifest.version
+    },
+    report: {
+      schema: "preset-validate-report/v1",
+      issueCount: validation.issues.length
+    }
   };
 }
 

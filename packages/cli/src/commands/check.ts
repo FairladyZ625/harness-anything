@@ -51,7 +51,7 @@ export function runCheckProfile(
   };
   return {
     ok,
-    command: checkCommandName(action),
+    command: "check",
     profile: action.profile,
     rows: projection.rows.length,
     warnings,
@@ -83,12 +83,6 @@ function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfi
   }
 
   return issues;
-}
-
-function checkCommandName(action: { readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }): string {
-  if (action.profile === "source-package" && !action.strict && !action.postMerge) return "check";
-  if (action.profile === "source-package" && !action.strict && action.postMerge) return "check --post-merge";
-  return `check:${action.profile}`;
 }
 
 function validateTaskPackageContracts(rootInput: HarnessLayoutInput, taskDir: string, profile: CheckProfile, strict: boolean, settings?: ProjectHarnessSettings): ReadonlyArray<ProfileValidationIssue> {

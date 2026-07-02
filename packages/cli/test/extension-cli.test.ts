@@ -71,6 +71,17 @@ test("CLI preset validate reports kernel version incompatibility as stable JSON"
   assert.equal(result.issues.some((issue) => issue.code === "incompatible_kernel"), true);
 });
 
+test("CLI preset validate success emits the declared receipt payload", () => {
+  const result = runJson(["preset", "validate", presetFixture]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.command, "preset-validate");
+  assert.deepEqual(result.preset, { id: "software-coding-standard", version: "1.0.0" });
+  assert.equal(result.report.schema, "preset-validate-report/v1");
+  assert.equal(result.report.issueCount, 0);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, "issues"), false);
+});
+
 test("CLI vertical validate accepts the software coding vertical fixture", () => {
   const result = runJson(["vertical", "validate", verticalFixture]);
 
