@@ -12,13 +12,12 @@ import type {
 } from "../ports/write-coordinator.ts";
 import type { TaskId, WriteError } from "../domain/index.ts";
 import { findEntityRefs, isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
-import { stablePayloadHash } from "./hash.ts";
+import { stablePayloadHash } from "../integrity/stable-hash.ts";
+import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
   createTaskPackagePath,
   normalizeRelativeDocumentPath,
-  readFrontmatter,
-  readScalar,
   resolveHarnessLayout,
   taskPackagePath
 } from "../layout/index.ts";

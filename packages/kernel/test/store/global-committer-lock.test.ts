@@ -7,7 +7,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { Effect } from "effect";
 import type { WriteError } from "../../src/domain/index.ts";
-import { makeJournaledWriteCoordinator, sha256Text } from "../../src/store/index.ts";
+import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 const execFileAsync = promisify(execFile);

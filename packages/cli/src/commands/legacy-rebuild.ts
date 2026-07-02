@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
@@ -6,6 +5,7 @@ import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts"
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { indexPath, makeIndex, renderIndex } from "../../../adapters/local/src/task-index.ts";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -99,7 +99,7 @@ export function runNewTaskFromLegacy(
 }
 
 function hashPayload(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return stablePayloadHash(value);
 }
 
 function readLegacyRebuildSource(rootDir: string, legacyId: string): LegacyRebuildSource {

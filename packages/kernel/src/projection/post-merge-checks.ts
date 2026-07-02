@@ -1,11 +1,12 @@
-import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { findEntityRefs } from "../domain/index.ts";
+import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
+import { readScalar } from "../markdown/frontmatter.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
-import { readMarkdownSource, readScalar, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
+import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 
 export function runPostMergeChecks(rootDir: string): ReadonlyArray<ProjectionWarning> {
   const source = readMarkdownSource(rootDir);
@@ -260,19 +261,4 @@ function isTextLikePath(filePath: string): boolean {
 
 function nullIfEmpty(value: string): string | null {
   return value.length === 0 ? null : value;
-}
-
-function stablePayloadHash(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
 }

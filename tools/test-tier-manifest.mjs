@@ -9,6 +9,8 @@ export const testTierManifest = {
     "packages/kernel/test/domain/binding-immutability.test.ts",
     "packages/kernel/test/domain/domain-status.test.ts",
     "packages/kernel/test/domain/entity-ref.test.ts",
+    "packages/kernel/test/integrity/stable-hash.test.ts",
+    "packages/kernel/test/markdown/frontmatter.test.ts",
     "packages/kernel/test/publish/idempotency.test.ts",
     "tools/run-node-tests.test.mjs"
   ],
@@ -47,6 +49,7 @@ export const testTierManifest = {
     "tools/check-cli-help-contract.test.mjs",
     "tools/check-cli-structure.test.mjs",
     "tools/check-error-classification.test.mjs",
+    "tools/check-integrity-single-source.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
     "tools/check-service-mappability.test.mjs",
     "tools/scan-forbidden-symbols.test.mjs"

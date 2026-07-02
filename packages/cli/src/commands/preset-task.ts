@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
@@ -6,6 +5,7 @@ import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts"
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import { createTaskPackagePath, generateTaskId } from "../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
@@ -207,19 +207,4 @@ function renderModuleSelection(module: { readonly key: string; readonly title: s
 
 function renderTemplateBody(body: string, title: string): string {
   return body.replace(/\{\{title\}\}/gu, title);
-}
-
-function stablePayloadHash(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
 }
