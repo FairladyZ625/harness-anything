@@ -212,6 +212,23 @@ test("CLI legacy apply ignores unsafe generated source paths", () => {
   });
 });
 
+test("CLI legacy apply refuses the active authored harness root as source", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/harness.yaml", "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n");
+    writeFile(rootDir, "harness/docs/architecture/self-host.md", "# Self Host\n");
+
+    const copied = runJson(rootDir, ["legacy", "copy-safe-docs", "harness", "--apply"], false);
+    const indexed = runJson(rootDir, ["legacy", "index", "harness", "--apply"], false);
+
+    assert.equal(copied.ok, false);
+    assert.equal(copied.error.code, "legacy_unsafe_source");
+    assert.equal(indexed.ok, false);
+    assert.equal(indexed.error.code, "legacy_unsafe_source");
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/docs/architecture/self-host.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/index.json")), false);
+  });
+});
+
 test("CLI legacy copy suffixes planned parent directories before they can overwrite planned children", () => {
   withTempRoot((rootDir) => {
     writeLegacyTask(rootDir, "modules", "active");

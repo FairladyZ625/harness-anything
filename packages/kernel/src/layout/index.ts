@@ -188,6 +188,7 @@ function findHarnessConfigLocation(startingRoot: string): HarnessConfigLocation 
     if (existsSync(privateCandidate)) {
       return { path: privateCandidate, projectRoot: current, structureBase: ".harness-private" };
     }
+    if (existsSync(path.join(current, ".git"))) return undefined;
     const parent = path.dirname(current);
     if (parent === current) return undefined;
     current = parent;

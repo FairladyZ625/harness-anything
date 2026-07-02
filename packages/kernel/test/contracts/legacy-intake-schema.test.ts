@@ -81,6 +81,23 @@ test("layout resolver discovers private self-host structure roots", () => {
   });
 });
 
+test("layout resolver does not cross a git worktree boundary to borrow parent harness config", () => {
+  withTempRoot((rootDir) => {
+    const parentConfigPath = path.join(rootDir, "harness", "harness.yaml");
+    mkdirSync(path.dirname(parentConfigPath), { recursive: true });
+    writeFileSync(parentConfigPath, "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
+    const worktreeRoot = path.join(rootDir, ".worktrees", "feature");
+    mkdirSync(worktreeRoot, { recursive: true });
+    writeFileSync(path.join(worktreeRoot, ".git"), "gitdir: ../../.git/worktrees/feature\n", "utf8");
+    writeFileSync(path.join(worktreeRoot, "package.json"), "{\"name\":\"feature\"}\n", "utf8");
+
+    const layout = resolveHarnessLayout(worktreeRoot);
+
+    assert.equal(layout.rootDir, worktreeRoot);
+    assert.equal(layout.authoredRoot, path.join(worktreeRoot, "harness"));
+  });
+});
+
 test("legacy index schema decodes and encodes valid fixture", async () => {
   const fixture = JSON.parse(await readFile(legacyIndexValidUrl, "utf8")) as unknown;
   const decoded = Schema.decodeUnknownSync(LegacyIndexSchema)(fixture);

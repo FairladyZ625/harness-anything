@@ -237,7 +237,7 @@ function applyLegacyCopy(rootInput: HarnessLayoutInput, report: LegacyScanReport
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const validation = validateLegacyIndex(rootDir, report);
   if (!validation.ok) return validation.result;
-  const unsafeSource = firstUnsafeLegacySource(report);
+  const unsafeSource = firstUnsafeLegacySource(rootInput, report);
   if (unsafeSource) {
     return {
       ok: false,
@@ -281,7 +281,7 @@ function applyLegacyIndex(rootInput: HarnessLayoutInput, report: LegacyScanRepor
   const rootDir = layout.rootDir;
   const collisionReport = readCollisionReport(rootInput);
   const indexedReport = { ...report, entries: applyCollisionReport(report.entries, collisionReport), summary: summarize(applyCollisionReport(report.entries, collisionReport)) };
-  const unsafeSource = firstUnsafeLegacySource(indexedReport);
+  const unsafeSource = firstUnsafeLegacySource(rootInput, indexedReport);
   if (unsafeSource) {
     return {
       ok: false,
@@ -384,8 +384,19 @@ function firstDuplicate(values: ReadonlyArray<string>): string | undefined {
   return undefined;
 }
 
-function firstUnsafeLegacySource(report: LegacyScanReport): string | undefined {
+function firstUnsafeLegacySource(rootInput: HarnessLayoutInput, report: LegacyScanReport): string | undefined {
+  const unsafeRoot = unsafeLegacySourceRoot(rootInput, report);
+  if (unsafeRoot) return unsafeRoot;
   return report.entries.find((entry) => isUnsafeLegacySourcePath(entry.sourcePath))?.sourcePath;
+}
+
+function unsafeLegacySourceRoot(rootInput: HarnessLayoutInput, report: LegacyScanReport): string | undefined {
+  const layout = resolveHarnessLayout(rootInput);
+  const sourceRoot = path.resolve(layout.rootDir, report.sourceRoot);
+  const guardedRoots = [layout.authoredRoot, layout.localRoot, layout.legacyRoot];
+  return guardedRoots.some((guardedRoot) => isSamePath(sourceRoot, guardedRoot) || isPathInside(guardedRoot, sourceRoot))
+    ? report.sourceRoot
+    : undefined;
 }
 
 function isUnsafeLegacySourcePath(sourcePath: string): boolean {
@@ -402,6 +413,15 @@ function isUnsafeLegacySourcePath(sourcePath: string): boolean {
     || normalized.startsWith(".harness/generated/")
     || normalized === "harness/legacy"
     || normalized.startsWith("harness/legacy/");
+}
+
+function isSamePath(left: string, right: string): boolean {
+  return path.resolve(left) === path.resolve(right);
+}
+
+function isPathInside(parent: string, candidate: string): boolean {
+  const relativePath = path.relative(parent, candidate);
+  return relativePath.length > 0 && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
 }
 
 function digestJson(value: unknown): `sha256:${string}` {
