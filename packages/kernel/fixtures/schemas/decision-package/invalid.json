@@ -1,0 +1,45 @@
+{
+  "schema": "decision-package/v1",
+  "decision_id": "dec_01K7ZTRIADIC",
+  "title": "Reject without alternatives",
+  "state": "active",
+  "riskTier": "high",
+  "urgency": "medium",
+  "vertical": "software/coding",
+  "preset": "architecture-decision",
+  "applies_to": {
+    "modules": ["kernel"],
+    "productLines": []
+  },
+  "proposedBy": {
+    "kind": "agent",
+    "id": "claude"
+  },
+  "proposedAt": "2026-06-16T03:11:00Z",
+  "arbiter": {
+    "kind": "human",
+    "id": "ZeyuLi"
+  },
+  "provenance": [
+    {
+      "runtime": "claude-code",
+      "sessionId": "88833871-9d1c-4bd5-a424-0d91b39f8d67",
+      "boundAt": "2026-06-16T03:10:00Z"
+    }
+  ],
+  "question": "Should empty rejected alternatives be allowed?",
+  "chosen": [
+    {
+      "id": "CH1",
+      "text": "Reject empty alternatives."
+    }
+  ],
+  "rejected": [],
+  "claims": [
+    {
+      "id": "C1",
+      "text": "Decision meaning requires rejected alternatives."
+    }
+  ],
+  "relations": []
+}

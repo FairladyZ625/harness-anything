@@ -1,0 +1,69 @@
+{
+  "schema": "decision-package/v1",
+  "decision_id": "dec_01K7ZTRIADIC",
+  "title": "Adopt triadic kernel primitives",
+  "state": "active",
+  "riskTier": "high",
+  "urgency": "medium",
+  "vertical": "software/coding",
+  "preset": "architecture-decision",
+  "applies_to": {
+    "modules": ["kernel", "cli"],
+    "productLines": ["PLT-TaskTree"]
+  },
+  "proposedBy": {
+    "kind": "agent",
+    "id": "claude"
+  },
+  "proposedAt": "2026-06-16T03:11:00Z",
+  "arbiter": {
+    "kind": "human",
+    "id": "ZeyuLi"
+  },
+  "decidedAt": "2026-06-16T04:02:00Z",
+  "provenance": [
+    {
+      "runtime": "claude-code",
+      "sessionId": "88833871-9d1c-4bd5-a424-0d91b39f8d67",
+      "boundAt": "2026-06-16T03:10:00Z"
+    }
+  ],
+  "question": "Should the kernel keep task as its only primitive?",
+  "chosen": [
+    {
+      "id": "CH1",
+      "text": "Use decision, task, and fact as orthogonal kernel primitives."
+    }
+  ],
+  "rejected": [
+    {
+      "id": "RJ1",
+      "text": "Keep task as the only kernel primitive and leave lessons as task-local documents.",
+      "why_not": "Lessons have no consuming decision loop and accumulate without changing future choices."
+    },
+    {
+      "id": "RJ2",
+      "text": "Create a top-level facts directory independent of task provenance.",
+      "why_not": "A fact detached from the task that produced it loses the provenance needed to trust it."
+    }
+  ],
+  "claims": [
+    {
+      "id": "C1",
+      "text": "A decision entity is the missing consumer for durable lessons."
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "rel_9f2c4a1d7e3b8c05",
+      "source": "decision/dec_01K7ZTRIADIC/C1",
+      "target": "fact/task_01KV5TBASE/F-a3f2",
+      "type": "supports",
+      "strength": "strong",
+      "direction": "directed",
+      "origin": "declared",
+      "rationale": "C1 is supported by the measured finding F-a3f2.",
+      "state": "active"
+    }
+  ]
+}

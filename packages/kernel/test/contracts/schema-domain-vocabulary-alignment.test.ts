@@ -5,9 +5,13 @@ import {
   domainStatuses
 } from "../../src/domain/lifecycle-status.ts";
 import {
+  decisionStates
+} from "../../src/domain/decision-lifecycle-status.ts";
+import {
   packageDispositions
 } from "../../src/domain/package-disposition.ts";
 import {
+  DecisionStateSchema,
   DomainStatusSchema,
   TaskFrontmatterSchema
 } from "../../src/schemas/registry.ts";
@@ -16,6 +20,14 @@ test("domain status constants are accepted by the schema registry", () => {
   for (const status of domainStatuses) {
     assert.equal(Schema.decodeUnknownSync(DomainStatusSchema)(status), status);
   }
+});
+
+test("decision state constants are accepted by the schema registry", () => {
+  for (const state of decisionStates) {
+    assert.equal(Schema.decodeUnknownSync(DecisionStateSchema)(state), state);
+  }
+
+  assert.throws(() => Schema.decodeUnknownSync(DecisionStateSchema)("accepted"));
 });
 
 test("task frontmatter schema accepts every domain package disposition", () => {

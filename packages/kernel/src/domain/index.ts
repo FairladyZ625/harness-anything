@@ -14,6 +14,13 @@ export {
 } from "./lifecycle-status.ts";
 export type { DomainStatus, CanonicalStatus, StatusCoarseClass, StatusTransitionExplanation, StatusTransitionRejectionReason } from "./lifecycle-status.ts";
 
+export {
+  decisionStates,
+  explainDecisionStateTransition,
+  isDecisionState
+} from "./decision-lifecycle-status.ts";
+export type { DecisionState, DecisionStateTransitionExplanation, DecisionStateTransitionRejectionReason } from "./decision-lifecycle-status.ts";
+
 export { immutableBindingFields, validateLifecycleBindingInvariant } from "./lifecycle-binding.ts";
 export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } from "./lifecycle-binding.ts";
 
