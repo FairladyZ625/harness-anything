@@ -14,7 +14,7 @@ import type { TaskId, WriteError } from "../domain/index.ts";
 import { findEntityRefs, isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { writeDocument } from "./markdown-artifact-store.ts";
+import { assertDocumentWritePathsDoNotCollide, writeDocument } from "./markdown-artifact-store.ts";
 import {
   createHarnessRuntimeContext,
   createTaskPackagePath,
@@ -224,6 +224,11 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
 
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp): void {
   resolveCommitPlan(rootDir, opTouchedPaths(rootInput, op), rootInput);
+  try {
+    assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForOp(op));
+  } catch (error) {
+    rejectWrite(error instanceof Error ? error.message : String(error), op.taskId);
+  }
 }
 
 function recordToOp(rootDir: string, record: JournalRecord): WriteOp {
@@ -303,6 +308,19 @@ function opTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArr
     rejectWrite(`unsupported write op kind: ${op.kind}`);
   }
   return [documentTargetPath(rootInput, toDocumentWrite(op))];
+}
+
+function documentWritesForOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
+  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
+    return op.payload.writes;
+  }
+  if (op.kind === "package_delete_hard") {
+    return [];
+  }
+  if (!documentWriteKinds.has(op.kind)) {
+    rejectWrite(`unsupported write op kind: ${op.kind}`);
+  }
+  return [toDocumentWrite(op)];
 }
 
 function documentTargetPath(rootInput: HarnessLayoutInput, write: DocumentWrite): string {

@@ -80,6 +80,7 @@ export function findBindingByExternalRef(
 }
 
 export function writeDocument(rootInput: HarnessLayoutInput, write: DocumentWrite): ArtifactWriteReceipt {
+  assertDocumentWritePathsDoNotCollide(rootInput, [write]);
   const targetPath = documentPath(rootInput, write);
   mkdirSync(path.dirname(targetPath), { recursive: true });
 
@@ -92,6 +93,22 @@ export function writeDocument(rootInput: HarnessLayoutInput, write: DocumentWrit
     path: write.path,
     sha256: sha256Text(write.body)
   };
+}
+
+export function assertDocumentWritePathsDoNotCollide(
+  rootInput: HarnessLayoutInput,
+  writes: ReadonlyArray<DocumentWrite>
+): void {
+  const candidatesByRoot = new Map<string, string[]>();
+  for (const write of writes) {
+    const target = documentTarget(rootInput, write);
+    const candidates = candidatesByRoot.get(target.rootPath) ?? [];
+    candidates.push(target.safePath);
+    candidatesByRoot.set(target.rootPath, candidates);
+  }
+  for (const [rootPath, candidates] of candidatesByRoot) {
+    assertNoWritePathCollisions(rootPath, candidates);
+  }
 }
 
 export function readTaskPackage(rootInput: HarnessLayoutInput, taskId: TaskId): TaskPackageRead {
@@ -166,11 +183,65 @@ function readDocuments(rootPath: string): ReadonlyArray<ArtifactDocument> {
 }
 
 function documentPath(rootInput: HarnessLayoutInput, write: DocumentWrite): string {
+  return documentTarget(rootInput, write).targetPath;
+}
+
+interface DocumentTarget {
+  readonly rootPath: string;
+  readonly safePath: string;
+  readonly targetPath: string;
+}
+
+function documentTarget(rootInput: HarnessLayoutInput, write: DocumentWrite): DocumentTarget {
   const safePath = normalizeRelativeDocumentPath(write.path);
   const rootPath = existsSync(taskPackagePath(rootInput, write.taskId))
     ? taskPackagePath(rootInput, write.taskId)
     : createTaskPackagePath(rootInput, write.taskId, write.packageSlug);
-  return path.join(rootPath, safePath);
+  return {
+    rootPath,
+    safePath,
+    targetPath: path.join(rootPath, safePath)
+  };
+}
+
+function assertNoWritePathCollisions(rootPath: string, candidatePaths: ReadonlyArray<string>): void {
+  const entries = [
+    ...listDocumentPaths(rootPath),
+    ...candidatePaths
+  ];
+  const byCanonical = new Map<string, Set<string>>();
+  for (const entry of entries) {
+    const normalized = normalizeRelativeDocumentPath(entry);
+    const canonical = normalized.toLocaleLowerCase("en-US");
+    const paths = byCanonical.get(canonical) ?? new Set<string>();
+    paths.add(entry);
+    byCanonical.set(canonical, paths);
+  }
+
+  for (const paths of byCanonical.values()) {
+    if (paths.size > 1 && candidatePaths.some((candidate) => paths.has(candidate))) {
+      throw new Error(`portable path collision before write: ${[...paths].sort().join(", ")}`);
+    }
+  }
+}
+
+function listDocumentPaths(rootPath: string): ReadonlyArray<string> {
+  if (!existsSync(rootPath)) return [];
+  const paths: string[] = [];
+
+  function visit(current: string): void {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        visit(fullPath);
+        continue;
+      }
+      paths.push(path.relative(rootPath, fullPath).split(path.sep).join("/"));
+    }
+  }
+
+  visit(rootPath);
+  return paths;
 }
 
 function packagePath(rootInput: HarnessLayoutInput, taskId: TaskId): string {
