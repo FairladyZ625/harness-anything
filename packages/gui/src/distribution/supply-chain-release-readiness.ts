@@ -27,7 +27,7 @@ export interface OsvContract {
 
 export interface LicensePolicyContract {
   readonly projectLicense: "AGPL-3.0-or-later";
-  readonly allowedDependencyLicenses: readonly ["0BSD", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"];
+  readonly allowedDependencyLicenses: readonly ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"];
   readonly networkServiceReleaseNotesRequired: true;
   readonly networkServiceReleaseChecklist: readonly [
     "public source offer and license notice",
@@ -149,7 +149,7 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   },
   licensePolicy: {
     projectLicense: "AGPL-3.0-or-later",
-    allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"],
+    allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"],
     networkServiceReleaseNotesRequired: true,
     networkServiceReleaseChecklist: [
       "public source offer and license notice",
@@ -217,6 +217,7 @@ export function validateSupplyChainReleaseReadiness(
 
   if (
     policy.licensePolicy.projectLicense !== "AGPL-3.0-or-later" ||
+    !policy.licensePolicy.allowedDependencyLicenses.includes("BlueOak-1.0.0") ||
     !policy.licensePolicy.allowedDependencyLicenses.includes("MIT") ||
     policy.licensePolicy.networkServiceReleaseNotesRequired !== true ||
     policy.licensePolicy.networkServiceReleaseChecklist.length !== 5 ||

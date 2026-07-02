@@ -78,6 +78,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm run harness:check-import-boundaries
       - run: npm run harness:check-file-complexity
       - run: npm run harness:scan-forbidden-symbols
@@ -122,6 +123,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run test:gui
       - run: npm run -w @harness-anything/gui build
 
   node26-compatibility:

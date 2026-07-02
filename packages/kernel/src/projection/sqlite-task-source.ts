@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import type { CloseoutReadiness, PackageDisposition } from "../domain/index.ts";
+import type { CloseoutReadiness } from "../domain/index.ts";
 import { isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";

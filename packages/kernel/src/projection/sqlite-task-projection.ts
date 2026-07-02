@@ -23,8 +23,6 @@ export type {
 } from "./types.ts";
 import type { ProjectionCheckResult, ProjectionReadResult, TaskProjectionOptions } from "./types.ts";
 
-const projectionVersion = "task-projection/v1";
-
 export function defaultTaskProjectionPath(rootDir: string): string {
   return resolveHarnessLayout(rootDir).projectionPath;
 }

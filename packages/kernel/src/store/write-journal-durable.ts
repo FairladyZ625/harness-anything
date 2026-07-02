@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import path from "node:path";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { DeleteAuditRecord, JournalRecord, LockTakeoverRecord, PayloadRef, WriteWatermark } from "./write-journal-types.ts";

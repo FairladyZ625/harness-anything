@@ -13,6 +13,7 @@ export const testTierManifest = {
     "packages/kernel/test/layout/portable-path.test.ts",
     "packages/kernel/test/markdown/frontmatter.test.ts",
     "packages/kernel/test/publish/idempotency.test.ts",
+    "tools/run-gui-tests.test.mjs",
     "tools/run-node-tests.test.mjs"
   ],
   contract: [

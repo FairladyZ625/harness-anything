@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { explainStatusTransition, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";

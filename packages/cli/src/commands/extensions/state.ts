@@ -232,14 +232,6 @@ export function readPresetManifestFromSourceResult(sourcePath: string): { readon
   return decodePresetManifestFileResult(presetPath);
 }
 
-function decodePresetManifestFile(presetPath: string): PresetManifest {
-  const decoded = decodePresetManifestFileResult(presetPath);
-  if (!decoded.ok) {
-    throw new Error("preset manifest shape invalid");
-  }
-  return decoded.value;
-}
-
 function decodePresetManifestFileResult(presetPath: string): { readonly ok: true; readonly value: PresetManifest } | { readonly ok: false; readonly issues: ReadonlyArray<ExtensionValidationIssue> } {
   try {
     const raw = JSON.parse(readFileSync(presetPath, "utf8")) as unknown;

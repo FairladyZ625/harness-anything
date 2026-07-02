@@ -53,8 +53,8 @@ checks the root package, every workspace package, lockfile dependency license
 metadata, and SBOM component licenses against the current release policy.
 
 Allowed dependency license identifiers are intentionally narrow for M2.5:
-`0BSD`, `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `MIT`, and
-`MPL-2.0`.
+`0BSD`, `Apache-2.0`, `BlueOak-1.0.0`, `BSD-2-Clause`, `BSD-3-Clause`,
+`ISC`, `MIT`, and `MPL-2.0`.
 
 ## AGPL network-service release note checklist
 

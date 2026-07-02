@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
 import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
