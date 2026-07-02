@@ -9,6 +9,7 @@ const expectedSchemaIds = [
   "harness-config",
   "task-frontmatter",
   "decision-package",
+  "entity-relations",
   "write-journal-op",
   "task-snapshot",
   "publishable-projection",

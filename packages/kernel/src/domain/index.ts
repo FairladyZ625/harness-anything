@@ -33,6 +33,28 @@ export type { PackageDisposition } from "./package-disposition.ts";
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
 export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
+export {
+  canonicalRelationIdentityInput,
+  deriveRelationId,
+  formatRelationFlowRecord,
+  relationDirections,
+  relationOrigins,
+  relationStates,
+  relationStrengths,
+  relationTypes,
+  validateRelationRecordsForHost
+} from "./entity-relation.ts";
+export type {
+  EntityRelationRecord,
+  EntityRelationValidationIssue,
+  EntityRelationValidationIssueCode,
+  RelationDirection,
+  RelationOrigin,
+  RelationState,
+  RelationStrength,
+  RelationType
+} from "./entity-relation.ts";
+
 export type {
   EngineError,
   BindingInvariantError,

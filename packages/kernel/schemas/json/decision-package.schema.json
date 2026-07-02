@@ -124,17 +124,17 @@
     },
     "entityRef": {
       "type": "string",
-      "pattern": "^(?:task|decision|fact)/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)?$"
+      "pattern": "^(?:(?:task|decision)/[A-Za-z0-9_-]+(?:/[A-Za-z][A-Za-z0-9_-]*)?|fact/[A-Za-z0-9_-]+/F-[A-Za-z0-9_-]+)$"
     },
     "relationRecord": {
       "type": "object",
       "additionalProperties": false,
       "required": ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"],
       "properties": {
-        "relation_id": { "type": "string", "pattern": "^rel_[A-Za-z0-9_-]+$" },
+        "relation_id": { "type": "string", "pattern": "^rel_[a-f0-9]{16}$" },
         "source": { "$ref": "#/$defs/entityRef" },
         "target": { "$ref": "#/$defs/entityRef" },
-        "type": { "$ref": "#/$defs/nonBlankString" },
+        "type": { "enum": ["supports", "supersedes", "derives", "blocks", "relates", "implements", "invalidated-by", "supersedes-fact"] },
         "strength": { "enum": ["strong", "weak"] },
         "direction": { "enum": ["directed", "undirected"] },
         "origin": { "enum": ["declared", "imported_snapshot", "generated", "inferred"] },

@@ -4,9 +4,19 @@ import { packageDispositions } from "../domain/package-disposition.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { ActorRefSchema, LinkKindSchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
+import { EntityRelationsSchema } from "./entity-relations.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
+export {
+  EntityRelationRecordSchema,
+  EntityRelationsSchema,
+  RelationDirectionSchema,
+  RelationOriginSchema,
+  RelationStateSchema,
+  RelationStrengthSchema,
+  RelationTypeSchema
+} from "./entity-relations.ts";
 
 export const DomainStatusSchema = Schema.Literal(
   ...domainStatuses
@@ -428,6 +438,7 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
 export type HarnessConfig = Schema.Schema.Type<typeof HarnessConfigSchema>;
 export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
 export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
+export type EntityRelations = Schema.Schema.Type<typeof EntityRelationsSchema>;
 export type WriteJournalOp = Schema.Schema.Type<typeof WriteJournalOpSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
@@ -465,6 +476,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/decision-package.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/decision-package/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/decision-package/invalid.json"
+  },
+  {
+    id: "entity-relations",
+    schema: EntityRelationsSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/entity-relations.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/entity-relations/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/entity-relations/invalid.json"
   },
   {
     id: "write-journal-op",

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/entity-relations.schema.json",
+  "x-harness-schema-id": "entity-relations",
+  "title": "Entity Relations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "host", "relations"],
+  "properties": {
+    "schema": { "const": "entity-relations/v1" },
+    "host": { "$ref": "#/$defs/entityRef" },
+    "relations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/relationRecord" }
+    }
+  },
+  "$defs": {
+    "nonBlankString": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "entityRef": {
+      "type": "string",
+      "pattern": "^(?:(?:task|decision)/[A-Za-z0-9_-]+(?:/[A-Za-z][A-Za-z0-9_-]*)?|fact/[A-Za-z0-9_-]+/F-[A-Za-z0-9_-]+)$"
+    },
+    "relationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"],
+      "properties": {
+        "relation_id": { "type": "string", "pattern": "^rel_[a-f0-9]{16}$" },
+        "source": { "$ref": "#/$defs/entityRef" },
+        "target": { "$ref": "#/$defs/entityRef" },
+        "type": { "enum": ["supports", "supersedes", "derives", "blocks", "relates", "implements", "invalidated-by", "supersedes-fact"] },
+        "strength": { "enum": ["strong", "weak"] },
+        "direction": { "enum": ["directed", "undirected"] },
+        "origin": { "enum": ["declared", "imported_snapshot", "generated", "inferred"] },
+        "rationale": { "$ref": "#/$defs/nonBlankString" },
+        "state": { "enum": ["active", "deprecated", "deleted"] }
+      }
+    }
+  }
+}

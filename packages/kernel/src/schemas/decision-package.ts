@@ -1,13 +1,13 @@
 import { Schema } from "effect";
 import { decisionStates } from "../domain/decision-lifecycle-status.ts";
 import { ActorRefSchema } from "./common.ts";
+import { EntityRelationRecordSchema } from "./entity-relations.ts";
 
 const StringArray = Schema.Array(Schema.String);
 const OptionalString = Schema.optional(Schema.String);
 const NonBlankStringSchema = Schema.String.pipe(Schema.pattern(/\S/u));
 const DecisionIdSchema = Schema.String.pipe(Schema.pattern(/^dec_[A-Za-z0-9_-]+$/u));
 const AnchorIdSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z][A-Za-z0-9_-]*$/u));
-const EntityRefStringSchema = Schema.String.pipe(Schema.pattern(/^(?:task|decision|fact)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?$/u));
 const DecisionRiskTierSchema = Schema.Literal("low", "medium", "high");
 const DecisionUrgencySchema = Schema.Literal("low", "medium", "high");
 
@@ -32,18 +32,6 @@ const RejectedDecisionAnchorSchema = Schema.Struct({
   why_not: NonBlankStringSchema
 });
 
-const DecisionRelationRecordSchema = Schema.Struct({
-  relation_id: Schema.String.pipe(Schema.pattern(/^rel_[A-Za-z0-9_-]+$/u)),
-  source: EntityRefStringSchema,
-  target: EntityRefStringSchema,
-  type: NonBlankStringSchema,
-  strength: Schema.Literal("strong", "weak"),
-  direction: Schema.Literal("directed", "undirected"),
-  origin: Schema.Literal("declared", "imported_snapshot", "generated", "inferred"),
-  rationale: NonBlankStringSchema,
-  state: Schema.Literal("active", "deprecated", "deleted")
-});
-
 export const DecisionPackageSchema = Schema.Struct({
   schema: Schema.Literal("decision-package/v1"),
   decision_id: DecisionIdSchema,
@@ -66,7 +54,7 @@ export const DecisionPackageSchema = Schema.Struct({
   chosen: Schema.Array(DecisionAnchorSchema).pipe(Schema.minItems(1)),
   rejected: Schema.Array(RejectedDecisionAnchorSchema).pipe(Schema.minItems(1)),
   claims: Schema.Array(DecisionAnchorSchema).pipe(Schema.minItems(1)),
-  relations: Schema.Array(DecisionRelationRecordSchema)
+  relations: Schema.Array(EntityRelationRecordSchema)
 }).pipe(Schema.filter((decision) => decision.proposedBy.id !== decision.arbiter.id));
 
 export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;

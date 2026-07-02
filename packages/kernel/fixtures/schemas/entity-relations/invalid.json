@@ -1,0 +1,17 @@
+{
+  "schema": "entity-relations/v1",
+  "host": "decision/dec_01K7ZTRIADIC",
+  "relations": [
+    {
+      "relation_id": "rel_93330dcaa3d3e83f",
+      "source": "decision/dec_01K7ZTRIADIC/C1",
+      "target": "fact/F-a3f2",
+      "type": "supports",
+      "strength": "strong",
+      "direction": "directed",
+      "origin": "declared",
+      "rationale": "A bare fact ref is invalid because facts are owner-qualified.",
+      "state": "active"
+    }
+  ]
+}
