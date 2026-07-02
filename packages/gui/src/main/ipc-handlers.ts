@@ -15,6 +15,7 @@ export function registerHarnessIpcHandlers(
   bridge: GuiServiceBridge,
   trustPolicy: IpcWebContentsTrustPolicy
 ): void {
+  assertUniqueHarnessIpcChannels(preloadAllowlist);
   for (const method of preloadAllowlist) {
     registrar.handle(`harness:${method}`, async (event, payload) => {
       assertTrustedIpcSender(event, trustPolicy);
@@ -22,6 +23,18 @@ export function registerHarnessIpcHandlers(
       return bridge.invoke(method, payload);
     });
   }
+}
+
+export function assertUniqueHarnessIpcChannels(methods: ReadonlyArray<string>): true {
+  const channels = new Set<string>();
+  for (const method of methods) {
+    const channel = `harness:${method}`;
+    if (channels.has(channel)) {
+      throw new Error(`Duplicate Harness IPC handler channel: ${channel}`);
+    }
+    channels.add(channel);
+  }
+  return true;
 }
 
 export function assertTrustedIpcSender(

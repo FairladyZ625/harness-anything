@@ -41,13 +41,9 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const registry = collectApiRouteContracts(root, paths.registryPath, violations);
   const schemaContracts = collectApiSchemaContracts(root, paths.registryPath, violations);
   const deferredContracts = collectDeferredGuiBridgeContracts(root, paths.registryPath, violations);
-  const preloadProjection = inspectPreloadProjection(root, paths.allowlistPath, violations);
-  const preloadMethods = preloadProjection === "registry-derived"
-    ? derivePreloadMethods(registry, deferredContracts)
-    : collectPreloadMethods(root, paths.allowlistPath, violations);
-  const preloadCapabilities = preloadProjection === "registry-derived"
-    ? derivePreloadCapabilities(registry, deferredContracts)
-    : collectPreloadCapabilities(root, paths.allowlistPath, violations);
+  inspectPreloadProjection(root, paths.allowlistPath, violations);
+  const preloadMethods = collectPreloadMethods(root, paths.allowlistPath, violations);
+  const preloadCapabilities = collectPreloadCapabilities(root, paths.allowlistPath, violations);
   const bridgeHandlers = collectGuiBridgeHandlerImplementations(root, paths.bridgePath, violations);
   const applicationDeclarations = collectTypeDeclarations(root, paths.applicationPath, violations);
   const registryDeclarations = collectTypeDeclarations(root, paths.registryPath, violations);
@@ -126,50 +122,17 @@ function collectApiRouteContracts(root, relativePath, violations) {
 
 function inspectPreloadProjection(root, relativePath, violations) {
   const source = readSource(root, relativePath, violations);
-  if (!source) return "literal";
+  if (!source) return;
   const allowedInitializer = findVariableInitializer(source.file, "allowedPreloadApi");
   const capabilitiesInitializer = findVariableInitializer(source.file, "preloadApiCapabilities");
   const hasLiteralAllowlist = allowedInitializer && ts.isObjectLiteralExpression(stripAsExpression(allowedInitializer));
   const hasLiteralCapabilities = capabilitiesInitializer && ts.isObjectLiteralExpression(stripAsExpression(capabilitiesInitializer));
-  if (hasLiteralAllowlist && hasLiteralCapabilities) return "literal";
-
-  const requiredPatterns = [
-    { pattern: /\bapiRouteContracts\b/u, label: "apiRouteContracts" },
-    { pattern: /\bdeferredGuiBridgeContracts\b/u, label: "deferredGuiBridgeContracts" },
-    { pattern: /\bshippedPreloadMethods\b/u, label: "shippedPreloadMethods" },
-    { pattern: /\bdeferredPreloadMethods\b/u, label: "deferredPreloadMethods" },
-    { pattern: /\bpreloadAllowlist\b/u, label: "preloadAllowlist" },
-    { pattern: /\ballowedPreloadApi\b/u, label: "allowedPreloadApi" },
-    { pattern: /\bpreloadApiCapabilities\b/u, label: "preloadApiCapabilities" }
-  ];
-  for (const required of requiredPatterns) {
-    if (!required.pattern.test(source.text)) {
-      violations.push(`${relativePath}: registry-derived preload projection missing ${required.label}`);
-    }
+  if (!hasLiteralAllowlist) {
+    violations.push(`${relativePath}: allowedPreloadApi must declare the real preload API surface as an object literal`);
   }
-  return "registry-derived";
-}
-
-function derivePreloadMethods(registry, deferredContracts) {
-  return new Set([
-    ...registry.map((entry) => entry.guiBridgeMethod).filter(Boolean),
-    ...deferredContracts.map((entry) => entry.guiBridgeMethod).filter(Boolean)
-  ]);
-}
-
-function derivePreloadCapabilities(registry, deferredContracts) {
-  const capabilities = new Map();
-  for (const entry of registry) {
-    if (entry.guiBridgeMethod) capabilities.set(entry.guiBridgeMethod, { method: entry.guiBridgeMethod, status: "shipped" });
+  if (!hasLiteralCapabilities) {
+    violations.push(`${relativePath}: preloadApiCapabilities must declare the real preload API metadata as an object literal`);
   }
-  for (const entry of deferredContracts) {
-    if (entry.guiBridgeMethod) capabilities.set(entry.guiBridgeMethod, {
-      method: entry.guiBridgeMethod,
-      status: "deferred",
-      reason: entry.reason
-    });
-  }
-  return capabilities;
 }
 
 function collectStringObjectArray(root, relativePath, variableName, violations) {
@@ -318,6 +281,7 @@ function inspectSchemaContracts(schemaContracts, applicationDeclarations, regist
 function inspectRegistryEntries(entries, schemaContracts, serviceMethods, preloadMethods, preloadCapabilities, relativePath, violations) {
   const ids = new Set();
   const methodPaths = new Set();
+  const activeGuiBridgeMethods = new Set();
   const schemaIds = new Set(schemaContracts.map((entry) => entry.id));
 
   for (const entry of entries) {
@@ -328,6 +292,10 @@ function inspectRegistryEntries(entries, schemaContracts, serviceMethods, preloa
     if (entry.outputSchemaId === "") violations.push(`${relativePath}: ${label} has an empty outputSchemaId`);
     if (entry.id && ids.has(entry.id)) violations.push(`${relativePath}: duplicate route id ${entry.id}`);
     if (entry.id) ids.add(entry.id);
+    if (entry.guiBridgeMethod && activeGuiBridgeMethods.has(entry.guiBridgeMethod)) {
+      violations.push(`${relativePath}: duplicate active guiBridgeMethod ${entry.guiBridgeMethod}`);
+    }
+    if (entry.guiBridgeMethod) activeGuiBridgeMethods.add(entry.guiBridgeMethod);
     const methodPath = `${entry.method ?? ""} ${entry.path ?? ""}`;
     if (entry.method && entry.path && methodPaths.has(methodPath)) violations.push(`${relativePath}: duplicate route method/path ${methodPath}`);
     if (entry.method && entry.path) methodPaths.add(methodPath);
@@ -474,8 +442,23 @@ function propertyName(name, sourceFile) {
 
 function stripAsExpression(node) {
   let current = node;
-  while (ts.isAsExpression(current) || ts.isSatisfiesExpression(current)) current = current.expression;
-  return current;
+  while (true) {
+    if (ts.isAsExpression(current) || ts.isSatisfiesExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (
+      ts.isCallExpression(current) &&
+      ts.isPropertyAccessExpression(current.expression) &&
+      current.expression.expression.getText() === "Object" &&
+      current.expression.name.text === "freeze" &&
+      current.arguments.length === 1
+    ) {
+      current = current.arguments[0];
+      continue;
+    }
+    return current;
+  }
 }
 
 function readSource(root, relativePath, violations) {
