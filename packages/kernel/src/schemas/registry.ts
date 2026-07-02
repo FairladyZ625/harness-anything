@@ -5,10 +5,12 @@ import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { ActorRefSchema, LinkKindSchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
+import { FactRecordSchema } from "./fact-record.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
+export { FactRecordSchema } from "./fact-record.ts";
 export {
   EntityRelationRecordSchema,
   EntityRelationsSchema,
@@ -472,6 +474,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/entity-relations.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/entity-relations/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/entity-relations/invalid.json"
+  },
+  {
+    id: "fact-record",
+    schema: FactRecordSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/fact-record.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/fact-record/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/fact-record/invalid.json"
   },
   {
     id: "write-journal-op",

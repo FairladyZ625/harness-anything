@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { findEntityRefs } from "../domain/index.ts";
+import { findEntityRefs, parseFactFlowRecords } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -180,15 +180,16 @@ function findDecisionWatermarkIssues(rootInput: HarnessLayoutInput): ReadonlyArr
 }
 
 function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
-  const rootDir = resolveHarnessLayout(rootInput).rootDir;
-  const knownTaskIds = new Set(entries.map((entry) => readScalar(entry.frontmatter, "task_id") || entry.taskId));
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const knownRefs = buildEntityRefIndex(rootInput, entries);
   const warnings: ProjectionWarning[] = [];
-  const files = listTextFiles(resolveHarnessLayout(rootInput).authoredRoot);
+  const files = listTextFiles(layout.authoredRoot);
   for (const filePath of files) {
     const body = readFileSync(filePath, "utf8");
     for (const ref of findEntityRefs(body)) {
       if (ref.externalHarness) continue;
-      if (ref.id.length > 0 && !knownTaskIds.has(ref.id)) {
+      if (ref.kind === "task" && !knownRefs.taskIds.has(ref.id)) {
         warnings.push(hardFail(
           "source-package",
           "dangling_entity_ref",
@@ -197,9 +198,73 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
         ));
         return warnings;
       }
+      if (ref.kind === "decision" && (!knownRefs.decisionIds.has(ref.id) || (ref.anchor && !knownRefs.decisionAnchors.has(`${ref.id}/${ref.anchor}`)))) {
+        const rendered = ref.anchor ? `decision/${ref.id}/${ref.anchor}` : `decision/${ref.id}`;
+        warnings.push(hardFail(
+          "source-package",
+          "dangling_entity_ref",
+          `Dangling decision reference ${rendered} in ${sourcePath(rootDir, filePath)}.`,
+          "Update the reference to an existing decision package or remove the stale relation."
+        ));
+        return warnings;
+      }
+      if (ref.kind === "fact") {
+        const key = `${ref.ownerTaskId}/${ref.id}`;
+        if (!ref.ownerTaskId || !knownRefs.taskIds.has(ref.ownerTaskId) || !knownRefs.factRefs.has(key)) {
+          warnings.push(hardFail(
+            "source-package",
+            "dangling_entity_ref",
+            `Dangling fact reference fact/${ref.ownerTaskId ?? "unknown"}/${ref.id} in ${sourcePath(rootDir, filePath)}.`,
+            "Restore the task-local F-id in facts.md or remove the stale relation."
+          ));
+          return warnings;
+        }
+      }
     }
   }
   return warnings;
+}
+
+interface EntityRefIndex {
+  readonly taskIds: ReadonlySet<string>;
+  readonly decisionIds: ReadonlySet<string>;
+  readonly decisionAnchors: ReadonlySet<string>;
+  readonly factRefs: ReadonlySet<string>;
+}
+
+function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>): EntityRefIndex {
+  const layout = resolveHarnessLayout(rootInput);
+  const taskIds = new Set(entries.map((entry) => readScalar(entry.frontmatter, "task_id") || entry.taskId));
+  const factRefs = new Set<string>();
+  for (const entry of entries) {
+    const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
+    const factsPath = path.join(path.dirname(entry.indexPath), "facts.md");
+    if (!existsSync(factsPath)) continue;
+    for (const record of parseFactFlowRecords(readFileSync(factsPath, "utf8"))) {
+      factRefs.add(`${taskId}/${record.fact_id}`);
+    }
+  }
+
+  const decisionIds = new Set<string>();
+  const decisionAnchors = new Set<string>();
+  for (const filePath of listTextFiles(path.join(layout.authoredRoot, "decisions"))) {
+    if (path.basename(filePath) !== "decision.md") continue;
+    const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
+    if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
+    const decisionId = readScalar(frontmatter, "decision_id");
+    if (!decisionId) continue;
+    decisionIds.add(decisionId);
+    for (const anchor of findDecisionAnchors(frontmatter)) {
+      decisionAnchors.add(`${decisionId}/${anchor}`);
+    }
+  }
+  return { taskIds, decisionIds, decisionAnchors, factRefs };
+}
+
+function findDecisionAnchors(frontmatter: string): ReadonlyArray<string> {
+  return [...frontmatter.matchAll(/^\s*-\s*\{\s*id:\s*"?([A-Za-z][A-Za-z0-9_-]*)"?/gmu)]
+    .map((match) => match[1])
+    .filter((anchor): anchor is string => Boolean(anchor));
 }
 
 function findRelationCycles(entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {

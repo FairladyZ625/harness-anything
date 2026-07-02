@@ -12,6 +12,7 @@ export type CommandParserId =
   | "core-task"
   | "new-task"
   | "decision"
+  | "record"
   | "status-check"
   | "migration"
   | "git-diff"
@@ -28,6 +29,7 @@ export type CommandRunnerId =
   | "init"
   | "new-task"
   | "decision"
+  | "fact"
   | "task-lifecycle"
   | "task-gates"
   | "task-query"
@@ -63,6 +65,7 @@ const commandUsages = [
   { kind: "decision-supersede", usage: "decision supersede <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
   { kind: "decision-amend", usage: "decision amend <decision-id> [--title <title>] [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-retire", usage: "decision retire <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
+  { kind: "record-fact", usage: "record fact --task <task-id> --statement <text> --source <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--observed-at <iso>] [--dry-run] [--json]" },
   { kind: "template-list", usage: "template list [--catalog <path>] [--json]" },
   { kind: "template-render", usage: "template render <template-ref> [--catalog <path>] [--locale zh-CN|en-US] [--json]" },
   { kind: "task-list", usage: "task list [--state <state>] [--module <key>] [--queue <queue>] [--preset <id>] [--review <state>] [--lesson [present|missing]] [--missing-materials] [--include-archived] [--search <text>] [--json]" },
@@ -121,6 +124,7 @@ const commandParserIds = {
   "decision-supersede": "decision",
   "decision-amend": "decision",
   "decision-retire": "decision",
+  "record-fact": "record",
   "status-set": "core-task",
   "progress-append": "core-task",
   "task-archive": "core-task",
@@ -185,6 +189,7 @@ const commandRunnerIds = {
   "decision-supersede": "decision",
   "decision-amend": "decision",
   "decision-retire": "decision",
+  "record-fact": "fact",
   "status-set": "task-lifecycle",
   "progress-append": "task-lifecycle",
   "task-archive": "task-lifecycle",
@@ -257,6 +262,7 @@ const commandSummaries = {
   "decision-supersede": "Supersede a decision through the decision write service.",
   "decision-amend": "Amend a decision without changing its lifecycle state.",
   "decision-retire": "Retire a decision through the decision write service.",
+  "record-fact": "Record a stable task-local fact anchor through the fact write service.",
   "template-list": "List available task and document templates.",
   "template-render": "Render a template reference with a selected locale.",
   "task-list": "List task packages with state, module, review, and search filters.",
@@ -321,6 +327,7 @@ const commandExamples = {
   "decision-supersede": [`${cliCommandName} decision supersede dec_01ABC --arbiter human:ZeyuLi`],
   "decision-amend": [`${cliCommandName} decision amend dec_01ABC --title "Updated title"`],
   "decision-retire": [`${cliCommandName} decision retire dec_01ABC --arbiter human:ZeyuLi`],
+  "record-fact": [`${cliCommandName} record fact --task task_01ABC --statement "CLI fallback passed" --source "manual verification" --confidence high`],
   "template-list": [`${cliCommandName} template list --json`],
   "template-render": [`${cliCommandName} template render template://planning/task@1 --locale zh-CN`],
   "task-list": [`${cliCommandName} task list --state active --module kernel --review missing`],
@@ -494,6 +501,7 @@ function optionDescription(flag: string): string {
     "--depends-on": "Register a module dependency.",
     "--dry-run": "Preview the operation without writing changes.",
     "--evidence": "Attach evidence in type:path:summary format.",
+    "--confidence": "Set fact confidence as low, medium, or high.",
     "--force": "Force the lifecycle transition with audit metadata.",
     "--from-legacy": "Create from a legacy task id.",
     "--hard": "Hard-delete the selected task.",
@@ -512,6 +520,7 @@ function optionDescription(flag: string): string {
     "--module-scope": "Set the registered module source scope, such as packages/name/**.",
     "--module-title": "Set the human-readable title for a registered module.",
     "--name": "Set the project name written to harness.yaml.",
+    "--observed-at": "Set the observation timestamp for a fact record.",
     "--out": "Write the generated plan to a file.",
     "--out-dir": "Set the output directory.",
     "--owner": "Set the module owner.",
@@ -539,8 +548,9 @@ function optionDescription(flag: string): string {
     "--slug": "Set the task slug.",
     "--scope": "Set the module scope.",
     "--soft": "Soft-delete the selected task.",
-    "--source": "Filter script entries by source layer.",
+    "--source": "Set the fact evidence source or filter extension entries by source layer.",
     "--state": "Set or filter by state.",
+    "--statement": "Set the fact statement text.",
     "--status": "Set the external or module status.",
     "--strict": "Run strict checks.",
     "--task": "Set the task id.",

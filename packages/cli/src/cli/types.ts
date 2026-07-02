@@ -30,6 +30,8 @@ export interface CliResult {
   readonly command: string;
   readonly taskId?: string;
   readonly decisionId?: string;
+  readonly factId?: string;
+  readonly factRef?: string;
   readonly decisionState?: string;
   readonly slug?: string;
   readonly status?: DomainStatus;
@@ -118,6 +120,7 @@ export interface ParsedCommand {
     | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: string; readonly rejected: string; readonly whyNot: string; readonly claim?: string; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly proposedBy?: string; readonly arbiter?: string; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire"; readonly decisionId: string; readonly arbiter?: string; readonly decidedAt?: string; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly body?: string; readonly dryRun: boolean }
+    | { readonly kind: "record-fact"; readonly taskId: string; readonly factId?: string; readonly statement: string; readonly source: string; readonly observedAt?: string; readonly confidence: "low" | "medium" | "high"; readonly dryRun: boolean }
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "version" }

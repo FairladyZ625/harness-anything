@@ -1,0 +1,8 @@
+{
+  "schema": "fact-record/v1",
+  "fact_id": "F-12",
+  "statement": "",
+  "source": "fixture",
+  "observedAt": "2026-07-03T00:00:00.000Z",
+  "confidence": "unknown"
+}

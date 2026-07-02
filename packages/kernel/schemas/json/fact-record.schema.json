@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-harness-schema-id": "fact-record",
+  "title": "Harness Fact Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "fact_id",
+    "statement",
+    "source",
+    "observedAt",
+    "confidence"
+  ],
+  "properties": {
+    "schema": {
+      "const": "fact-record/v1"
+    },
+    "fact_id": {
+      "type": "string",
+      "pattern": "^F-[0-9A-HJKMNP-TV-Z]{8}$"
+    },
+    "statement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observedAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    }
+  }
+}
