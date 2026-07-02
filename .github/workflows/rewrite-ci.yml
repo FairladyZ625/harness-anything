@@ -9,7 +9,33 @@ on:
   schedule:
     - cron: "17 19 * * *"
 
+# Cancel superseded PR runs (e.g. after a force-push). Never cancel main/nightly
+# full-check runs — those must always complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Detect what a PR touched so heavy, package-scoped jobs can no-op their
+  # expensive steps. The jobs still run and report green, so required-check
+  # branch protection never deadlocks on a skipped context.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      gui: ${{ steps.filter.outputs.gui }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gui:
+              - 'packages/gui/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig*.json'
+
   full-check:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -115,6 +141,7 @@ jobs:
 
   gui-build:
     if: github.event_name == 'pull_request'
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,9 +149,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run test:gui
-      - run: npm run -w @harness-anything/gui build
+      # Skip the GUI build/test when a PR touches no GUI or shared-root files.
+      - if: needs.changes.outputs.gui == 'true'
+        run: npm ci
+      - if: needs.changes.outputs.gui == 'true'
+        run: npm run test:gui
+      - if: needs.changes.outputs.gui == 'true'
+        run: npm run -w @harness-anything/gui build
 
   node26-compatibility:
     if: github.event_name == 'pull_request'

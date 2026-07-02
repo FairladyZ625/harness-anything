@@ -9,7 +9,8 @@ export function parseRunnerArgs(args, tierNames) {
     tier: "all",
     list: false,
     slowThresholdMs: 1000,
-    slowLimit: 10
+    slowLimit: 10,
+    concurrency: undefined
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -49,6 +50,17 @@ export function parseRunnerArgs(args, tierNames) {
     }
     if (arg.startsWith("--slow-limit=")) {
       options.slowLimit = parsePositiveInteger(arg.slice("--slow-limit=".length), "--slow-limit");
+      continue;
+    }
+    if (arg === "--concurrency") {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("--concurrency requires a value");
+      options.concurrency = parsePositiveInteger(value, "--concurrency");
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--concurrency=")) {
+      options.concurrency = parsePositiveInteger(arg.slice("--concurrency=".length), "--concurrency");
       continue;
     }
 

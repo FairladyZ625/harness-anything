@@ -8,6 +8,13 @@ import { testTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 const repoRoot = resolve(import.meta.dirname, "..");
 const roots = ["packages", "tools"];
 
+// Reuse type-strip/compile output across the test host and every CLI
+// subprocess it spawns (integration tests cold-start `node src/index.ts` per
+// assertion). Native Node compile cache — no build step. Children inherit the
+// env, so the cache is shared. Lives under node_modules/.cache (already
+// git-ignored).
+process.env.NODE_COMPILE_CACHE ||= resolve(repoRoot, "node_modules/.cache/harness-node-compile");
+
 let options;
 try {
   options = parseRunnerArgs(process.argv.slice(2), testTierNames);
@@ -38,7 +45,14 @@ if (options.list) {
   process.exit(0);
 }
 
-const child = spawn(process.execPath, ["--test", ...selection.files], {
+// Cap process fan-out so full runs don't exhaust memory on developer laptops.
+// --concurrency wins; else HARNESS_TEST_CONCURRENCY; else node's default (cores-1).
+const envConcurrency = process.env.HARNESS_TEST_CONCURRENCY;
+const concurrency = options.concurrency ?? (envConcurrency ? Number.parseInt(envConcurrency, 10) : undefined);
+const concurrencyArgs =
+  concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
+
+const child = spawn(process.execPath, ["--test", ...concurrencyArgs, ...selection.files], {
   cwd: repoRoot,
   stdio: ["inherit", "pipe", "pipe"]
 });
