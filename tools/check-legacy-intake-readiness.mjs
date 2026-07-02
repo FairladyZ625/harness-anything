@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -280,13 +281,14 @@ export function collectGitIgnoredFiles(root, files, options = {}) {
   const ignored = new Set();
   const run = options.spawnSync ?? spawnSync;
   const maxInputBytes = options.maxInputBytes ?? gitCheckIgnoreChunkBytes;
+  // Feed stdin from a temp file, not a pipe: `git check-ignore --stdin` can exit
+  // before draining its input, which breaks a live pipe with EPIPE (node/platform
+  // dependent). A file descriptor has no pipe to break — git reads what it needs and
+  // ignores the rest. `-z` requires `--stdin`, so argv delivery is not an option.
+  // Chunking bounds each temp file's size.
   for (const chunk of chunkGitCheckIgnoreInput(files, maxInputBytes)) {
-    const result = run("git", ["-C", root, "check-ignore", "-z", "--stdin"], {
-      encoding: "utf8",
-      input: `${chunk.join("\0")}\0`,
-      stdio: ["pipe", "pipe", "ignore"]
-    });
-    if (result.error && !isBenignGitCheckIgnorePipeError(result)) throw result.error;
+    const result = runGitCheckIgnoreChunk(run, root, chunk, options);
+    if (result.error) throw result.error;
     if (result.status !== 0) continue;
     for (const file of (result.stdout ?? "").split("\0").filter(Boolean)) ignored.add(file);
   }
@@ -294,8 +296,29 @@ export function collectGitIgnoredFiles(root, files, options = {}) {
   return ignored;
 }
 
-function isBenignGitCheckIgnorePipeError(result) {
-  return result.error?.code === "EPIPE" && (result.status === 0 || result.status === 1);
+function runGitCheckIgnoreChunk(run, root, chunk, options) {
+  const input = `${chunk.join("\0")}\0`;
+  // Tests inject spawnSync and assert on the passed input; honor that path directly.
+  if (options.spawnSync) {
+    return run("git", ["-C", root, "check-ignore", "-z", "--stdin"], {
+      encoding: "utf8",
+      input,
+      stdio: ["pipe", "pipe", "ignore"]
+    });
+  }
+  const dir = mkdtempSync(path.join(os.tmpdir(), "ha-check-ignore-"));
+  const inputPath = path.join(dir, "paths");
+  writeFileSync(inputPath, input);
+  const fd = openSync(inputPath, "r");
+  try {
+    return run("git", ["-C", root, "check-ignore", "-z", "--stdin"], {
+      encoding: "utf8",
+      stdio: [fd, "pipe", "ignore"]
+    });
+  } finally {
+    closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function chunkGitCheckIgnoreInput(files, maxInputBytes) {

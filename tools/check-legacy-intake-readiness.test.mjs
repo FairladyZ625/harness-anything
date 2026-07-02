@@ -83,27 +83,30 @@ test("Legacy Intake readiness batches git check-ignore input and reports spawn e
   });
 });
 
-test("Legacy Intake readiness tolerates benign git check-ignore EPIPE", async () => {
+test("Legacy Intake readiness feeds check-ignore chunks over stdin without a live pipe on Linux", async () => {
   await withFixtureRepo(async (root) => {
+    runGit(root, "init");
+    writeFileSync(path.join(root, ".gitignore"), "/harness/\n", "utf8");
+
+    // Real git over the default (temp-file fd) stdin path: no EPIPE, correct result.
     const ignored = collectGitIgnoredFiles(root, [
       "harness/private-a.md",
-      "public.md"
-    ], {
-      spawnSync: () => ({
-        error: Object.assign(new Error("spawnSync git EPIPE"), { code: "EPIPE", errno: -32 }),
-        status: 0,
-        stdout: "harness/private-a.md\0"
-      })
-    });
+      "public.md",
+      "harness/private-b.md"
+    ], { maxInputBytes: 24 });
+    assert.deepEqual([...ignored].sort(), ["harness/private-a.md", "harness/private-b.md"]);
 
-    assert.deepEqual([...ignored], ["harness/private-a.md"]);
-    assert.deepEqual([...collectGitIgnoredFiles(root, ["public.md"], {
-      spawnSync: () => ({
-        error: Object.assign(new Error("spawnSync git EPIPE"), { code: "EPIPE", errno: -32 }),
-        status: 1,
-        stdout: ""
-      })
-    })], []);
+    // Injected spawnSync still receives the paths as NUL-delimited stdin input.
+    const calls = [];
+    collectGitIgnoredFiles(root, ["harness/private-a.md", "public.md"], {
+      maxInputBytes: 24,
+      spawnSync: (command, args, spawnOptions) => {
+        calls.push(spawnOptions.input);
+        return { status: 1, stdout: "" };
+      }
+    });
+    assert.ok(calls.length > 0);
+    assert.ok(calls.every((input) => typeof input === "string" && input.endsWith("\0")));
   });
 });
 
