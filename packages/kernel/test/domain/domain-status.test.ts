@@ -7,6 +7,10 @@ import {
   needsReviewArtifacts,
   statusCoarseClass
 } from "../../src/domain/lifecycle-status.ts";
+import {
+  decisionStates,
+  explainDecisionStateTransition
+} from "../../src/domain/decision-lifecycle-status.ts";
 import { DomainStatusSchema } from "../../src/schemas/registry.ts";
 
 test("domain status vocabulary is exactly the six canonical coordination states", () => {
@@ -71,4 +75,34 @@ test("domain owns canonical lifecycle status transition semantics", () => {
   }
   assert.deepEqual(explainStatusTransition("done", "active"), { allowed: false, reason: "terminal_status" });
   assert.deepEqual(explainStatusTransition("planned", "done"), { allowed: false, reason: "unsupported_transition" });
+});
+
+test("domain owns canonical decision state transition semantics", () => {
+  assert.deepEqual([...decisionStates], [
+    "proposed",
+    "active",
+    "rejected",
+    "deferred",
+    "retired"
+  ]);
+
+  const allowed = new Set([
+    "proposed->proposed",
+    "proposed->active",
+    "proposed->rejected",
+    "proposed->deferred",
+    "active->active",
+    "active->retired",
+    "rejected->rejected",
+    "deferred->deferred",
+    "retired->retired"
+  ]);
+
+  for (const from of decisionStates) {
+    for (const to of decisionStates) {
+      assert.equal(explainDecisionStateTransition(from, to).allowed, allowed.has(`${from}->${to}`), `${from} -> ${to}`);
+    }
+  }
+  assert.deepEqual(explainDecisionStateTransition("rejected", "active"), { allowed: false, reason: "terminal_state" });
+  assert.deepEqual(explainDecisionStateTransition("active", "rejected"), { allowed: false, reason: "unsupported_transition" });
 });

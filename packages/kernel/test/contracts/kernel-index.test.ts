@@ -11,6 +11,13 @@ test("kernel public source index is importable by the explicit TS test runner", 
     "done",
     "cancelled"
   ]);
+  assert.deepEqual([...kernel.decisionStates], [
+    "proposed",
+    "active",
+    "rejected",
+    "deferred",
+    "retired"
+  ]);
   assert.equal(typeof kernel.LifecycleEngine, "object");
   assert.equal(typeof kernel.schemaRegistry.length, "number");
 });

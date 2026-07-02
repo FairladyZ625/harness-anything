@@ -2,6 +2,11 @@ import { Schema } from "effect";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
+import { ActorRefSchema, LinkKindSchema } from "./common.ts";
+import { DecisionPackageSchema } from "./decision-package.ts";
+
+export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
+export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
 
 export const DomainStatusSchema = Schema.Literal(
   ...domainStatuses
@@ -9,8 +14,6 @@ export const DomainStatusSchema = Schema.Literal(
 
 export const SnapshotStatusSchema = Schema.Union(DomainStatusSchema, Schema.Literal("unknown"));
 export const FreshnessSchema = Schema.Literal("fresh", "stale-but-usable", "unavailable-no-cache");
-export const ActorKindSchema = Schema.Literal("agent", "human", "system");
-export const LinkKindSchema = Schema.Literal("artifact", "commit", "review");
 
 const OptionalString = Schema.optional(Schema.String);
 const NullableString = Schema.NullOr(Schema.String);
@@ -21,11 +24,6 @@ const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?
 const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
 const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
 const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
-
-export const ActorRefSchema = Schema.Struct({
-  kind: ActorKindSchema,
-  id: Schema.String
-});
 
 export const HarnessConfigSchema = Schema.Struct({
   schema: Schema.Literal("harness/v2"),
@@ -429,6 +427,7 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
 
 export type HarnessConfig = Schema.Schema.Type<typeof HarnessConfigSchema>;
 export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
+export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
 export type WriteJournalOp = Schema.Schema.Type<typeof WriteJournalOpSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
@@ -459,6 +458,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/task-frontmatter.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/task-frontmatter/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/task-frontmatter/invalid.json"
+  },
+  {
+    id: "decision-package",
+    schema: DecisionPackageSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/decision-package.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/decision-package/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/decision-package/invalid.json"
   },
   {
     id: "write-journal-op",
