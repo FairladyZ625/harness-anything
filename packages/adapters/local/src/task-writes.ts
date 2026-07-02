@@ -51,11 +51,12 @@ export function writeTaskDocuments(
 export function writeSupersedeTaskDocuments(
   coordinator: WriteCoordinator,
   hashPayload: HashPayload,
+  taskId: TaskId,
   writes: ReadonlyArray<SupersedeDocumentWrite>
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
     yield* writeCoordinatedPayload(coordinator, hashPayload, {
-      taskId: writes[0]?.taskId ?? "unknown",
+      taskId,
       kind: "package_supersede",
       payload: { writes }
     });

@@ -48,7 +48,11 @@ export function writeCoordinatedPayload(
   options: { readonly flush?: boolean } = {}
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
-    const opId = `${input.opIdPrefix ?? Date.now()}-${hashPayload(input.payload ?? input).slice(0, 16)}`;
+    const opId = `${input.opIdPrefix ?? Date.now()}-${hashPayload({
+      taskId: input.taskId,
+      kind: input.kind,
+      payload: input.payload
+    }).slice(0, 16)}`;
     yield* coordinator.enqueue({
       opId,
       taskId: input.taskId,

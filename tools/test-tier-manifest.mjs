@@ -1,5 +1,6 @@
 export const testTierManifest = {
   fast: [
+    "packages/adapters/local/test/task-writes.test.ts",
     "packages/cli/test/parse-args.test.ts",
     "packages/gui/test/markdown-sanitize.test.ts",
     "packages/gui/test/terminal-backend-policy.test.ts",
@@ -13,6 +14,7 @@ export const testTierManifest = {
     "packages/kernel/test/layout/portable-path.test.ts",
     "packages/kernel/test/markdown/frontmatter.test.ts",
     "packages/kernel/test/publish/idempotency.test.ts",
+    "packages/kernel/test/write-coordination/write-helpers.test.ts",
     "tools/run-gui-tests.test.mjs",
     "tools/run-node-tests.test.mjs"
   ],

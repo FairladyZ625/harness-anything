@@ -260,7 +260,7 @@ function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: Readonl
   }));
   const targetPaths = new Set<string>();
   for (const entry of entries) {
-    if (targetPaths.has(entry.targetPath)) rejectWrite(`duplicate batch write target: ${entry.write.path}`, taskId);
+    if (targetPaths.has(entry.targetPath)) rejectWrite(`duplicate batch write target: ${entry.write.path}`, entry.write.taskId);
     targetPaths.add(entry.targetPath);
   }
 
