@@ -101,21 +101,70 @@ test("import boundary check blocks new CLI adapter imports outside allowlisted d
   }
 });
 
-test("import boundary check rejects package modules that are only re-exported by the root barrel", () => {
+test("import boundary check rejects package modules outside distribution that are only re-exported by the root barrel", () => {
   const root = makeFixtureRoot();
   try {
-    mkdirSync(path.join(root, "packages/gui/src/distribution"), { recursive: true });
+    mkdirSync(path.join(root, "packages/gui/src/terminal"), { recursive: true });
     writeFileSync(path.join(root, "packages/gui/src/index.ts"), [
-      "export { unusedPolicy } from './distribution/unused-policy.ts';"
+      "export { unusedPolicy } from './terminal/unused-policy.ts';"
     ].join("\n"), "utf8");
-    writeFileSync(path.join(root, "packages/gui/src/distribution/unused-policy.ts"), [
+    writeFileSync(path.join(root, "packages/gui/src/terminal/unused-policy.ts"), [
       "export const unusedPolicy = true;"
     ].join("\n"), "utf8");
 
     const result = runChecker(root);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/gui\/src\/distribution\/unused-policy\.ts/);
+    assert.match(result.stderr, /packages\/gui\/src\/terminal\/unused-policy\.ts/);
     assert.match(result.stderr, /only re-exported from its package barrel/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check does not treat package entry imports as barrel re-exports", () => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/cli/src/cli"), { recursive: true });
+    writeFileSync(path.join(root, "packages/cli/src/index.ts"), [
+      "import { parseArgs } from './cli/parse-args.ts';",
+      "export function main(argv) { return parseArgs(argv); }"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/cli/src/cli/parse-args.ts"), [
+      "export function parseArgs(argv) {",
+      "  return argv;",
+      "}"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check counts matching package barrel imports as real consumers only for imported names", () => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
+    writeFileSync(path.join(root, "packages/application/src/index.ts"), [
+      "export { liveGate } from './live-gate.ts';",
+      "export { orphanGate } from './orphan-gate.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/application/src/live-gate.ts"), [
+      "export const liveGate = true;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/application/src/orphan-gate.ts"), [
+      "export const orphanGate = true;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/cli/src/commands/check.ts"), [
+      "import { liveGate } from '../../../application/src/index.ts';",
+      "export const checked = liveGate;"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.stderr, /packages\/application\/src\/live-gate\.ts/);
+    assert.match(result.stderr, /packages\/application\/src\/orphan-gate\.ts/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

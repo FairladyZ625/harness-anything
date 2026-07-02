@@ -1,3 +1,4 @@
+/** @slice-activation Slice 7.5 GUI doc renderer - Markdown document rendering consumes this sanitizer when wired. */
 export interface SanitizedDocument {
   readonly html: string;
   readonly strippedReasons: readonly string[];

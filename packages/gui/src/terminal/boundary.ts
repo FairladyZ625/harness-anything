@@ -1,3 +1,4 @@
+/** @slice-activation Slice 7.5 GUI terminal - Shell panel execution boundary is enforced when terminal host wiring lands. */
 export interface ShellPanelPolicy {
   readonly spawnRequiresUserAction: true;
   readonly hiddenCommandInjectionAllowed: false;

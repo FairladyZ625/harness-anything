@@ -1,3 +1,11 @@
+import {
+  directPtyCapability,
+  selectTerminalBackend,
+  type TerminalBackendCapability,
+  type TerminalBackendSelectionSuccess,
+  type TerminalBackendWarning
+} from "./backend-policy.ts";
+
 export type TerminalBackend = "direct-pty" | "tmux" | "remote";
 export type TerminalSessionStatus = "active" | "idle" | "exited";
 
@@ -5,6 +13,7 @@ export interface TerminalSessionInfo {
   readonly sessionId: string;
   readonly name: string;
   readonly backend: TerminalBackend;
+  readonly backendWarnings?: ReadonlyArray<TerminalBackendWarning>;
   readonly status: TerminalSessionStatus;
   readonly envProfileId?: string;
   readonly hostProfileId?: string;
@@ -100,6 +109,8 @@ export interface TerminalSessionRegistryOptions {
   readonly createId?: () => string;
   readonly now?: () => string;
   readonly defaultBackend?: TerminalBackend;
+  readonly backendCapabilities?: ReadonlyArray<TerminalBackendCapability>;
+  readonly allowDirectPtyFallback?: boolean;
   readonly defaultHostLabel?: string;
   readonly scrollback?: ScrollbackConfig;
 }
@@ -115,6 +126,7 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
   const createId = options.createId ?? randomSessionId;
   const now = options.now ?? (() => new Date().toISOString());
   const defaultBackend = options.defaultBackend ?? "direct-pty";
+  const backendCapabilities = options.backendCapabilities ?? [directPtyCapability()];
   const defaultHostLabel = options.defaultHostLabel ?? "local";
   const scrollback = options.scrollback ?? defaultScrollback;
 
@@ -129,6 +141,17 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
     return session;
   }
 
+  function selectBackend(requestedBackend?: TerminalBackend): TerminalBackendSelectionSuccess | TerminalSessionFailure {
+    const selection = selectTerminalBackend({
+      requestedBackend,
+      defaultBackend,
+      capabilities: backendCapabilities,
+      allowDirectPtyFallback: options.allowDirectPtyFallback
+    });
+    if (!selection.ok) return failure(selection.error.code, selection.error.hint);
+    return selection;
+  }
+
   return {
     createSession: (payload) => {
       const timestamp = now();
@@ -138,12 +161,15 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
         if (source.status !== "exited") {
           return failure("terminal_session_not_exited", "Only exited terminal sessions can be reopened.");
         }
+        const selectedBackend = selectBackend(payload.backend ?? source.backend);
+        if (!selectedBackend.ok) return selectedBackend;
         return {
           ok: true,
           session: save({
             sessionId: createId(),
             name: payload.name ?? source.name,
-            backend: payload.backend ?? source.backend,
+            backend: selectedBackend.backend,
+            ...backendWarningProperties(selectedBackend),
             envProfileId: payload.envProfileId ?? source.envProfileId,
             hostProfileId: payload.hostProfileId ?? source.hostProfileId,
             hostLabel: payload.hostLabel ?? source.hostLabel,
@@ -158,12 +184,15 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
         };
       }
 
+      const selectedBackend = selectBackend(payload.backend);
+      if (!selectedBackend.ok) return selectedBackend;
       return {
         ok: true,
         session: save({
           sessionId: createId(),
           name: payload.name ?? "Terminal",
-          backend: payload.backend ?? defaultBackend,
+          backend: selectedBackend.backend,
+          ...backendWarningProperties(selectedBackend),
           status: "active",
           envProfileId: payload.envProfileId,
           hostProfileId: payload.hostProfileId,
@@ -228,6 +257,12 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
 
 function failure(code: string, hint: string): TerminalSessionFailure {
   return { ok: false, error: { code, hint } };
+}
+
+function backendWarningProperties(
+  selection: TerminalBackendSelectionSuccess
+): Pick<TerminalSessionInfo, "backendWarnings"> {
+  return selection.warnings.length > 0 ? { backendWarnings: selection.warnings } : {};
 }
 
 function isTerminalSessionInfo(value: TerminalSessionInfo | TerminalSessionFailure): value is TerminalSessionInfo {

@@ -89,50 +89,126 @@ async function collectImportEdges(files, knownFiles) {
   for (const file of files) {
     const text = await readFile(file, "utf8");
     const rel = relative(file);
-    const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
-    for (const specifier of imports) {
+    const imports = [...text.matchAll(importPattern)].map((match) => ({
+      specifier: match[1] ?? match[2] ?? match[3],
+      statement: match[0]
+    }));
+    for (const { specifier, statement } of imports) {
       const target = resolveImportFile(file, specifier, knownFiles);
-      if (target) edges.push({ importer: rel, target, specifier });
+      if (target) {
+        edges.push({
+          importer: rel,
+          target,
+          specifier,
+          statement,
+          kind: importStatementKind(statement),
+          importedNames: extractImportedNames(statement)
+        });
+      }
     }
   }
   return edges;
+}
+
+function importStatementKind(statement) {
+  const trimmed = statement.trimStart();
+  if (trimmed.startsWith("export")) return "reexport";
+  if (trimmed.startsWith("require")) return "require";
+  if (/^import\s*\(/u.test(trimmed)) return "dynamic";
+  return "import";
+}
+
+function extractImportedNames(statement) {
+  const trimmed = statement.trim();
+  if (!trimmed.startsWith("import") || /^import\s*\(/u.test(trimmed)) return null;
+  if (/^import\s+(?:type\s+)?\*\s+as\s+/u.test(trimmed)) return "namespace";
+  const namedMatch = /\bimport\s+(?:type\s+)?(?:[^"']*?,\s*)?\{([^}]*)\}\s+from\b/su.exec(statement);
+  if (!namedMatch) return null;
+  return parseSpecifierListNames(namedMatch[1], "imported");
+}
+
+function parseSpecifierListNames(specifierList, mode) {
+  const names = new Set();
+  for (const rawPart of specifierList.split(",")) {
+    const part = rawPart.trim().replace(/^type\s+/u, "");
+    if (!part) continue;
+    const [left, right] = part.split(/\s+as\s+/u).map((value) => value.trim()).filter(Boolean);
+    const name = mode === "exported" ? right ?? left : left;
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+function extractReexportedNames(statement, targetText) {
+  const trimmed = statement.trim();
+  const namespaceMatch = /^export\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\b/u.exec(trimmed);
+  if (namespaceMatch) return new Set([namespaceMatch[1]]);
+  if (/^export\s+(?:type\s+)?\*\s+from\b/u.test(trimmed)) return extractLocalExportNames(targetText);
+  const namedMatch = /\bexport\s+(?:type\s+)?\{([^}]*)\}\s+from\b/su.exec(statement);
+  if (!namedMatch) return new Set();
+  return parseSpecifierListNames(namedMatch[1], "exported");
+}
+
+function extractLocalExportNames(text) {
+  const names = new Set();
+  const declarationPattern = /\bexport\s+(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gu;
+  for (const match of text.matchAll(declarationPattern)) names.add(match[1]);
+  const namedExportPattern = /\bexport\s+\{([^}]*)\}(?:\s+from\b)?/gsu;
+  for (const match of text.matchAll(namedExportPattern)) {
+    for (const name of parseSpecifierListNames(match[1], "exported")) names.add(name);
+  }
+  return names;
 }
 
 function isTestOrFixturePath(rel) {
   return /(?:^|\/)(?:__fixtures__|fixtures|test|tests)\//.test(rel) || /\.test\.[cm]?[jt]s$/.test(rel);
 }
 
-function packageNameFromSourcePath(rel) {
-  const match = /^packages\/([^/]+)\/src\//u.exec(rel);
+function packageSourceRootFromPath(rel) {
+  const match = /^(packages\/.+?\/src)\//u.exec(rel);
   return match?.[1];
 }
 
 function isOrphanGateCandidate(rel) {
-  return /^packages\/gui\/src\/distribution\//u.test(rel);
+  const packageSourceRoot = packageSourceRootFromPath(rel);
+  return !!packageSourceRoot && rel !== `${packageSourceRoot}/index.ts` && !isTestOrFixturePath(rel);
 }
 
 async function checkOrphanPackageModules(packageFiles, importEdges) {
   const packageFileSet = new Set(packageFiles.map(relative));
-  const barrelTargets = new Set();
+  const barrelTargets = new Map();
   for (const edge of importEdges) {
-    const packageName = packageNameFromSourcePath(edge.importer);
-    if (!packageName || edge.importer !== `packages/${packageName}/src/index.ts`) continue;
-    if (packageNameFromSourcePath(edge.target) !== packageName) continue;
+    const packageSourceRoot = packageSourceRootFromPath(edge.importer);
+    if (!packageSourceRoot || edge.importer !== `${packageSourceRoot}/index.ts`) continue;
+    if (edge.kind !== "reexport") continue;
+    if (packageSourceRootFromPath(edge.target) !== packageSourceRoot) continue;
     if (edge.target.endsWith("/index.ts")) continue;
     if (isTestOrFixturePath(edge.target)) continue;
     if (!isOrphanGateCandidate(edge.target)) continue;
-    if (packageFileSet.has(edge.target)) barrelTargets.add(edge.target);
+    if (!packageFileSet.has(edge.target)) continue;
+    const targetText = await readFile(path.join(root, edge.target), "utf8");
+    const exportedNames = barrelTargets.get(edge.target) ?? new Set();
+    for (const name of extractReexportedNames(edge.statement, targetText)) exportedNames.add(name);
+    barrelTargets.set(edge.target, exportedNames);
   }
 
-  for (const target of barrelTargets) {
+  for (const [target, exportedNames] of barrelTargets) {
     const targetText = await readFile(path.join(root, target), "utf8");
     if (/@slice-activation\b/u.test(targetText)) continue;
+    const packageSourceRoot = packageSourceRootFromPath(target);
+    const packageIndex = `${packageSourceRoot}/index.ts`;
     const hasRealConsumer = importEdges.some((edge) => {
       if (edge.target !== target || edge.importer === target) return false;
       if (isTestOrFixturePath(edge.importer)) return false;
-      const packageName = packageNameFromSourcePath(target);
-      if (packageName && edge.importer === `packages/${packageName}/src/index.ts`) return false;
+      if (edge.importer === packageIndex && edge.kind === "reexport") return false;
       return edge.importer.startsWith("packages/") || edge.importer.startsWith("tools/");
+    }) || importEdges.some((edge) => {
+      if (edge.target !== packageIndex || isTestOrFixturePath(edge.importer)) return false;
+      if (!edge.importer.startsWith("packages/") && !edge.importer.startsWith("tools/")) return false;
+      if (edge.importer === target || edge.importer === packageIndex) return false;
+      if (edge.importedNames === "namespace") return exportedNames.size > 0;
+      if (!edge.importedNames) return false;
+      return [...edge.importedNames].some((name) => exportedNames.has(name));
     });
     if (!hasRealConsumer) {
       record(path.join(root, target), "package source module is only re-exported from its package barrel; add @slice-activation with an owning slice or remove it from src");

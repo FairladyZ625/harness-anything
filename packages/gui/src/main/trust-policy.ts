@@ -1,3 +1,4 @@
+/** @slice-activation Slice 7.5 GUI trust policy - Embedded browser and terminal link opening consume this when wired. */
 import path from "node:path";
 
 export interface TrustPolicy {

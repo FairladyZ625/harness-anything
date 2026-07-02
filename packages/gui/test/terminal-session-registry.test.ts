@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyShellOutput, createInMemoryTerminalSessionService } from "../src/index.ts";
+import { classifyShellOutput, createInMemoryTerminalSessionService, directPtyCapability, tmuxCapability } from "../src/index.ts";
 
 test("terminal session registry creates lists gets attaches resizes and closes runtime metadata", () => {
   const service = createInMemoryTerminalSessionService({
@@ -103,6 +103,62 @@ test("terminal session reopen creates a new session with inherited metadata", ()
   assert.equal(reopened.session.taskId, "task-1");
   assert.equal(reopened.session.status, "active");
   assert.equal(reopened.session.exitCode, undefined);
+});
+
+test("terminal session registry selects backend through registered capabilities", () => {
+  const service = createInMemoryTerminalSessionService({
+    createId: sequence("term"),
+    now: sequenceTime("2026-06-14T03:00:00.000Z"),
+    defaultBackend: "tmux",
+    backendCapabilities: [directPtyCapability(), tmuxCapability({ available: true, version: "tmux 3.4" })]
+  });
+
+  const created = service.createSession({ name: "Durable shell" });
+
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  assert.equal(created.session.backend, "tmux");
+});
+
+test("terminal session registry fails closed when requested backend is unavailable and fallback is disabled", () => {
+  const service = createInMemoryTerminalSessionService({
+    createId: sequence("term"),
+    now: sequenceTime("2026-06-14T04:00:00.000Z"),
+    backendCapabilities: [directPtyCapability(), tmuxCapability({ available: false, reason: "tmux binary not found" })],
+    allowDirectPtyFallback: false
+  });
+
+  const created = service.createSession({ name: "Strict durable shell", backend: "tmux" });
+
+  assert.deepEqual(created, {
+    ok: false,
+    error: {
+      code: "terminal_backend_unavailable",
+      hint: "tmux binary not found"
+    }
+  });
+});
+
+test("terminal session registry reports non-durable fallback when requested tmux is unavailable", () => {
+  const service = createInMemoryTerminalSessionService({
+    createId: sequence("term"),
+    now: sequenceTime("2026-06-14T05:00:00.000Z"),
+    backendCapabilities: [directPtyCapability(), tmuxCapability({ available: false, reason: "tmux binary not found" })]
+  });
+
+  const created = service.createSession({ name: "Fallback shell", backend: "tmux" });
+
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  assert.equal(created.session.backend, "direct-pty");
+  assert.deepEqual(created.session.backendWarnings, [
+    {
+      code: "terminal_backend_downgraded_non_durable",
+      requestedBackend: "tmux",
+      selectedBackend: "direct-pty",
+      hint: "tmux binary not found"
+    }
+  ]);
 });
 
 test("shell chunks remain display-only", () => {

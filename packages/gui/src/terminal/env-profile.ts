@@ -1,3 +1,4 @@
+/** @slice-activation Slice 7.5 GUI terminal - Environment profile validation is admitted for terminal launch context wiring. */
 export interface EnvProfile {
   readonly envProfileId: string;
   readonly name: string;
