@@ -129,6 +129,38 @@ test("relation graph projection excludes ghost decisions without coordinator wat
   });
 });
 
+test("relation graph projection excludes ghost decisions with duplicate coordinator watermarks", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-duplicate-ghost", "Task Duplicate Ghost");
+    writeFacts(rootDir, "task-duplicate-ghost", [{
+      fact_id: "F-DEADBEEF",
+      statement: "A duplicated watermark should keep copied decisions out of the graph.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }]);
+    writeDecision(rootDir, "dec_DUPLICATE_A", "wm-duplicate", [relationRecord({
+      source: "decision/dec_DUPLICATE_A/C1",
+      target: "fact/task-duplicate-ghost/F-DEADBEEF",
+      type: "supports"
+    })]);
+    writeDecision(rootDir, "dec_DUPLICATE_B", "wm-duplicate", [relationRecord({
+      source: "decision/dec_DUPLICATE_B/C1",
+      target: "fact/task-duplicate-ghost/F-DEADBEEF",
+      type: "supports"
+    })]);
+
+    rebuildTaskProjection({ rootDir });
+    const graph = readRelationGraphProjection({ rootDir });
+    const coverageA = readDecisionFactCoverage({ rootDir, decisionId: "dec_DUPLICATE_A" });
+    const coverageB = readDecisionFactCoverage({ rootDir, decisionId: "dec_DUPLICATE_B" });
+
+    assert.equal(graph.edges.some((edge) => edge.sourceRef.startsWith("decision/dec_DUPLICATE_")), false);
+    assert.deepEqual(coverageA.rows, []);
+    assert.deepEqual(coverageB.rows, []);
+  });
+});
+
 test("post-merge typed relation cycle detection terminates across decision and fact nodes", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-cycle", "Task Cycle");
