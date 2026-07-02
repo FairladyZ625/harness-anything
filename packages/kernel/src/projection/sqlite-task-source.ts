@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { CloseoutReadiness, PackageDisposition } from "../domain/index.ts";
 import { isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
+import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
 import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskProjectionRow } from "./types.ts";
 
 export function readMarkdownSource(rootDir: string): {
@@ -88,14 +89,9 @@ export function taskEntryToRow(rootDir: string, entry: TaskSourceEntry): TaskPro
 }
 
 function parseFrontmatter(body: string): string {
-  const frontmatter = body.match(/^---\n([\s\S]*?)\n---/u)?.[1];
+  const frontmatter = readFrontmatter(body);
   if (!frontmatter) throw new Error("INDEX.md missing frontmatter");
   return frontmatter;
-}
-
-export function readScalar(frontmatter: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
 }
 
 function readCreatedBy(frontmatter: string): { readonly createdBy?: { readonly name: string; readonly email: string } } {
@@ -129,11 +125,6 @@ function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; rea
   };
 }
 
-function readNestedScalar(block: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return block.match(new RegExp(`^[ \\t]+${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
-}
-
 function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStatus {
   if (status === "unknown") return "unknown";
   if (status === "blocked") return "blocked";
@@ -165,7 +156,7 @@ export function hashTaskProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): 
 }
 
 function hashText(text: string): string {
-  return `sha256:${createHash("sha256").update(text).digest("hex")}`;
+  return `sha256:${sha256Text(text)}`;
 }
 
 export function compareRows(a: TaskProjectionRow, b: TaskProjectionRow): number {

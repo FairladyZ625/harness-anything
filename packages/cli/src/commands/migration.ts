@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
+import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -358,7 +358,7 @@ function firstDuplicate(values: ReadonlyArray<string>): string | undefined {
 }
 
 function digestJson(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+  return `sha256:${stablePayloadHash(value)}`;
 }
 
 function writeSession(rootDir: string, outDir: string, session: LegacyIntakeSession): string {

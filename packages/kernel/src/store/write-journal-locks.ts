@@ -3,8 +3,8 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, re
 import { hostname } from "node:os";
 import path from "node:path";
 import type { TaskId } from "../domain/index.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { sha256Text } from "./hash.ts";
 import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./write-journal-durable.ts";
 import type { JournalActor, LockRecord, LockTakeoverRecord, OwnedLock } from "./write-journal-types.ts";
 

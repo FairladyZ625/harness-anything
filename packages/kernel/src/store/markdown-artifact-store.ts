@@ -13,8 +13,9 @@ import type {
 } from "../ports/artifact-store-writer.ts";
 import { isPackageDisposition } from "../domain/index.ts";
 import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../domain/index.ts";
-import { sha256Text } from "./hash.ts";
-import { createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout, taskDocumentPath, taskPackagePath, validateTaskIdSyntax } from "../layout/index.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
+import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+import { createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, resolveHarnessLayout, taskDocumentPath, taskPackagePath, validateTaskIdSyntax } from "../layout/index.ts";
 
 export interface MarkdownArtifactStoreOptions {
   readonly rootDir: string;

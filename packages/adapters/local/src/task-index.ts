@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import type { DomainStatus, EngineError, TaskId } from "../../../kernel/src/domain/index.ts";
 import { isDomainStatus, isPackageDisposition } from "../../../kernel/src/domain/index.ts";
 import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
+import { readFrontmatter, readNestedScalar, readScalar } from "../../../kernel/src/markdown/frontmatter.ts";
 import type { TaskCreatedBy } from "./created-by.ts";
 import type { LocalTaskIndex } from "./types.ts";
 
@@ -99,25 +100,25 @@ export function readIndexEffect(rootDir: string, taskId: TaskId): Effect.Effect<
 export function readIndex(rootDir: string, taskId: TaskId): LocalTaskIndex {
   validateTaskId(taskId);
   const body = readFileSync(indexPath(rootDir, taskId), "utf8");
-  const frontmatter = body.match(/^---\n([\s\S]*?)\n---/u)?.[1];
+  const frontmatter = readFrontmatter(body);
   if (!frontmatter) throw new Error(`INDEX.md missing frontmatter: ${taskId}`);
 
-  const status = readScalar(frontmatter, "  status");
+  const status = readScalar(frontmatter, "  status", { required: true });
   if (!isDomainStatus(status)) throw new Error(`invalid local status: ${status}`);
 
   return {
-    taskId: readScalar(frontmatter, "task_id"),
-    title: readScalar(frontmatter, "title"),
-    engine: readScalar(frontmatter, "  engine"),
+    taskId: readScalar(frontmatter, "task_id", { required: true }),
+    title: readScalar(frontmatter, "title", { required: true }),
+    engine: readScalar(frontmatter, "  engine", { required: true }),
     status,
-    ref: nullIfEmpty(readScalar(frontmatter, "  ref")),
-    titleSnapshot: nullIfEmpty(readScalar(frontmatter, "  titleSnapshot")),
-    url: nullIfEmpty(readScalar(frontmatter, "  url")),
-    bindingCreatedAt: readScalar(frontmatter, "  bindingCreatedAt"),
-    bindingFingerprint: readScalar(frontmatter, "  bindingFingerprint"),
+    ref: nullIfEmpty(readScalar(frontmatter, "  ref", { required: true })),
+    titleSnapshot: nullIfEmpty(readScalar(frontmatter, "  titleSnapshot", { required: true })),
+    url: nullIfEmpty(readScalar(frontmatter, "  url", { required: true })),
+    bindingCreatedAt: readScalar(frontmatter, "  bindingCreatedAt", { required: true }),
+    bindingFingerprint: readScalar(frontmatter, "  bindingFingerprint", { required: true }),
     packageDisposition: readPackageDisposition(frontmatter),
-    vertical: readScalar(frontmatter, "vertical"),
-    preset: readScalar(frontmatter, "preset"),
+    vertical: readScalar(frontmatter, "vertical", { required: true }),
+    preset: readScalar(frontmatter, "preset", { required: true }),
     ...readProfile(frontmatter),
     ...readCreatedBy(frontmatter)
   };
@@ -131,13 +132,6 @@ export function taskDocumentPath(rootDir: string, taskId: TaskId, documentPath: 
   return harnessTaskDocumentPath(rootDir, taskId, documentPath);
 }
 
-function readScalar(frontmatter: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const value = frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"))?.[1];
-  if (value === undefined) throw new Error(`frontmatter missing ${key.trim()}`);
-  return value.trim();
-}
-
 function nullIfEmpty(value: string): string | null {
   return value.length === 0 ? null : value;
 }
@@ -145,18 +139,13 @@ function nullIfEmpty(value: string): string | null {
 function readCreatedBy(frontmatter: string): { readonly createdBy?: TaskCreatedBy } {
   const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
   if (!block) return {};
-  const name = readOptionalNestedScalar(block, "name");
-  const email = readOptionalNestedScalar(block, "email");
+  const name = readNestedScalar(block, "name");
+  const email = readNestedScalar(block, "email");
   return name && email ? { createdBy: { name, email } } : {};
 }
 
-function readOptionalNestedScalar(block: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return block.match(new RegExp(`^[ \\t]+${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
-}
-
 function readPackageDisposition(frontmatter: string): LocalTaskIndex["packageDisposition"] {
-  const value = readScalar(frontmatter, "packageDisposition");
+  const value = readScalar(frontmatter, "packageDisposition", { required: true });
   return isPackageDisposition(value) ? value : "active";
 }
 

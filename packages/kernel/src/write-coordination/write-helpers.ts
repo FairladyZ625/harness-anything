@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import type { TaskId, WriteError } from "../domain/index.ts";
+import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { WriteCoordinator, WriteOpKind } from "../ports/index.ts";
 
 export type PayloadHasher = (payload: unknown) => string;
@@ -57,19 +57,4 @@ export function writeCoordinatedPayload(
     });
     if (options.flush ?? true) yield* coordinator.flush("explicit");
   });
-}
-
-function stablePayloadHash(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
 }

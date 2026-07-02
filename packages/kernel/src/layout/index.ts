@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { TaskId } from "../domain/index.ts";
+import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+export { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 
 export interface HarnessLayout {
   readonly rootDir: string;
@@ -292,15 +294,6 @@ export function findTaskIdByExternalRef(rootDir: string, engine: string, ref: st
     }
   }
   return null;
-}
-
-export function readFrontmatter(body: string): string | null {
-  return body.match(/^---\n([\s\S]*?)\n---/u)?.[1] ?? null;
-}
-
-export function readScalar(frontmatter: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
 }
 
 export function normalizeRelativeDocumentPath(value: string): string {

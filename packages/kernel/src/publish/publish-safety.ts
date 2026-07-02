@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { PublishableProjection } from "../schemas/registry.ts";
 
 export type PublishProjectionRejectionCode =
@@ -241,19 +241,4 @@ function scanText(text: string, path: string, findings: PublishRedactionFinding[
 
 function compareLinks(a: PublishableLink, b: PublishableLink): number {
   return `${a.kind}\0${a.href}\0${a.label}`.localeCompare(`${b.kind}\0${b.href}\0${b.label}`);
-}
-
-function stablePayloadHash(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
 }

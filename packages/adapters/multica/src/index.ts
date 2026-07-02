@@ -2,9 +2,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:f
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
 import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { ArtifactStore, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { findTaskIdByExternalRef, resolveHarnessLayout, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
-import { stablePayloadHash, writeCoordinatedPayload } from "../../../kernel/src/write-coordination/write-helpers.ts";
+import { writeCoordinatedPayload } from "../../../kernel/src/write-coordination/write-helpers.ts";
 
 export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
 import type { TaskSnapshot } from "../../../kernel/src/schemas/registry.ts";
@@ -322,11 +323,6 @@ function taskIndexPath(rootDir: string, taskId: TaskId): string {
 
 function claimPath(rootDir: string, kind: "binding" | "task", key: string): string {
   return path.join(resolveHarnessLayout(rootDir).claimsRoot, kind, stableHash(key));
-}
-
-function readScalar(frontmatter: string, key: string): string {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"))?.[1]?.trim() ?? "";
 }
 
 function stableHash(value: unknown): string {

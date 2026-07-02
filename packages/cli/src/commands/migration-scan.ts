@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { sha256Text } from "../../../kernel/src/integrity/stable-hash.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import type { LegacyIndex, LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
 
@@ -325,7 +326,7 @@ function digestPath(targetPath: string): `sha256:${string}` {
 }
 
 function legacyId(sourcePath: string): string {
-  const digest = createHash("sha256").update(sourcePath).digest("hex").slice(0, 12);
+  const digest = sha256Text(sourcePath).slice(0, 12);
   return `legacy_${digest}`;
 }
 
