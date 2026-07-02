@@ -1,4 +1,3 @@
-/** @slice-activation M3 TP-08 Provenance binding will consume exported session evidence. */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
@@ -33,6 +32,7 @@ export interface ProvenanceSessionExporterRejected {
 }
 
 export interface ProvenanceSessionExporter {
+  readonly exportSession: (session: CurrentSessionRef) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
   readonly exportCurrentSession: () => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
   readonly readById: (sessionId: string) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
 }
@@ -42,9 +42,11 @@ const safeSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function makeProvenanceSessionExporter(options: ProvenanceSessionExporterOptions): ProvenanceSessionExporter {
   const timestamp = () => options.now?.() ?? new Date().toISOString();
+  const exportSession = (session: CurrentSessionRef) => writeSessionDocument(options.rootInput, toSessionDocument(session, timestamp()));
   return {
+    exportSession,
     exportCurrentSession: () => options.currentSessionProbe.currentSession.pipe(
-      Effect.flatMap((session) => writeSessionDocument(options.rootInput, toSessionDocument(session, timestamp())))
+      Effect.flatMap(exportSession)
     ),
     readById: (sessionId) => readSessionDocument(options.rootInput, sessionId)
   };

@@ -4,5 +4,12 @@
   "statement": "Decision CLI has a human terminal fallback.",
   "source": "PR #108 verification",
   "observedAt": "2026-07-03T00:00:00.000Z",
-  "confidence": "high"
+  "confidence": "high",
+  "provenance": [
+    {
+      "runtime": "human",
+      "sessionId": "human-cli-1783036800000",
+      "boundAt": "2026-07-03T00:00:00.000Z"
+    }
+  ]
 }

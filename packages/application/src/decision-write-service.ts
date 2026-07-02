@@ -1,4 +1,3 @@
-/** @slice-activation M3 TP-04 Decision CLI surface will consume this application service. */
 import { Effect, Schema } from "effect";
 import {
   DecisionPackageSchema,
@@ -6,23 +5,30 @@ import {
   explainDecisionStateTransition,
   type DecisionPackage,
   type DecisionState,
+  type ProvenancePayload,
   type WriteCoordinator,
   type WriteError,
   type WriteOpKind
 } from "../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
+import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
+import type { ProvenanceSessionExporterRejected } from "./provenance-session-exporter.ts";
 
-export interface DecisionWriteServiceOptions {
+export interface DecisionWriteServiceOptions extends ProvenanceBindingOptions {
   readonly coordinator: WriteCoordinator;
   readonly hashPayload?: PayloadHasher;
   readonly now?: () => string;
 }
 
 export interface DecisionWriteRequest {
-  readonly decision: DecisionPackage;
+  readonly decision: DecisionCreateInput;
   readonly body?: string;
   readonly opIdPrefix?: string;
 }
+
+export type DecisionCreateInput = Omit<DecisionPackage, "provenance"> & {
+  readonly provenance?: DecisionPackage["provenance"];
+};
 
 export interface DecisionTransitionRequest {
   readonly current: DecisionPackage;
@@ -68,7 +74,10 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
       if (request.decision.state !== "proposed") {
         return Effect.fail(rejection(request.decision.decision_id, "decision_propose requires state proposed"));
       }
-      return writeDecision(options.coordinator, hashPayload, "decision_propose", request.decision, request);
+      return bindDecisionCreateProvenance(options, request.decision, timestamp()).pipe(
+        Effect.catchAll((error) => Effect.fail(rejection(request.decision.decision_id, error.reason))),
+        Effect.flatMap((decision) => writeDecision(options.coordinator, hashPayload, "decision_propose", decision, request))
+      );
     },
     accept: (request) => transitionDecision(options.coordinator, hashPayload, "decision_accept", request, "active", timestamp()),
     reject: (request) => transitionDecision(options.coordinator, hashPayload, "decision_reject", request, "rejected", timestamp()),
@@ -87,6 +96,23 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
     },
     retire: (request) => transitionDecision(options.coordinator, hashPayload, "decision_retire", request, "retired", timestamp())
   };
+}
+
+function bindDecisionCreateProvenance(
+  options: DecisionWriteServiceOptions,
+  decision: DecisionCreateInput,
+  boundAt: string
+): Effect.Effect<DecisionPackage, ProvenanceSessionExporterRejected> {
+  return bindCreateProvenance(options, boundAt).pipe(
+    Effect.map((provenance) => ({
+      ...decision,
+      provenance: provenance ? [provenance] : existingProvenance(decision)
+    }))
+  );
+}
+
+function existingProvenance(decision: DecisionCreateInput): ReadonlyArray<ProvenancePayload> {
+  return decision.provenance ?? [];
 }
 
 function transitionDecision(

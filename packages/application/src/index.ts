@@ -15,6 +15,7 @@ export type {
   DecisionDocumentReadResult
 } from "./decision-document-reader.ts";
 export type {
+  DecisionCreateInput,
   DecisionAmendRequest,
   DecisionTransitionRequest,
   DecisionWriteRejected,

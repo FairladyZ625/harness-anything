@@ -40,6 +40,10 @@ test("CLI decision propose writes a decision package through the coordinator", (
     assert.match(body, /runtime: "human"/);
     assert.match(body, /sessionId: "human-cli-\d+"/);
     assert.match(body, /boundAt: "/);
+    const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(body)?.[1];
+    assert.ok(sessionId);
+    assert.equal(existsSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`)), true);
+    assert.match(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8"), /^runtime: human$/mu);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
   });
 });

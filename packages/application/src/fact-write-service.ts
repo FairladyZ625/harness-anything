@@ -7,18 +7,24 @@ import {
   isFactId,
   parseFactFlowRecords,
   taskEntityId,
+  type CurrentSessionProbePort,
   type FactConfidence,
   type FactRecord,
+  type ProvenancePayload,
   type TaskId,
   type WriteCoordinator,
   type WriteError
 } from "../../kernel/src/index.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
+import { bindCreateProvenance } from "./provenance-binding.ts";
+import type { ProvenanceSessionExporter } from "./provenance-session-exporter.ts";
 
 export interface FactWriteServiceOptions {
   readonly rootInput: HarnessLayoutInput;
   readonly coordinator: WriteCoordinator;
+  readonly currentSessionProbe?: CurrentSessionProbePort;
+  readonly provenanceSessionExporter?: ProvenanceSessionExporter;
   readonly hashPayload?: PayloadHasher;
   readonly now?: () => string;
   readonly generateFactId?: () => string;
@@ -69,12 +75,17 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
       if (existingFacts.some((record) => record.fact_id === factId)) {
         return yield* Effect.fail(factRejection(request.ownerTaskId, `duplicate fact id: ${factId}`));
       }
+      const observedAt = request.observedAt ?? timestamp();
+      const provenance = yield* bindCreateProvenance(options, observedAt).pipe(
+        Effect.catchAll((error) => Effect.fail(factRejection(request.ownerTaskId, error.reason)))
+      );
       const record: FactRecord = {
         fact_id: factId,
         statement: request.statement.trim(),
         source: request.source.trim(),
-        observedAt: request.observedAt ?? timestamp(),
-        confidence: request.confidence
+        observedAt,
+        confidence: request.confidence,
+        provenance: provenance ? [provenance] : existingFactProvenance()
       };
       const validation = validateFactRecord(request.ownerTaskId, record);
       if (validation) return yield* Effect.fail(validation);
@@ -98,6 +109,10 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
       };
     })
   };
+}
+
+function existingFactProvenance(): ReadonlyArray<ProvenancePayload> {
+  return [];
 }
 
 function appendFactRecord(existingBody: string, record: FactRecord): string {

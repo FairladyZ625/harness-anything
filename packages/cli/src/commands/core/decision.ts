@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import {
-  currentSessionToProvenancePayload,
   readDecisionDocument,
   type DecisionWriteService,
+  type DecisionCreateInput,
   type DecisionWriteRejected
 } from "../../../../application/src/index.ts";
-import type { CurrentSessionProbePort, CurrentSessionRef, DecisionPackage, DecisionState, WriteError } from "../../../../kernel/src/index.ts";
+import type { DecisionPackage, DecisionState, WriteError } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -26,7 +26,7 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
   const service = context.decisionWriteService;
   switch (action.kind) {
     case "decision-propose":
-      return runPropose(context.currentSessionProbe, service, action);
+      return runPropose(service, action);
     case "decision-accept":
     case "decision-reject":
     case "decision-defer":
@@ -39,21 +39,16 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
 };
 
 function runPropose(
-  currentSessionProbe: CurrentSessionProbePort,
   service: DecisionWriteService,
   action: Extract<DecisionAction, { readonly kind: "decision-propose" }>
 ): Effect.Effect<CliResult, WriteError> {
-  return currentSessionProbe.currentSession.pipe(
-    Effect.flatMap((session) => {
-      const now = new Date().toISOString();
-      const decision = proposedDecision(action, session, now);
-      if (action.dryRun) return Effect.succeed(decisionResult("decision-propose", decision.decision_id, decision.state, true));
-      return service.propose({ decision, body: action.body }).pipe(
-        Effect.match({
-          onFailure: (error): CliResult => decisionFailure("decision-propose", decision.decision_id, error),
-          onSuccess: (result): CliResult => decisionResult("decision-propose", result.decisionId, result.state, false)
-        })
-      );
+  const now = new Date().toISOString();
+  const decision = proposedDecision(action, now);
+  if (action.dryRun) return Effect.succeed(decisionResult("decision-propose", decision.decision_id, decision.state, true));
+  return service.propose({ decision, body: action.body }).pipe(
+    Effect.match({
+      onFailure: (error): CliResult => decisionFailure("decision-propose", decision.decision_id, error),
+      onSuccess: (result): CliResult => decisionResult("decision-propose", result.decisionId, result.state, false)
     })
   );
 }
@@ -121,7 +116,7 @@ function runAmend(
   );
 }
 
-function proposedDecision(action: Extract<DecisionAction, { readonly kind: "decision-propose" }>, session: CurrentSessionRef, now: string): DecisionPackage {
+function proposedDecision(action: Extract<DecisionAction, { readonly kind: "decision-propose" }>, now: string): DecisionCreateInput {
   return {
     schema: "decision-package/v1",
     decision_id: action.decisionId ?? `dec_${Date.now().toString(36)}`,
@@ -138,7 +133,6 @@ function proposedDecision(action: Extract<DecisionAction, { readonly kind: "deci
     proposedBy: parseActor(action.proposedBy) ?? { kind: "agent", id: "decision-cli" },
     proposedAt: now,
     arbiter: parseActor(action.arbiter) ?? { kind: "human", id: process.env.USER || "local-human" },
-    provenance: [currentSessionToProvenancePayload(session, now)],
     question: action.question,
     chosen: [{ id: "CH1", text: action.chosen }],
     rejected: [{ id: "RJ1", text: action.rejected, why_not: action.whyNot }],

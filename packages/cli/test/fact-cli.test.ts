@@ -35,7 +35,10 @@ test("CLI record fact writes a task-local stable F-id through the coordinator", 
     assert.equal(result.factRef, `fact/${taskId}/F-DEADBEEF`);
     assert.equal(result.path, "facts.md");
     const factsBody = readFileSync(path.join(rootDir, String(created.packagePath), "facts.md"), "utf8");
-    assert.match(factsBody, /^- \{fact_id: F-DEADBEEF, statement: "Decision CLI has a human terminal fallback\.", source: "manual verification", observedAt: "2026-07-03T00:00:00\.000Z", confidence: high\}$/mu);
+    assert.match(factsBody, /^- \{fact_id: F-DEADBEEF, statement: "Decision CLI has a human terminal fallback\.", source: "manual verification", observedAt: "2026-07-03T00:00:00\.000Z", confidence: high, provenance: \[\{runtime: "human", sessionId: "human-cli-\d+", boundAt: "2026-07-03T00:00:00\.000Z"\}\]\}$/mu);
+    const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(factsBody)?.[1];
+    assert.ok(sessionId);
+    assert.equal(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8").includes(`sessionId: ${sessionId}`), true);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
   });
 });
@@ -88,7 +91,15 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ANTIGRAVITY_SESSION_ID: "",
+        CLAUDE_CODE_SESSION_ID: "",
+        CLAUDE_SESSION_ID: "",
+        CODEX_SESSION_ID: "",
+        ZCODE_SESSION_ID: ""
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

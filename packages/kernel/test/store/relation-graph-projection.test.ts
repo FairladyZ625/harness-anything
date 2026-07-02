@@ -194,13 +194,22 @@ function writeIndex(rootDir: string, taskId: string, title: string): void {
   ].join("\n"));
 }
 
-function writeFacts(rootDir: string, taskId: string, facts: ReadonlyArray<FactRecord>, relations: ReadonlyArray<EntityRelationRecord> = []): void {
+type FactFixture = Omit<FactRecord, "provenance"> & Partial<Pick<FactRecord, "provenance">>;
+
+function writeFacts(rootDir: string, taskId: string, facts: ReadonlyArray<FactFixture>, relations: ReadonlyArray<EntityRelationRecord> = []): void {
   const taskRoot = path.join(rootDir, "harness/planning/tasks", taskId);
   mkdirSync(taskRoot, { recursive: true });
   writeFileSync(path.join(taskRoot, "facts.md"), [
     "# Facts",
     "",
-    ...facts.map(formatFactFlowRecord),
+    ...facts.map((fact) => formatFactFlowRecord({
+      ...fact,
+      provenance: fact.provenance ?? [{
+        runtime: "human",
+        sessionId: "human-cli-1783036800000",
+        boundAt: "2026-07-03T00:00:00.000Z"
+      }]
+    })),
     ...(relations.length > 0 ? ["", "relations:", ...relations.map(formatRelationFlowRecord)] : []),
     ""
   ].join("\n"));

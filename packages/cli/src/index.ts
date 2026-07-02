@@ -7,7 +7,7 @@ import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine, makeLocalWriteCoordinator } from "../../adapters/local/src/index.ts";
-import { makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService } from "../../application/src/index.ts";
+import { makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter } from "../../application/src/index.ts";
 import { renderReceiptText, toCommandReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
@@ -18,25 +18,40 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     return 2;
   }
 
+  const layoutInput = {
+    rootDir: parsed.value.rootDir,
+    layoutOverrides: parsed.value.layoutOverrides
+  };
+  let currentSessionProbe: ReturnType<typeof makeEnvironmentCurrentSessionProbe> | undefined;
+  const getCurrentSessionProbe = () => {
+    currentSessionProbe ??= makeEnvironmentCurrentSessionProbe();
+    return currentSessionProbe;
+  };
+  const makeSessionExporter = () => makeProvenanceSessionExporter({
+    rootInput: layoutInput,
+    currentSessionProbe: getCurrentSessionProbe()
+  });
+
   const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides
-  }), () => makeEnvironmentCurrentSessionProbe(), () => makeDecisionWriteService({
+  }), getCurrentSessionProbe, () => makeDecisionWriteService({
     coordinator: makeLocalWriteCoordinator({
       rootDir: parsed.value.rootDir,
       layoutOverrides: parsed.value.layoutOverrides,
       actor: { kind: "agent", id: "decision-cli" }
-    })
+    }),
+    currentSessionProbe: getCurrentSessionProbe(),
+    provenanceSessionExporter: makeSessionExporter()
   }), () => makeFactWriteService({
-    rootInput: {
-      rootDir: parsed.value.rootDir,
-      layoutOverrides: parsed.value.layoutOverrides
-    },
+    rootInput: layoutInput,
     coordinator: makeLocalWriteCoordinator({
       rootDir: parsed.value.rootDir,
       layoutOverrides: parsed.value.layoutOverrides,
       actor: { kind: "agent", id: "fact-cli" }
-    })
+    }),
+    currentSessionProbe: getCurrentSessionProbe(),
+    provenanceSessionExporter: makeSessionExporter()
   })).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
