@@ -11,6 +11,7 @@ export const testTierManifest = {
     "packages/kernel/test/domain/binding-immutability.test.ts",
     "packages/kernel/test/domain/domain-status.test.ts",
     "packages/kernel/test/domain/entity-ref.test.ts",
+    "packages/kernel/test/layout/entity-root-resolver.test.ts",
     "packages/kernel/test/integrity/stable-hash.test.ts",
     "packages/kernel/test/layout/portable-path.test.ts",
     "packages/kernel/test/markdown/frontmatter.test.ts",
