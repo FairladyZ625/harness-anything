@@ -36,6 +36,40 @@ test("relation graph projection stores decision claim to live fact coverage in S
   });
 });
 
+test("relation graph projection resolves facts by task_id when task directory has a slug suffix", () => {
+  withTempStore((rootDir) => {
+    const taskId = "task-slugged";
+    const taskDirName = "task-slugged-real-title";
+    writeIndex(rootDir, taskDirName, "Task Slugged Real Title", taskId);
+    writeFacts(rootDir, taskDirName, [{
+      fact_id: "F-DEADBEEF",
+      statement: "The live fact is owned by the task_id, not the package directory slug.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }]);
+    const relation = relationRecord({
+      source: "decision/dec_SLUGGED/C1",
+      target: `fact/${taskId}/F-DEADBEEF`,
+      type: "supports"
+    });
+    writeDecision(rootDir, "dec_SLUGGED", "wm-slugged", [relation]);
+
+    rebuildTaskProjection({ rootDir });
+    const graph = readRelationGraphProjection({ rootDir });
+    const coverage = readDecisionFactCoverage({ rootDir, decisionId: "dec_SLUGGED" });
+
+    assert.equal(graph.edges.some((edge) => edge.targetRef === `fact/${taskId}/F-DEADBEEF`), true);
+    assert.deepEqual(coverage.rows, [{
+      decisionRef: "decision/dec_SLUGGED",
+      claimRef: "decision/dec_SLUGGED/C1",
+      status: "covered",
+      coveringFactRef: `fact/${taskId}/F-DEADBEEF`,
+      relationPath: [relation.relation_id]
+    }]);
+  });
+});
+
 test("relation graph coverage treats invalidated facts as not live", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-invalidated", "Task Invalidated");
@@ -199,8 +233,8 @@ test("post-merge typed relation cycle detection terminates across decision and f
   });
 });
 
-function writeIndex(rootDir: string, taskId: string, title: string): void {
-  const taskRoot = path.join(rootDir, "harness/planning/tasks", taskId);
+function writeIndex(rootDir: string, taskDirName: string, title: string, taskId = taskDirName): void {
+  const taskRoot = path.join(rootDir, "harness/planning/tasks", taskDirName);
   mkdirSync(taskRoot, { recursive: true });
   writeFileSync(path.join(taskRoot, "INDEX.md"), [
     "---",
