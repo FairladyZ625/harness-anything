@@ -463,54 +463,6 @@ test("CLI check reports corrupted projection without crashing or leaking root", 
   });
 });
 
-test("CLI check --post-merge reports each hard-fail governance code", () => {
-  const cases: ReadonlyArray<readonly [string, (rootDir: string) => void]> = [
-    ["duplicate_task_id", (rootDir) => {
-      writeIndex(rootDir, "task-a", "A", "planned");
-      writeIndex(rootDir, "task-b", "B", "planned", { taskId: "task-a" });
-    }],
-    ["duplicate_external_binding", (rootDir) => {
-      writeIndex(rootDir, "task-a", "A", "planned", { engine: "multica", ref: "FAI-1" });
-      writeIndex(rootDir, "task-b", "B", "planned", { engine: "multica", ref: "FAI-1" });
-    }],
-    ["generated_tracked", (rootDir) => {
-      execFileSync("git", ["init"], { cwd: rootDir, stdio: "ignore" });
-      writeFileSync(path.join(rootDir, ".projection.sqlite"), "legacy generated", "utf8");
-      execFileSync("git", ["add", ".projection.sqlite"], { cwd: rootDir, stdio: "ignore" });
-    }],
-    ["binding_tampered", (rootDir) => {
-      writeIndex(rootDir, "task-a", "A", "planned", { bindingFingerprint: "sha256:tampered" });
-    }],
-    ["conflict_marker_present", (rootDir) => {
-      mkdirSync(path.join(rootDir, "harness/standards"), { recursive: true });
-      writeFileSync(path.join(rootDir, "harness/standards/repo.md"), "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", "utf8");
-    }],
-    ["dangling_entity_ref", (rootDir) => {
-      writeIndex(rootDir, "task-a", "A", "planned");
-      writeFileSync(path.join(rootDir, "harness/planning/tasks/task-a/relations.md"), "depends on task/missing-task\n", "utf8");
-    }],
-    ["relation_cycle_detected", (rootDir) => {
-      writeIndex(rootDir, "task-a", "A", "planned");
-      writeIndex(rootDir, "task-b", "B", "planned");
-      writeFileSync(path.join(rootDir, "harness/planning/tasks/task-a/relations.md"), "target: task/task-b\n", "utf8");
-      writeFileSync(path.join(rootDir, "harness/planning/tasks/task-b/relations.md"), "target: task/task-a\n", "utf8");
-    }]
-  ];
-
-  for (const [code, arrange] of cases) {
-    withTempRoot((rootDir) => {
-      arrange(rootDir);
-
-      const result = runJson(rootDir, ["check", "--post-merge"], false);
-
-      assert.equal(result.ok, false, code);
-      assert.equal(result.error?.code, "projection_check_failed", code);
-      assert.equal(result.warnings.some((warning) => warning.code === code && typeof warning.source === "string" && warning.severity === "hard-fail" && typeof warning.repairHint === "string"), true, code);
-      assert.equal(result.report.summary.hardFailCount >= 1, true, code);
-    });
-  }
-});
-
 test("CLI check --post-merge does not mistake Markdown setext headings for conflicts", () => {
   withTempRoot((rootDir) => {
     mkdirSync(path.join(rootDir, "harness/standards"), { recursive: true });

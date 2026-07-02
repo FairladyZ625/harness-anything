@@ -6,6 +6,7 @@ import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+import { buildRelationGraphProjection, detectRelationGraphCycles } from "./relation-graph-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 
@@ -20,7 +21,7 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findConflictMarkers(rootInput));
   warnings.push(...findDecisionWatermarkIssues(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
-  warnings.push(...findRelationCycles(source.entries));
+  warnings.push(...findRelationCycles(rootInput));
   return warnings;
 }
 
@@ -267,53 +268,15 @@ function findDecisionAnchors(frontmatter: string): ReadonlyArray<string> {
     .filter((anchor): anchor is string => Boolean(anchor));
 }
 
-function findRelationCycles(entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
-  const graph = new Map<string, string[]>();
-  for (const entry of entries) {
-    const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
-    const packageBody = listTextFiles(path.dirname(entry.indexPath))
-      .map((filePath) => readFileSync(filePath, "utf8"))
-      .join("\n");
-    const targets = [...packageBody.matchAll(/target:\s*((?:[A-Za-z][A-Za-z0-9_-]*:)?task\/[A-Za-z0-9_-]+)/gu)]
-      .flatMap((match) => {
-        const ref = findEntityRefs(match[1] ?? "")[0];
-        return ref && !ref.externalHarness ? [ref.id] : [];
-      });
-    graph.set(taskId, targets);
-  }
-
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const stack: string[] = [];
-
-  function visit(taskId: string): string[] | null {
-    if (visiting.has(taskId)) return stack.slice(stack.indexOf(taskId)).concat(taskId);
-    if (visited.has(taskId)) return null;
-    visiting.add(taskId);
-    stack.push(taskId);
-    for (const target of graph.get(taskId) ?? []) {
-      if (!graph.has(target)) continue;
-      const cycle = visit(target);
-      if (cycle) return cycle;
-    }
-    stack.pop();
-    visiting.delete(taskId);
-    visited.add(taskId);
-    return null;
-  }
-
-  for (const taskId of graph.keys()) {
-    const cycle = visit(taskId);
-    if (cycle) {
-      return [hardFail(
-        "source-package",
-        "relation_cycle_detected",
-        `Task relation cycle detected: ${cycle.join(" -> ")}.`,
-        "Break the cyclic task relation before merging authored planning docs."
-      )];
-    }
-  }
-  return [];
+function findRelationCycles(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+  const cycle = detectRelationGraphCycles(buildRelationGraphProjection(rootInput).edges)[0];
+  if (!cycle) return [];
+  return [hardFail(
+    "source-package",
+    "relation_cycle_detected",
+    `Entity relation cycle detected: ${cycle.join(" -> ")}.`,
+    "Break the cyclic typed relation records before merging authored planning docs."
+  )];
 }
 
 export function buildCheckReport(
