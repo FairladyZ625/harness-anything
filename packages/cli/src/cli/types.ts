@@ -76,6 +76,8 @@ export interface CliResult {
   readonly error?: CliError;
 }
 
+export type CommandReceiptEnvelope = "CommandReceipt/v1";
+
 export interface CommandRegistryEntry {
   readonly kind: string;
   readonly primary: string;
@@ -84,7 +86,7 @@ export interface CommandRegistryEntry {
   readonly summary: string;
   readonly options: ReadonlyArray<CommandHelpOption>;
   readonly examples: ReadonlyArray<string>;
-  readonly resultEnvelope: "CliResult/v1";
+  readonly resultEnvelope: CommandReceiptEnvelope;
 }
 
 export interface CommandHelpOption {

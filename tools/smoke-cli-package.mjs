@@ -39,7 +39,7 @@ try {
       HARNESS_GUI_DRY_RUN: "1"
     }
   });
-  const result = JSON.parse(stdout);
+  const result = unwrapReceipt(JSON.parse(stdout));
   if (result.ok !== true || result.command !== "gui" || result.launchPlan?.packageName !== "@harness-anything/gui") {
     throw new Error(`unexpected CLI smoke output: ${stdout}`);
   }
@@ -47,7 +47,7 @@ try {
     cwd: consumerDir,
     encoding: "utf8"
   });
-  const aliasResult = JSON.parse(aliasOutput);
+  const aliasResult = unwrapReceipt(JSON.parse(aliasOutput));
   if (aliasResult.ok !== true || aliasResult.command !== "doctor" || aliasResult.report?.schema !== "harness-doctor/v1") {
     throw new Error(`unexpected CLI alias smoke output: ${aliasOutput}`);
   }
@@ -90,5 +90,31 @@ try {
 }
 
 function runJson(binPath, args, cwd) {
-  return JSON.parse(execFileSync(binPath, args, { cwd, encoding: "utf8" }));
+  return unwrapReceipt(JSON.parse(execFileSync(binPath, args, { cwd, encoding: "utf8" })));
+}
+
+function unwrapReceipt(value) {
+  const oldTopLevel = ["taskId", "path", "packagePath", "projectionPath", "report", "summary", "launchPlan", "document"];
+  if (value.ok !== true || value.receipt !== "CommandReceipt/v1" || typeof value.command !== "string") {
+    throw new Error(`unexpected CommandReceipt/v1 output: ${JSON.stringify(value)}`);
+  }
+  for (const key of oldTopLevel) {
+    if (Object.prototype.hasOwnProperty.call(value, key) && key !== "summary") {
+      throw new Error(`receipt leaked old top-level field ${key}: ${JSON.stringify(value)}`);
+    }
+  }
+  const data = value.data && typeof value.data === "object" ? value.data : {};
+  const paths = value.paths && typeof value.paths === "object" ? value.paths : {};
+  return {
+    ...data,
+    ok: value.ok,
+    command: value.command,
+    receipt: value.receipt,
+    receiptSummary: value.summary,
+    paths,
+    path: paths.primary,
+    packagePath: paths.package,
+    projectionPath: paths.projection,
+    warnings: Array.isArray(value.warnings) ? value.warnings : []
+  };
 }

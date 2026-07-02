@@ -159,7 +159,7 @@ test("command registry exposes help metadata for every command", () => {
   for (const entry of commandRegistry) {
     assert.equal(entry.commandPath.length > 0, true, entry.kind);
     assert.equal(entry.summary.length > 0, true, entry.kind);
-    assert.equal(entry.resultEnvelope, "CliResult/v1", entry.kind);
+    assert.equal(entry.resultEnvelope, "CommandReceipt/v1", entry.kind);
   }
 });
 

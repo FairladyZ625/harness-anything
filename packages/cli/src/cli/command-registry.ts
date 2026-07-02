@@ -1,4 +1,5 @@
 import type { CommandRegistryEntry, ParsedCommand } from "./types.ts";
+import { commandReceiptEnvelope } from "./receipt.ts";
 
 export const cliCommandName = "harness-anything";
 export const cliCommandAlias = "ha";
@@ -327,7 +328,7 @@ export const commandRegistry = commandDescriptors.map((entry) => {
     summary: entry.summary,
     options: optionsFromUsage(entry.usage),
     examples: entry.examples,
-    resultEnvelope: "CliResult/v1"
+    resultEnvelope: commandReceiptEnvelope
   };
 }) satisfies ReadonlyArray<CommandRegistryEntry>;
 
@@ -419,7 +420,7 @@ function optionDescription(flag: string): string {
     "--hard": "Hard-delete the selected task.",
     "--help": "Show help output.",
     "--include-archived": "Include archived task packages.",
-    "--json": "Emit CliResult/v1 JSON.",
+    "--json": "Emit CommandReceipt/v1 JSON.",
     "--kernel-version": "Validate against a kernel version.",
     "--lesson": "Filter by lesson state.",
     "--limit": "Limit the number of planned items.",

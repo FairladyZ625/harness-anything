@@ -46,6 +46,28 @@ test("CLI help contract gate accepts complete help metadata", () => {
   });
 });
 
+test("CLI help contract gate rejects missing receipt contracts", () => {
+  withTempRoot((rootDir) => {
+    writeRegistry(rootDir, `
+      const commandUsages = [
+        { kind: "new-task", usage: "new-task --title <title> --json" }
+      ] as const;
+      const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
+      const commandExamples = { "new-task": ["harness-anything new-task --title Example"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
+      function optionDescription(flag: string): string {
+        const descriptions: Record<string, string> = { "--title": "Set the task title.", "--json": "Emit JSON." };
+        return descriptions[flag]!;
+      }
+    `, `
+      export const commandReceiptContracts = [
+        { kind: "version", data: ["version"], paths: [] }
+      ] as const;
+    `);
+
+    assert.equal(findCliHelpContractViolations(rootDir).includes("command new-task is missing commandReceiptContracts entry"), true);
+  });
+});
+
 test("CLI help contract gate rejects examples with undocumented flags", () => {
   withTempRoot((rootDir) => {
     writeRegistry(rootDir, `
@@ -64,10 +86,17 @@ test("CLI help contract gate rejects examples with undocumented flags", () => {
   });
 });
 
-function writeRegistry(rootDir, body) {
+function writeRegistry(rootDir, body, receiptBody = `
+  export const commandReceiptContracts = [
+    { kind: "new-task", data: ["taskId"], paths: ["package"] },
+    { kind: "version", data: ["version"], paths: [] }
+  ] as const;
+`) {
   const dir = path.join(rootDir, "packages/cli/src/cli");
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "command-registry.ts"), body);
+  writeFileSync(path.join(dir, "receipt.ts"), receiptBody);
+  writeFileSync(path.join(rootDir, "packages/cli/src/index.ts"), "console.log(JSON.stringify(output));\n");
 }
 
 function withTempRoot(fn) {

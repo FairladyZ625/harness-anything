@@ -24,7 +24,7 @@ export interface DoctorReport {
   };
   readonly cli: {
     readonly command: "harness-anything doctor";
-    readonly json: "CliResult/v1";
+    readonly json: "CommandReceipt/v1";
   };
   readonly recommendedCommands: readonly string[];
 }
@@ -60,7 +60,7 @@ function collectDoctorReport(rootDir: string): DoctorReport {
     },
     cli: {
       command: "harness-anything doctor",
-      json: "CliResult/v1"
+      json: "CommandReceipt/v1"
     },
     recommendedCommands: [
       "harness-anything init",
