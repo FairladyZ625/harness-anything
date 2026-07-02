@@ -89,15 +89,19 @@ export const runnerRegistry = {
 } satisfies Record<CommandRunnerId, CommandRunner>;
 
 export function runRegisteredCommand(
-  engine: CommandRunnerEngine,
-  command: ParsedCommand
+  command: ParsedCommand,
+  makeEngine: () => CommandRunnerEngine
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
+  let engine: CommandRunnerEngine | undefined;
   return runner({
     rootDir: command.rootDir,
     layoutInput: createHarnessRuntimeContext(command.rootDir, command.layoutOverrides),
     layoutOverrides: command.layoutOverrides,
-    engine
+    get engine() {
+      engine ??= makeEngine();
+      return engine;
+    }
   }, command);
 }

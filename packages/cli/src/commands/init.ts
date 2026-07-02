@@ -25,7 +25,8 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
     mkdirSync(directory, { recursive: true });
   }
 
-  writeHarnessYaml(path.join(layout.authoredRoot, "harness.yaml"), resolvedProjectName, projectName !== undefined);
+  const harnessConfigPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
+  writeHarnessYaml(harnessConfigPath, resolvedProjectName, projectName !== undefined);
   writeIfMissing(path.join(layout.standardsRoot, "repo-governance.md"), [
     "# Repository Governance",
     "",
@@ -75,7 +76,7 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
   return {
     ok: true,
     command: "init",
-    path: "harness/harness.yaml",
+    path: normalizeSlashes(path.relative(rootDir, harnessConfigPath)),
     generated: addNpmScripts ? ["package.json"] : []
   };
 }
@@ -126,4 +127,8 @@ function ensureGitignoreEntry(filePath: string, entry: string): void {
   if (existing.split(/\r?\n/u).includes(entry)) return;
   const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
   writeFileSync(filePath, `${existing}${prefix}${entry}\n`, "utf8");
+}
+
+function normalizeSlashes(value: string): string {
+  return value.split(path.sep).join("/");
 }

@@ -17,11 +17,10 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     return 2;
   }
 
-  const engine = makeLocalLifecycleEngine({
+  const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides
-  });
-  const result = await Effect.runPromise(runRegisteredCommand(engine, parsed.value).pipe(
+  })).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,
