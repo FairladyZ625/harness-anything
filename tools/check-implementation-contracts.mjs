@@ -202,6 +202,7 @@ if (hasGuiImplementation) {
     .join("\n");
   const cliText = [
     "packages/cli/src/index.ts",
+    "packages/cli/src/commands/core/gui.ts",
     "packages/cli/src/cli/error-codes.ts",
     "packages/cli/src/cli/error-mapper.ts"
   ].map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
