@@ -24,7 +24,7 @@ export function buildScanReport(rootInput: HarnessLayoutInput, sourcePath: strin
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const sourceRoot = path.resolve(rootDir, sourcePath);
   const entries = [
-    ...collectLegacyTasks(sourceRoot),
+    ...collectLegacyTasks(rootDir, sourceRoot),
     ...collectLegacyDocs(rootInput, sourceRoot)
   ];
   const summary = summarize(entries);
@@ -80,7 +80,7 @@ export function copyForwardDocs(rootDir: string, report: LegacyScanReport): void
   }
 }
 
-function collectLegacyTasks(sourceRoot: string): ReadonlyArray<LegacyScanEntry> {
+function collectLegacyTasks(rootDir: string, sourceRoot: string): ReadonlyArray<LegacyScanEntry> {
   const rootTasks = listDirectories(path.join(sourceRoot, "docs/09-PLANNING/TASKS"))
     .filter((name) => !name.startsWith("_"))
     .map((name) => taskEntry(sourceRoot, `docs/09-PLANNING/TASKS/${name}`, `harness/legacy/tasks/${name}`));
@@ -91,7 +91,7 @@ function collectLegacyTasks(sourceRoot: string): ReadonlyArray<LegacyScanEntry> 
       .filter((name) => !name.startsWith("_"))
       .map((name) => taskEntry(sourceRoot, `docs/09-PLANNING/MODULES/${moduleKey}/TASKS/${name}`, `harness/legacy/tasks/modules/${moduleKey}/${name}`));
   });
-  const v2 = collectV2Tasks(sourceRoot);
+  const v2 = isSamePath(rootDir, sourceRoot) ? [] : collectV2Tasks(sourceRoot);
   return uniqueEntries([...rootTasks, ...moduleTasks, ...v2]);
 }
 
@@ -129,6 +129,7 @@ function collectLegacyDocs(rootInput: HarnessLayoutInput, sourceRoot: string): R
     .map((filePath) => normalizeSlashes(path.relative(sourceRoot, filePath)))
     .flatMap((relativePath) => safeDocEntry(rootDir, sourceRoot, relativePath));
   if (!hasExplicitHarnessConfig(sourceRoot)) return docsEntries;
+  if (isSamePath(rootDir, sourceRoot)) return docsEntries;
   let layout: ReturnType<typeof resolveHarnessLayout>;
   try {
     layout = resolveHarnessLayout(sourceRoot);
@@ -215,6 +216,7 @@ function safeAuthoredDocEntry(
 
 function isSafeDocPath(relativePath: string, requireDocsPrefix = true): boolean {
   if (requireDocsPrefix && !relativePath.startsWith("docs/")) return false;
+  if (isGeneratedOrVendorPath(relativePath)) return false;
   if (!/\.(?:md|mdx|txt|json|ya?ml)$/u.test(relativePath)) return false;
   if (/^docs\/09-PLANNING\/TASKS\//u.test(relativePath)) return false;
   if (/^docs\/09-PLANNING\/MODULES\/[^/]+\/TASKS\//u.test(relativePath)) return false;
@@ -265,6 +267,10 @@ function isPathInside(parent: string, candidate: string): boolean {
   return relativePath === "" || isSafeRelativePath(relativePath);
 }
 
+function isSamePath(left: string, right: string): boolean {
+  return path.resolve(left) === path.resolve(right);
+}
+
 export function copySource(source: string, target: string): void {
   const linkStats = lstatSync(source);
   if (linkStats.isSymbolicLink()) return;
@@ -285,9 +291,28 @@ function walkFiles(directory: string): ReadonlyArray<string> {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
     if (entry.isSymbolicLink()) return [];
-    if (entry.isDirectory()) return walkFiles(entryPath);
+    if (entry.isDirectory()) {
+      if (isGeneratedOrVendorPath(entry.name)) return [];
+      return walkFiles(entryPath);
+    }
     return [entryPath];
   }).sort();
+}
+
+function isGeneratedOrVendorPath(relativePath: string): boolean {
+  const normalized = normalizeSlashes(relativePath);
+  const segments = normalized.split("/");
+  return segments.includes("node_modules")
+    || segments.includes(".git")
+    || segments.includes(".next")
+    || segments.includes(".turbo")
+    || segments.includes("dist")
+    || segments.includes("build")
+    || segments.includes("coverage")
+    || normalized === ".harness/generated"
+    || normalized.startsWith(".harness/generated/")
+    || normalized === "harness/legacy"
+    || normalized.startsWith("harness/legacy/");
 }
 
 function listDirectories(directory: string): ReadonlyArray<string> {

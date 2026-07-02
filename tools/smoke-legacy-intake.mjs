@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 const root = process.cwd();
 const cli = path.join(root, "packages/cli/src/index.ts");
-const smokeRoot = path.join(root, ".harness/generated/legacy-intake-smoke-root");
+const smokeRoot = mkdtempSync(path.join(tmpdir(), "ha-legacy-intake-smoke-root-"));
 const outDir = ".harness/generated/legacy-intake-smoke";
 
 function runJson(args) {
@@ -27,7 +28,6 @@ function runJson(args) {
 }
 
 try {
-  rmSync(smokeRoot, { recursive: true, force: true });
   const legacyTask = path.join(smokeRoot, "docs/09-PLANNING/TASKS/smoke-task");
   mkdirSync(legacyTask, { recursive: true });
   writeFileSync(path.join(legacyTask, "INDEX.md"), "---\ntitle: Smoke Task\nstatus: done\n---\n# Smoke Task\n", "utf8");
@@ -48,7 +48,7 @@ try {
   const index = runJson(["legacy", "index", ".", "--apply"]);
   if (index.ok !== true) throw new Error("legacy index smoke failed");
   const legacyVerify = runJson(["legacy", "verify"]);
-  if (legacyVerify.ok !== true || legacyVerify.report?.summary?.entryCount === undefined) {
+  if (legacyVerify.ok !== true || legacyVerify.report?.summary?.entryCount !== 1) {
     throw new Error("legacy verify did not accept current Legacy Intake index");
   }
 

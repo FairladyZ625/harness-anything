@@ -175,6 +175,43 @@ test("CLI legacy scan discovers V2 layout tasks and forwards private harness con
   });
 });
 
+test("CLI legacy scan skips self-host active harness and generated directories", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/harness.yaml", "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n");
+    writeFile(rootDir, "harness/planning/tasks/active-task/INDEX.md", "---\ntitle: Active Task\nstatus: active\n---\n# Active Task\n");
+    writeFile(rootDir, "harness/legacy/tasks/old-import/task_plan.md", "# Already Imported\n");
+    writeFile(rootDir, "harness/context/architecture/prototype/node_modules/pkg/README.md", "# Package Readme\n");
+    writeFile(rootDir, "harness/context/architecture/prototype/node_modules/pkg/package.json", "{\"name\":\"pkg\"}\n");
+    writeFile(rootDir, "harness/context/architecture/real-design.md", "# Real Design\n");
+    writeLegacyTask(rootDir, "old-task", "done");
+
+    const scan = runJson(rootDir, ["legacy", "scan", "."]);
+    const sourcePaths = scan.report.entries.map((entry: Record<string, unknown>) => entry.sourcePath);
+
+    assert.equal(scan.ok, true);
+    assert.equal(sourcePaths.includes("docs/09-PLANNING/TASKS/old-task"), true);
+    assert.equal(sourcePaths.includes("harness/context/architecture/real-design.md"), false);
+    assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.startsWith("harness/planning/tasks/")), false);
+    assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.startsWith("harness/legacy/")), false);
+    assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.startsWith("harness/context/")), false);
+    assert.equal(sourcePaths.some((sourcePath: string) => sourcePath.includes("/node_modules/")), false);
+  });
+});
+
+test("CLI legacy apply ignores unsafe generated source paths", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "docs/architecture/node_modules/pkg/README.md", "# Package Readme\n");
+    writeFile(rootDir, "docs/architecture/overview.md", "# Overview\n");
+
+    const copied = runJson(rootDir, ["legacy", "copy-safe-docs", ".", "--apply"]);
+
+    assert.equal(copied.ok, true);
+    assert.equal(copied.report.summary.docCount, 1);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/docs/architecture/overview.md")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/legacy/docs/architecture/node_modules/pkg/README.md")), false);
+  });
+});
+
 test("CLI legacy copy suffixes planned parent directories before they can overwrite planned children", () => {
   withTempRoot((rootDir) => {
     writeLegacyTask(rootDir, "modules", "active");

@@ -237,6 +237,16 @@ function applyLegacyCopy(rootInput: HarnessLayoutInput, report: LegacyScanReport
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const validation = validateLegacyIndex(rootDir, report);
   if (!validation.ok) return validation.result;
+  const unsafeSource = firstUnsafeLegacySource(report);
+  if (unsafeSource) {
+    return {
+      ok: false,
+      command: "legacy-copy-safe-docs",
+      migrationMode: "apply",
+      report,
+      error: cliError(CliErrorCode.LegacyUnsafeSource, `Legacy Intake refused unsafe source path ${unsafeSource}. Run Legacy Intake against an external legacy source root, not generated dependencies or the active harness workspace.`)
+    };
+  }
   const duplicateTarget = firstDuplicate(report.entries.map((entry) => entry.storedPath));
   if (duplicateTarget) {
     return {
@@ -271,6 +281,16 @@ function applyLegacyIndex(rootInput: HarnessLayoutInput, report: LegacyScanRepor
   const rootDir = layout.rootDir;
   const collisionReport = readCollisionReport(rootInput);
   const indexedReport = { ...report, entries: applyCollisionReport(report.entries, collisionReport), summary: summarize(applyCollisionReport(report.entries, collisionReport)) };
+  const unsafeSource = firstUnsafeLegacySource(indexedReport);
+  if (unsafeSource) {
+    return {
+      ok: false,
+      command: "legacy-index",
+      migrationMode: "apply",
+      report: indexedReport,
+      error: cliError(CliErrorCode.LegacyUnsafeSource, `Legacy Intake refused unsafe source path ${unsafeSource}. Run Legacy Intake against an external legacy source root, not generated dependencies or the active harness workspace.`)
+    };
+  }
   const validation = validateLegacyIndex(rootDir, indexedReport);
   if (!validation.ok) return validation.result;
   const index = validation.index;
@@ -362,6 +382,26 @@ function firstDuplicate(values: ReadonlyArray<string>): string | undefined {
     seen.add(value);
   }
   return undefined;
+}
+
+function firstUnsafeLegacySource(report: LegacyScanReport): string | undefined {
+  return report.entries.find((entry) => isUnsafeLegacySourcePath(entry.sourcePath))?.sourcePath;
+}
+
+function isUnsafeLegacySourcePath(sourcePath: string): boolean {
+  const normalized = sourcePath.split(path.sep).join("/");
+  const segments = normalized.split("/");
+  return segments.includes("node_modules")
+    || segments.includes(".git")
+    || segments.includes(".next")
+    || segments.includes(".turbo")
+    || segments.includes("dist")
+    || segments.includes("build")
+    || segments.includes("coverage")
+    || normalized === ".harness/generated"
+    || normalized.startsWith(".harness/generated/")
+    || normalized === "harness/legacy"
+    || normalized.startsWith("harness/legacy/");
 }
 
 function digestJson(value: unknown): `sha256:${string}` {
