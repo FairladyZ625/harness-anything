@@ -83,6 +83,10 @@ export interface CompletionGateIssue {
   readonly message: string;
 }
 
+export interface TaskDocumentPlaceholderPolicy {
+  readonly closeoutPlaceholderFingerprints: ReadonlyArray<string>;
+}
+
 export function parseReviewMarkdown(markdown: string): ParsedReviewMarkdown {
   const findings: ReviewFinding[] = [];
   const issues: ReviewGateIssue[] = [];
@@ -119,6 +123,19 @@ export function parseReviewMarkdown(markdown: string): ParsedReviewMarkdown {
   }
 
   return { findings, issues };
+}
+
+export function isReviewPlaceholderMarkdown(markdown: string): boolean {
+  const parsed = parseReviewMarkdown(markdown);
+  return /^Status:\s*not-started\s*$/imu.test(markdown) && parsed.findings.length === 0;
+}
+
+export function isCloseoutPlaceholderMarkdown(markdown: string, fingerprints: ReadonlyArray<string>): boolean {
+  const normalized = normalizeDocumentText(markdown);
+  return fingerprints.some((fingerprint) => {
+    const normalizedFingerprint = normalizeDocumentText(fingerprint);
+    return normalizedFingerprint.length > 0 && normalized.includes(normalizedFingerprint);
+  });
 }
 
 export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
@@ -200,6 +217,10 @@ export function evaluateCompletionGate(input: CompletionGateInput): {
 
 function normalizeHeader(line: string): string {
   return splitMarkdownRow(line).map((cell) => cell.toLowerCase()).join("|");
+}
+
+function normalizeDocumentText(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
 }
 
 function splitMarkdownRow(line: string): string[] {

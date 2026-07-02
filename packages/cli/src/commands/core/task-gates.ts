@@ -3,6 +3,7 @@ import { makeTaskLifecycleOrchestrator, type TaskLifecycleResult } from "../../.
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
 
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-review" | "task-complete" }>;
 
@@ -11,7 +12,8 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
   const orchestrator = makeTaskLifecycleOrchestrator({
     rootDir: context.rootDir,
     layoutOverrides: context.layoutOverrides,
-    taskWriter: context.engine
+    taskWriter: context.engine,
+    documentPlaceholderPolicy: bundledTaskDocumentPlaceholderPolicy()
   });
   if (action.kind === "task-review") {
     return orchestrator.reviewTask({ taskId: action.taskId, reviewerId: action.reviewerId }).pipe(

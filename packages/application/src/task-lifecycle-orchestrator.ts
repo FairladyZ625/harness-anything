@@ -4,8 +4,8 @@ import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/ind
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, readFrontmatter, readScalar, taskDocumentPath } from "../../kernel/src/layout/index.ts";
-import { evaluateCompletionGate, evaluateReviewGate, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
-import type { VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
+import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
+import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 
 type CompletionGateResult = ReturnType<typeof evaluateCompletionGate>;
 
@@ -28,6 +28,7 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly taskWriter: TaskLifecycleWriter;
+  readonly documentPlaceholderPolicy?: TaskDocumentPlaceholderPolicy;
   readonly now?: () => string;
 }
 
@@ -110,6 +111,9 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const row = projection.rows.find((item) => item.taskId === payload.taskId);
       if (!row) return taskFailure(payload.taskId, "task_not_found", `task not found: ${payload.taskId}`);
 
+      const documentPlaceholder = validateCompletionDocumentPlaceholders(layoutInput, payload.taskId, options.documentPlaceholderPolicy);
+      if (documentPlaceholder) return documentPlaceholder;
+
       const completionGate = evaluateCompletionGate({
         taskId: payload.taskId,
         coordinationStatus: row.coordinationStatus,
@@ -147,6 +151,24 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       } satisfies TaskLifecycleResult;
     })
   };
+}
+
+function validateCompletionDocumentPlaceholders(
+  rootInput: HarnessLayoutInput,
+  taskId: string,
+  policy: TaskDocumentPlaceholderPolicy | undefined
+): TaskLifecycleFailure | null {
+  const closeoutPath = taskDocumentPath(rootInput, taskId, "closeout.md");
+  if (policy && existsSync(closeoutPath) && isCloseoutPlaceholderMarkdown(readFileSync(closeoutPath, "utf8"), policy.closeoutPlaceholderFingerprints)) {
+    return taskFailure(taskId, "closeout_placeholder", "Replace closeout.md template placeholders before completing the task.");
+  }
+
+  const reviewPath = taskDocumentPath(rootInput, taskId, "review.md");
+  if (existsSync(reviewPath) && isReviewPlaceholderMarkdown(readFileSync(reviewPath, "utf8"))) {
+    return taskFailure(taskId, "review_placeholder", "Replace the initial review.md placeholder with an actual review result before completing the task.");
+  }
+
+  return null;
 }
 
 export function readTaskLifecyclePolicy(rootInput: HarnessLayoutInput, taskId: string): TaskLifecyclePolicy | null {

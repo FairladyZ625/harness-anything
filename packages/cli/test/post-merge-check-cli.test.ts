@@ -83,6 +83,58 @@ test("CLI check --post-merge visibly fails hand-written decision watermarks", ()
   });
 });
 
+test("CLI check --post-merge reports done task document placeholders as visible warnings", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-a", "A", "done");
+    writeFileSync(path.join(rootDir, "harness/tasks/task-a/closeout.md"), [
+      "# Closeout",
+      "",
+      "## Summary",
+      "",
+      "Summarize the completed behavior change.",
+      "",
+      "## Verification",
+      "",
+      "List passing checks and CI.",
+      "",
+      "## Residual Risk",
+      "",
+      "Record accepted non-blocking risks.",
+      ""
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(rootDir, "harness/tasks/task-a/review.md"), [
+      "# Review",
+      "",
+      "Status: not-started",
+      "",
+      "## Reviewer",
+      "",
+      "- Agent: pending",
+      "- Mode: read-only review before merge",
+      "",
+      "## Findings",
+      "",
+      "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = runJson(rootDir, ["check", "--post-merge"]);
+
+    assert.equal(result.ok, true);
+    const closeout = result.warnings.find((warning: any) => warning.code === "closeout_placeholder");
+    const review = result.warnings.find((warning: any) => warning.code === "review_placeholder");
+    assert.ok(closeout);
+    assert.equal(closeout.severity, "warning");
+    assert.match(closeout.message, /harness\/tasks\/task-a\/closeout\.md/);
+    assert.match(closeout.repairHint, /hard-fail/);
+    assert.ok(review);
+    assert.equal(review.severity, "warning");
+    assert.match(review.message, /harness\/tasks\/task-a\/review\.md/);
+    assert.match(review.repairHint, /hard-fail/);
+  });
+});
+
 function writeIndex(
   rootDir: string,
   directoryName: string,

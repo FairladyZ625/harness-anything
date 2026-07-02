@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { parseReviewMarkdown } from "../../../application/src/index.ts";
+import { isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "../../../application/src/index.ts";
 import { checkTaskProjection } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
@@ -11,6 +11,7 @@ import { relativePath } from "../cli/path.ts";
 import type { CheckProfile, CliResult } from "../cli/types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";
 import { readProjectHarnessSettings, settingsIssue, type ProjectHarnessSettings } from "./settings.ts";
+import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-placeholders.ts";
 
 const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
@@ -30,7 +31,10 @@ export function runCheckProfile(
   const rootDir = layout.rootDir;
   const profilePostMerge = action.postMerge || action.profile === "private-harness" || action.profile === "target-project" || action.strict;
   const projection = checkTaskProjection({ rootDir, layoutOverrides: layoutOverridesFromInput(rootInput), postMerge: profilePostMerge });
-  const validatorIssues = validateCheckProfile(rootInput, action.profile, action.strict);
+  const validatorIssues = [
+    ...validateCheckProfile(rootInput, action.profile, action.strict),
+    ...(action.postMerge ? validateDoneTaskDocumentPlaceholders(rootInput) : [])
+  ];
   const warnings = [...projection.warnings, ...validatorIssues];
   const validatorHardFailCount = validatorIssues.filter((issue) => issue.severity === "hard-fail").length;
   const hardFailCount = warnings.filter((issue) => issue.severity === "hard-fail").length;
@@ -168,6 +172,41 @@ function validateTaskPackageContracts(rootInput: HarnessLayoutInput, taskDir: st
     issues.push(profileIssue("completion-consistency", "closeout_missing", strictSeverity(strict), `${relativeTaskDir} is ${status} without closeout evidence.`, "Add closeout.md before claiming completion."));
   }
 
+  return issues;
+}
+
+function validateDoneTaskDocumentPlaceholders(rootInput: HarnessLayoutInput): ReadonlyArray<ProfileValidationIssue> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const policy = bundledTaskDocumentPlaceholderPolicy();
+  const issues: ProfileValidationIssue[] = [];
+  for (const indexPath of listTaskIndexPaths(rootInput)) {
+    const taskDir = path.dirname(indexPath);
+    const relativeTaskDir = relativePath(rootDir, taskDir);
+    const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+    if (!frontmatter || readScalar(frontmatter, "  status") !== "done") continue;
+
+    const closeoutPath = path.join(taskDir, "closeout.md");
+    if (existsSync(closeoutPath) && isCloseoutPlaceholderMarkdown(readFileSync(closeoutPath, "utf8"), policy.closeoutPlaceholderFingerprints)) {
+      issues.push(profileIssue(
+        "completion-consistency",
+        "closeout_placeholder",
+        "warning",
+        `${relativeTaskDir}/closeout.md still contains template placeholder text.`,
+        "Replace closeout.md placeholders with Summary, Verification, and Residual Risk evidence; this warning is intended to become a hard-fail after existing packages are backfilled."
+      ));
+    }
+
+    const reviewPath = path.join(taskDir, "review.md");
+    if (existsSync(reviewPath) && isReviewPlaceholderMarkdown(readFileSync(reviewPath, "utf8"))) {
+      issues.push(profileIssue(
+        "completion-consistency",
+        "review_placeholder",
+        "warning",
+        `${relativeTaskDir}/review.md is still the initial not-started review with no findings.`,
+        "Record the actual review result before treating the task as complete; this warning is intended to become a hard-fail after existing packages are backfilled."
+      ));
+    }
+  }
   return issues;
 }
 

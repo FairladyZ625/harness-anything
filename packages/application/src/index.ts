@@ -42,6 +42,8 @@ import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts"
 export {
   evaluateCompletionGate,
   evaluateReviewGate,
+  isCloseoutPlaceholderMarkdown,
+  isReviewPlaceholderMarkdown,
   parseReviewMarkdown,
   validatePhaseRows
 } from "./task-lifecycle-gates.ts";
@@ -55,6 +57,7 @@ export type {
   ReviewFinding,
   ReviewGateInput,
   ReviewGateResult,
+  TaskDocumentPlaceholderPolicy,
   VerifierBackedReviewContract
 } from "./task-lifecycle-gates.ts";
 export type {

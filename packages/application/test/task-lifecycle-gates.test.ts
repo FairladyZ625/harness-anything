@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   evaluateCompletionGate,
   evaluateReviewGate,
+  isCloseoutPlaceholderMarkdown,
+  isReviewPlaceholderMarkdown,
   parseReviewMarkdown,
   validatePhaseRows
 } from "../src/task-lifecycle-gates.ts";
@@ -64,6 +66,48 @@ test("review markdown parser reads material findings table and fails malformed g
   assert.equal(parsed.findings.length, 2);
   assert.equal(parsed.findings[0]?.open, true);
   assert.equal(parsed.findings[0]?.blocksRelease, true);
+});
+
+test("task document placeholder detection distinguishes scaffold text from real closeout and review", () => {
+  assert.equal(isCloseoutPlaceholderMarkdown([
+    "# Closeout",
+    "",
+    "## Summary",
+    "",
+    "Summarize the completed behavior change.",
+    ""
+  ].join("\n"), ["Summarize the completed behavior change."]), true);
+  assert.equal(isCloseoutPlaceholderMarkdown([
+    "# Closeout",
+    "",
+    "## Summary",
+    "",
+    "Implemented the document gate.",
+    ""
+  ].join("\n"), ["Summarize the completed behavior change."]), false);
+
+  assert.equal(isReviewPlaceholderMarkdown([
+    "# Review",
+    "",
+    "Status: not-started",
+    "",
+    "## Findings",
+    "",
+    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ""
+  ].join("\n")), true);
+  assert.equal(isReviewPlaceholderMarkdown([
+    "# Review",
+    "",
+    "Status: complete",
+    "",
+    "## Findings",
+    "",
+    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ""
+  ].join("\n")), false);
 });
 
 test("phase validation rejects agent-owned human gate and missing exit commands", () => {
