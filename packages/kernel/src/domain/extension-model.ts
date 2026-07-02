@@ -1,4 +1,5 @@
 import type { PresetManifest, TemplateCatalog, TemplateSelection, VerticalDefinition } from "../schemas/registry.ts";
+import { createEntityKindRegistry } from "./entity-kind-registry.ts";
 
 export interface ExtensionValidationIssue {
   readonly code:
@@ -27,7 +28,9 @@ export interface ExtensionValidationIssue {
     | "vertical_contract_entity_disabled"
     | "vertical_contract_entity_missing"
     | "vertical_lifecycle_scaffold_missing"
+    | "vertical_lifecycle_repository_scaffold_missing"
     | "vertical_scaffold_entity_missing"
+    | "vertical_schema_repository_scaffold_forbidden"
     | "vertical_schema_scaffold_forbidden";
   readonly message: string;
   readonly path: string;
@@ -154,14 +157,15 @@ export function validatePresetManifests(
 
 export function validateVerticalDefinition(vertical: VerticalDefinition): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
-  const entityById = new Map<string, VerticalDefinition["entityKinds"][number]>();
+  const registry = createEntityKindRegistry(vertical);
+  const entityById = registry.byId;
   const scaffoldEntityKinds = new Set<string>();
+  const repositoryRootEntityKinds = new Set<string>();
 
   for (const [entityIndex, entity] of vertical.entityKinds.entries()) {
-    if (entityById.has(entity.id)) {
+    if (vertical.entityKinds.findIndex((candidate) => candidate.id === entity.id) !== entityIndex) {
       issues.push(issue("duplicate_vertical_entity", `Duplicate vertical entity kind ${entity.id}.`, `entityKinds[${entityIndex}].id`));
     }
-    entityById.set(entity.id, entity);
   }
 
   for (const [contractIndex, entityKind] of vertical.contractEntityKinds.entries()) {
@@ -187,9 +191,24 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
     }
   }
 
+  for (const [rootIndex, root] of vertical.repositoryScaffold.entityRoots.entries()) {
+    repositoryRootEntityKinds.add(root.entityKind);
+    const entity = entityById.get(root.entityKind);
+    if (!entity) {
+      issues.push(issue("vertical_scaffold_entity_missing", `Repository scaffold entity ${root.entityKind} is not declared in entityKinds.`, `repositoryScaffold.entityRoots[${rootIndex}].entityKind`));
+      continue;
+    }
+    if (entity.entityType === "schema") {
+      issues.push(issue("vertical_schema_repository_scaffold_forbidden", `Schema entity ${root.entityKind} must not declare a repository root scaffold.`, `repositoryScaffold.entityRoots[${rootIndex}].entityKind`));
+    }
+  }
+
   for (const [entityIndex, entity] of vertical.entityKinds.entries()) {
     if (entity.entityType === "lifecycle" && !scaffoldEntityKinds.has(entity.id)) {
       issues.push(issue("vertical_lifecycle_scaffold_missing", `Lifecycle entity ${entity.id} must declare a package scaffold.`, `entityKinds[${entityIndex}].id`));
+    }
+    if (entity.entityType === "lifecycle" && !repositoryRootEntityKinds.has(entity.id)) {
+      issues.push(issue("vertical_lifecycle_repository_scaffold_missing", `Lifecycle entity ${entity.id} must declare a repository scaffold root.`, `entityKinds[${entityIndex}].id`));
     }
   }
 
@@ -357,7 +376,7 @@ function validatePresetEntrypointsShape(input: unknown, path: string, issues: Ex
 }
 
 function validateVerticalDefinitionShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  validateObjectKeys(input, path, ["schema", "id", "title", "version", "entityKinds", "contractEntityKinds", "packageScaffolds", "templateSelections", "checkerProfile", "projectionSchemas"], issues);
+  validateObjectKeys(input, path, ["schema", "id", "title", "version", "entityKinds", "contractEntityKinds", "packageScaffolds", "repositoryScaffold", "scripts", "templateSelections", "checkerProfile", "projectionSchemas"], issues);
   if (!isRecord(input)) return;
   if (Array.isArray(input.entityKinds)) {
     for (const [index, entity] of input.entityKinds.entries()) {
@@ -373,10 +392,43 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
       }
     }
   }
+  validateRepositoryScaffoldShape(input.repositoryScaffold, `${path}.repositoryScaffold`, issues);
+  validateVerticalScriptsShape(input.scripts, `${path}.scripts`, issues);
   validateTemplateSelectionsShape(input.templateSelections, `${path}.templateSelections`, issues);
   if (Array.isArray(input.projectionSchemas)) {
     for (const [index, projection] of input.projectionSchemas.entries()) {
       validateObjectKeys(projection, `${path}.projectionSchemas[${index}]`, ["id", "schemaRef"], issues);
+    }
+  }
+}
+
+function validateRepositoryScaffoldShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
+  validateObjectKeys(input, path, ["entityRoots", "dirs", "seededDocs"], issues);
+  if (!isRecord(input)) return;
+  if (Array.isArray(input.entityRoots)) {
+    for (const [index, root] of input.entityRoots.entries()) {
+      validateObjectKeys(root, `${path}.entityRoots[${index}]`, ["entityKind", "path", "create"], issues);
+    }
+  }
+  if (Array.isArray(input.dirs)) {
+    for (const [index, directory] of input.dirs.entries()) {
+      validateObjectKeys(directory, `${path}.dirs[${index}]`, ["path", "create"], issues);
+    }
+  }
+  if (Array.isArray(input.seededDocs)) {
+    for (const [index, document] of input.seededDocs.entries()) {
+      validateObjectKeys(document, `${path}.seededDocs[${index}]`, ["path", "body", "overwrite"], issues);
+    }
+  }
+}
+
+function validateVerticalScriptsShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
+  if (!Array.isArray(input)) return;
+  for (const [index, script] of input.entries()) {
+    const scriptPath = `${path}[${index}]`;
+    validateObjectKeys(script, scriptPath, ["id", "type", "command", "reads", "writes", "inputs", "metadata"], issues);
+    if (isRecord(script)) {
+      validateObjectKeys(script.metadata, `${scriptPath}.metadata`, ["description", "purpose", "contractVersion", "produces"], issues);
     }
   }
 }

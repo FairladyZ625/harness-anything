@@ -4,18 +4,16 @@ import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
+import { bundledVerticalDefinition } from "./extensions/bundled.ts";
+import { materializeRepositoryScaffold } from "./extensions/repository-scaffold.ts";
 
 export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const resolvedProjectName = projectName ?? path.basename(rootDir);
+  const vertical = bundledVerticalDefinition();
+  if (!vertical) throw new Error("bundled software/coding vertical definition missing");
   for (const directory of [
-    layout.authoredRoot,
-    layout.standardsRoot,
-    layout.contextRoot,
-    path.join(layout.contextRoot, "architecture"),
-    layout.planningRoot,
-    layout.tasksRoot,
     layout.localRoot,
     layout.generatedRoot,
     layout.cacheRoot,
@@ -28,35 +26,7 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
 
   const harnessConfigPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   writeHarnessYaml(harnessConfigPath, resolvedProjectName, projectName !== undefined);
-  writeIfMissing(path.join(layout.standardsRoot, "repo-governance.md"), [
-    "# Repository Governance",
-    "",
-    "- Authored shared state lives under `harness/`.",
-    "- Generated local state lives under `.harness/` and must remain untracked.",
-    "- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.",
-    ""
-  ].join("\n"));
-  writeIfMissing(path.join(layout.rootDir, "AGENTS.md"), [
-    "# Harness Agent Entry",
-    "",
-    "Read `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.",
-    "",
-    "## Harness CLI",
-    "",
-    "- Invoke via `npx harness-anything <command>` (alias: `ha`). Create task packages with `new-task`; never hand-scaffold directories under the tasks root.",
-    "- Task lifecycle: `task status set <id> <planned|active|blocked|in_review|done|cancelled>`, `task progress append <id> --text <text> [--evidence type:PATH:summary]`, `task-review <id>`, `task-complete <id> --ci passed|failed`. Completion is gated on review + closeout; setting `done` directly is rejected.",
-    "- Writes that go through the harness CLI (new-task, status set, progress append, review, complete) are auto-committed as `harness write <opId>` when the harness root is inside a git repository. A clean `git status` right after these commands is expected: do not re-verify, re-commit, or treat it as data loss. Only hand-edited files need manual commits.",
-    "- Boundary (ADR-0016 D1): machine-read fields (INDEX.md frontmatter — status, engine, binding, packageDisposition — and relations) must be written through the CLI commands above; never hand-edit them. Human-read prose (`progress.md`, `task_plan.md` bodies) may be edited directly, but then commit those files yourself.",
-    "",
-    "Generated state under `.harness/` is local-only and must not be committed.",
-    ""
-  ].join("\n"));
-  writeIfMissing(path.join(layout.rootDir, "CLAUDE.md"), [
-    "# Claude Harness Entry",
-    "",
-    "Follow `AGENTS.md` and the shared authored harness under `harness/`.",
-    ""
-  ].join("\n"));
+  materializeRepositoryScaffold(rootInput, vertical);
   ensureGitignoreEntry(path.join(layout.rootDir, ".gitignore"), ".harness/");
   const packagePath = path.join(layout.rootDir, "package.json");
   if (addNpmScripts) {
@@ -116,12 +86,6 @@ function writeHarnessYaml(filePath: string, projectName: string, forceNameUpdate
     ? existing.replace(/^name:[ \t]*.*$/mu, `name: ${projectName}`)
     : existing.replace(/^(schema:[ \t]*.*)$/mu, `$1\nname: ${projectName}`);
   writeFileSync(filePath, next, "utf8");
-}
-
-function writeIfMissing(filePath: string, body: string): void {
-  if (existsSync(filePath)) return;
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, body, "utf8");
 }
 
 function ensureGitignoreEntry(filePath: string, entry: string): void {

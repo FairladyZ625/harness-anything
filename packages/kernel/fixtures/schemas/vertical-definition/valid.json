@@ -47,6 +47,39 @@
       "templateSelections": []
     }
   ],
+  "repositoryScaffold": {
+    "entityRoots": [
+      { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" },
+      { "entityKind": "decision", "path": "{{paths.authoredRoot}}/decisions", "create": "lazy" }
+    ],
+    "dirs": [
+      { "path": "{{paths.authoredRoot}}/standards", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/context", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/sessions", "create": "lazy" }
+    ],
+    "seededDocs": [
+      {
+        "path": "{{paths.authoredRoot}}/standards/repo-governance.md",
+        "body": "# Repository Governance\n"
+      }
+    ]
+  },
+  "scripts": [
+    {
+      "id": "vertical:software-coding:repository-audit",
+      "type": "script",
+      "command": "scripts/repository-audit.mjs",
+      "reads": [],
+      "writes": [],
+      "inputs": {},
+      "metadata": {
+        "description": "Report the repository scaffold contract.",
+        "purpose": "audit",
+        "contractVersion": "script-entry/v1",
+        "produces": []
+      }
+    }
+  ],
   "templateSelections": [],
   "checkerProfile": "software-coding-standard",
   "projectionSchemas": [

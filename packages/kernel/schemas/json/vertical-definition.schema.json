@@ -5,7 +5,7 @@
   "title": "Vertical Definition",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "id", "title", "version", "entityKinds", "contractEntityKinds", "packageScaffolds", "templateSelections", "checkerProfile", "projectionSchemas"],
+  "required": ["schema", "id", "title", "version", "entityKinds", "contractEntityKinds", "packageScaffolds", "repositoryScaffold", "scripts", "templateSelections", "checkerProfile", "projectionSchemas"],
   "properties": {
     "schema": { "const": "vertical-definition/v1" },
     "id": { "type": "string" },
@@ -56,6 +56,78 @@
           "templateSelections": {
             "type": "array",
             "items": { "$ref": "#/$defs/templateSelection" }
+          }
+        }
+      }
+    },
+    "repositoryScaffold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entityRoots", "dirs", "seededDocs"],
+      "properties": {
+        "entityRoots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["entityKind", "path", "create"],
+            "properties": {
+              "entityKind": { "type": "string" },
+              "path": { "type": "string" },
+              "create": { "enum": ["init", "lazy"] }
+            }
+          }
+        },
+        "dirs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "create"],
+            "properties": {
+              "path": { "type": "string" },
+              "create": { "enum": ["init", "lazy"] }
+            }
+          }
+        },
+        "seededDocs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "body"],
+            "properties": {
+              "path": { "type": "string" },
+              "body": { "type": "string" },
+              "overwrite": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "scripts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "command", "reads", "writes", "inputs", "metadata"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "const": "script" },
+          "command": { "type": "string" },
+          "reads": { "type": "array", "items": { "type": "string" } },
+          "writes": { "type": "array", "items": { "type": "string" } },
+          "inputs": { "type": "object", "additionalProperties": { "type": "string" } },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["description", "purpose", "contractVersion", "produces"],
+            "properties": {
+              "description": { "type": "string" },
+              "purpose": { "enum": ["scaffold", "generate", "transform", "audit"] },
+              "contractVersion": { "const": "script-entry/v1" },
+              "produces": { "type": "array", "items": { "type": "string" } }
+            }
           }
         }
       }

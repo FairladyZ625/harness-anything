@@ -10,6 +10,7 @@ import {
   type TemplateCatalog,
   type VerticalDefinition
 } from "../../src/schemas/registry.ts";
+import { createEntityKindRegistry } from "../../src/domain/entity-kind-registry.ts";
 import {
   planTemplateMaterialization,
   validatePresetManifests,
@@ -126,11 +127,16 @@ test("vertical validation rejects lifecycle status mapping ownership", async () 
 test("vertical validation accepts decision lifecycle and fact schema entity kinds", async () => {
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
   const byId = new Map(vertical.entityKinds.map((entity) => [entity.id, entity]));
+  const registry = createEntityKindRegistry(vertical);
 
   assert.deepEqual([...byId.keys()], ["task", "decision", "fact"]);
   assert.equal(byId.get("decision")?.entityType, "lifecycle");
   assert.equal(byId.get("fact")?.entityType, "schema");
   assert.deepEqual(vertical.contractEntityKinds, ["task", "decision", "fact"]);
+  assert.deepEqual(registry.ids, ["task", "decision", "fact"]);
+  assert.equal(registry.byId.get("task")?.repositoryRoot?.path, "{{paths.tasksRoot}}");
+  assert.equal(registry.byId.get("decision")?.repositoryRoot?.create, "lazy");
+  assert.equal(registry.byId.get("fact")?.repositoryRoot, undefined);
   assert.equal(validateVerticalDefinition(vertical).ok, true);
 });
 
@@ -166,6 +172,28 @@ test("vertical validation rejects schema entity package scaffolds", async () => 
   assert.equal(result.issues.some((issue) => issue.code === "vertical_schema_scaffold_forbidden"), true);
 });
 
+test("vertical validation rejects schema entity repository roots", async () => {
+  const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
+  const contaminated: VerticalDefinition = {
+    ...vertical,
+    repositoryScaffold: {
+      ...vertical.repositoryScaffold,
+      entityRoots: [
+        ...vertical.repositoryScaffold.entityRoots,
+        {
+          entityKind: "fact",
+          path: "{{paths.authoredRoot}}/facts",
+          create: "lazy"
+        }
+      ]
+    }
+  };
+  const result = validateVerticalDefinition(contaminated);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issues.some((issue) => issue.code === "vertical_schema_repository_scaffold_forbidden"), true);
+});
+
 test("vertical validation rejects lifecycle entities without package scaffolds", async () => {
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
   const contaminated: VerticalDefinition = {
@@ -176,6 +204,21 @@ test("vertical validation rejects lifecycle entities without package scaffolds",
 
   assert.equal(result.ok, false);
   assert.equal(result.issues.some((issue) => issue.code === "vertical_lifecycle_scaffold_missing"), true);
+});
+
+test("vertical validation rejects lifecycle entities without repository roots", async () => {
+  const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
+  const contaminated: VerticalDefinition = {
+    ...vertical,
+    repositoryScaffold: {
+      ...vertical.repositoryScaffold,
+      entityRoots: vertical.repositoryScaffold.entityRoots.filter((root) => root.entityKind !== "decision")
+    }
+  };
+  const result = validateVerticalDefinition(contaminated);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issues.some((issue) => issue.code === "vertical_lifecycle_repository_scaffold_missing"), true);
 });
 
 test("vertical validation rejects contract entity declarations that are not contract-bearing", async () => {

@@ -53,6 +53,8 @@ function resolveDeclaredScopes(
       .replaceAll("{{paths.localRoot}}", layout.localRoot)
       .replaceAll("{{paths.authoredRoot}}", layout.authoredRoot)
       .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot)
+      .replaceAll("{{paths.decisionsRoot}}", path.join(layout.authoredRoot, "decisions"))
+      .replaceAll("{{paths.sessionsRoot}}", path.join(layout.authoredRoot, "sessions"))
       .replaceAll("{{outputRoot}}", outputRoot);
     if (allowRootRead) {
       resolved = resolved.replaceAll("{{paths.rootDir}}", layout.rootDir);

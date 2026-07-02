@@ -36,6 +36,15 @@ export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 export { parseWriteEntityId, taskEntityId, taskIdFromEntityId } from "./entity-id.ts";
 export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
+export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
+export type {
+  EntityKindDeclaration,
+  EntityKindRegistration,
+  EntityKindRegistry,
+  EntityPackageScaffold,
+  EntityRepositoryRootScaffold
+} from "./entity-kind-registry.ts";
+
 export {
   canonicalRelationIdentityInput,
   deriveRelationId,

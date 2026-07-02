@@ -3,6 +3,7 @@ import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts"
 import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { bundledVerticalDefinitionEntry } from "./bundled.ts";
 import { discoverPresets, publicPresetSummary } from "./state.ts";
 import { presetScriptEntry } from "./preset-script-runner.ts";
 import { runScriptHost, scriptHostCliResult, type ResolvedScriptEntry, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
@@ -83,7 +84,25 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
 }
 
 export function discoverScriptEntries(rootInput: HarnessLayoutInput): ReadonlyArray<ResolvedScriptEntry> {
-  return discoverPresets(rootInput)
+  const vertical = bundledVerticalDefinitionEntry();
+  const verticalScripts = (vertical?.manifest.scripts ?? []).map((script): ResolvedScriptEntry => ({
+    entry: {
+      ...script,
+      source: "vertical"
+    },
+    manifestRoot: vertical ? path.dirname(vertical.sourcePath) : "",
+    owner: vertical ? {
+      id: vertical.manifest.id,
+      title: vertical.manifest.title,
+      version: vertical.manifest.version,
+      source: "vertical"
+    } : undefined,
+    context: vertical ? {
+      verticalId: vertical.manifest.id,
+      verticalTitle: vertical.manifest.title
+    } : undefined
+  }));
+  const presetScripts = discoverPresets(rootInput)
     .flatMap((preset) => Object.entries(preset.manifest.entrypoints ?? {})
       .flatMap(([entrypointName, entrypoint]) => entrypoint.type === "script"
         ? [{
@@ -97,6 +116,7 @@ export function discoverScriptEntries(rootInput: HarnessLayoutInput): ReadonlyAr
           }
         }]
         : []));
+  return [...verticalScripts, ...presetScripts].sort((left, right) => left.entry.id.localeCompare(right.entry.id));
 }
 
 function resolveScript(rootInput: HarnessLayoutInput, scriptId: string): ResolvedScriptEntry | undefined {

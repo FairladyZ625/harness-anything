@@ -5,6 +5,7 @@ import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { ActorRefSchema, LinkKindSchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
+import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
@@ -17,6 +18,7 @@ export {
   RelationStrengthSchema,
   RelationTypeSchema
 } from "./entity-relations.ts";
+export { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export const DomainStatusSchema = Schema.Literal(
   ...domainStatuses
@@ -292,38 +294,6 @@ export const PresetManifestSchema = Schema.Struct({
   })),
   profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1)),
   defaultProfile: Schema.String
-});
-
-export const VerticalDefinitionSchema = Schema.Struct({
-  schema: Schema.Literal("vertical-definition/v1"),
-  id: Schema.String,
-  title: Schema.String,
-  version: Schema.String,
-  entityKinds: Schema.Array(Schema.Union(
-    Schema.Struct({
-      id: Schema.String,
-      entityType: Schema.Literal("lifecycle"),
-      packageKind: Schema.String,
-      contractEntity: Schema.Boolean
-    }),
-    Schema.Struct({
-      id: Schema.String,
-      entityType: Schema.Literal("schema"),
-      schemaRef: Schema.String,
-      contractEntity: Schema.Boolean
-    })
-  )).pipe(Schema.minItems(1)),
-  contractEntityKinds: StringArray,
-  packageScaffolds: Schema.Array(Schema.Struct({
-    entityKind: Schema.String,
-    templateSelections: Schema.Array(TemplateSelectionSchema)
-  })),
-  templateSelections: Schema.Array(TemplateSelectionSchema),
-  checkerProfile: Schema.String,
-  projectionSchemas: Schema.Array(Schema.Struct({
-    id: Schema.String,
-    schemaRef: Schema.String
-  }))
 });
 
 export const LegacyEvidencePointerSchema = Schema.Struct({

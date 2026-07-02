@@ -92,6 +92,8 @@ export function runScriptHost(options: {
       rootDir: layout.rootDir,
       authoredRoot: layout.authoredRoot,
       tasksRoot: layout.tasksRoot,
+      decisionsRoot: path.join(layout.authoredRoot, "decisions"),
+      sessionsRoot: path.join(layout.authoredRoot, "sessions"),
       generatedRoot: layout.generatedRoot,
       localRoot: layout.localRoot
     },
@@ -307,6 +309,8 @@ function resolveProducePattern(pattern: string, layout: ReturnType<typeof resolv
     .replaceAll("{{paths.contextRoot}}", layout.contextRoot)
     .replaceAll("{{paths.planningRoot}}", layout.planningRoot)
     .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot)
+    .replaceAll("{{paths.decisionsRoot}}", path.join(layout.authoredRoot, "decisions"))
+    .replaceAll("{{paths.sessionsRoot}}", path.join(layout.authoredRoot, "sessions"))
     .replaceAll("{{outputRoot}}", outputRoot));
 }
 

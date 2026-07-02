@@ -15,14 +15,27 @@ export interface BundledPresetManifestEntry {
   readonly sourcePath: string;
 }
 
+export interface BundledVerticalDefinitionEntry {
+  readonly manifest: VerticalDefinition;
+  readonly sourcePath: string;
+}
+
 export function bundledTemplateCatalog(id?: string): TemplateCatalog | undefined {
   if (id && id !== "software/coding" && id !== "software-coding-core") return undefined;
   return readBundledJson("template-catalog.json", TemplateCatalogSchema);
 }
 
 export function bundledVerticalDefinition(id?: string): VerticalDefinition | undefined {
+  return bundledVerticalDefinitionEntry(id)?.manifest;
+}
+
+export function bundledVerticalDefinitionEntry(id?: string): BundledVerticalDefinitionEntry | undefined {
   if (id && id !== "software/coding") return undefined;
-  return readBundledJson("vertical.json", VerticalDefinitionSchema);
+  const sourcePath = assetPath("vertical.json");
+  return {
+    manifest: readBundledJson("vertical.json", VerticalDefinitionSchema),
+    sourcePath
+  };
 }
 
 export function loadBundledPresetManifests(): ReadonlyArray<PresetManifest> {

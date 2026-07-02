@@ -70,6 +70,32 @@ test("CLI script command lists, inspects, and runs preset script entries through
   });
 });
 
+test("CLI script command lists, inspects, and runs vertical script entries through ScriptHost", () => {
+  withTempRoot((rootDir) => {
+    const listed = runJson(rootDir, ["script", "list", "--source", "vertical", "--purpose", "audit"]);
+
+    assert.equal(listed.ok, true);
+    assert.equal(listed.command, "script-list");
+    assert.equal(listed.scripts.some((script: Record<string, unknown>) => script.id === "vertical:software-coding:repository-audit"), true);
+
+    const inspected = runJson(rootDir, ["script", "inspect", "vertical:software-coding:repository-audit"]);
+
+    assert.equal(inspected.ok, true);
+    assert.equal(inspected.script.id, "vertical:software-coding:repository-audit");
+    assert.equal(inspected.script.source, "vertical");
+    assert.deepEqual(inspected.script.writes, []);
+
+    const result = runJson(rootDir, ["script", "run", "vertical:software-coding:repository-audit"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "script-run");
+    assert.equal(result.script.id, "vertical:software-coding:repository-audit");
+    assert.equal(result.report.verticalId, "software/coding");
+    assert.deepEqual(result.generated, []);
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions")), false);
+  });
+});
+
 test("CLI script command runs with an explicit environment allowlist", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness/presets/env-check/preset.json", JSON.stringify({

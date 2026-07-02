@@ -26,6 +26,50 @@
       "templateSelections": []
     }
   ],
+  "repositoryScaffold": {
+    "entityRoots": [
+      { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" },
+      { "entityKind": "decision", "path": "{{paths.authoredRoot}}/decisions", "create": "lazy" }
+    ],
+    "dirs": [
+      { "path": "{{paths.authoredRoot}}", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/standards", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/context", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/context/architecture", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/planning", "create": "init" },
+      { "path": "{{paths.authoredRoot}}/sessions", "create": "lazy" }
+    ],
+    "seededDocs": [
+      {
+        "path": "{{paths.authoredRoot}}/standards/repo-governance.md",
+        "body": "# Repository Governance\n\n- Authored shared state lives under `harness/`.\n- Generated local state lives under `.harness/` and must remain untracked.\n- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.\n"
+      },
+      {
+        "path": "{{paths.rootDir}}/AGENTS.md",
+        "body": "# Harness Agent Entry\n\nRead `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.\n\n## Harness CLI\n\n- Invoke via `npx harness-anything <command>` (alias: `ha`). Create task packages with `new-task`; never hand-scaffold directories under the tasks root.\n- Task lifecycle: `task status set <id> <planned|active|blocked|in_review|done|cancelled>`, `task progress append <id> --text <text> [--evidence type:PATH:summary]`, `task-review <id>`, `task-complete <id> --ci passed|failed`. Completion is gated on review + closeout; setting `done` directly is rejected.\n- Writes that go through the harness CLI (new-task, status set, progress append, review, complete) are auto-committed as `harness write <opId>` when the harness root is inside a git repository. A clean `git status` right after these commands is expected: do not re-verify, re-commit, or treat it as data loss. Only hand-edited files need manual commits.\n- Boundary (ADR-0016 D1): machine-read fields (INDEX.md frontmatter — status, engine, binding, packageDisposition — and relations) must be written through the CLI commands above; never hand-edit them. Human-read prose (`progress.md`, `task_plan.md` bodies) may be edited directly, but then commit those files yourself.\n\nGenerated state under `.harness/` is local-only and must not be committed.\n"
+      },
+      {
+        "path": "{{paths.rootDir}}/CLAUDE.md",
+        "body": "# Claude Harness Entry\n\nFollow `AGENTS.md` and the shared authored harness under `harness/`.\n"
+      }
+    ]
+  },
+  "scripts": [
+    {
+      "id": "vertical:software-coding:repository-audit",
+      "type": "script",
+      "command": "scripts/repository-audit.mjs",
+      "reads": [],
+      "writes": [],
+      "inputs": {},
+      "metadata": {
+        "description": "Report the bundled software/coding repository scaffold contract.",
+        "purpose": "audit",
+        "contractVersion": "script-entry/v1",
+        "produces": []
+      }
+    }
+  ],
   "templateSelections": [],
   "checkerProfile": "software-coding-standard",
   "projectionSchemas": [
