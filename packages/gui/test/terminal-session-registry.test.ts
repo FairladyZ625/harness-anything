@@ -139,6 +139,28 @@ test("terminal session registry fails closed when requested backend is unavailab
   });
 });
 
+test("terminal session registry reports non-durable fallback when requested tmux is unavailable", () => {
+  const service = createInMemoryTerminalSessionService({
+    createId: sequence("term"),
+    now: sequenceTime("2026-06-14T05:00:00.000Z"),
+    backendCapabilities: [directPtyCapability(), tmuxCapability({ available: false, reason: "tmux binary not found" })]
+  });
+
+  const created = service.createSession({ name: "Fallback shell", backend: "tmux" });
+
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  assert.equal(created.session.backend, "direct-pty");
+  assert.deepEqual(created.session.backendWarnings, [
+    {
+      code: "terminal_backend_downgraded_non_durable",
+      requestedBackend: "tmux",
+      selectedBackend: "direct-pty",
+      hint: "tmux binary not found"
+    }
+  ]);
+});
+
 test("shell chunks remain display-only", () => {
   const chunk = classifyShellOutput("task status done");
 

@@ -1,7 +1,9 @@
 import {
   directPtyCapability,
   selectTerminalBackend,
-  type TerminalBackendCapability
+  type TerminalBackendCapability,
+  type TerminalBackendSelectionSuccess,
+  type TerminalBackendWarning
 } from "./backend-policy.ts";
 
 export type TerminalBackend = "direct-pty" | "tmux" | "remote";
@@ -11,6 +13,7 @@ export interface TerminalSessionInfo {
   readonly sessionId: string;
   readonly name: string;
   readonly backend: TerminalBackend;
+  readonly backendWarnings?: ReadonlyArray<TerminalBackendWarning>;
   readonly status: TerminalSessionStatus;
   readonly envProfileId?: string;
   readonly hostProfileId?: string;
@@ -138,7 +141,7 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
     return session;
   }
 
-  function selectBackend(requestedBackend?: TerminalBackend): TerminalBackend | TerminalSessionFailure {
+  function selectBackend(requestedBackend?: TerminalBackend): TerminalBackendSelectionSuccess | TerminalSessionFailure {
     const selection = selectTerminalBackend({
       requestedBackend,
       defaultBackend,
@@ -146,7 +149,7 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
       allowDirectPtyFallback: options.allowDirectPtyFallback
     });
     if (!selection.ok) return failure(selection.error.code, selection.error.hint);
-    return selection.backend;
+    return selection;
   }
 
   return {
@@ -159,13 +162,14 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
           return failure("terminal_session_not_exited", "Only exited terminal sessions can be reopened.");
         }
         const selectedBackend = selectBackend(payload.backend ?? source.backend);
-        if (typeof selectedBackend !== "string") return selectedBackend;
+        if (!selectedBackend.ok) return selectedBackend;
         return {
           ok: true,
           session: save({
             sessionId: createId(),
             name: payload.name ?? source.name,
-            backend: selectedBackend,
+            backend: selectedBackend.backend,
+            ...backendWarningProperties(selectedBackend),
             envProfileId: payload.envProfileId ?? source.envProfileId,
             hostProfileId: payload.hostProfileId ?? source.hostProfileId,
             hostLabel: payload.hostLabel ?? source.hostLabel,
@@ -181,13 +185,14 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
       }
 
       const selectedBackend = selectBackend(payload.backend);
-      if (typeof selectedBackend !== "string") return selectedBackend;
+      if (!selectedBackend.ok) return selectedBackend;
       return {
         ok: true,
         session: save({
           sessionId: createId(),
           name: payload.name ?? "Terminal",
-          backend: selectedBackend,
+          backend: selectedBackend.backend,
+          ...backendWarningProperties(selectedBackend),
           status: "active",
           envProfileId: payload.envProfileId,
           hostProfileId: payload.hostProfileId,
@@ -252,6 +257,12 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
 
 function failure(code: string, hint: string): TerminalSessionFailure {
   return { ok: false, error: { code, hint } };
+}
+
+function backendWarningProperties(
+  selection: TerminalBackendSelectionSuccess
+): Pick<TerminalSessionInfo, "backendWarnings"> {
+  return selection.warnings.length > 0 ? { backendWarnings: selection.warnings } : {};
 }
 
 function isTerminalSessionInfo(value: TerminalSessionInfo | TerminalSessionFailure): value is TerminalSessionInfo {
