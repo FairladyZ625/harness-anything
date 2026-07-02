@@ -83,6 +83,7 @@ export const testTierManifest = {
     "packages/kernel/test/store/journal-idempotency.test.ts",
     "packages/kernel/test/store/payload-hash.test.ts",
     "packages/kernel/test/store/portable-path-collision.test.ts",
+    "packages/kernel/test/store/progress-append-delta.test.ts",
     "packages/kernel/test/store/same-task-fifo.test.ts",
     "packages/kernel/test/store/sqlite-rebuild.test.ts",
     "tools/check-import-boundaries.test.mjs",

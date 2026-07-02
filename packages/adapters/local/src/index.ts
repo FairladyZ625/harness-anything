@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
@@ -10,8 +10,8 @@ import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
 import { resolveTaskCreatedBy } from "./created-by.ts";
 import { hasTaskRelations, renderSupersedesRelation } from "./task-relations.ts";
-import { indexPath, makeIndex, readIndexEffect, renderIndex, taskDocumentPath, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
-import { deleteTaskPackage, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
+import { indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
+import { appendProgressDelta, deleteTaskPackage, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
 import type {
   AppendProgressInput,
   CreateLocalTaskInput,
@@ -140,10 +140,10 @@ function appendProgress(
 ): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
-    const existingPath = taskDocumentPath(rootInput, input.taskId, "progress.md");
-    const existing = existsSync(existingPath) ? readFileSync(existingPath, "utf8") : "";
-    const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-    yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "progress.md", `${existing}${separator}${input.text}\n`, { kind: "progress_append" });
+    // ADR-0016 D2: journal only stores the append delta. flush/replay reads the
+    // on-disk progress.md at apply time and appends, so crash recovery no longer
+    // rolls back hand-edits with a stale full-file snapshot.
+    yield* appendProgressDelta(coordinator, stablePayloadHash, input.taskId, input.text);
     return { taskId: input.taskId, path: "progress.md" } satisfies LocalProgressResult;
   });
 }

@@ -210,7 +210,7 @@ const commandSummaries = {
   "init": "Create the harness directory layout and optional npm shortcuts.",
   "new-task": "Create a new task package, optionally through a vertical or preset.",
   "status-set": "Move a local task to a new lifecycle status.",
-  "progress-append": "Append progress text, with optional evidence, to a task package.",
+  "progress-append": "Append the provided text as-is to a task package, with optional evidence; no Markdown formatting or normalization is applied.",
   "task-archive": "Archive a task package while preserving its audit trail.",
   "task-supersede": "Archive old work and optionally create or link replacement work.",
   "task-delete": "Soft-delete or guarded hard-delete a task package.",
@@ -477,7 +477,7 @@ function optionDescription(flag: string): string {
     "--status": "Set the external or module status.",
     "--strict": "Run strict checks.",
     "--task": "Set the task id.",
-    "--text": "Set appended progress text.",
+    "--text": "Progress text appended as-is (no Markdown formatting or normalization).",
     "--title": "Set the required task title used for generated package metadata and slug.",
     "--vertical": "Select a vertical definition; new-task defaults to software/coding.",
     "--version": "Print the installed CLI version."

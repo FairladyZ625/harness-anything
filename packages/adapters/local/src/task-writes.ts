@@ -48,6 +48,21 @@ export function writeTaskDocuments(
   return writeCoordinatedTaskDocuments(coordinator, hashPayload, writes);
 }
 
+export const PROGRESS_DOCUMENT_PATH = "progress.md";
+
+export function appendProgressDelta(
+  coordinator: WriteCoordinator,
+  hashPayload: HashPayload,
+  taskId: TaskId,
+  text: string
+): Effect.Effect<void, WriteError> {
+  return writeCoordinatedPayload(coordinator, hashPayload, {
+    taskId,
+    kind: "progress_append",
+    payload: { path: PROGRESS_DOCUMENT_PATH, append: text }
+  });
+}
+
 export function writeSupersedeTaskDocuments(
   coordinator: WriteCoordinator,
   hashPayload: HashPayload,

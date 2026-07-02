@@ -32,3 +32,29 @@ export function docWrite(opId: string, taskId: string, documentPath: string, bod
     }
   };
 }
+
+// ADR-0016 D2: delta-shaped progress_append op (journal stores only the append text).
+export function progressAppendDelta(opId: string, taskId: string, text: string): WriteOp {
+  return {
+    opId,
+    taskId,
+    kind: "progress_append",
+    payload: {
+      path: "progress.md",
+      append: text
+    }
+  };
+}
+
+// Legacy full-snapshot progress_append op (pre-ADR-0016 payload shape).
+export function progressAppendSnapshot(opId: string, taskId: string, body: string): WriteOp {
+  return {
+    opId,
+    taskId,
+    kind: "progress_append",
+    payload: {
+      path: "progress.md",
+      body
+    }
+  };
+}

@@ -181,10 +181,51 @@ function applyOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | nu
     writeDocumentsAtomically(rootInput, op.payload.writes, op.taskId);
     return null;
   }
+  // ADR-0016 D2: delta-shaped progress_append reads the current on-disk file and
+  // appends. Legacy full-snapshot progress_append ops fall through to the overwrite
+  // path below (backward compatibility, discriminated by payload shape).
+  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
+    return applyProgressAppendDelta(rootInput, op, op.payload);
+  }
   if (!documentWriteKinds.has(op.kind)) {
     rejectWrite(`unsupported write op kind: ${op.kind}`, op.taskId);
   }
   const write = toDocumentWrite(op);
+  writeDocument(rootInput, write);
+  return write;
+}
+
+interface ProgressAppendDeltaPayload {
+  readonly path: string;
+  readonly append: string;
+  readonly packageSlug?: string;
+}
+
+function isProgressAppendDeltaPayload(payload: unknown): payload is ProgressAppendDeltaPayload {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as { readonly path?: unknown; readonly append?: unknown };
+  return typeof candidate.path === "string" && typeof candidate.append === "string";
+}
+
+function progressAppendDeltaWrite(op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
+  return {
+    taskId: op.taskId,
+    path: payload.path,
+    body: "",
+    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
+  };
+}
+
+function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
+  const targetPath = documentTargetPath(rootInput, progressAppendDeltaWrite(op, payload));
+  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  const write: DocumentWrite = {
+    taskId: op.taskId,
+    path: payload.path,
+    body: `${existing}${separator}${payload.append}\n`,
+    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
+  };
   writeDocument(rootInput, write);
   return write;
 }
@@ -303,6 +344,9 @@ function opTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArr
   }
   if (op.kind === "package_delete_hard") {
     return [taskPackagePath(rootInput, op.taskId)];
+  }
+  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
+    return [documentTargetPath(rootInput, progressAppendDeltaWrite(op, op.payload))];
   }
   if (!documentWriteKinds.has(op.kind)) {
     rejectWrite(`unsupported write op kind: ${op.kind}`);
