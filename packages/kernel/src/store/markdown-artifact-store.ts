@@ -11,9 +11,10 @@ import type {
   ArtifactWriteReceipt,
   DocumentWrite
 } from "../ports/artifact-store-writer.ts";
-import type { ArtifactStoreError, EngineId, ExternalRef, TaskId } from "../domain/index.ts";
+import { isPackageDisposition } from "../domain/index.ts";
+import type { ArtifactStoreError, EngineId, ExternalRef, PackageDisposition, TaskId } from "../domain/index.ts";
 import { sha256Text } from "./hash.ts";
-import { createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, resolveHarnessLayout, taskDocumentPath, taskPackagePath, validateTaskIdSyntax } from "../layout/index.ts";
+import { createTaskPackagePath, findTaskIdByExternalRef, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout, taskDocumentPath, taskPackagePath, validateTaskIdSyntax } from "../layout/index.ts";
 
 export interface MarkdownArtifactStoreOptions {
   readonly rootDir: string;
@@ -97,9 +98,24 @@ export function readTaskPackage(rootDir: string, taskId: TaskId): TaskPackageRea
   return {
     taskId,
     rootPath,
-    disposition: "active",
+    disposition: readPackageDisposition(rootPath, taskId),
     documents: readDocuments(rootPath)
   };
+}
+
+function readPackageDisposition(rootPath: string, taskId: TaskId): PackageDisposition {
+  const indexPath = path.join(rootPath, "INDEX.md");
+  if (!existsSync(indexPath)) return "active";
+
+  const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+  if (!frontmatter) throw new Error(`task package frontmatter missing: ${taskId}`);
+
+  const rawDisposition = readScalar(frontmatter, "packageDisposition");
+  const disposition = rawDisposition === "" ? "active" : rawDisposition;
+  if (!isPackageDisposition(disposition)) {
+    throw new Error(`invalid package disposition: ${taskId}`);
+  }
+  return disposition;
 }
 
 function archiveTaskPackage(rootDir: string, taskId: TaskId): TaskPackageRead {

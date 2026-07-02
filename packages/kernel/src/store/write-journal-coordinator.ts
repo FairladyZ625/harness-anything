@@ -35,14 +35,19 @@ const defaultActor: JournalActor = { kind: "agent", id: "local" };
 const maxWatermarkCommittedOpIds = 128;
 
 class WriteRejectedError extends Error {
+  readonly _tag = "WriteRejectedError";
   readonly reason: string;
+  readonly taskId?: TaskId;
 
-  constructor(reason: string) {
+  constructor(reason: string, taskId?: TaskId) {
     super(reason);
     this.name = "WriteRejectedError";
     this.reason = reason;
+    this.taskId = taskId;
   }
 }
+
+type JournalMappedError = WriteLockHeldError | WriteRejectedError;
 
 export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
@@ -68,7 +73,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
         pending.push(op);
         return { opId: op.opId, taskId: op.taskId, accepted: true };
       },
-      catch: (cause): WriteError => toJournalError(cause)
+      catch: (cause): WriteError => toJournalError(cause, { taskId: op.taskId })
     }),
     flush: (reason) => Effect.try({
       try: () => withRepoLocks(rootDir, journalPath, actor, lockTtlMs, pending.map((op) => op.taskId), () => {
@@ -170,11 +175,11 @@ function applyRecord(rootDir: string, journalPath: string, record: JournalRecord
 
 function applyOp(rootDir: string, op: WriteOp): DocumentWrite | null {
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    writeDocumentsAtomically(rootDir, op.payload.writes);
+    writeDocumentsAtomically(rootDir, op.payload.writes, op.taskId);
     return null;
   }
   if (!documentWriteKinds.has(op.kind)) {
-    rejectWrite(`unsupported write op kind: ${op.kind}`);
+    rejectWrite(`unsupported write op kind: ${op.kind}`, op.taskId);
   }
   const write = toDocumentWrite(op);
   writeDocument(rootDir, write);
@@ -244,15 +249,15 @@ function isBatchDocumentWritePayload(payload: unknown): payload is BatchDocument
   return Array.isArray((payload as { readonly writes?: unknown }).writes);
 }
 
-function writeDocumentsAtomically(rootDir: string, writes: ReadonlyArray<DocumentWrite>): void {
-  if (writes.length === 0) rejectWrite("batch document write requires at least one write");
+function writeDocumentsAtomically(rootDir: string, writes: ReadonlyArray<DocumentWrite>, taskId: TaskId): void {
+  if (writes.length === 0) rejectWrite("batch document write requires at least one write", taskId);
   const entries = writes.map((write) => ({
     write,
     targetPath: documentTargetPath(rootDir, write)
   }));
   const targetPaths = new Set<string>();
   for (const entry of entries) {
-    if (targetPaths.has(entry.targetPath)) rejectWrite(`duplicate batch write target: ${entry.write.path}`);
+    if (targetPaths.has(entry.targetPath)) rejectWrite(`duplicate batch write target: ${entry.write.path}`, taskId);
     targetPaths.add(entry.targetPath);
   }
 
@@ -298,7 +303,7 @@ function opTouchedPaths(rootDir: string, op: WriteOp): ReadonlyArray<string> {
 }
 
 function documentTargetPath(rootDir: string, write: DocumentWrite): string {
-  const safePath = normalizeWriteDocumentPath(write.path);
+  const safePath = normalizeWriteDocumentPath(write.path, write.taskId);
   const rootPath = existsSync(taskPackagePath(rootDir, write.taskId))
     ? taskPackagePath(rootDir, write.taskId)
     : createTaskPackagePath(rootDir, write.taskId, write.packageSlug);
@@ -308,7 +313,7 @@ function documentTargetPath(rootDir: string, write: DocumentWrite): string {
 function readHardDeletePayload(rootDir: string, record: JournalRecord): { readonly reason: string } {
   const payload = readVerifiedPayload(rootDir, record);
   if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
-    rejectWrite(`hard delete requires reason payload: ${record.opId}`);
+    rejectWrite(`hard delete requires reason payload: ${record.opId}`, record.taskId);
   }
   return { reason: payload.reason };
 }
@@ -318,7 +323,7 @@ function readVerifiedPayload(rootDir: string, record: JournalRecord): Record<str
   const expectedHash = typeof record.payload?.payloadHash === "string" ? record.payload.payloadHash : "";
   const actualHash = stablePayloadHash(payload);
   if (expectedHash !== actualHash) {
-    rejectWrite(`payload hash mismatch for op ${record.opId}`);
+    rejectWrite(`payload hash mismatch for op ${record.opId}`, record.taskId);
   }
   return payload;
 }
@@ -332,25 +337,25 @@ function assertHardDeleteAllowed(
   const indexPath = path.join(packagePath, "INDEX.md");
   if (!existsSync(indexPath)) {
     if (options.allowMissing) return;
-    rejectWrite(`hard delete forbidden: task package missing ${taskId}`);
+    rejectWrite(`hard delete forbidden: task package missing ${taskId}`, taskId);
   }
 
   const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
-  if (!frontmatter) rejectWrite(`hard delete forbidden: malformed task package ${taskId}`);
+  if (!frontmatter) rejectWrite(`hard delete forbidden: malformed task package ${taskId}`, taskId);
   const disposition = readScalar(frontmatter, "packageDisposition");
   if (!isPackageDisposition(disposition)) {
-    rejectWrite(`hard delete forbidden: invalid package disposition ${taskId}`);
+    rejectWrite(`hard delete forbidden: invalid package disposition ${taskId}`, taskId);
   }
   if (disposition === "archived") {
-    rejectWrite(`hard delete forbidden for archived task: ${taskId}`);
+    rejectWrite(`hard delete forbidden for archived task: ${taskId}`, taskId);
   }
   const status = readScalar(frontmatter, "  status");
-  if (!isDomainStatus(status)) rejectWrite(`hard delete forbidden: invalid task status ${taskId}`);
+  if (!isDomainStatus(status)) rejectWrite(`hard delete forbidden: invalid task status ${taskId}`, taskId);
   if (isTerminalStatus(status)) {
-    rejectWrite(`hard delete forbidden for terminal task: ${taskId}`);
+    rejectWrite(`hard delete forbidden for terminal task: ${taskId}`, taskId);
   }
   if (hasTaskRelations(rootDir, taskId, packagePath)) {
-    rejectWrite(`hard delete forbidden for related task: ${taskId}`);
+    rejectWrite(`hard delete forbidden for related task: ${taskId}`, taskId);
   }
 }
 
@@ -381,7 +386,7 @@ function listTextFiles(inputPath: string): ReadonlyArray<string> {
 function toDocumentWrite(op: WriteOp): DocumentWrite {
   const payload = op.payload as Partial<DocumentWrite> | undefined;
   if (!payload || typeof payload.path !== "string" || typeof payload.body !== "string") {
-    rejectWrite(`doc_write op requires path and body payload: ${op.opId}`);
+    rejectWrite(`doc_write op requires path and body payload: ${op.opId}`, op.taskId);
   }
   return {
     taskId: op.taskId,
@@ -427,46 +432,60 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
 }
 
 function validateOp(rootDir: string, op: WriteOp): void {
-  if (op.opId.length === 0) rejectWrite("opId is required");
-  if (op.taskId.length === 0) rejectWrite("taskId is required");
+  if (op.opId.length === 0) rejectWrite("opId is required", op.taskId);
+  if (op.taskId.length === 0) rejectWrite("taskId is required", op.taskId);
   if (op.kind === "package_delete_hard") {
     const payload = toJournalPayload(op);
     if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
-      rejectWrite(`hard delete requires reason payload: ${op.opId}`);
+      rejectWrite(`hard delete requires reason payload: ${op.opId}`, op.taskId);
     }
     assertHardDeleteAllowed(rootDir, op.taskId);
   }
 }
 
-function toJournalError(cause: unknown): WriteError {
-  if (cause instanceof WriteLockHeldError) {
-    return {
-      _tag: "WriteConflict",
-      taskId: "unknown",
-      owner: cause.message
-    };
-  }
-  if (cause instanceof WriteRejectedError) {
-    return {
-      _tag: "WriteRejected",
-      taskId: "unknown",
-      reason: cause.reason
-    };
-  }
+function toJournalError(cause: unknown, context: { readonly taskId?: TaskId } = {}): WriteError {
+  if (isJournalMappedError(cause)) return mapJournalError(cause, context);
   return {
     _tag: "JournalUnavailable",
     cause
   };
 }
 
-function normalizeWriteDocumentPath(documentPath: string): string {
+function normalizeWriteDocumentPath(documentPath: string, taskId?: TaskId): string {
   try {
     return normalizeRelativeDocumentPath(documentPath);
   } catch (error) {
-    rejectWrite(error instanceof Error ? error.message : String(error));
+    rejectWrite(error instanceof Error ? error.message : String(error), taskId);
   }
 }
 
-function rejectWrite(reason: string): never {
-  throw new WriteRejectedError(reason);
+function rejectWrite(reason: string, taskId?: TaskId): never {
+  throw new WriteRejectedError(reason, taskId);
+}
+
+function isJournalMappedError(cause: unknown): cause is JournalMappedError {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "_tag" in cause &&
+    (cause._tag === "WriteLockHeldError" || cause._tag === "WriteRejectedError")
+  );
+}
+
+function mapJournalError(
+  cause: JournalMappedError,
+  context: { readonly taskId?: TaskId }
+): WriteError {
+  switch (cause._tag) {
+    case "WriteLockHeldError":
+      return cause.taskId
+        ? { _tag: "WriteConflict", taskId: cause.taskId, owner: cause.owner }
+        : { _tag: "GlobalWriteConflict", owner: cause.owner };
+    case "WriteRejectedError": {
+      const taskId = cause.taskId ?? context.taskId;
+      return taskId
+        ? { _tag: "WriteRejected", taskId, reason: cause.reason }
+        : { _tag: "JournalUnavailable", cause };
+    }
+  }
 }

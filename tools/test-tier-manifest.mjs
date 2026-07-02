@@ -48,7 +48,8 @@ export const testTierManifest = {
     "tools/check-cli-structure.test.mjs",
     "tools/check-error-classification.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
-    "tools/check-service-mappability.test.mjs"
+    "tools/check-service-mappability.test.mjs",
+    "tools/scan-forbidden-symbols.test.mjs"
   ],
   integration: [
     "packages/adapters/multica/test/multica-readonly-adopt.test.ts",

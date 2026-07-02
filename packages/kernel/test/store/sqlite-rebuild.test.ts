@@ -25,6 +25,35 @@ test("markdown artifact store remains the rebuildable source of truth without SQ
   });
 });
 
+test("markdown artifact store reads package disposition from INDEX frontmatter", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-active", "Task Active", "active", "active");
+    writeIndex(rootDir, "task-missing", "Task Missing", "active", null);
+    writeIndex(rootDir, "task-archived", "Task Archived", "done", "archived");
+    writeIndex(rootDir, "task-tombstoned", "Task Tombstoned", "cancelled", "tombstoned");
+
+    const store = makeMarkdownArtifactStore({ rootDir });
+
+    assert.equal(Effect.runSync(store.readTaskPackage("task-active")).disposition, "active");
+    assert.equal(Effect.runSync(store.readTaskPackage("task-missing")).disposition, "active");
+    assert.equal(Effect.runSync(store.readTaskPackage("task-archived")).disposition, "archived");
+    assert.equal(Effect.runSync(store.readTaskPackage("task-tombstoned")).disposition, "tombstoned");
+  });
+});
+
+test("markdown artifact store rejects invalid package disposition", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-invalid", "Task Invalid", "active", "typo");
+
+    const store = makeMarkdownArtifactStore({ rootDir });
+
+    assert.throws(
+      () => Effect.runSync(store.readTaskPackage("task-invalid")),
+      /invalid package disposition/
+    );
+  });
+});
+
 test("SQLite task projection rebuild is deterministic after cache deletion", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-1", "Task One", "active");
@@ -154,7 +183,14 @@ test("malformed task source is a checker error and not authored by projection re
   });
 });
 
-function writeIndex(rootDir: string, taskId: string, title: string, status: string): void {
+function writeIndex(
+  rootDir: string,
+  taskId: string,
+  title: string,
+  status: string,
+  packageDisposition: string | null = "active"
+): void {
+  const dispositionLines = packageDisposition === null ? [] : [`packageDisposition: ${packageDisposition}`];
   mkdirSync(path.join(rootDir, "harness/planning/tasks", taskId), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/planning/tasks", taskId, "INDEX.md"), [
     "---",
@@ -170,7 +206,7 @@ function writeIndex(rootDir: string, taskId: string, title: string, status: stri
     "  url: ",
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:fixture",
-    "packageDisposition: active",
+    ...dispositionLines,
     "vertical: default",
     "preset: default",
     "---",
