@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { DecisionWriteService, FactWriteService } from "../../../application/src/index.ts";
+import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
@@ -28,6 +29,7 @@ export interface CommandRunnerContext {
   readonly layoutInput: HarnessLayoutInput;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly engine: CommandRunnerEngine;
+  readonly currentSessionProbe: CurrentSessionProbePort;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
 }
@@ -98,12 +100,14 @@ export const runnerRegistry = {
 export function runRegisteredCommand(
   command: ParsedCommand,
   makeEngine: () => CommandRunnerEngine,
+  makeCurrentSessionProbe: () => CurrentSessionProbePort,
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
   let engine: CommandRunnerEngine | undefined;
+  let currentSessionProbe: CurrentSessionProbePort | undefined;
   let decisionWriteService: DecisionWriteService | undefined;
   let factWriteService: FactWriteService | undefined;
   return runner({
@@ -113,6 +117,10 @@ export function runRegisteredCommand(
     get engine() {
       engine ??= makeEngine();
       return engine;
+    },
+    get currentSessionProbe() {
+      currentSessionProbe ??= makeCurrentSessionProbe();
+      return currentSessionProbe;
     },
     get decisionWriteService() {
       decisionWriteService ??= makeDecisionWriteService();

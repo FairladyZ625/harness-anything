@@ -9,6 +9,7 @@ const publicRuntimeSurface = [
   "ActorKindSchema",
   "ActorRefSchema",
   "ArtifactStore",
+  "CurrentSessionProbe",
   "DecisionPackageSchema",
   "DecisionStateSchema",
   "DocsReleasePromotionBundleSchema",

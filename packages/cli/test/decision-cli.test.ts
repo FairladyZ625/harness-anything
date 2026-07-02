@@ -37,6 +37,9 @@ test("CLI decision propose writes a decision package through the coordinator", (
     assert.match(body, /schema: decision-package\/v1/);
     assert.match(body, /decision_id: dec_TESTCLI/);
     assert.match(body, /_coordinatorWatermark: /);
+    assert.match(body, /runtime: "human"/);
+    assert.match(body, /sessionId: "human-cli-\d+"/);
+    assert.match(body, /boundAt: "/);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
   });
 });
@@ -100,7 +103,15 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ANTIGRAVITY_SESSION_ID: "",
+        CLAUDE_CODE_SESSION_ID: "",
+        CLAUDE_SESSION_ID: "",
+        CODEX_SESSION_ID: "",
+        ZCODE_SESSION_ID: ""
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

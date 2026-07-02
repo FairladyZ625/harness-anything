@@ -9,6 +9,14 @@ export type { TaskEngineRef, TaskListFilter, EngineCapabilities, NoteRef } from 
 export { TemplateLibrary } from "./template-library.ts";
 export type { Locale, TemplateRef, TemplateDocument } from "./template-library.ts";
 
+export { CurrentSessionProbe } from "./current-session-probe.ts";
+export type {
+  CurrentSessionProbe as CurrentSessionProbePort,
+  CurrentSessionRef,
+  CurrentSessionRuntime,
+  CurrentSessionSource
+} from "./current-session-probe.ts";
+
 export { WriteCoordinator } from "./write-coordinator.ts";
 export type {
   WriteOp,
