@@ -35,6 +35,7 @@ const RejectedDecisionAnchorSchema = Schema.Struct({
 export const DecisionPackageSchema = Schema.Struct({
   schema: Schema.Literal("decision-package/v1"),
   decision_id: DecisionIdSchema,
+  _coordinatorWatermark: Schema.optional(NonBlankStringSchema),
   title: NonBlankStringSchema,
   state: DecisionStateSchema,
   riskTier: DecisionRiskTierSchema,

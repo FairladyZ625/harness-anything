@@ -17,6 +17,8 @@ export type ProjectionWarningCode =
   | "generated_tracked"
   | "binding_tampered"
   | "conflict_marker_present"
+  | "decision_watermark_missing"
+  | "decision_watermark_duplicate"
   | "dangling_entity_ref"
   | "relation_cycle_detected";
 

@@ -183,6 +183,21 @@ test("malformed task source is a checker error and not authored by projection re
   });
 });
 
+test("post-merge check reports missing and duplicate decision coordinator watermarks", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-1", "Task One", "active");
+    writeDecision(rootDir, "dec_MISSING", "");
+    writeDecision(rootDir, "dec_DUPLICATE_A", "wm-duplicate");
+    writeDecision(rootDir, "dec_DUPLICATE_B", "wm-duplicate");
+
+    const result = checkTaskProjection({ rootDir, postMerge: true });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.warnings.some((warning) => warning.code === "decision_watermark_missing"), true);
+    assert.equal(result.warnings.some((warning) => warning.code === "decision_watermark_duplicate"), true);
+  });
+});
+
 function writeIndex(
   rootDir: string,
   taskId: string,
@@ -214,4 +229,22 @@ function writeIndex(
     `# ${title}`,
     ""
   ].join("\n"));
+}
+
+function writeDecision(rootDir: string, decisionId: string, watermark: string): void {
+  const lines = [
+    "---",
+    "schema: decision-package/v1",
+    `decision_id: ${decisionId}`,
+    ...(watermark ? [`_coordinatorWatermark: ${watermark}`] : []),
+    "title: Test decision",
+    "state: active",
+    "---",
+    "",
+    "# Test decision",
+    ""
+  ];
+  const decisionRoot = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
+  mkdirSync(decisionRoot, { recursive: true });
+  writeFileSync(path.join(decisionRoot, "decision.md"), lines.join("\n"));
 }

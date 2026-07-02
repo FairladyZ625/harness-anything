@@ -5,7 +5,7 @@ import { findEntityRefs } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { readScalar } from "../markdown/frontmatter.ts";
+import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 
@@ -18,6 +18,7 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findTrackedGeneratedFiles(rootDir));
   warnings.push(...findTamperedBindings(source.entries));
   warnings.push(...findConflictMarkers(rootInput));
+  warnings.push(...findDecisionWatermarkIssues(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
   warnings.push(...findRelationCycles(source.entries));
   return warnings;
@@ -141,6 +142,41 @@ function findConflictMarkers(rootInput: HarnessLayoutInput): ReadonlyArray<Proje
     }
   }
   return [];
+}
+
+function findDecisionWatermarkIssues(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+  const layout = resolveHarnessLayout(rootInput);
+  const seen = new Map<string, string>();
+  const warnings: ProjectionWarning[] = [];
+  for (const filePath of listTextFiles(path.join(layout.authoredRoot, "decisions"))) {
+    if (path.basename(filePath) !== "decision.md") continue;
+    const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
+    if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
+    const source = sourcePath(layout.rootDir, filePath);
+    const decisionId = readScalar(frontmatter, "decision_id") || path.basename(path.dirname(filePath));
+    const watermark = readScalar(frontmatter, "_coordinatorWatermark");
+    if (watermark.length === 0) {
+      warnings.push(hardFail(
+        "source-package",
+        "decision_watermark_missing",
+        `Decision ${decisionId} in ${source} is missing _coordinatorWatermark.`,
+        "Rewrite the decision through the decision write coordinator path; do not hand-author machine-readable decision frontmatter."
+      ));
+      continue;
+    }
+    const previous = seen.get(watermark);
+    if (previous) {
+      warnings.push(hardFail(
+        "source-package",
+        "decision_watermark_duplicate",
+        `Decision ${decisionId} in ${source} reuses _coordinatorWatermark from ${previous}.`,
+        "Regenerate one of the copied decision files through the decision write coordinator path so each authored decision has a unique watermark."
+      ));
+      continue;
+    }
+    seen.set(watermark, source);
+  }
+  return warnings;
 }
 
 function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {

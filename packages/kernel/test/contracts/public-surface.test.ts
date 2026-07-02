@@ -55,6 +55,8 @@ const publicRuntimeSurface = [
   "createEntityKindRegistry",
   "createInMemoryPublishIdempotencyLedger",
   "createTaskIdentity",
+  "decisionEntityId",
+  "decisionIdFromEntityId",
   "decisionStates",
   "defaultTaskProjectionPath",
   "deriveRelationId",

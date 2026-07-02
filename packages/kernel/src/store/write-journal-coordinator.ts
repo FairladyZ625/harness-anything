@@ -11,7 +11,14 @@ import type {
   WriteOp
 } from "../ports/write-coordinator.ts";
 import type { EntityId, TaskId, WriteError } from "../domain/index.ts";
-import { findEntityRefs, isDomainStatus, isPackageDisposition, isTerminalStatus, taskEntityId, taskIdFromEntityId } from "../domain/index.ts";
+import {
+  findEntityRefs,
+  isDomainStatus,
+  isPackageDisposition,
+  isTerminalStatus,
+  taskEntityId,
+  taskIdFromEntityId
+} from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { assertDocumentWritePathsDoNotCollide, writeDocument } from "./markdown-artifact-store.ts";
@@ -28,6 +35,8 @@ import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRe
 import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
 import { withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord, taskIdForWriteOp } from "./write-journal-entity.ts";
+import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "./write-journal-decision-documents.ts";
+import { rejectTaskWrite, rejectWrite, WriteRejectedError } from "./write-journal-rejection.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { JournalActor, JournaledWriteCoordinatorOptions } from "./write-journal-types.ts";
 
@@ -35,21 +44,6 @@ const defaultActor: JournalActor = { kind: "agent", id: "local" };
 // Flush writes the full op-id set before compaction for recovery safety, then
 // trims to a bounded recent-id window only after journal compaction succeeds.
 const maxWatermarkCommittedOpIds = 128;
-
-class WriteRejectedError extends Error {
-  readonly _tag = "WriteRejectedError";
-  readonly reason: string;
-  readonly entityId?: EntityId;
-  readonly taskId?: TaskId;
-
-  constructor(reason: string, entityId?: EntityId) {
-    super(reason);
-    this.name = "WriteRejectedError";
-    this.reason = reason;
-    this.entityId = entityId;
-    this.taskId = entityId ? taskIdFromEntityId(entityId) ?? undefined : undefined;
-  }
-}
 
 type JournalMappedError = WriteLockHeldError | WriteRejectedError | NonTaskWriteEntityError;
 
@@ -198,6 +192,10 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
 }
 
 function applyOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
+  if (decisionWriteKinds.has(op.kind)) {
+    writeDecisionDocument(rootInput, op);
+    return null;
+  }
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
     writeDocumentsAtomically(rootInput, op.payload.writes, taskIdForWriteOp(op));
     return null;
@@ -364,6 +362,9 @@ function recordTouchedPaths(rootDir: string, rootInput: HarnessLayoutInput, reco
 }
 
 function opTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {
+  if (decisionWriteKinds.has(op.kind)) {
+    return [decisionDocumentTargetPath(rootInput, op)];
+  }
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
     return op.payload.writes.map((write) => documentTargetPath(rootInput, write));
   }
@@ -380,6 +381,9 @@ function opTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArr
 }
 
 function documentWritesForOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
+  if (decisionWriteKinds.has(op.kind)) {
+    return [];
+  }
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
     return op.payload.writes;
   }
@@ -529,6 +533,10 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
 function validateOp(rootInput: HarnessLayoutInput, op: WriteOp): void {
   if (op.opId.length === 0) rejectWrite("opId is required", op.entityId);
   if (op.entityId.length === 0) rejectWrite("entityId is required", op.entityId);
+  if (decisionWriteKinds.has(op.kind)) {
+    decisionDocumentTargetPath(rootInput, op);
+    return;
+  }
   if (op.kind === "package_delete_hard") {
     const payload = toJournalPayload(op);
     if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
@@ -552,14 +560,6 @@ function normalizeWriteDocumentPath(documentPath: string, entityId?: EntityId): 
   } catch (error) {
     rejectWrite(error instanceof Error ? error.message : String(error), entityId);
   }
-}
-
-function rejectWrite(reason: string, entityId?: EntityId): never {
-  throw new WriteRejectedError(reason, entityId);
-}
-
-function rejectTaskWrite(reason: string, taskId: TaskId): never {
-  throw new WriteRejectedError(reason, taskEntityId(taskId));
 }
 
 function isJournalMappedError(cause: unknown): cause is JournalMappedError {

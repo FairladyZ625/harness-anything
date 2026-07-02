@@ -13,6 +13,10 @@ export function taskEntityId(taskId: TaskId): EntityId {
   return `task/${taskId}`;
 }
 
+export function decisionEntityId(decisionId: string): EntityId {
+  return `decision/${decisionId}`;
+}
+
 export function parseWriteEntityId(entityId: EntityId): ParsedWriteEntityId | null {
   const match = entityId.match(writeEntityIdPattern);
   const kind = match?.groups?.kind;
@@ -24,4 +28,9 @@ export function parseWriteEntityId(entityId: EntityId): ParsedWriteEntityId | nu
 export function taskIdFromEntityId(entityId: EntityId): TaskId | null {
   const parsed = parseWriteEntityId(entityId);
   return parsed?.kind === "task" ? parsed.id : null;
+}
+
+export function decisionIdFromEntityId(entityId: EntityId): string | null {
+  const parsed = parseWriteEntityId(entityId);
+  return parsed?.kind === "decision" ? parsed.id : null;
 }

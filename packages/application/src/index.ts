@@ -5,6 +5,16 @@ import type { DomainStatus, EngineError, ProjectionWarning, TaskProjectionRow, W
 import { isDomainStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
+export { makeDecisionWriteService } from "./decision-write-service.ts";
+export type {
+  DecisionAmendRequest,
+  DecisionTransitionRequest,
+  DecisionWriteRejected,
+  DecisionWriteRequest,
+  DecisionWriteResult,
+  DecisionWriteService,
+  DecisionWriteServiceOptions
+} from "./decision-write-service.ts";
 import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 export {
   evaluateCompletionGate,
