@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
-import type { TaskId } from "../domain/index.ts";
+import type { EntityId, TaskId } from "../domain/index.ts";
+import { taskIdFromEntityId } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -12,12 +13,13 @@ import type { JournalActor, LockRecord, LockTakeoverRecord, OwnedLock } from "./
 export class WriteLockHeldError extends Error {
   readonly _tag = "WriteLockHeldError";
   readonly owner: string;
+  readonly entityId?: EntityId;
   readonly taskId?: TaskId;
   readonly reason: "held" | "changed-during-takeover" | "takeover-in-progress";
 
   constructor(input: {
     readonly owner: string;
-    readonly taskId?: TaskId;
+    readonly entityId?: EntityId;
     readonly reason?: WriteLockHeldError["reason"];
   }) {
     const reason = input.reason ?? "held";
@@ -27,7 +29,8 @@ export class WriteLockHeldError extends Error {
     super(message);
     this.name = "WriteLockHeldError";
     this.owner = input.owner;
-    this.taskId = input.taskId;
+    this.entityId = input.entityId;
+    this.taskId = input.entityId ? taskIdFromEntityId(input.entityId) ?? undefined : undefined;
     this.reason = reason;
   }
 }
@@ -38,7 +41,7 @@ export function withRepoLocks<T>(
   journalPath: string,
   actor: JournalActor,
   lockTtlMs: number,
-  taskIds: ReadonlyArray<TaskId>,
+  entityIds: ReadonlyArray<EntityId>,
   fn: () => T
 ): T {
   const locks: OwnedLock[] = [];
@@ -47,9 +50,9 @@ export function withRepoLocks<T>(
     const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
     locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs));
     const state = readJournal(journalPath, rootDir);
-    const lockedTaskIds = new Set([...taskIds, ...state.map((record) => record.taskId)]);
-    for (const taskId of [...lockedTaskIds].sort()) {
-      locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/task-${sha256Text(taskId)}.lock`, lockTtlMs, taskId));
+    const lockedEntityIds = new Set([...entityIds, ...state.map((record) => record.entityId)]);
+    for (const entityId of [...lockedEntityIds].sort()) {
+      locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/entity-${sha256Text(entityId)}.lock`, lockTtlMs, entityId));
     }
     return fn();
   } finally {
@@ -63,7 +66,7 @@ function acquireLock(
   actor: JournalActor,
   relativeLockPath: string,
   lockTtlMs: number,
-  taskId?: TaskId
+  entityId?: EntityId
 ): OwnedLock {
   const lockPath = path.join(rootDir, relativeLockPath);
   const claimPath = `${lockPath}.takeover`;
@@ -74,20 +77,20 @@ function acquireLock(
   mkdirSync(path.dirname(lockPath), { recursive: true });
 
   try {
-    clearStaleTakeoverClaim(claimPath, lockTtlMs, taskId);
+    clearStaleTakeoverClaim(claimPath, lockTtlMs, entityId);
     recoverQuarantinedStaleLock(lockPath);
 
     if (existsSync(lockPath)) {
       const existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (!isStaleLock(existing, lockTtlMs)) {
-        throw lockHeld(relativeLockPath, taskId);
+        throw lockHeld(relativeLockPath, entityId);
       }
 
-      acquireTakeoverClaim(claimPath, ownerToken, taskId);
+      acquireTakeoverClaim(claimPath, ownerToken, entityId);
       ownsTakeoverClaim = true;
       const current = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (current.ownerToken !== existing.ownerToken) {
-        throw lockHeld(relativeLockPath, taskId, "changed-during-takeover");
+        throw lockHeld(relativeLockPath, entityId, "changed-during-takeover");
       }
 
       staleTakeover = {
@@ -101,7 +104,7 @@ function acquireLock(
       staleQuarantinePath = `${lockPath}.stale.${existing.ownerToken}.${ownerToken}`;
       renameSync(lockPath, staleQuarantinePath);
     } else if (existsSync(claimPath)) {
-      throw lockHeld(relativeLockPath, taskId, "takeover-in-progress");
+      throw lockHeld(relativeLockPath, entityId, "takeover-in-progress");
     }
 
     let fd: number;
@@ -109,7 +112,7 @@ function acquireLock(
       fd = openSync(lockPath, "wx");
     } catch (error) {
       if (isAlreadyExistsError(error)) {
-        throw lockHeld(relativeLockPath, taskId);
+        throw lockHeld(relativeLockPath, entityId);
       }
       throw error;
     }
@@ -128,7 +131,7 @@ function acquireLock(
 
     if (!ownsTakeoverClaim && existsSync(claimPath)) {
       releaseLock({ path: lockPath, ownerToken });
-      throw lockHeld(relativeLockPath, taskId, "takeover-in-progress");
+      throw lockHeld(relativeLockPath, entityId, "takeover-in-progress");
     }
 
     if (staleTakeover) appendJsonLineDurably(journalPath, staleTakeover);
@@ -151,13 +154,13 @@ function releaseLock(lock: OwnedLock): void {
   if (current.ownerToken === lock.ownerToken) unlinkSync(lock.path);
 }
 
-function acquireTakeoverClaim(claimPath: string, ownerToken: string, taskId?: TaskId): void {
+function acquireTakeoverClaim(claimPath: string, ownerToken: string, entityId?: EntityId): void {
   let fd: number;
   try {
     fd = openSync(claimPath, "wx");
   } catch (error) {
     if (isAlreadyExistsError(error)) {
-      throw lockHeld(path.basename(claimPath, ".takeover"), taskId, "takeover-in-progress");
+      throw lockHeld(path.basename(claimPath, ".takeover"), entityId, "takeover-in-progress");
     }
     throw error;
   }
@@ -183,14 +186,14 @@ function isStaleLock(record: LockRecord, lockTtlMs: number): boolean {
   return Number.isFinite(age) && age > lockTtlMs;
 }
 
-function clearStaleTakeoverClaim(claimPath: string, lockTtlMs: number, taskId?: TaskId): void {
+function clearStaleTakeoverClaim(claimPath: string, lockTtlMs: number, entityId?: EntityId): void {
   if (!existsSync(claimPath)) return;
   const record = readClaimRecord(claimPath);
   if (!record) {
-    throw lockHeld(path.basename(claimPath, ".takeover"), taskId, "takeover-in-progress");
+    throw lockHeld(path.basename(claimPath, ".takeover"), entityId, "takeover-in-progress");
   }
   if (!isStaleLock(record, lockTtlMs)) {
-    throw lockHeld(path.basename(claimPath, ".takeover"), taskId, "takeover-in-progress");
+    throw lockHeld(path.basename(claimPath, ".takeover"), entityId, "takeover-in-progress");
   }
   rmSync(claimPath, { force: true });
 }
@@ -230,8 +233,8 @@ function isAlreadyExistsError(error: unknown): boolean {
 
 function lockHeld(
   owner: string,
-  taskId?: TaskId,
+  entityId?: EntityId,
   reason?: WriteLockHeldError["reason"]
 ): WriteLockHeldError {
-  return new WriteLockHeldError({ owner, taskId, reason });
+  return new WriteLockHeldError({ owner, entityId, reason });
 }

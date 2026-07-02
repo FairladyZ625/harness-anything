@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { taskEntityId } from "../../../kernel/src/domain/index.ts";
 import type { TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import type { WriteOpKind } from "../../../kernel/src/ports/write-coordinator.ts";
@@ -57,7 +58,7 @@ export function appendProgressDelta(
   text: string
 ): Effect.Effect<void, WriteError> {
   return writeCoordinatedPayload(coordinator, hashPayload, {
-    taskId,
+    entityId: taskEntityId(taskId),
     kind: "progress_append",
     payload: { path: PROGRESS_DOCUMENT_PATH, append: text }
   });
@@ -71,7 +72,7 @@ export function writeSupersedeTaskDocuments(
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
     yield* writeCoordinatedPayload(coordinator, hashPayload, {
-      taskId,
+      entityId: taskEntityId(taskId),
       kind: "package_supersede",
       payload: { writes }
     });
@@ -86,7 +87,7 @@ export function deleteTaskPackage(
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
     yield* writeCoordinatedPayload(coordinator, hashPayload, {
-      taskId,
+      entityId: taskEntityId(taskId),
       kind: "package_delete_hard",
       payload: { reason }
     });

@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
+import { taskEntityId } from "../../src/domain/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
@@ -25,7 +26,7 @@ test("WriteCoordinator reports duplicate batch write conflicts on the conflictin
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
     Effect.runSync(coordinator.enqueue({
       opId: "op-batch-duplicate",
-      taskId: "task-batch",
+      entityId: taskEntityId("task-batch"),
       kind: "package_supersede",
       payload: {
         writes: [

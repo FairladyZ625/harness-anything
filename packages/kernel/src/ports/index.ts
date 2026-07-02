@@ -13,7 +13,10 @@ export { WriteCoordinator } from "./write-coordinator.ts";
 export type {
   WriteOp,
   WriteOpKind,
+  TaskWriteOpKind,
+  DecisionWriteOpKind,
   LocalTransitionWriteOp,
+  ProvenancePayload,
   WriteAck,
   FlushReason,
   FlushReport,

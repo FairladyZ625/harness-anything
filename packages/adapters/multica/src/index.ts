@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
-import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import { taskEntityId, type ArtifactStoreError, type EngineError, type ExternalRef, type TaskId, type WriteError } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { ArtifactStore, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
@@ -268,7 +268,7 @@ function writeTaskDocument(
 ): Effect.Effect<void, WriteError> {
   return Effect.gen(function* () {
     yield* writeCoordinatedPayload(coordinator, stableHash, {
-      taskId,
+      entityId: taskEntityId(taskId),
       kind: "doc_write",
       payload: {
         path: "INDEX.md",

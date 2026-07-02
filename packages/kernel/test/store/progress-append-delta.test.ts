@@ -136,7 +136,7 @@ test("crash between delta apply and watermark does not duplicate the append", ()
     writeFileSync(filePath, "applied once\n", "utf8");
     appendFileSync(
       path.join(rootDir, ".harness/write-journal/writes.jsonl"),
-      `${JSON.stringify({ schema: "apply-marker/v1", opId: "op-1", taskId: "task-1", at: "2026-07-02T00:00:00.000Z" })}\n`,
+      `${JSON.stringify({ schema: "apply-marker/v1", opId: "op-1", entityId: "task/task-1", at: "2026-07-02T00:00:00.000Z" })}\n`,
       "utf8"
     );
 

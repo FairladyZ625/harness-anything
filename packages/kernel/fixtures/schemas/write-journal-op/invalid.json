@@ -1,7 +1,7 @@
 {
   "schema": "write-journal/v1",
   "opId": "op-2026-06-11-002",
-  "taskId": "2026-06-11-kr-01-harness-infrastructure",
+  "entityId": "task/2026-06-11-kr-01-harness-infrastructure",
   "kind": "transition_external",
   "actor": {
     "kind": "agent",

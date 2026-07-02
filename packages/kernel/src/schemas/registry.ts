@@ -116,8 +116,25 @@ export const TaskFrontmatterSchema = Schema.Struct({
 export const WriteJournalOpSchema = Schema.Struct({
   schema: Schema.Literal("write-journal/v1"),
   opId: Schema.String,
-  taskId: Schema.String,
-  kind: Schema.Literal("package_create", "transition_local", "progress_append", "doc_write", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard"),
+  entityId: Schema.String,
+  kind: Schema.Literal(
+    "package_create",
+    "transition_local",
+    "progress_append",
+    "doc_write",
+    "package_archive",
+    "package_tombstone",
+    "package_reopen",
+    "package_supersede",
+    "package_delete_hard",
+    "decision_propose",
+    "decision_accept",
+    "decision_reject",
+    "decision_defer",
+    "decision_supersede",
+    "decision_amend",
+    "decision_retire"
+  ),
   actor: ActorRefSchema,
   at: Schema.String,
   payloadRef: Schema.optional(Schema.Struct({

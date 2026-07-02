@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
-import type { TaskId, WriteError } from "../domain/index.ts";
+import { taskEntityId } from "../domain/index.ts";
+import type { EntityId, TaskId, WriteError } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { WriteCoordinator, WriteOpKind } from "../ports/index.ts";
 
@@ -24,7 +25,7 @@ export function writeCoordinatedTaskDocuments(
   return Effect.gen(function* () {
     for (const write of writes) {
       yield* writeCoordinatedPayload(coordinator, hashPayload, {
-        taskId: write.taskId,
+        entityId: taskEntityId(write.taskId),
         kind: write.kind,
         payload: {
           path: write.path,
@@ -41,7 +42,7 @@ export function writeCoordinatedPayload(
   coordinator: WriteCoordinator,
   hashPayload: PayloadHasher,
   input: {
-    readonly taskId: TaskId;
+    readonly entityId: EntityId;
     readonly kind: WriteOpKind;
     readonly payload?: unknown;
     readonly opIdPrefix?: string;
@@ -53,16 +54,16 @@ export function writeCoordinatedPayload(
     // are constant for identical text, so timestamp+hash alone would collide within one
     // millisecond and silently dedupe a legitimate second append. Callers that pass an
     // explicit opIdPrefix opt into deterministic ids for intentional idempotency. The
-    // hash still folds in taskId/kind so distinct ops never share a payload hash.
+    // hash still folds in entityId/kind so distinct ops never share a payload hash.
     const prefix = input.opIdPrefix ?? `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const opId = `${prefix}-${hashPayload({
-      taskId: input.taskId,
+      entityId: input.entityId,
       kind: input.kind,
       payload: input.payload
     }).slice(0, 16)}`;
     yield* coordinator.enqueue({
       opId,
-      taskId: input.taskId,
+      entityId: input.entityId,
       kind: input.kind,
       payload: input.payload
     });

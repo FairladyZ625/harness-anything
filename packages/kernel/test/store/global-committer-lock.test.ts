@@ -6,7 +6,7 @@ import { hostname } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { Effect } from "effect";
-import type { WriteError } from "../../src/domain/index.ts";
+import { taskEntityId, type WriteError } from "../../src/domain/index.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore, withTempStoreAsync } from "./helpers.ts";
@@ -19,7 +19,7 @@ test("WriteCoordinator rejects semantic writes without document payload", () => 
 
     const failure = runWriteFailure(coordinator.enqueue({
       opId: "op-transition",
-      taskId: "task-1",
+      entityId: taskEntityId("task-1"),
       kind: "transition_local",
       payload: { to: "active" }
     }));
@@ -38,7 +38,7 @@ test("WriteCoordinator validates supersede batch before writing any document", (
     assert.throws(
       () => Effect.runSync(coordinator.enqueue({
         opId: "op-supersede-batch-invalid",
-        taskId: "task-old",
+        entityId: taskEntityId("task-old"),
         kind: "package_supersede",
         payload: {
           writes: [
@@ -62,7 +62,7 @@ test("WriteCoordinator validates package create batch before writing any documen
     assert.throws(
       () => Effect.runSync(coordinator.enqueue({
         opId: "op-create-batch-invalid",
-        taskId: "task-new",
+        entityId: taskEntityId("task-new"),
         kind: "package_create",
         payload: {
           writes: [
@@ -86,7 +86,7 @@ test("WriteCoordinator rejects hard delete before journaling when policy payload
     assert.throws(
       () => Effect.runSync(coordinator.enqueue({
         opId: "op-hard-delete-missing-reason",
-        taskId: "task-hard",
+        entityId: taskEntityId("task-hard"),
         kind: "package_delete_hard",
         payload: { reason: "" }
       })),
@@ -119,7 +119,7 @@ test("WriteCoordinator rejects hard delete before journaling when policy payload
     assert.throws(
       () => Effect.runSync(coordinator.enqueue({
         opId: "op-hard-delete-invalid-disposition",
-        taskId: "task-hard",
+        entityId: taskEntityId("task-hard"),
         kind: "package_delete_hard",
         payload: { reason: "mistaken local package" }
       })),
@@ -163,10 +163,10 @@ test("two coordinators cannot flush while the global lock is already held", () =
   });
 });
 
-test("task lock conflicts preserve the scoped task id", () => {
+test("entity lock conflicts preserve the scoped task id", () => {
   withTempStore((rootDir) => {
     mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
-    writeFileSync(path.join(rootDir, `.harness/locks/task-${sha256Text("task-1")}.lock`), JSON.stringify({
+    writeFileSync(path.join(rootDir, `.harness/locks/entity-${sha256Text(taskEntityId("task-1"))}.lock`), JSON.stringify({
       pid: process.pid,
       hostname: hostname(),
       acquiredAt: new Date().toISOString(),
@@ -181,13 +181,13 @@ test("task lock conflicts preserve the scoped task id", () => {
 
     assert.equal(failure._tag, "WriteConflict");
     assert.equal(failure.taskId, "task-1");
-    assert.equal(failure.owner, `.harness/locks/task-${sha256Text("task-1")}.lock`);
+    assert.equal(failure.owner, `.harness/locks/entity-${sha256Text(taskEntityId("task-1"))}.lock`);
   });
 });
 
-test("task takeover claim conflicts preserve the scoped task id", () => {
+test("entity takeover claim conflicts preserve the scoped task id", () => {
   withTempStore((rootDir) => {
-    const taskLockName = `task-${sha256Text("task-1")}.lock`;
+    const taskLockName = `entity-${sha256Text(taskEntityId("task-1"))}.lock`;
     mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
     writeFileSync(path.join(rootDir, `.harness/locks/${taskLockName}.takeover`), JSON.stringify({
       pid: process.pid,

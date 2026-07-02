@@ -1,4 +1,4 @@
-import type { TaskId } from "../domain/index.ts";
+import type { EntityId, TaskId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 
@@ -26,7 +26,7 @@ export type JournalRecordKind = WriteOp["kind"];
 export interface JournalRecord {
   readonly schema: "write-journal/v1";
   readonly opId: string;
-  readonly taskId: TaskId;
+  readonly entityId: EntityId;
   readonly kind: JournalRecordKind;
   readonly actor: JournalActor;
   readonly at: string;
@@ -60,7 +60,7 @@ export interface DeleteAuditRecord {
 export interface ApplyMarkerRecord {
   readonly schema: "apply-marker/v1";
   readonly opId: string;
-  readonly taskId: TaskId;
+  readonly entityId: EntityId;
   readonly at: string;
 }
 

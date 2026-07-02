@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { taskEntityId } from "../../src/domain/index.ts";
 import type { WriteOp } from "../../src/ports/index.ts";
 
 export function withTempStore<T>(fn: (rootDir: string) => T): T {
@@ -24,7 +25,7 @@ export async function withTempStoreAsync<T>(fn: (rootDir: string) => Promise<T>)
 export function docWrite(opId: string, taskId: string, documentPath: string, body: string): WriteOp {
   return {
     opId,
-    taskId,
+    entityId: taskEntityId(taskId),
     kind: "doc_write",
     payload: {
       path: documentPath,
@@ -37,7 +38,7 @@ export function docWrite(opId: string, taskId: string, documentPath: string, bod
 export function progressAppendDelta(opId: string, taskId: string, text: string): WriteOp {
   return {
     opId,
-    taskId,
+    entityId: taskEntityId(taskId),
     kind: "progress_append",
     payload: {
       path: "progress.md",
@@ -50,7 +51,7 @@ export function progressAppendDelta(opId: string, taskId: string, text: string):
 export function progressAppendSnapshot(opId: string, taskId: string, body: string): WriteOp {
   return {
     opId,
-    taskId,
+    entityId: taskEntityId(taskId),
     kind: "progress_append",
     payload: {
       path: "progress.md",

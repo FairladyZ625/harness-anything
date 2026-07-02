@@ -4,12 +4,12 @@
   "x-harness-schema-id": "write-journal-op",
   "title": "Write Journal Op v1",
   "type": "object",
-  "required": ["schema", "opId", "taskId", "kind", "actor", "at"],
+  "required": ["schema", "opId", "entityId", "kind", "actor", "at"],
   "properties": {
     "schema": { "const": "write-journal/v1" },
     "opId": { "type": "string" },
-    "taskId": { "type": "string" },
-    "kind": { "enum": ["package_create", "transition_local", "progress_append", "doc_write", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard"] },
+    "entityId": { "type": "string" },
+    "kind": { "enum": ["package_create", "transition_local", "progress_append", "doc_write", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard", "decision_propose", "decision_accept", "decision_reject", "decision_defer", "decision_supersede", "decision_amend", "decision_retire"] },
     "actor": { "type": "object" },
     "at": { "type": "string" }
   }

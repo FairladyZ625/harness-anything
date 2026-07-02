@@ -10,8 +10,8 @@ import type {
   WriteCoordinator,
   WriteOp
 } from "../ports/write-coordinator.ts";
-import type { TaskId, WriteError } from "../domain/index.ts";
-import { findEntityRefs, isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
+import type { EntityId, TaskId, WriteError } from "../domain/index.ts";
+import { findEntityRefs, isDomainStatus, isPackageDisposition, isTerminalStatus, taskEntityId, taskIdFromEntityId } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { assertDocumentWritePathsDoNotCollide, writeDocument } from "./markdown-artifact-store.ts";
@@ -27,6 +27,7 @@ import { hashTaskProjectionRows, rebuildTaskProjection } from "../projection/sql
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
 import { withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
+import { NonTaskWriteEntityError, taskIdForJournalRecord, taskIdForWriteOp } from "./write-journal-entity.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { JournalActor, JournaledWriteCoordinatorOptions } from "./write-journal-types.ts";
 
@@ -38,17 +39,19 @@ const maxWatermarkCommittedOpIds = 128;
 class WriteRejectedError extends Error {
   readonly _tag = "WriteRejectedError";
   readonly reason: string;
+  readonly entityId?: EntityId;
   readonly taskId?: TaskId;
 
-  constructor(reason: string, taskId?: TaskId) {
+  constructor(reason: string, entityId?: EntityId) {
     super(reason);
     this.name = "WriteRejectedError";
     this.reason = reason;
-    this.taskId = taskId;
+    this.entityId = entityId;
+    this.taskId = entityId ? taskIdFromEntityId(entityId) ?? undefined : undefined;
   }
 }
 
-type JournalMappedError = WriteLockHeldError | WriteRejectedError;
+type JournalMappedError = WriteLockHeldError | WriteRejectedError | NonTaskWriteEntityError;
 
 export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
@@ -67,18 +70,18 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
         preflightWriteOp(rootDir, runtimeContext, op);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         if (state.applied.has(op.opId) || state.records.some((record) => record.opId === op.opId) || pending.some((item) => item.opId === op.opId)) {
-          return { opId: op.opId, taskId: op.taskId, accepted: true };
+          return { opId: op.opId, entityId: op.entityId, accepted: true };
         }
 
         const record = createJournalRecord(rootDir, journalPath, op, actor);
         appendJsonLineDurably(journalPath, record);
         pending.push(op);
-        return { opId: op.opId, taskId: op.taskId, accepted: true };
+        return { opId: op.opId, entityId: op.entityId, accepted: true };
       },
-      catch: (cause): WriteError => toJournalError(cause, { taskId: op.taskId })
+      catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
     flush: (reason) => Effect.try({
-      try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.taskId), () => {
+      try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         pending.splice(0, pending.length);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
@@ -164,13 +167,14 @@ function flushRecords(
 
 function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath: string, record: JournalRecord): void {
   if (record.kind === "package_delete_hard") {
+    const taskId = taskIdForJournalRecord(record);
     const payload = readHardDeletePayload(rootDir, record);
-    assertHardDeleteAllowed(rootInput, record.taskId, { allowMissing: true });
-    rmSync(taskPackagePath(rootInput, record.taskId), { recursive: true, force: true });
+    assertHardDeleteAllowed(rootInput, taskId, { allowMissing: true });
+    rmSync(taskPackagePath(rootInput, taskId), { recursive: true, force: true });
     appendJsonLineDurably(journalPath, {
       schema: "delete-audit/v1",
       opId: `${record.opId}:applied`,
-      taskId: record.taskId,
+      taskId,
       kind: "package_delete_hard_applied",
       actor: record.actor,
       at: new Date().toISOString(),
@@ -187,7 +191,7 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
     appendJsonLineDurably(journalPath, {
       schema: "apply-marker/v1",
       opId: record.opId,
-      taskId: record.taskId,
+      entityId: record.entityId,
       at: new Date().toISOString()
     });
   }
@@ -195,7 +199,7 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
 
 function applyOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    writeDocumentsAtomically(rootInput, op.payload.writes, op.taskId);
+    writeDocumentsAtomically(rootInput, op.payload.writes, taskIdForWriteOp(op));
     return null;
   }
   // ADR-0016 D2: delta-shaped progress_append reads the current on-disk file and
@@ -205,7 +209,7 @@ function applyOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | nu
     return applyProgressAppendDelta(rootInput, op, op.payload);
   }
   if (!documentWriteKinds.has(op.kind)) {
-    rejectWrite(`unsupported write op kind: ${op.kind}`, op.taskId);
+    rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
   }
   const write = toDocumentWrite(op);
   writeDocument(rootInput, write);
@@ -227,8 +231,9 @@ function isProgressAppendDeltaPayload(payload: unknown): payload is ProgressAppe
 }
 
 function progressAppendDeltaWrite(op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
+  const taskId = taskIdForWriteOp(op);
   return {
-    taskId: op.taskId,
+    taskId,
     path: payload.path,
     body: "",
     packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
@@ -239,8 +244,9 @@ function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, pa
   const targetPath = documentTargetPath(rootInput, progressAppendDeltaWrite(op, payload));
   const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
   const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  const taskId = taskIdForWriteOp(op);
   const write: DocumentWrite = {
-    taskId: op.taskId,
+    taskId,
     path: payload.path,
     body: `${existing}${separator}${payload.append}\n`,
     packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
@@ -262,7 +268,7 @@ const documentWriteKinds = new Set<WriteOp["kind"]>([
 
 function createJournalRecord(rootDir: string, journalPath: string, op: {
   readonly opId: string;
-  readonly taskId: TaskId;
+  readonly entityId: EntityId;
   readonly kind: JournalRecordKind;
   readonly payload?: unknown;
 }, actor: JournalActor): JournalRecord {
@@ -271,7 +277,7 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
   return {
     schema: "write-journal/v1",
     opId: op.opId,
-    taskId: op.taskId,
+    entityId: op.entityId,
     kind: op.kind,
     actor,
     at: new Date().toISOString(),
@@ -287,7 +293,7 @@ function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: Wr
   try {
     assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForOp(op));
   } catch (error) {
-    rejectWrite(error instanceof Error ? error.message : String(error), op.taskId);
+    rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }
 }
 
@@ -295,7 +301,7 @@ function recordToOp(rootDir: string, record: JournalRecord): WriteOp {
   const payload = readVerifiedPayload(rootDir, record);
   return {
     opId: record.opId,
-    taskId: record.taskId,
+    entityId: record.entityId,
     kind: record.kind,
     payload
   };
@@ -318,14 +324,14 @@ function isBatchDocumentWritePayload(payload: unknown): payload is BatchDocument
 }
 
 function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: ReadonlyArray<DocumentWrite>, taskId: TaskId): void {
-  if (writes.length === 0) rejectWrite("batch document write requires at least one write", taskId);
+  if (writes.length === 0) rejectTaskWrite("batch document write requires at least one write", taskId);
   const entries = writes.map((write) => ({
     write,
     targetPath: documentTargetPath(rootInput, write)
   }));
   const targetPaths = new Set<string>();
   for (const entry of entries) {
-    if (targetPaths.has(entry.targetPath)) rejectWrite(`duplicate batch write target: ${entry.write.path}`, entry.write.taskId);
+    if (targetPaths.has(entry.targetPath)) rejectTaskWrite(`duplicate batch write target: ${entry.write.path}`, entry.write.taskId);
     targetPaths.add(entry.targetPath);
   }
 
@@ -352,7 +358,7 @@ function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: Readonl
 
 function recordTouchedPaths(rootDir: string, rootInput: HarnessLayoutInput, record: JournalRecord): ReadonlyArray<string> {
   if (record.kind === "package_delete_hard") {
-    return [taskPackagePath(rootInput, record.taskId)];
+    return [taskPackagePath(rootInput, taskIdForJournalRecord(record))];
   }
   return opTouchedPaths(rootInput, recordToOp(rootDir, record));
 }
@@ -362,13 +368,13 @@ function opTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArr
     return op.payload.writes.map((write) => documentTargetPath(rootInput, write));
   }
   if (op.kind === "package_delete_hard") {
-    return [taskPackagePath(rootInput, op.taskId)];
+    return [taskPackagePath(rootInput, taskIdForWriteOp(op))];
   }
   if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
     return [documentTargetPath(rootInput, progressAppendDeltaWrite(op, op.payload))];
   }
   if (!documentWriteKinds.has(op.kind)) {
-    rejectWrite(`unsupported write op kind: ${op.kind}`);
+    rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
   }
   return [documentTargetPath(rootInput, toDocumentWrite(op))];
 }
@@ -384,13 +390,13 @@ function documentWritesForOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
     return [progressAppendDeltaWrite(op, op.payload)];
   }
   if (!documentWriteKinds.has(op.kind)) {
-    rejectWrite(`unsupported write op kind: ${op.kind}`);
+    rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
   }
   return [toDocumentWrite(op)];
 }
 
 function documentTargetPath(rootInput: HarnessLayoutInput, write: DocumentWrite): string {
-  const safePath = normalizeWriteDocumentPath(write.path, write.taskId);
+  const safePath = normalizeWriteDocumentPath(write.path, taskEntityId(write.taskId));
   const rootPath = existsSync(taskPackagePath(rootInput, write.taskId))
     ? taskPackagePath(rootInput, write.taskId)
     : createTaskPackagePath(rootInput, write.taskId, write.packageSlug);
@@ -400,7 +406,7 @@ function documentTargetPath(rootInput: HarnessLayoutInput, write: DocumentWrite)
 function readHardDeletePayload(rootDir: string, record: JournalRecord): { readonly reason: string } {
   const payload = readVerifiedPayload(rootDir, record);
   if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
-    rejectWrite(`hard delete requires reason payload: ${record.opId}`, record.taskId);
+    rejectWrite(`hard delete requires reason payload: ${record.opId}`, record.entityId);
   }
   return { reason: payload.reason };
 }
@@ -410,7 +416,7 @@ function readVerifiedPayload(rootDir: string, record: JournalRecord): Record<str
   const expectedHash = typeof record.payload?.payloadHash === "string" ? record.payload.payloadHash : "";
   const actualHash = stablePayloadHash(payload);
   if (expectedHash !== actualHash) {
-    rejectWrite(`payload hash mismatch for op ${record.opId}`, record.taskId);
+    rejectWrite(`payload hash mismatch for op ${record.opId}`, record.entityId);
   }
   return payload;
 }
@@ -424,25 +430,25 @@ function assertHardDeleteAllowed(
   const indexPath = path.join(packagePath, "INDEX.md");
   if (!existsSync(indexPath)) {
     if (options.allowMissing) return;
-    rejectWrite(`hard delete forbidden: task package missing ${taskId}`, taskId);
+    rejectTaskWrite(`hard delete forbidden: task package missing ${taskId}`, taskId);
   }
 
   const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
-  if (!frontmatter) rejectWrite(`hard delete forbidden: malformed task package ${taskId}`, taskId);
+  if (!frontmatter) rejectTaskWrite(`hard delete forbidden: malformed task package ${taskId}`, taskId);
   const disposition = readScalar(frontmatter, "packageDisposition");
   if (!isPackageDisposition(disposition)) {
-    rejectWrite(`hard delete forbidden: invalid package disposition ${taskId}`, taskId);
+    rejectTaskWrite(`hard delete forbidden: invalid package disposition ${taskId}`, taskId);
   }
   if (disposition === "archived") {
-    rejectWrite(`hard delete forbidden for archived task: ${taskId}`, taskId);
+    rejectTaskWrite(`hard delete forbidden for archived task: ${taskId}`, taskId);
   }
   const status = readScalar(frontmatter, "  status");
-  if (!isDomainStatus(status)) rejectWrite(`hard delete forbidden: invalid task status ${taskId}`, taskId);
+  if (!isDomainStatus(status)) rejectTaskWrite(`hard delete forbidden: invalid task status ${taskId}`, taskId);
   if (isTerminalStatus(status)) {
-    rejectWrite(`hard delete forbidden for terminal task: ${taskId}`, taskId);
+    rejectTaskWrite(`hard delete forbidden for terminal task: ${taskId}`, taskId);
   }
   if (hasTaskRelations(rootInput, taskId, packagePath)) {
-    rejectWrite(`hard delete forbidden for related task: ${taskId}`, taskId);
+    rejectTaskWrite(`hard delete forbidden for related task: ${taskId}`, taskId);
   }
 }
 
@@ -473,10 +479,11 @@ function listTextFiles(inputPath: string): ReadonlyArray<string> {
 function toDocumentWrite(op: WriteOp): DocumentWrite {
   const payload = op.payload as Partial<DocumentWrite> | undefined;
   if (!payload || typeof payload.path !== "string" || typeof payload.body !== "string") {
-    rejectWrite(`${op.kind} op requires path and body payload: ${op.opId}`, op.taskId);
+    rejectWrite(`${op.kind} op requires path and body payload: ${op.opId}`, op.entityId);
   }
+  const taskId = taskIdForWriteOp(op);
   return {
-    taskId: op.taskId,
+    taskId,
     path: payload.path,
     body: payload.body,
     packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
@@ -520,18 +527,18 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
 }
 
 function validateOp(rootInput: HarnessLayoutInput, op: WriteOp): void {
-  if (op.opId.length === 0) rejectWrite("opId is required", op.taskId);
-  if (op.taskId.length === 0) rejectWrite("taskId is required", op.taskId);
+  if (op.opId.length === 0) rejectWrite("opId is required", op.entityId);
+  if (op.entityId.length === 0) rejectWrite("entityId is required", op.entityId);
   if (op.kind === "package_delete_hard") {
     const payload = toJournalPayload(op);
     if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
-      rejectWrite(`hard delete requires reason payload: ${op.opId}`, op.taskId);
+      rejectWrite(`hard delete requires reason payload: ${op.opId}`, op.entityId);
     }
-    assertHardDeleteAllowed(rootInput, op.taskId);
+    assertHardDeleteAllowed(rootInput, taskIdForWriteOp(op));
   }
 }
 
-function toJournalError(cause: unknown, context: { readonly taskId?: TaskId } = {}): WriteError {
+function toJournalError(cause: unknown, context: { readonly entityId?: EntityId } = {}): WriteError {
   if (isJournalMappedError(cause)) return mapJournalError(cause, context);
   return {
     _tag: "JournalUnavailable",
@@ -539,16 +546,20 @@ function toJournalError(cause: unknown, context: { readonly taskId?: TaskId } = 
   };
 }
 
-function normalizeWriteDocumentPath(documentPath: string, taskId?: TaskId): string {
+function normalizeWriteDocumentPath(documentPath: string, entityId?: EntityId): string {
   try {
     return normalizeRelativeDocumentPath(documentPath);
   } catch (error) {
-    rejectWrite(error instanceof Error ? error.message : String(error), taskId);
+    rejectWrite(error instanceof Error ? error.message : String(error), entityId);
   }
 }
 
-function rejectWrite(reason: string, taskId?: TaskId): never {
-  throw new WriteRejectedError(reason, taskId);
+function rejectWrite(reason: string, entityId?: EntityId): never {
+  throw new WriteRejectedError(reason, entityId);
+}
+
+function rejectTaskWrite(reason: string, taskId: TaskId): never {
+  throw new WriteRejectedError(reason, taskEntityId(taskId));
 }
 
 function isJournalMappedError(cause: unknown): cause is JournalMappedError {
@@ -556,13 +567,13 @@ function isJournalMappedError(cause: unknown): cause is JournalMappedError {
     typeof cause === "object" &&
     cause !== null &&
     "_tag" in cause &&
-    (cause._tag === "WriteLockHeldError" || cause._tag === "WriteRejectedError")
+    (cause._tag === "WriteLockHeldError" || cause._tag === "WriteRejectedError" || cause._tag === "NonTaskWriteEntityError")
   );
 }
 
 function mapJournalError(
   cause: JournalMappedError,
-  context: { readonly taskId?: TaskId }
+  context: { readonly entityId?: EntityId }
 ): WriteError {
   switch (cause._tag) {
     case "WriteLockHeldError":
@@ -570,10 +581,12 @@ function mapJournalError(
         ? { _tag: "WriteConflict", taskId: cause.taskId, owner: cause.owner }
         : { _tag: "GlobalWriteConflict", owner: cause.owner };
     case "WriteRejectedError": {
-      const taskId = cause.taskId ?? context.taskId;
+      const taskId = cause.taskId ?? (context.entityId ? taskIdFromEntityId(context.entityId) ?? undefined : undefined);
       return taskId
         ? { _tag: "WriteRejected", taskId, reason: cause.reason }
         : { _tag: "JournalUnavailable", cause };
     }
+    case "NonTaskWriteEntityError":
+      return { _tag: "JournalUnavailable", cause };
   }
 }

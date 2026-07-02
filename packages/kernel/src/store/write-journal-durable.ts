@@ -53,7 +53,7 @@ export function readJournal(journalPath: string, rootDir: string): ReadonlyArray
     }
     if (
       typeof parsed.opId !== "string" ||
-      typeof parsed.taskId !== "string" ||
+      typeof parsed.entityId !== "string" ||
       typeof parsed.kind !== "string" ||
       !parsed.actor ||
       typeof parsed.at !== "string" ||
