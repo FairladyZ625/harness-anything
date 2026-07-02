@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 
@@ -20,9 +20,15 @@ const extensionExecutorFiles = [
   "packages/cli/src/commands/extensions/vertical.ts"
 ];
 
-checkFileLines(parserFiles, 250, "CLI parser file");
-checkFileLines(extensionExecutorFiles, 250, "extension executor file");
-checkFunctions([...parserFiles, ...extensionExecutorFiles], { maxLines: 120, maxBranches: 40 });
+const coreRunnerFiles = [
+  "packages/cli/src/cli/runner-registry.ts",
+  ...listTsFiles("packages/cli/src/commands/core")
+];
+
+checkFileLines(existingFiles(parserFiles), 250, "CLI parser file");
+checkFileLines(existingFiles(extensionExecutorFiles), 250, "extension executor file");
+checkFileLines(existingFiles(coreRunnerFiles), 250, "core runner file");
+checkFunctions(existingFiles([...parserFiles, ...extensionExecutorFiles, ...coreRunnerFiles]), { maxLines: 120, maxBranches: 40 });
 checkCliCommandDescriptorization();
 
 if (violations.length > 0) {
@@ -34,7 +40,14 @@ console.log("CLI structure check passed.");
 
 function listTsFiles(relativeDir) {
   const absolute = path.join(root, relativeDir);
-  return readdirSync(absolute)
+  let entries;
+  try {
+    entries = readdirSync(absolute);
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+  return entries
     .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".d.ts"))
     .map((entry) => `${relativeDir}/${entry}`);
 }
@@ -46,6 +59,10 @@ function checkFileLines(files, limit, label) {
       violations.push(`${file}: ${lines.length} lines exceeds ${label} max ${limit}`);
     }
   }
+}
+
+function existingFiles(files) {
+  return files.filter((file) => existsSync(path.join(root, file)));
 }
 
 function checkFunctions(files, limits) {
@@ -66,7 +83,11 @@ function checkFunctions(files, limits) {
 function checkCliCommandDescriptorization() {
   const commandRegistry = readSource("packages/cli/src/cli/command-registry.ts");
   const parserRegistry = readSource("packages/cli/src/cli/parser-registry.ts");
+  const runnerRegistryPath = "packages/cli/src/cli/runner-registry.ts";
+  const runnerRegistry = existsSync(path.join(root, runnerRegistryPath)) ? readSource(runnerRegistryPath) : "";
   const cliEntrypoint = readSource("packages/cli/src/index.ts");
+  const lifecycleExecutorPath = "packages/cli/src/commands/lifecycle.ts";
+  const lifecycleExecutor = existsSync(path.join(root, lifecycleExecutorPath)) ? readSource(lifecycleExecutorPath) : "";
   if (!/\bexport\s+const\s+commandDescriptors\b/u.test(commandRegistry)) {
     violations.push("packages/cli/src/cli/command-registry.ts: missing exported commandDescriptors registry");
   }
@@ -79,8 +100,23 @@ function checkCliCommandDescriptorization() {
   if (/\bcommandKinds:\s*\[/u.test(parserRegistry)) {
     violations.push("packages/cli/src/cli/parser-registry.ts: commandKinds arrays must not be hand-authored");
   }
-  if (!/\brunnerIdForAction\b/u.test(cliEntrypoint)) {
-    violations.push("packages/cli/src/index.ts: command dispatch must use descriptor runnerIdForAction");
+  if (!/\bexport\s+const\s+runnerRegistry\b/u.test(runnerRegistry)) {
+    violations.push("packages/cli/src/cli/runner-registry.ts: missing exported runnerRegistry");
+  }
+  if (!/\bsatisfies\s+Record<CommandRunnerId,\s*CommandRunner>/u.test(runnerRegistry)) {
+    violations.push("packages/cli/src/cli/runner-registry.ts: runnerRegistry must satisfy Record<CommandRunnerId, CommandRunner>");
+  }
+  if (!/\brunnerIdForAction\b/u.test(runnerRegistry)) {
+    violations.push("packages/cli/src/cli/runner-registry.ts: command dispatch must derive runner ids from descriptors");
+  }
+  if (!/\brunRegisteredCommand\b/u.test(cliEntrypoint)) {
+    violations.push("packages/cli/src/index.ts: entrypoint must dispatch through runRegisteredCommand");
+  }
+  if (/\bif\s*\(\s*runnerId\s*===/u.test(cliEntrypoint)) {
+    violations.push("packages/cli/src/index.ts: entrypoint must not hand-dispatch runner ids");
+  }
+  if (/\bfunction\s+runCommand\b/u.test(lifecycleExecutor)) {
+    violations.push("packages/cli/src/commands/lifecycle.ts: lifecycle.ts must not contain catch-all runCommand dispatcher");
   }
 }
 

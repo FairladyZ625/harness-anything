@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import path from "node:path";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { runExtensionCommand } from "./commands/extensions/index.ts";
-import { runnerIdForAction } from "./cli/command-registry.ts";
 import { toCliError } from "./cli/error-mapper.ts";
 import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
+import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine } from "../../adapters/local/src/index.ts";
-import { runCommand } from "./commands/lifecycle.ts";
 import { renderReceiptText, toCommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
@@ -21,26 +17,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     return 2;
   }
 
-  const runnerId = runnerIdForAction(parsed.value.action.kind);
-  if (runnerId === "extension") {
-    const result = runExtensionCommand(parsed.value);
-    emit(result, parsed.value.json);
-    return result.ok ? 0 : 1;
-  }
-
-  if (runnerId === "gui") {
-    const result = launchGui(parsed.value.rootDir);
-    emit(result, parsed.value.json);
-    return 0;
-  }
-
-  if (runnerId === "version") {
-    emit({ ok: true, command: "version", version: resolveCliVersion() }, parsed.value.json);
-    return 0;
-  }
-
   const engine = makeLocalLifecycleEngine({ rootDir: parsed.value.rootDir });
-  const result = await Effect.runPromise(runCommand(engine, parsed.value).pipe(
+  const result = await Effect.runPromise(runRegisteredCommand(engine, parsed.value).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,
@@ -54,50 +32,6 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
 
   emit(result, parsed.value.json);
   return result.ok ? 0 : 1;
-}
-
-function launchGui(rootDir: string): CliResult {
-  const command = ["npm", "--workspace", "@harness-anything/gui", "run", "dev"] as const;
-  const dryRun = process.env.HARNESS_GUI_DRY_RUN === "1";
-  if (dryRun) {
-    return {
-      ok: true,
-      command: "gui",
-      launchPlan: {
-        packageName: "@harness-anything/gui",
-        mode: "local-desktop-controller",
-        apiHost: "127.0.0.1",
-        delegated: true,
-        dryRun,
-        command
-      }
-    };
-  }
-
-  const child = spawn(command[0], command.slice(1), {
-    cwd: process.cwd(),
-    detached: true,
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      HARNESS_GUI_ROOT: path.resolve(rootDir)
-    }
-  });
-  child.unref();
-
-  return {
-    ok: true,
-    command: "gui",
-    launchPlan: {
-      packageName: "@harness-anything/gui",
-      mode: "local-desktop-controller",
-      apiHost: "127.0.0.1",
-      delegated: true,
-      dryRun,
-      command,
-      pid: child.pid
-    }
-  };
 }
 
 function emit(result: CliResult, json: boolean): void {
@@ -168,28 +102,6 @@ function helpReport(report: unknown): { readonly kind: "global" | "command" | "p
   if (candidate.schema !== "cli-help-report/v1") return undefined;
   if (candidate.kind !== "global" && candidate.kind !== "command" && candidate.kind !== "prefix") return undefined;
   return { kind: candidate.kind, prefix: candidate.prefix };
-}
-
-function resolveCliVersion(): string {
-  // Walk up from this module to the @harness-anything/cli package.json. Robust
-  // across layouts: src (packages/cli/src), built dist (packages/cli/dist/cli/src),
-  // and installed (node_modules/@harness-anything/cli/dist/cli/src).
-  let dir = path.dirname(fileURLToPath(import.meta.url));
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = path.join(dir, "package.json");
-    if (existsSync(candidate)) {
-      try {
-        const pkg = JSON.parse(readFileSync(candidate, "utf8")) as { readonly name?: unknown; readonly version?: unknown };
-        if (pkg.name === "@harness-anything/cli" && typeof pkg.version === "string") return pkg.version;
-      } catch {
-        // malformed package.json: keep walking
-      }
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return "0.0.0";
 }
 
 function isCliEntrypoint(): boolean {

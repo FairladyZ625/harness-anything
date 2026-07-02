@@ -19,7 +19,19 @@ export type CommandParserId =
   | "preset"
   | "module"
   | "vertical";
-export type CommandRunnerId = "core" | "extension" | "gui" | "version";
+export type CommandRunnerId =
+  | "help"
+  | "version"
+  | "init"
+  | "new-task"
+  | "task-lifecycle"
+  | "task-gates"
+  | "task-query"
+  | "governance"
+  | "migration"
+  | "diagnostics"
+  | "extension"
+  | "gui";
 
 export interface CommandUsage {
   readonly kind: CommandKind;
@@ -138,39 +150,39 @@ const commandParserIds = {
 } as const satisfies Record<CommandKind, CommandParserId>;
 
 const commandRunnerIds = {
-  "help": "core",
+  "help": "help",
   "version": "version",
-  "init": "core",
-  "new-task": "core",
-  "status-set": "core",
-  "progress-append": "core",
-  "task-archive": "core",
-  "task-supersede": "core",
-  "task-delete": "core",
-  "task-reopen": "core",
-  "task-review": "core",
-  "task-complete": "core",
+  "init": "init",
+  "new-task": "new-task",
+  "status-set": "task-lifecycle",
+  "progress-append": "task-lifecycle",
+  "task-archive": "task-lifecycle",
+  "task-supersede": "task-lifecycle",
+  "task-delete": "task-lifecycle",
+  "task-reopen": "task-lifecycle",
+  "task-review": "task-gates",
+  "task-complete": "task-gates",
   "template-list": "extension",
   "template-render": "extension",
-  "task-list": "core",
-  "status": "core",
-  "check": "core",
-  "governance-rebuild": "core",
-  "lesson-promote": "core",
-  "lesson-sediment": "core",
-  "adopt-multica": "core",
-  "snapshot-multica": "core",
-  "migrate-plan": "core",
-  "migrate-structure": "core",
-  "migrate-run": "core",
-  "migrate-verify": "core",
-  "legacy-scan": "core",
-  "legacy-intake-plan": "core",
-  "legacy-copy-safe-docs": "core",
-  "legacy-index": "core",
-  "legacy-verify": "core",
-  "git-diff": "core",
-  "doctor": "core",
+  "task-list": "task-query",
+  "status": "task-query",
+  "check": "governance",
+  "governance-rebuild": "governance",
+  "lesson-promote": "governance",
+  "lesson-sediment": "governance",
+  "adopt-multica": "migration",
+  "snapshot-multica": "migration",
+  "migrate-plan": "migration",
+  "migrate-structure": "migration",
+  "migrate-run": "migration",
+  "migrate-verify": "migration",
+  "legacy-scan": "migration",
+  "legacy-intake-plan": "migration",
+  "legacy-copy-safe-docs": "migration",
+  "legacy-index": "migration",
+  "legacy-verify": "migration",
+  "git-diff": "diagnostics",
+  "doctor": "diagnostics",
   "preset-validate": "extension",
   "preset-list": "extension",
   "preset-inspect": "extension",
