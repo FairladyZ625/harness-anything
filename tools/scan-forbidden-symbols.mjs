@@ -5,11 +5,12 @@ const root = process.cwd();
 const scannedRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|mts|js|mjs)$/;
 const forbidden = [
-  "requestTransition",
-  "syncMode",
-  "bindingRole",
-  "canStructurallyTransition",
-  "canTransition"
+  { label: "requestTransition", pattern: /requestTransition/u },
+  { label: "syncMode", pattern: /syncMode/u },
+  { label: "bindingRole", pattern: /bindingRole/u },
+  { label: "canStructurallyTransition", pattern: /canStructurallyTransition/u },
+  { label: "canTransition", pattern: /canTransition/u },
+  { label: "taskId: \"unknown\"", pattern: /taskId\s*:\s*["']unknown["']/u }
 ];
 const violations = [];
 
@@ -42,9 +43,9 @@ function relative(file) {
 for (const sourceRoot of scannedRoots) {
   for (const file of await walk(sourceRoot)) {
     const text = await readFile(file, "utf8");
-    for (const symbol of forbidden) {
-      if (text.includes(symbol)) {
-        violations.push(`${relative(file)}: forbidden symbol ${symbol}`);
+    for (const { label, pattern } of forbidden) {
+      if (pattern.test(text)) {
+        violations.push(`${relative(file)}: forbidden symbol ${label}`);
       }
     }
   }

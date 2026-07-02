@@ -9,12 +9,25 @@ import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./write-jour
 import type { JournalActor, LockRecord, LockTakeoverRecord, OwnedLock } from "./write-journal-types.ts";
 
 export class WriteLockHeldError extends Error {
+  readonly _tag = "WriteLockHeldError";
   readonly owner: string;
+  readonly taskId?: TaskId;
+  readonly reason: "held" | "changed-during-takeover" | "takeover-in-progress";
 
-  constructor(owner: string) {
-    super(`lock already held: ${owner}`);
+  constructor(input: {
+    readonly owner: string;
+    readonly taskId?: TaskId;
+    readonly reason?: WriteLockHeldError["reason"];
+  }) {
+    const reason = input.reason ?? "held";
+    const message = reason === "held"
+      ? `lock already held: ${input.owner}`
+      : `lock already held: ${input.owner} ${reason.replaceAll("-", " ")}`;
+    super(message);
     this.name = "WriteLockHeldError";
-    this.owner = owner;
+    this.owner = input.owner;
+    this.taskId = input.taskId;
+    this.reason = reason;
   }
 }
 
@@ -34,7 +47,7 @@ export function withRepoLocks<T>(
     const state = readJournal(journalPath, rootDir);
     const lockedTaskIds = new Set([...taskIds, ...state.map((record) => record.taskId)]);
     for (const taskId of [...lockedTaskIds].sort()) {
-      locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/task-${sha256Text(taskId)}.lock`, lockTtlMs));
+      locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/task-${sha256Text(taskId)}.lock`, lockTtlMs, taskId));
     }
     return fn();
   } finally {
@@ -42,7 +55,14 @@ export function withRepoLocks<T>(
   }
 }
 
-function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, relativeLockPath: string, lockTtlMs: number): OwnedLock {
+function acquireLock(
+  rootDir: string,
+  journalPath: string,
+  actor: JournalActor,
+  relativeLockPath: string,
+  lockTtlMs: number,
+  taskId?: TaskId
+): OwnedLock {
   const lockPath = path.join(rootDir, relativeLockPath);
   const claimPath = `${lockPath}.takeover`;
   const ownerToken = randomUUID();
@@ -52,20 +72,20 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
   mkdirSync(path.dirname(lockPath), { recursive: true });
 
   try {
-    clearStaleTakeoverClaim(claimPath, lockTtlMs);
+    clearStaleTakeoverClaim(claimPath, lockTtlMs, taskId);
     recoverQuarantinedStaleLock(lockPath);
 
     if (existsSync(lockPath)) {
       const existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (!isStaleLock(existing, lockTtlMs)) {
-        throw new WriteLockHeldError(relativeLockPath);
+        throw lockHeld(relativeLockPath, taskId);
       }
 
-      acquireTakeoverClaim(claimPath, ownerToken);
+      acquireTakeoverClaim(claimPath, ownerToken, taskId);
       ownsTakeoverClaim = true;
       const current = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (current.ownerToken !== existing.ownerToken) {
-        throw new WriteLockHeldError(`${relativeLockPath} changed during stale takeover`);
+        throw lockHeld(relativeLockPath, taskId, "changed-during-takeover");
       }
 
       staleTakeover = {
@@ -79,7 +99,7 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
       staleQuarantinePath = `${lockPath}.stale.${existing.ownerToken}.${ownerToken}`;
       renameSync(lockPath, staleQuarantinePath);
     } else if (existsSync(claimPath)) {
-      throw new WriteLockHeldError(`${relativeLockPath} takeover in progress`);
+      throw lockHeld(relativeLockPath, taskId, "takeover-in-progress");
     }
 
     let fd: number;
@@ -87,7 +107,7 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
       fd = openSync(lockPath, "wx");
     } catch (error) {
       if (isAlreadyExistsError(error)) {
-        throw new WriteLockHeldError(relativeLockPath);
+        throw lockHeld(relativeLockPath, taskId);
       }
       throw error;
     }
@@ -106,7 +126,7 @@ function acquireLock(rootDir: string, journalPath: string, actor: JournalActor, 
 
     if (!ownsTakeoverClaim && existsSync(claimPath)) {
       releaseLock({ path: lockPath, ownerToken });
-      throw new WriteLockHeldError(`${relativeLockPath} takeover in progress`);
+      throw lockHeld(relativeLockPath, taskId, "takeover-in-progress");
     }
 
     if (staleTakeover) appendJsonLineDurably(journalPath, staleTakeover);
@@ -129,13 +149,13 @@ function releaseLock(lock: OwnedLock): void {
   if (current.ownerToken === lock.ownerToken) unlinkSync(lock.path);
 }
 
-function acquireTakeoverClaim(claimPath: string, ownerToken: string): void {
+function acquireTakeoverClaim(claimPath: string, ownerToken: string, taskId?: TaskId): void {
   let fd: number;
   try {
     fd = openSync(claimPath, "wx");
   } catch (error) {
     if (isAlreadyExistsError(error)) {
-      throw new WriteLockHeldError(`${path.basename(claimPath, ".takeover")} takeover in progress`);
+      throw lockHeld(path.basename(claimPath, ".takeover"), taskId, "takeover-in-progress");
     }
     throw error;
   }
@@ -161,14 +181,14 @@ function isStaleLock(record: LockRecord, lockTtlMs: number): boolean {
   return Number.isFinite(age) && age > lockTtlMs;
 }
 
-function clearStaleTakeoverClaim(claimPath: string, lockTtlMs: number): void {
+function clearStaleTakeoverClaim(claimPath: string, lockTtlMs: number, taskId?: TaskId): void {
   if (!existsSync(claimPath)) return;
   const record = readClaimRecord(claimPath);
   if (!record) {
-    throw new WriteLockHeldError(`${path.basename(claimPath, ".takeover")} takeover in progress`);
+    throw lockHeld(path.basename(claimPath, ".takeover"), taskId, "takeover-in-progress");
   }
   if (!isStaleLock(record, lockTtlMs)) {
-    throw new WriteLockHeldError(`${path.basename(claimPath, ".takeover")} takeover in progress`);
+    throw lockHeld(path.basename(claimPath, ".takeover"), taskId, "takeover-in-progress");
   }
   rmSync(claimPath, { force: true });
 }
@@ -204,4 +224,12 @@ function pidAlive(pid: number): boolean {
 
 function isAlreadyExistsError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+}
+
+function lockHeld(
+  owner: string,
+  taskId?: TaskId,
+  reason?: WriteLockHeldError["reason"]
+): WriteLockHeldError {
+  return new WriteLockHeldError({ owner, taskId, reason });
 }

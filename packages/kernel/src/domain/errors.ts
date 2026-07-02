@@ -44,4 +44,5 @@ export type TemplateLibraryError =
 export type WriteError =
   | { readonly _tag: "WriteRejected"; readonly taskId: TaskId; readonly reason: string }
   | { readonly _tag: "WriteConflict"; readonly taskId: TaskId; readonly owner?: string }
+  | { readonly _tag: "GlobalWriteConflict"; readonly owner?: string }
   | { readonly _tag: "JournalUnavailable"; readonly cause?: unknown };

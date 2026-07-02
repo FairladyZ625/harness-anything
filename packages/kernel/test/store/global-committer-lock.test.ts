@@ -6,7 +6,8 @@ import { hostname } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { Effect } from "effect";
-import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import type { WriteError } from "../../src/domain/index.ts";
+import { makeJournaledWriteCoordinator, sha256Text } from "../../src/store/index.ts";
 import { docWrite, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 const execFileAsync = promisify(execFile);
@@ -15,15 +16,16 @@ test("WriteCoordinator rejects semantic writes without document payload", () => 
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
 
-    assert.throws(
-      () => Effect.runSync(coordinator.enqueue({
-        opId: "op-transition",
-        taskId: "task-1",
-        kind: "transition_local",
-        payload: { to: "active" }
-      })),
-      /requires path and body payload/
-    );
+    const failure = runWriteFailure(coordinator.enqueue({
+      opId: "op-transition",
+      taskId: "task-1",
+      kind: "transition_local",
+      payload: { to: "active" }
+    }));
+
+    assert.equal(failure._tag, "WriteRejected");
+    assert.equal(failure.taskId, "task-1");
+    assert.match(failure.reason, /requires path and body payload/);
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
   });
 });
@@ -153,10 +155,55 @@ test("two coordinators cannot flush while the global lock is already held", () =
     const blockedCoordinator = makeJournaledWriteCoordinator({ rootDir });
     Effect.runSync(blockedCoordinator.enqueue(docWrite("op-blocked", "task-1", "blocked.md", "blocked")));
 
-    assert.throws(
-      () => Effect.runSync(blockedCoordinator.flush("explicit")),
-      /lock already held/
-    );
+    const failure = runWriteFailure(blockedCoordinator.flush("explicit"));
+
+    assert.equal(failure._tag, "GlobalWriteConflict");
+    assert.equal(failure.owner, ".harness/locks/global.lock");
+  });
+});
+
+test("task lock conflicts preserve the scoped task id", () => {
+  withTempStore((rootDir) => {
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, `.harness/locks/task-${sha256Text("task-1")}.lock`), JSON.stringify({
+      pid: process.pid,
+      hostname: hostname(),
+      acquiredAt: new Date().toISOString(),
+      heartbeatAt: new Date().toISOString(),
+      ownerToken: "held-by-live-task-owner"
+    }), "utf8");
+
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(coordinator.enqueue(docWrite("op-task-lock", "task-1", "blocked.md", "blocked")));
+
+    const failure = runWriteFailure(coordinator.flush("explicit"));
+
+    assert.equal(failure._tag, "WriteConflict");
+    assert.equal(failure.taskId, "task-1");
+    assert.equal(failure.owner, `.harness/locks/task-${sha256Text("task-1")}.lock`);
+  });
+});
+
+test("task takeover claim conflicts preserve the scoped task id", () => {
+  withTempStore((rootDir) => {
+    const taskLockName = `task-${sha256Text("task-1")}.lock`;
+    mkdirSync(path.join(rootDir, ".harness/locks"), { recursive: true });
+    writeFileSync(path.join(rootDir, `.harness/locks/${taskLockName}.takeover`), JSON.stringify({
+      pid: process.pid,
+      hostname: hostname(),
+      ownerToken: "held-by-live-task-takeover",
+      acquiredAt: new Date().toISOString(),
+      heartbeatAt: new Date().toISOString()
+    }), "utf8");
+
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(coordinator.enqueue(docWrite("op-task-takeover", "task-1", "blocked.md", "blocked")));
+
+    const failure = runWriteFailure(coordinator.flush("explicit"));
+
+    assert.equal(failure._tag, "WriteConflict");
+    assert.equal(failure.taskId, "task-1");
+    assert.equal(failure.owner, taskLockName);
   });
 });
 
@@ -194,10 +241,10 @@ test("live process locks are not taken over solely because TTL expired", () => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-live-lock", "task-1", "a.md", "a")));
 
-    assert.throws(
-      () => Effect.runSync(coordinator.flush("explicit")),
-      /lock already held/
-    );
+    const failure = runWriteFailure(coordinator.flush("explicit"));
+
+    assert.equal(failure._tag, "GlobalWriteConflict");
+    assert.equal(failure.owner, ".harness/locks/global.lock");
     assert.equal(
       JSON.parse(readFileSync(path.join(rootDir, ".harness/locks/global.lock"), "utf8")).ownerToken,
       "still-live-owner"
@@ -219,10 +266,10 @@ test("takeover claim prevents silent acquire while stale lock is quarantined", (
     const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-claim", "task-1", "a.md", "a")));
 
-    assert.throws(
-      () => Effect.runSync(coordinator.flush("explicit")),
-      /takeover in progress|lock already held/
-    );
+    const failure = runWriteFailure(coordinator.flush("explicit"));
+
+    assert.equal(failure._tag, "GlobalWriteConflict");
+    assert.equal(failure.owner, "global.lock");
     assert.throws(
       () => readFileSync(path.join(rootDir, ".harness/locks/global.lock"), "utf8"),
       /ENOENT/
@@ -310,10 +357,9 @@ test("double stale lock takeover race keeps a single committer", async () => {
       import { Effect } from "effect";
       import { makeJournaledWriteCoordinator } from "./packages/kernel/src/store/index.ts";
       const coordinator = makeJournaledWriteCoordinator({ rootDir: ${JSON.stringify(rootDir)}, lockTtlMs: 1 });
-      try {
-        Effect.runSync(coordinator.flush("explicit"));
-      } catch (error) {
-        if (!String(error).includes("lock already held")) throw error;
+      const result = Effect.runSync(Effect.either(coordinator.flush("explicit")));
+      if (result._tag === "Left" && result.left._tag !== "GlobalWriteConflict") {
+        throw new Error(JSON.stringify(result.left));
       }
     `;
 
@@ -330,3 +376,12 @@ test("double stale lock takeover race keeps a single committer", async () => {
     );
   });
 });
+
+function runWriteFailure<A>(effect: Effect.Effect<A, WriteError>): WriteError {
+  const result = Effect.runSync(Effect.either(effect));
+  assert.equal(result._tag, "Left");
+  if (result._tag !== "Left") {
+    throw new Error("expected write effect to fail");
+  }
+  return result.left;
+}

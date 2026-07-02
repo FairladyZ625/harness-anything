@@ -31,6 +31,7 @@ const cliErrorMappers = {
   EngineUnreachable: () => cliError(CliErrorCode.EngineUnreachable, "Command failed."),
   Timeout: () => cliError(CliErrorCode.Timeout, "Command failed."),
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
+  GlobalWriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."),
   WriteRejected: (error) => cliError(CliErrorCode.WriteRejected, error.reason),
   ArtifactReadFailed: () => cliError(CliErrorCode.ArtifactReadFailed, "Artifact read failed."),
   ArtifactWriteRejected: (error) => cliError(CliErrorCode.ArtifactWriteRejected, error.reason),
