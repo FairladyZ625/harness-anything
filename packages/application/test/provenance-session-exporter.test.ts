@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
+import type { CurrentSessionRef } from "../../kernel/src/index.ts";
 
 test("provenance session exporter writes human fallback markdown and reads it by id", () => {
   const rootDir = createHarnessRoot();
@@ -45,6 +46,115 @@ test("provenance session exporter writes human fallback markdown and reads it by
   }
 });
 
+test("provenance session exporter renders Claude Code JSONL conversation text", () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const logsRoot = path.join(rootDir, "runtime-logs", "claude", "project-a");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "claude-session-1.jsonl"), [
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-07-03T00:00:01.000Z",
+        message: { role: "user", content: [{ type: "text", text: "Claude user original line" }] }
+      }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-07-03T00:00:02.000Z",
+        message: { role: "assistant", content: [{ type: "text", text: "Claude assistant original line" }] }
+      })
+    ].join("\n"), "utf8");
+
+    const exporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "claude-code",
+        sessionId: "claude-session-1",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { "claude-code": [path.join(rootDir, "runtime-logs", "claude")] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    assert.match(body, /## Conversation/u);
+    assert.match(body, /Claude user original line/u);
+    assert.match(body, /Claude assistant original line/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter renders Codex JSONL conversation text", () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const logsRoot = path.join(rootDir, "runtime-logs", "codex");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "rollout-2026-07-03T00-00-00-codex-session-1.jsonl"), [
+      JSON.stringify({
+        timestamp: "2026-07-03T00:00:01.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "Codex user original line" }
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-03T00:00:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Codex assistant original line" }]
+        }
+      })
+    ].join("\n"), "utf8");
+
+    const exporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "codex-session-1",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { codex: [logsRoot] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    assert.match(body, /## Conversation/u);
+    assert.match(body, /Codex user original line/u);
+    assert.match(body, /Codex assistant original line/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter writes visible warning when runtime log is missing", () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const exporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "missing-codex-session",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { codex: [path.join(rootDir, "missing-runtime-logs")] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    assert.match(body, /## Export Warnings/u);
+    assert.match(body, /No runtime JSONL log found for codex session missing-codex-session/u);
+    assert.match(body, /_No conversation text extracted\._/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("provenance session exporter fails visibly for missing or unsafe session ids", () => {
   const rootDir = createHarnessRoot();
   try {
@@ -64,6 +174,12 @@ test("provenance session exporter fails visibly for missing or unsafe session id
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+function fixedSessionProbe(session: CurrentSessionRef) {
+  return {
+    currentSession: Effect.succeed(session)
+  };
+}
 
 function createHarnessRoot(): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-provenance-session-"));
