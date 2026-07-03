@@ -248,26 +248,42 @@ function completionGateErrorCode(issues: ReadonlyArray<{ readonly code: string }
   return issues[0]?.code ?? "completion_gate_failed";
 }
 
+// Canonical kernel-tag -> CLI error-code mapping. Kept exhaustive by the mapped
+// type: adding or removing an EngineError/WriteError tag breaks compilation until
+// this table is updated, so a writer failure can never leak an unregistered code
+// that the CLI would coerce into a misleading completion_gate_failed. Values must
+// stay in lockstep with the CLI error-code registry (packages/cli/src/cli/error-codes.ts);
+// the application layer cannot import that registry across the package boundary.
+const writeFailureCodeByTag: Readonly<Record<(EngineError | WriteError)["_tag"], string>> = {
+  EngineNotEnabled: "EngineNotEnabled",
+  AdapterUnavailable: "AdapterUnavailable",
+  AuthMissing: "AuthMissing",
+  RefNotFound: "RefNotFound",
+  TaskAlreadyExists: "task_already_exists",
+  TaskNotFound: "task_not_found",
+  InvalidTransition: "invalid_transition",
+  DuplicateExternalBinding: "duplicate_external_binding",
+  DuplicateAdoptClaim: "duplicate_adopt_claim",
+  StaleSnapshotRefused: "stale_snapshot_refused",
+  GeneratedTaskIdRequired: "generated_task_id_required",
+  MalformedSnapshot: "malformed_snapshot",
+  StatusUnmapped: "StatusUnmapped",
+  EngineOwnsStatus: "engine_owns_status",
+  TerminalReopenRequiresSupersede: "terminal_reopen_requires_supersede",
+  ArchivedHardDeleteForbidden: "archived_hard_delete_forbidden",
+  TerminalHardDeleteForbidden: "terminal_hard_delete_forbidden",
+  RelatedTaskHardDeleteForbidden: "related_task_hard_delete_forbidden",
+  RateLimited: "RateLimited",
+  EngineUnreachable: "EngineUnreachable",
+  Timeout: "Timeout",
+  WriteRejected: "write_rejected",
+  WriteConflict: "write_conflict",
+  GlobalWriteConflict: "write_conflict",
+  JournalUnavailable: "journal_unavailable"
+};
+
 function writeFailureCode(error: EngineError | WriteError): string {
-  switch (error._tag) {
-    case "MalformedSnapshot":
-      return "malformed_snapshot";
-    case "TaskNotFound":
-      return "task_not_found";
-    case "InvalidTransition":
-      return "invalid_transition";
-    case "EngineOwnsStatus":
-      return "engine_owns_status";
-    case "WriteRejected":
-      return "write_rejected";
-    case "WriteConflict":
-    case "GlobalWriteConflict":
-      return "write_conflict";
-    case "JournalUnavailable":
-      return "journal_unavailable";
-    default:
-      return error._tag;
-  }
+  return writeFailureCodeByTag[error._tag];
 }
 
 function writeFailureCauseHint(error: EngineError | WriteError): string {

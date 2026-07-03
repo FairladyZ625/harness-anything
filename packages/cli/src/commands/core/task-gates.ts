@@ -49,6 +49,11 @@ function taskLifecycleResultToCliResult(command: "task-review" | "task-complete"
 }
 
 function cliErrorCode(code: string): CliErrorCodeValue {
+  // The orchestrator's writeFailureCode maps every kernel writer/engine error to a
+  // registered CLI error code, so a real write failure (e.g. malformed_snapshot,
+  // write_rejected) passes through untouched and surfaces its true cause. The
+  // CompletionGateFailed fallback is a defensive guard for an unexpected unregistered
+  // code, not the normal path — it must not mask a recognized writer error code.
   if (isCliErrorCode(code)) return code;
   return CliErrorCode.CompletionGateFailed;
 }

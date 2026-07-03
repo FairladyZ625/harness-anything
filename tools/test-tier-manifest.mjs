@@ -28,6 +28,7 @@ export const testTierManifest = {
     "packages/application/test/provenance-session-exporter.test.ts",
     "packages/application/test/runtime-event-ledger-service.test.ts",
     "packages/application/test/task-lifecycle-gates.test.ts",
+    "packages/application/test/task-lifecycle-write-failure.test.ts",
     "packages/cli/test/package-surface.test.ts",
     "packages/cli/test/receipt-contracts.test.ts",
     "packages/gui/test/electron-security-policy.test.ts",
