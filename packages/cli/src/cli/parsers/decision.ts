@@ -12,11 +12,26 @@ type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { read
 const transitionOps = new Set(["accept", "reject", "defer", "supersede", "retire"]);
 const tiers = new Set(["low", "medium", "high"]);
 const actorKinds = new Set(["agent", "human", "system"]);
-const evidenceTargetKinds = new Set(["task", "fact"]);
+const evidenceTargetKinds = new Set(["task", "fact", "decision"]);
 
 export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] !== "decision") return null;
   const op = args[1];
+  if (op === "list") {
+    return parsedDecision(rootDir, json, {
+      kind: "decision-list",
+      search: readOption(args, "--search"),
+      legacyId: readOption(args, "--legacy-id"),
+      legacyRange: readOption(args, "--legacy-range"),
+      compact: args.includes("--compact")
+    });
+  }
+  if (op === "show" && args[2]) {
+    return parsedDecision(rootDir, json, {
+      kind: "decision-show",
+      selector: args[2]!
+    });
+  }
   if (op === "propose") return parseDecisionPropose(args, rootDir, json);
   if (transitionOps.has(op ?? "") && args[2]) {
     const arbiter = readOption(args, "--arbiter");
@@ -39,7 +54,7 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
       dryRun: args.includes("--dry-run")
     });
   }
-  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision propose|accept|reject|defer|supersede|amend|retire.") };
+  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|retire.") };
 }
 
 function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
@@ -92,7 +107,7 @@ function parseEvidenceRelations(args: ReadonlyArray<string>):
     if (!relation) {
       return {
         ok: false,
-        error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use --evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>.")
+        error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use --evidence-relation <anchor>:<type>:<task|decision|fact-ref>:<rationale>.")
       };
     }
     relations.push(relation);

@@ -11,6 +11,7 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kerne
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { runDecisionQueryCommand } from "./decision-query.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
   | "decision-propose"
@@ -24,6 +25,9 @@ type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
 type TransitionAction = Extract<DecisionAction, { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire" }>;
 
 export const runDecisionCommand: CommandRunner = (context, command) => {
+  if (command.action.kind === "decision-list" || command.action.kind === "decision-show") {
+    return runDecisionQueryCommand(context, command);
+  }
   const action = command.action as DecisionAction;
   const service = context.decisionWriteService;
   switch (action.kind) {

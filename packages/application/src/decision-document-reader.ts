@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { Schema } from "effect";
 import {
   DecisionPackageSchema,
@@ -11,6 +12,11 @@ import { readFrontmatter, readScalar, resolveHarnessLayout } from "../../kernel/
 export interface DecisionDocumentReadResult {
   readonly decision: DecisionPackage;
   readonly body: string;
+  readonly path: string;
+}
+
+export interface DecisionDocumentListResult {
+  readonly decisions: ReadonlyArray<DecisionDocumentReadResult>;
 }
 
 export function readDecisionDocument(rootInput: HarnessLayoutInput, decisionId: string): DecisionDocumentReadResult {
@@ -22,8 +28,34 @@ export function readDecisionDocument(rootInput: HarnessLayoutInput, decisionId: 
   const decision = Schema.decodeUnknownSync(DecisionPackageSchema)(parseDecisionFrontmatter(frontmatter));
   return {
     decision,
-    body: documentBody.replace(/^---\n[\s\S]*?\n---\n?/u, "")
+    body: documentBody.replace(/^---\n[\s\S]*?\n---\n?/u, ""),
+    path: path.relative(layout.rootDir, documentPath).split(path.sep).join("/")
   };
+}
+
+export function listDecisionDocuments(rootInput: HarnessLayoutInput): DecisionDocumentListResult {
+  const layout = resolveHarnessLayout(rootInput);
+  if (!existsSync(layout.decisionsRoot)) return { decisions: [] };
+  const decisions = readdirSync(layout.decisionsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("decision-"))
+    .map((entry) => entry.name.slice("decision-".length))
+    .map((decisionId) => readDecisionDocument(rootInput, decisionId))
+    .sort((left, right) => compareDecisionIds(left.decision.decision_id, right.decision.decision_id));
+  return { decisions };
+}
+
+function compareDecisionIds(left: string, right: string): number {
+  const leftLegacy = legacyDecisionNumber(left);
+  const rightLegacy = legacyDecisionNumber(right);
+  if (leftLegacy !== null && rightLegacy !== null && leftLegacy !== rightLegacy) return leftLegacy - rightLegacy;
+  if (leftLegacy !== null && rightLegacy === null) return -1;
+  if (leftLegacy === null && rightLegacy !== null) return 1;
+  return left.localeCompare(right);
+}
+
+function legacyDecisionNumber(decisionId: string): number | null {
+  const match = /(?:^|_)E(\d+)(?:_|$)/u.exec(decisionId);
+  return match ? Number(match[1]) : null;
 }
 
 function parseDecisionFrontmatter(frontmatter: string): DecisionPackage {

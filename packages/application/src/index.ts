@@ -11,10 +11,11 @@ export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
 export { makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
-export { readDecisionDocument } from "./decision-document-reader.ts";
+export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";
 export type { EnvironmentCurrentSessionProbeOptions, HumanFallbackSessionProbeOptions, RuntimeSessionEnvCandidate } from "./current-session-probe.ts";
 export type { ProvenanceBindingOptions } from "./provenance-binding.ts";
 export type {
+  DecisionDocumentListResult,
   DecisionDocumentReadResult
 } from "./decision-document-reader.ts";
 export type {

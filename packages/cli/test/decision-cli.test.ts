@@ -150,6 +150,85 @@ test("CLI decision accept transitions an existing decision through the coordinat
   });
 });
 
+test("CLI decision list returns question chosen rejected summaries", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_M5_E72_SELFHOST",
+      "--title",
+      "E72 Self-hosting",
+      "--question",
+      "Should M5 self-host decisions?",
+      "--chosen",
+      "Use kernel decisions",
+      "--rejected",
+      "Keep only the manual ledger",
+      "--why-not",
+      "Manual-only decisions are not queryable"
+    ]);
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_M5_E73_QUERY",
+      "--title",
+      "E73 Query",
+      "--question",
+      "Should agents query decisions in one command?",
+      "--chosen",
+      "Expose decision list",
+      "--rejected",
+      "Read every decision file manually",
+      "--why-not",
+      "Cold-start reading cost would regress"
+    ]);
+
+    const result = runJson(rootDir, ["decision", "list", "--legacy-range", "E1-E72", "--compact"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "decision-list");
+    assert.equal(result.rows, 1);
+    assert.deepEqual(result.report.filters.legacyRange, "E1-E72");
+    assert.deepEqual(result.report.filters.compact, true);
+    assert.deepEqual(result.report.decisions.map((entry: any) => entry.legacyId), ["E72"]);
+    assert.deepEqual(result.report.decisions[0].chosen, ["Use kernel decisions"]);
+    assert.deepEqual(result.report.decisions[0].rejected, ["Keep only the manual ledger"]);
+    assert.equal("path" in result.report.decisions[0], false);
+  });
+});
+
+test("CLI decision show finds a decision by legacy E number", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_M5_E72_SELFHOST",
+      "--title",
+      "E72 Self-hosting",
+      "--question",
+      "Should M5 self-host decisions?",
+      "--chosen",
+      "Use kernel decisions",
+      "--rejected",
+      "Keep only the manual ledger",
+      "--why-not",
+      "Manual-only decisions are not queryable"
+    ]);
+
+    const result = runJson(rootDir, ["decision", "show", "E72"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "decision-show");
+    assert.equal(result.decisionId, "dec_M5_E72_SELFHOST");
+    assert.equal(result.path, "harness/decisions/decision-dec_M5_E72_SELFHOST/decision.md");
+    assert.equal(result.report.decision.question, "Should M5 self-host decisions?");
+    assert.deepEqual(result.report.decision.chosen, ["Use kernel decisions"]);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-cli-"));
   try {
