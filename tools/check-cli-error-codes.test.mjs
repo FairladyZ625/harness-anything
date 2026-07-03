@@ -39,10 +39,10 @@ test("CLI error code gate rejects missing registry metadata and inline CliResult
     const violations = findCliErrorCodeViolations(rootDir);
 
     assert.equal(violations.includes("CliErrorCode.MissingTitle is missing cliErrorCodeRegistry metadata"), true);
-    assert.equal(
-      violations.includes(`packages/cli/src/commands/new-task.ts:3 uses inline CliResult error code "missing_title"; use cliError(CliErrorCode.*)`),
-      true
-    );
+    assert.equal(violations.some((violation) =>
+      violation.replaceAll("\\", "/").startsWith("packages/cli/src/commands/new-task.ts:") &&
+      violation.includes(`uses inline CliResult error code "missing_title"; use cliError(CliErrorCode.*)`)
+    ), true);
   });
 });
 

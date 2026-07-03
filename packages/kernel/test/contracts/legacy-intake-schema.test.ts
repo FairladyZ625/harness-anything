@@ -17,22 +17,23 @@ const collisionValidUrl = new URL("../../fixtures/schemas/legacy-collision-repor
 const collisionInvalidUrl = new URL("../../fixtures/schemas/legacy-collision-report/invalid.json", import.meta.url);
 
 test("legacy storage layout is inside authored harness root", () => {
-  const layout = resolveHarnessLayout("/repo");
+  const rootDir = path.resolve(path.parse(process.cwd()).root, "repo");
+  const layout = resolveHarnessLayout(rootDir);
 
-  assert.equal(layout.tasksRoot, path.join("/repo", "harness", "tasks"));
-  assert.equal(layout.decisionsRoot, path.join("/repo", "harness", "decisions"));
-  assert.equal(layout.sessionsRoot, path.join("/repo", "harness", "sessions"));
-  assert.equal(layout.adrRoot, path.join("/repo", "harness", "adr"));
-  assert.equal(layout.milestonesRoot, path.join("/repo", "harness", "milestones"));
-  assert.equal(layout.legacyRoot, path.join("/repo", "harness", "legacy"));
+  assert.equal(layout.tasksRoot, path.join(rootDir, "harness", "tasks"));
+  assert.equal(layout.decisionsRoot, path.join(rootDir, "harness", "decisions"));
+  assert.equal(layout.sessionsRoot, path.join(rootDir, "harness", "sessions"));
+  assert.equal(layout.adrRoot, path.join(rootDir, "harness", "adr"));
+  assert.equal(layout.milestonesRoot, path.join(rootDir, "harness", "milestones"));
+  assert.equal(layout.legacyRoot, path.join(rootDir, "harness", "legacy"));
   assert.equal(layout.legacyTasksRoot, path.join(layout.legacyRoot, "tasks"));
   assert.equal(layout.legacyDocsRoot, path.join(layout.legacyRoot, "docs"));
   assert.equal(layout.legacyIndexPath, path.join(layout.legacyRoot, "index.json"));
   assert.equal(layout.legacyCollisionReportPath, path.join(layout.legacyRoot, "collision-report.json"));
   assert.equal(layout.legacyRebuildGuidePath, path.join(layout.legacyRoot, "rebuild-guide.md"));
-  assert.equal(layout.taskPackagePath("task_1"), taskPackagePath("/repo", "task_1"));
-  assert.equal(layout.createTaskPackagePath("task_1", "Layout Task"), createTaskPackagePath("/repo", "task_1", "Layout Task"));
-  assert.equal(layout.taskDocumentPath("task_1", "task_plan.md"), taskDocumentPath("/repo", "task_1", "task_plan.md"));
+  assert.equal(layout.taskPackagePath("task_1"), taskPackagePath(rootDir, "task_1"));
+  assert.equal(layout.createTaskPackagePath("task_1", "Layout Task"), createTaskPackagePath(rootDir, "task_1", "Layout Task"));
+  assert.equal(layout.taskDocumentPath("task_1", "task_plan.md"), taskDocumentPath(rootDir, "task_1", "task_plan.md"));
 });
 
 test("layout resolver honors harness.yaml layout roots and upward discovery", () => {

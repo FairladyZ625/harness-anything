@@ -39,7 +39,7 @@ function record(message) {
 }
 
 function requireIncludes(file, text, description = text) {
-  const body = read(file);
+  const body = read(file).replaceAll("\r\n", "\n");
   if (!body.includes(text)) record(`${file} must mention ${description}`);
 }
 

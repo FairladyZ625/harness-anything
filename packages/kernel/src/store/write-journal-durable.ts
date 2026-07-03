@@ -135,6 +135,7 @@ export function writeFileDurably(filePath: string, body: string): void {
 }
 
 export function fsyncDirectory(dirPath: string): void {
+  if (process.platform === "win32") return;
   const fd = openSync(dirPath, "r");
   try {
     fsyncSync(fd);

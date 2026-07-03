@@ -42,7 +42,25 @@ test("CLI path helpers resolve symlinks before inside checks", async () => {
   mkdirSync(root, { recursive: true });
   mkdirSync(outside, { recursive: true });
   writeFileSync(path.join(outside, "escape.txt"), "outside\n", "utf8");
-  symlinkSync(outside, path.join(root, "linked-outside"));
+  if (!trySymlink(outside, path.join(root, "linked-outside"), "junction")) return;
 
   assert.equal(isPathInside(root, path.join(root, "linked-outside", "escape.txt")), false);
 });
+
+function trySymlink(target: string, linkPath: string, type?: "file" | "dir" | "junction"): boolean {
+  try {
+    symlinkSync(target, linkPath, type);
+    return true;
+  } catch (error) {
+    if (isWindowsSymlinkPermissionError(error)) return false;
+    throw error;
+  }
+}
+
+function isWindowsSymlinkPermissionError(error: unknown): boolean {
+  return process.platform === "win32" &&
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EPERM";
+}

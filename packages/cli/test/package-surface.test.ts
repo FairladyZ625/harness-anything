@@ -26,7 +26,9 @@ test("CLI package exposes the harness-anything package artifact surface without 
   assert.equal(cliPackage.dependencies?.effect, "3.21.2");
   const cliEntry = path.resolve("packages/cli/src/index.ts");
   assert.equal(readFileSync(cliEntry, "utf8").startsWith("#!/usr/bin/env node"), true);
-  assert.equal((statSync(cliEntry).mode & 0o111) !== 0, true);
+  if (process.platform !== "win32") {
+    assert.equal((statSync(cliEntry).mode & 0o111) !== 0, true);
+  }
 });
 
 test("bundled software coding assets have consistent template and process-preset surfaces", () => {

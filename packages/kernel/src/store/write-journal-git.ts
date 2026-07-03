@@ -12,7 +12,7 @@ export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<
   const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput);
   if (!plan) return "no-git-change";
 
-  runGit(plan.repoRoot, "add", "--", ...plan.relativePaths);
+  runGit(plan.repoRoot, "add", "-A", "-f", "--", ...plan.relativePaths);
   const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
   if (staged.length === 0) return currentGitHead(plan.repoRoot);
 

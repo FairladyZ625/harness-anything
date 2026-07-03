@@ -12,7 +12,7 @@ test("path guard rejects traversal, private folder access, absolute escape and f
     mkdirSync(path.join(root, "harness/tasks/task-1"), { recursive: true });
     mkdirSync(path.join(root, ".harness-private"), { recursive: true });
     writeFileSync(path.join(outside, "secret.md"), "secret");
-    symlinkSync(path.join(outside, "secret.md"), path.join(root, "harness/tasks/task-1/link.md"));
+    if (!trySymlink(path.join(outside, "secret.md"), path.join(root, "harness/tasks/task-1/link.md"))) return;
 
     assert.equal(validateProjectPath(root, "harness/tasks/task-1/INDEX.md").ok, true);
     assert.equal(validateProjectPath(root, "../outside.md").reason, "path_outside_project");
@@ -32,7 +32,7 @@ test("path guard rejects missing files under symlinked parent directories", () =
   const outside = mkdtempSync(path.join(tmpdir(), "ha-gui-outside-"));
   try {
     mkdirSync(path.join(root, "harness/tasks"), { recursive: true });
-    symlinkSync(outside, path.join(root, "harness/tasks/outdir"));
+    if (!trySymlink(outside, path.join(root, "harness/tasks/outdir"), "junction")) return;
 
     assert.equal(
       validateProjectPath(root, "harness/tasks/outdir/new.md").reason,
@@ -43,3 +43,21 @@ test("path guard rejects missing files under symlinked parent directories", () =
     rmSync(outside, { recursive: true, force: true });
   }
 });
+
+function trySymlink(target: string, path: string, type?: "file" | "dir" | "junction"): boolean {
+  try {
+    symlinkSync(target, path, type);
+    return true;
+  } catch (error) {
+    if (isWindowsSymlinkPermissionError(error)) return false;
+    throw error;
+  }
+}
+
+function isWindowsSymlinkPermissionError(error: unknown): boolean {
+  return process.platform === "win32" &&
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EPERM";
+}

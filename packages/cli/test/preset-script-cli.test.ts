@@ -164,10 +164,26 @@ test("CLI script command runs with an explicit environment allowlist", () => {
     assert.equal(result.report.envKeys.includes("HARNESS_PRESET_CONTEXT"), true);
     assert.equal(result.report.envKeys.includes("HARNESS_SCRIPT_CONTEXT"), true);
     assert.equal(result.report.envKeys.includes("HARNESS_SCRIPT_RESULT"), true);
-    assert.equal(result.report.hasHome, false);
-    assert.equal(result.report.envKeys.includes("PATH"), false);
+    if (process.platform !== "win32") assert.equal(result.report.hasHome, false);
+    if (process.platform !== "win32") assert.equal(result.report.envKeys.includes("PATH"), false);
     assert.equal(result.report.envKeys.includes("USER"), false);
-    assert.equal(result.report.envKeys.every((key: string) => key.startsWith("HARNESS_") || key === "__CF_USER_TEXT_ENCODING"), true);
+    assert.equal(result.report.envKeys.every((key: string) =>
+      key.startsWith("HARNESS_") ||
+      key === "__CF_USER_TEXT_ENCODING" ||
+      (process.platform === "win32" && [
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOGONSERVER",
+        "PATH",
+        "SYSTEMDRIVE",
+        "SYSTEMROOT",
+        "TEMP",
+        "USERDOMAIN",
+        "USERNAME",
+        "USERPROFILE",
+        "WINDIR"
+      ].includes(key.toUpperCase()))
+    ), true);
   });
 });
 

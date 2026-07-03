@@ -123,10 +123,12 @@ export function permissionPathsForScope(root: string, recursive: boolean): Reado
 }
 
 function expandScopeRoot(root: string): ReadonlyArray<string> {
-  const parts = root.split(path.sep);
+  const parsed = path.parse(path.resolve(root));
+  const relativeParts = path.relative(parsed.root, path.resolve(root)).split(path.sep).filter((part) => part.length > 0);
+  const parts = [parsed.root, ...relativeParts];
   if (!parts.includes("*")) return [root];
-  let candidates = [parts[0] === "" ? path.sep : parts[0]];
-  const remaining = parts[0] === "" ? parts.slice(1) : parts.slice(1);
+  let candidates = [parts[0]];
+  const remaining = parts.slice(1);
   for (const part of remaining) {
     candidates = candidates.flatMap((candidate) => {
       if (part !== "*") return [path.join(candidate, part)];
