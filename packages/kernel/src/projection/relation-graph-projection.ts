@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { parseFactFlowRecords, parseEntityRef, validateRelationRecordsForHost } from "../domain/index.ts";
-import type { EntityRelationRecord } from "../domain/index.ts";
+import { formatRelationFlowRecord, parseFactFlowRecords, parseEntityRef, validateRelationRecordsForHost } from "../domain/index.ts";
+import type { EntityRelationRecord, EntityRelationValidationIssue } from "../domain/index.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
@@ -50,14 +50,36 @@ interface GraphRefIndex {
   readonly factRefs: ReadonlySet<string>;
 }
 
+export interface RelationRecordEntry {
+  readonly hostRef: string;
+  readonly ownerRef: string;
+  readonly record: EntityRelationRecord;
+  readonly sourcePath: string;
+  readonly recordIndex: number;
+}
+
+export interface RelationRecordValidationIssue {
+  readonly entry: RelationRecordEntry;
+  readonly issue: EntityRelationValidationIssue | {
+    readonly code: "relation_provenance_inheritance_mismatch";
+    readonly relationId?: string;
+    readonly message: string;
+  };
+}
+
 export function buildRelationGraphProjection(rootInput: HarnessLayoutInput): RelationGraphProjection {
   const decisions = readDecisionSources(rootInput);
   const refIndex = buildGraphRefIndex(rootInput, decisions);
-  const edges = collectRelationEdges(rootInput, decisions, refIndex);
+  const entries = collectRelationRecordEntries(rootInput, decisions);
+  const edges = relationEntriesToEdges(entries, refIndex);
   return {
     edges,
     coverageRows: buildCoverageRows(decisions.filter((decision) => decision.visible), edges, refIndex)
   };
+}
+
+export function validateRelationGraphRecords(rootInput: HarnessLayoutInput): ReadonlyArray<RelationRecordValidationIssue> {
+  return validateRelationRecordEntries(collectRelationRecordEntries(rootInput, readDecisionSources(rootInput)));
 }
 
 export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdgeRow>): ReadonlyArray<ReadonlyArray<string>> {
@@ -102,15 +124,13 @@ export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdge
   return cycles;
 }
 
-function collectRelationEdges(
+function collectRelationRecordEntries(
   rootInput: HarnessLayoutInput,
-  decisions: ReadonlyArray<DecisionSource>,
-  refIndex: GraphRefIndex
-): ReadonlyArray<RelationGraphEdgeRow> {
+  decisions: ReadonlyArray<DecisionSource>
+): ReadonlyArray<RelationRecordEntry> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
-  const edges: RelationGraphEdgeRow[] = [];
-  const seen = new Set<string>();
+  const entries: RelationRecordEntry[] = [];
 
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
     const taskId = readTaskPackageId(taskDir);
@@ -118,14 +138,12 @@ function collectRelationEdges(
     if (existsSync(indexPath)) {
       const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
       if (frontmatter) {
-        edges.push(...recordsToEdges({
+        entries.push(...recordsToEntries({
           hostRef: `task/${taskId}`,
           ownerRef: `task/${taskId}`,
           records: parseRelationFlowRecords(frontmatter),
           sourceFile: indexPath,
-          rootDir,
-          refIndex,
-          seen
+          rootDir
         }));
       }
     }
@@ -133,65 +151,131 @@ function collectRelationEdges(
     const factsPath = path.join(taskDir, layout.factDocumentName);
     if (existsSync(factsPath)) {
       const factsBody = readFileSync(factsPath, "utf8");
-      edges.push(...recordsToEdges({
+      entries.push(...recordsToEntries({
+        hostRefForRecord: (record) => factRelationHostRef(taskId, record),
         ownerRef: `task/${taskId}`,
         records: parseRelationFlowRecords(factsBody),
         sourceFile: factsPath,
-        rootDir,
-        refIndex,
-        seen
+        rootDir
       }));
     }
   }
 
   for (const decision of decisions) {
     if (!decision.visible) continue;
-    edges.push(...recordsToEdges({
+    entries.push(...recordsToEntries({
       hostRef: decision.decisionRef,
       ownerRef: decision.decisionRef,
       records: parseRelationFlowRecords(decision.frontmatter),
       sourceFile: decision.filePath,
-      rootDir,
-      refIndex,
-      seen
+      rootDir
     }));
   }
 
-  return edges.sort(compareEdges);
+  return entries.sort(compareRelationRecordEntries);
 }
 
-function recordsToEdges(input: {
+function recordsToEntries(input: {
   readonly hostRef?: string;
+  readonly hostRefForRecord?: (record: EntityRelationRecord) => string;
   readonly ownerRef: string;
   readonly records: ReadonlyArray<EntityRelationRecord>;
   readonly sourceFile: string;
   readonly rootDir: string;
-  readonly refIndex: GraphRefIndex;
-  readonly seen: Set<string>;
-}): ReadonlyArray<RelationGraphEdgeRow> {
-  const edges: RelationGraphEdgeRow[] = [];
+}): ReadonlyArray<RelationRecordEntry> {
+  const entries: RelationRecordEntry[] = [];
   for (const [index, record] of input.records.entries()) {
-    const hostRef = input.hostRef ?? record.source;
-    if (validateRelationRecordsForHost(hostRef, [record]).length > 0) continue;
-    if (!isKnownLocalEndpoint(record.source, input.refIndex) || !isKnownLocalEndpoint(record.target, input.refIndex)) continue;
-    if (input.seen.has(record.relation_id)) continue;
-    input.seen.add(record.relation_id);
-    edges.push({
-      relationId: record.relation_id,
-      sourceRef: record.source,
-      targetRef: record.target,
-      relationType: record.type,
-      direction: record.direction,
-      strength: record.strength,
-      origin: record.origin,
-      state: record.state,
-      rationale: record.rationale,
+    entries.push({
+      hostRef: input.hostRefForRecord?.(record) ?? input.hostRef ?? input.ownerRef,
       ownerRef: input.ownerRef,
       sourcePath: sourcePath(input.rootDir, input.sourceFile),
+      record,
       recordIndex: index
     });
   }
-  return edges;
+  return entries;
+}
+
+function factRelationHostRef(taskId: string, record: EntityRelationRecord): string {
+  const source = parseEntityRef(record.source);
+  if (source?.kind === "fact") return `fact/${taskId}/${source.id}`;
+  return `task/${taskId}`;
+}
+
+function relationEntriesToEdges(
+  entries: ReadonlyArray<RelationRecordEntry>,
+  refIndex: GraphRefIndex
+): ReadonlyArray<RelationGraphEdgeRow> {
+  const edges: RelationGraphEdgeRow[] = [];
+  const seen = new Map<string, string>();
+  for (const entry of entries) {
+    if (validateRelationRecordsForHost(entry.hostRef, [entry.record]).length > 0) continue;
+    if (!isKnownLocalEndpoint(entry.record.source, refIndex) || !isKnownLocalEndpoint(entry.record.target, refIndex)) continue;
+
+    const canonicalRecord = canonicalRelationRecord(entry.record);
+    const previous = seen.get(entry.record.relation_id);
+    if (previous) {
+      if (previous === canonicalRecord) continue;
+      continue;
+    }
+    seen.set(entry.record.relation_id, canonicalRecord);
+    edges.push({
+      relationId: entry.record.relation_id,
+      sourceRef: entry.record.source,
+      targetRef: entry.record.target,
+      relationType: entry.record.type,
+      direction: entry.record.direction,
+      strength: entry.record.strength,
+      origin: entry.record.origin,
+      state: entry.record.state,
+      rationale: entry.record.rationale,
+      ownerRef: entry.ownerRef,
+      sourcePath: entry.sourcePath,
+      recordIndex: entry.recordIndex
+    });
+  }
+  return edges.sort(compareEdges);
+}
+
+function validateRelationRecordEntries(entries: ReadonlyArray<RelationRecordEntry>): ReadonlyArray<RelationRecordValidationIssue> {
+  const issues: RelationRecordValidationIssue[] = [];
+  const seen = new Map<string, { readonly canonicalRecord: string; readonly entry: RelationRecordEntry }>();
+  for (const entry of entries) {
+    for (const issue of validateRelationRecordsForHost(entry.hostRef, [entry.record])) {
+      issues.push({ entry, issue });
+      if (issue.code === "relation_host_source_mismatch") {
+        issues.push({
+          entry,
+          issue: {
+            code: "relation_provenance_inheritance_mismatch",
+            relationId: entry.record.relation_id,
+            message: `Relation ${entry.record.relation_id} cannot inherit provenance from ${entry.hostRef} because its source is ${entry.record.source}`
+          }
+        });
+      }
+    }
+
+    const canonicalRecord = canonicalRelationRecord(entry.record);
+    const previous = seen.get(entry.record.relation_id);
+    if (!previous) {
+      seen.set(entry.record.relation_id, { canonicalRecord, entry });
+      continue;
+    }
+    if (previous.canonicalRecord === canonicalRecord) continue;
+    issues.push({
+      entry,
+      issue: {
+        code: "duplicate_relation_id",
+        relationId: entry.record.relation_id,
+        message: `Duplicate relation_id ${entry.record.relation_id} in ${previous.entry.sourcePath} and ${entry.sourcePath}`
+      }
+    });
+  }
+  return issues;
+}
+
+function canonicalRelationRecord(record: EntityRelationRecord): string {
+  return formatRelationFlowRecord(record);
 }
 
 function buildCoverageRows(
@@ -461,6 +545,10 @@ function isRelationGraphTextLikePath(filePath: string): boolean {
 
 function compareEdges(a: RelationGraphEdgeRow, b: RelationGraphEdgeRow): number {
   return `${a.sourceRef}\0${a.targetRef}\0${a.relationId}`.localeCompare(`${b.sourceRef}\0${b.targetRef}\0${b.relationId}`);
+}
+
+function compareRelationRecordEntries(a: RelationRecordEntry, b: RelationRecordEntry): number {
+  return `${a.sourcePath}\0${a.recordIndex}`.localeCompare(`${b.sourcePath}\0${b.recordIndex}`);
 }
 
 function isRelationType(value: string): value is EntityRelationRecord["type"] {

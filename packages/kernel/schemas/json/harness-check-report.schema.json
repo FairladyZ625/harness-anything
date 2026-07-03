@@ -34,6 +34,12 @@
                 "binding_tampered",
                 "conflict_marker_present",
                 "dangling_entity_ref",
+                "invalid_relation_endpoint",
+                "relation_host_source_mismatch",
+                "relation_provenance_inheritance_mismatch",
+                "relation_id_mismatch",
+                "duplicate_relation_id",
+                "relation_rationale_missing",
                 "relation_cycle_detected"
               ]
             }

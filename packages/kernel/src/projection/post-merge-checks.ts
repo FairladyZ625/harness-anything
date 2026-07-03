@@ -6,7 +6,7 @@ import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { buildRelationGraphProjection, detectRelationGraphCycles } from "./relation-graph-projection.ts";
+import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords } from "./relation-graph-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
 
@@ -21,6 +21,7 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findConflictMarkerWarnings(rootInput));
   warnings.push(...findDecisionWatermarkIssues(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
+  warnings.push(...findRelationRecordIssues(rootInput));
   warnings.push(...findRelationCycles(rootInput));
   return warnings;
 }
@@ -277,6 +278,31 @@ function findRelationCycles(rootInput: HarnessLayoutInput): ReadonlyArray<Projec
     `Entity relation cycle detected: ${cycle.join(" -> ")}.`,
     "Break the cyclic typed relation records before merging authored planning docs."
   )];
+}
+
+function findRelationRecordIssues(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+  return validateRelationGraphRecords(rootInput).map(({ entry, issue }) => hardFail(
+    "source-package",
+    issue.code,
+    `${issue.message} (${entry.sourcePath}:${entry.recordIndex + 1}).`,
+    relationRepairHint(issue.code)
+  ));
+}
+
+function relationRepairHint(code: ProjectionWarningCode): string {
+  if (code === "relation_host_source_mismatch" || code === "relation_provenance_inheritance_mismatch") {
+    return "Move the relation record into the metadata for its source entity so provenance is inherited from the correct host.";
+  }
+  if (code === "relation_id_mismatch") {
+    return "Recompute relation_id from source, target, type, and direction; relation_id is deterministic and must not be hand-assigned.";
+  }
+  if (code === "duplicate_relation_id") {
+    return "Keep one byte-identical duplicate relation record, or manually arbitrate divergent attributes for the same canonical edge before merging.";
+  }
+  if (code === "relation_rationale_missing") {
+    return "Add a non-blank rationale for strong or gate-bearing relation records.";
+  }
+  return "Restore a valid typed relation endpoint before rebuilding the relation graph projection.";
 }
 
 export function buildCheckReport(

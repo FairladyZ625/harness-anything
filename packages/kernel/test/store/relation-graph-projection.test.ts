@@ -233,6 +233,115 @@ test("post-merge typed relation cycle detection terminates across decision and f
   });
 });
 
+test("post-merge relation validation rejects facts.md host drift and provenance inheritance mismatch", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-owner", "Task Owner");
+    writeFacts(rootDir, "task-owner", [{
+      fact_id: "F-DEADBEEF",
+      statement: "The owner fact is local to task-owner.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }], [
+      relationRecord({
+        source: "fact/task-other/F-DEADBEEF",
+        target: "task/task-owner",
+        type: "relates"
+      })
+    ]);
+    writeIndex(rootDir, "task-other", "Task Other");
+    writeFacts(rootDir, "task-other", [{
+      fact_id: "F-DEADBEEF",
+      statement: "The source fact belongs to a different task.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }]);
+
+    const result = checkTaskProjection({ rootDir, postMerge: true });
+    const codes = result.warnings.map((warning) => warning.code);
+
+    assert.equal(result.ok, false);
+    assert.equal(codes.includes("relation_host_source_mismatch"), true);
+    assert.equal(codes.includes("relation_provenance_inheritance_mismatch"), true);
+  });
+});
+
+test("post-merge relation validation rejects relation_id mismatches", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-bad-id", "Task Bad Id");
+    writeFacts(rootDir, "task-bad-id", [{
+      fact_id: "F-DEADBEEF",
+      statement: "The fact supports a decision with a bad relation id.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }]);
+    writeDecisionRelationLines(rootDir, "dec_BAD_ID", "wm-bad-id", [
+      "- {relation_id: rel_0000000000000000, source: decision/dec_BAD_ID/C1, target: fact/task-bad-id/F-DEADBEEF, type: supports, strength: strong, direction: directed, origin: declared, rationale: \"Fixture relation\", state: active}"
+    ]);
+
+    const result = checkTaskProjection({ rootDir, postMerge: true });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.warnings.some((warning) => warning.code === "relation_id_mismatch"), true);
+  });
+});
+
+test("post-merge relation validation rejects divergent duplicate relation_id records", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-duplicate-relation", "Task Duplicate Relation");
+    writeFacts(rootDir, "task-duplicate-relation", [{
+      fact_id: "F-DEADBEEF",
+      statement: "The fact is targeted by divergent duplicate relation records.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }]);
+    const relation = relationRecord({
+      source: "decision/dec_DUP_REL/C1",
+      target: "fact/task-duplicate-relation/F-DEADBEEF",
+      type: "supports"
+    });
+    writeDecision(rootDir, "dec_DUP_REL", "wm-dup-rel", [
+      relation,
+      { ...relation, strength: "weak", rationale: "Divergent attributes for the same canonical edge." }
+    ]);
+
+    const result = checkTaskProjection({ rootDir, postMerge: true });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.warnings.some((warning) => warning.code === "duplicate_relation_id"), true);
+  });
+});
+
+test("post-merge relation validation allows byte-identical duplicate records to converge", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-identical-relation", "Task Identical Relation");
+    writeFacts(rootDir, "task-identical-relation", [{
+      fact_id: "F-DEADBEEF",
+      statement: "The fact is targeted by identical duplicate relation records.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }]);
+    const relation = relationRecord({
+      source: "decision/dec_IDENTICAL_REL/C1",
+      target: "fact/task-identical-relation/F-DEADBEEF",
+      type: "supports"
+    });
+    writeDecision(rootDir, "dec_IDENTICAL_REL", "wm-identical-rel", [relation, relation]);
+
+    const result = checkTaskProjection({ rootDir, postMerge: true });
+    rebuildTaskProjection({ rootDir });
+    const graph = readRelationGraphProjection({ rootDir });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.some((warning) => warning.code === "duplicate_relation_id"), false);
+    assert.equal(graph.edges.filter((edge) => edge.relationId === relation.relation_id).length, 1);
+  });
+});
+
 function writeIndex(rootDir: string, taskDirName: string, title: string, taskId = taskDirName): void {
   const taskRoot = path.join(rootDir, "harness/tasks", taskDirName);
   mkdirSync(taskRoot, { recursive: true });
@@ -249,7 +358,7 @@ function writeIndex(rootDir: string, taskDirName: string, title: string, taskId 
     `  titleSnapshot: ${title}`,
     "  url: ",
     "  bindingCreatedAt: 2026-07-03T00:00:00.000Z",
-    "  bindingFingerprint: sha256:fixture",
+    "  bindingFingerprint: ",
     "packageDisposition: active",
     "vertical: default",
     "preset: default",
@@ -282,6 +391,10 @@ function writeFacts(rootDir: string, taskId: string, facts: ReadonlyArray<FactFi
 }
 
 function writeDecision(rootDir: string, decisionId: string, watermark: string, relations: ReadonlyArray<EntityRelationRecord>): void {
+  writeDecisionRelationLines(rootDir, decisionId, watermark, relations.map(formatRelationFlowRecord));
+}
+
+function writeDecisionRelationLines(rootDir: string, decisionId: string, watermark: string, relationLines: ReadonlyArray<string>): void {
   const decisionRoot = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
   mkdirSync(decisionRoot, { recursive: true });
   writeFileSync(path.join(decisionRoot, "decision.md"), [
@@ -311,7 +424,7 @@ function writeDecision(rootDir: string, decisionId: string, watermark: string, r
     "claims:",
     "  - { id: \"C1\", statement: \"Fixture claim\", required: true }",
     "relations:",
-    ...relations.map(formatRelationFlowRecord),
+    ...relationLines,
     "---",
     "",
     `# ${decisionId}`,
