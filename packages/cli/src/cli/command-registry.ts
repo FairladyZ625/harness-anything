@@ -13,6 +13,7 @@ export type CommandParserId =
   | "core-task"
   | "new-task"
   | "decision"
+  | "distill"
   | "record"
   | "runtime-event"
   | "doc"
@@ -32,6 +33,7 @@ export type CommandRunnerId =
   | "init"
   | "new-task"
   | "decision"
+  | "distill"
   | "fact"
   | "runtime-event"
   | "doc"
@@ -71,6 +73,8 @@ const commandUsages = [
   { kind: "decision-amend", usage: "decision amend <decision-id> [--title <title>] [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-retire", usage: "decision retire <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
   { kind: "record-fact", usage: "record fact --task <task-id> --statement <text> --source <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--dry-run] [--json]" },
+  { kind: "distill-candidate", usage: "distill candidate --task <task-id> --input <path> [--json]" },
+  { kind: "distill-commit", usage: "distill commit --task <task-id> --candidate <path> --claim <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--json]" },
   { kind: "runtime-event-append", usage: "runtime-event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]" },
   { kind: "runtime-event-list", usage: "runtime-event list --session <session-id> [--json]" },
   { kind: "doc-list", usage: "doc list [--module <key>] [--product-line <key>] [--json]" },
@@ -135,6 +139,8 @@ const commandParserIds = {
   "decision-amend": "decision",
   "decision-retire": "decision",
   "record-fact": "record",
+  "distill-candidate": "distill",
+  "distill-commit": "distill",
   "runtime-event-append": "runtime-event",
   "runtime-event-list": "runtime-event",
   "doc-list": "doc",
@@ -205,6 +211,8 @@ const commandRunnerIds = {
   "decision-amend": "decision",
   "decision-retire": "decision",
   "record-fact": "fact",
+  "distill-candidate": "distill",
+  "distill-commit": "distill",
   "runtime-event-append": "runtime-event",
   "runtime-event-list": "runtime-event",
   "doc-list": "doc",
@@ -283,6 +291,8 @@ const commandSummaries = {
   "decision-amend": "Amend a decision without changing its lifecycle state.",
   "decision-retire": "Retire a decision through the decision write service.",
   "record-fact": "Record a stable task-local fact anchor through the fact write service.",
+  "distill-candidate": "Create a generated distill candidate artifact without recording a fact.",
+  "distill-commit": "Commit an explicit distill candidate claim through the fact write service.",
   "runtime-event-append": "Append one structured runtime event to the local JSONL event ledger.",
   "runtime-event-list": "Read structured runtime events for one session from the local JSONL ledger.",
   "doc-list": "List canonical documents declared in the docmap manifest.",
@@ -353,6 +363,8 @@ const commandExamples = {
   "decision-amend": [`${cliCommandName} decision amend dec_01ABC --title "Updated title"`],
   "decision-retire": [`${cliCommandName} decision retire dec_01ABC --arbiter human:ZeyuLi`],
   "record-fact": [`${cliCommandName} record fact --task task_01ABC --statement "CLI fallback passed" --source "manual verification" --confidence high`],
+  "distill-candidate": [`${cliCommandName} distill candidate --task task_01ABC --input artifacts/transcript.md --json`],
+  "distill-commit": [`${cliCommandName} distill commit --task task_01ABC --candidate .harness/generated/distill/task_01ABC/distill_123.json --claim "Distilled claim" --memory-class semantic`],
   "runtime-event-append": [`${cliCommandName} runtime-event append --session codex-session-1 --kind interrupt --runtime codex --interrupt append --summary "User appended task guidance"`],
   "runtime-event-list": [`${cliCommandName} runtime-event list --session codex-session-1 --json`],
   "doc-list": [`${cliCommandName} doc list --module m4-loadbearing --json`],

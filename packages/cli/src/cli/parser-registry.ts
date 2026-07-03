@@ -4,6 +4,7 @@ import { parseGitDiffArgs } from "./parse-git-diff-args.ts";
 import { parseMigrationArgs } from "./parse-migration-args.ts";
 import { parseCoreTaskArgs } from "./parsers/core-task.ts";
 import { parseDecisionArgs } from "./parsers/decision.ts";
+import { parseDistillArgs } from "./parsers/distill.ts";
 import { parseDocArgs } from "./parsers/doc.ts";
 import { parseModuleArgs } from "./parsers/extensions-module.ts";
 import { parsePresetArgs } from "./parsers/extensions-preset.ts";
@@ -61,6 +62,11 @@ export const parserRegistry = [
     id: "record",
     commandKinds: commandKindsForParser("record"),
     parse: parseRecordArgs
+  },
+  {
+    id: "distill",
+    commandKinds: commandKindsForParser("distill"),
+    parse: parseDistillArgs
   },
   {
     id: "runtime-event",

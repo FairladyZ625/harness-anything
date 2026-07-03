@@ -18,6 +18,8 @@ const expectedConflictPreflightKinds = [
   "decision-reject",
   "decision-retire",
   "decision-supersede",
+  "distill-candidate",
+  "distill-commit",
   "governance-rebuild",
   "init",
   "legacy-copy-safe-docs",

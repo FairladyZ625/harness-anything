@@ -5,6 +5,7 @@ export { runGuiCommand } from "./gui.ts";
 export { runHelpCommand } from "./help.ts";
 export { runInitCommand } from "./init.ts";
 export { runDecisionCommand } from "./decision.ts";
+export { runDistillCommand } from "./distill.ts";
 export { runDocCommand } from "./doc.ts";
 export { runFactCommand } from "./fact.ts";
 export { runMigrationCommand } from "./migration.ts";

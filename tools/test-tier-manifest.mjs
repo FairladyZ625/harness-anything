@@ -81,6 +81,7 @@ export const testTierManifest = {
     "packages/cli/test/conflict-preflight-cli.test.ts",
     "packages/cli/test/decision-cli.test.ts",
     "packages/cli/test/docmap-cli.test.ts",
+    "packages/cli/test/distill-cli.test.ts",
     "packages/cli/test/doctor-cli.test.ts",
     "packages/cli/test/extension-cli.test.ts",
     "packages/cli/test/fact-cli.test.ts",
@@ -106,12 +107,12 @@ export const testTierManifest = {
     "packages/kernel/test/store/relation-graph-projection.test.ts",
     "packages/kernel/test/store/same-task-fifo.test.ts",
     "packages/kernel/test/store/sqlite-rebuild.test.ts",
-    "tools/graph-panorama.test.mjs",
-    "tools/check-import-boundaries.test.mjs",
     "tools/check-docs-release-map.test.mjs",
+    "tools/check-import-boundaries.test.mjs",
     "tools/check-runtime-release-readiness.test.mjs",
-    "tools/relation-weathering-spike.test.mjs",
-    "tools/check-supply-chain.test.mjs"
+    "tools/check-supply-chain.test.mjs",
+    "tools/graph-panorama.test.mjs",
+    "tools/relation-weathering-spike.test.mjs"
   ]
 };
 
