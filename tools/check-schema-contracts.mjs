@@ -11,6 +11,7 @@ const expectedSchemaIds = [
   "decision-package",
   "entity-relations",
   "fact-record",
+  "runtime-event-record",
   "write-journal-op",
   "task-snapshot",
   "publishable-projection",

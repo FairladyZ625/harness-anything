@@ -28,6 +28,8 @@ export const commandReceiptContractsByKind = {
   "decision-amend": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },
   "decision-retire": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },
   "record-fact": { data: ["taskId", "factId", "factRef", "report"], paths: ["primary"] },
+  "runtime-event-append": { data: ["report"], paths: ["primary"] },
+  "runtime-event-list": { data: ["rows", "report"], paths: ["primary"] },
   "template-list": { data: ["templates", "issues"], paths: [] },
   "template-render": { data: ["document", "issues"], paths: [] },
   "task-list": { data: ["tasks", "rows"], paths: [] },

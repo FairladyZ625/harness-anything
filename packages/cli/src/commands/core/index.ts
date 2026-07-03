@@ -8,6 +8,7 @@ export { runDecisionCommand } from "./decision.ts";
 export { runFactCommand } from "./fact.ts";
 export { runMigrationCommand } from "./migration.ts";
 export { runNewTaskCommand } from "./new-task.ts";
+export { runRuntimeEventCommand } from "./runtime-event.ts";
 export { runTaskGatesCommand } from "./task-gates.ts";
 export { FORCE_STATUS_AUDIT_MARKER, runTaskLifecycleCommand } from "./task-lifecycle.ts";
 export { runTaskQueryCommand } from "./task-query.ts";

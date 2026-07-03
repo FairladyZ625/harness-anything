@@ -1,0 +1,25 @@
+{
+  "schema": "runtime-event/v1",
+  "eventId": "evt_20260703_000001",
+  "recordedAt": "2026-07-03T00:00:00.000Z",
+  "kind": "interrupt",
+  "session": {
+    "sessionId": "codex-session-1",
+    "runtime": "codex",
+    "taskId": "task_01KWK8Z8V1YF1N0V0H2F6R1AYW"
+  },
+  "turn": null,
+  "step": null,
+  "tool": null,
+  "approval": null,
+  "interrupt": {
+    "interruptId": "interrupt-1",
+    "action": "append",
+    "reason": "task-level steering"
+  },
+  "result": {
+    "status": "succeeded",
+    "summary": "User appended task-level guidance."
+  },
+  "cost": null
+}

@@ -12,6 +12,7 @@ import { parseVerticalArgs } from "./parsers/extensions-vertical.ts";
 import { parseGuiArgs } from "./parsers/gui.ts";
 import { parseNewTaskArgs } from "./parsers/new-task.ts";
 import { parseRecordArgs } from "./parsers/record.ts";
+import { parseRuntimeEventArgs } from "./parsers/runtime-event.ts";
 import { parseStatusCheckArgs } from "./parsers/status-check.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
@@ -59,6 +60,11 @@ export const parserRegistry = [
     id: "record",
     commandKinds: commandKindsForParser("record"),
     parse: parseRecordArgs
+  },
+  {
+    id: "runtime-event",
+    commandKinds: commandKindsForParser("runtime-event"),
+    parse: parseRuntimeEventArgs
   },
   {
     id: "status-check",

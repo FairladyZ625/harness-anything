@@ -1,0 +1,17 @@
+{
+  "schema": "runtime-event/v1",
+  "eventId": "bad",
+  "recordedAt": "2026-07-03T00:00:00.000Z",
+  "kind": "pty-injection",
+  "session": {
+    "sessionId": "codex-session-1",
+    "runtime": "codex"
+  },
+  "turn": null,
+  "step": null,
+  "tool": null,
+  "approval": null,
+  "interrupt": null,
+  "result": null,
+  "cost": null
+}

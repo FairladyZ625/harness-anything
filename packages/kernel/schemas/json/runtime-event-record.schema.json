@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.local/schemas/runtime-event-record.schema.json",
+  "x-harness-schema-id": "runtime-event-record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "eventId",
+    "recordedAt",
+    "kind",
+    "session",
+    "turn",
+    "step",
+    "tool",
+    "approval",
+    "interrupt",
+    "result",
+    "cost"
+  ],
+  "properties": {
+    "schema": { "const": "runtime-event/v1" },
+    "eventId": {
+      "type": "string",
+      "pattern": "^evt_[A-Za-z0-9._-]{8,96}$"
+    },
+    "recordedAt": { "type": "string" },
+    "kind": {
+      "enum": ["session", "turn", "step", "tool", "approval", "interrupt", "result", "cost"]
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "runtime"],
+      "properties": {
+        "sessionId": { "type": "string" },
+        "runtime": { "enum": ["human", "claude-code", "codex", "zcode", "antigravity", "unknown"] },
+        "taskId": { "type": "string" },
+        "decisionId": { "type": "string" },
+        "factRef": { "type": "string" }
+      }
+    },
+    "turn": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["turnId"],
+          "properties": {
+            "turnId": { "type": "string" },
+            "index": { "type": "number" },
+            "role": { "enum": ["user", "assistant", "system", "tool", "unknown"] }
+          }
+        }
+      ]
+    },
+    "step": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stepId"],
+          "properties": {
+            "stepId": { "type": "string" },
+            "parentStepId": { "type": "string" },
+            "name": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "tool": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["toolName"],
+          "properties": {
+            "toolName": { "type": "string" },
+            "callId": { "type": "string" },
+            "errorCode": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "approval": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approvalId", "decision"],
+          "properties": {
+            "approvalId": { "type": "string" },
+            "decision": { "enum": ["approved", "rejected", "timeout", "unknown"] },
+            "scope": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "interrupt": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["interruptId", "action"],
+          "properties": {
+            "interruptId": { "type": "string" },
+            "action": { "enum": ["pause", "cancel", "resume", "append", "branch", "unknown"] },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "result": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["started", "succeeded", "failed", "cancelled", "unknown"] },
+            "summary": { "type": "string" },
+            "errorCode": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "cost": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inputTokens": { "type": "number" },
+            "outputTokens": { "type": "number" },
+            "totalTokens": { "type": "number" },
+            "wallMs": { "type": "number" },
+            "model": { "type": "string" },
+            "amountUsd": { "type": "number" }
+          }
+        }
+      ]
+    }
+  }
+}

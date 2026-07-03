@@ -1,4 +1,14 @@
-import type { DomainStatus, FactMemoryClass, FactMemoryTag, RelationType } from "../../../kernel/src/domain/index.ts";
+import type {
+  DomainStatus,
+  FactMemoryClass,
+  FactMemoryTag,
+  RelationType,
+  RuntimeEventApprovalDecision,
+  RuntimeEventInterruptAction,
+  RuntimeEventKind,
+  RuntimeEventRuntime,
+  RuntimeEventResultStatus
+} from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import type { CliError } from "./error-codes.ts";
 
@@ -129,6 +139,8 @@ export interface ParsedCommand {
     | { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire"; readonly decisionId: string; readonly arbiter?: string; readonly decidedAt?: string; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "record-fact"; readonly taskId: string; readonly factId?: string; readonly statement: string; readonly source: string; readonly observedAt?: string; readonly confidence: "low" | "medium" | "high"; readonly memoryClass: FactMemoryClass; readonly memoryTags: ReadonlyArray<FactMemoryTag>; readonly dryRun: boolean }
+    | { readonly kind: "runtime-event-append"; readonly sessionId: string; readonly eventKind: RuntimeEventKind; readonly runtime: RuntimeEventRuntime | "unknown"; readonly eventId?: string; readonly recordedAt?: string; readonly taskId?: string; readonly turnId?: string; readonly stepId?: string; readonly toolName?: string; readonly approval?: RuntimeEventApprovalDecision; readonly interrupt?: RuntimeEventInterruptAction; readonly result?: RuntimeEventResultStatus; readonly summary?: string; readonly totalTokens?: number }
+    | { readonly kind: "runtime-event-list"; readonly sessionId: string }
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "version" }

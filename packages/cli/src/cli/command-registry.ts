@@ -13,6 +13,7 @@ export type CommandParserId =
   | "new-task"
   | "decision"
   | "record"
+  | "runtime-event"
   | "status-check"
   | "migration"
   | "git-diff"
@@ -30,6 +31,7 @@ export type CommandRunnerId =
   | "new-task"
   | "decision"
   | "fact"
+  | "runtime-event"
   | "task-lifecycle"
   | "task-gates"
   | "task-query"
@@ -66,6 +68,8 @@ const commandUsages = [
   { kind: "decision-amend", usage: "decision amend <decision-id> [--title <title>] [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-retire", usage: "decision retire <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
   { kind: "record-fact", usage: "record fact --task <task-id> --statement <text> --source <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--dry-run] [--json]" },
+  { kind: "runtime-event-append", usage: "runtime-event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]" },
+  { kind: "runtime-event-list", usage: "runtime-event list --session <session-id> [--json]" },
   { kind: "template-list", usage: "template list [--catalog <path>] [--json]" },
   { kind: "template-render", usage: "template render <template-ref> [--catalog <path>] [--locale zh-CN|en-US] [--json]" },
   { kind: "task-list", usage: "task list [--state <state>] [--module <key>] [--queue <queue>] [--preset <id>] [--review <state>] [--lesson [present|missing]] [--missing-materials] [--include-archived] [--search <text>] [--json]" },
@@ -126,6 +130,8 @@ const commandParserIds = {
   "decision-amend": "decision",
   "decision-retire": "decision",
   "record-fact": "record",
+  "runtime-event-append": "runtime-event",
+  "runtime-event-list": "runtime-event",
   "status-set": "core-task",
   "progress-append": "core-task",
   "task-archive": "core-task",
@@ -192,6 +198,8 @@ const commandRunnerIds = {
   "decision-amend": "decision",
   "decision-retire": "decision",
   "record-fact": "fact",
+  "runtime-event-append": "runtime-event",
+  "runtime-event-list": "runtime-event",
   "status-set": "task-lifecycle",
   "progress-append": "task-lifecycle",
   "task-archive": "task-lifecycle",
@@ -266,6 +274,8 @@ const commandSummaries = {
   "decision-amend": "Amend a decision without changing its lifecycle state.",
   "decision-retire": "Retire a decision through the decision write service.",
   "record-fact": "Record a stable task-local fact anchor through the fact write service.",
+  "runtime-event-append": "Append one structured runtime event to the local JSONL event ledger.",
+  "runtime-event-list": "Read structured runtime events for one session from the local JSONL ledger.",
   "template-list": "List available task and document templates.",
   "template-render": "Render a template reference with a selected locale.",
   "task-list": "List task packages with state, module, review, and search filters.",
@@ -332,6 +342,8 @@ const commandExamples = {
   "decision-amend": [`${cliCommandName} decision amend dec_01ABC --title "Updated title"`],
   "decision-retire": [`${cliCommandName} decision retire dec_01ABC --arbiter human:ZeyuLi`],
   "record-fact": [`${cliCommandName} record fact --task task_01ABC --statement "CLI fallback passed" --source "manual verification" --confidence high`],
+  "runtime-event-append": [`${cliCommandName} runtime-event append --session codex-session-1 --kind interrupt --runtime codex --interrupt append --summary "User appended task guidance"`],
+  "runtime-event-list": [`${cliCommandName} runtime-event list --session codex-session-1 --json`],
   "template-list": [`${cliCommandName} template list --json`],
   "template-render": [`${cliCommandName} template render template://planning/task@1 --locale zh-CN`],
   "task-list": [`${cliCommandName} task list --state active --module kernel --review missing`],
@@ -508,6 +520,18 @@ function optionDescription(flag: string): string {
     "--evidence": "Attach evidence in type:path:summary format.",
     "--evidence-relation": "Attach a decision anchor to a task or fact evidence ref as anchor:type:target:rationale; repeat for multiple relations.",
     "--confidence": "Set fact confidence as low, medium, or high.",
+    "--approval": "Record a runtime event approval decision.",
+    "--at": "Set the runtime event timestamp.",
+    "--interrupt": "Record a task-level interrupt or steering action.",
+    "--kind": "Set the runtime event kind.",
+    "--result": "Record a runtime event result status.",
+    "--runtime": "Set the observed runtime kind.",
+    "--session": "Set the runtime session id.",
+    "--step": "Set the observed runtime step id.",
+    "--summary": "Set a short structured summary.",
+    "--tool": "Set the observed tool or command name.",
+    "--total-tokens": "Set the observed total token count.",
+    "--turn": "Set the observed runtime turn id.",
     "--force": "Force the lifecycle transition with audit metadata.",
     "--from-legacy": "Create from a legacy task id.",
     "--hard": "Hard-delete the selected task.",

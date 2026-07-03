@@ -6,11 +6,13 @@ import { ActorRefSchema, LinkKindSchema, ProvenanceEntrySchema } from "./common.
 import { DecisionPackageSchema } from "./decision-package.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
 import { FactRecordSchema } from "./fact-record.ts";
+import { RuntimeEventRecordSchema } from "./runtime-event.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
 export { FactRecordSchema } from "./fact-record.ts";
+export { RuntimeEventRecordSchema } from "./runtime-event.ts";
 export {
   EntityRelationRecordSchema,
   EntityRelationsSchema,
@@ -488,6 +490,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/fact-record.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/fact-record/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/fact-record/invalid.json"
+  },
+  {
+    id: "runtime-event-record",
+    schema: RuntimeEventRecordSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/runtime-event-record.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/runtime-event-record/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/runtime-event-record/invalid.json"
   },
   {
     id: "write-journal-op",

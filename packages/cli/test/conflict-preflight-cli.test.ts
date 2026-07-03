@@ -40,6 +40,7 @@ const expectedConflictPreflightKinds = [
   "preset-uninstall",
   "progress-append",
   "record-fact",
+  "runtime-event-append",
   "script-run",
   "status",
   "status-set",

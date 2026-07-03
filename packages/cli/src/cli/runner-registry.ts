@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter } from "../../../application/src/index.ts";
+import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, RuntimeEventLedgerService } from "../../../application/src/index.ts";
 import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
@@ -21,6 +21,7 @@ import {
   runInitCommand,
   runMigrationCommand,
   runNewTaskCommand,
+  runRuntimeEventCommand,
   runTaskGatesCommand,
   runTaskLifecycleCommand,
   runTaskQueryCommand,
@@ -34,6 +35,7 @@ export interface CommandRunnerContext {
   readonly engine: CommandRunnerEngine;
   readonly currentSessionProbe: CurrentSessionProbePort;
   readonly provenanceSessionExporter: ProvenanceSessionExporter;
+  readonly runtimeEventLedgerService: RuntimeEventLedgerService;
   readonly makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
@@ -92,6 +94,7 @@ export const runnerRegistry = {
   "new-task": runNewTaskCommand,
   decision: runDecisionCommand,
   fact: runFactCommand,
+  "runtime-event": runRuntimeEventCommand,
   "task-lifecycle": runTaskLifecycleCommand,
   "task-gates": runTaskGatesCommand,
   "task-query": runTaskQueryCommand,
@@ -109,7 +112,8 @@ export function runRegisteredCommand(
   makeProvenanceSessionExporter: () => ProvenanceSessionExporter,
   makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator,
   makeDecisionWriteService: () => DecisionWriteService,
-  makeFactWriteService: () => FactWriteService
+  makeFactWriteService: () => FactWriteService,
+  makeRuntimeEventLedgerService: () => RuntimeEventLedgerService
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
@@ -130,6 +134,7 @@ export function runRegisteredCommand(
   let provenanceSessionExporter: ProvenanceSessionExporter | undefined;
   let decisionWriteService: DecisionWriteService | undefined;
   let factWriteService: FactWriteService | undefined;
+  let runtimeEventLedgerService: RuntimeEventLedgerService | undefined;
   return runner({
     rootDir: command.rootDir,
     layoutInput,
@@ -154,6 +159,10 @@ export function runRegisteredCommand(
     get factWriteService() {
       factWriteService ??= makeFactWriteService();
       return factWriteService;
+    },
+    get runtimeEventLedgerService() {
+      runtimeEventLedgerService ??= makeRuntimeEventLedgerService();
+      return runtimeEventLedgerService;
     }
   }, command);
 }
@@ -179,6 +188,8 @@ const conflictMarkerPreflightByKind = {
   "decision-amend": true,
   "decision-retire": true,
   "record-fact": true,
+  "runtime-event-append": true,
+  "runtime-event-list": false,
   "template-list": false,
   "template-render": false,
   "task-list": true,

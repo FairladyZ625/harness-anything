@@ -71,6 +71,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "decision amend", argv: ["decision", "amend", "dec_TEST", "--title", "Updated"], kind: "decision-amend", fields: { decisionId: "dec_TEST", title: "Updated" } },
   { name: "decision retire", argv: ["decision", "retire", "dec_TEST"], kind: "decision-retire", fields: { decisionId: "dec_TEST" } },
   { name: "record fact", argv: ["record", "fact", "--task", "task_1", "--id", "F-DEADBEEF", "--statement", "Fact", "--source", "Fixture", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory,task_skill", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "record-fact", fields: { taskId: "task_1", factId: "F-DEADBEEF", statement: "Fact", source: "Fixture", confidence: "high", memoryClass: "procedural", memoryTags: ["tool_memory", "task_skill"], observedAt: "2026-07-03T00:00:00.000Z" } },
+  { name: "runtime event append", argv: ["runtime-event", "append", "--session", "codex-session-1", "--kind", "interrupt", "--runtime", "codex", "--task", "task_1", "--interrupt", "append", "--result", "succeeded", "--summary", "Guidance appended", "--total-tokens", "42"], kind: "runtime-event-append", fields: { sessionId: "codex-session-1", eventKind: "interrupt", runtime: "codex", taskId: "task_1", interrupt: "append", result: "succeeded", summary: "Guidance appended", totalTokens: 42 } },
+  { name: "runtime event list", argv: ["runtime-event", "list", "--session", "codex-session-1"], kind: "runtime-event-list", fields: { sessionId: "codex-session-1" } },
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
   {
     name: "task list filters",

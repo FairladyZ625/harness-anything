@@ -7,7 +7,7 @@ import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine, makeLocalWriteCoordinator } from "../../adapters/local/src/index.ts";
-import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter } from "../../application/src/index.ts";
+import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
 import { renderReceiptText, toCommandReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
@@ -60,6 +60,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     }),
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter()
+  }), () => makeRuntimeEventLedgerService({
+    rootInput: layoutInput
   })).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
