@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
+import type { CurrentSessionRef } from "../../../../kernel/src/index.ts";
 import type { TaskId, WriteError } from "../../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../../kernel/src/integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
@@ -27,7 +28,7 @@ interface ProvenanceBackfillReport {
   readonly schema: "provenance-backfill-report/v1";
   readonly mode: "dry-run" | "apply";
   readonly provenance: {
-    readonly runtime: "codex";
+    readonly runtime: CurrentSessionRef["runtime"];
     readonly sessionId: string;
     readonly boundAt: string;
   };
@@ -48,35 +49,39 @@ export function runMigrateProvenance(
   action: MigrateProvenanceAction
 ): Effect.Effect<CliResult, WriteError> {
   const boundAt = new Date().toISOString();
-  const provenance = syntheticProvenance(boundAt);
-  const scan = scanTaskIndexes(rootInput, provenance);
-  const report = (applied: number): ProvenanceBackfillReport => ({
-    schema: "provenance-backfill-report/v1",
-    mode: action.mode,
-    provenance,
-    summary: {
-      scanned: scan.scanned,
-      needsBackfill: scan.entries.length,
-      alreadyPresent: scan.alreadyPresent,
-      skipped: scan.skipped.length,
-      applied
-    },
-    entries: scan.entries.map((entry) => ({ taskId: entry.taskId, path: entry.path })),
-    skipped: scan.skipped
-  });
+  return context.currentSessionProbe.currentSession.pipe(
+    Effect.flatMap((session) => {
+      const provenance = syntheticProvenance(boundAt, session);
+      const scan = scanTaskIndexes(rootInput, provenance);
+      const report = (applied: number): ProvenanceBackfillReport => ({
+        schema: "provenance-backfill-report/v1",
+        mode: action.mode,
+        provenance,
+        summary: {
+          scanned: scan.scanned,
+          needsBackfill: scan.entries.length,
+          alreadyPresent: scan.alreadyPresent,
+          skipped: scan.skipped.length,
+          applied
+        },
+        entries: scan.entries.map((entry) => ({ taskId: entry.taskId, path: entry.path })),
+        skipped: scan.skipped
+      });
 
-  if (action.mode === "dry-run" || scan.entries.length === 0) {
-    return Effect.succeed(result(action, report(0)));
-  }
+      if (action.mode === "dry-run" || scan.entries.length === 0) {
+        return Effect.succeed(result(action, report(0)));
+      }
 
-  const coordinator = context.makeWriteCoordinator({ kind: "agent", id: "provenance-backfill" });
-  return writeCoordinatedTaskDocuments(coordinator, stablePayloadHash, scan.entries.map((entry) => ({
-    taskId: entry.taskId,
-    path: "INDEX.md",
-    body: entry.body,
-    kind: "doc_write"
-  }))).pipe(
-    Effect.map(() => result(action, report(scan.entries.length)))
+      const coordinator = context.makeWriteCoordinator({ kind: "agent", id: "provenance-backfill" });
+      return writeCoordinatedTaskDocuments(coordinator, stablePayloadHash, scan.entries.map((entry) => ({
+        taskId: entry.taskId,
+        path: "INDEX.md",
+        body: entry.body,
+        kind: "doc_write"
+      }))).pipe(
+        Effect.map(() => result(action, report(scan.entries.length)))
+      );
+    })
   );
 }
 
@@ -185,10 +190,15 @@ function rebuildFrontmatter(body: string, originalBlock: string, lines: Readonly
   return body.replace(originalBlock, `---\n${lines.join("\n")}\n---\n`);
 }
 
-function syntheticProvenance(boundAt: string): ProvenanceBackfillReport["provenance"] {
+function syntheticProvenance(boundAt: string, session: CurrentSessionRef): ProvenanceBackfillReport["provenance"] {
+  const collisionSuffix = stablePayloadHash({
+    runtime: session.runtime,
+    sessionId: session.sessionId,
+    boundAt
+  }).slice(0, 8);
   const provenance = {
-    runtime: "codex",
-    sessionId: `codex-provenance-backfill-${Date.parse(boundAt)}`,
+    runtime: session.runtime,
+    sessionId: `${session.runtime}-provenance-backfill-${Date.parse(boundAt)}-${collisionSuffix}`,
     boundAt
   } as const;
   Schema.decodeUnknownSync(ProvenanceEntrySchema)(provenance);

@@ -391,6 +391,7 @@ test("CLI migrate aliases now emit Legacy Intake semantics and retire full cutov
 
 test("CLI migrate-provenance backfills pre-R2 task indexes through the write journal", () => {
   withTempRoot((rootDir) => {
+    const probeEnv = { CLAUDE_SESSION_ID: "claude-review-session-12345" };
     writeCurrentTaskPackage(rootDir, "task-pre-r2", "Pre R2 Task", "planned", { provenance: false });
     writeCurrentTaskPackage(rootDir, "task-with-provenance", "Existing Provenance", "planned", { provenance: true });
     const existingBefore = readFileSync(path.join(rootDir, "harness/tasks/task-with-provenance/INDEX.md"), "utf8");
@@ -399,24 +400,27 @@ test("CLI migrate-provenance backfills pre-R2 task indexes through the write jou
     assert.equal(locked.ok, false);
     assert.equal(locked.error.code, "malformed_snapshot");
 
-    const dryRun = runJson(rootDir, ["migrate-provenance"]);
+    const dryRun = runJson(rootDir, ["migrate-provenance"], true, probeEnv);
     assert.equal(dryRun.command, "migrate-provenance");
     assert.equal(dryRun.migrationMode, "plan");
     assert.equal(dryRun.rows, 1);
+    assert.equal(dryRun.report.provenance.runtime, "claude-code");
+    assert.match(dryRun.report.provenance.sessionId, /^claude-code-provenance-backfill-\d+-[a-f0-9]{8}$/u);
     assert.equal(dryRun.report.summary.needsBackfill, 1);
     assert.equal(dryRun.report.summary.applied, 0);
     assert.equal(dryRun.report.entries[0].taskId, "task-pre-r2");
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
 
-    const applied = runJson(rootDir, ["migrate-provenance", "--apply"]);
+    const applied = runJson(rootDir, ["migrate-provenance", "--apply"], true, probeEnv);
     assert.equal(applied.migrationMode, "apply");
+    assert.equal(applied.report.provenance.runtime, "claude-code");
     assert.equal(applied.report.summary.needsBackfill, 1);
     assert.equal(applied.report.summary.applied, 1);
 
     const backfilled = readFileSync(path.join(rootDir, "harness/tasks/task-pre-r2/INDEX.md"), "utf8");
     assert.match(backfilled, /^provenance:$/m);
-    assert.match(backfilled, /runtime: "codex"/);
-    assert.match(backfilled, /sessionId: "codex-provenance-backfill-/);
+    assert.match(backfilled, /runtime: "claude-code"/);
+    assert.match(backfilled, /sessionId: "claude-code-provenance-backfill-\d+-[a-f0-9]{8}"/);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
 
     const status = runJson(rootDir, ["task", "status", "set", "task-pre-r2", "active"]);
@@ -425,7 +429,7 @@ test("CLI migrate-provenance backfills pre-R2 task indexes through the write jou
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-with-provenance/INDEX.md"), "utf8"), existingBefore);
 
     const beforeRepeat = readFileSync(path.join(rootDir, "harness/tasks/task-pre-r2/INDEX.md"), "utf8");
-    const repeat = runJson(rootDir, ["migrate-provenance", "--apply"]);
+    const repeat = runJson(rootDir, ["migrate-provenance", "--apply"], true, probeEnv);
     assert.equal(repeat.report.summary.needsBackfill, 0);
     assert.equal(repeat.report.summary.applied, 0);
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-pre-r2/INDEX.md"), "utf8"), beforeRepeat);
@@ -502,10 +506,18 @@ function writeCurrentTaskPackage(
   ].join("\n"), "utf8");
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function runJson(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  expectSuccess = true,
+  env: Readonly<Record<string, string | undefined>> = {}
+): Record<string, any> {
   const command = [cliEntry, ...args, "--root", rootDir, "--json"];
   try {
-    const output = execFileSync(process.execPath, command, { encoding: "utf8" });
+    const output = execFileSync(process.execPath, command, {
+      encoding: "utf8",
+      env: { ...process.env, ...env }
+    });
     const parsed = JSON.parse(output);
     if (expectSuccess) assert.equal(parsed.ok, true, output);
     return unwrapCommandReceipt(parsed);
