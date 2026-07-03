@@ -82,6 +82,7 @@ export const testTierManifest = {
     "packages/cli/test/init-cli.test.ts",
     "packages/cli/test/local-lifecycle-cli.test.ts",
     "packages/cli/test/migration-adopt-cli.test.ts",
+    "packages/cli/test/new-task-cli.test.ts",
     "packages/cli/test/p16-command-parity-cli.test.ts",
     "packages/cli/test/post-merge-check-cli.test.ts",
     "packages/cli/test/preset-module-cli.test.ts",

@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts";
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
+import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
 import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
@@ -22,7 +23,8 @@ export function shouldUsePresetAwareNewTask(action: NewTaskAction): boolean {
 export function runNewTaskWithPreset(
   rootInput: HarnessLayoutInput,
   action: NewTaskAction,
-  settings?: ProjectHarnessSettings
+  settings?: ProjectHarnessSettings,
+  provenanceOptions: ProvenanceBindingOptions = {}
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const rootDir = resolveHarnessLayout(rootInput).rootDir;
@@ -103,6 +105,37 @@ export function runNewTaskWithPreset(
     }
 
     const createdAt = new Date().toISOString();
+    const generated = [
+      "INDEX.md",
+      ...materialized.documents.map((document) => document.materializeAs),
+      ...(module ? ["module.md"] : [])
+    ];
+    if (action.dryRun) {
+      return {
+        ok: true,
+        command: "new-task",
+        taskId,
+        slug: action.slug,
+        status: "planned",
+        packagePath: path.relative(rootDir, createTaskPackagePath(rootInput, taskId, action.slug)).split(path.sep).join("/"),
+        preset: publicPresetSummary(preset),
+        module: module ? { key: module.key, title: module.title } : undefined,
+        generated,
+        report: {
+          schema: "preset-task-create-report/v1",
+          dryRun: true,
+          vertical,
+          preset: preset.manifest.id,
+          profile: materialized.profile.id,
+          module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
+          longRunning: action.longRunning,
+          templateCount: materialized.documents.length
+        }
+      } satisfies CliResult;
+    }
+    const provenance = yield* bindCreateProvenance(provenanceOptions, createdAt).pipe(
+      Effect.mapError((error) => ({ _tag: "WriteRejected", taskId, reason: error.reason } satisfies WriteError))
+    );
     const index = makeIndex({
       taskId,
       title: action.title,
@@ -111,6 +144,11 @@ export function runNewTaskWithPreset(
       vertical,
       preset: preset.manifest.id,
       profile: materialized.profile.id,
+      provenance: provenance ? [provenance] : [{
+        runtime: "human",
+        sessionId: `human-cli-${Date.parse(createdAt)}`,
+        boundAt: createdAt
+      }],
       createdBy: resolveTaskCreatedBy(rootDir)
     }, stablePayloadHash);
     const writes = [
@@ -128,29 +166,6 @@ export function runNewTaskWithPreset(
         packageSlug: action.slug
       }] : [])
     ];
-    if (action.dryRun) {
-      return {
-        ok: true,
-        command: "new-task",
-        taskId,
-        slug: action.slug,
-        status: "planned",
-        packagePath: path.relative(rootDir, createTaskPackagePath(rootInput, taskId, action.slug)).split(path.sep).join("/"),
-        preset: publicPresetSummary(preset),
-        module: module ? { key: module.key, title: module.title } : undefined,
-        generated: writes.map((write) => write.path),
-        report: {
-          schema: "preset-task-create-report/v1",
-          dryRun: true,
-          vertical,
-          preset: preset.manifest.id,
-          profile: materialized.profile.id,
-          module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
-          longRunning: action.longRunning,
-          templateCount: materialized.documents.length
-        }
-      } satisfies CliResult;
-    }
     const coordinator = makeLocalWriteCoordinator({
       rootDir,
       layoutOverrides: layoutOverridesFromInput(rootInput),

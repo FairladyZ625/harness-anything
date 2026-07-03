@@ -83,6 +83,8 @@ function writeIndex(rootDir: string, directoryName: string, title: string, statu
     "packageDisposition: active",
     "vertical: default",
     "preset: default",
+    "provenance:",
+    "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}",
     "---",
     "",
     `# ${title}`,

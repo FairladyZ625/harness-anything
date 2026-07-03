@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { DecisionWriteService, FactWriteService } from "../../../application/src/index.ts";
+import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter } from "../../../application/src/index.ts";
 import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
@@ -32,6 +32,7 @@ export interface CommandRunnerContext {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly engine: CommandRunnerEngine;
   readonly currentSessionProbe: CurrentSessionProbePort;
+  readonly provenanceSessionExporter: ProvenanceSessionExporter;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
 }
@@ -103,6 +104,7 @@ export function runRegisteredCommand(
   command: ParsedCommand,
   makeEngine: () => CommandRunnerEngine,
   makeCurrentSessionProbe: () => CurrentSessionProbePort,
+  makeProvenanceSessionExporter: () => ProvenanceSessionExporter,
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService
 ): CommandRunnerEffect {
@@ -122,6 +124,7 @@ export function runRegisteredCommand(
   }
   let engine: CommandRunnerEngine | undefined;
   let currentSessionProbe: CurrentSessionProbePort | undefined;
+  let provenanceSessionExporter: ProvenanceSessionExporter | undefined;
   let decisionWriteService: DecisionWriteService | undefined;
   let factWriteService: FactWriteService | undefined;
   return runner({
@@ -135,6 +138,10 @@ export function runRegisteredCommand(
     get currentSessionProbe() {
       currentSessionProbe ??= makeCurrentSessionProbe();
       return currentSessionProbe;
+    },
+    get provenanceSessionExporter() {
+      provenanceSessionExporter ??= makeProvenanceSessionExporter();
+      return provenanceSessionExporter;
     },
     get decisionWriteService() {
       decisionWriteService ??= makeDecisionWriteService();

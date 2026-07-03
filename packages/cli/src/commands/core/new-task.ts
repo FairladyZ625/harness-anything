@@ -14,7 +14,10 @@ export const runNewTaskCommand: CommandRunner = (context, command) => {
   const settingsResult = readProjectHarnessSettings(context.layoutInput, "new-task");
   if (!settingsResult.ok) return Effect.succeed(settingsResult.result);
   if (shouldUsePresetAwareNewTask(action) || shouldUseSettingsPresetAwareNewTask(settingsResult.settings)) {
-    return runNewTaskWithPreset(context.layoutInput, action, settingsResult.settings);
+    return runNewTaskWithPreset(context.layoutInput, action, settingsResult.settings, {
+      currentSessionProbe: context.currentSessionProbe,
+      provenanceSessionExporter: context.provenanceSessionExporter
+    });
   }
 
   const taskId = action.taskId ?? generateTaskId();

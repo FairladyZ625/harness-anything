@@ -1,0 +1,106 @@
+import assert from "node:assert/strict";
+import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+const cliEntry = path.resolve("packages/cli/src/index.ts");
+const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
+const noAgentRuntimeEnv = {
+  CLAUDE_SESSION_ID: "",
+  CLAUDE_CODE_SESSION_ID: "",
+  CODEX_SESSION_ID: "",
+  ZCODE_SESSION_ID: "",
+  ANTIGRAVITY_SESSION_ID: ""
+};
+
+test("CLI init dogfoods coding vertical defaults for new tasks", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+
+    const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"], true, noAgentRuntimeEnv);
+    const taskId = assertGeneratedTaskId(result.taskId);
+    const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-dogfood-task/INDEX.md`), "utf8");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.vertical, "software/coding");
+    assert.equal(result.report.preset, "standard-task");
+    assert.equal(result.report.profile, "baseline");
+    assert.equal(result.generated.includes("task_plan.md"), true);
+    assert.match(index, /vertical: software\/coding/);
+    assert.match(index, /preset: standard-task/);
+    assert.match(index, /profile: baseline/);
+    assertHumanProvenance(rootDir, index);
+  });
+});
+
+test("CLI creates a local task with generated identity, provenance, and stable JSON output", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["new-task", "--title", "Task One"], true, noAgentRuntimeEnv);
+    const taskId = assertGeneratedTaskId(result.taskId);
+    const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "new-task");
+    assert.equal(result.slug, "task-one");
+    assert.equal(result.status, "planned");
+    assert.equal(result.packagePath, `harness/tasks/${taskId}-task-one`);
+    assert.equal(result.paths.package, result.packagePath);
+    assert.match(index, /engine: local/);
+    assertHumanProvenance(rootDir, index);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
+    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command=new-task task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path summary=/u);
+  });
+});
+
+function assertHumanProvenance(rootDir: string, index: string): void {
+  assert.match(index, /provenance:\n  - \{runtime: "human", sessionId: "human-cli-\d+", boundAt: "\d{4}-\d{2}-\d{2}T/u);
+  const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(index)?.[1];
+  assert.ok(sessionId);
+  assert.match(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8"), new RegExp(`sessionId: ${sessionId}`, "u"));
+}
+
+function assertGeneratedTaskId(value: unknown): string {
+  assert.equal(typeof value, "string");
+  assert.match(value, taskIdPattern);
+  return value;
+}
+
+function withTempRoot<T>(fn: (rootDir: string) => T): T {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-"));
+  try {
+    return fn(rootDir);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, any> {
+  try {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+      encoding: "utf8",
+      env: { ...process.env, ...env }
+    });
+    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+  } catch (error) {
+    if (expectSuccess) throw error;
+    const failure = error as { readonly stdout?: string };
+    return JSON.parse(failure.stdout ?? "{}") as Record<string, any>;
+  }
+}
+
+function runText(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): string {
+  try {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    return stdout;
+  } catch (error) {
+    if (expectSuccess) throw error;
+    const failure = error as { readonly stderr?: string };
+    return failure.stderr ?? "";
+  }
+}

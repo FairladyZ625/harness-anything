@@ -1,11 +1,10 @@
 import { Schema } from "effect";
 import { decisionStates } from "../domain/decision-lifecycle-status.ts";
-import { ActorRefSchema } from "./common.ts";
+import { ActorRefSchema, NonBlankStringSchema, ProvenanceEntrySchema } from "./common.ts";
 import { EntityRelationRecordSchema } from "./entity-relations.ts";
 
 const StringArray = Schema.Array(Schema.String);
 const OptionalString = Schema.optional(Schema.String);
-const NonBlankStringSchema = Schema.String.pipe(Schema.pattern(/\S/u));
 const DecisionIdSchema = Schema.String.pipe(Schema.pattern(/^dec_[A-Za-z0-9_-]+$/u));
 const AnchorIdSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z][A-Za-z0-9_-]*$/u));
 const DecisionRiskTierSchema = Schema.Literal("low", "medium", "high");
@@ -14,12 +13,6 @@ const DecisionUrgencySchema = Schema.Literal("low", "medium", "high");
 export const DecisionStateSchema = Schema.Literal(
   ...decisionStates
 );
-
-const ProvenanceEntrySchema = Schema.Struct({
-  runtime: NonBlankStringSchema,
-  sessionId: NonBlankStringSchema,
-  boundAt: NonBlankStringSchema
-});
 
 const DecisionAnchorSchema = Schema.Struct({
   id: AnchorIdSchema,

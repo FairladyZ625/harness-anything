@@ -62,11 +62,11 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
   const clock = options.clock ?? (() => new Date());
 
   return {
-    createTask: (input) => createTask(runtimeContext, coordinator, clock, input),
+    createTask: (input) => createTask(runtimeContext, coordinator, clock, input, options.bindCreateProvenance),
     setStatus: (input) => setStatus(runtimeContext, coordinator, input),
     appendProgress: (input) => appendProgress(runtimeContext, coordinator, input),
     archiveTask: (input) => archiveTask(runtimeContext, coordinator, input),
-    supersedeTask: (input) => supersedeTask(runtimeContext, coordinator, clock, input),
+    supersedeTask: (input) => supersedeTask(runtimeContext, coordinator, clock, input, options.bindCreateProvenance),
     deleteTask: (input) => deleteTask(runtimeContext, coordinator, input),
     reopenTask: (input) => reopenTask(runtimeContext, coordinator, input)
   };
@@ -76,7 +76,8 @@ function createTask(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   clock: () => Date,
-  input: CreateLocalTaskInput
+  input: CreateLocalTaskInput,
+  bindProvenance: LocalLifecycleOptions["bindCreateProvenance"] = defaultCreateProvenance
 ): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const rootDir = harnessRuntimeRoot(rootInput);
@@ -89,13 +90,18 @@ function createTask(
     if (existsSync(indexPath(rootInput, input.taskId))) {
       return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId: input.taskId } satisfies EngineError);
     }
+    const createdAt = clock().toISOString();
+    const provenance = yield* bindProvenance(createdAt).pipe(
+      Effect.mapError((error) => ({ _tag: "WriteRejected", taskId: input.taskId, reason: error.reason } satisfies WriteError))
+    );
     const index = makeIndex({
       taskId: input.taskId,
       title: input.title,
       status: "planned",
-      bindingCreatedAt: clock().toISOString(),
+      bindingCreatedAt: createdAt,
       vertical: input.vertical ?? "default",
       preset: input.preset ?? "default",
+      provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)],
       createdBy: resolveTaskCreatedBy(rootDir, input.createdBy)
     }, stablePayloadHash);
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex(index), {
@@ -104,6 +110,18 @@ function createTask(
     });
     return { taskId: input.taskId, status: "planned", engine: "local" } satisfies LocalTaskResult;
   });
+}
+
+function defaultCreateProvenance(boundAt: string) {
+  return Effect.succeed(defaultHumanProvenance(boundAt));
+}
+
+function defaultHumanProvenance(boundAt: string) {
+  return {
+    runtime: "human" as const,
+    sessionId: `human-cli-${Date.parse(boundAt)}`,
+    boundAt
+  };
 }
 
 function setStatus(
@@ -164,7 +182,8 @@ function supersedeTask(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
   clock: () => Date,
-  input: SupersedeTaskInput
+  input: SupersedeTaskInput,
+  bindProvenance: LocalLifecycleOptions["bindCreateProvenance"] = defaultCreateProvenance
 ): Effect.Effect<LocalSupersedeResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const rootDir = harnessRuntimeRoot(rootInput);
@@ -174,13 +193,18 @@ function supersedeTask(
       return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId: input.newTaskId } satisfies EngineError);
     }
     const oldIndex = yield* readIndexEffect(rootInput, input.oldTaskId);
+    const createdAt = clock().toISOString();
+    const provenance = yield* bindProvenance(createdAt).pipe(
+      Effect.mapError((error) => ({ _tag: "WriteRejected", taskId: input.newTaskId, reason: error.reason } satisfies WriteError))
+    );
     const newIndex = makeIndex({
       taskId: input.newTaskId,
       title: input.title,
       status: "planned",
-      bindingCreatedAt: clock().toISOString(),
+      bindingCreatedAt: createdAt,
       vertical: oldIndex.vertical,
       preset: oldIndex.preset,
+      provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)],
       profile: oldIndex.profile,
       createdBy: resolveTaskCreatedBy(rootDir)
     }, stablePayloadHash);

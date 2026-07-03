@@ -60,6 +60,11 @@ export function runNewTaskFromLegacy(
         bindingCreatedAt: createdAt,
         vertical: "default",
         preset: "default",
+        provenance: [{
+          runtime: "human",
+          sessionId: `human-cli-${Date.parse(createdAt)}`,
+          boundAt: createdAt
+        }],
         createdBy: resolveTaskCreatedBy(rootDir)
       }, hashPayload);
       const packagePath = createTaskPackagePath(rootInput, taskId, slug);

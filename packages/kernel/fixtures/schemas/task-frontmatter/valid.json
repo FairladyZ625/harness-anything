@@ -15,6 +15,13 @@
   "packageDisposition": "active",
   "vertical": "software/coding",
   "preset": "standard-task",
+  "provenance": [
+    {
+      "runtime": "human",
+      "sessionId": "human-cli-1783036800000",
+      "boundAt": "2026-06-11T00:00:00.000Z"
+    }
+  ],
   "profile": "baseline",
   "createdBy": {
     "name": "Harness User",

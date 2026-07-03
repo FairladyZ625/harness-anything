@@ -98,7 +98,15 @@
       "additionalProperties": false,
       "required": ["runtime", "sessionId", "boundAt"],
       "properties": {
-        "runtime": { "$ref": "#/$defs/nonBlankString" },
+        "runtime": {
+          "enum": [
+            "human",
+            "claude-code",
+            "codex",
+            "zcode",
+            "antigravity"
+          ]
+        },
         "sessionId": { "$ref": "#/$defs/nonBlankString" },
         "boundAt": { "$ref": "#/$defs/nonBlankString" }
       }

@@ -20,6 +20,19 @@ test("task frontmatter schema decodes and encodes the valid fixture", async () =
   assert.deepEqual(encoded, fixture);
 });
 
+test("task frontmatter schema requires provenance with a known runtime", async () => {
+  const fixture = await readJson(validFixtureUrl) as Record<string, unknown>;
+
+  assert.throws(() => Schema.decodeUnknownSync(TaskFrontmatterSchema)({
+    ...fixture,
+    provenance: []
+  }));
+  assert.throws(() => Schema.decodeUnknownSync(TaskFrontmatterSchema)({
+    ...fixture,
+    provenance: [{ runtime: "shell", sessionId: "human-cli-1783036800000", boundAt: "2026-06-11T00:00:00.000Z" }]
+  }));
+});
+
 test("decision package schema decodes and encodes the valid fixture", async () => {
   const fixture = await readJson(validDecisionFixtureUrl);
   const decoded = Schema.decodeUnknownSync(DecisionPackageSchema)(fixture);
@@ -53,6 +66,10 @@ test("decision package schema rejects contract-critical invalid fixtures", async
   assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
     ...base,
     provenance: [{ runtime: "claude-code", sessionId: "session-without-bound-at" }]
+  }));
+  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
+    ...base,
+    provenance: [{ runtime: "shell", sessionId: "session", boundAt: "2026-07-03T00:00:00.000Z" }]
   }));
 });
 

@@ -1,7 +1,7 @@
 import type { Effect } from "effect";
 import type { DomainStatus, EngineError, PackageDisposition, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
-import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
+import type { ProvenancePayload, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import type { TaskCreatedBy } from "./created-by.ts";
 
 export interface LocalJournalActor {
@@ -14,6 +14,11 @@ export interface LocalLifecycleOptions {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly coordinator?: WriteCoordinator;
   readonly clock?: () => Date;
+  readonly bindCreateProvenance?: (boundAt: string) => Effect.Effect<ProvenancePayload | undefined, CreateProvenanceRejected>;
+}
+
+export interface CreateProvenanceRejected {
+  readonly reason: string;
 }
 
 export interface LocalWriteCoordinatorOptions {
@@ -108,6 +113,7 @@ export interface LocalTaskIndex {
   readonly packageDisposition: "active" | "archived" | "tombstoned";
   readonly vertical: string;
   readonly preset: string;
+  readonly provenance: ReadonlyArray<ProvenancePayload>;
   readonly profile?: string;
   readonly createdBy?: TaskCreatedBy;
 }

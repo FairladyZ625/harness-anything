@@ -27,42 +27,6 @@ test("CLI init creates shared authored harness and ignored local state root", ()
   });
 });
 
-test("CLI init dogfoods coding vertical defaults for new tasks", () => {
-  withTempRoot((rootDir) => {
-    runJson(rootDir, ["init"]);
-
-    const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"]);
-    const taskId = assertGeneratedTaskId(result.taskId);
-    const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-dogfood-task/INDEX.md`), "utf8");
-
-    assert.equal(result.ok, true);
-    assert.equal(result.report.vertical, "software/coding");
-    assert.equal(result.report.preset, "standard-task");
-    assert.equal(result.report.profile, "baseline");
-    assert.equal(result.generated.includes("task_plan.md"), true);
-    assert.match(index, /vertical: software\/coding/);
-    assert.match(index, /preset: standard-task/);
-    assert.match(index, /profile: baseline/);
-  });
-});
-
-test("CLI creates a local task with generated identity and stable JSON output", () => {
-  withTempRoot((rootDir) => {
-    const result = runJson(rootDir, ["new-task", "--title", "Task One"]);
-    const taskId = assertGeneratedTaskId(result.taskId);
-
-    assert.equal(result.ok, true);
-    assert.equal(result.command, "new-task");
-    assert.equal(result.slug, "task-one");
-    assert.equal(result.status, "planned");
-    assert.equal(result.packagePath, `harness/tasks/${taskId}-task-one`);
-    assert.equal(result.paths.package, result.packagePath);
-    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`), "utf8"), /engine: local/);
-    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
-    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command=new-task task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path summary=/u);
-  });
-});
-
 test("CLI refuses untitled new tasks before creating task files", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["new-task"], false);
@@ -631,6 +595,8 @@ function writeIndex(
     `packageDisposition: ${options.packageDisposition ?? "active"}`,
     "vertical: default",
     "preset: default",
+    "provenance:",
+    `  - {runtime: "human", sessionId: "human-cli-${Date.parse(bindingCreatedAt)}", boundAt: "${bindingCreatedAt}"}`,
     "---",
     "",
     `# ${title}`,

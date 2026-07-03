@@ -48,7 +48,12 @@ test("task frontmatter schema accepts every domain package disposition", () => {
       },
       packageDisposition: disposition,
       vertical: "software/coding",
-      preset: "standard-task"
+      preset: "standard-task",
+      provenance: [{
+        runtime: "human",
+        sessionId: "human-cli-1783036800000",
+        boundAt: "2026-06-11T00:00:00.000Z"
+      }]
     });
 
     assert.equal(decoded.packageDisposition, disposition);

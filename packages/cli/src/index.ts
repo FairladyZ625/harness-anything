@@ -7,7 +7,7 @@ import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine, makeLocalWriteCoordinator } from "../../adapters/local/src/index.ts";
-import { makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter } from "../../application/src/index.ts";
+import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter } from "../../application/src/index.ts";
 import { renderReceiptText, toCommandReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
@@ -34,8 +34,12 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
 
   const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
     rootDir: parsed.value.rootDir,
-    layoutOverrides: parsed.value.layoutOverrides
-  }), getCurrentSessionProbe, () => makeDecisionWriteService({
+    layoutOverrides: parsed.value.layoutOverrides,
+    bindCreateProvenance: (boundAt) => bindCreateProvenance({
+      currentSessionProbe: getCurrentSessionProbe(),
+      provenanceSessionExporter: makeSessionExporter()
+    }, boundAt)
+  }), getCurrentSessionProbe, makeSessionExporter, () => makeDecisionWriteService({
     coordinator: makeLocalWriteCoordinator({
       rootDir: parsed.value.rootDir,
       layoutOverrides: parsed.value.layoutOverrides,

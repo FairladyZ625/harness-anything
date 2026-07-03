@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect";
 import type { DomainStatus, EntityId, WriteError } from "../domain/index.js";
+import type { CurrentSessionRuntime } from "./current-session-probe.js";
 
 export type TaskWriteOpKind =
   | "package_create"
@@ -26,7 +27,7 @@ export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind;
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 
 export interface ProvenancePayload {
-  readonly runtime: string;
+  readonly runtime: CurrentSessionRuntime;
   readonly sessionId: string;
   readonly boundAt: string;
 }

@@ -11,7 +11,8 @@
     "lifecycle",
     "packageDisposition",
     "vertical",
-    "preset"
+    "preset",
+    "provenance"
   ],
   "properties": {
     "schema": {
@@ -91,6 +92,13 @@
     "preset": {
       "type": "string"
     },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/provenanceEntry"
+      }
+    },
     "profile": {
       "type": "string"
     },
@@ -109,6 +117,38 @@
         }
       },
       "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "nonBlankString": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "provenanceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "sessionId",
+        "boundAt"
+      ],
+      "properties": {
+        "runtime": {
+          "enum": [
+            "human",
+            "claude-code",
+            "codex",
+            "zcode",
+            "antigravity"
+          ]
+        },
+        "sessionId": {
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "boundAt": {
+          "$ref": "#/$defs/nonBlankString"
+        }
+      }
     }
   }
 }

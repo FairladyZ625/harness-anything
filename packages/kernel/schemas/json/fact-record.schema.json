@@ -63,7 +63,13 @@
       ],
       "properties": {
         "runtime": {
-          "$ref": "#/$defs/nonBlankString"
+          "enum": [
+            "human",
+            "claude-code",
+            "codex",
+            "zcode",
+            "antigravity"
+          ]
         },
         "sessionId": {
           "$ref": "#/$defs/nonBlankString"

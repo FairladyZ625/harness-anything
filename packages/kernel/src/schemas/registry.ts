@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
-import { ActorRefSchema, LinkKindSchema } from "./common.ts";
+import { ActorRefSchema, LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
 import { FactRecordSchema } from "./fact-record.ts";
@@ -113,6 +113,7 @@ export const TaskFrontmatterSchema = Schema.Struct({
   packageDisposition: Schema.Literal(...packageDispositions),
   vertical: Schema.String,
   preset: Schema.String,
+  provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1)),
   profile: Schema.optional(Schema.String),
   createdBy: Schema.optional(CreatedBySchema)
 });

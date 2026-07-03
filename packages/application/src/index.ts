@@ -6,11 +6,13 @@ import { isDomainStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../kernel/src/layout/index.ts";
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
+export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
 export { readDecisionDocument } from "./decision-document-reader.ts";
 export type { EnvironmentCurrentSessionProbeOptions, HumanFallbackSessionProbeOptions, RuntimeSessionEnvCandidate } from "./current-session-probe.ts";
+export type { ProvenanceBindingOptions } from "./provenance-binding.ts";
 export type {
   DecisionDocumentReadResult
 } from "./decision-document-reader.ts";
