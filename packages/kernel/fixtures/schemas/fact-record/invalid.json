@@ -1,10 +1,16 @@
 {
   "schema": "fact-record/v1",
-  "fact_id": "F-12",
-  "statement": "",
+  "fact_id": "F-DEADBEEF",
+  "statement": "A fact record without memoryClass must fail decode.",
   "source": "fixture",
   "observedAt": "2026-07-03T00:00:00.000Z",
-  "confidence": "unknown",
-  "memoryClass": "unknown",
-  "memoryTags": ["not_a_tag"]
+  "confidence": "high",
+  "memoryTags": ["pattern"],
+  "provenance": [
+    {
+      "runtime": "human",
+      "sessionId": "human-cli-1783036800000",
+      "boundAt": "2026-07-03T00:00:00.000Z"
+    }
+  ]
 }

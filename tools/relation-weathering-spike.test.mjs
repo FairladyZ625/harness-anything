@@ -69,6 +69,34 @@ test("relation weathering spike reads the projection without mutating it", async
   }
 });
 
+test("relation weathering spike flags invalidated supporting facts without misreporting live facts", async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "relation-weathering-invalidated-"));
+  try {
+    const projectionPath = path.join(rootDir, "projection.sqlite");
+    writeInvalidatedProjectionFixture(projectionPath);
+
+    const report = generateRelationWeatheringReport({ rootDir, projectionPath });
+    const staleByClaim = new Map(report.staleCandidates.map((candidate) => [candidate.claimRef, candidate]));
+
+    assert.deepEqual(staleByClaim.get("decision/D-2/c-invalidated")?.reasonCodes, [
+      "coverage_status_not_covered",
+      "covering_fact_invalidated"
+    ]);
+    assert.deepEqual(staleByClaim.get("decision/D-2/c-invalidated")?.invalidatedCoveringFactRefs, ["fact/T-2/F-OLD"]);
+    assert.equal(staleByClaim.has("decision/D-2/c-live"), false);
+    assert.deepEqual(report.aggregation.decisions, [
+      {
+        decisionRef: "decision/D-2",
+        coverageRowCount: 2,
+        statusCounts: { covered: 1, uncovered: 1 },
+        staleCandidateCount: 1
+      }
+    ]);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("relation weathering spike fails closed when the projection is absent", async () => {
   const rootDir = await mkdtemp(path.join(tmpdir(), "relation-weathering-missing-"));
   try {
@@ -81,77 +109,108 @@ test("relation weathering spike fails closed when the projection is absent", asy
   }
 });
 
-function writeProjectionFixture(projectionPath) {
+function writeInvalidatedProjectionFixture(projectionPath) {
   const db = new DatabaseSync(projectionPath);
   try {
-    db.exec([
-      [
-        "CREATE TABLE relation_edges (",
-        "  relation_id TEXT PRIMARY KEY,",
-        "  source_ref TEXT NOT NULL,",
-        "  target_ref TEXT NOT NULL,",
-        "  relation_type TEXT NOT NULL,",
-        "  direction TEXT NOT NULL,",
-        "  state TEXT NOT NULL,",
-        "  row_json TEXT NOT NULL",
-        ")"
-      ].join("\n"),
-      [
-        "CREATE TABLE relation_coverage (",
-        "  claim_ref TEXT PRIMARY KEY,",
-        "  decision_ref TEXT NOT NULL,",
-        "  status TEXT NOT NULL,",
-        "  covering_fact_ref TEXT,",
-        "  row_json TEXT NOT NULL",
-        ")"
-      ].join("\n")
-    ].join(";\n"));
-    const insertEdge = db.prepare([
-      "INSERT INTO relation_edges",
-      "(relation_id, source_ref, target_ref, relation_type, direction, state, row_json)",
-      "VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ].join(" "));
-    for (const row of [
-      edge("R-strong", "decision/D-1/c1", "fact/T-1/F-1", "strong"),
-      edge("R-weak", "decision/D-1/c2", "fact/T-1/F-2", "weak"),
-      edge("R-orphan-source", "decision/D-1/c-missing", "fact/T-1/F-1", "strong"),
-      edge("R-orphan-target", "decision/D-1/c1", "fact/T-1/F-missing", "strong")
-    ]) {
-      insertEdge.run(row.relationId, row.sourceRef, row.targetRef, row.relationType, "forward", row.state, JSON.stringify(row));
-    }
-    const insertCoverage = db.prepare([
-      "INSERT INTO relation_coverage",
-      "(claim_ref, decision_ref, status, covering_fact_ref, row_json)",
-      "VALUES (?, ?, ?, ?, ?)"
-    ].join(" "));
-    for (const row of [
-      coverage("decision/D-1/c1", "covered", "fact/T-1/F-1", ["R-strong"]),
-      coverage("decision/D-1/c2", "covered", "fact/T-1/F-2", ["R-weak"]),
-      coverage("decision/D-1/c3", "covered", "fact/T-1/F-3", ["R-missing"]),
-      coverage("decision/D-1/c4", "uncovered", undefined, [])
-    ]) {
-      insertCoverage.run(row.claimRef, row.decisionRef, row.status, row.coveringFactRef ?? null, JSON.stringify(row));
-    }
+    createProjectionTables(db);
+    insertProjectionRows(db, {
+      edges: [
+        edge("R-invalidated-support", "decision/D-2/c-invalidated", "fact/T-2/F-OLD", "strong"),
+        edge("R-invalidates", "fact/T-2/F-NEW", "fact/T-2/F-OLD", "strong", "invalidated-by"),
+        edge("R-live-support", "decision/D-2/c-live", "fact/T-2/F-LIVE", "strong")
+      ],
+      coverageRows: [
+        coverage("decision/D-2", "decision/D-2/c-invalidated", "uncovered", undefined, []),
+        coverage("decision/D-2", "decision/D-2/c-live", "covered", "fact/T-2/F-LIVE", ["R-live-support"])
+      ]
+    });
   } finally {
     db.close();
   }
 }
 
-function edge(relationId, sourceRef, targetRef, strength) {
+function writeProjectionFixture(projectionPath) {
+  const db = new DatabaseSync(projectionPath);
+  try {
+    createProjectionTables(db);
+    insertProjectionRows(db, {
+      edges: [
+        edge("R-strong", "decision/D-1/c1", "fact/T-1/F-1", "strong"),
+        edge("R-weak", "decision/D-1/c2", "fact/T-1/F-2", "weak"),
+        edge("R-orphan-source", "decision/D-1/c-missing", "fact/T-1/F-1", "strong"),
+        edge("R-orphan-target", "decision/D-1/c1", "fact/T-1/F-missing", "strong")
+      ],
+      coverageRows: [
+        coverage("decision/D-1", "decision/D-1/c1", "covered", "fact/T-1/F-1", ["R-strong"]),
+        coverage("decision/D-1", "decision/D-1/c2", "covered", "fact/T-1/F-2", ["R-weak"]),
+        coverage("decision/D-1", "decision/D-1/c3", "covered", "fact/T-1/F-3", ["R-missing"]),
+        coverage("decision/D-1", "decision/D-1/c4", "uncovered", undefined, [])
+      ]
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function createProjectionTables(db) {
+  db.exec([
+    [
+      "CREATE TABLE relation_edges (",
+      "  relation_id TEXT PRIMARY KEY,",
+      "  source_ref TEXT NOT NULL,",
+      "  target_ref TEXT NOT NULL,",
+      "  relation_type TEXT NOT NULL,",
+      "  direction TEXT NOT NULL,",
+      "  state TEXT NOT NULL,",
+      "  row_json TEXT NOT NULL",
+      ")"
+    ].join("\n"),
+    [
+      "CREATE TABLE relation_coverage (",
+      "  claim_ref TEXT PRIMARY KEY,",
+      "  decision_ref TEXT NOT NULL,",
+      "  status TEXT NOT NULL,",
+      "  covering_fact_ref TEXT,",
+      "  row_json TEXT NOT NULL",
+      ")"
+    ].join("\n")
+  ].join(";\n"));
+}
+
+function insertProjectionRows(db, { edges, coverageRows }) {
+  const insertEdge = db.prepare([
+    "INSERT INTO relation_edges",
+    "(relation_id, source_ref, target_ref, relation_type, direction, state, row_json)",
+    "VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ].join(" "));
+  for (const row of edges) {
+    insertEdge.run(row.relationId, row.sourceRef, row.targetRef, row.relationType, "forward", row.state, JSON.stringify(row));
+  }
+  const insertCoverage = db.prepare([
+    "INSERT INTO relation_coverage",
+    "(claim_ref, decision_ref, status, covering_fact_ref, row_json)",
+    "VALUES (?, ?, ?, ?, ?)"
+  ].join(" "));
+  for (const row of coverageRows) {
+    insertCoverage.run(row.claimRef, row.decisionRef, row.status, row.coveringFactRef ?? null, JSON.stringify(row));
+  }
+}
+
+function edge(relationId, sourceRef, targetRef, strength, relationType = "supports") {
   return {
     relationId,
     sourceRef,
     targetRef,
-    relationType: "supports",
+    relationType,
     direction: "forward",
     strength,
     state: "active"
   };
 }
 
-function coverage(claimRef, status, coveringFactRef, relationPath) {
+function coverage(decisionRef, claimRef, status, coveringFactRef, relationPath) {
   return {
-    decisionRef: "decision/D-1",
+    decisionRef,
     claimRef,
     status,
     coveringFactRef,

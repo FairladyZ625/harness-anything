@@ -15,8 +15,9 @@ export function generateRelationWeatheringReport(options = {}) {
 
   const { edges, coverageRows } = readRelationProjectionRows(projectionPath);
   const edgeById = new Map(edges.map((edge) => [edge.relationId, edge]));
+  const invalidatedFactRefs = collectInvalidatedFactRefs(edges);
   const statusCounts = countBy(coverageRows, (row) => row.status || "unknown");
-  const staleCandidates = buildStaleCandidates(coverageRows, edgeById);
+  const staleCandidates = buildStaleCandidates(coverageRows, edgeById, edges, invalidatedFactRefs);
   const relationGaps = buildRelationGaps(coverageRows, edges, edgeById);
 
   return {
@@ -81,12 +82,17 @@ function normalizeCoverageRow(row) {
   };
 }
 
-function buildStaleCandidates(coverageRows, edgeById) {
+function buildStaleCandidates(coverageRows, edgeById, edges, invalidatedFactRefs) {
   return coverageRows
     .map((row) => {
       const reasonCodes = [];
       if (row.status !== "covered") reasonCodes.push("coverage_status_not_covered");
-      if (!row.coveringFactRef) reasonCodes.push("missing_covering_fact");
+      const invalidatedCoveringFactRefs = findInvalidatedCoveringFactRefs(row, edges, invalidatedFactRefs);
+      if (invalidatedCoveringFactRefs.length > 0) {
+        reasonCodes.push("covering_fact_invalidated");
+      } else if (!row.coveringFactRef) {
+        reasonCodes.push("missing_covering_fact");
+      }
       if (row.status === "covered" && row.relationPath.length === 0) reasonCodes.push("empty_relation_path");
       const missingPathEdges = row.relationPath.filter((relationId) => !edgeById.has(relationId));
       if (missingPathEdges.length > 0) reasonCodes.push("missing_relation_path_edge");
@@ -102,11 +108,28 @@ function buildStaleCandidates(coverageRows, edgeById) {
         coveringFactRef: row.coveringFactRef,
         relationPath: row.relationPath,
         reasonCodes,
-        missingPathEdges
+        missingPathEdges,
+        ...(invalidatedCoveringFactRefs.length > 0 ? { invalidatedCoveringFactRefs } : {})
       };
     })
     .filter(Boolean)
     .sort(compareByClaimRef);
+}
+
+function collectInvalidatedFactRefs(edges) {
+  return new Set(
+    edges
+      .filter((edge) => edge.state === "active" && (edge.relationType === "invalidated-by" || edge.relationType === "supersedes-fact") && edge.targetRef.startsWith("fact/"))
+      .map((edge) => edge.targetRef)
+  );
+}
+
+function findInvalidatedCoveringFactRefs(row, edges, invalidatedFactRefs) {
+  if (row.coveringFactRef || invalidatedFactRefs.size === 0) return [];
+  return [...new Set(edges
+    .filter((edge) => edge.state === "active" && edge.sourceRef === row.claimRef && edge.targetRef.startsWith("fact/") && invalidatedFactRefs.has(edge.targetRef))
+    .map((edge) => edge.targetRef))]
+    .sort();
 }
 
 function buildRelationGaps(coverageRows, edges, edgeById) {
