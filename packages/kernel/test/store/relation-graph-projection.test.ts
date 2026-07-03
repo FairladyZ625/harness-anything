@@ -36,6 +36,36 @@ test("relation graph projection stores decision claim to live fact coverage in S
   });
 });
 
+test("legacy facts without memory fields stay visible to post-merge checks and coverage", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-legacy-facts", "Task Legacy Facts");
+    writeLegacyFacts(rootDir, "task-legacy-facts", [
+      "- {fact_id: F-DEADBEEF, statement: \"Legacy fact supports a decision.\", source: \"historical facts.md\", observedAt: \"2026-06-30T00:00:00.000Z\", confidence: high, provenance: [{runtime: \"human\", sessionId: \"legacy-session-1\", boundAt: \"2026-06-30T00:00:00.000Z\"}]}",
+      "- {fact_id: F-FEEDFACE, statement: \"Second legacy fact remains indexed.\", source: \"historical facts.md\", observedAt: \"2026-06-30T00:01:00.000Z\", confidence: medium, provenance: [{runtime: \"codex\", sessionId: \"legacy-session-2\", boundAt: \"2026-06-30T00:01:00.000Z\"}]}"
+    ]);
+    const relation = relationRecord({
+      source: "decision/dec_LEGACY_FACT/C1",
+      target: "fact/task-legacy-facts/F-DEADBEEF",
+      type: "supports"
+    });
+    writeDecision(rootDir, "dec_LEGACY_FACT", "wm-legacy-fact", [relation]);
+
+    const postMerge = checkTaskProjection({ rootDir, postMerge: true });
+    rebuildTaskProjection({ rootDir });
+    const coverage = readDecisionFactCoverage({ rootDir, decisionId: "dec_LEGACY_FACT" });
+
+    assert.equal(postMerge.ok, true);
+    assert.equal(postMerge.warnings.some((warning) => warning.code === "dangling_entity_ref"), false);
+    assert.deepEqual(coverage.rows, [{
+      decisionRef: "decision/dec_LEGACY_FACT",
+      claimRef: "decision/dec_LEGACY_FACT/C1",
+      status: "covered",
+      coveringFactRef: "fact/task-legacy-facts/F-DEADBEEF",
+      relationPath: [relation.relation_id]
+    }]);
+  });
+});
+
 test("relation graph projection resolves facts by task_id when task directory has a slug suffix", () => {
   withTempStore((rootDir) => {
     const taskId = "task-slugged";
@@ -370,6 +400,17 @@ function writeIndex(rootDir: string, taskDirName: string, title: string, taskId 
 }
 
 type FactFixture = Omit<FactRecord, "memoryClass" | "memoryTags" | "provenance"> & Partial<Pick<FactRecord, "memoryClass" | "memoryTags" | "provenance">>;
+
+function writeLegacyFacts(rootDir: string, taskId: string, factLines: ReadonlyArray<string>): void {
+  const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+  mkdirSync(taskRoot, { recursive: true });
+  writeFileSync(path.join(taskRoot, "facts.md"), [
+    "# Facts",
+    "",
+    ...factLines,
+    ""
+  ].join("\n"));
+}
 
 function writeFacts(rootDir: string, taskId: string, facts: ReadonlyArray<FactFixture>, relations: ReadonlyArray<EntityRelationRecord> = []): void {
   const taskRoot = path.join(rootDir, "harness/tasks", taskId);

@@ -58,11 +58,12 @@ function parseFactFlowRecord(line: string): FactRecord | null {
     const key = part.slice(0, separator).trim();
     values[key] = parseFlowScalar(part.slice(separator + 1).trim());
   }
-  if (!values.fact_id || !values.statement || !values.source || !values.observedAt || !values.confidence || !values.memoryClass || values.memoryTags === undefined || !values.provenance) return null;
+  if (!values.fact_id || !values.statement || !values.source || !values.observedAt || !values.confidence || !values.provenance) return null;
   if (!isFactId(values.fact_id)) return null;
   if (!isConfidence(values.confidence)) return null;
-  if (!isMemoryClass(values.memoryClass)) return null;
-  const memoryTags = parseFactMemoryTags(values.memoryTags);
+  const memoryClass = values.memoryClass ?? "episodic";
+  if (!isMemoryClass(memoryClass)) return null;
+  const memoryTags = values.memoryTags === undefined ? [] : parseFactMemoryTags(values.memoryTags);
   if (memoryTags === null) return null;
   const provenance = parseFactProvenanceArray(values.provenance);
   if (provenance.length === 0) return null;
@@ -72,7 +73,7 @@ function parseFactFlowRecord(line: string): FactRecord | null {
     source: values.source,
     observedAt: values.observedAt,
     confidence: values.confidence,
-    memoryClass: values.memoryClass,
+    memoryClass,
     memoryTags,
     provenance
   };
