@@ -83,6 +83,23 @@ test("CLI check --post-merge visibly fails hand-written decision watermarks", ()
   });
 });
 
+test("CLI check --post-merge hard-fails a relation to a missing decision", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-a", "A", "planned", {
+      relations: [relationRecord("task/task-a", "decision/dec_MISSING/C1")]
+    });
+
+    const result = runJson(rootDir, ["check", "--post-merge"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "projection_check_failed");
+    const dangling = result.warnings.find((warning: any) => warning.code === "dangling_entity_ref");
+    assert.ok(dangling);
+    assert.equal(dangling.severity, "hard-fail");
+    assert.match(dangling.message, /decision\/dec_MISSING\/C1/);
+  });
+});
+
 test("CLI check --post-merge reports done task document placeholders as hard-fails", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-a", "A", "done");

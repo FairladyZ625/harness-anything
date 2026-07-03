@@ -1,6 +1,7 @@
 export const factConfidenceLevels = ["low", "medium", "high"] as const;
 
 export type FactConfidence = typeof factConfidenceLevels[number];
+type FactProvenanceRuntime = "human" | "claude-code" | "codex" | "zcode" | "antigravity";
 
 export interface FactRecord {
   readonly fact_id: string;
@@ -9,7 +10,7 @@ export interface FactRecord {
   readonly observedAt: string;
   readonly confidence: FactConfidence;
   readonly provenance: ReadonlyArray<{
-    readonly runtime: string;
+    readonly runtime: FactProvenanceRuntime;
     readonly sessionId: string;
     readonly boundAt: string;
   }>;
@@ -79,12 +80,16 @@ function parseFactProvenanceEntry(value: string): FactRecord["provenance"][numbe
     const key = part.slice(0, separator).trim();
     values[key] = parseFlowScalar(part.slice(separator + 1).trim());
   }
-  if (!values.runtime || !values.sessionId || !values.boundAt) return null;
+  if (!values.runtime || !isFactProvenanceRuntime(values.runtime) || !values.sessionId || !values.boundAt) return null;
   return {
     runtime: values.runtime,
     sessionId: values.sessionId,
     boundAt: values.boundAt
   };
+}
+
+function isFactProvenanceRuntime(value: string): value is FactProvenanceRuntime {
+  return value === "human" || value === "claude-code" || value === "codex" || value === "zcode" || value === "antigravity";
 }
 
 function isConfidence(value: string): value is FactConfidence {
