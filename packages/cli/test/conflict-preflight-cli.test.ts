@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { runtimeEventPolicyForAction } from "../src/cli/command-event-policy.ts";
 import { commandDescriptors } from "../src/cli/command-registry.ts";
 import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
 
@@ -55,6 +56,52 @@ const expectedConflictPreflightKinds = [
   "task-supersede"
 ].sort();
 
+const expectedAutoRuntimeEventKinds = [
+  "decision-accept",
+  "decision-amend",
+  "decision-defer",
+  "decision-propose",
+  "decision-reject",
+  "decision-retire",
+  "decision-supersede",
+  "distill-candidate",
+  "distill-commit",
+  "module-register",
+  "module-scaffold",
+  "module-step",
+  "module-unregister",
+  "new-task",
+  "progress-append",
+  "record-fact",
+  "status-set",
+  "task-archive",
+  "task-complete",
+  "task-delete",
+  "task-reopen",
+  "task-review",
+  "task-supersede"
+].sort();
+
+const expectedDeferredRuntimeEventKinds = [
+  "adopt-multica",
+  "governance-rebuild",
+  "init",
+  "legacy-copy-safe-docs",
+  "legacy-index",
+  "legacy-intake-plan",
+  "lesson-promote",
+  "lesson-sediment",
+  "migrate-provenance",
+  "migrate-run",
+  "migrate-structure",
+  "preset-action",
+  "preset-install",
+  "preset-run",
+  "preset-seed",
+  "preset-uninstall",
+  "script-run"
+].sort();
+
 test("CLI conflict preflight classification covers every mutating descriptor", () => {
   const actual = commandDescriptors
     .filter((descriptor) => requiresConflictMarkerPreflight(descriptor.kind))
@@ -62,6 +109,25 @@ test("CLI conflict preflight classification covers every mutating descriptor", (
     .sort();
 
   assert.deepEqual(actual, expectedConflictPreflightKinds);
+});
+
+test("CLI runtime event policy classifies every command kind", () => {
+  const actualAuto = commandDescriptors
+    .filter((descriptor) => runtimeEventPolicyForAction(descriptor.kind) === "auto")
+    .map((descriptor) => descriptor.kind)
+    .sort();
+  const actualDeferred = commandDescriptors
+    .filter((descriptor) => runtimeEventPolicyForAction(descriptor.kind) === "deferred")
+    .map((descriptor) => descriptor.kind)
+    .sort();
+  const actualDirect = commandDescriptors
+    .filter((descriptor) => runtimeEventPolicyForAction(descriptor.kind) === "direct")
+    .map((descriptor) => descriptor.kind)
+    .sort();
+
+  assert.deepEqual(actualAuto, expectedAutoRuntimeEventKinds);
+  assert.deepEqual(actualDeferred, expectedDeferredRuntimeEventKinds);
+  assert.deepEqual(actualDirect, ["runtime-event-append"]);
 });
 
 test("CLI conflict preflight blocks representative write commands before output", () => {

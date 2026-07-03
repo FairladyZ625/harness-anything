@@ -1,12 +1,45 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+
+test("CLI authored write commands append a current-session result event", () => {
+  withTempRoot((rootDir) => {
+    const sessionId = "codex-w2-command-event";
+    const created = runJson(rootDir, ["new-task", "--title", "Evented Task"], true, {
+      CODEX_SESSION_ID: sessionId
+    });
+    const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
+    const events = readJsonl(ledgerPath);
+
+    assert.equal(created.ok, true);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "result");
+    assert.equal(events[0].session.sessionId, sessionId);
+    assert.equal(events[0].session.runtime, "codex");
+    assert.equal(events[0].session.taskId, created.taskId);
+    assert.equal(events[0].result.status, "succeeded");
+    assert.equal(events[0].result.summary, "CLI command succeeded: new-task");
+  });
+});
+
+test("CLI dry-run authored commands do not append command events", () => {
+  withTempRoot((rootDir) => {
+    const sessionId = "codex-w2-dry-run";
+    const result = runJson(rootDir, ["new-task", "--title", "Dry Run Task", "--dry-run"], true, {
+      CODEX_SESSION_ID: sessionId
+    });
+    const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
+
+    assert.equal(result.ok, true);
+    assert.equal(existsSync(ledgerPath), false);
+  });
+});
 
 test("CLI runtime-event append and list write local JSONL without task lifecycle mutation", () => {
   withTempRoot((rootDir) => {
@@ -105,10 +138,24 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function readJsonl(filePath: string): ReadonlyArray<Record<string, any>> {
+  return readFileSync(filePath, "utf8")
+    .trimEnd()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, any>);
+}
+
+function runJson(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  expectSuccess = true,
+  env: Readonly<Record<string, string>> = {}
+): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: { ...process.env, ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
