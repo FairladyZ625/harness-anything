@@ -131,7 +131,7 @@ function readGit(rootDir: string, args: ReadonlyArray<string>): { readonly ok: t
   try {
     return {
       ok: true,
-      stdout: execFileSync("git", ["-C", rootDir, ...args], {
+      stdout: execFileSync("git", ["-C", rootDir, "-c", "core.longpaths=true", ...args], {
         encoding: "utf8",
         maxBuffer: gitMaxBuffer,
         stdio: ["ignore", "pipe", "ignore"]

@@ -74,7 +74,7 @@ function cliErrorCodeEntries(source) {
 
 function cliErrorRegistryNames(source) {
   const registrySource = extractAssignedLiteral(source, "cliErrorCodeRegistry");
-  return new Set([...registrySource.matchAll(/\[\s*CliErrorCode\.([A-Za-z0-9]+)\s*\]\s*:/gmu)].map((match) => match[1]));
+  return new Set([...registrySource.matchAll(/^\s*\[\s*CliErrorCode\.([A-Za-z0-9]+)\s*\]\s*:/gmu)].map((match) => match[1]));
 }
 
 function cliErrorFamilyNames(source, constName) {

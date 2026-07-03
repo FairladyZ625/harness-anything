@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
 function git(args, options = {}) {
   return execFileSync("git", args, {
@@ -24,8 +25,9 @@ function record(message) {
   violations.push(message);
 }
 
-const topLevel = git(["rev-parse", "--show-toplevel"]).trim();
-if (topLevel !== process.cwd()) {
+const topLevel = normalizePath(git(["rev-parse", "--show-toplevel"]).trim());
+const cwd = normalizePath(process.cwd());
+if (topLevel !== cwd) {
   record(`run from repository root: expected ${topLevel}, got ${process.cwd()}`);
 }
 
@@ -85,3 +87,7 @@ if (violations.length > 0) {
 }
 
 console.log("Private boundary check passed.");
+
+function normalizePath(value) {
+  return path.resolve(value).split(path.sep).join("/");
+}

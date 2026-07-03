@@ -6,6 +6,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { hashTaskProjectionRows, rebuildTaskProjection } from "../../src/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
+import { taskEntityId } from "../../src/domain/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator flushes same-task writes in FIFO order", () => {
@@ -59,6 +60,55 @@ test("WriteCoordinator records real projection hash and compacts watermark-cover
     const recovered = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
     assert.equal(recovered.replayedOps, 0);
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), indexBody("task-1", "Task One", "planned"));
+  });
+});
+
+test("WriteCoordinator stages hard-deleted task packages and clears replay journal", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness/tasks/task-1"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), indexBody("task-1", "Task One", "planned"), "utf8");
+    runGit(rootDir, "add", ".");
+    runGit(rootDir, "commit", "-m", "seed task");
+
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(coordinator.enqueue({
+      opId: "op-hard-delete",
+      entityId: taskEntityId("task-1"),
+      kind: "package_delete_hard",
+      payload: {
+        reason: "mistaken local package"
+      }
+    }));
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(report.watermark, "op-hard-delete");
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1")), false);
+    const journalBody = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
+    assert.doesNotMatch(journalBody, /"schema":"write-journal\/v1"/);
+    assert.match(journalBody, /"schema":"delete-audit\/v1"/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /op-hard-delete/);
+    assert.match(runGit(rootDir, "show", "--name-status", "--format=", "HEAD"), /D\s+harness\/tasks\/task-1\/INDEX.md/);
+
+    const recovered = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
+    assert.equal(recovered.replayedOps, 0);
+  });
+});
+
+test("WriteCoordinator force-adds explicit harness paths ignored by target repo patterns", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), "artifacts/\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "commit", "-m", "ignore artifacts");
+
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(coordinator.enqueue(docWrite("op-ignored-artifact", "task-1", "artifacts/.gitkeep", "")));
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(report.watermark, "op-ignored-artifact");
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/artifacts/.gitkeep")), true);
+    assert.match(runGit(rootDir, "show", "--name-only", "--format=", "HEAD"), /harness\/tasks\/task-1\/artifacts\/\.gitkeep/);
   });
 });
 

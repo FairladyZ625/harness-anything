@@ -169,7 +169,7 @@ test("CLI legacy scan discovers V2 layout tasks and forwards private harness con
     writeFile(rootDir, "old/.harness-private/coding-agent-harness/tasks/v2-task/progress.md", "progress\n");
     writeFile(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/overview.md", "# Architecture\n");
     writeFile(rootDir, "outside-secret.md", "# Secret\n");
-    symlinkSync(path.join(rootDir, "outside-secret.md"), path.join(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/leak.md"));
+    trySymlink(path.join(rootDir, "outside-secret.md"), path.join(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/leak.md"));
 
     const scan = runJson(rootDir, ["legacy", "scan", "old"]);
     assert.equal(scan.report.summary.taskCount, 1);
@@ -247,7 +247,7 @@ test("CLI legacy apply refuses a symlink alias of the active authored harness ro
   withTempRoot((rootDir) => {
     writeFile(rootDir, "harness/harness.yaml", "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n");
     writeFile(rootDir, "harness/docs/architecture/self-host.md", "# Self Host\n");
-    symlinkSync(path.join(rootDir, "harness"), path.join(rootDir, "link-harness"), "dir");
+    if (!trySymlink(path.join(rootDir, "harness"), path.join(rootDir, "link-harness"), "junction")) return;
 
     const copied = runJson(rootDir, ["legacy", "copy-safe-docs", "link-harness", "--apply"], false);
     const indexed = runJson(rootDir, ["legacy", "index", "link-harness", "--apply"], false);
@@ -463,6 +463,24 @@ function writeFile(rootDir: string, relativePath: string, body: string): void {
   const fullPath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, body, "utf8");
+}
+
+function trySymlink(target: string, linkPath: string, type?: "file" | "dir" | "junction"): boolean {
+  try {
+    symlinkSync(target, linkPath, type);
+    return true;
+  } catch (error) {
+    if (isWindowsSymlinkPermissionError(error)) return false;
+    throw error;
+  }
+}
+
+function isWindowsSymlinkPermissionError(error: unknown): boolean {
+  return process.platform === "win32" &&
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EPERM";
 }
 
 function writeCurrentTaskPackage(

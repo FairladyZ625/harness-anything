@@ -34,9 +34,9 @@ export function runCliPackageSmoke(root = process.cwd()) {
       stdio: "inherit"
     });
 
-    const binPath = path.join(consumerDir, "node_modules/.bin/harness-anything");
-    const aliasBinPath = path.join(consumerDir, "node_modules/.bin/ha");
-    const stdout = execFileSync(binPath, ["--json", "gui"], {
+    const binPath = resolveBinCommand(consumerDir, "harness-anything");
+    const aliasBinPath = resolveBinCommand(consumerDir, "ha");
+    const stdout = execFileSync(binPath.file, [...binPath.argsPrefix, "--json", "gui"], {
       cwd: consumerDir,
       encoding: "utf8",
       env: {
@@ -48,7 +48,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
     if (result.ok !== true || result.command !== "gui" || result.launchPlan?.packageName !== "@harness-anything/gui") {
       throw new Error(`unexpected CLI smoke output: ${stdout}`);
     }
-    const aliasOutput = execFileSync(aliasBinPath, ["--json", "doctor"], {
+    const aliasOutput = execFileSync(aliasBinPath.file, [...aliasBinPath.argsPrefix, "--json", "doctor"], {
       cwd: consumerDir,
       encoding: "utf8"
     });
@@ -112,8 +112,24 @@ export function buildCliPackageArtifact(root, options = {}) {
   }
 }
 
-function runJson(binPath, args, cwd) {
-  return unwrapReceipt(JSON.parse(execFileSync(binPath, args, { cwd, encoding: "utf8" })));
+function runJson(command, args, cwd) {
+  return unwrapReceipt(JSON.parse(execFileSync(command.file, [...command.argsPrefix, ...args], { cwd, encoding: "utf8" })));
+}
+
+function resolveBinCommand(consumerDir, name) {
+  const packageEntry = path.join(consumerDir, "node_modules", "@harness-anything", "cli", "dist", "cli", "src", "index.js");
+  if (process.platform === "win32" && existsSync(packageEntry)) {
+    return { file: process.execPath, argsPrefix: [packageEntry] };
+  }
+  const binRoot = path.join(consumerDir, "node_modules", ".bin");
+  const candidates = process.platform === "win32"
+    ? [`${name}.cmd`, `${name}.ps1`, name]
+    : [name];
+  for (const candidate of candidates) {
+    const binPath = path.join(binRoot, candidate);
+    if (existsSync(binPath)) return { file: binPath, argsPrefix: [] };
+  }
+  return { file: path.join(binRoot, name), argsPrefix: [] };
 }
 
 function unwrapReceipt(value) {

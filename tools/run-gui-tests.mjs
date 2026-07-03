@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { collectGuiVitestFiles, validateGuiVitestManifest } from "./gui-test-runner-lib.mjs";
 import { guiVitestManifest } from "./gui-test-manifest.mjs";
@@ -36,8 +37,13 @@ if (guiVitestManifest.length === 0) {
   process.exit(0);
 }
 
-const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
-const child = spawn(npmBin, ["run", "test:gui", "-w", "@harness-anything/gui"], {
+const npmCli = resolveNpmCli();
+const child = npmCli
+  ? spawn(process.execPath, [npmCli, "run", "test:gui", "-w", "@harness-anything/gui"], {
+    cwd: repoRoot,
+    stdio: "inherit"
+  })
+  : spawn("npm", ["run", "test:gui", "-w", "@harness-anything/gui"], {
   cwd: repoRoot,
   stdio: "inherit"
 });
@@ -54,3 +60,11 @@ child.on("close", (code, signal) => {
   }
   process.exit(code ?? 1);
 });
+
+function resolveNpmCli() {
+  if (process.env.npm_execpath && existsSync(process.env.npm_execpath)) {
+    return process.env.npm_execpath;
+  }
+  const candidate = resolve(process.execPath, "..", "node_modules", "npm", "bin", "npm-cli.js");
+  return existsSync(candidate) ? candidate : undefined;
+}
