@@ -107,6 +107,7 @@ export const testTierManifest = {
     "tools/check-import-boundaries.test.mjs",
     "tools/check-docs-release-map.test.mjs",
     "tools/check-runtime-release-readiness.test.mjs",
+    "tools/relation-weathering-spike.test.mjs",
     "tools/check-supply-chain.test.mjs"
   ]
 };
