@@ -4,6 +4,7 @@ import test from "node:test";
 import { commandRegistry } from "../src/cli/command-registry.ts";
 import { parseArgs } from "../src/cli/parse-args.ts";
 import { parserRegistry } from "../src/cli/parser-registry.ts";
+import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { extensionActionKinds, extensionExecutorGroups, isExtensionAction } from "../src/commands/extensions/index.ts";
 import { resolveHarnessLayout } from "../../kernel/src/layout/index.ts";
@@ -192,6 +193,34 @@ test("parser registry and command registry stay consistent", () => {
   const parserKinds = new Set(parserKindList);
   const commandKinds = new Set(commandKindList);
   assert.deepEqual(parserKinds, commandKinds);
+});
+
+test("conflict marker preflight classifies extension and migration write commands", () => {
+  for (const kind of [
+    "preset-run",
+    "preset-action",
+    "module-register",
+    "module-scaffold",
+    "module-step",
+    "module-unregister",
+    "init",
+    "lesson-promote",
+    "lesson-sediment",
+    "migrate-run",
+    "script-run"
+  ] as const) {
+    assert.equal(requiresConflictMarkerPreflight(kind), true, kind);
+  }
+
+  for (const kind of [
+    "preset-list",
+    "module-list",
+    "script-list",
+    "migrate-verify",
+    "doctor"
+  ] as const) {
+    assert.equal(requiresConflictMarkerPreflight(kind), false, kind);
+  }
 });
 
 test("command registry exposes help metadata for every command", () => {

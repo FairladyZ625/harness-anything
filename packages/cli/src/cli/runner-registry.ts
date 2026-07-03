@@ -5,7 +5,7 @@ import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
 import { findConflictMarkerWarnings } from "../../../kernel/src/projection/post-merge-checks.ts";
-import type { CommandRunnerId } from "./command-registry.ts";
+import type { CommandKind, CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
@@ -147,29 +147,72 @@ export function runRegisteredCommand(
   }, command);
 }
 
-function requiresConflictMarkerPreflight(action: ParsedCommand["action"]): boolean {
-  switch (action.kind) {
-    case "new-task":
-    case "status-set":
-    case "progress-append":
-    case "task-archive":
-    case "task-supersede":
-    case "task-delete":
-    case "task-reopen":
-    case "task-review":
-    case "task-complete":
-    case "decision-propose":
-    case "decision-accept":
-    case "decision-reject":
-    case "decision-defer":
-    case "decision-supersede":
-    case "decision-amend":
-    case "decision-retire":
-    case "record-fact":
-    case "task-list":
-    case "status":
-      return true;
-    default:
-      return false;
-  }
+const conflictMarkerPreflightByKind = {
+  help: false,
+  version: false,
+  init: true,
+  "new-task": true,
+  "status-set": true,
+  "progress-append": true,
+  "task-archive": true,
+  "task-supersede": true,
+  "task-delete": true,
+  "task-reopen": true,
+  "task-review": true,
+  "task-complete": true,
+  "decision-propose": true,
+  "decision-accept": true,
+  "decision-reject": true,
+  "decision-defer": true,
+  "decision-supersede": true,
+  "decision-amend": true,
+  "decision-retire": true,
+  "record-fact": true,
+  "template-list": false,
+  "template-render": false,
+  "task-list": true,
+  status: true,
+  check: false,
+  "governance-rebuild": true,
+  "lesson-promote": true,
+  "lesson-sediment": true,
+  "adopt-multica": true,
+  "snapshot-multica": false,
+  "migrate-plan": false,
+  "migrate-structure": true,
+  "migrate-run": true,
+  "migrate-verify": false,
+  "legacy-scan": false,
+  "legacy-intake-plan": true,
+  "legacy-copy-safe-docs": true,
+  "legacy-index": true,
+  "legacy-verify": false,
+  "git-diff": false,
+  doctor: false,
+  "preset-validate": false,
+  "preset-list": false,
+  "preset-inspect": false,
+  "preset-check": false,
+  "preset-install": true,
+  "preset-seed": true,
+  "preset-audit": false,
+  "preset-uninstall": true,
+  "preset-run": true,
+  "preset-action": true,
+  "script-list": false,
+  "script-inspect": false,
+  "script-run": true,
+  "module-list": false,
+  "module-inspect": false,
+  "module-register": true,
+  "module-scaffold": true,
+  "module-unregister": true,
+  "module-step": true,
+  "vertical-validate": false,
+  gui: false
+} as const satisfies Record<CommandKind, boolean>;
+
+export function requiresConflictMarkerPreflight(action: ParsedCommand["action"] | CommandKind): boolean {
+  const kind = typeof action === "string" ? action : action.kind;
+  return conflictMarkerPreflightByKind[kind];
 }
