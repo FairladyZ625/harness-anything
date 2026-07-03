@@ -73,10 +73,24 @@ function parseActor(value: string): DecisionPackage["arbiter"] {
 }
 
 function parseObjectList(frontmatter: string, key: string): ReadonlyArray<Record<string, unknown>> {
-  return readIndentedBlock(frontmatter, key)
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("- "))
-    .map((line) => parseFlowObject(line.slice(2).trim()));
+  const items: Record<string, unknown>[] = [];
+  let current: Record<string, unknown> | null = null;
+  for (const rawLine of readIndentedBlock(frontmatter, key)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("- ")) {
+      if (current) items.push(current);
+      const body = line.slice(2).trim();
+      current = body.startsWith("{") ? parseFlowObject(body) : parseBlockObjectLine(body);
+      continue;
+    }
+    if (!current) continue;
+    for (const [entryKey, entryValue] of Object.entries(parseBlockObjectLine(line))) {
+      current[entryKey] = entryValue;
+    }
+  }
+  if (current) items.push(current);
+  return items;
 }
 
 function readIndentedBlock(frontmatter: string, key: string): ReadonlyArray<string> {
@@ -101,6 +115,13 @@ function parseFlowObject(value: string): Record<string, unknown> {
     result[key] = parseFlowValue(part.slice(separator + 1).trim());
   }
   return result;
+}
+
+function parseBlockObjectLine(value: string): Record<string, unknown> {
+  const separator = value.indexOf(":");
+  if (separator === -1) return {};
+  const key = value.slice(0, separator).trim();
+  return { [key]: parseFlowValue(value.slice(separator + 1).trim()) };
 }
 
 function parseFlowValue(value: string): unknown {

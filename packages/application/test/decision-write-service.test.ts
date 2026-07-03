@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Effect } from "effect";
-import { makeDecisionWriteService, type DecisionWriteRejected } from "../src/index.ts";
+import { makeDecisionWriteService, readDecisionDocument, type DecisionWriteRejected } from "../src/index.ts";
 import { deriveRelationId, type DecisionPackage, type EntityRelationRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
 
 test("decision write service proposes and accepts through WriteCoordinator", () => {
@@ -75,6 +78,32 @@ test("decision write service rejects relation records not hosted by the decision
   assert.match(failureReason(result.cause), /hosted by decision\/dec_TEST/u);
 });
 
+test("decision document reader accepts block-list frontmatter and rejects unknown provenance runtime", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-reader-"));
+  try {
+    writeDecisionMarkdown(rootDir, "dec_BLOCK", "codex");
+
+    const read = readDecisionDocument(rootDir, "dec_BLOCK");
+
+    assert.equal(read.decision.decision_id, "dec_BLOCK");
+    assert.deepEqual(read.decision.provenance, [{
+      runtime: "codex",
+      sessionId: "session-1",
+      boundAt: "2026-07-03T00:00:00.000Z"
+    }]);
+    assert.deepEqual(read.decision.rejected, [{
+      id: "RJ1",
+      text: "Keep flow-only parser compatibility.",
+      why_not: "Block-list YAML is the contract shape humans copy from design docs."
+    }]);
+
+    writeDecisionMarkdown(rootDir, "dec_BLOCK", "other-runtime");
+    assert.throws(() => readDecisionDocument(rootDir, "dec_BLOCK"));
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function fakeCoordinator(enqueued: WriteOp[]): WriteCoordinator {
   return {
     enqueue: (op) => Effect.sync(() => {
@@ -84,6 +113,50 @@ function fakeCoordinator(enqueued: WriteOp[]): WriteCoordinator {
     flush: () => Effect.succeed({ reason: "explicit", opCount: enqueued.length, committed: true }),
     recover: Effect.succeed({ replayedOps: 0 })
   };
+}
+
+function writeDecisionMarkdown(rootDir: string, decisionId: string, runtime: string): void {
+  const decisionRoot = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
+  mkdirSync(decisionRoot, { recursive: true });
+  writeFileSync(path.join(decisionRoot, "decision.md"), [
+    "---",
+    "schema: decision-package/v1",
+    `decision_id: ${decisionId}`,
+    "_coordinatorWatermark: wm-block",
+    "title: Block frontmatter decision",
+    "state: active",
+    "riskTier: medium",
+    "urgency: medium",
+    "vertical: software/coding",
+    "preset: architecture-decision",
+    "applies_to:",
+    "  modules: [\"kernel\"]",
+    "  productLines: []",
+    "proposedBy: { kind: agent, id: writer }",
+    "proposedAt: 2026-07-03T00:00:00.000Z",
+    "arbiter: { kind: human, id: writer }",
+    "decidedAt: 2026-07-03T00:01:00.000Z",
+    "provenance:",
+    `  - runtime: ${runtime}`,
+    "    sessionId: session-1",
+    "    boundAt: 2026-07-03T00:00:00.000Z",
+    "question: Should the reader accept contract-shaped blocks?",
+    "chosen:",
+    "  - id: CH1",
+    "    text: Parse block-list YAML.",
+    "rejected:",
+    "  - id: RJ1",
+    "    text: Keep flow-only parser compatibility.",
+    "    why_not: Block-list YAML is the contract shape humans copy from design docs.",
+    "claims:",
+    "  - id: C1",
+    "    text: Reader compatibility belongs at the read boundary.",
+    "relations:",
+    "---",
+    "",
+    "# Block frontmatter decision",
+    ""
+  ].join("\n"), "utf8");
 }
 
 function decisionPackage(overrides: Partial<DecisionPackage> = {}): DecisionPackage {

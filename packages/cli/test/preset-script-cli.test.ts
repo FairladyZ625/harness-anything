@@ -239,6 +239,38 @@ test("CLI process preset script entrypoint rejects undeclared output write scope
   });
 });
 
+test("CLI process preset script entrypoint directly rejects localRoot write scope", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, ".harness/presets/local-root-writer/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "local-root-writer",
+      title: "Local Root Writer",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: { type: "script", command: "scripts/preset-action.mjs", writes: ["{{paths.localRoot}}"] }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/local-root-writer/scripts/preset-action.mjs", "console.log('should not execute');\n");
+
+    const result = runJson(rootDir, ["preset", "action", "local-root-writer", "scaffold", "--task", "task-1", "--allow-scripts"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_write_scope_invalid");
+    assert.equal(existsSync(path.join(rootDir, ".harness/preset-scripts")), false);
+  });
+});
+
 test("CLI process preset script entrypoint rejects repository-wide declared write scope", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness/presets/root-writer/preset.json", JSON.stringify({

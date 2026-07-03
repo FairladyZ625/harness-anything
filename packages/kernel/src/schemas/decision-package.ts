@@ -49,6 +49,6 @@ export const DecisionPackageSchema = Schema.Struct({
   rejected: Schema.Array(RejectedDecisionAnchorSchema).pipe(Schema.minItems(1)),
   claims: Schema.Array(DecisionAnchorSchema).pipe(Schema.minItems(1)),
   relations: Schema.Array(EntityRelationRecordSchema)
-}).pipe(Schema.filter((decision) => decision.proposedBy.id !== decision.arbiter.id));
+}).pipe(Schema.filter((decision) => decision.proposedBy.kind !== decision.arbiter.kind || decision.proposedBy.id !== decision.arbiter.id));
 
 export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
