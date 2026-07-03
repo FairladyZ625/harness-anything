@@ -2,6 +2,7 @@ name: rewrite-ci
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, edited]
   push:
     branches:
       - main
@@ -16,6 +17,19 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  pr-body-lint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check bilingual PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+        run: node tools/check-pr-body-bilingual.mjs --env PR_BODY
+
   # Detect what a PR touched so heavy, package-scoped jobs can no-op their
   # expensive steps. The jobs still run and report green, so required-check
   # branch protection never deadlocks on a skipped context.

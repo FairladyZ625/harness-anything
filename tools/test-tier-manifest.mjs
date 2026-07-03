@@ -66,6 +66,7 @@ export const testTierManifest = {
     "tools/check-error-classification.test.mjs",
     "tools/check-integrity-single-source.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
+    "tools/check-pr-body-bilingual.test.mjs",
     "tools/check-service-mappability.test.mjs",
     "tools/skill-contracts.test.mjs",
     "tools/smoke-cli-package.test.mjs",
