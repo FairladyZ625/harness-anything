@@ -104,6 +104,7 @@ export const testTierManifest = {
     "packages/kernel/test/store/relation-graph-projection.test.ts",
     "packages/kernel/test/store/same-task-fifo.test.ts",
     "packages/kernel/test/store/sqlite-rebuild.test.ts",
+    "tools/graph-panorama.test.mjs",
     "tools/check-import-boundaries.test.mjs",
     "tools/check-docs-release-map.test.mjs",
     "tools/check-runtime-release-readiness.test.mjs",

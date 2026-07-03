@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Panorama"
+  short_description: "Generate relation graph HTML from SQLite projection"
+  default_prompt: "Generate a Relation Graph Panorama by running tools/graph-panorama.mjs against the SQLite projection. Do not edit authored markdown directly."
