@@ -73,6 +73,7 @@ test("fact create service binds provenance into the single-line record and expor
     }));
 
     const body = (enqueued[0]?.payload as { readonly body?: string }).body ?? "";
+    assert.match(body, /memoryClass: episodic, memoryTags: \[\]/u);
     assert.match(body, /provenance: \[\{runtime: "human", sessionId: "human-cli-1783036800000", boundAt: "2026-07-03T00:01:00\.000Z"\}\]/u);
     const session = Effect.runSync(exporter.readById("human-cli-1783036800000"));
     assert.equal(session.path, "sessions/human-cli-1783036800000.md");

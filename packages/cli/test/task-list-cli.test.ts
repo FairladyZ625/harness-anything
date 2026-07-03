@@ -32,6 +32,10 @@ test("CLI task list filters projection rows without treating generated cache as 
       taskId: "task-missing",
       preset: "standard-task"
     });
+    writeIndex(rootDir, "task-review", "Review Queue", "in_review", {
+      taskId: "task-review",
+      preset: "standard-task"
+    });
     rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
 
     const moduleFiltered = runJson(rootDir, ["task", "list", "--module", "billing", "--preset", "module", "--state", "active", "--queue", "open", "--search", "checkout"]);
@@ -41,13 +45,19 @@ test("CLI task list filters projection rows without treating generated cache as 
     assert.equal(moduleFiltered.tasks[0].preset, "module");
 
     const defaultList = runJson(rootDir, ["task", "list"]);
-    assert.deepEqual(defaultList.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing", "task-missing"]);
+    assert.deepEqual(defaultList.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing", "task-missing", "task-review"]);
+
+    const openList = runJson(rootDir, ["task", "list", "--state", "open"]);
+    assert.deepEqual(openList.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing"]);
+
+    const reviewQueue = runJson(rootDir, ["task", "list", "--queue", "review"]);
+    assert.deepEqual(reviewQueue.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-review"]);
 
     const withArchived = runJson(rootDir, ["task", "list", "--include-archived", "--preset", "standard-task"]);
-    assert.deepEqual(withArchived.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-deleted", "task-docs", "task-missing"]);
+    assert.deepEqual(withArchived.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-deleted", "task-docs", "task-missing", "task-review"]);
 
     const missingMaterials = runJson(rootDir, ["task", "list", "--include-archived", "--missing-materials"]);
-    assert.deepEqual(missingMaterials.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-missing"]);
+    assert.deepEqual(missingMaterials.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-missing", "task-review"]);
   });
 });
 

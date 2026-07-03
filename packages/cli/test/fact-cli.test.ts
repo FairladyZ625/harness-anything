@@ -25,6 +25,10 @@ test("CLI record fact writes a task-local stable F-id through the coordinator", 
       "manual verification",
       "--confidence",
       "high",
+      "--memory-class",
+      "semantic",
+      "--memory-tag",
+      "tool_memory,pattern",
       "--observed-at",
       "2026-07-03T00:00:00.000Z"
     ]);
@@ -35,7 +39,7 @@ test("CLI record fact writes a task-local stable F-id through the coordinator", 
     assert.equal(result.factRef, `fact/${taskId}/F-DEADBEEF`);
     assert.equal(result.path, "facts.md");
     const factsBody = readFileSync(path.join(rootDir, String(created.packagePath), "facts.md"), "utf8");
-    assert.match(factsBody, /^- \{fact_id: F-DEADBEEF, statement: "Decision CLI has a human terminal fallback\.", source: "manual verification", observedAt: "2026-07-03T00:00:00\.000Z", confidence: high, provenance: \[\{runtime: "human", sessionId: "human-cli-\d+", boundAt: "2026-07-03T00:00:00\.000Z"\}\]\}$/mu);
+    assert.match(factsBody, /^- \{fact_id: F-DEADBEEF, statement: "Decision CLI has a human terminal fallback\.", source: "manual verification", observedAt: "2026-07-03T00:00:00\.000Z", confidence: high, memoryClass: semantic, memoryTags: \[tool_memory, pattern\], provenance: \[\{runtime: "human", sessionId: "human-cli-\d+", boundAt: "2026-07-03T00:00:00\.000Z"\}\]\}$/mu);
     const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(factsBody)?.[1];
     assert.ok(sessionId);
     assert.equal(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8").includes(`sessionId: ${sessionId}`), true);
@@ -76,6 +80,43 @@ test("CLI check --post-merge fails closed when a referenced F-id is deleted", ()
       warning.severity === "hard-fail" &&
       String(warning.message).includes(`fact/${taskId}/F-DEADBEEF`)
     ), true);
+  });
+});
+
+test("CLI record fact defaults to episodic memory class and rejects unknown memory tags", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Fact Owner"]);
+    const taskId = String(created.taskId);
+    const result = runJson(rootDir, [
+      "record",
+      "fact",
+      "--task",
+      taskId,
+      "--id",
+      "F-ABCDEF12",
+      "--statement",
+      "Default class is episodic.",
+      "--source",
+      "test fixture"
+    ]);
+    assert.equal(result.ok, true);
+    const factsBody = readFileSync(path.join(rootDir, String(created.packagePath), "facts.md"), "utf8");
+    assert.match(factsBody, /memoryClass: episodic, memoryTags: \[\]/u);
+
+    const failure = runJson(rootDir, [
+      "record",
+      "fact",
+      "--task",
+      taskId,
+      "--statement",
+      "Bad tag.",
+      "--source",
+      "test fixture",
+      "--memory-tag",
+      "unknown_tag"
+    ], false);
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "invalid_fact_memory_tag");
   });
 });
 

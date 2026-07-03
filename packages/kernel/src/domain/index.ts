@@ -38,11 +38,15 @@ export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
 export {
   factConfidenceLevels,
+  factMemoryClasses,
+  factMemoryTags,
   formatFactFlowRecord,
+  isFactMemoryClass,
+  isFactMemoryTag,
   isFactId,
   parseFactFlowRecords
 } from "./fact-record.ts";
-export type { FactConfidence, FactRecord } from "./fact-record.ts";
+export type { FactConfidence, FactMemoryClass, FactMemoryTag, FactRecord } from "./fact-record.ts";
 
 export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
 export type {

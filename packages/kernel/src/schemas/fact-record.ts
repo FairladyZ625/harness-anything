@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { factConfidenceLevels } from "../domain/fact-record.ts";
+import { factConfidenceLevels, factMemoryClasses, factMemoryTags } from "../domain/fact-record.ts";
 import { NonBlankStringSchema, ProvenanceEntrySchema } from "./common.ts";
 
 const FactIdSchema = Schema.String.pipe(Schema.pattern(/^F-[0-9A-HJKMNP-TV-Z]{8}$/u));
@@ -11,6 +11,8 @@ export const FactRecordSchema = Schema.Struct({
   source: NonBlankStringSchema,
   observedAt: NonBlankStringSchema,
   confidence: Schema.Literal(...factConfidenceLevels),
+  memoryClass: Schema.Literal(...factMemoryClasses),
+  memoryTags: Schema.Array(Schema.Literal(...factMemoryTags)),
   provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1))
 });
 

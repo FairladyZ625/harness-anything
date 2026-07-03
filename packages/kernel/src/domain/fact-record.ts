@@ -1,6 +1,18 @@
 export const factConfidenceLevels = ["low", "medium", "high"] as const;
+export const factMemoryClasses = ["semantic", "episodic", "procedural"] as const;
+export const factMemoryTags = [
+  "episode",
+  "procedural",
+  "tool_memory",
+  "pattern",
+  "task_skill",
+  "abstract_rule",
+  "other"
+] as const;
 
 export type FactConfidence = typeof factConfidenceLevels[number];
+export type FactMemoryClass = typeof factMemoryClasses[number];
+export type FactMemoryTag = typeof factMemoryTags[number];
 type FactProvenanceRuntime = "human" | "claude-code" | "codex" | "zcode" | "antigravity";
 
 export interface FactRecord {
@@ -9,6 +21,8 @@ export interface FactRecord {
   readonly source: string;
   readonly observedAt: string;
   readonly confidence: FactConfidence;
+  readonly memoryClass: FactMemoryClass;
+  readonly memoryTags: ReadonlyArray<FactMemoryTag>;
   readonly provenance: ReadonlyArray<{
     readonly runtime: FactProvenanceRuntime;
     readonly sessionId: string;
@@ -23,7 +37,7 @@ export function isFactId(value: string): boolean {
 }
 
 export function formatFactFlowRecord(record: FactRecord): string {
-  return `- {fact_id: ${record.fact_id}, statement: ${quoteFactFlowString(record.statement)}, source: ${quoteFactFlowString(record.source)}, observedAt: ${quoteFactFlowString(record.observedAt)}, confidence: ${record.confidence}, provenance: [${record.provenance.map(formatFactProvenanceEntry).join(", ")}]}`;
+  return `- {fact_id: ${record.fact_id}, statement: ${quoteFactFlowString(record.statement)}, source: ${quoteFactFlowString(record.source)}, observedAt: ${quoteFactFlowString(record.observedAt)}, confidence: ${record.confidence}, memoryClass: ${record.memoryClass}, memoryTags: [${record.memoryTags.join(", ")}], provenance: [${record.provenance.map(formatFactProvenanceEntry).join(", ")}]}`;
 }
 
 export function parseFactFlowRecords(body: string): ReadonlyArray<FactRecord> {
@@ -44,9 +58,12 @@ function parseFactFlowRecord(line: string): FactRecord | null {
     const key = part.slice(0, separator).trim();
     values[key] = parseFlowScalar(part.slice(separator + 1).trim());
   }
-  if (!values.fact_id || !values.statement || !values.source || !values.observedAt || !values.confidence || !values.provenance) return null;
+  if (!values.fact_id || !values.statement || !values.source || !values.observedAt || !values.confidence || !values.memoryClass || values.memoryTags === undefined || !values.provenance) return null;
   if (!isFactId(values.fact_id)) return null;
   if (!isConfidence(values.confidence)) return null;
+  if (!isMemoryClass(values.memoryClass)) return null;
+  const memoryTags = parseFactMemoryTags(values.memoryTags);
+  if (memoryTags === null) return null;
   const provenance = parseFactProvenanceArray(values.provenance);
   if (provenance.length === 0) return null;
   return {
@@ -55,6 +72,8 @@ function parseFactFlowRecord(line: string): FactRecord | null {
     source: values.source,
     observedAt: values.observedAt,
     confidence: values.confidence,
+    memoryClass: values.memoryClass,
+    memoryTags,
     provenance
   };
 }
@@ -94,6 +113,31 @@ function isFactProvenanceRuntime(value: string): value is FactProvenanceRuntime 
 
 function isConfidence(value: string): value is FactConfidence {
   return (factConfidenceLevels as ReadonlyArray<string>).includes(value);
+}
+
+export function isFactMemoryClass(value: string): value is FactMemoryClass {
+  return isMemoryClass(value);
+}
+
+export function isFactMemoryTag(value: string): value is FactMemoryTag {
+  return isMemoryTag(value);
+}
+
+function isMemoryClass(value: string): value is FactMemoryClass {
+  return (factMemoryClasses as ReadonlyArray<string>).includes(value);
+}
+
+function isMemoryTag(value: string): value is FactMemoryTag {
+  return (factMemoryTags as ReadonlyArray<string>).includes(value);
+}
+
+function parseFactMemoryTags(value: string): ReadonlyArray<FactMemoryTag> | null {
+  if (!value.startsWith("[") || !value.endsWith("]")) return null;
+  const inner = value.slice(1, -1).trim();
+  if (!inner) return [];
+  const tags = splitFactTopLevel(inner).map(parseFlowScalar);
+  if (tags.some((tag) => !isMemoryTag(tag))) return null;
+  return tags as ReadonlyArray<FactMemoryTag>;
 }
 
 function splitFactTopLevel(value: string): string[] {

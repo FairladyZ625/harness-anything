@@ -5,6 +5,8 @@
   "source": "PR #108 verification",
   "observedAt": "2026-07-03T00:00:00.000Z",
   "confidence": "high",
+  "memoryClass": "semantic",
+  "memoryTags": ["tool_memory", "pattern"],
   "provenance": [
     {
       "runtime": "human",

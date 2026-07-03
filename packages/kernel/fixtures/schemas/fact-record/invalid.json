@@ -4,5 +4,7 @@
   "statement": "",
   "source": "fixture",
   "observedAt": "2026-07-03T00:00:00.000Z",
-  "confidence": "unknown"
+  "confidence": "unknown",
+  "memoryClass": "unknown",
+  "memoryTags": ["not_a_tag"]
 }

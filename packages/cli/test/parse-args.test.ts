@@ -70,7 +70,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "decision supersede", argv: ["decision", "supersede", "dec_TEST"], kind: "decision-supersede", fields: { decisionId: "dec_TEST" } },
   { name: "decision amend", argv: ["decision", "amend", "dec_TEST", "--title", "Updated"], kind: "decision-amend", fields: { decisionId: "dec_TEST", title: "Updated" } },
   { name: "decision retire", argv: ["decision", "retire", "dec_TEST"], kind: "decision-retire", fields: { decisionId: "dec_TEST" } },
-  { name: "record fact", argv: ["record", "fact", "--task", "task_1", "--id", "F-DEADBEEF", "--statement", "Fact", "--source", "Fixture", "--confidence", "high", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "record-fact", fields: { taskId: "task_1", factId: "F-DEADBEEF", statement: "Fact", source: "Fixture", confidence: "high", observedAt: "2026-07-03T00:00:00.000Z" } },
+  { name: "record fact", argv: ["record", "fact", "--task", "task_1", "--id", "F-DEADBEEF", "--statement", "Fact", "--source", "Fixture", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory,task_skill", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "record-fact", fields: { taskId: "task_1", factId: "F-DEADBEEF", statement: "Fact", source: "Fixture", confidence: "high", memoryClass: "procedural", memoryTags: ["tool_memory", "task_skill"], observedAt: "2026-07-03T00:00:00.000Z" } },
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
   {
     name: "task list filters",

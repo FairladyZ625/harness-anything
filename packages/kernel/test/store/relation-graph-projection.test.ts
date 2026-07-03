@@ -369,7 +369,7 @@ function writeIndex(rootDir: string, taskDirName: string, title: string, taskId 
   ].join("\n"));
 }
 
-type FactFixture = Omit<FactRecord, "provenance"> & Partial<Pick<FactRecord, "provenance">>;
+type FactFixture = Omit<FactRecord, "memoryClass" | "memoryTags" | "provenance"> & Partial<Pick<FactRecord, "memoryClass" | "memoryTags" | "provenance">>;
 
 function writeFacts(rootDir: string, taskId: string, facts: ReadonlyArray<FactFixture>, relations: ReadonlyArray<EntityRelationRecord> = []): void {
   const taskRoot = path.join(rootDir, "harness/tasks", taskId);
@@ -379,6 +379,8 @@ function writeFacts(rootDir: string, taskId: string, facts: ReadonlyArray<FactFi
     "",
     ...facts.map((fact) => formatFactFlowRecord({
       ...fact,
+      memoryClass: fact.memoryClass ?? "episodic",
+      memoryTags: fact.memoryTags ?? [],
       provenance: fact.provenance ?? [{
         runtime: "human",
         sessionId: "human-cli-1783036800000",

@@ -16,6 +16,8 @@ export const runFactCommand: CommandRunner = (context, command) => {
     source: action.source,
     observedAt: action.observedAt,
     confidence: action.confidence,
+    memoryClass: action.memoryClass,
+    memoryTags: action.memoryTags,
     dryRun: action.dryRun
   }).pipe(
     Effect.match({

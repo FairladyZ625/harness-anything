@@ -9,6 +9,8 @@ import {
   taskEntityId,
   type CurrentSessionProbePort,
   type FactConfidence,
+  type FactMemoryClass,
+  type FactMemoryTag,
   type FactRecord,
   type ProvenancePayload,
   type TaskId,
@@ -37,6 +39,8 @@ export interface FactRecordRequest {
   readonly source: string;
   readonly observedAt?: string;
   readonly confidence: FactConfidence;
+  readonly memoryClass?: FactMemoryClass;
+  readonly memoryTags?: ReadonlyArray<FactMemoryTag>;
   readonly dryRun?: boolean;
   readonly opIdPrefix?: string;
 }
@@ -85,6 +89,8 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
         source: request.source.trim(),
         observedAt,
         confidence: request.confidence,
+        memoryClass: request.memoryClass ?? "episodic",
+        memoryTags: request.memoryTags ?? [],
         provenance: provenance ? [provenance] : existingFactProvenance()
       };
       const validation = validateFactRecord(request.ownerTaskId, record);
