@@ -64,7 +64,34 @@ test("CLI task-complete rejects initial not-started review placeholders", () => 
   });
 });
 
-function writeIndex(rootDir: string, directoryName: string, title: string, status: string): void {
+test("CLI task-complete reports the underlying completion write failure", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Complete Task", "in_review", { provenance: false });
+    writeReview(rootDir, "task-1");
+    writeRealCloseout(rootDir, "task-1");
+
+    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "malformed_snapshot");
+    assert.match(blocked.error?.hint, /Completion status update failed\./);
+    assert.match(blocked.error?.hint, /minItems\(1\)|Expected a refinement/);
+  });
+});
+
+function writeIndex(
+  rootDir: string,
+  directoryName: string,
+  title: string,
+  status: string,
+  options: { readonly provenance: boolean } = { provenance: true }
+): void {
+  const provenance = options.provenance
+    ? [
+      "provenance:",
+      "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}"
+    ]
+    : [];
   mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
     "---",
@@ -83,8 +110,7 @@ function writeIndex(rootDir: string, directoryName: string, title: string, statu
     "packageDisposition: active",
     "vertical: default",
     "preset: default",
-    "provenance:",
-    "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}",
+    ...provenance,
     "---",
     "",
     `# ${title}`,
