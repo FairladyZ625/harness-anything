@@ -74,6 +74,7 @@ export const testTierManifest = {
     "packages/application/test/local-controller-service.test.ts",
     "packages/cli/test/attribution-diff-cli.test.ts",
     "packages/cli/test/check-governance-cli.test.ts",
+    "packages/cli/test/conflict-preflight-cli.test.ts",
     "packages/cli/test/decision-cli.test.ts",
     "packages/cli/test/doctor-cli.test.ts",
     "packages/cli/test/extension-cli.test.ts",
