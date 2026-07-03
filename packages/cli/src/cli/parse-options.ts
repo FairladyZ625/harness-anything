@@ -33,6 +33,18 @@ export function readOption(argv: ReadonlyArray<string>, name: string): string | 
   return index >= 0 ? argv[index + 1] : undefined;
 }
 
+export function readRepeatedOption(argv: ReadonlyArray<string>, name: string): ReadonlyArray<string> {
+  return argv.flatMap((arg, index) => arg === name && argv[index + 1] && !argv[index + 1].startsWith("--") ? [argv[index + 1]] : []);
+}
+
+export function readRepeatedRawOption(argv: ReadonlyArray<string>, name: string): ReadonlyArray<string | undefined> {
+  const values: Array<string | undefined> = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === name) values.push(argv[index + 1]);
+  }
+  return values;
+}
+
 /**
  * Reads a required value option and rejects a following flag token as a missing value.
  * Optional parsers use readOption directly when flag-like literals are valid values.

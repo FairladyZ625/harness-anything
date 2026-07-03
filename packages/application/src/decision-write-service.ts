@@ -3,6 +3,7 @@ import {
   DecisionPackageSchema,
   decisionEntityId,
   explainDecisionStateTransition,
+  validateRelationRecordsForHost,
   type DecisionPackage,
   type DecisionState,
   type ProvenancePayload,
@@ -162,6 +163,10 @@ function validateDecisionWrite(decision: DecisionPackage): DecisionWriteRejected
   }
   if (decision.rejected.length === 0 || decision.rejected.some((entry) => entry.why_not.trim().length === 0)) {
     return rejection(decision.decision_id, "decision rejected alternatives require non-empty why_not");
+  }
+  const relationIssues = validateRelationRecordsForHost(`decision/${decision.decision_id}`, decision.relations);
+  if (relationIssues.length > 0) {
+    return rejection(decision.decision_id, relationIssues.map((issue) => issue.message).join("; "));
   }
   try {
     Schema.decodeUnknownSync(DecisionPackageSchema)(decision);

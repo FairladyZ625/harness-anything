@@ -6,7 +6,7 @@ import {
   type DecisionCreateInput,
   type DecisionWriteRejected
 } from "../../../../application/src/index.ts";
-import type { DecisionPackage, DecisionState, WriteError } from "../../../../kernel/src/index.ts";
+import { deriveRelationId, type DecisionPackage, type DecisionState, type EntityRelationRecord, type WriteError } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -46,7 +46,17 @@ function runPropose(
   action: Extract<DecisionAction, { readonly kind: "decision-propose" }>
 ): Effect.Effect<CliResult, WriteError> {
   const now = new Date().toISOString();
-  const decision = proposedDecision(action, now);
+  const baseDecision = proposedDecision(action, now, []);
+  const relations = decisionEvidenceRelations(baseDecision, action.evidenceRelations);
+  if (!relations.ok) {
+    return Effect.succeed({
+      ok: false,
+      command: "decision-propose",
+      decisionId: baseDecision.decision_id,
+      error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relations.reason)
+    } satisfies CliResult);
+  }
+  const decision = { ...baseDecision, relations: relations.records };
   if (action.dryRun) return Effect.succeed(decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true));
   return service.propose({ decision, body: action.body }).pipe(
     Effect.match({
@@ -119,7 +129,11 @@ function runAmend(
   );
 }
 
-function proposedDecision(action: Extract<DecisionAction, { readonly kind: "decision-propose" }>, now: string): DecisionCreateInput {
+function proposedDecision(
+  action: Extract<DecisionAction, { readonly kind: "decision-propose" }>,
+  now: string,
+  relations: ReadonlyArray<EntityRelationRecord>
+): DecisionCreateInput {
   return {
     schema: "decision-package/v1",
     decision_id: action.decisionId ?? `dec_${Date.now().toString(36)}`,
@@ -140,8 +154,40 @@ function proposedDecision(action: Extract<DecisionAction, { readonly kind: "deci
     chosen: [{ id: "CH1", text: action.chosen }],
     rejected: [{ id: "RJ1", text: action.rejected, why_not: action.whyNot }],
     claims: [{ id: "C1", text: action.claim ?? action.chosen }],
-    relations: []
+    relations
   };
+}
+
+function decisionEvidenceRelations(
+  decision: DecisionCreateInput,
+  inputs: Extract<DecisionAction, { readonly kind: "decision-propose" }>["evidenceRelations"]
+): { readonly ok: true; readonly records: ReadonlyArray<EntityRelationRecord> } | { readonly ok: false; readonly reason: string } {
+  const anchorIds = new Set([
+    ...decision.claims.map((entry) => entry.id),
+    ...decision.chosen.map((entry) => entry.id),
+    ...decision.rejected.map((entry) => entry.id)
+  ]);
+  const records: EntityRelationRecord[] = [];
+  for (const input of inputs) {
+    if (!anchorIds.has(input.anchor)) {
+      return { ok: false, reason: `decision evidence relation source anchor does not exist: ${input.anchor}` };
+    }
+    const base = {
+      source: `decision/${decision.decision_id}/${input.anchor}`,
+      target: input.target,
+      type: input.type,
+      strength: "strong",
+      direction: "directed",
+      origin: "declared",
+      rationale: input.rationale,
+      state: "active"
+    } satisfies Omit<EntityRelationRecord, "relation_id">;
+    records.push({
+      relation_id: deriveRelationId(base),
+      ...base
+    });
+  }
+  return { ok: true, records };
 }
 
 function parseActor(value: string | undefined): DecisionPackage["arbiter"] | null {

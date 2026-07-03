@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeDecisionWriteService, type DecisionWriteRejected } from "../src/index.ts";
-import type { DecisionPackage, WriteCoordinator, WriteOp } from "../../kernel/src/index.ts";
+import { deriveRelationId, type DecisionPackage, type EntityRelationRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
 
 test("decision write service proposes and accepts through WriteCoordinator", () => {
   const enqueued: WriteOp[] = [];
@@ -54,6 +54,27 @@ test("decision write service rejects empty rejected alternatives", () => {
   assert.match(failureReason(result.cause), /rejected alternatives/u);
 });
 
+test("decision write service preserves supplied relation records", () => {
+  const enqueued: WriteOp[] = [];
+  const service = makeDecisionWriteService({ coordinator: fakeCoordinator(enqueued) });
+  const relation = relationRecord("decision/dec_TEST/C1", "fact/task_01ABC/F-1234ABCD");
+  const proposed = decisionPackage({ relations: [relation] });
+
+  Effect.runSync(service.propose({ decision: proposed }));
+
+  const payload = enqueued[0]?.payload as { readonly decision?: DecisionPackage };
+  assert.deepEqual(payload.decision?.relations, [relation]);
+});
+
+test("decision write service rejects relation records not hosted by the decision", () => {
+  const service = makeDecisionWriteService({ coordinator: fakeCoordinator([]) });
+  const relation = relationRecord("decision/dec_OTHER/C1", "fact/task_01ABC/F-1234ABCD");
+  const result = Effect.runSyncExit(service.propose({ decision: decisionPackage({ relations: [relation] }) }));
+
+  assert.equal(result._tag, "Failure");
+  assert.match(failureReason(result.cause), /hosted by decision\/dec_TEST/u);
+});
+
 function fakeCoordinator(enqueued: WriteOp[]): WriteCoordinator {
   return {
     enqueue: (op) => Effect.sync(() => {
@@ -93,6 +114,23 @@ function decisionPackage(overrides: Partial<DecisionPackage> = {}): DecisionPack
     claims: [{ id: "C1", text: "Coordinator writes are auditable." }],
     relations: [],
     ...overrides
+  };
+}
+
+function relationRecord(source: string, target: string): EntityRelationRecord {
+  const base = {
+    source,
+    target,
+    type: "supports",
+    strength: "strong",
+    direction: "directed",
+    origin: "declared",
+    rationale: "The linked fact supports the decision claim.",
+    state: "active"
+  } satisfies Omit<EntityRelationRecord, "relation_id">;
+  return {
+    relation_id: deriveRelationId(base),
+    ...base
   };
 }
 

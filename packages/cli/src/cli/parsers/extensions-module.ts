@@ -1,5 +1,5 @@
 import { cliError, CliErrorCode } from "../error-codes.ts";
-import { readOption } from "../parse-options.ts";
+import { readOption, readRepeatedOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -56,8 +56,4 @@ export function parseModuleArgs(args: ReadonlyArray<string>, rootDir: string, js
   }
 
   return null;
-}
-
-function readRepeatedOption(args: ReadonlyArray<string>, flag: string): ReadonlyArray<string> {
-  return args.flatMap((arg, index) => arg === flag && args[index + 1] && !args[index + 1].startsWith("--") ? [args[index + 1]] : []);
 }

@@ -77,6 +77,11 @@ test("entity relations schema rejects contract-critical invalid fixtures", async
     ...base,
     relations: [{ ...relation, rationale: "   " }]
   }));
+  const { rationale: _rationale, ...strongRelationWithoutRationale } = relation;
+  assert.throws(() => Schema.decodeUnknownSync(EntityRelationsSchema)({
+    ...base,
+    relations: [strongRelationWithoutRationale]
+  }));
   assert.throws(() => Schema.decodeUnknownSync(EntityRelationsSchema)({
     ...base,
     relations: [{ ...relation, relation_id: "rel_0000000000000000" }]

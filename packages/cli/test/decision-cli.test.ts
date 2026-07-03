@@ -48,6 +48,61 @@ test("CLI decision propose writes a decision package through the coordinator", (
   });
 });
 
+test("CLI decision propose writes typed evidence relation frontmatter", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_RELCLI",
+      "--title",
+      "Decision CLI relations",
+      "--question",
+      "Should propose write evidence relations?",
+      "--chosen",
+      "Write typed relations",
+      "--rejected",
+      "Leave relations out",
+      "--why-not",
+      "Coverage requires relation graph edges",
+      "--evidence-relation",
+      "C1:supports:fact/task_01REL/F-1234ABCD:Fact F-1234ABCD supports claim C1"
+    ]);
+
+    assert.equal(result.ok, true);
+    const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_RELCLI/decision.md"), "utf8");
+    assert.match(body, /^relations:$/mu);
+    assert.match(body, /  - \{ relation_id: "rel_[a-f0-9]{16}", source: "decision\/dec_RELCLI\/C1", target: "fact\/task_01REL\/F-1234ABCD", type: "supports", strength: "strong", direction: "directed", origin: "declared", rationale: "Fact F-1234ABCD supports claim C1", state: "active" \}/u);
+  });
+});
+
+test("CLI decision propose rejects strong evidence relation missing rationale", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_BADREL",
+      "--title",
+      "Decision CLI relations",
+      "--question",
+      "Should propose reject weak evidence descriptors?",
+      "--chosen",
+      "Reject malformed relations",
+      "--rejected",
+      "Write malformed relations",
+      "--why-not",
+      "Relations need rationale",
+      "--evidence-relation",
+      "C1:supports:fact/task_01REL/F-1234ABCD"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "invalid_decision_evidence_relation");
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions")), false);
+  });
+});
+
 test("CLI decision propose rejects missing rejected alternative", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, [

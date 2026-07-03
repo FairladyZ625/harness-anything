@@ -1,12 +1,18 @@
+import {
+  parseEntityRef,
+  relationTypes,
+  type RelationType
+} from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
-import { readOption } from "../parse-options.ts";
-import type { CliResult, ParsedCommand } from "../types.ts";
+import { readOption, readRepeatedRawOption } from "../parse-options.ts";
+import type { CliResult, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
 const transitionOps = new Set(["accept", "reject", "defer", "supersede", "retire"]);
 const tiers = new Set(["low", "medium", "high"]);
 const actorKinds = new Set(["agent", "human", "system"]);
+const evidenceTargetKinds = new Set(["task", "fact"]);
 
 export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] !== "decision") return null;
@@ -53,6 +59,8 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
   const arbiter = readOption(args, "--arbiter");
   if (proposedBy && !isActorRef(proposedBy)) return invalidActor();
   if (arbiter && !isActorRef(arbiter)) return invalidActor();
+  const evidenceRelations = parseEvidenceRelations(args);
+  if (!evidenceRelations.ok) return { ok: false, error: evidenceRelations.error };
   return parsedDecision(rootDir, json, {
     kind: "decision-propose",
     decisionId: readOption(args, "--id"),
@@ -68,9 +76,44 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     arbiter,
     modules: splitList(readOption(args, "--module")),
     productLines: splitList(readOption(args, "--product-line")),
+    evidenceRelations: evidenceRelations.value,
     body: readOption(args, "--body"),
     dryRun: args.includes("--dry-run")
   });
+}
+
+function parseEvidenceRelations(args: ReadonlyArray<string>):
+  | { readonly ok: true; readonly value: ReadonlyArray<DecisionEvidenceRelationInput> }
+  | { readonly ok: false; readonly error: CliResult["error"] } {
+  const values = readRepeatedRawOption(args, "--evidence-relation");
+  const relations: DecisionEvidenceRelationInput[] = [];
+  for (const value of values) {
+    const relation = parseEvidenceRelation(value);
+    if (!relation) {
+      return {
+        ok: false,
+        error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use --evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>.")
+      };
+    }
+    relations.push(relation);
+  }
+  return { ok: true, value: relations };
+}
+
+function parseEvidenceRelation(value: string | undefined): DecisionEvidenceRelationInput | null {
+  if (!value || value.startsWith("--")) return null;
+  const [anchor, type, target, ...rationaleParts] = value.split(":");
+  const rationale = rationaleParts.join(":").trim();
+  const targetRef = target ? parseEntityRef(target) : null;
+  if (!anchor || !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(anchor)) return null;
+  if (!isRelationType(type)) return null;
+  if (!targetRef || targetRef.externalHarness || !evidenceTargetKinds.has(targetRef.kind)) return null;
+  if (rationale.length === 0) return null;
+  return { anchor, type, target, rationale };
+}
+
+function isRelationType(value: string | undefined): value is RelationType {
+  return relationTypes.includes(value as RelationType);
 }
 
 function readTier(value: string): "low" | "medium" | "high" | null {
