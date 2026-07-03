@@ -3,19 +3,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const registryPath = "packages/cli/src/cli/command-registry.ts";
+const optionDescriptionsPath = "packages/cli/src/cli/command-option-descriptions.ts";
 const receiptPath = "packages/cli/src/cli/receipt.ts";
 const receiptContractsPath = "packages/cli/src/cli/receipt-contracts.ts";
 const entrypointPath = "packages/cli/src/index.ts";
 
 export function findCliHelpContractViolations(rootDir = process.cwd()) {
   const source = readFileSync(path.join(rootDir, registryPath), "utf8");
+  const optionDescriptionsSource = readFileSync(path.join(rootDir, optionDescriptionsPath), "utf8");
   const receiptSource = readFileSync(path.join(rootDir, receiptPath), "utf8");
   const receiptContractsSource = readFileSync(path.join(rootDir, receiptContractsPath), "utf8");
   const entrypointSource = readFileSync(path.join(rootDir, entrypointPath), "utf8");
   const commandUsageSource = extractAssignedLiteral(source, "commandUsages");
   const summarySource = extractAssignedLiteral(source, "commandSummaries");
   const exampleSource = extractAssignedLiteral(source, "commandExamples");
-  const descriptionSource = extractAssignedLiteral(source, "descriptions");
+  const descriptionSource = extractAssignedLiteral(optionDescriptionsSource, "descriptions");
   const receiptContractSource = extractAssignedLiteral(receiptContractsSource, "commandReceiptContractsByKind");
   const violations = [];
 
@@ -56,7 +58,7 @@ export function findCliHelpContractViolations(rootDir = process.cwd()) {
       }
     }
   }
-  if (/humanizeKind|Set this command option/u.test(source)) {
+  if (/humanizeKind|Set this command option/u.test(`${source}\n${optionDescriptionsSource}`)) {
     violations.push("command help must not use generic summary or option-description fallback text");
   }
   if (/CliResult\/v1/u.test(source) || /CliResult\/v1/u.test(receiptSource) || /CliResult\/v1/u.test(entrypointSource)) {
