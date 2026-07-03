@@ -1,0 +1,18 @@
+{
+  "schema": "docmap/v1",
+  "documents": [
+    {
+      "id": "bad-doc",
+      "path": "../outside.md",
+      "kind": "memo",
+      "scope": {
+        "modules": [
+          "m4-loadbearing"
+        ],
+        "productLines": []
+      },
+      "owner": "architecture",
+      "brief": "Invalid path and kind."
+    }
+  ]
+}

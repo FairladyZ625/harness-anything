@@ -67,6 +67,9 @@ export type {
   RuntimeEventResultStatus
 } from "./runtime-event.ts";
 
+export { docmapDocumentKinds } from "./docmap.ts";
+export type { DocmapDocument, DocmapDocumentKind, DocmapManifest, DocmapReadSet, DocmapScope } from "./docmap.ts";
+
 export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
 export type {
   EntityKindDeclaration,

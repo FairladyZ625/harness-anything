@@ -1,0 +1,24 @@
+{
+  "schema": "docmap/v1",
+  "documents": [
+    {
+      "id": "adr-0011",
+      "path": "context/architecture/adr/ADR-0011-context-retrieval-recall-and-non-omission.md",
+      "kind": "adr",
+      "scope": {
+        "modules": [
+          "m4-loadbearing"
+        ],
+        "productLines": [
+          "kernel"
+        ]
+      },
+      "owner": "architecture",
+      "brief": "Context retrieval and non-omission decision record.",
+      "tags": [
+        "docmap",
+        "read-set"
+      ]
+    }
+  ]
+}

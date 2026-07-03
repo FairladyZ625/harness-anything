@@ -4,6 +4,7 @@ import { packageDispositions } from "../domain/package-disposition.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { ActorRefSchema, LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
+import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
 import { FactRecordSchema } from "./fact-record.ts";
 import { RuntimeEventRecordSchema } from "./runtime-event.ts";
@@ -11,6 +12,7 @@ import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
+export { DocmapDocumentSchema, DocmapManifestSchema } from "./docmap.ts";
 export { FactRecordSchema } from "./fact-record.ts";
 export { RuntimeEventRecordSchema } from "./runtime-event.ts";
 export {
@@ -438,6 +440,7 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
 export type HarnessConfig = Schema.Schema.Type<typeof HarnessConfigSchema>;
 export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
 export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
+export type DocmapManifestContract = Schema.Schema.Type<typeof DocmapManifestSchema>;
 export type EntityRelations = Schema.Schema.Type<typeof EntityRelationsSchema>;
 export type WriteJournalOp = Schema.Schema.Type<typeof WriteJournalOpSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
@@ -497,6 +500,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/runtime-event-record.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/runtime-event-record/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/runtime-event-record/invalid.json"
+  },
+  {
+    id: "docmap",
+    schema: DocmapManifestSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/docmap.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/docmap/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/docmap/invalid.json"
   },
   {
     id: "write-journal-op",

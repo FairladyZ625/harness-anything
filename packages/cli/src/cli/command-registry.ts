@@ -15,6 +15,7 @@ export type CommandParserId =
   | "decision"
   | "record"
   | "runtime-event"
+  | "doc"
   | "status-check"
   | "migration"
   | "git-diff"
@@ -33,6 +34,7 @@ export type CommandRunnerId =
   | "decision"
   | "fact"
   | "runtime-event"
+  | "doc"
   | "task-lifecycle"
   | "task-gates"
   | "task-query"
@@ -71,6 +73,8 @@ const commandUsages = [
   { kind: "record-fact", usage: "record fact --task <task-id> --statement <text> --source <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--dry-run] [--json]" },
   { kind: "runtime-event-append", usage: "runtime-event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]" },
   { kind: "runtime-event-list", usage: "runtime-event list --session <session-id> [--json]" },
+  { kind: "doc-list", usage: "doc list [--module <key>] [--product-line <key>] [--json]" },
+  { kind: "doc-map", usage: "doc map [--module <key>] [--product-line <key>] [--json]" },
   { kind: "template-list", usage: "template list [--catalog <path>] [--json]" },
   { kind: "template-render", usage: "template render <template-ref> [--catalog <path>] [--locale zh-CN|en-US] [--json]" },
   { kind: "task-list", usage: "task list [--state <state>] [--module <key>] [--queue <queue>] [--preset <id>] [--review <state>] [--lesson [present|missing]] [--missing-materials] [--include-archived] [--search <text>] [--json]" },
@@ -133,6 +137,8 @@ const commandParserIds = {
   "record-fact": "record",
   "runtime-event-append": "runtime-event",
   "runtime-event-list": "runtime-event",
+  "doc-list": "doc",
+  "doc-map": "doc",
   "status-set": "core-task",
   "progress-append": "core-task",
   "task-archive": "core-task",
@@ -201,6 +207,8 @@ const commandRunnerIds = {
   "record-fact": "fact",
   "runtime-event-append": "runtime-event",
   "runtime-event-list": "runtime-event",
+  "doc-list": "doc",
+  "doc-map": "doc",
   "status-set": "task-lifecycle",
   "progress-append": "task-lifecycle",
   "task-archive": "task-lifecycle",
@@ -277,6 +285,8 @@ const commandSummaries = {
   "record-fact": "Record a stable task-local fact anchor through the fact write service.",
   "runtime-event-append": "Append one structured runtime event to the local JSONL event ledger.",
   "runtime-event-list": "Read structured runtime events for one session from the local JSONL ledger.",
+  "doc-list": "List canonical documents declared in the docmap manifest.",
+  "doc-map": "Compute the docmap minimum read set for a module or product line.",
   "template-list": "List available task and document templates.",
   "template-render": "Render a template reference with a selected locale.",
   "task-list": "List task packages with state, module, review, and search filters.",
@@ -345,6 +355,8 @@ const commandExamples = {
   "record-fact": [`${cliCommandName} record fact --task task_01ABC --statement "CLI fallback passed" --source "manual verification" --confidence high`],
   "runtime-event-append": [`${cliCommandName} runtime-event append --session codex-session-1 --kind interrupt --runtime codex --interrupt append --summary "User appended task guidance"`],
   "runtime-event-list": [`${cliCommandName} runtime-event list --session codex-session-1 --json`],
+  "doc-list": [`${cliCommandName} doc list --module m4-loadbearing --json`],
+  "doc-map": [`${cliCommandName} doc map --module m4-loadbearing --product-line kernel --json`],
   "template-list": [`${cliCommandName} template list --json`],
   "template-render": [`${cliCommandName} template render template://planning/task@1 --locale zh-CN`],
   "task-list": [`${cliCommandName} task list --state active --module kernel --review missing`],
