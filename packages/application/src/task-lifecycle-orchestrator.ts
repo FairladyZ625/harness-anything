@@ -241,9 +241,60 @@ function taskFailure(taskId: string, code: string, hint: string): TaskLifecycleF
 }
 
 function writeFailure(taskId: string, error: EngineError | WriteError, fallbackHint: string): TaskLifecycleFailure {
-  return taskFailure(taskId, error._tag, fallbackHint);
+  return taskFailure(taskId, writeFailureCode(error), `${fallbackHint} ${writeFailureCauseHint(error)}`);
 }
 
 function completionGateErrorCode(issues: ReadonlyArray<{ readonly code: string }>): string {
   return issues[0]?.code ?? "completion_gate_failed";
+}
+
+function writeFailureCode(error: EngineError | WriteError): string {
+  switch (error._tag) {
+    case "MalformedSnapshot":
+      return "malformed_snapshot";
+    case "TaskNotFound":
+      return "task_not_found";
+    case "InvalidTransition":
+      return "invalid_transition";
+    case "EngineOwnsStatus":
+      return "engine_owns_status";
+    case "WriteRejected":
+      return "write_rejected";
+    case "WriteConflict":
+    case "GlobalWriteConflict":
+      return "write_conflict";
+    case "JournalUnavailable":
+      return "journal_unavailable";
+    default:
+      return error._tag;
+  }
+}
+
+function writeFailureCauseHint(error: EngineError | WriteError): string {
+  switch (error._tag) {
+    case "MalformedSnapshot":
+      return `Cause: ${String(error.raw)}`;
+    case "TaskNotFound":
+      return `Cause: task not found: ${error.taskId}`;
+    case "InvalidTransition":
+      return `Cause: invalid transition: ${error.from} -> ${error.to}`;
+    case "EngineOwnsStatus":
+      return `Cause: status is owned by ${error.engine}.`;
+    case "WriteRejected":
+      return `Cause: ${error.reason}`;
+    case "WriteConflict":
+      return `Cause: ${error.owner ?? "write lock is held"}`;
+    case "GlobalWriteConflict":
+      return `Cause: ${error.owner ? `global write lock is held: ${error.owner}` : "global write lock is held"}`;
+    case "JournalUnavailable":
+      return `Cause: ${journalCause(error.cause)}`;
+    default:
+      return `Cause: ${error._tag}`;
+  }
+}
+
+function journalCause(cause: unknown): string {
+  if (cause instanceof Error) return cause.message.trim().split(/\r?\n/u)[0] ?? "journal unavailable";
+  if (typeof cause === "string" && cause.trim().length > 0) return cause.trim().split(/\r?\n/u)[0] ?? "journal unavailable";
+  return "journal unavailable";
 }
