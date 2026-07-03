@@ -340,6 +340,22 @@ test("CLI task list reads from rebuildable SQLite projection", () => {
   });
 });
 
+test("CLI task list fails conflict preflight before rebuilding projection", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    rmSync(projectionPath, { force: true });
+    writeConflictMarker(rootDir);
+
+    const result = runJson(rootDir, ["task", "list"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "conflict_marker_present");
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "conflict_marker_present" && warning.source === "collaboration-gate"), true);
+    assert.equal(existsSync(projectionPath), false);
+  });
+});
+
 test("CLI status --json returns local projection health envelope", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
@@ -364,17 +380,44 @@ test("CLI status --json returns local projection health envelope", () => {
   });
 });
 
-test("CLI status --json runs the post-merge collaboration gate", () => {
+test("CLI status --json fails conflict preflight before reading projection state", () => {
   withTempRoot((rootDir) => {
-    mkdirSync(path.join(rootDir, "harness/standards"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/standards/repo.md"), "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", "utf8");
+    writeConflictMarker(rootDir);
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    rmSync(projectionPath, { force: true });
 
     const result = runJson(rootDir, ["status"], false);
 
     assert.equal(result.ok, false);
-    assert.equal(result.error?.code, "status_check_failed");
+    assert.equal(result.error?.code, "conflict_marker_present");
     assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "conflict_marker_present" && warning.source === "collaboration-gate"), true);
-    assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "collaboration-gate" && axis.hardFailCount === 1), true);
+    assert.equal(result.report, undefined);
+    assert.equal(existsSync(projectionPath), false);
+  });
+});
+
+test("CLI write commands fail conflict preflight before mutating authored files", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const indexPath = path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`);
+    const progressPath = path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`);
+    writeConflictMarker(rootDir);
+
+    const statusFailure = runJson(rootDir, ["task", "status", "set", taskId, "active"], false);
+    assert.equal(statusFailure.ok, false);
+    assert.equal(statusFailure.error?.code, "conflict_marker_present");
+    assert.match(readFileSync(indexPath, "utf8"), /status: planned/);
+
+    const progressFailure = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "should not write"], false);
+    assert.equal(progressFailure.ok, false);
+    assert.equal(progressFailure.error?.code, "conflict_marker_present");
+    assert.equal(existsSync(progressPath), false);
+
+    const newTaskFailure = runJson(rootDir, ["new-task", "--title", "Blocked Task"], false);
+    assert.equal(newTaskFailure.ok, false);
+    assert.equal(newTaskFailure.error?.code, "conflict_marker_present");
+    assert.equal(readdirSync(path.join(rootDir, "harness/tasks")).some((entry) => entry.endsWith("-blocked-task")), false);
   });
 });
 
@@ -604,6 +647,12 @@ function writeReview(rootDir: string, directoryName: string, findingRows: Readon
     ...findingRows,
     ""
   ].join("\n"), "utf8");
+}
+
+function writeConflictMarker(rootDir: string): void {
+  const filePath = path.join(rootDir, "harness/standards/repo.md");
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", "utf8");
 }
 
 function assertGeneratedTaskId(value: unknown): string {

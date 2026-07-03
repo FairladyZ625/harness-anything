@@ -4,8 +4,10 @@ import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
+import { findConflictMarkerWarnings } from "../../../kernel/src/projection/post-merge-checks.ts";
 import type { CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";
+import { cliError, CliErrorCode } from "./error-codes.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 import {
   runDiagnosticsCommand,
@@ -106,13 +108,25 @@ export function runRegisteredCommand(
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
+  const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
+  const conflictMarkerWarning = requiresConflictMarkerPreflight(command.action)
+    ? findConflictMarkerWarnings(layoutInput)[0]
+    : undefined;
+  if (conflictMarkerWarning) {
+    return Effect.succeed({
+      ok: false,
+      command: command.action.kind,
+      warnings: [conflictMarkerWarning],
+      error: cliError(CliErrorCode.ConflictMarkerPresent, conflictMarkerWarning.message)
+    } satisfies CliResult);
+  }
   let engine: CommandRunnerEngine | undefined;
   let currentSessionProbe: CurrentSessionProbePort | undefined;
   let decisionWriteService: DecisionWriteService | undefined;
   let factWriteService: FactWriteService | undefined;
   return runner({
     rootDir: command.rootDir,
-    layoutInput: createHarnessRuntimeContext(command.rootDir, command.layoutOverrides),
+    layoutInput,
     layoutOverrides: command.layoutOverrides,
     get engine() {
       engine ??= makeEngine();
@@ -131,4 +145,31 @@ export function runRegisteredCommand(
       return factWriteService;
     }
   }, command);
+}
+
+function requiresConflictMarkerPreflight(action: ParsedCommand["action"]): boolean {
+  switch (action.kind) {
+    case "new-task":
+    case "status-set":
+    case "progress-append":
+    case "task-archive":
+    case "task-supersede":
+    case "task-delete":
+    case "task-reopen":
+    case "task-review":
+    case "task-complete":
+    case "decision-propose":
+    case "decision-accept":
+    case "decision-reject":
+    case "decision-defer":
+    case "decision-supersede":
+    case "decision-amend":
+    case "decision-retire":
+    case "record-fact":
+    case "task-list":
+    case "status":
+      return true;
+    default:
+      return false;
+  }
 }

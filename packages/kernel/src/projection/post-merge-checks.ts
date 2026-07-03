@@ -18,7 +18,7 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findDuplicateExternalBindings(source.entries));
   warnings.push(...findTrackedGeneratedFiles(rootDir));
   warnings.push(...findTamperedBindings(source.entries));
-  warnings.push(...findConflictMarkers(rootInput));
+  warnings.push(...findConflictMarkerWarnings(rootInput));
   warnings.push(...findDecisionWatermarkIssues(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
   warnings.push(...findRelationCycles(rootInput));
@@ -127,7 +127,7 @@ function findTamperedBindings(entries: ReadonlyArray<TaskSourceEntry>): Readonly
   return warnings;
 }
 
-function findConflictMarkers(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
+export function findConflictMarkerWarnings(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const roots = [layout.authoredRoot, path.join(layout.rootDir, "AGENTS.md"), path.join(layout.rootDir, "CLAUDE.md")];
