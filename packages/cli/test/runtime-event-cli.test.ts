@@ -47,6 +47,37 @@ test("CLI runtime-event append and list write local JSONL without task lifecycle
   });
 });
 
+test("CLI runtime-event append preserves JSONL append order across repeated writes", () => {
+  withTempRoot((rootDir) => {
+    const sessionId = "codex-session-append-only";
+    const appendArgs = [
+      ["--kind", "session", "--runtime", "codex", "--id", "evt_first001", "--at", "2026-07-03T00:00:00.000Z"],
+      ["--kind", "tool", "--tool", "shell", "--id", "evt_second002", "--at", "2026-07-03T00:00:01.000Z"],
+      ["--kind", "result", "--result", "succeeded", "--summary", "Completed step.", "--id", "evt_third003", "--at", "2026-07-03T00:00:02.000Z"]
+    ];
+
+    const ledgerPath = path.join(rootDir, ".harness", "generated/runtime-events", `${sessionId}.jsonl`);
+    let firstLineAfterFirstAppend = "";
+    for (const [index, args] of appendArgs.entries()) {
+      const appended = runJson(rootDir, ["runtime-event", "append", "--session", sessionId, ...args]);
+      assert.equal(appended.ok, true);
+      if (index === 0) {
+        firstLineAfterFirstAppend = readFileSync(ledgerPath, "utf8").trimEnd().split("\n")[0] ?? "";
+      }
+    }
+
+    const listed = runJson(rootDir, ["runtime-event", "list", "--session", sessionId]);
+    const lines = readFileSync(ledgerPath, "utf8").trimEnd().split("\n");
+    const lineEvents = lines.map((line) => JSON.parse(line) as { readonly eventId: string; readonly kind: string });
+
+    assert.equal(lines.length, 3);
+    assert.equal(lines[0], firstLineAfterFirstAppend);
+    assert.deepEqual(lineEvents.map((event) => event.eventId), ["evt_first001", "evt_second002", "evt_third003"]);
+    assert.deepEqual(lineEvents.map((event) => event.kind), ["session", "tool", "result"]);
+    assert.deepEqual(listed.report.events.map((event: { readonly eventId: string }) => event.eventId), lineEvents.map((event) => event.eventId));
+  });
+});
+
 test("CLI runtime-event append rejects unsupported steering vocabulary", () => {
   withTempRoot((rootDir) => {
     const failure = runJson(rootDir, [
