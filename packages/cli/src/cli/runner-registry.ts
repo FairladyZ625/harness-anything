@@ -4,6 +4,7 @@ import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
+import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { findConflictMarkerWarnings } from "../../../kernel/src/projection/post-merge-checks.ts";
 import type { CommandKind, CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";
@@ -33,6 +34,7 @@ export interface CommandRunnerContext {
   readonly engine: CommandRunnerEngine;
   readonly currentSessionProbe: CurrentSessionProbePort;
   readonly provenanceSessionExporter: ProvenanceSessionExporter;
+  readonly makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
 }
@@ -105,6 +107,7 @@ export function runRegisteredCommand(
   makeEngine: () => CommandRunnerEngine,
   makeCurrentSessionProbe: () => CurrentSessionProbePort,
   makeProvenanceSessionExporter: () => ProvenanceSessionExporter,
+  makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator,
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService
 ): CommandRunnerEffect {
@@ -143,6 +146,7 @@ export function runRegisteredCommand(
       provenanceSessionExporter ??= makeProvenanceSessionExporter();
       return provenanceSessionExporter;
     },
+    makeWriteCoordinator,
     get decisionWriteService() {
       decisionWriteService ??= makeDecisionWriteService();
       return decisionWriteService;
@@ -187,6 +191,7 @@ const conflictMarkerPreflightByKind = {
   "snapshot-multica": false,
   "migrate-plan": false,
   "migrate-structure": true,
+  "migrate-provenance": true,
   "migrate-run": true,
   "migrate-verify": false,
   "legacy-scan": false,

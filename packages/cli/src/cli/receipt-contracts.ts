@@ -40,6 +40,7 @@ export const commandReceiptContractsByKind = {
   "snapshot-multica": { data: ["report"], paths: [] },
   "migrate-plan": { data: ["rows", "report"], paths: [] },
   "migrate-structure": { data: ["migrationMode", "rows", "report"], paths: [] },
+  "migrate-provenance": { data: ["migrationMode", "rows", "report"], paths: [] },
   "migrate-run": { data: ["migrationMode", "rows", "report"], paths: ["primary", "session"] },
   "migrate-verify": { data: ["report"], paths: [] },
   "legacy-scan": { data: ["rows", "report"], paths: [] },

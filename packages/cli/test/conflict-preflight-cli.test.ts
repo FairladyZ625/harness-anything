@@ -25,6 +25,7 @@ const expectedConflictPreflightKinds = [
   "legacy-intake-plan",
   "lesson-promote",
   "lesson-sediment",
+  "migrate-provenance",
   "migrate-run",
   "migrate-structure",
   "module-register",

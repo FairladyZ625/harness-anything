@@ -65,6 +65,23 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
     };
   }
 
+  if (args[0] === "migrate-provenance") {
+    if (args.includes("--dry-run") && args.includes("--apply")) {
+      return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --dry-run or --apply.") };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "migrate-provenance",
+          mode: args.includes("--apply") ? "apply" : "dry-run"
+        }
+      }
+    };
+  }
+
   if (args[0] === "migrate-run") {
     const locale = readOption(args, "--locale");
     const assumeLocale = readOption(args, "--assume-locale");

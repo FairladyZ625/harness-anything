@@ -39,7 +39,11 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
       currentSessionProbe: getCurrentSessionProbe(),
       provenanceSessionExporter: makeSessionExporter()
     }, boundAt)
-  }), getCurrentSessionProbe, makeSessionExporter, () => makeDecisionWriteService({
+  }), getCurrentSessionProbe, makeSessionExporter, (actor) => makeLocalWriteCoordinator({
+    rootDir: parsed.value.rootDir,
+    layoutOverrides: parsed.value.layoutOverrides,
+    actor
+  }), () => makeDecisionWriteService({
     coordinator: makeLocalWriteCoordinator({
       rootDir: parsed.value.rootDir,
       layoutOverrides: parsed.value.layoutOverrides,

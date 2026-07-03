@@ -389,6 +389,49 @@ test("CLI migrate aliases now emit Legacy Intake semantics and retire full cutov
   });
 });
 
+test("CLI migrate-provenance backfills pre-R2 task indexes through the write journal", () => {
+  withTempRoot((rootDir) => {
+    writeCurrentTaskPackage(rootDir, "task-pre-r2", "Pre R2 Task", "planned", { provenance: false });
+    writeCurrentTaskPackage(rootDir, "task-with-provenance", "Existing Provenance", "planned", { provenance: true });
+    const existingBefore = readFileSync(path.join(rootDir, "harness/tasks/task-with-provenance/INDEX.md"), "utf8");
+
+    const locked = runJson(rootDir, ["task", "status", "set", "task-pre-r2", "active"], false);
+    assert.equal(locked.ok, false);
+    assert.equal(locked.error.code, "malformed_snapshot");
+
+    const dryRun = runJson(rootDir, ["migrate-provenance"]);
+    assert.equal(dryRun.command, "migrate-provenance");
+    assert.equal(dryRun.migrationMode, "plan");
+    assert.equal(dryRun.rows, 1);
+    assert.equal(dryRun.report.summary.needsBackfill, 1);
+    assert.equal(dryRun.report.summary.applied, 0);
+    assert.equal(dryRun.report.entries[0].taskId, "task-pre-r2");
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
+
+    const applied = runJson(rootDir, ["migrate-provenance", "--apply"]);
+    assert.equal(applied.migrationMode, "apply");
+    assert.equal(applied.report.summary.needsBackfill, 1);
+    assert.equal(applied.report.summary.applied, 1);
+
+    const backfilled = readFileSync(path.join(rootDir, "harness/tasks/task-pre-r2/INDEX.md"), "utf8");
+    assert.match(backfilled, /^provenance:$/m);
+    assert.match(backfilled, /runtime: "codex"/);
+    assert.match(backfilled, /sessionId: "codex-provenance-backfill-/);
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
+
+    const status = runJson(rootDir, ["task", "status", "set", "task-pre-r2", "active"]);
+    assert.equal(status.ok, true);
+    assert.equal(status.status, "active");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-with-provenance/INDEX.md"), "utf8"), existingBefore);
+
+    const beforeRepeat = readFileSync(path.join(rootDir, "harness/tasks/task-pre-r2/INDEX.md"), "utf8");
+    const repeat = runJson(rootDir, ["migrate-provenance", "--apply"]);
+    assert.equal(repeat.report.summary.needsBackfill, 0);
+    assert.equal(repeat.report.summary.applied, 0);
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-pre-r2/INDEX.md"), "utf8"), beforeRepeat);
+  });
+});
+
 function writeLegacyTask(rootDir: string, id: string, status: string): void {
   const taskDir = path.join(rootDir, "docs/09-PLANNING/TASKS", id);
   writeTaskPackage(taskDir, id, status);
@@ -416,6 +459,47 @@ function writeFile(rootDir: string, relativePath: string, body: string): void {
   const fullPath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, body, "utf8");
+}
+
+function writeCurrentTaskPackage(
+  rootDir: string,
+  id: string,
+  title: string,
+  status: string,
+  options: { readonly provenance: boolean }
+): void {
+  const taskDir = path.join(rootDir, "harness/tasks", id);
+  const provenance = options.provenance
+    ? [
+      "provenance:",
+      "  - {runtime: \"human\", sessionId: \"human-fixture\", boundAt: \"2026-07-03T00:00:00.000Z\"}"
+    ]
+    : [];
+  mkdirSync(taskDir, { recursive: true });
+  writeFileSync(path.join(taskDir, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${id}`,
+    `title: ${title}`,
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    "  engine: local",
+    `  status: ${status}`,
+    "  ref: ",
+    `  titleSnapshot: ${title}`,
+    "  url: ",
+    "  bindingCreatedAt: 2026-07-03T00:00:00.000Z",
+    "  bindingFingerprint: sha256:fixture",
+    "packageDisposition: active",
+    "vertical: software/coding",
+    "preset: standard-task",
+    ...provenance,
+    "profile: baseline",
+    "---",
+    "",
+    `# ${title}`,
+    ""
+  ].join("\n"), "utf8");
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
