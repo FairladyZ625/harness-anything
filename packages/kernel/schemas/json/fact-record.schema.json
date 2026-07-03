@@ -11,6 +11,8 @@
     "source",
     "observedAt",
     "confidence",
+    "memoryClass",
+    "memoryTags",
     "provenance"
   ],
   "properties": {
@@ -39,6 +41,27 @@
         "medium",
         "high"
       ]
+    },
+    "memoryClass": {
+      "enum": [
+        "semantic",
+        "episodic",
+        "procedural"
+      ]
+    },
+    "memoryTags": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "episode",
+          "procedural",
+          "tool_memory",
+          "pattern",
+          "task_skill",
+          "abstract_rule",
+          "other"
+        ]
+      }
     },
     "provenance": {
       "type": "array",
