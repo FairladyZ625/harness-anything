@@ -12,7 +12,6 @@ test("path guard rejects traversal, private folder access, absolute escape and f
     mkdirSync(path.join(root, "harness/tasks/task-1"), { recursive: true });
     mkdirSync(path.join(root, ".harness-private"), { recursive: true });
     writeFileSync(path.join(outside, "secret.md"), "secret");
-    if (!trySymlink(path.join(outside, "secret.md"), path.join(root, "harness/tasks/task-1/link.md"))) return;
 
     assert.equal(validateProjectPath(root, "harness/tasks/task-1/INDEX.md").ok, true);
     assert.equal(validateProjectPath(root, "../outside.md").reason, "path_outside_project");
@@ -20,7 +19,9 @@ test("path guard rejects traversal, private folder access, absolute escape and f
     assert.equal(validateProjectPath(root, "C:\\Users\\name\\secret.md").reason, "path_outside_project");
     assert.equal(validateProjectPath(root, "\\\\server\\share\\secret.md").reason, "path_outside_project");
     assert.equal(validateProjectPath(root, ".harness-private/review.md").reason, "path_is_private");
-    assert.equal(validateProjectPath(root, "harness/tasks/task-1/link.md").reason, "path_outside_project");
+    if (trySymlink(path.join(outside, "secret.md"), path.join(root, "harness/tasks/task-1/link.md"))) {
+      assert.equal(validateProjectPath(root, "harness/tasks/task-1/link.md").reason, "path_outside_project");
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
