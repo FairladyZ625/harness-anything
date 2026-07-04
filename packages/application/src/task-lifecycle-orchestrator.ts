@@ -23,6 +23,7 @@ export interface TaskLifecycleProgressWriteResult {
 export interface TaskLifecycleWriter {
   readonly setStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleStatusWriteResult, EngineError | WriteError>;
   readonly appendProgress: (payload: { readonly taskId: string; readonly text: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
+  readonly stageDocument: (payload: { readonly taskId: string; readonly path: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
 }
 
 export interface TaskLifecycleOrchestratorOptions {
@@ -92,7 +93,17 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
       })
     ),
-    reviewTask: (payload) => Effect.sync(() => reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now)),
+    reviewTask: (payload) => Effect.gen(function* () {
+      const review = reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now);
+      if (!review.ok) return review;
+      const staged = yield* options.taskWriter.stageDocument({ taskId: payload.taskId, path: "review.md" }).pipe(
+        Effect.match({
+          onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Review artifact staging failed."),
+          onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, path: result.path, report: review.report, reviewContract: review.reviewContract })
+        })
+      );
+      return staged;
+    }),
     completeTask: (payload) => Effect.gen(function* () {
       const review = yield* Effect.sync(() => reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now));
       if (!review.ok) {
@@ -144,6 +155,15 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         })
       );
       if (!status.ok) return status;
+      for (const documentPath of ["review.md", "closeout.md"]) {
+        const staged = yield* options.taskWriter.stageDocument({ taskId: payload.taskId, path: documentPath }).pipe(
+          Effect.match({
+            onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, `${documentPath} staging failed.`),
+            onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, path: result.path })
+          })
+        );
+        if (!staged.ok) return staged;
+      }
       return {
         ok: true,
         taskId: payload.taskId,

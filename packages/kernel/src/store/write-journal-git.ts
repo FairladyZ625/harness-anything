@@ -6,7 +6,7 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024;
 
-export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir): string {
+export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir, message?: string): string {
   if (touchedPaths.length === 0) return "no-git-change";
 
   const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput);
@@ -16,7 +16,7 @@ export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<
   const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
   if (staged.length === 0) return currentGitHead(plan.repoRoot);
 
-  runGit(plan.repoRoot, "commit", "-m", `harness write ${opIds.join(",")}`);
+  runGit(plan.repoRoot, "commit", "-m", message ?? `harness write ${opIds.join(",")}`);
   return currentGitHead(plan.repoRoot);
 }
 

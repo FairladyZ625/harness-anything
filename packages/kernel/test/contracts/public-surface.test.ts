@@ -99,6 +99,8 @@ const publicRuntimeSurface = [
   "isRuntimeEventKind",
   "isRuntimeEventResultStatus",
   "isTerminalStatus",
+  "moduleEntityId",
+  "moduleKeyFromEntityId",
   "needsReviewArtifacts",
   "openDomainStatuses",
   "packageDispositions",

@@ -64,6 +64,19 @@ export function appendProgressDelta(
   });
 }
 
+export function stageTaskDocument(
+  coordinator: WriteCoordinator,
+  hashPayload: HashPayload,
+  taskId: TaskId,
+  documentPath: string
+): Effect.Effect<void, WriteError> {
+  return writeCoordinatedPayload(coordinator, hashPayload, {
+    entityId: taskEntityId(taskId),
+    kind: "doc_stage",
+    payload: { path: documentPath }
+  });
+}
+
 export function writeSupersedeTaskDocuments(
   coordinator: WriteCoordinator,
   hashPayload: HashPayload,

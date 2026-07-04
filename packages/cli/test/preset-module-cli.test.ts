@@ -438,10 +438,17 @@ test("CLI preset run rejects undeclared v2 actions instead of succeeding as no-o
 
 test("CLI module CRUD maintains generated module view and module-step state", () => {
   withTempRoot((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeFile(rootDir, ".gitignore", ".harness/\n");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "commit", "-m", "seed ignore");
+
     const registered = runJson(rootDir, ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"]);
     assert.equal(registered.ok, true);
     assert.equal(registered.command, "module-register");
     assert.equal(registered.module.key, "billing");
+    assert.equal(runGit(rootDir, "status", "--short"), "");
+    assert.match(runGit(rootDir, "log", "--oneline", "-1"), /module\(registry\): billing register/);
 
     const listed = runJson(rootDir, ["module", "list"]);
     assert.equal(listed.ok, true);
@@ -455,10 +462,14 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
     const scaffolded = runJson(rootDir, ["module", "scaffold", "billing"]);
     assert.equal(scaffolded.ok, true);
     assert.equal(scaffolded.path, "harness/modules/billing/module_plan.md");
+    assert.equal(runGit(rootDir, "status", "--short"), "");
+    assert.match(runGit(rootDir, "log", "--oneline", "-1"), /module\(scaffold\): billing scaffold/);
 
     const stepped = runJson(rootDir, ["module-step", "billing", "BILL-01", "--state", "done"]);
     assert.equal(stepped.ok, true);
     assert.equal(stepped.module.steps[0].state, "done");
+    assert.equal(runGit(rootDir, "status", "--short"), "");
+    assert.match(runGit(rootDir, "log", "--oneline", "-1"), /module\(registry\): billing step/);
 
     const registry = readFileSync(path.join(rootDir, ".harness/generated/Module-Registry.md"), "utf8");
     assert.match(registry, /\| billing \| Billing \| active \|/);
@@ -495,6 +506,16 @@ function writeFile(rootDir: string, relativePath: string, body: string): void {
   const filePath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, body, "utf8");
+}
+
+function initializeGitRepo(rootDir: string): void {
+  runGit(rootDir, "init");
+  runGit(rootDir, "config", "user.email", "test@example.com");
+  runGit(rootDir, "config", "user.name", "Test User");
+}
+
+function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
 function writePreset(rootDir: string, relativePath: string, overrides: {

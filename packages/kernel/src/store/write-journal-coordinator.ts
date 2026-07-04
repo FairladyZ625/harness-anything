@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type {
   FlushReason,
   FlushReport,
@@ -16,17 +15,14 @@ import {
   isDomainStatus,
   isPackageDisposition,
   isTerminalStatus,
-  taskEntityId,
   taskIdFromEntityId
 } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { assertDocumentWritePathsDoNotCollide, writeDocument } from "./markdown-artifact-store.ts";
+import { assertDocumentWritePathsDoNotCollide } from "./markdown-artifact-store.ts";
 import {
   createHarnessRuntimeContext,
-  createTaskPackagePath,
   type HarnessLayoutInput,
-  normalizeRelativeDocumentPath,
   resolveHarnessLayout,
   taskPackagePath
 } from "../layout/index.ts";
@@ -35,8 +31,14 @@ import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRe
 import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
 import { withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord, taskIdForWriteOp } from "./write-journal-entity.ts";
-import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "./write-journal-decision-documents.ts";
+import { decisionDocumentTargetPath, decisionWriteKinds } from "./write-journal-decision-documents.ts";
 import { rejectTaskWrite, rejectWrite, WriteRejectedError } from "./write-journal-rejection.ts";
+import {
+  applyWriteOp,
+  documentWritesForWriteOp,
+  isProgressAppendDeltaPayload,
+  writeOpTouchedPaths
+} from "./write-journal-operations.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { JournalActor, JournaledWriteCoordinatorOptions } from "./write-journal-types.ts";
 
@@ -127,7 +129,7 @@ function flushRecords(
     committedOpIds.push(record.opId);
   }
 
-  const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds, rootInput);
+  const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds, rootInput, semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)));
   const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir, rootInput) : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const recentCommitted = recentOpIds(allCommitted);
@@ -177,7 +179,7 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
     return;
   }
   const op = recordToOp(rootDir, record);
-  applyOp(rootInput, op);
+  applyWriteOp(rootInput, op);
   // Delta appends are not idempotent: replaying one after a crash between apply and
   // watermark would duplicate the text. Mark the file mutation durably so replay
   // skips the write while still committing and watermarking the op (ADR-0016 D2).
@@ -190,79 +192,6 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
     });
   }
 }
-
-function applyOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
-  if (decisionWriteKinds.has(op.kind)) {
-    writeDecisionDocument(rootInput, op);
-    return null;
-  }
-  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    writeDocumentsAtomically(rootInput, op.payload.writes, taskIdForWriteOp(op));
-    return null;
-  }
-  // ADR-0016 D2: delta-shaped progress_append reads the current on-disk file and
-  // appends. Legacy full-snapshot progress_append ops fall through to the overwrite
-  // path below (backward compatibility, discriminated by payload shape).
-  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
-    return applyProgressAppendDelta(rootInput, op, op.payload);
-  }
-  if (!documentWriteKinds.has(op.kind)) {
-    rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
-  }
-  const write = toDocumentWrite(op);
-  writeDocument(rootInput, write);
-  return write;
-}
-
-interface ProgressAppendDeltaPayload {
-  readonly path: string;
-  readonly append: string;
-  readonly packageSlug?: string;
-}
-
-function isProgressAppendDeltaPayload(payload: unknown): payload is ProgressAppendDeltaPayload {
-  if (!payload || typeof payload !== "object") return false;
-  const candidate = payload as { readonly path?: unknown; readonly append?: unknown };
-  // An ambiguous payload carrying both `append` and `body` falls through to the
-  // legacy snapshot path instead of silently ignoring `body` here.
-  return typeof candidate.path === "string" && typeof candidate.append === "string" && !("body" in candidate);
-}
-
-function progressAppendDeltaWrite(op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
-  const taskId = taskIdForWriteOp(op);
-  return {
-    taskId,
-    path: payload.path,
-    body: "",
-    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
-  };
-}
-
-function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
-  const targetPath = documentTargetPath(rootInput, progressAppendDeltaWrite(op, payload));
-  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
-  const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-  const taskId = taskIdForWriteOp(op);
-  const write: DocumentWrite = {
-    taskId,
-    path: payload.path,
-    body: `${existing}${separator}${payload.append}\n`,
-    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
-  };
-  writeDocument(rootInput, write);
-  return write;
-}
-
-const documentWriteKinds = new Set<WriteOp["kind"]>([
-  "package_create",
-  "transition_local",
-  "progress_append",
-  "doc_write",
-  "package_archive",
-  "package_tombstone",
-  "package_reopen",
-  "package_supersede"
-]);
 
 function createJournalRecord(rootDir: string, journalPath: string, op: {
   readonly opId: string;
@@ -287,9 +216,9 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
 }
 
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp): void {
-  resolveCommitPlan(rootDir, opTouchedPaths(rootInput, op), rootInput);
+  resolveCommitPlan(rootDir, writeOpTouchedPaths(rootInput, op), rootInput);
   try {
-    assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForOp(op));
+    assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForWriteOp(op));
   } catch (error) {
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
   }
@@ -312,99 +241,11 @@ function toJournalPayload(op: { readonly opId: string; readonly payload?: unknow
   return op.payload as Record<string, unknown>;
 }
 
-interface BatchDocumentWritePayload {
-  readonly writes: ReadonlyArray<DocumentWrite>;
-}
-
-function isBatchDocumentWritePayload(payload: unknown): payload is BatchDocumentWritePayload {
-  if (!payload || typeof payload !== "object" || !("writes" in payload)) return false;
-  return Array.isArray((payload as { readonly writes?: unknown }).writes);
-}
-
-function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: ReadonlyArray<DocumentWrite>, taskId: TaskId): void {
-  if (writes.length === 0) rejectTaskWrite("batch document write requires at least one write", taskId);
-  const entries = writes.map((write) => ({
-    write,
-    targetPath: documentTargetPath(rootInput, write)
-  }));
-  const targetPaths = new Set<string>();
-  for (const entry of entries) {
-    if (targetPaths.has(entry.targetPath)) rejectTaskWrite(`duplicate batch write target: ${entry.write.path}`, entry.write.taskId);
-    targetPaths.add(entry.targetPath);
-  }
-
-  const backups = entries.map((entry) => ({
-    targetPath: entry.targetPath,
-    existed: existsSync(entry.targetPath),
-    body: existsSync(entry.targetPath) ? readFileSync(entry.targetPath, "utf8") : null
-  }));
-
-  try {
-    for (const entry of entries) writeDocument(rootInput, entry.write);
-  } catch (error) {
-    for (const backup of backups.reverse()) {
-      if (backup.existed && backup.body !== null) {
-        mkdirSync(path.dirname(backup.targetPath), { recursive: true });
-        writeFileSync(backup.targetPath, backup.body, "utf8");
-      } else {
-        rmSync(backup.targetPath, { force: true });
-      }
-    }
-    throw error;
-  }
-}
-
 function recordTouchedPaths(rootDir: string, rootInput: HarnessLayoutInput, record: JournalRecord): ReadonlyArray<string> {
   if (record.kind === "package_delete_hard") {
     return [taskPackagePath(rootInput, taskIdForJournalRecord(record))];
   }
-  return opTouchedPaths(rootInput, recordToOp(rootDir, record));
-}
-
-function opTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {
-  if (decisionWriteKinds.has(op.kind)) {
-    return [decisionDocumentTargetPath(rootInput, op)];
-  }
-  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    return op.payload.writes.map((write) => documentTargetPath(rootInput, write));
-  }
-  if (op.kind === "package_delete_hard") {
-    return [taskPackagePath(rootInput, taskIdForWriteOp(op))];
-  }
-  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
-    return [documentTargetPath(rootInput, progressAppendDeltaWrite(op, op.payload))];
-  }
-  if (!documentWriteKinds.has(op.kind)) {
-    rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
-  }
-  return [documentTargetPath(rootInput, toDocumentWrite(op))];
-}
-
-function documentWritesForOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
-  if (decisionWriteKinds.has(op.kind)) {
-    return [];
-  }
-  if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
-    return op.payload.writes;
-  }
-  if (op.kind === "package_delete_hard") {
-    return [];
-  }
-  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
-    return [progressAppendDeltaWrite(op, op.payload)];
-  }
-  if (!documentWriteKinds.has(op.kind)) {
-    rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
-  }
-  return [toDocumentWrite(op)];
-}
-
-function documentTargetPath(rootInput: HarnessLayoutInput, write: DocumentWrite): string {
-  const safePath = normalizeWriteDocumentPath(write.path, taskEntityId(write.taskId));
-  const rootPath = existsSync(taskPackagePath(rootInput, write.taskId))
-    ? taskPackagePath(rootInput, write.taskId)
-    : createTaskPackagePath(rootInput, write.taskId, write.packageSlug);
-  return path.join(rootPath, safePath);
+  return writeOpTouchedPaths(rootInput, recordToOp(rootDir, record));
 }
 
 function readHardDeletePayload(rootDir: string, record: JournalRecord): { readonly reason: string } {
@@ -423,6 +264,56 @@ function readVerifiedPayload(rootDir: string, record: JournalRecord): Record<str
     rejectWrite(`payload hash mismatch for op ${record.opId}`, record.entityId);
   }
   return payload;
+}
+
+function semanticCommitMessage(rootDir: string, records: ReadonlyArray<JournalRecord>): string | undefined {
+  if (records.length === 0) return undefined;
+  const summaries = records.map((record) => recordCommitSummary(rootDir, record));
+  if (summaries.length === 1) return `${summaries[0]} [${records[0]?.opId}]`;
+  return `harness write: ${summaries.slice(0, 3).join("; ")}${summaries.length > 3 ? `; +${summaries.length - 3} more` : ""} [${records.map((record) => record.opId).join(",")}]`;
+}
+
+function recordCommitSummary(rootDir: string, record: JournalRecord): string {
+  const parsed = parseEntityLabel(record.entityId);
+  const payload = readVerifiedPayload(rootDir, record);
+  const detail = recordCommitDetail(record.kind, payload);
+  return `${parsed.kind}(${writeKindVerb(record.kind)}): ${parsed.id}${detail ? ` ${detail}` : ""}`;
+}
+
+function parseEntityLabel(entityId: EntityId): { readonly kind: string; readonly id: string } {
+  const separator = entityId.indexOf("/");
+  if (separator < 0) return { kind: "write", id: entityId };
+  return { kind: entityId.slice(0, separator), id: entityId.slice(separator + 1) };
+}
+
+function writeKindVerb(kind: JournalRecordKind): string {
+  return kind
+    .replace(/^decision_/u, "")
+    .replace(/^package_/u, "")
+    .replace(/_local$/u, "")
+    .replace(/^module_/u, "")
+    .replace(/_write$/u, "")
+    .replace(/_/gu, "-");
+}
+
+function recordCommitDetail(kind: JournalRecordKind, payload: Record<string, unknown>): string {
+  if (kind === "transition_local" && typeof payload.to === "string") return `-> ${payload.to}`;
+  if (kind === "progress_append") return "progress.md";
+  if ((kind === "doc_write" || kind === "doc_stage") && typeof payload.path === "string") return payload.path;
+  if (kind === "module_registry_write" && typeof payload.operation === "string") return payload.operation;
+  if (kind === "module_scaffold_write") return "scaffold";
+  if (kind === "decision_relate") {
+    const decision = payload.decision as { readonly relations?: ReadonlyArray<{ readonly type?: unknown; readonly target?: unknown }> } | undefined;
+    const relation = decision?.relations?.at(-1);
+    if (relation && typeof relation.type === "string" && typeof relation.target === "string") {
+      return `${relation.type} ${relation.target.replace(/^decision\//u, "")}`;
+    }
+  }
+  if (kind.startsWith("decision_")) {
+    const decision = payload.decision as { readonly title?: unknown } | undefined;
+    if (decision && typeof decision.title === "string" && decision.title.trim().length > 0) return decision.title.trim().slice(0, 72);
+  }
+  return "";
 }
 
 function assertHardDeleteAllowed(
@@ -478,20 +369,6 @@ function listTextFiles(inputPath: string): ReadonlyArray<string> {
     if (/\.(md|markdown|txt|ya?ml|json)$/iu.test(entry.name)) files.push(fullPath);
   }
   return files;
-}
-
-function toDocumentWrite(op: WriteOp): DocumentWrite {
-  const payload = op.payload as Partial<DocumentWrite> | undefined;
-  if (!payload || typeof payload.path !== "string" || typeof payload.body !== "string") {
-    rejectWrite(`${op.kind} op requires path and body payload: ${op.opId}`, op.entityId);
-  }
-  const taskId = taskIdForWriteOp(op);
-  return {
-    taskId,
-    path: payload.path,
-    body: payload.body,
-    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
-  };
 }
 
 function rebuildProjectionHash(rootDir: string, rootInput: HarnessLayoutInput): string {
@@ -552,14 +429,6 @@ function toJournalError(cause: unknown, context: { readonly entityId?: EntityId 
     _tag: "JournalUnavailable",
     cause
   };
-}
-
-function normalizeWriteDocumentPath(documentPath: string, entityId?: EntityId): string {
-  try {
-    return normalizeRelativeDocumentPath(documentPath);
-  } catch (error) {
-    rejectWrite(error instanceof Error ? error.message : String(error), entityId);
-  }
 }
 
 function isJournalMappedError(cause: unknown): cause is JournalMappedError {

@@ -64,6 +64,10 @@ export interface CommandRunnerEngine {
     readonly taskId: string;
     readonly text: string;
   }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
+  readonly stageDocument: (input: {
+    readonly taskId: string;
+    readonly path: string;
+  }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
   readonly archiveTask: (input: {
     readonly taskId: string;
     readonly reason: string;

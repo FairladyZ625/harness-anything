@@ -1,16 +1,20 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
+  moduleEntityId,
   PresetManifestSchema,
   planTemplateMaterialization,
   validateExtensionInputShape,
   validatePresetManifests,
   type ExtensionValidationIssue,
+  type WriteError,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import type { WriteCoordinator } from "../../../../kernel/src/ports/index.ts";
+import { stablePayloadHash, writeCoordinatedPayload } from "../../../../kernel/src/write-coordination/write-helpers.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import {
@@ -366,10 +370,28 @@ export function readModules(rootInput: HarnessLayoutInput): ModuleRegistry {
 }
 
 export function writeModules(rootInput: HarnessLayoutInput, registry: ModuleRegistry): void {
-  const registryPath = modulesRegistryPath(rootInput);
-  mkdirSync(path.dirname(registryPath), { recursive: true });
-  writeFileSync(registryPath, JSON.stringify({ schema: "module-registry/v1", modules: registry.modules }, null, 2), "utf8");
   writeModuleRegistryView(rootInput, registry);
+}
+
+export function writeModulesCoordinated(
+  rootInput: HarnessLayoutInput,
+  coordinator: WriteCoordinator,
+  input: {
+    readonly registry: ModuleRegistry;
+    readonly moduleKey: string;
+    readonly operation: "register" | "unregister" | "step";
+  }
+): Effect.Effect<void, WriteError> {
+  return writeCoordinatedPayload(coordinator, stablePayloadHash, {
+    entityId: moduleEntityId(input.moduleKey),
+    kind: "module_registry_write",
+    payload: {
+      operation: input.operation,
+      registry: { schema: "module-registry/v1", modules: input.registry.modules }
+    }
+  }).pipe(
+    Effect.tap(() => Effect.sync(() => writeModules(rootInput, input.registry)))
+  );
 }
 
 function modulesRegistryPath(rootInput: HarnessLayoutInput): string {

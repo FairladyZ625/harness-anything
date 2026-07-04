@@ -11,7 +11,7 @@ import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
-import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModules } from "./extensions/state.ts";
+import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
@@ -181,10 +181,14 @@ export function runNewTaskWithPreset(
     yield* coordinator.flush("explicit");
     if (registeredModule) {
       const registry = readModules(rootInput);
-      writeModules(rootInput, {
-        modules: registry.modules.some((candidate) => candidate.key === registeredModule.key)
+      yield* writeModulesCoordinated(rootInput, coordinator, {
+        moduleKey: registeredModule.key,
+        operation: "register",
+        registry: {
+          modules: registry.modules.some((candidate) => candidate.key === registeredModule.key)
           ? registry.modules.map((candidate) => candidate.key === registeredModule.key ? registeredModule : candidate)
           : [...registry.modules, registeredModule]
+        }
       });
     }
 
