@@ -7,6 +7,14 @@ import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const cleanRuntimeEnv = {
+  CLAUDE_CODE_SESSION_ID: "",
+  CLAUDE_SESSION_ID: "",
+  CODEX_SESSION_ID: "",
+  CODEX_THREAD_ID: "",
+  ZCODE_SESSION_ID: "",
+  ANTIGRAVITY_SESSION_ID: ""
+} as const;
 
 test("CLI session export binds CODEX_THREAD_ID and commits managed session markdown", () => {
   withTempRoot((rootDir) => {
@@ -101,7 +109,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: { ...process.env, ...cleanRuntimeEnv, ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
