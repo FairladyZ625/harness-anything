@@ -2,7 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { checkTaskProjection, deriveRelationId, formatFactFlowRecord, formatRelationFlowRecord, readDecisionFactCoverage, readRelationGraphProjection, rebuildTaskProjection } from "../../src/index.ts";
+import {
+  checkTaskProjection,
+  deriveRelationId,
+  entityRegistry,
+  evaluateEntityDisposition,
+  evaluateImplicitDispositionRecommendations,
+  formatFactFlowRecord,
+  formatRelationFlowRecord,
+  readDecisionFactCoverage,
+  readEntityCascadeImpact,
+  readRelationGraphProjection,
+  rebuildTaskProjection
+} from "../../src/index.ts";
 import type { EntityRelationRecord, FactRecord } from "../../src/index.ts";
 import { withTempStore } from "./helpers.ts";
 
@@ -140,6 +152,123 @@ test("relation graph coverage treats invalidated facts as not live", () => {
       status: "uncovered",
       relationPath: []
     }]);
+  });
+});
+
+test("entity registry declares the five-tuple surface for decision task and fact", () => {
+  assert.deepEqual(Object.keys(entityRegistry).sort(), ["decision", "fact", "task"]);
+  assert.equal(entityRegistry.decision.storageForm, "lifecycle");
+  assert.equal(entityRegistry.task.storageForm, "lifecycle");
+  assert.equal(entityRegistry.fact.storageForm, "schema");
+  assert.equal(entityRegistry.decision.dispositionMatrix.entries["hard-delete"].supported, false);
+  assert.equal(entityRegistry.fact.dispositionMatrix.entries.invalidate.supported, true);
+  assert.equal(entityRegistry.fact.dispositionMatrix.entries["hard-delete"].supported, false);
+  assert.equal(Object.keys(entityRegistry.fact.mutabilityContract).includes("statement"), true);
+});
+
+test("entity disposition lower-bound blocks D3 and D4 when active incoming relations exist", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-blocked", "Task Blocked");
+    writeDecision(rootDir, "dec_BLOCK_DELETE", "wm-block-delete", [relationRecord({
+      source: "decision/dec_BLOCK_DELETE/C1",
+      target: "task/task-blocked",
+      type: "relates"
+    })]);
+
+    const tombstone = evaluateEntityDisposition({
+      rootDir,
+      entityRef: "task/task-blocked",
+      action: "tombstone"
+    });
+    const hardDelete = evaluateEntityDisposition({
+      rootDir,
+      entityRef: "task/task-blocked",
+      action: "hard-delete"
+    });
+    const archive = evaluateEntityDisposition({
+      rootDir,
+      entityRef: "task/task-blocked",
+      action: "archive"
+    });
+
+    assert.equal(tombstone.allowed, false);
+    assert.equal(hardDelete.allowed, false);
+    assert.equal(archive.allowed, true);
+    assert.equal(tombstone.lowerBound.activeIncomingCount, 1);
+    assert.match(tombstone.reason, /D3\/D4 disposition is blocked/u);
+  });
+});
+
+test("entity disposition matrix rejects decision D4 and standalone fact deletion fail-closed", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-fact-owner", "Task Fact Owner");
+    writeFacts(rootDir, "task-fact-owner", [{
+      fact_id: "F-DEADBEEF",
+      statement: "The fact must not be singly deleted.",
+      source: "test",
+      observedAt: "2026-07-03T00:00:00.000Z",
+      confidence: "high"
+    }]);
+    writeDecision(rootDir, "dec_MEMORY", "wm-memory", []);
+
+    const decisionDelete = evaluateEntityDisposition({
+      rootDir,
+      entityRef: "decision/dec_MEMORY",
+      action: "hard-delete"
+    });
+    const factDelete = evaluateEntityDisposition({
+      rootDir,
+      entityRef: "fact/task-fact-owner/F-DEADBEEF",
+      action: "hard-delete"
+    });
+    const factInvalidate = evaluateEntityDisposition({
+      rootDir,
+      entityRef: "fact/task-fact-owner/F-DEADBEEF",
+      action: "invalidate"
+    });
+
+    assert.equal(decisionDelete.allowed, false);
+    assert.match(decisionDelete.reason, /must never be physically deleted/u);
+    assert.equal(factDelete.allowed, false);
+    assert.match(factDelete.reason, /must never be physically deleted as a standalone entity/u);
+    assert.equal(factInvalidate.allowed, true);
+    assert.deepEqual(factInvalidate.writeOpKinds, ["fact_invalidate"]);
+  });
+});
+
+test("entity cascade preview returns relation impact without applying recommendations", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-cascade", "Task Cascade");
+    const relation = relationRecord({
+      source: "decision/dec_CASCADE/C1",
+      target: "task/task-cascade",
+      type: "relates"
+    });
+    writeDecision(rootDir, "dec_CASCADE", "wm-cascade", [relation]);
+    rebuildTaskProjection({ rootDir });
+
+    const impact = readEntityCascadeImpact({ rootDir, entityRef: "task/task-cascade" });
+
+    assert.deepEqual(impact.incoming.map((edge) => edge.relationId), [relation.relation_id]);
+    assert.deepEqual(impact.outgoing, []);
+    assert.deepEqual(impact.impactedRefs, ["decision/dec_CASCADE/C1"]);
+  });
+});
+
+test("implicit disposition trigger recommends review when relation changes leave an entity isolated", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-isolated", "Task Isolated");
+    writeDecision(rootDir, "dec_ISOLATED", "wm-isolated", []);
+    rebuildTaskProjection({ rootDir });
+
+    const recommendations = evaluateImplicitDispositionRecommendations({
+      rootDir,
+      affectedEntityRefs: ["task/task-isolated", "decision/dec_ISOLATED"]
+    });
+
+    assert.deepEqual(recommendations.map((item) => item.entityRef), ["decision/dec_ISOLATED", "task/task-isolated"]);
+    assert.deepEqual(recommendations.find((item) => item.entityRef === "decision/dec_ISOLATED")?.recommendedActions, ["retire", "supersede"]);
+    assert.deepEqual(recommendations.find((item) => item.entityRef === "task/task-isolated")?.recommendedActions, ["archive", "supersede"]);
   });
 });
 

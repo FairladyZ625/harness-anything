@@ -24,11 +24,14 @@ export type DecisionWriteOpKind =
   | "decision_relate"
   | "decision_retire";
 
+export type FactWriteOpKind =
+  | "fact_invalidate";
+
 export type ModuleWriteOpKind =
   | "module_registry_write"
   | "module_scaffold_write";
 
-export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | ModuleWriteOpKind;
+export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | ModuleWriteOpKind;
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 

@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import {
   DecisionPackageSchema,
+  decisionFieldContracts,
   decisionEntityId,
   explainDecisionStateTransition,
   validateRelationRecordsForHost,
@@ -96,12 +97,8 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
     // supersede intent while sharing the retired terminal state.
     supersede: (request) => transitionDecision(options.coordinator, hashPayload, "decision_supersede", request, "retired", timestamp()),
     amend: (request) => {
-      if (request.current.decision_id !== request.next.decision_id) {
-        return Effect.fail(rejection(request.current.decision_id, "decision_amend cannot change decision_id"));
-      }
-      if (request.current.state !== request.next.state) {
-        return Effect.fail(rejection(request.current.decision_id, "decision_amend cannot change decision state"));
-      }
+      const rejectedChange = firstNonAmendableDecisionChange(request.current, request.next);
+      if (rejectedChange) return Effect.fail(rejection(request.current.decision_id, rejectedChange));
       return writeDecision(options.coordinator, hashPayload, "decision_amend", request.next, request);
     },
     relate: (request) => {
@@ -113,6 +110,20 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
     },
     retire: (request) => transitionDecision(options.coordinator, hashPayload, "decision_retire", request, "retired", timestamp())
   };
+}
+
+function firstNonAmendableDecisionChange(current: DecisionPackage, next: DecisionPackage): string | null {
+  for (const field of Object.keys(decisionFieldContracts) as ReadonlyArray<keyof DecisionPackage>) {
+    if (sameFieldValue(current[field], next[field])) continue;
+    const contract = decisionFieldContracts[field];
+    if (contract.mutability === "amendable") continue;
+    return `decision_amend cannot change ${contract.mutability} field ${String(field)}${contract.reason ? `: ${contract.reason}` : ""}`;
+  }
+  return null;
+}
+
+function sameFieldValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function bindDecisionCreateProvenance(

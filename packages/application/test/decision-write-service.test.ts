@@ -92,6 +92,41 @@ test("decision write service rejects relation records not hosted by the decision
   assert.match(failureReason(result.cause), /hosted by decision\/dec_TEST/u);
 });
 
+test("decision amend fails closed for non-amendable field changes", () => {
+  const service = makeDecisionWriteService({ coordinator: fakeCoordinator([]) });
+  const current = decisionPackage({ state: "active" });
+  const immutableChange = Effect.runSyncExit(service.amend({
+    current,
+    next: { ...current, riskTier: "high" }
+  }));
+  const lifecycleChange = Effect.runSyncExit(service.amend({
+    current,
+    next: { ...current, state: "retired" }
+  }));
+
+  assert.equal(immutableChange._tag, "Failure");
+  assert.match(failureReason(immutableChange.cause), /immutable field riskTier/u);
+  assert.equal(lifecycleChange._tag, "Failure");
+  assert.match(failureReason(lifecycleChange.cause), /lifecycle field state/u);
+});
+
+test("decision amend accepts schema-declared amendable field changes", () => {
+  const enqueued: WriteOp[] = [];
+  const service = makeDecisionWriteService({ coordinator: fakeCoordinator(enqueued) });
+  const current = decisionPackage({ state: "active" });
+  const next = {
+    ...current,
+    chosen: [...current.chosen, { id: "CH2", text: "Amendable option." }]
+  };
+
+  const result = Effect.runSync(service.amend({ current, next }));
+
+  assert.deepEqual(result, { decisionId: "dec_TEST", state: "active" });
+  assert.equal(enqueued[0]?.kind, "decision_amend");
+  const payload = enqueued[0]?.payload as { readonly decision?: DecisionPackage };
+  assert.equal(payload.decision?.chosen.length, 2);
+});
+
 test("decision document reader accepts block-list frontmatter and rejects unknown provenance runtime", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-reader-"));
   try {

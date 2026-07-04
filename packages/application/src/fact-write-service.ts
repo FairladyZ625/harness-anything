@@ -3,10 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
 import {
   FactRecordSchema,
+  deriveRelationId,
   formatFactFlowRecord,
+  formatRelationFlowRecord,
   isFactId,
   parseFactFlowRecords,
   taskEntityId,
+  type EntityRelationRecord,
   type CurrentSessionProbePort,
   type FactConfidence,
   type FactMemoryClass,
@@ -52,6 +55,24 @@ export interface FactWriteResult {
   readonly path: string;
 }
 
+export interface FactInvalidateRequest {
+  readonly ownerTaskId: TaskId;
+  readonly factId: string;
+  readonly invalidatedByFactId: string;
+  readonly rationale: string;
+  readonly dryRun?: boolean;
+  readonly opIdPrefix?: string;
+}
+
+export interface FactInvalidateResult {
+  readonly taskId: TaskId;
+  readonly factId: string;
+  readonly invalidatedByFactId: string;
+  readonly relationId: string;
+  readonly ref: string;
+  readonly path: string;
+}
+
 export interface FactWriteRejected {
   readonly _tag: "FactWriteRejected";
   readonly taskId: TaskId;
@@ -60,6 +81,7 @@ export interface FactWriteRejected {
 
 export interface FactWriteService {
   readonly record: (request: FactRecordRequest) => Effect.Effect<FactWriteResult, FactWriteRejected | WriteError>;
+  readonly invalidate: (request: FactInvalidateRequest) => Effect.Effect<FactInvalidateResult, FactWriteRejected | WriteError>;
 }
 
 export function makeFactWriteService(options: FactWriteServiceOptions): FactWriteService {
@@ -113,6 +135,51 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
         ref: `fact/${request.ownerTaskId}/${factId}`,
         path: layout.factDocumentName
       };
+    }),
+    invalidate: (request) => Effect.gen(function* () {
+      const layout = resolveHarnessLayout(options.rootInput);
+      const factsPath = layout.taskFactDocumentPath(request.ownerTaskId);
+      const existingBody = existsSync(factsPath) ? readFileSync(factsPath, "utf8") : "";
+      const existingFacts = parseFactFlowRecords(existingBody);
+      if (!isFactId(request.factId)) {
+        return yield* Effect.fail(factRejection(request.ownerTaskId, `invalid fact id: ${request.factId}`));
+      }
+      if (!isFactId(request.invalidatedByFactId)) {
+        return yield* Effect.fail(factRejection(request.ownerTaskId, `invalid invalidating fact id: ${request.invalidatedByFactId}`));
+      }
+      if (request.factId === request.invalidatedByFactId) {
+        return yield* Effect.fail(factRejection(request.ownerTaskId, "fact cannot invalidate itself"));
+      }
+      if (request.rationale.trim().length === 0) {
+        return yield* Effect.fail(factRejection(request.ownerTaskId, "fact invalidation requires a non-empty rationale"));
+      }
+      if (!existingFacts.some((record) => record.fact_id === request.factId)) {
+        return yield* Effect.fail(factRejection(request.ownerTaskId, `fact not found: ${request.factId}`));
+      }
+      if (!existingFacts.some((record) => record.fact_id === request.invalidatedByFactId)) {
+        return yield* Effect.fail(factRejection(request.ownerTaskId, `invalidating fact not found: ${request.invalidatedByFactId}`));
+      }
+      const relation = invalidationRelation(request);
+      const nextBody = appendFactRelation(existingBody, relation);
+      if (!request.dryRun) {
+        yield* writeCoordinatedPayload(options.coordinator, hashPayload, {
+          entityId: taskEntityId(request.ownerTaskId),
+          kind: "fact_invalidate",
+          payload: {
+            path: layout.factDocumentName,
+            body: nextBody
+          },
+          ...(request.opIdPrefix ? { opIdPrefix: request.opIdPrefix } : {})
+        });
+      }
+      return {
+        taskId: request.ownerTaskId,
+        factId: request.factId,
+        invalidatedByFactId: request.invalidatedByFactId,
+        relationId: relation.relation_id,
+        ref: `fact/${request.ownerTaskId}/${request.factId}`,
+        path: layout.factDocumentName
+      };
     })
   };
 }
@@ -125,6 +192,31 @@ function appendFactRecord(existingBody: string, record: FactRecord): string {
   const header = "# Facts\n\n";
   const base = existingBody.trim().length === 0 ? header : ensureTrailingNewline(existingBody);
   return `${base}${formatFactFlowRecord(record)}\n`;
+}
+
+function appendFactRelation(existingBody: string, relation: EntityRelationRecord): string {
+  const relationLine = formatRelationFlowRecord(relation);
+  if (existingBody.includes(`relation_id: ${relation.relation_id}`)) return existingBody;
+  const base = existingBody.trim().length === 0 ? "# Facts\n\n" : ensureTrailingNewline(existingBody);
+  if (/^relations:\s*$/mu.test(base)) return `${base}${relationLine}\n`;
+  return `${base}\nrelations:\n${relationLine}\n`;
+}
+
+function invalidationRelation(request: FactInvalidateRequest): EntityRelationRecord {
+  const base = {
+    source: `fact/${request.ownerTaskId}/${request.invalidatedByFactId}`,
+    target: `fact/${request.ownerTaskId}/${request.factId}`,
+    type: "invalidated-by",
+    direction: "directed"
+  } satisfies Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">;
+  return {
+    relation_id: deriveRelationId(base),
+    ...base,
+    strength: "strong",
+    origin: "declared",
+    rationale: request.rationale.trim(),
+    state: "active"
+  };
 }
 
 function validateFactRecord(taskId: TaskId, record: FactRecord): FactWriteRejected | null {

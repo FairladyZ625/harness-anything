@@ -135,6 +135,7 @@ const documentWriteKinds = new Set<WriteOp["kind"]>([
   "transition_local",
   "progress_append",
   "doc_write",
+  "fact_invalidate",
   "package_archive",
   "package_tombstone",
   "package_reopen",
