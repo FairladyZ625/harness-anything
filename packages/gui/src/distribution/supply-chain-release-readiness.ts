@@ -50,7 +50,7 @@ export interface ReviewedDependencyLicenseChoice {
 
 export interface DependabotCoverageContract {
   readonly ecosystem: "npm";
-  readonly directories: readonly ["/", "/packages/gui"];
+  readonly directories: readonly ["/"];
   readonly requiredLabels: readonly ["dependencies", "security"];
 }
 
@@ -187,7 +187,7 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   },
   dependabot: {
     ecosystem: "npm",
-    directories: ["/", "/packages/gui"],
+    directories: ["/"],
     requiredLabels: ["dependencies", "security"]
   },
   electronUpgrade: {
@@ -256,8 +256,8 @@ export function validateSupplyChainReleaseReadiness(
     errors.push({ code: "invalid_license_policy", message: "License readiness must preserve AGPL project licensing and network-service release-note obligations." });
   }
 
-  if (!policy.dependabot.directories.includes("/") || !policy.dependabot.directories.includes("/packages/gui")) {
-    errors.push({ code: "invalid_dependabot_contract", message: "Dependabot coverage must include the root and GUI workspace." });
+  if (policy.dependabot.directories.length !== 1 || !policy.dependabot.directories.includes("/")) {
+    errors.push({ code: "invalid_dependabot_contract", message: "Dependabot npm coverage must use the workspace root lockfile entry." });
   }
 
   if (policy.electronUpgrade.packageName !== "electron" || policy.electronUpgrade.upgradeRequiresSecurityReview !== true) {

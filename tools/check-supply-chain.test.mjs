@@ -265,11 +265,6 @@ function validDependabot() {
     "    directory: \"/\"",
     "    labels:",
     "      - \"dependencies\"",
-    "      - \"security\"",
-    "  - package-ecosystem: \"npm\"",
-    "    directory: \"/packages/gui\"",
-    "    labels:",
-    "      - \"dependencies\"",
     "      - \"security\""
   ].join("\n");
 }
