@@ -52,7 +52,7 @@ test("CLI template commands use bundled software coding catalog by default", () 
 
   assert.equal(listed.ok, true);
   assert.equal(listed.command, "template-list");
-  assert.equal(listed.templates.length, 26);
+  assert.equal(listed.templates.length, 28);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/task-plan@1" && template.materializeAs === "task_plan.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/brief@1" && template.materializeAs === "brief.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/module-plan@1" && template.materializeAs === "module_plan.md"), true);
@@ -60,6 +60,8 @@ test("CLI template commands use bundled software coding catalog by default", () 
   assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/adr-template@1" && template.materializeAs === "adr/0000-template.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/decisions-readme@1" && template.materializeAs === "harness/decisions/README.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/context-readme@1" && template.materializeAs === "harness/context/README.md"), true);
+  assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/agent-base@1" && template.materializeAs === "AGENTS.md"), true);
+  assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/agent-overlay@1" && template.materializeAs === "AGENTS.md"), true);
 
   assert.equal(rendered.ok, true);
   assert.equal(rendered.command, "template-render");

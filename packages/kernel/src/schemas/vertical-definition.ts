@@ -34,6 +34,24 @@ const RepositorySeededDocSchema = Schema.Struct({
   overwrite: Schema.optional(Schema.Boolean)
 });
 
+// AGENTS.md three-layer composite slot (ADR-0021 D2/D5).
+// L1 base (kernel invariants, deterministic) + L2 vertical overlay (house style,
+// deterministic) are composed into a single AGENTS.md; L3 repo specifics are
+// appended by the init Configure/Verify step under `repoSpecificsAnchor`, never
+// rewriting L1/L2. Composition lives in the CLI materializer, not in the kernel
+// 1:1 materialization contract.
+const AgentsEntrySchema = Schema.Struct({
+  materializeAs: Schema.String,
+  localePolicy: Schema.Struct({
+    prefer: Schema.Literal("project", "preset", "explicit"),
+    fallback: LocaleSchema
+  }),
+  baseRef: Schema.String,
+  overlayRef: Schema.String,
+  repoSpecificsAnchor: Schema.optional(Schema.String),
+  overwrite: Schema.optional(Schema.Boolean)
+});
+
 const RepositoryScaffoldSchema = Schema.Struct({
   entityRoots: Schema.Array(Schema.Struct({
     entityKind: Schema.String,
@@ -44,7 +62,8 @@ const RepositoryScaffoldSchema = Schema.Struct({
     path: Schema.String,
     create: RepositoryScaffoldCreateModeSchema
   })),
-  seededDocs: Schema.Array(RepositorySeededDocSchema)
+  seededDocs: Schema.Array(RepositorySeededDocSchema),
+  agentsEntry: Schema.optional(AgentsEntrySchema)
 });
 
 const VerticalScriptSchema = Schema.Struct({

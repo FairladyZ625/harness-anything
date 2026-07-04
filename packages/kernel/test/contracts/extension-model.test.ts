@@ -13,6 +13,7 @@ import {
 import { createEntityKindRegistry } from "../../src/domain/entity-kind-registry.ts";
 import {
   planTemplateMaterialization,
+  validateExtensionInputShape,
   validatePresetManifests,
   validateTemplateCatalog,
   validateVerticalDefinition
@@ -30,6 +31,44 @@ test("vertical, preset, and template schemas decode clean-room extension fixture
   assert.equal(validateTemplateCatalog(catalog).ok, true);
   assert.equal(validatePresetManifests([preset], { kernelVersion: "1.0.0" }).ok, true);
   assert.equal(validateVerticalDefinition(vertical).ok, true);
+});
+
+test("repository scaffold accepts the optional AGENTS.md composite slot", async () => {
+  const base = await readFixture(verticalDefinitionUrl) as { readonly repositoryScaffold: Record<string, unknown> };
+
+  // Backward compatible: the slot is optional and older verticals still decode.
+  const withoutEntry = Schema.decodeUnknownSync(VerticalDefinitionSchema)(base);
+  assert.equal(withoutEntry.repositoryScaffold.agentsEntry, undefined);
+
+  const withEntry = {
+    ...base,
+    repositoryScaffold: {
+      ...base.repositoryScaffold,
+      agentsEntry: {
+        materializeAs: "{{paths.rootDir}}/AGENTS.md",
+        localePolicy: { prefer: "project", fallback: "en-US" },
+        baseRef: "template://repository/agent-base@1",
+        overlayRef: "template://repository/agent-overlay@1",
+        repoSpecificsAnchor: "## Repository Specifics"
+      }
+    }
+  };
+  const decoded = Schema.decodeUnknownSync(VerticalDefinitionSchema)(withEntry);
+  assert.equal(decoded.repositoryScaffold.agentsEntry?.baseRef, "template://repository/agent-base@1");
+  assert.equal(decoded.repositoryScaffold.agentsEntry?.overlayRef, "template://repository/agent-overlay@1");
+  assert.equal(validateExtensionInputShape("vertical-definition", withEntry).ok, true);
+
+  // The shape gate rejects unknown fields inside the composite slot.
+  const drifted = {
+    ...withEntry,
+    repositoryScaffold: {
+      ...withEntry.repositoryScaffold,
+      agentsEntry: { ...withEntry.repositoryScaffold.agentsEntry, bogus: true }
+    }
+  };
+  const shape = validateExtensionInputShape("vertical-definition", drifted);
+  assert.equal(shape.ok, false);
+  assert.equal(shape.issues.some((issue) => issue.code === "unknown_extension_field"), true);
 });
 
 test("template catalog validation fails closed on locale structure drift", async () => {

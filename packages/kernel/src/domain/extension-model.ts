@@ -403,7 +403,7 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
 }
 
 function validateRepositoryScaffoldShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  validateObjectKeys(input, path, ["entityRoots", "dirs", "seededDocs"], issues);
+  validateObjectKeys(input, path, ["entityRoots", "dirs", "seededDocs", "agentsEntry"], issues);
   if (!isRecord(input)) return;
   if (Array.isArray(input.entityRoots)) {
     for (const [index, root] of input.entityRoots.entries()) {
@@ -422,6 +422,13 @@ function validateRepositoryScaffoldShape(input: unknown, path: string, issues: E
       if (isRecord(document)) {
         validateObjectKeys(document.localePolicy, `${documentPath}.localePolicy`, ["prefer", "fallback"], issues);
       }
+    }
+  }
+  if (input.agentsEntry !== undefined) {
+    const agentsEntryPath = `${path}.agentsEntry`;
+    validateObjectKeys(input.agentsEntry, agentsEntryPath, ["materializeAs", "localePolicy", "baseRef", "overlayRef", "repoSpecificsAnchor", "overwrite"], issues);
+    if (isRecord(input.agentsEntry)) {
+      validateObjectKeys(input.agentsEntry.localePolicy, `${agentsEntryPath}.localePolicy`, ["prefer", "fallback"], issues);
     }
   }
 }

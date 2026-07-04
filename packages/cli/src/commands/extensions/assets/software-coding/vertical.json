@@ -152,15 +152,6 @@
         }
       },
       {
-        "slot": "repository.agent.entry",
-        "templateRef": "template://repository/agent-entry@1",
-        "materializeAs": "{{paths.rootDir}}/AGENTS.md",
-        "localePolicy": {
-          "prefer": "project",
-          "fallback": "en-US"
-        }
-      },
-      {
         "slot": "repository.claude.entry",
         "templateRef": "template://repository/claude-entry@1",
         "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
@@ -223,7 +214,17 @@
           "fallback": "en-US"
         }
       }
-    ]
+    ],
+    "agentsEntry": {
+      "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+      "localePolicy": {
+        "prefer": "project",
+        "fallback": "en-US"
+      },
+      "baseRef": "template://repository/agent-base@1",
+      "overlayRef": "template://repository/agent-overlay@1",
+      "repoSpecificsAnchor": "## Repository Specifics"
+    }
   },
   "scripts": [
     {

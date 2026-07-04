@@ -19,7 +19,19 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/repo-governance.md"), "utf8"), /Repository Governance/u);
-    assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /Harness Agent Entry/u);
+    // AGENTS.md is deterministically composed from L1 base + L2 overlay with an
+    // empty L3 `## Repository Specifics` anchor reserved (ADR-0021 D2).
+    const agents = readFileSync(path.join(rootDir, "AGENTS.md"), "utf8");
+    assert.match(agents, /Harness Agent Entry/u);
+    assert.match(agents, /## Kernel Workflow \(triadic\)/u);
+    assert.match(agents, /## WriteCoordinator discipline/u);
+    assert.match(agents, /## Task reading matrix/u);
+    assert.match(agents, /## Harness CLI \(software\/coding\)/u);
+    assert.match(agents, /## Scaffold folders/u);
+    assert.match(agents, /## Governance routing \(near-field hard gates\)/u);
+    assert.match(agents, /## Repository Specifics/u);
+    // D3: overlay only routes to folder READMEs, it never restates their bodies.
+    assert.match(agents, /harness\/adr\/README\.md/u);
     assert.match(readFileSync(path.join(rootDir, "CLAUDE.md"), "utf8"), /Claude Harness Entry/u);
     // Every scaffold folder ships a guide README (ADR-0021 D1). Seeding the
     // decisions/sessions guides also materializes their (otherwise lazy) roots.

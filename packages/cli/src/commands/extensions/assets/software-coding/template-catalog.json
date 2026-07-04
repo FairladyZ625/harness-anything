@@ -561,6 +561,74 @@
       ]
     },
     {
+      "id": "repository/agent-base",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.agent.base",
+      "materializeAs": "AGENTS.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## Kernel Workflow (triadic)",
+        "## WriteCoordinator discipline",
+        "## Task reading matrix"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Kernel Workflow (triadic)",
+            "## WriteCoordinator discipline",
+            "## Task reading matrix"
+          ],
+          "bodyPath": "templates/repository.agent.base/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Kernel Workflow (triadic)",
+            "## WriteCoordinator discipline",
+            "## Task reading matrix"
+          ],
+          "bodyPath": "templates/repository.agent.base/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/agent-overlay",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.agent.overlay",
+      "materializeAs": "AGENTS.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## Harness CLI (software/coding)",
+        "## Scaffold folders (see each folder README, do not duplicate here)",
+        "## Governance routing (near-field hard gates)"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Harness CLI (software/coding)",
+            "## Scaffold folders (see each folder README, do not duplicate here)",
+            "## Governance routing (near-field hard gates)"
+          ],
+          "bodyPath": "templates/repository.agent.overlay/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Harness CLI (software/coding)",
+            "## Scaffold folders (see each folder README, do not duplicate here)",
+            "## Governance routing (near-field hard gates)"
+          ],
+          "bodyPath": "templates/repository.agent.overlay/en-US.md"
+        }
+      ]
+    },
+    {
       "id": "repository/claude-entry",
       "version": "1",
       "documentKind": "repository-seeded-doc",
