@@ -23,7 +23,8 @@ test("CLI package exposes the harness-anything package artifact surface without 
   assert.equal(cliPackage.bin?.ha, "./dist/cli/src/index.js");
   assert.equal(cliPackage.exports?.["."], "./dist/cli/src/index.js");
   assert.equal(cliPackage.files?.includes("dist"), true);
-  assert.equal(cliPackage.dependencies?.effect, "3.21.2");
+  assert.equal(cliPackage.dependencies?.["@effect/platform"], "0.96.2");
+  assert.equal(cliPackage.dependencies?.effect, "3.21.4");
   const cliEntry = path.resolve("packages/cli/src/index.ts");
   assert.equal(readFileSync(cliEntry, "utf8").startsWith("#!/usr/bin/env node"), true);
   if (process.platform !== "win32") {

@@ -73,15 +73,18 @@ async function walk(dir) {
 }
 
 const rootPackage = readJson("package.json");
+const cliPackage = readJson("packages/cli/package.json");
 const rootTsconfig = readJson("tsconfig.json");
 if (rootPackage.engines?.node !== ">=24") record("root engines.node must remain >=24");
-if (rootPackage.dependencies?.effect !== "3.21.2") record("effect version must remain 3.21.2 until an explicit upgrade task");
+if (rootPackage.dependencies?.effect !== "3.21.4") record("effect version must remain 3.21.4 after task_01KWNFNGG9H41724SADGFSMEZ3");
+if (cliPackage.dependencies?.["@effect/platform"] !== "0.96.2") record("@effect/platform version must remain 0.96.2 after task_01KWNFNGG9H41724SADGFSMEZ3");
 if (rootPackage.devDependencies?.typescript !== "5.9.3") record("typescript version must remain 5.9.3 until an explicit upgrade task");
 if (rootPackage.devDependencies?.["@types/node"] !== "24.13.2") record("@types/node version must remain 24.13.2");
 if (!existsSync(path.join(root, "package-lock.json"))) record("package-lock.json is required; npm is the package manager");
 const packageLock = existsSync(path.join(root, "package-lock.json")) ? readJson("package-lock.json") : { packages: {} };
 for (const [lockPath, expected] of [
-  ["node_modules/effect", "3.21.2"],
+  ["node_modules/effect", "3.21.4"],
+  ["node_modules/@effect/platform", "0.96.2"],
   ["node_modules/typescript", "5.9.3"],
   ["node_modules/@types/node", "24.13.2"]
 ]) {
