@@ -97,6 +97,7 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
 }
 
 export function renderReceiptText(receipt: CommandReceipt): string {
+  if (receipt.command === "capabilities") return renderCapabilitiesText(receipt);
   const data = receiptDetailsData(receipt);
   const parts = [`ok`, `command=${formatToken(receipt.command)}`];
   const taskId = typeof data.taskId === "string" ? data.taskId : receipt.entity?.kind === "task" ? receipt.entity.id : undefined;
@@ -109,6 +110,19 @@ export function renderReceiptText(receipt: CommandReceipt): string {
   const mode = launchMode(data.launchPlan);
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
   parts.push(`summary=${formatToken(receipt.summary)}`);
+  return parts.join(" ");
+}
+
+function renderCapabilitiesText(receipt: CommandReceipt): string {
+  const kinds = (receipt.items ?? [])
+    .map((item) => item && typeof item === "object" && "kind" in item ? String((item as { readonly kind?: unknown }).kind) : "")
+    .filter((kind) => kind.length > 0)
+    .slice(0, 12)
+    .join(",");
+  const parts = [`ok`, `command=${formatToken(receipt.command)}`];
+  if (typeof receipt.rows === "number") parts.push(`rows=${receipt.rows}`);
+  if (kinds.length > 0) parts.push(`kinds=${formatToken(kinds)}`);
+  parts.push(`summary=${formatToken(`${receipt.summary}; use --json for full schema, or ha <kind> capabilities --json for one entity.`)}`);
   return parts.join(" ");
 }
 

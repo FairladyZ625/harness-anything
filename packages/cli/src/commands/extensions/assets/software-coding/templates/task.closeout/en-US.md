@@ -1,6 +1,6 @@
 # Closeout
 
-Replace this file's placeholder content before closeout; task-complete rejects placeholder text. Closeout summarizes the verdict, but it does not replace the fact ledger or decision/relation records.
+Replace this file's placeholder content before closeout; `ha task complete` rejects placeholder text. Closeout summarizes the verdict, but it does not replace the fact ledger or decision/relation records.
 
 ## Summary
 

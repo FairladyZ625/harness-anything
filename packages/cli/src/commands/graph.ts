@@ -1,9 +1,8 @@
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import path from "node:path";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
+import { generateGraphPanorama } from "./graph-panorama.ts";
 
 type GraphAction = Extract<ParsedCommand["action"], { readonly kind: "graph" }>;
 
@@ -32,21 +31,13 @@ interface GraphToolReport {
 }
 
 export function runGraphCommand(rootDir: string, action: GraphAction): CliResult {
-  const toolPath = path.resolve("tools/graph-panorama.mjs");
-  if (!existsSync(toolPath)) {
-    return {
-      ok: false,
-      command: "graph",
-      error: cliError(CliErrorCode.ProjectionCheckFailed, "Graph panorama tool is unavailable; expected tools/graph-panorama.mjs in the repository root.")
-    };
-  }
   try {
-    const args = [toolPath, "--root", rootDir, "--json"];
-    if (action.outputPath) args.push("--out", action.outputPath);
-    if (action.focus) args.push("--focus", action.focus);
-    if (action.projectionPath) args.push("--projection", action.projectionPath);
-    const stdout = execFileSync(process.execPath, args, { encoding: "utf8" });
-    const report = normalizeReport(rootDir, JSON.parse(stdout) as GraphToolReport);
+    const report = normalizeReport(rootDir, generateGraphPanorama({
+      rootDir,
+      outputPath: action.outputPath,
+      focus: action.focus,
+      projectionPath: action.projectionPath
+    }) as GraphToolReport);
     return {
       ok: true,
       command: "graph",

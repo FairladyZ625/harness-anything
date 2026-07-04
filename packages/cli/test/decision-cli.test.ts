@@ -159,6 +159,28 @@ test("CLI decision relate appends typed relation frontmatter through relation wr
   });
 });
 
+test("CLI decision relate invalid type error enumerates valid relation types", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, [
+      "decision",
+      "relate",
+      "dec_NEWREL",
+      "--anchor",
+      "CH1",
+      "--type",
+      "overrides",
+      "--target",
+      "decision/dec_OLDREL",
+      "--rationale",
+      "Fixture invalid type"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "invalid_decision_evidence_relation");
+    assert.match(result.error?.hint ?? "", /Valid relation types: supports, supersedes, refines, narrows/u);
+  });
+});
+
 test("CLI decision propose rejects missing rejected alternative", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, [

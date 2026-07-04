@@ -1,6 +1,6 @@
 # Closeout
 
-收口前必须替换本文件占位内容；task-complete 会拒绝占位文本。closeout 总结 verdict，但不能替代 fact 账本或 decision/relation。
+收口前必须替换本文件占位内容；`ha task complete` 会拒绝占位文本。closeout 总结 verdict，但不能替代 fact 账本或 decision/relation。
 
 ## Summary
 

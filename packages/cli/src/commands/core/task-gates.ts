@@ -44,8 +44,17 @@ function taskLifecycleResultToCliResult(command: "task-review" | "task-complete"
     report: result.report,
     issues: result.issues,
     completionGate: result.completionGate,
-    error: cliError(cliErrorCode(result.error.code), result.error.hint)
+    error: cliError(cliErrorCode(result.error.code), taskGateHint(result.error.code, result.error.hint, result.taskId))
   };
+}
+
+function taskGateHint(code: string, hint: string, taskId: string): string {
+  if (/review\.md material findings table failed validation/i.test(hint)) return `${hint} Valid severity values: P0, P1, P2, P3.`;
+  if (code !== "closeout_not_ready" && !/closeout/i.test(hint)) return hint;
+  return [
+    hint,
+    `To make closeoutReadiness ready/passed, run ha task transition ${taskId} in_review, replace closeout.md placeholder content with real Summary/Verification/Residual Risk, run ha fact record --task ${taskId} --statement "..." --source "..." for evidence, run ha task review ${taskId}, then run ha task complete ${taskId} --ci passed.`
+  ].join(" ");
 }
 
 function cliErrorCode(code: string): CliErrorCodeValue {

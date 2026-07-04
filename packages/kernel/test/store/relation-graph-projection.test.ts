@@ -78,6 +78,27 @@ test("legacy facts without memory fields stay visible to post-merge checks and c
   });
 });
 
+test("post-merge dangling entity scan excludes generated session provenance but keeps authored docs guarded", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-session-boundary", "Task Session Boundary");
+    const sessionPath = path.join(rootDir, "harness/sessions/codex-session.md");
+    mkdirSync(path.dirname(sessionPath), { recursive: true });
+    writeFileSync(sessionPath, "Generated session transcript mentions task/missing-task.\n", "utf8");
+
+    const sessionOnly = checkTaskProjection({ rootDir, postMerge: true });
+    assert.equal(sessionOnly.ok, true);
+    assert.equal(sessionOnly.warnings.some((warning) => warning.code === "dangling_entity_ref"), false);
+
+    const authoredPath = path.join(rootDir, "harness/governance/standard.md");
+    mkdirSync(path.dirname(authoredPath), { recursive: true });
+    writeFileSync(authoredPath, "Authored docs must not point at task/missing-task.\n", "utf8");
+
+    const authored = checkTaskProjection({ rootDir, postMerge: true });
+    assert.equal(authored.ok, false);
+    assert.equal(authored.warnings.some((warning) => warning.code === "dangling_entity_ref"), true);
+  });
+});
+
 test("relation graph projection resolves facts by task_id when task directory has a slug suffix", () => {
   withTempStore((rootDir) => {
     const taskId = "task-slugged";

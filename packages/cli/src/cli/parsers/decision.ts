@@ -154,7 +154,7 @@ function parseDecisionRelate(args: ReadonlyArray<string>, rootDir: string, json:
     return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use decision relate <decision-id> --anchor <CH1|RJ1|C1> --type <relation-type> --target <entity-ref> --rationale <text>.") };
   }
   if (!isRelationType(type)) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, `Unknown relation type for decision relate: ${type ?? "<missing>"}.`) };
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, `Unknown relation type for decision relate: ${type ?? "<missing>"}. Valid relation types: ${relationTypes.join(", ")}.`) };
   }
   if (!targetRef || targetRef.externalHarness || !evidenceTargetKinds.has(targetRef.kind)) {
     return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use decision relate --target task/<id>, decision/<id>[/anchor], or fact/<task-id>/<fact-id>.") };

@@ -96,6 +96,27 @@ test("CLI task-review rejects tasks without a real fact and prints the remediati
   });
 });
 
+test("CLI task-review invalid severity error enumerates valid severity values", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Review Task", "in_review");
+    writeFact(rootDir, "task-1");
+    writeFileSync(path.join(rootDir, "harness/tasks/task-1/review.md"), [
+      "# Review",
+      "",
+      "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| F-001 | P9 | Bad severity. | test | Fix severity. | yes | open | yes | none |",
+      ""
+    ].join("\n"), "utf8");
+
+    const blocked = runJson(rootDir, ["task", "review", "task-1", "--reviewer", "reviewer-a"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "review_schema_invalid");
+    assert.match(blocked.error?.hint ?? "", /Valid severity values: P0, P1, P2, P3/u);
+  });
+});
+
 test("CLI task-review accepts a task with a real fact", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Review Task", "in_review");

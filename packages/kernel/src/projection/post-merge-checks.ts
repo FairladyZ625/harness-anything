@@ -186,7 +186,8 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
   const rootDir = layout.rootDir;
   const knownRefs = buildEntityRefIndex(rootInput, entries);
   const warnings: ProjectionWarning[] = [];
-  const files = listTextFiles(layout.authoredRoot);
+  const files = listTextFiles(layout.authoredRoot)
+    .filter((filePath) => !isInsideRoot(layout.sessionsRoot, filePath));
   for (const filePath of files) {
     const body = readFileSync(filePath, "utf8");
     for (const ref of findEntityRefs(body)) {
@@ -225,6 +226,11 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
     }
   }
   return warnings;
+}
+
+function isInsideRoot(rootDir: string, filePath: string): boolean {
+  const relative = path.relative(rootDir, filePath);
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 interface EntityRefIndex {
