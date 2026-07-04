@@ -16,6 +16,7 @@ export type CommandParserId =
   | "distill"
   | "record"
   | "runtime-event"
+  | "session"
   | "doc"
   | "status-check"
   | "migration"
@@ -38,6 +39,7 @@ export type CommandRunnerId =
   | "distill"
   | "fact"
   | "runtime-event"
+  | "session"
   | "doc"
   | "task-lifecycle"
   | "task-gates"
@@ -88,8 +90,12 @@ const commandUsages = [
   { kind: "distill-commit", usage: "distill promote --task <task-id> --candidate <path> --claim <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--json]", aliases: [deprecatedAlias("distill commit --task <task-id>", "distill promote")] },
   { kind: "runtime-event-append", usage: "event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--from-file <path>|--json-input <json>] [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]", aliases: [deprecatedAlias("runtime-event append", "event append")] },
   { kind: "runtime-event-list", usage: "event list --session <session-id> [--json]", aliases: [deprecatedAlias("runtime-event list", "event list")] },
+  { kind: "session-export", usage: "session export [--session <id> --runtime claude-code|codex|zcode|antigravity] [--source runtime|manual] [--detected-at <iso>] [--user <name>] [--json]" },
+  { kind: "session-backfill", usage: "session backfill [--runtime claude-code|codex|zcode|antigravity] [--limit <n>] [--json]" },
+  { kind: "session-sync", usage: "session sync [--json]" },
   { kind: "doc-list", usage: "doc list [--module <key>] [--product-line <key>] [--json]" },
   { kind: "doc-map", usage: "doc map [--module <key>] [--product-line <key>] [--json]" },
+  { kind: "doc-generate", usage: "doc generate [--module <key>] [--product-line <key>] [--write] [--json]" },
   { kind: "template-list", usage: "template list [--catalog <path>] [--json]" },
   { kind: "template-render", usage: "template render <template-ref> [--catalog <path>] [--locale zh-CN|en-US] [--json]" },
   { kind: "task-list", usage: "task list [--state <state>] [--module <key>] [--queue <queue>] [--preset <id>] [--review <state>] [--lesson [present|missing]] [--missing-materials] [--include-archived] [--search <text>] [--json]" },
@@ -160,8 +166,12 @@ const commandParserIds = {
   "distill-commit": "distill",
   "runtime-event-append": "runtime-event",
   "runtime-event-list": "runtime-event",
+  "session-export": "session",
+  "session-backfill": "session",
+  "session-sync": "session",
   "doc-list": "doc",
   "doc-map": "doc",
+  "doc-generate": "doc",
   "status-set": "core-task",
   "progress-append": "core-task",
   "task-archive": "core-task",
@@ -238,8 +248,12 @@ const commandRunnerIds = {
   "distill-commit": "distill",
   "runtime-event-append": "runtime-event",
   "runtime-event-list": "runtime-event",
+  "session-export": "session",
+  "session-backfill": "session",
+  "session-sync": "session",
   "doc-list": "doc",
   "doc-map": "doc",
+  "doc-generate": "doc",
   "status-set": "task-lifecycle",
   "progress-append": "task-lifecycle",
   "task-archive": "task-lifecycle",
@@ -324,8 +338,12 @@ const commandSummaries = {
   "distill-commit": "Commit an explicit distill candidate claim through the fact write service.",
   "runtime-event-append": "Append one structured runtime event to the local JSONL event ledger.",
   "runtime-event-list": "Read structured runtime events for one session from the local JSONL ledger.",
+  "session-export": "Export the current or specified runtime session into the managed harness sessions directory.",
+  "session-backfill": "Backfill managed session documents from discovered local runtime logs.",
+  "session-sync": "Commit existing managed session markdown files under harness/sessions.",
   "doc-list": "List canonical documents declared in the docmap manifest.",
   "doc-map": "Compute the docmap minimum read set for a module or product line.",
+  "doc-generate": "Derive and optionally persist docmap.json from canonical document declarations and frontmatter.",
   "template-list": "List available task and document templates.",
   "template-render": "Render a template reference with a selected locale.",
   "task-list": "List task packages with state, module, review, and search filters.",
@@ -402,8 +420,12 @@ const commandExamples = {
   "distill-commit": [`${cliCommandName} distill promote --task task_01ABC --candidate .harness/generated/distill/task_01ABC/distill_123.json --claim "Distilled claim" --memory-class semantic`],
   "runtime-event-append": [`${cliCommandName} event append --session codex-session-1 --kind interrupt --runtime codex --interrupt append --summary "User appended task guidance"`],
   "runtime-event-list": [`${cliCommandName} event list --session codex-session-1 --json`],
+  "session-export": [`${cliCommandName} session export --json`],
+  "session-backfill": [`${cliCommandName} session backfill --runtime codex --limit 20 --json`],
+  "session-sync": [`${cliCommandName} session sync --json`],
   "doc-list": [`${cliCommandName} doc list --module m4-loadbearing --json`],
   "doc-map": [`${cliCommandName} doc map --module m4-loadbearing --product-line kernel --json`],
+  "doc-generate": [`${cliCommandName} doc generate --write --json`],
   "template-list": [`${cliCommandName} template list --json`],
   "template-render": [`${cliCommandName} template render template://planning/task@1 --locale zh-CN`],
   "task-list": [`${cliCommandName} task list --state active --module kernel --review missing`],

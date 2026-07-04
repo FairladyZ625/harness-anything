@@ -130,6 +130,42 @@ test("provenance session exporter renders Codex JSONL conversation text", () => 
   }
 });
 
+test("provenance session exporter backfills Codex runtime logs by discovered session id", () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const logsRoot = path.join(rootDir, "runtime-logs", "codex");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "rollout-2026-07-03T00-00-00-codex-thread-1.jsonl"), [
+      JSON.stringify({
+        timestamp: "2026-07-03T00:00:01.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "Backfilled Codex user line" }
+      })
+    ].join("\n"), "utf8");
+
+    const exporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "current-codex-thread",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { codex: [logsRoot] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const result = Effect.runSync(exporter.backfillRuntimeSessions({ runtime: "codex" }));
+
+    assert.equal(result.schema, "provenance-session-backfill/v1");
+    assert.deepEqual(result.exported.map((entry) => entry.session.sessionId), ["codex-thread-1"]);
+    const body = readFileSync(path.join(rootDir, "harness", "sessions", "codex-thread-1.md"), "utf8");
+    assert.match(body, /Backfilled Codex user line/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("provenance session exporter writes visible warning when runtime log is missing", () => {
   const rootDir = createHarnessRoot();
   try {

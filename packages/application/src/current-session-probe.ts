@@ -18,7 +18,7 @@ export interface EnvironmentCurrentSessionProbeOptions extends HumanFallbackSess
 
 export const defaultRuntimeSessionEnvCandidates: ReadonlyArray<RuntimeSessionEnvCandidate> = [
   { runtime: "claude-code", keys: ["CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"] },
-  { runtime: "codex", keys: ["CODEX_SESSION_ID"] },
+  { runtime: "codex", keys: ["CODEX_THREAD_ID", "CODEX_SESSION_ID"] },
   { runtime: "zcode", keys: ["ZCODE_SESSION_ID"] },
   { runtime: "antigravity", keys: ["ANTIGRAVITY_SESSION_ID"] }
 ] as const;

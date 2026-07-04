@@ -38,3 +38,20 @@ test("environment session probe detects configured agent runtime session before 
     detectedAt: "2026-07-03T00:00:00.000Z"
   });
 });
+
+test("environment session probe binds Codex thread id before legacy session id", () => {
+  const probe = makeEnvironmentCurrentSessionProbe({
+    now: () => "2026-07-03T00:00:00.000Z",
+    env: {
+      CODEX_THREAD_ID: "019f28de-f7f6-7223-a2a8-b2968686fe21",
+      CODEX_SESSION_ID: "legacy-codex-session"
+    }
+  });
+
+  assert.deepEqual(Effect.runSync(probe.currentSession), {
+    runtime: "codex",
+    sessionId: "019f28de-f7f6-7223-a2a8-b2968686fe21",
+    source: "runtime",
+    detectedAt: "2026-07-03T00:00:00.000Z"
+  });
+});

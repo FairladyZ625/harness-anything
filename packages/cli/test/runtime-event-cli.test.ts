@@ -12,7 +12,8 @@ test("CLI authored write commands append a current-session result event", () => 
   withTempRoot((rootDir) => {
     const sessionId = "codex-w2-command-event";
     const created = runJson(rootDir, ["new-task", "--title", "Evented Task"], true, {
-      CODEX_SESSION_ID: sessionId
+      CODEX_SESSION_ID: sessionId,
+      CODEX_THREAD_ID: ""
     });
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
     const events = readJsonl(ledgerPath);
@@ -32,7 +33,8 @@ test("CLI dry-run authored commands do not append command events", () => {
   withTempRoot((rootDir) => {
     const sessionId = "codex-w2-dry-run";
     const result = runJson(rootDir, ["new-task", "--title", "Dry Run Task", "--dry-run"], true, {
-      CODEX_SESSION_ID: sessionId
+      CODEX_SESSION_ID: sessionId,
+      CODEX_THREAD_ID: ""
     });
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
 

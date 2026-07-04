@@ -12,6 +12,7 @@ const noAgentRuntimeEnv = {
   CLAUDE_SESSION_ID: "",
   CLAUDE_CODE_SESSION_ID: "",
   CODEX_SESSION_ID: "",
+  CODEX_THREAD_ID: "",
   ZCODE_SESSION_ID: "",
   ANTIGRAVITY_SESSION_ID: ""
 };
