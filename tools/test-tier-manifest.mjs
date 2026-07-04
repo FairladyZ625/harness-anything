@@ -73,6 +73,7 @@ export const testTierManifest = {
     "tools/check-pr-body-bilingual.test.mjs",
     "tools/check-service-mappability.test.mjs",
     "tools/check-schema-field-coverage.test.mjs",
+    "tools/check-template-command-surface.test.mjs",
     "tools/skill-contracts.test.mjs",
     "tools/smoke-cli-package.test.mjs",
     "tools/scan-forbidden-symbols.test.mjs"

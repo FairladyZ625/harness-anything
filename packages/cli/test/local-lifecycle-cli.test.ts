@@ -127,10 +127,11 @@ test("CLI rejects unknown six-state lifecycle values", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
-    const failure = runJson(rootDir, ["task", "status", "set", taskId, "shipping"], false);
+    const failure = runJson(rootDir, ["task", "transition", taskId, "shipping"], false);
 
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "invalid_status");
+    assert.match(failure.error?.hint ?? "", /Valid statuses: planned, active, blocked, in_review, done, cancelled/u);
   });
 });
 
@@ -307,6 +308,28 @@ test("CLI capabilities expose registry-derived entity operations through receipt
     assert.equal(Array.isArray(receipt.items), true);
     assert.equal(receipt.items.some((op: Record<string, any>) => op.action === "propose" && op.input?.schemaId === "harness://schema/cli/decision-propose-input/v1"), true);
     assert.equal(receipt.details?.report?.generatedFrom?.commandRegistry, "packages/cli/src/cli/command-registry.ts");
+  });
+});
+
+test("CLI capabilities text output gives cold-start agents a useful summary", () => {
+  withTempRoot((rootDir) => {
+    const output = runText(rootDir, ["capabilities"]);
+
+    assert.match(output, /ok command=capabilities/u);
+    assert.match(output, /rows=\d+/u);
+    assert.match(output, /kinds=/u);
+    assert.match(output, /--json for full schema/u);
+  });
+});
+
+test("CLI task complete help explains closeout readiness recovery", () => {
+  withTempRoot((rootDir) => {
+    const output = runText(rootDir, ["task", "complete", "--help"]);
+
+    assert.match(output, /closeoutReadiness/u);
+    assert.match(output, /task transition <id> in_review/u);
+    assert.match(output, /task review/u);
+    assert.match(output, /task complete --ci passed/u);
   });
 });
 

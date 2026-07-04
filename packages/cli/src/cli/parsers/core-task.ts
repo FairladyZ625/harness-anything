@@ -1,4 +1,4 @@
-import { isDomainStatus } from "../../../../kernel/src/domain/index.ts";
+import { domainStatuses, isDomainStatus } from "../../../../kernel/src/domain/index.ts";
 import { slugifyTaskTitle } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRequiredValueOption } from "../parse-options.ts";
@@ -33,7 +33,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
 
 function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   if (!isDomainStatus(args[4])) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidStatus, `Unknown status: ${args[4]}`) };
+    return { ok: false, error: cliError(CliErrorCode.InvalidStatus, `Unknown status: ${args[4]}. Valid statuses: ${domainStatuses.join(", ")}.`) };
   }
   const force = args.includes("--force");
   const reason = readOption(args, "--reason");
@@ -152,7 +152,7 @@ function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: b
     return { ok: false, error: cliError(CliErrorCode.MissingCiGate, "task complete requires --ci passed|failed") };
   }
   if (ciGate !== "passed" && ciGate !== "failed") {
-    return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}`) };
+    return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}. Valid CI gate values: passed, failed.`) };
   }
   return ok(rootDir, json, {
     kind: "task-complete",
