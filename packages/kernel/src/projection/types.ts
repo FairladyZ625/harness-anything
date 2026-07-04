@@ -26,6 +26,7 @@ export type ProjectionWarningCode =
   | "relation_id_mismatch"
   | "duplicate_relation_id"
   | "relation_rationale_missing"
+  | "relation_endpoint_unknown"
   | "relation_cycle_detected";
 
 export interface TaskCreatedBy {

@@ -14,6 +14,7 @@ export const decisionWriteKinds = new Set<WriteOp["kind"]>([
   "decision_defer",
   "decision_supersede",
   "decision_amend",
+  "decision_relate",
   "decision_retire"
 ]);
 

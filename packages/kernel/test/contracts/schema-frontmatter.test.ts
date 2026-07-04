@@ -131,6 +131,8 @@ test("decision package JSON schema is closed against evidence_refs drift", async
   assert.deepEqual((jsonSchema.$defs?.relationRecord as any).properties.type.enum, [
     "supports",
     "supersedes",
+    "refines",
+    "narrows",
     "derives",
     "blocks",
     "relates",

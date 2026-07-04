@@ -142,6 +142,7 @@ export const WriteJournalOpSchema = Schema.Struct({
     "decision_defer",
     "decision_supersede",
     "decision_amend",
+    "decision_relate",
     "decision_retire"
   ),
   actor: ActorRefSchema,
@@ -402,6 +403,7 @@ export const ProjectionWarningCodeSchema = Schema.Literal(
   "relation_id_mismatch",
   "duplicate_relation_id",
   "relation_rationale_missing",
+  "relation_endpoint_unknown",
   "relation_cycle_detected"
 );
 

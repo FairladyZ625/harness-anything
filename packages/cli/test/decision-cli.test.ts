@@ -103,6 +103,62 @@ test("CLI decision propose rejects strong evidence relation missing rationale", 
   });
 });
 
+test("CLI decision relate appends typed relation frontmatter through relation write surface", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_OLDREL",
+      "--title",
+      "Old relation decision",
+      "--question",
+      "Should old relation storage stand?",
+      "--chosen",
+      "Keep old storage",
+      "--rejected",
+      "Replace it",
+      "--why-not",
+      "Fixture setup"
+    ]);
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_NEWREL",
+      "--title",
+      "New relation decision",
+      "--question",
+      "Should new relation storage supersede old?",
+      "--chosen",
+      "Use typed owner relations",
+      "--rejected",
+      "Keep old storage",
+      "--why-not",
+      "Owner-local relations have readers"
+    ]);
+
+    const result = runJson(rootDir, [
+      "decision",
+      "relate",
+      "dec_NEWREL",
+      "--anchor",
+      "CH1",
+      "--type",
+      "supersedes",
+      "--target",
+      "decision/dec_OLDREL",
+      "--rationale",
+      "New relation decision supersedes old storage"
+    ]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "decision-relate");
+    const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_NEWREL/decision.md"), "utf8");
+    assert.match(body, /  - \{ relation_id: "rel_[a-f0-9]{16}", source: "decision\/dec_NEWREL\/CH1", target: "decision\/dec_OLDREL", type: "supersedes", strength: "strong", direction: "directed", origin: "declared", rationale: "New relation decision supersedes old storage", state: "active" \}/u);
+  });
+});
+
 test("CLI decision propose rejects missing rejected alternative", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, [

@@ -62,7 +62,8 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
       dryRun: args.includes("--dry-run")
     });
   }
-  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|retire.") };
+  if (op === "relate" && args[2]) return parseDecisionRelate(args, rootDir, json);
+  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|relate|retire.") };
 }
 
 function parseDecisionAmendPatches(args: ReadonlyArray<string>):
@@ -138,6 +139,36 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     modules: splitList(readOption(args, "--module")),
     productLines: splitList(readOption(args, "--product-line")),
     evidenceRelations: evidenceRelations.value,
+    body: readOption(args, "--body"),
+    dryRun: args.includes("--dry-run")
+  });
+}
+
+function parseDecisionRelate(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
+  const anchor = readOption(args, "--anchor");
+  const type = readOption(args, "--type");
+  const target = readOption(args, "--target");
+  const rationale = readOption(args, "--rationale");
+  const targetRef = target ? parseEntityRef(target) : null;
+  if (!anchor || !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(anchor)) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use decision relate <decision-id> --anchor <CH1|RJ1|C1> --type <relation-type> --target <entity-ref> --rationale <text>.") };
+  }
+  if (!isRelationType(type)) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, `Unknown relation type for decision relate: ${type ?? "<missing>"}.`) };
+  }
+  if (!targetRef || targetRef.externalHarness || !evidenceTargetKinds.has(targetRef.kind)) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use decision relate --target task/<id>, decision/<id>[/anchor], or fact/<task-id>/<fact-id>.") };
+  }
+  if (!rationale || rationale.trim().length === 0) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, "Use decision relate --rationale <non-empty text>.") };
+  }
+  return parsedDecision(rootDir, json, {
+    kind: "decision-relate",
+    decisionId: args[2],
+    anchor,
+    relationType: type,
+    target: target ?? "",
+    rationale,
     body: readOption(args, "--body"),
     dryRun: args.includes("--dry-run")
   });
