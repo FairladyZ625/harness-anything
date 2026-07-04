@@ -27,25 +27,25 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
   {
     name: "new-task preset task",
-    argv: ["new-task", "--title", "Parser Task", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
+    argv: ["task", "create", "--title", "Parser Task", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
     kind: "new-task",
     fields: { title: "Parser Task", slug: "parser-task", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false, longRunning: true, locale: "en-US" }
   },
   {
     name: "new-task register module dry run",
-    argv: ["new-task", "--title", "Parser Task", "--register-module", "billing", "--module-title", "Billing", "--module-prefix", "BILL", "--module-scope", "packages/billing/**", "--dry-run"],
+    argv: ["task", "create", "--title", "Parser Task", "--register-module", "billing", "--module-title", "Billing", "--module-prefix", "BILL", "--module-scope", "packages/billing/**", "--dry-run"],
     kind: "new-task",
     fields: { registerModule: { key: "billing", title: "Billing", prefix: "BILL", scope: "packages/billing/**" }, moduleKey: "billing", dryRun: true }
   },
   {
     name: "new-task legacy rebuild",
-    argv: ["new-task", "--from-legacy", "legacy-1"],
+    argv: ["task", "create", "--from-legacy", "legacy-1"],
     kind: "new-task",
     fields: { title: "Untitled task", fromLegacyId: "legacy-1", allowManualId: false }
   },
   {
     name: "status set forced",
-    argv: ["task", "status", "set", "task_1", "done", "--force", "--reason", "verified"],
+    argv: ["task", "transition", "task_1", "done", "--force", "--reason", "verified"],
     kind: "status-set",
     fields: { taskId: "task_1", status: "done", force: true, reason: "verified" }
   },
@@ -56,8 +56,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task delete reason position", argv: ["task", "delete", "--hard", "--reason", "cleanup", "--confirm", "task_1", "--deleted-by", "alice", "task_1"], kind: "task-delete", fields: { taskId: "task_1", mode: "hard", reason: "cleanup", confirm: "task_1", deletedBy: "alice" } },
   { name: "task delete skips option values before id", argv: ["task", "delete", "--soft", "--reason", "cleanup", "--deleted-by", "alice", "task_1"], kind: "task-delete", fields: { taskId: "task_1", mode: "soft", reason: "cleanup", deletedBy: "alice" } },
   { name: "task reopen", argv: ["task", "reopen", "task_1", "--reason", "followup"], kind: "task-reopen", fields: { taskId: "task_1", reason: "followup" } },
-  { name: "task review", argv: ["task-review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
-  { name: "task complete", argv: ["task-complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
+  { name: "task review", argv: ["task", "review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
+  { name: "task complete", argv: ["task", "complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
   {
     name: "decision propose",
     argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--dry-run"],
@@ -73,11 +73,11 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "decision amend", argv: ["decision", "amend", "dec_TEST", "--title", "Updated", "--append", "rejected:{\"id\":\"RJ2\",\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}"], kind: "decision-amend", fields: { decisionId: "dec_TEST", title: "Updated", patches: [{ field: "rejected", operation: "append", value: "{\"id\":\"RJ2\",\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}" }] } },
   { name: "decision relate", argv: ["decision", "relate", "dec_TEST", "--anchor", "CH1", "--type", "supersedes", "--target", "decision/dec_OLD", "--rationale", "Newer decision replaces older storage claim"], kind: "decision-relate", fields: { decisionId: "dec_TEST", anchor: "CH1", relationType: "supersedes", target: "decision/dec_OLD", rationale: "Newer decision replaces older storage claim", dryRun: false } },
   { name: "decision retire", argv: ["decision", "retire", "dec_TEST"], kind: "decision-retire", fields: { decisionId: "dec_TEST" } },
-  { name: "record fact", argv: ["record", "fact", "--task", "task_1", "--id", "F-DEADBEEF", "--statement", "Fact", "--source", "Fixture", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory,task_skill", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "record-fact", fields: { taskId: "task_1", factId: "F-DEADBEEF", statement: "Fact", source: "Fixture", confidence: "high", memoryClass: "procedural", memoryTags: ["tool_memory", "task_skill"], observedAt: "2026-07-03T00:00:00.000Z" } },
+  { name: "fact record", argv: ["fact", "record", "--task", "task_1", "--id", "F-DEADBEEF", "--statement", "Fact", "--source", "Fixture", "--confidence", "high", "--memory-class", "procedural", "--memory-tag", "tool_memory,task_skill", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "record-fact", fields: { taskId: "task_1", factId: "F-DEADBEEF", statement: "Fact", source: "Fixture", confidence: "high", memoryClass: "procedural", memoryTags: ["tool_memory", "task_skill"], observedAt: "2026-07-03T00:00:00.000Z" } },
   { name: "distill candidate", argv: ["distill", "candidate", "--task", "task_1", "--input", "source.md"], kind: "distill-candidate", fields: { taskId: "task_1", inputPath: "source.md" } },
-  { name: "distill commit", argv: ["distill", "commit", "--task", "task_1", "--candidate", ".harness/generated/distill/task_1/candidate.json", "--claim", "Distilled claim", "--id", "F-DEADBEEF", "--confidence", "high", "--memory-class", "semantic", "--memory-tag", "pattern", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "distill-commit", fields: { taskId: "task_1", candidatePath: ".harness/generated/distill/task_1/candidate.json", claim: "Distilled claim", factId: "F-DEADBEEF", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], observedAt: "2026-07-03T00:00:00.000Z" } },
-  { name: "runtime event append", argv: ["runtime-event", "append", "--session", "codex-session-1", "--kind", "interrupt", "--runtime", "codex", "--task", "task_1", "--interrupt", "append", "--result", "succeeded", "--summary", "Guidance appended", "--total-tokens", "42"], kind: "runtime-event-append", fields: { sessionId: "codex-session-1", eventKind: "interrupt", runtime: "codex", taskId: "task_1", interrupt: "append", result: "succeeded", summary: "Guidance appended", totalTokens: 42 } },
-  { name: "runtime event list", argv: ["runtime-event", "list", "--session", "codex-session-1"], kind: "runtime-event-list", fields: { sessionId: "codex-session-1" } },
+  { name: "distill promote", argv: ["distill", "promote", "--task", "task_1", "--candidate", ".harness/generated/distill/task_1/candidate.json", "--claim", "Distilled claim", "--id", "F-DEADBEEF", "--confidence", "high", "--memory-class", "semantic", "--memory-tag", "pattern", "--observed-at", "2026-07-03T00:00:00.000Z"], kind: "distill-commit", fields: { taskId: "task_1", candidatePath: ".harness/generated/distill/task_1/candidate.json", claim: "Distilled claim", factId: "F-DEADBEEF", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], observedAt: "2026-07-03T00:00:00.000Z" } },
+  { name: "event append", argv: ["event", "append", "--session", "codex-session-1", "--kind", "interrupt", "--runtime", "codex", "--task", "task_1", "--interrupt", "append", "--result", "succeeded", "--summary", "Guidance appended", "--total-tokens", "42"], kind: "runtime-event-append", fields: { sessionId: "codex-session-1", eventKind: "interrupt", runtime: "codex", taskId: "task_1", interrupt: "append", result: "succeeded", summary: "Guidance appended", totalTokens: 42 } },
+  { name: "event list", argv: ["event", "list", "--session", "codex-session-1"], kind: "runtime-event-list", fields: { sessionId: "codex-session-1" } },
   { name: "doc list", argv: ["doc", "list", "--module", "m4-loadbearing", "--product-line", "kernel"], kind: "doc-list", fields: { filters: { moduleKey: "m4-loadbearing", productLine: "kernel" } } },
   { name: "doc map", argv: ["doc", "map", "--module", "m4-loadbearing"], kind: "doc-map", fields: { filters: { moduleKey: "m4-loadbearing", productLine: undefined } } },
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
@@ -103,21 +103,21 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "version", argv: ["version"], kind: "version" },
   { name: "check", argv: ["check", "--profile", "target-project", "--strict", "--post-merge"], kind: "check", fields: { profile: "target-project", strict: true, postMerge: true } },
   { name: "governance rebuild", argv: ["governance", "rebuild", "--archive"], kind: "governance-rebuild", fields: { mode: "archive" } },
-  { name: "lesson promote", argv: ["lesson-promote", "task_1", "candidate-1", "--apply"], kind: "lesson-promote", fields: { taskId: "task_1", candidateId: "candidate-1", mode: "apply" } },
-  { name: "lesson sediment", argv: ["lesson-sediment", "task_1", "candidate-1", "--title", "Learning"], kind: "lesson-sediment", fields: { taskId: "task_1", candidateId: "candidate-1", title: "Learning", mode: "dry-run" } },
+  { name: "lesson promote", argv: ["lesson", "promote", "task_1", "candidate-1", "--apply"], kind: "lesson-promote", fields: { taskId: "task_1", candidateId: "candidate-1", mode: "apply" } },
+  { name: "lesson sediment", argv: ["lesson", "sediment", "task_1", "candidate-1", "--title", "Learning"], kind: "lesson-sediment", fields: { taskId: "task_1", candidateId: "candidate-1", title: "Learning", mode: "dry-run" } },
   { name: "adopt multica", argv: ["adopt", "multica", "EXT-1", "--task", "task_1", "--title", "External", "--status", "todo"], kind: "adopt-multica", fields: { ref: "EXT-1", taskId: "task_1", title: "External", status: "todo" } },
   { name: "snapshot multica", argv: ["snapshot", "multica", "EXT-1", "--title", "External", "--status", "todo"], kind: "snapshot-multica", fields: { ref: "EXT-1", title: "External", status: "todo" } },
-  { name: "migrate plan", argv: ["migrate-plan", "--limit", "5"], kind: "migrate-plan", fields: { limit: 5 } },
-  { name: "migrate structure", argv: ["migrate-structure", "--apply", "--confirm-plan"], kind: "migrate-structure", fields: { mode: "apply", confirmPlan: true } },
-  { name: "migrate provenance", argv: ["migrate-provenance", "--apply"], kind: "migrate-provenance", fields: { mode: "apply" } },
-  { name: "migrate run", argv: ["migrate-run", "--plan-only", "--session-dir", "session", "--locale", "en-US", "--assume-locale", "zh-CN", "--allow-dirty"], kind: "migrate-run", fields: { planOnly: true, outDir: "session", sessionDir: "session", locale: "en-US", assumeLocale: "zh-CN", allowDirty: true } },
-  { name: "migrate verify", argv: ["migrate-verify", "session.json"], kind: "migrate-verify", fields: { sessionPath: "session.json", fullCutover: false } },
+  { name: "migrate plan", argv: ["migrate", "plan", "--limit", "5"], kind: "migrate-plan", fields: { limit: 5 } },
+  { name: "migrate structure", argv: ["migrate", "structure", "--apply", "--confirm-plan"], kind: "migrate-structure", fields: { mode: "apply", confirmPlan: true } },
+  { name: "migrate provenance", argv: ["migrate", "provenance", "--apply"], kind: "migrate-provenance", fields: { mode: "apply" } },
+  { name: "migrate run", argv: ["migrate", "run", "--plan-only", "--session-dir", "session", "--locale", "en-US", "--assume-locale", "zh-CN", "--allow-dirty"], kind: "migrate-run", fields: { planOnly: true, outDir: "session", sessionDir: "session", locale: "en-US", assumeLocale: "zh-CN", allowDirty: true } },
+  { name: "migrate verify", argv: ["migrate", "verify", "session.json"], kind: "migrate-verify", fields: { sessionPath: "session.json", fullCutover: false } },
   { name: "legacy scan", argv: ["legacy", "scan", "old"], kind: "legacy-scan", fields: { sourcePath: "old" } },
-  { name: "legacy intake plan", argv: ["legacy", "intake-plan", "old", "--out", "plan.json"], kind: "legacy-intake-plan", fields: { sourcePath: "old", outPath: "plan.json" } },
-  { name: "legacy copy safe docs", argv: ["legacy", "copy-safe-docs", "old", "--apply"], kind: "legacy-copy-safe-docs", fields: { sourcePath: "old", apply: true } },
+  { name: "legacy plan", argv: ["legacy", "plan", "old", "--out", "plan.json"], kind: "legacy-intake-plan", fields: { sourcePath: "old", outPath: "plan.json" } },
+  { name: "legacy copy docs", argv: ["legacy", "copy-docs", "old", "--apply"], kind: "legacy-copy-safe-docs", fields: { sourcePath: "old", apply: true } },
   { name: "legacy index", argv: ["legacy", "index", "old", "--apply"], kind: "legacy-index", fields: { sourcePath: "old", apply: true } },
   { name: "legacy verify", argv: ["legacy", "verify"], kind: "legacy-verify" },
-  { name: "git diff", argv: ["git-diff", "--base", "origin/main"], kind: "git-diff", fields: { baseRef: "origin/main" } },
+  { name: "git diff", argv: ["git", "diff", "--base", "origin/main"], kind: "git-diff", fields: { baseRef: "origin/main" } },
   { name: "doctor", argv: ["doctor"], kind: "doctor" },
   { name: "gui", argv: ["gui"], kind: "gui" },
   { name: "template list", argv: ["template", "list", "--catalog", "catalog.json"], kind: "template-list", fields: { catalogPath: "catalog.json" } },
@@ -142,7 +142,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "module register", argv: ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**", "--prefix", "BILL", "--status", "active", "--branch", "main", "--owner", "team", "--current-step", "BILL-01", "--shared", "docs/**", "--depends-on", "kernel"], kind: "module-register", fields: { moduleKey: "billing", title: "Billing", scope: "packages/billing/**", prefix: "BILL", status: "active", branch: "main", owner: "team", currentStep: "BILL-01", shared: ["docs/**"], dependsOn: ["kernel"] } },
   { name: "module scaffold", argv: ["module", "scaffold", "billing"], kind: "module-scaffold", fields: { moduleKey: "billing" } },
   { name: "module unregister", argv: ["module", "unregister", "billing"], kind: "module-unregister", fields: { moduleKey: "billing" } },
-  { name: "module step", argv: ["module-step", "billing", "T-1", "--state", "done"], kind: "module-step", fields: { moduleKey: "billing", stepId: "T-1", state: "done" } },
+  { name: "module step", argv: ["module", "step", "billing", "T-1", "--state", "done"], kind: "module-step", fields: { moduleKey: "billing", stepId: "T-1", state: "done" } },
   { name: "vertical validate", argv: ["vertical", "validate", "vertical.json"], kind: "vertical-validate", fields: { definitionPath: "vertical.json" } }
 ];
 
@@ -289,7 +289,7 @@ test("parseArgs pins stable parse error envelopes", () => {
     { argv: ["init", "--name"], code: "missing_name" },
     { argv: ["init", "--name", "--add-npm-scripts"], code: "missing_name" },
     { argv: ["new-task"], code: "missing_title" },
-    { argv: ["unknown"], code: "unknown_command", hintIncludes: "harness-anything new-task --title <title>" }
+    { argv: ["unknown"], code: "unknown_command", hintIncludes: "harness-anything task create --title <title>" }
   ] as const;
 
   for (const candidate of cases) {
@@ -300,6 +300,37 @@ test("parseArgs pins stable parse error envelopes", () => {
     if ("hintIncludes" in candidate) {
       assert.equal(parsed.error.hint.includes(candidate.hintIncludes), true);
     }
+  }
+});
+
+test("parseArgs keeps deprecated command aliases during the E77/F6 transition", () => {
+  const cases = [
+    { argv: ["new-task", "--title", "Alias Task"], kind: "new-task" },
+    { argv: ["task", "status", "set", "task_1", "active"], kind: "status-set" },
+    { argv: ["task-review", "task_1"], kind: "task-review" },
+    { argv: ["task-complete", "task_1", "--ci", "passed"], kind: "task-complete" },
+    { argv: ["record", "fact", "--task", "task_1", "--statement", "Fact", "--source", "Fixture"], kind: "record-fact" },
+    { argv: ["distill", "commit", "--task", "task_1", "--candidate", "candidate.json", "--claim", "Claim"], kind: "distill-commit" },
+    { argv: ["runtime-event", "append", "--session", "s1", "--kind", "interrupt"], kind: "runtime-event-append" },
+    { argv: ["runtime-event", "list", "--session", "s1"], kind: "runtime-event-list" },
+    { argv: ["lesson-promote", "task_1", "candidate-1"], kind: "lesson-promote" },
+    { argv: ["lesson-sediment", "task_1", "candidate-1"], kind: "lesson-sediment" },
+    { argv: ["migrate-plan"], kind: "migrate-plan" },
+    { argv: ["migrate-structure", "--plan"], kind: "migrate-structure" },
+    { argv: ["migrate-provenance"], kind: "migrate-provenance" },
+    { argv: ["migrate-run", "--plan-only"], kind: "migrate-run" },
+    { argv: ["migrate-verify", "session.json"], kind: "migrate-verify" },
+    { argv: ["legacy", "intake-plan", "old"], kind: "legacy-intake-plan" },
+    { argv: ["legacy", "copy-safe-docs", "old"], kind: "legacy-copy-safe-docs" },
+    { argv: ["git-diff", "--base", "origin/main"], kind: "git-diff" },
+    { argv: ["module-step", "billing", "T-1", "--state", "done"], kind: "module-step" }
+  ] as const;
+
+  for (const candidate of cases) {
+    const parsed = parseArgs(candidate.argv);
+    assert.equal(parsed.ok, true, candidate.argv.join(" "));
+    if (!parsed.ok) continue;
+    assert.equal(parsed.value.action.kind, candidate.kind, candidate.argv.join(" "));
   }
 });
 
@@ -334,6 +365,7 @@ test("parseArgs handles command-level help before command parsers", () => {
     { argv: ["new-task", "--help"], commandKind: "new-task" },
     { argv: ["new-task", "-h"], commandKind: "new-task" },
     { argv: ["help", "new-task"], commandKind: "new-task" },
+    { argv: ["task", "transition", "--help"], commandKind: "status-set" },
     { argv: ["task", "status", "set", "--help"], commandKind: "status-set" },
     { argv: ["task", "--help"], commandPrefix: ["task"] }
   ] as const;

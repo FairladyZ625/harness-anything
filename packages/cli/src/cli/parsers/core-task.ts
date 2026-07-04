@@ -16,13 +16,16 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
       projectName: projectName.value
     });
   }
+  if (args[0] === "task" && args[1] === "transition" && args[2] && args[3]) return parseStatusSet(["task", "status", "set", ...args.slice(2)], rootDir, json);
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
   if (args[0] === "task" && args[1] === "archive" && args[2]) return parseTaskArchive(args, rootDir, json);
   if (args[0] === "task" && args[1] === "supersede" && args[2]) return parseTaskSupersede(args, rootDir, json);
   if (args[0] === "task" && args[1] === "delete") return parseTaskDelete(args, rootDir, json);
   if (args[0] === "task" && args[1] === "reopen" && args[2]) return parseTaskReopen(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "review" && args[2]) return parseTaskReview(["task-review", ...args.slice(2)], rootDir, json);
   if (args[0] === "task-review" && args[1]) return parseTaskReview(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "complete" && args[2]) return parseTaskComplete(["task-complete", ...args.slice(2)], rootDir, json);
   if (args[0] === "task-complete" && args[1]) return parseTaskComplete(args, rootDir, json);
   if (args[0] === "task" && args[1] === "list") return parseTaskList(args, rootDir, json);
   return null;
@@ -146,7 +149,7 @@ function parseTaskReview(args: ReadonlyArray<string>, rootDir: string, json: boo
 function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const ciGate = readOption(args, "--ci");
   if (!ciGate) {
-    return { ok: false, error: cliError(CliErrorCode.MissingCiGate, "task-complete requires --ci passed|failed") };
+    return { ok: false, error: cliError(CliErrorCode.MissingCiGate, "task complete requires --ci passed|failed") };
   }
   if (ciGate !== "passed" && ciGate !== "failed") {
     return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}`) };

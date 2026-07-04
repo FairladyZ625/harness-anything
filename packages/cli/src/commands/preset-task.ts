@@ -40,7 +40,7 @@ export function runNewTaskWithPreset(
         ok: false,
         command: "new-task",
         preset: { id: presetId },
-        error: cliError(CliErrorCode.MissingModule, "Use new-task --preset module --module <key>.")
+        error: cliError(CliErrorCode.MissingModule, "Use task create --preset module --module <key>.")
       } satisfies CliResult;
     }
     const preset = resolvePresetEntry(rootInput, presetId);

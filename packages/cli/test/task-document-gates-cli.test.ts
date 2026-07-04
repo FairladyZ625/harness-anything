@@ -91,7 +91,7 @@ test("CLI task-review rejects tasks without a real fact and prints the remediati
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "task_fact_required");
-    assert.match(blocked.error?.hint, /ha record fact --task task-1 --statement/);
+    assert.match(blocked.error?.hint, /ha fact record --task task-1 --statement/);
   });
 });
 
@@ -161,7 +161,7 @@ test("CLI task-complete preserves the fact gate failure instead of masking it as
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "task_fact_required");
-    assert.match(blocked.error?.hint, /ha record fact --task task-1 --statement/);
+    assert.match(blocked.error?.hint, /ha fact record --task task-1 --statement/);
   });
 });
 

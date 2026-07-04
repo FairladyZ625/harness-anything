@@ -81,7 +81,7 @@ function runCommit(context: Parameters<CommandRunner>[0], action: DistillCommitA
     factId: action.factId,
     statement: action.claim,
     source: [
-      "ha distill commit",
+      "ha distill promote",
       `candidate=${candidate.relativePath}`,
       `input=${candidate.artifact.inputPath}`,
       `inputSha256=${candidate.artifact.inputSha256}`

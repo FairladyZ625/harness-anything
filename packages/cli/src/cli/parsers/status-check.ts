@@ -58,9 +58,10 @@ export function parseStatusCheckArgs(args: ReadonlyArray<string>, rootDir: strin
     };
   }
 
-  if (args[0] === "lesson-promote" && args[1] && args[2]) {
-    const mode = args.includes("--apply") ? "apply" : "dry-run";
-    if (args.includes("--apply") && args.includes("--dry-run")) {
+  const lessonPromoteArgs = args[0] === "lesson" && args[1] === "promote" ? ["lesson-promote", ...args.slice(2)] : args;
+  if (lessonPromoteArgs[0] === "lesson-promote" && lessonPromoteArgs[1] && lessonPromoteArgs[2]) {
+    const mode = lessonPromoteArgs.includes("--apply") ? "apply" : "dry-run";
+    if (lessonPromoteArgs.includes("--apply") && lessonPromoteArgs.includes("--dry-run")) {
       return { ok: false, error: cliError(CliErrorCode.ConflictingLessonMode, "Use either --dry-run or --apply.") };
     }
     return {
@@ -70,15 +71,16 @@ export function parseStatusCheckArgs(args: ReadonlyArray<string>, rootDir: strin
         json,
         action: {
           kind: "lesson-promote",
-          taskId: args[1],
-          candidateId: args[2],
+          taskId: lessonPromoteArgs[1],
+          candidateId: lessonPromoteArgs[2],
           mode
         }
       }
     };
   }
 
-  if (args[0] === "lesson-sediment" && args[1] && args[2]) {
+  const lessonSedimentArgs = args[0] === "lesson" && args[1] === "sediment" ? ["lesson-sediment", ...args.slice(2)] : args;
+  if (lessonSedimentArgs[0] === "lesson-sediment" && lessonSedimentArgs[1] && lessonSedimentArgs[2]) {
     return {
       ok: true,
       value: {
@@ -86,10 +88,10 @@ export function parseStatusCheckArgs(args: ReadonlyArray<string>, rootDir: strin
         json,
         action: {
           kind: "lesson-sediment",
-          taskId: args[1],
-          candidateId: args[2],
+          taskId: lessonSedimentArgs[1],
+          candidateId: lessonSedimentArgs[2],
           mode: "dry-run",
-          title: readOption(args, "--title") ?? args[2]
+          title: readOption(lessonSedimentArgs, "--title") ?? lessonSedimentArgs[2]
         }
       }
     };

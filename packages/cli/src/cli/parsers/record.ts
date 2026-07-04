@@ -8,19 +8,20 @@ type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { read
 const confidenceLevels = new Set(["low", "medium", "high"]);
 
 export function parseRecordArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
-  if (args[0] !== "record") return null;
-  if (args[1] !== "fact") {
-    return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use record fact.") };
+  const normalizedArgs = args[0] === "fact" && args[1] === "record" ? ["record", "fact", ...args.slice(2)] : args;
+  if (normalizedArgs[0] !== "record") return null;
+  if (normalizedArgs[1] !== "fact") {
+    return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use fact record.") };
   }
-  const taskId = readOption(args, "--task") ?? args[2];
-  const statement = readOption(args, "--statement");
-  const source = readOption(args, "--source");
-  const confidence = readOption(args, "--confidence") ?? "medium";
-  const memoryClass = readOption(args, "--memory-class") ?? "episodic";
-  const memoryTags = readMemoryTags(args);
-  if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use record fact --task <task-id>.") };
-  if (!statement) return { ok: false, error: cliError(CliErrorCode.MissingFactStatement, "Use record fact --statement <text>.") };
-  if (!source) return { ok: false, error: cliError(CliErrorCode.MissingFactSource, "Use record fact --source <text>.") };
+  const taskId = readOption(normalizedArgs, "--task") ?? normalizedArgs[2];
+  const statement = readOption(normalizedArgs, "--statement");
+  const source = readOption(normalizedArgs, "--source");
+  const confidence = readOption(normalizedArgs, "--confidence") ?? "medium";
+  const memoryClass = readOption(normalizedArgs, "--memory-class") ?? "episodic";
+  const memoryTags = readMemoryTags(normalizedArgs);
+  if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use fact record --task <task-id>.") };
+  if (!statement) return { ok: false, error: cliError(CliErrorCode.MissingFactStatement, "Use fact record --statement <text>.") };
+  if (!source) return { ok: false, error: cliError(CliErrorCode.MissingFactSource, "Use fact record --source <text>.") };
   if (!confidenceLevels.has(confidence)) {
     return { ok: false, error: cliError(CliErrorCode.InvalidFactConfidence, "Use low, medium, or high for --confidence.") };
   }
@@ -30,7 +31,7 @@ export function parseRecordArgs(args: ReadonlyArray<string>, rootDir: string, js
   if (memoryTags === null) {
     return { ok: false, error: cliError(CliErrorCode.InvalidFactMemoryTag, "Use known fact memory tags with --memory-tag.") };
   }
-  const factId = readOption(args, "--id");
+  const factId = readOption(normalizedArgs, "--id");
   if (factId && !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(factId)) {
     return { ok: false, error: cliError(CliErrorCode.InvalidFactId, "Use fact ids as F-<8 Crockford base32 chars>.") };
   }
@@ -45,11 +46,11 @@ export function parseRecordArgs(args: ReadonlyArray<string>, rootDir: string, js
         factId,
         statement,
         source,
-        observedAt: readOption(args, "--observed-at"),
+        observedAt: readOption(normalizedArgs, "--observed-at"),
         confidence: confidence as "low" | "medium" | "high",
         memoryClass,
         memoryTags,
-        dryRun: args.includes("--dry-run")
+        dryRun: normalizedArgs.includes("--dry-run")
       }
     }
   };

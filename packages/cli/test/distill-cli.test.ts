@@ -33,7 +33,7 @@ test("CLI distill candidate writes a generated candidate without recording a fac
   });
 });
 
-test("CLI distill commit records the explicit claim through the fact write path", () => {
+test("CLI distill promote records the explicit claim through the fact write path", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Distill Owner"]);
     const taskId = String(created.taskId);
@@ -42,7 +42,7 @@ test("CLI distill commit records the explicit claim through the fact write path"
 
     const committed = runJson(rootDir, [
       "distill",
-      "commit",
+      "promote",
       "--task",
       taskId,
       "--candidate",
@@ -66,14 +66,14 @@ test("CLI distill commit records the explicit claim through the fact write path"
     const factsBody = readFileSync(path.join(rootDir, String(created.packagePath), "facts.md"), "utf8");
     assert.match(factsBody, /fact_id: F-ABCD1234/u);
     assert.match(factsBody, /statement: "Distill commit records only after explicit command\."/u);
-    assert.match(factsBody, /source: "ha distill commit; candidate=\.harness\/generated\/distill\//u);
+    assert.match(factsBody, /source: "ha distill promote; candidate=\.harness\/generated\/distill\//u);
     assert.match(factsBody, /input=source-note\.md; inputSha256=[a-f0-9]{64}/u);
     assert.match(factsBody, /memoryClass: semantic, memoryTags: \[pattern\]/u);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/u);
   });
 });
 
-test("CLI distill commit fails closed for missing or mismatched candidates", () => {
+test("CLI distill promote fails closed for missing or mismatched candidates", () => {
   withTempRoot((rootDir) => {
     const first = runJson(rootDir, ["new-task", "--title", "First"]);
     const second = runJson(rootDir, ["new-task", "--title", "Second"]);
@@ -82,7 +82,7 @@ test("CLI distill commit fails closed for missing or mismatched candidates", () 
 
     const missing = runJson(rootDir, [
       "distill",
-      "commit",
+      "promote",
       "--task",
       String(first.taskId),
       "--candidate",
@@ -95,7 +95,7 @@ test("CLI distill commit fails closed for missing or mismatched candidates", () 
 
     const mismatch = runJson(rootDir, [
       "distill",
-      "commit",
+      "promote",
       "--task",
       String(second.taskId),
       "--candidate",

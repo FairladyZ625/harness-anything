@@ -10,8 +10,8 @@ const confidenceLevels = new Set(["low", "medium", "high"]);
 export function parseDistillArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] !== "distill") return null;
   if (args[1] === "candidate") return parseDistillCandidate(args, rootDir, json);
-  if (args[1] === "commit") return parseDistillCommit(args, rootDir, json);
-  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use distill candidate or distill commit.") };
+  if (args[1] === "promote" || args[1] === "commit") return parseDistillCommit(args, rootDir, json);
+  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use distill candidate or distill promote.") };
 }
 
 function parseDistillCandidate(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
@@ -40,9 +40,9 @@ function parseDistillCommit(args: ReadonlyArray<string>, rootDir: string, json: 
   const confidence = readOption(args, "--confidence") ?? "medium";
   const memoryClass = readOption(args, "--memory-class") ?? "semantic";
   const memoryTags = readDistillMemoryTags(args);
-  if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use distill commit --task <task-id>.") };
-  if (!candidatePath) return { ok: false, error: cliError(CliErrorCode.ArtifactReadFailed, "Use distill commit --candidate <path>.") };
-  if (!claim) return { ok: false, error: cliError(CliErrorCode.MissingText, "Use distill commit --claim <text>.") };
+  if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use distill promote --task <task-id>.") };
+  if (!candidatePath) return { ok: false, error: cliError(CliErrorCode.ArtifactReadFailed, "Use distill promote --candidate <path>.") };
+  if (!claim) return { ok: false, error: cliError(CliErrorCode.MissingText, "Use distill promote --claim <text>.") };
   if (!confidenceLevels.has(confidence)) {
     return { ok: false, error: cliError(CliErrorCode.InvalidFactConfidence, "Use low, medium, or high for --confidence.") };
   }

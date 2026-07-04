@@ -47,12 +47,13 @@ export function parseModuleArgs(args: ReadonlyArray<string>, rootDir: string, js
     return { ok: true, value: { rootDir, json, action: { kind: "module-unregister", moduleKey: args[2] } } };
   }
 
-  if (args[0] === "module-step" && args[1] && args[2]) {
-    const state = readOption(args, "--state") ?? "in-progress";
+  const moduleStepArgs = args[0] === "module" && args[1] === "step" ? ["module-step", ...args.slice(2)] : args;
+  if (moduleStepArgs[0] === "module-step" && moduleStepArgs[1] && moduleStepArgs[2]) {
+    const state = readOption(moduleStepArgs, "--state") ?? "in-progress";
     if (state !== "planned" && state !== "in-progress" && state !== "blocked" && state !== "done") {
       return { ok: false, error: cliError(CliErrorCode.InvalidModuleStepState, `Unknown module step state: ${state}`) };
     }
-    return { ok: true, value: { rootDir, json, action: { kind: "module-step", moduleKey: args[1], stepId: args[2], state } } };
+    return { ok: true, value: { rootDir, json, action: { kind: "module-step", moduleKey: moduleStepArgs[1], stepId: moduleStepArgs[2], state } } };
   }
 
   return null;

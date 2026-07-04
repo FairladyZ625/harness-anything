@@ -6,13 +6,14 @@ export function parseGitDiffArgs(
   rootDir: string,
   json: boolean
 ): ParsedCommand | undefined {
-  if (args[0] !== "git-diff") return undefined;
+  const normalizedArgs = args[0] === "git" && args[1] === "diff" ? ["git-diff", ...args.slice(2)] : args;
+  if (normalizedArgs[0] !== "git-diff") return undefined;
   return {
     rootDir,
     json,
     action: {
       kind: "git-diff",
-      baseRef: readOption(args, "--base")
+      baseRef: readOption(normalizedArgs, "--base")
     }
   };
 }

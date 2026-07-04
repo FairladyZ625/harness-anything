@@ -73,9 +73,9 @@ const descriptions: Record<string, string> = {
   "--plan-only": "Create a migration plan without applying it.",
   "--post-merge": "Run checks intended for post-merge validation.",
   "--prefix": "Set the module id prefix.",
-  "--preset": "Select a preset id; new-task defaults to standard-task and preset list shows installed presets.",
+  "--preset": "Select a preset id; task create defaults to standard-task and preset list shows installed presets.",
   "--product-line": "Attach a comma-separated product line list to a decision.",
-  "--profile": "Select a check or task profile; new-task defaults to baseline.",
+  "--profile": "Select a check or task profile; task create defaults to baseline.",
   "--project": "Use the project preset layer.",
   "--proposed-by": "Set the decision proposer as agent:<id>, human:<id>, or system:<id>.",
   "--purpose": "Filter script entries by declared purpose.",
@@ -106,7 +106,7 @@ const descriptions: Record<string, string> = {
   "--title": "Set the required task title used for generated package metadata and slug.",
   "--type": "Set the relation type.",
   "--urgency": "Set decision urgency as low, medium, or high.",
-  "--vertical": "Select a vertical definition; new-task defaults to software/coding.",
+  "--vertical": "Select a vertical definition; task create defaults to software/coding.",
   "--version": "Print the installed CLI version.",
   "--why-not": "Set the rationale for rejecting the alternative."
 };

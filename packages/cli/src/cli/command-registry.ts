@@ -52,19 +52,22 @@ export interface CommandUsage {
   readonly aliases?: ReadonlyArray<string>;
 }
 
+const aliasRetirement = "deprecated, use {replacement}; retires at E77/F6 acceptance";
+const deprecatedAlias = (alias: string, replacement: string) => `${alias} (${aliasRetirement.replace("{replacement}", replacement)})`;
+
 const commandUsages = [
   { kind: "help", usage: "help", aliases: ["--help", "-h"] },
   { kind: "version", usage: "version", aliases: ["--version", "-v"] },
   { kind: "init", usage: "init [--name <name>] [--add-npm-scripts]" },
-  { kind: "new-task", usage: "new-task --title <title> [--vertical software/coding --preset <id> --module <key>] [--register-module <key> --module-title <title> --module-scope <path>] [--long-running] [--dry-run] [--locale zh-CN|en-US] [--from-legacy <legacy-id>] [--json]" },
-  { kind: "status-set", usage: "task status set <id> <status> [--force --reason <reason>]" },
+  { kind: "new-task", usage: "task create --title <title> [--vertical software/coding --preset <id> --module <key>] [--register-module <key> --module-title <title> --module-scope <path>] [--long-running] [--dry-run] [--locale zh-CN|en-US] [--from-legacy <legacy-id>] [--json]", aliases: [deprecatedAlias("new-task --title <title>", "task create")] },
+  { kind: "status-set", usage: "task transition <id> <status> [--force --reason <reason>]", aliases: [deprecatedAlias("task status set <id> <status>", "task transition")] },
   { kind: "progress-append", usage: "task progress append <id> --text <text> [--evidence type:PATH:summary]" },
   { kind: "task-archive", usage: "task archive <id> --reason <reason> [--archived-by <actor>] [--archive-field <field>]" },
   { kind: "task-supersede", usage: "task supersede <old-id> (--title <title> [--slug <slug>] | --by <existing-task-id> --confirm <old-id>) [--reason <reason>] [--deleted-by <actor>] [--allow-open-findings]" },
   { kind: "task-delete", usage: "task delete (--soft <id> | --hard <id> --confirm <id>) --reason <reason> [--deleted-by <actor>]" },
   { kind: "task-reopen", usage: "task reopen <id> --reason <reason>" },
-  { kind: "task-review", usage: "task-review <id> [--reviewer <id>]" },
-  { kind: "task-complete", usage: "task-complete <id> --ci passed|failed [--reviewer <id>]" },
+  { kind: "task-review", usage: "task review <id> [--reviewer <id>]", aliases: [deprecatedAlias("task-review <id>", "task review")] },
+  { kind: "task-complete", usage: "task complete <id> --ci passed|failed [--reviewer <id>]", aliases: [deprecatedAlias("task-complete <id>", "task complete")] },
   { kind: "decision-list", usage: "decision list [--search <text>] [--legacy-id E<n>] [--legacy-range E<n>-E<n>] [--state <state>] [--module <key>] [--product-line <key>] [--compact] [--json]" },
   { kind: "decision-show", usage: "decision show <decision-id|E<n>> [--json]" },
   { kind: "decision-propose", usage: "decision propose --title <title> --question <text> --chosen <text> --rejected <text> --why-not <text> [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--proposed-by kind:id] [--arbiter kind:id] [--claim <text>] [--evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>] [--body <text>] [--dry-run] [--json]" },
@@ -75,11 +78,11 @@ const commandUsages = [
   { kind: "decision-amend", usage: "decision amend <decision-id> [--title <title>] [--set <field>:<value>] [--append <field>:<json>] [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-relate", usage: "decision relate <decision-id> --anchor <CH1|RJ1|C1> --type <relation-type> --target <entity-ref> --rationale <text> [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-retire", usage: "decision retire <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
-  { kind: "record-fact", usage: "record fact --task <task-id> --statement <text> --source <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--dry-run] [--json]" },
+  { kind: "record-fact", usage: "fact record --task <task-id> --statement <text> --source <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--dry-run] [--json]", aliases: [deprecatedAlias("record fact --task <task-id>", "fact record")] },
   { kind: "distill-candidate", usage: "distill candidate --task <task-id> --input <path> [--json]" },
-  { kind: "distill-commit", usage: "distill commit --task <task-id> --candidate <path> --claim <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--json]" },
-  { kind: "runtime-event-append", usage: "runtime-event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]" },
-  { kind: "runtime-event-list", usage: "runtime-event list --session <session-id> [--json]" },
+  { kind: "distill-commit", usage: "distill promote --task <task-id> --candidate <path> --claim <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--json]", aliases: [deprecatedAlias("distill commit --task <task-id>", "distill promote")] },
+  { kind: "runtime-event-append", usage: "event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]", aliases: [deprecatedAlias("runtime-event append", "event append")] },
+  { kind: "runtime-event-list", usage: "event list --session <session-id> [--json]", aliases: [deprecatedAlias("runtime-event list", "event list")] },
   { kind: "doc-list", usage: "doc list [--module <key>] [--product-line <key>] [--json]" },
   { kind: "doc-map", usage: "doc map [--module <key>] [--product-line <key>] [--json]" },
   { kind: "template-list", usage: "template list [--catalog <path>] [--json]" },
@@ -88,21 +91,21 @@ const commandUsages = [
   { kind: "status", usage: "status --json" },
   { kind: "check", usage: "check [--profile source-package|private-harness|target-project] [--strict] [--post-merge] [--json]" },
   { kind: "governance-rebuild", usage: "governance rebuild [--dry-run|--archive|--apply] [--json]" },
-  { kind: "lesson-promote", usage: "lesson-promote <task-id> <candidate-id> [--dry-run|--apply] [--json]" },
-  { kind: "lesson-sediment", usage: "lesson-sediment <task-id> <candidate-id> [--dry-run] [--title <title>] [--json]" },
+  { kind: "lesson-promote", usage: "lesson promote <task-id> <candidate-id> [--dry-run|--apply] [--json]", aliases: [deprecatedAlias("lesson-promote <task-id> <candidate-id>", "lesson promote")] },
+  { kind: "lesson-sediment", usage: "lesson sediment <task-id> <candidate-id> [--dry-run] [--title <title>] [--json]", aliases: [deprecatedAlias("lesson-sediment <task-id> <candidate-id>", "lesson sediment")] },
   { kind: "adopt-multica", usage: "adopt multica <ref> --task <task-id> [--status <status>] [--title <title>] [--json]" },
   { kind: "snapshot-multica", usage: "snapshot multica <ref> [--status <status>] [--title <title>] [--json]" },
-  { kind: "migrate-plan", usage: "migrate-plan [--limit n] [--json]" },
-  { kind: "migrate-structure", usage: "migrate-structure (--plan|--apply --confirm-plan) [--json]" },
-  { kind: "migrate-provenance", usage: "migrate-provenance [--dry-run|--apply] [--json]" },
-  { kind: "migrate-run", usage: "migrate-run [--plan-only] [--out-dir folder] [--session-dir folder] [--locale zh-CN|en-US] [--assume-locale zh-CN|en-US] [--allow-dirty] [--json]" },
-  { kind: "migrate-verify", usage: "migrate-verify <session.json> [--json]" },
+  { kind: "migrate-plan", usage: "migrate plan [--limit n] [--json]", aliases: [deprecatedAlias("migrate-plan", "migrate plan")] },
+  { kind: "migrate-structure", usage: "migrate structure (--plan|--apply --confirm-plan) [--json]", aliases: [deprecatedAlias("migrate-structure", "migrate structure")] },
+  { kind: "migrate-provenance", usage: "migrate provenance [--dry-run|--apply] [--json]", aliases: [deprecatedAlias("migrate-provenance", "migrate provenance")] },
+  { kind: "migrate-run", usage: "migrate run [--plan-only] [--out-dir folder] [--session-dir folder] [--locale zh-CN|en-US] [--assume-locale zh-CN|en-US] [--allow-dirty] [--json]", aliases: [deprecatedAlias("migrate-run", "migrate run")] },
+  { kind: "migrate-verify", usage: "migrate verify <session.json> [--json]", aliases: [deprecatedAlias("migrate-verify <session.json>", "migrate verify")] },
   { kind: "legacy-scan", usage: "legacy scan <path> [--json]" },
-  { kind: "legacy-intake-plan", usage: "legacy intake-plan <path> [--out file] [--json]" },
-  { kind: "legacy-copy-safe-docs", usage: "legacy copy-safe-docs <path> [--apply] [--json]" },
+  { kind: "legacy-intake-plan", usage: "legacy plan <path> [--out file] [--json]", aliases: [deprecatedAlias("legacy intake-plan <path>", "legacy plan")] },
+  { kind: "legacy-copy-safe-docs", usage: "legacy copy-docs <path> [--apply] [--json]", aliases: [deprecatedAlias("legacy copy-safe-docs <path>", "legacy copy-docs")] },
   { kind: "legacy-index", usage: "legacy index <path> [--apply] [--json]" },
   { kind: "legacy-verify", usage: "legacy verify [--json]" },
-  { kind: "git-diff", usage: "git-diff [--base <ref>] [--json]" },
+  { kind: "git-diff", usage: "git diff [--base <ref>] [--json]", aliases: [deprecatedAlias("git-diff", "git diff")] },
   { kind: "doctor", usage: "doctor --json" },
   { kind: "preset-validate", usage: "preset validate <manifest> [--kernel-version <version>] [--json]" },
   { kind: "preset-list", usage: "preset list [--json]" },
@@ -122,7 +125,7 @@ const commandUsages = [
   { kind: "module-register", usage: "module register <key> --title <title> --scope <path> [--prefix <prefix>] [--status <status>] [--branch <branch>] [--owner <owner>] [--current-step <step>] [--shared <path>] [--depends-on <module>] [--json]" },
   { kind: "module-scaffold", usage: "module scaffold <key> [--json]" },
   { kind: "module-unregister", usage: "module unregister <key> [--json]" },
-  { kind: "module-step", usage: "module-step <key> <step> --state <state> [--json]" },
+  { kind: "module-step", usage: "module step <key> <step> --state <state> [--json]", aliases: [deprecatedAlias("module-step <key> <step>", "module step")] },
   { kind: "vertical-validate", usage: "vertical validate [software/coding|<path>] [--json]" },
   { kind: "gui", usage: "gui" }
 ] as const satisfies ReadonlyArray<CommandUsage>;
@@ -355,18 +358,18 @@ const commandSummaries = {
 } satisfies Record<CommandKind, string>;
 
 const commandExamples = {
-  "help": [`${cliCommandName} help new-task`],
+  "help": [`${cliCommandName} help task create`],
   "version": [`${cliCommandName} version`],
   "init": [`${cliCommandName} init --name my-project --add-npm-scripts`],
-  "new-task": [`${cliCommandName} new-task --title "Normalize CLI help" --vertical software/coding --preset standard-task`],
-  "status-set": [`${cliCommandName} task status set task_01ABC active --reason "work started"`],
+  "new-task": [`${cliCommandName} task create --title "Normalize CLI help" --vertical software/coding --preset standard-task`],
+  "status-set": [`${cliCommandName} task transition task_01ABC active --reason "work started"`],
   "progress-append": [`${cliCommandName} task progress append task_01ABC --text "Implemented parser guard" --evidence log:artifacts/check.log:passed`],
   "task-archive": [`${cliCommandName} task archive task_01ABC --reason "merged"`],
   "task-supersede": [`${cliCommandName} task supersede task_01OLD --title "Replacement task" --reason "scope changed"`],
   "task-delete": [`${cliCommandName} task delete --soft task_01ABC --reason "duplicate"`],
   "task-reopen": [`${cliCommandName} task reopen task_01ABC --reason "follow-up needed"`],
-  "task-review": [`${cliCommandName} task-review task_01ABC --reviewer reviewer-id`],
-  "task-complete": [`${cliCommandName} task-complete task_01ABC --ci passed --reviewer reviewer-id`],
+  "task-review": [`${cliCommandName} task review task_01ABC --reviewer reviewer-id`],
+  "task-complete": [`${cliCommandName} task complete task_01ABC --ci passed --reviewer reviewer-id`],
   "decision-list": [`${cliCommandName} decision list --state active --module m5-circulation --legacy-range E1-E71 --compact --json`],
   "decision-show": [`${cliCommandName} decision show E72 --json`],
   "decision-propose": [`${cliCommandName} decision propose --title "Adopt CLI decision loop" --question "Should M3 expose decision CLI?" --chosen "Expose it" --rejected "Keep write API only" --why-not "No human fallback path" --evidence-relation C1:supports:fact/task_01ABC/F-1234ABCD:"Evidence covers C1."`],
@@ -377,11 +380,11 @@ const commandExamples = {
   "decision-amend": [`${cliCommandName} decision amend dec_01ABC --set title:"Updated title"`],
   "decision-relate": [`${cliCommandName} decision relate dec_01ABC --anchor CH1 --type supersedes --target decision/dec_00XYZ --rationale "Newer decision supersedes the old storage claim."`],
   "decision-retire": [`${cliCommandName} decision retire dec_01ABC --arbiter human:ZeyuLi`],
-  "record-fact": [`${cliCommandName} record fact --task task_01ABC --statement "CLI fallback passed" --source "manual verification" --confidence high`],
+  "record-fact": [`${cliCommandName} fact record --task task_01ABC --statement "CLI fallback passed" --source "manual verification" --confidence high`],
   "distill-candidate": [`${cliCommandName} distill candidate --task task_01ABC --input artifacts/transcript.md --json`],
-  "distill-commit": [`${cliCommandName} distill commit --task task_01ABC --candidate .harness/generated/distill/task_01ABC/distill_123.json --claim "Distilled claim" --memory-class semantic`],
-  "runtime-event-append": [`${cliCommandName} runtime-event append --session codex-session-1 --kind interrupt --runtime codex --interrupt append --summary "User appended task guidance"`],
-  "runtime-event-list": [`${cliCommandName} runtime-event list --session codex-session-1 --json`],
+  "distill-commit": [`${cliCommandName} distill promote --task task_01ABC --candidate .harness/generated/distill/task_01ABC/distill_123.json --claim "Distilled claim" --memory-class semantic`],
+  "runtime-event-append": [`${cliCommandName} event append --session codex-session-1 --kind interrupt --runtime codex --interrupt append --summary "User appended task guidance"`],
+  "runtime-event-list": [`${cliCommandName} event list --session codex-session-1 --json`],
   "doc-list": [`${cliCommandName} doc list --module m4-loadbearing --json`],
   "doc-map": [`${cliCommandName} doc map --module m4-loadbearing --product-line kernel --json`],
   "template-list": [`${cliCommandName} template list --json`],
@@ -390,21 +393,21 @@ const commandExamples = {
   "status": [`${cliCommandName} status --json`],
   "check": [`${cliCommandName} check --profile target-project --strict`],
   "governance-rebuild": [`${cliCommandName} governance rebuild --dry-run`],
-  "lesson-promote": [`${cliCommandName} lesson-promote task_01ABC candidate-1 --apply`],
-  "lesson-sediment": [`${cliCommandName} lesson-sediment task_01ABC candidate-1 --title "CLI help lesson"`],
+  "lesson-promote": [`${cliCommandName} lesson promote task_01ABC candidate-1 --apply`],
+  "lesson-sediment": [`${cliCommandName} lesson sediment task_01ABC candidate-1 --title "CLI help lesson"`],
   "adopt-multica": [`${cliCommandName} adopt multica EXT-123 --task task_01ABC --status active --title "External task"`],
   "snapshot-multica": [`${cliCommandName} snapshot multica EXT-123 --json`],
-  "migrate-plan": [`${cliCommandName} migrate-plan --limit 20`],
-  "migrate-structure": [`${cliCommandName} migrate-structure --plan`],
-  "migrate-provenance": [`${cliCommandName} migrate-provenance --dry-run`],
-  "migrate-run": [`${cliCommandName} migrate-run --plan-only --session-dir migration-session --locale zh-CN`],
-  "migrate-verify": [`${cliCommandName} migrate-verify migration-session/session.json`],
+  "migrate-plan": [`${cliCommandName} migrate plan --limit 20`],
+  "migrate-structure": [`${cliCommandName} migrate structure --plan`],
+  "migrate-provenance": [`${cliCommandName} migrate provenance --dry-run`],
+  "migrate-run": [`${cliCommandName} migrate run --plan-only --session-dir migration-session --locale zh-CN`],
+  "migrate-verify": [`${cliCommandName} migrate verify migration-session/session.json`],
   "legacy-scan": [`${cliCommandName} legacy scan .harness-private/legacy --json`],
-  "legacy-intake-plan": [`${cliCommandName} legacy intake-plan .harness-private/legacy --out intake-plan.json`],
-  "legacy-copy-safe-docs": [`${cliCommandName} legacy copy-safe-docs .harness-private/legacy --apply`],
+  "legacy-intake-plan": [`${cliCommandName} legacy plan .harness-private/legacy --out intake-plan.json`],
+  "legacy-copy-safe-docs": [`${cliCommandName} legacy copy-docs .harness-private/legacy --apply`],
   "legacy-index": [`${cliCommandName} legacy index .harness-private/legacy --apply`],
   "legacy-verify": [`${cliCommandName} legacy verify --json`],
-  "git-diff": [`${cliCommandName} git-diff --base origin/main --json`],
+  "git-diff": [`${cliCommandName} git diff --base origin/main --json`],
   "doctor": [`${cliCommandName} doctor --json`],
   "preset-validate": [`${cliCommandName} preset validate preset.json --kernel-version 1.0.0`],
   "preset-list": [`${cliCommandName} preset list --json`],
@@ -424,7 +427,7 @@ const commandExamples = {
   "module-register": [`${cliCommandName} module register kernel --title "Kernel" --scope "packages/kernel/**"`],
   "module-scaffold": [`${cliCommandName} module scaffold kernel`],
   "module-unregister": [`${cliCommandName} module unregister kernel`],
-  "module-step": [`${cliCommandName} module-step kernel KR-01 --state done`],
+  "module-step": [`${cliCommandName} module step kernel KR-01 --state done`],
   "vertical-validate": [`${cliCommandName} vertical validate software/coding`],
   "gui": [`${cliCommandName} gui`]
 } satisfies Record<CommandKind, ReadonlyArray<string>>;
@@ -501,8 +504,10 @@ export function findCommandHelpMatch(tokens: ReadonlyArray<string>):
 
   const exact = commandRegistry.find((entry) => samePath(entry.commandPath, tokens));
   if (exact) return { kind: "command", entry: exact };
+  const aliasExact = commandRegistry.find((entry) => entry.aliases.some((alias) => samePath(aliasPathFromDisplay(alias), tokens)));
+  if (aliasExact) return { kind: "command", entry: aliasExact };
 
-  const prefixMatches = commandRegistry.filter((entry) => isPrefix(tokens, entry.commandPath));
+  const prefixMatches = commandRegistry.filter((entry) => isPrefix(tokens, entry.commandPath) || entry.aliases.some((alias) => isPrefix(tokens, aliasPathFromDisplay(alias))));
   if (prefixMatches.length > 0) return { kind: "prefix", prefix: tokens, entries: prefixMatches };
   return { kind: "unknown" };
 }
@@ -515,6 +520,14 @@ function commandPathFromUsage(usage: string): ReadonlyArray<string> {
     pathTokens.push(token);
   }
   return pathTokens;
+}
+
+function aliasPathFromDisplay(alias: string): ReadonlyArray<string> {
+  const withoutBinary = alias
+    .replace(/^harness-anything\s+/u, "")
+    .replace(/^ha\s+/u, "");
+  const withoutDeprecation = withoutBinary.replace(/\s+\(deprecated,.*$/u, "");
+  return commandPathFromUsage(withoutDeprecation);
 }
 
 function optionsFromUsage(usage: string): ReadonlyArray<{ readonly flag: string; readonly description: string }> {

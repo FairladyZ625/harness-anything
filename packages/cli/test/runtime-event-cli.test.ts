@@ -41,10 +41,10 @@ test("CLI dry-run authored commands do not append command events", () => {
   });
 });
 
-test("CLI runtime-event append and list write local JSONL without task lifecycle mutation", () => {
+test("CLI event append and list write local JSONL without task lifecycle mutation", () => {
   withTempRoot((rootDir) => {
     const appended = runJson(rootDir, [
-      "runtime-event",
+      "event",
       "append",
       "--session",
       "codex-session-1",
@@ -72,7 +72,7 @@ test("CLI runtime-event append and list write local JSONL without task lifecycle
     assert.match(ledgerBody, /"approval":null/u);
     assert.match(ledgerBody, /"interrupt":\{"interruptId":"evt_/u);
 
-    const listed = runJson(rootDir, ["runtime-event", "list", "--session", "codex-session-1"]);
+    const listed = runJson(rootDir, ["event", "list", "--session", "codex-session-1"]);
     assert.equal(listed.ok, true);
     assert.equal(listed.command, "runtime-event-list");
     assert.equal(listed.rows, 1);
@@ -80,7 +80,7 @@ test("CLI runtime-event append and list write local JSONL without task lifecycle
   });
 });
 
-test("CLI runtime-event append preserves JSONL append order across repeated writes", () => {
+test("CLI event append preserves JSONL append order across repeated writes", () => {
   withTempRoot((rootDir) => {
     const sessionId = "codex-session-append-only";
     const appendArgs = [
@@ -92,14 +92,14 @@ test("CLI runtime-event append preserves JSONL append order across repeated writ
     const ledgerPath = path.join(rootDir, ".harness", "generated/runtime-events", `${sessionId}.jsonl`);
     let firstLineAfterFirstAppend = "";
     for (const [index, args] of appendArgs.entries()) {
-      const appended = runJson(rootDir, ["runtime-event", "append", "--session", sessionId, ...args]);
+      const appended = runJson(rootDir, ["event", "append", "--session", sessionId, ...args]);
       assert.equal(appended.ok, true);
       if (index === 0) {
         firstLineAfterFirstAppend = readFileSync(ledgerPath, "utf8").trimEnd().split("\n")[0] ?? "";
       }
     }
 
-    const listed = runJson(rootDir, ["runtime-event", "list", "--session", sessionId]);
+    const listed = runJson(rootDir, ["event", "list", "--session", sessionId]);
     const lines = readFileSync(ledgerPath, "utf8").trimEnd().split("\n");
     const lineEvents = lines.map((line) => JSON.parse(line) as { readonly eventId: string; readonly kind: string });
 
@@ -111,10 +111,10 @@ test("CLI runtime-event append preserves JSONL append order across repeated writ
   });
 });
 
-test("CLI runtime-event append rejects unsupported steering vocabulary", () => {
+test("CLI event append rejects unsupported steering vocabulary", () => {
   withTempRoot((rootDir) => {
     const failure = runJson(rootDir, [
-      "runtime-event",
+      "event",
       "append",
       "--session",
       "codex-session-1",

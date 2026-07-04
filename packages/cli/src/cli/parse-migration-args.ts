@@ -42,13 +42,15 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
     };
   }
 
-  if (args[0] === "migrate-plan") {
-    const limit = Number(readOption(args, "--limit") ?? Number.POSITIVE_INFINITY);
+  const migrateArgs = args[0] === "migrate" && args[1] ? [`migrate-${args[1]}`, ...args.slice(2)] : args;
+
+  if (migrateArgs[0] === "migrate-plan") {
+    const limit = Number(readOption(migrateArgs, "--limit") ?? Number.POSITIVE_INFINITY);
     return { ok: true, value: { rootDir, json, action: { kind: "migrate-plan", limit } } };
   }
 
-  if (args[0] === "migrate-structure") {
-    if (args.includes("--plan") && args.includes("--apply")) {
+  if (migrateArgs[0] === "migrate-structure") {
+    if (migrateArgs.includes("--plan") && migrateArgs.includes("--apply")) {
       return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --plan or --apply.") };
     }
     return {
@@ -58,15 +60,15 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
         json,
         action: {
           kind: "migrate-structure",
-          mode: args.includes("--apply") ? "apply" : "plan",
-          confirmPlan: args.includes("--confirm-plan")
+          mode: migrateArgs.includes("--apply") ? "apply" : "plan",
+          confirmPlan: migrateArgs.includes("--confirm-plan")
         }
       }
     };
   }
 
-  if (args[0] === "migrate-provenance") {
-    if (args.includes("--dry-run") && args.includes("--apply")) {
+  if (migrateArgs[0] === "migrate-provenance") {
+    if (migrateArgs.includes("--dry-run") && migrateArgs.includes("--apply")) {
       return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --dry-run or --apply.") };
     }
     return {
@@ -76,18 +78,18 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
         json,
         action: {
           kind: "migrate-provenance",
-          mode: args.includes("--apply") ? "apply" : "dry-run"
+          mode: migrateArgs.includes("--apply") ? "apply" : "dry-run"
         }
       }
     };
   }
 
-  if (args[0] === "migrate-run") {
-    const locale = readOption(args, "--locale");
-    const assumeLocale = readOption(args, "--assume-locale");
+  if (migrateArgs[0] === "migrate-run") {
+    const locale = readOption(migrateArgs, "--locale");
+    const assumeLocale = readOption(migrateArgs, "--assume-locale");
     if (locale && locale !== "zh-CN" && locale !== "en-US") return { ok: false, error: cliError(CliErrorCode.InvalidLocale, "Use --locale zh-CN or --locale en-US.") };
     if (assumeLocale && assumeLocale !== "zh-CN" && assumeLocale !== "en-US") return { ok: false, error: cliError(CliErrorCode.InvalidLocale, "Use --assume-locale zh-CN or en-US.") };
-    const sessionDir = readOption(args, "--session-dir");
+    const sessionDir = readOption(migrateArgs, "--session-dir");
     return {
       ok: true,
       value: {
@@ -95,18 +97,18 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
         json,
         action: {
           kind: "migrate-run",
-          planOnly: args.includes("--plan-only"),
-          outDir: sessionDir ?? readOption(args, "--out-dir") ?? ".harness/generated/migration-sessions/latest",
+          planOnly: migrateArgs.includes("--plan-only"),
+          outDir: sessionDir ?? readOption(migrateArgs, "--out-dir") ?? ".harness/generated/migration-sessions/latest",
           locale: locale as "zh-CN" | "en-US" | undefined,
           assumeLocale: assumeLocale as "zh-CN" | "en-US" | undefined,
-          allowDirty: args.includes("--allow-dirty"),
+          allowDirty: migrateArgs.includes("--allow-dirty"),
           sessionDir
         }
       }
     };
   }
 
-  if (args[0] === "migrate-verify" && args[1]) {
+  if (migrateArgs[0] === "migrate-verify" && migrateArgs[1]) {
     return {
       ok: true,
       value: {
@@ -114,8 +116,8 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
         json,
         action: {
           kind: "migrate-verify",
-          sessionPath: args[1],
-          fullCutover: args.includes("--full-cutover")
+          sessionPath: migrateArgs[1],
+          fullCutover: migrateArgs.includes("--full-cutover")
         }
       }
     };
@@ -125,11 +127,11 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
     return { ok: true, value: { rootDir, json, action: { kind: "legacy-scan", sourcePath: args[2] } } };
   }
 
-  if (args[0] === "legacy" && args[1] === "intake-plan" && args[2]) {
+  if (args[0] === "legacy" && (args[1] === "plan" || args[1] === "intake-plan") && args[2]) {
     return { ok: true, value: { rootDir, json, action: { kind: "legacy-intake-plan", sourcePath: args[2], outPath: readOption(args, "--out") } } };
   }
 
-  if (args[0] === "legacy" && args[1] === "copy-safe-docs" && args[2]) {
+  if (args[0] === "legacy" && (args[1] === "copy-docs" || args[1] === "copy-safe-docs") && args[2]) {
     return { ok: true, value: { rootDir, json, action: { kind: "legacy-copy-safe-docs", sourcePath: args[2], apply: args.includes("--apply") } } };
   }
 

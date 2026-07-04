@@ -67,12 +67,13 @@ test("CLI help prints canonical command and alias", () => {
 
 test("command-level help exits without creating task state", () => {
   withTempRoot((rootDir) => {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "new-task", "--help"], {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "task", "create", "--help"], {
       encoding: "utf8"
     });
 
-    assert.match(stdout, /Usage: harness-anything new-task --title <title>/u);
+    assert.match(stdout, /Usage: harness-anything task create --title <title>/u);
     assert.match(stdout, /Aliases:/u);
+    assert.match(stdout, /new-task --title <title> \(deprecated, use task create; retires at E77\/F6 acceptance\)/u);
     assert.match(stdout, /Options:/u);
     assert.match(stdout, /--title/u);
     assert.equal(existsSync(path.join(rootDir, "harness")), false);

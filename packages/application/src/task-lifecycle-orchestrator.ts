@@ -253,7 +253,7 @@ function reviewTask(
 
 function validateTaskFactGate(rootInput: HarnessLayoutInput, taskId: string): TaskLifecycleFailure | null {
   const factsPath = taskDocumentPath(rootInput, taskId, "facts.md");
-  const remediation = `Task review and completion require at least one real F- fact record. Add one with: ha record fact --task ${taskId} --statement "<verified result>" --source "<evidence path or command>" --confidence high`;
+  const remediation = `Task review and completion require at least one real F- fact record. Add one with: ha fact record --task ${taskId} --statement "<verified result>" --source "<evidence path or command>" --confidence high`;
   if (!existsSync(factsPath)) return taskFailure(taskId, "task_fact_required", remediation);
   const records = parseFactFlowRecords(readFileSync(factsPath, "utf8"));
   if (records.length === 0) return taskFailure(taskId, "task_fact_required", remediation);

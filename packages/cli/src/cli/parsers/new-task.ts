@@ -6,21 +6,22 @@ import type { CliResult, ParsedCommand } from "../types.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
 export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
-  if (args[0] !== "new-task") return null;
+  const normalizedArgs = args[0] === "task" && args[1] === "create" ? ["new-task", ...args.slice(2)] : args;
+  if (normalizedArgs[0] !== "new-task") return null;
 
-  const migrationMode = args.includes("--migration") || args.includes("--import") || args.includes("--admin");
-  const fromLegacyId = readOption(args, "--from-legacy");
-  if (args.includes("--from-legacy") && (!fromLegacyId || fromLegacyId.startsWith("--"))) {
+  const migrationMode = normalizedArgs.includes("--migration") || normalizedArgs.includes("--import") || normalizedArgs.includes("--admin");
+  const fromLegacyId = readOption(normalizedArgs, "--from-legacy");
+  if (normalizedArgs.includes("--from-legacy") && (!fromLegacyId || fromLegacyId.startsWith("--"))) {
     return {
       ok: false,
-      error: cliError(CliErrorCode.MissingLegacyId, "Use new-task --from-legacy <legacy-id> with an id from harness/legacy/index.json.")
+      error: cliError(CliErrorCode.MissingLegacyId, "Use task create --from-legacy <legacy-id> with an id from harness/legacy/index.json.")
     };
   }
-  const manualId = readOption(args, "--id") ?? (args[1]?.startsWith("--") ? undefined : args[1]);
+  const manualId = readOption(normalizedArgs, "--id") ?? (normalizedArgs[1]?.startsWith("--") ? undefined : normalizedArgs[1]);
   if (fromLegacyId && manualId) {
     return {
       ok: false,
-      error: cliError(CliErrorCode.LegacyRebuildManualIdForbidden, "new-task --from-legacy creates a fresh generated task id and cannot also use a manual id.")
+      error: cliError(CliErrorCode.LegacyRebuildManualIdForbidden, "task create --from-legacy creates a fresh generated task id and cannot also use a manual id.")
     };
   }
   if (manualId && !migrationMode) {
@@ -29,38 +30,38 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
       error: cliError(CliErrorCode.ManualTaskIdForbidden, "Task IDs are generated as random task_<ULID> values. Use --migration, --import, or --admin only for controlled backfills.")
     };
   }
-  const explicitTitle = readOption(args, "--title");
+  const explicitTitle = readOption(normalizedArgs, "--title");
   if (!explicitTitle && !fromLegacyId) {
     return {
       ok: false,
-      error: cliError(CliErrorCode.MissingTitle, "Use new-task --title <title>. Legacy rebuilds may use --from-legacy <legacy-id> without --title.")
+      error: cliError(CliErrorCode.MissingTitle, "Use task create --title <title>. Legacy rebuilds may use --from-legacy <legacy-id> without --title.")
     };
   }
   const title = explicitTitle ?? "Untitled task";
-  const explicitSlug = readOption(args, "--slug");
-  const vertical = readRequiredValueOption(args, "--vertical");
+  const explicitSlug = readOption(normalizedArgs, "--slug");
+  const vertical = readRequiredValueOption(normalizedArgs, "--vertical");
   if (!vertical.ok) return { ok: false, error: vertical.error };
-  const preset = readRequiredValueOption(args, "--preset");
+  const preset = readRequiredValueOption(normalizedArgs, "--preset");
   if (!preset.ok) return { ok: false, error: preset.error };
-  const profile = readRequiredValueOption(args, "--profile");
+  const profile = readRequiredValueOption(normalizedArgs, "--profile");
   if (!profile.ok) return { ok: false, error: profile.error };
-  const moduleKey = readRequiredValueOption(args, "--module");
+  const moduleKey = readRequiredValueOption(normalizedArgs, "--module");
   if (!moduleKey.ok) return { ok: false, error: moduleKey.error };
-  const locale = readOption(args, "--locale");
+  const locale = readOption(normalizedArgs, "--locale");
   if (locale && locale !== "zh-CN" && locale !== "en-US") {
     return { ok: false, error: cliError(CliErrorCode.InvalidLocale, "Use --locale zh-CN or --locale en-US.") };
   }
-  const registerModuleKey = readOption(args, "--register-module");
-  const moduleTitle = readOption(args, "--module-title");
-  const moduleScope = readOption(args, "--module-scope");
-  const modulePrefix = readOption(args, "--module-prefix");
+  const registerModuleKey = readOption(normalizedArgs, "--register-module");
+  const moduleTitle = readOption(normalizedArgs, "--module-title");
+  const moduleScope = readOption(normalizedArgs, "--module-scope");
+  const modulePrefix = readOption(normalizedArgs, "--module-prefix");
   if (registerModuleKey && (!moduleTitle || !moduleScope)) {
-    return { ok: false, error: cliError(CliErrorCode.MissingModuleFields, "new-task --register-module requires --module-title and --module-scope.") };
+    return { ok: false, error: cliError(CliErrorCode.MissingModuleFields, "task create --register-module requires --module-title and --module-scope.") };
   }
   if (fromLegacyId && (vertical.value || preset.value || profile.value || moduleKey.value || registerModuleKey)) {
     return {
       ok: false,
-      error: cliError(CliErrorCode.LegacyRebuildPresetForbidden, "new-task --from-legacy creates a fresh rebuild task from the legacy index; create a normal preset task separately.")
+      error: cliError(CliErrorCode.LegacyRebuildPresetForbidden, "task create --from-legacy creates a fresh rebuild task from the legacy index; create a normal preset task separately.")
     };
   }
   return {
@@ -84,8 +85,8 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
         registerModule: registerModuleKey && moduleTitle && moduleScope
           ? { key: registerModuleKey, title: moduleTitle, prefix: modulePrefix, scope: moduleScope }
           : undefined,
-        longRunning: args.includes("--long-running"),
-        dryRun: args.includes("--dry-run"),
+        longRunning: normalizedArgs.includes("--long-running"),
+        dryRun: normalizedArgs.includes("--dry-run"),
         locale: locale as "zh-CN" | "en-US" | undefined
       }
     }
