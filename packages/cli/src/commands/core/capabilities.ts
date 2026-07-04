@@ -98,6 +98,8 @@ function descriptionForEntity(kind: string): string {
     task: "Task packages and lifecycle workflow state.",
     fact: "Task-local factual evidence anchors.",
     event: "Runtime event JSONL records.",
+    session: "Managed exported runtime session markdown documents.",
+    doc: "Canonical document manifest and module read-set derivation.",
     graph: "Generated relation graph inspection artifacts over the SQLite projection.",
     module: "Registered project module metadata."
   };

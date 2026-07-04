@@ -3,12 +3,33 @@ import { buildDocmapReadSet, filterDocmapDocuments, readDocmapManifest } from ".
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { deriveDocmapManifest, writeDerivedDocmapManifest } from "./docmap-generate.ts";
 
-type DocAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "doc-list" | "doc-map" }>;
+type DocAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "doc-list" | "doc-map" | "doc-generate" }>;
 
 export const runDocCommand: CommandRunner = (context, command) => Effect.sync(() => {
   const action = command.action as DocAction;
   try {
+    if (action.kind === "doc-generate") {
+      const result = action.write
+        ? writeDerivedDocmapManifest(context.layoutInput)
+        : deriveDocmapManifest(context.layoutInput);
+      const docs = filterDocmapDocuments(result.manifest, action.filters);
+      return {
+        ok: true,
+        command: "doc-generate",
+        rows: docs.length,
+        path: result.relativePath,
+        report: {
+          schema: "docmap-generate-report/v1",
+          manifest: result.relativePath,
+          write: action.write,
+          filters: action.filters,
+          documents: docs,
+          ...("git" in result ? { git: result.git } : {})
+        }
+      } satisfies CliResult;
+    }
     const result = readDocmapManifest(context.layoutInput);
     if (action.kind === "doc-list") {
       const docs = filterDocmapDocuments(result.manifest, action.filters);

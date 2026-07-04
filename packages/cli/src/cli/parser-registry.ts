@@ -17,6 +17,7 @@ import { parseGuiArgs } from "./parsers/gui.ts";
 import { parseNewTaskArgs } from "./parsers/new-task.ts";
 import { parseRecordArgs } from "./parsers/record.ts";
 import { parseRuntimeEventArgs } from "./parsers/runtime-event.ts";
+import { parseSessionArgs } from "./parsers/session.ts";
 import { parseStatusCheckArgs } from "./parsers/status-check.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
@@ -79,6 +80,11 @@ export const parserRegistry = [
     id: "runtime-event",
     commandKinds: commandKindsForParser("runtime-event"),
     parse: parseRuntimeEventArgs
+  },
+  {
+    id: "session",
+    commandKinds: commandKindsForParser("session"),
+    parse: parseSessionArgs
   },
   {
     id: "doc",

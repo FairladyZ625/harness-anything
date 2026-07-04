@@ -6,11 +6,13 @@ import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts"
 import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
 import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/domain/index.ts";
+import { buildDocmapReadSet, readDocmapManifest } from "../../../kernel/src/docmap/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
+import { buildDerivedDocmapReadSet, renderDocmapReadSetMarkdown } from "./core/docmap-generate.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 
@@ -105,10 +107,25 @@ export function runNewTaskWithPreset(
     }
 
     const createdAt = new Date().toISOString();
+    const docmap = resolveTaskReadSet(rootInput, action.moduleKey);
+    const readSetCount = docmap.readSet.mandatory.length + docmap.readSet.recommended.length;
+    const readSetWrite = readSetCount > 0
+      ? [{
+        taskId,
+        path: "read_set.md",
+        body: renderDocmapReadSetMarkdown(docmap.readSet, {
+          title: action.title,
+          moduleKey: action.moduleKey,
+          source: docmap.source
+        }),
+        packageSlug: action.slug
+      }]
+      : [];
     const generated = [
       "INDEX.md",
       ...materialized.documents.map((document) => document.materializeAs),
-      ...(module ? ["module.md"] : [])
+      ...(module ? ["module.md"] : []),
+      ...readSetWrite.map((write) => write.path)
     ];
     if (action.dryRun) {
       return {
@@ -129,7 +146,13 @@ export function runNewTaskWithPreset(
           profile: materialized.profile.id,
           module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
           longRunning: action.longRunning,
-          templateCount: materialized.documents.length
+          templateCount: materialized.documents.length,
+          docmap: {
+            source: docmap.source,
+            readSetCount,
+            mandatory: docmap.readSet.mandatory.length,
+            recommended: docmap.readSet.recommended.length
+          }
         }
       } satisfies CliResult;
     }
@@ -164,7 +187,8 @@ export function runNewTaskWithPreset(
         path: "module.md",
         body: renderModuleSelection(module),
         packageSlug: action.slug
-      }] : [])
+      }] : []),
+      ...readSetWrite
     ];
     const coordinator = makeLocalWriteCoordinator({
       rootDir,
@@ -208,10 +232,35 @@ export function runNewTaskWithPreset(
         preset: preset.manifest.id,
         profile: materialized.profile.id,
         module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
-        templateCount: materialized.documents.length
+        templateCount: materialized.documents.length,
+        docmap: {
+          source: docmap.source,
+          readSetCount,
+          mandatory: docmap.readSet.mandatory.length,
+          recommended: docmap.readSet.recommended.length
+        }
       }
     } satisfies CliResult;
   });
+}
+
+function resolveTaskReadSet(
+  rootInput: HarnessLayoutInput,
+  moduleKey: string | undefined
+): ReturnType<typeof buildDerivedDocmapReadSet> | {
+  readonly source: "persisted";
+  readonly manifest: ReturnType<typeof readDocmapManifest>["manifest"];
+  readonly readSet: ReturnType<typeof buildDocmapReadSet>;
+} {
+  const persisted = readDocmapManifest(rootInput).manifest;
+  if (persisted.documents.length > 0) {
+    return {
+      source: "persisted",
+      manifest: persisted,
+      readSet: buildDocmapReadSet(persisted, { moduleKey })
+    };
+  }
+  return buildDerivedDocmapReadSet(rootInput, moduleKey);
 }
 
 function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {

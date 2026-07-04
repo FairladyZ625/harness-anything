@@ -18,6 +18,8 @@ export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
 export type LessonCommandMode = "dry-run" | "apply";
 export type ProvenanceBackfillMode = "dry-run" | "apply";
 export type TaskListLessonFilter = "present" | "missing";
+export type SessionExportRuntime = "claude-code" | "codex" | "zcode" | "antigravity";
+export type SessionExportSource = "runtime" | "manual";
 
 export interface DocmapFilters {
   readonly moduleKey?: string;
@@ -158,8 +160,12 @@ export interface ParsedCommand {
     | { readonly kind: "distill-commit"; readonly taskId: string; readonly candidatePath: string; readonly claim: string; readonly factId?: string; readonly observedAt?: string; readonly confidence: "low" | "medium" | "high"; readonly memoryClass: FactMemoryClass; readonly memoryTags: ReadonlyArray<FactMemoryTag> }
     | { readonly kind: "runtime-event-append"; readonly sessionId: string; readonly eventKind: RuntimeEventKind; readonly runtime: RuntimeEventRuntime | "unknown"; readonly eventId?: string; readonly recordedAt?: string; readonly taskId?: string; readonly turnId?: string; readonly stepId?: string; readonly toolName?: string; readonly approval?: RuntimeEventApprovalDecision; readonly interrupt?: RuntimeEventInterruptAction; readonly result?: RuntimeEventResultStatus; readonly summary?: string; readonly totalTokens?: number }
     | { readonly kind: "runtime-event-list"; readonly sessionId: string }
+    | { readonly kind: "session-export"; readonly sessionId?: string; readonly runtime?: SessionExportRuntime; readonly source?: SessionExportSource; readonly detectedAt?: string; readonly user?: string }
+    | { readonly kind: "session-backfill"; readonly runtime?: SessionExportRuntime; readonly limit?: number }
+    | { readonly kind: "session-sync" }
     | { readonly kind: "doc-list"; readonly filters: DocmapFilters }
     | { readonly kind: "doc-map"; readonly filters: DocmapFilters }
+    | { readonly kind: "doc-generate"; readonly filters: DocmapFilters; readonly write: boolean }
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "version" }

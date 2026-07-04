@@ -128,6 +128,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
         CLAUDE_CODE_SESSION_ID: "",
         CLAUDE_SESSION_ID: "",
         CODEX_SESSION_ID: "",
+        CODEX_THREAD_ID: "",
         ZCODE_SESSION_ID: ""
       }
     });

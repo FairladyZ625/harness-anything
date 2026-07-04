@@ -38,6 +38,8 @@ export type {
   FactWriteServiceOptions
 } from "./fact-write-service.ts";
 export type {
+  ProvenanceSessionBackfillOptions,
+  ProvenanceSessionBackfillResult,
   ProvenanceSessionDocument,
   ProvenanceSessionExporter,
   ProvenanceSessionExporterOptions,

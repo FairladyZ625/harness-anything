@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -47,6 +47,59 @@ test("CLI doc map treats missing manifest as an empty declaration", () => {
   });
 });
 
+test("CLI doc generate derives and persists manifest from authored canonical documents", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    mkdirSync(path.join(harnessRoot, "adr"), { recursive: true });
+    mkdirSync(path.join(harnessRoot, "milestones", "foundation", "m5-circulation"), { recursive: true });
+    writeFileSync(path.join(harnessRoot, "AGENTS.md"), "# Harness Agents\n");
+    writeFileSync(path.join(harnessRoot, "adr", "ADR-0008-generic-entity-framework-and-substrate.md"), "# ADR 0008\n");
+    writeFileSync(path.join(harnessRoot, "milestones", "foundation", "m5-circulation", "01-feature-breakdown.md"), "# M5 Circulation Features\n");
+    initHarnessGit(harnessRoot);
+
+    const generated = runJson(rootDir, ["doc", "generate", "--module", "m5-circulation", "--write"]);
+
+    assert.equal(generated.ok, true);
+    assert.equal(generated.command, "doc-generate");
+    assert.equal(generated.paths.primary, "harness/docmap.json");
+    assert.equal(generated.report.git.committed, true);
+    assert.equal(existsSync(path.join(harnessRoot, "docmap.json")), true);
+    assert.equal(gitStatus(harnessRoot), "");
+    assert.deepEqual(
+      generated.report.documents.map((entry: { readonly path: string }) => entry.path),
+      ["milestones/foundation/m5-circulation/01-feature-breakdown.md"]
+    );
+
+    const mapped = runJson(rootDir, ["doc", "map", "--module", "m5-circulation"]);
+    assert.equal(mapped.ok, true);
+    assert.equal(mapped.report.readSet.mandatory[0].path, "milestones/foundation/m5-circulation/01-feature-breakdown.md");
+    assert.ok(mapped.report.readSet.recommended.some((entry: { readonly path: string }) => entry.path === "AGENTS.md"));
+  });
+});
+
+test("CLI new-task writes docmap read_set.md from derived declarations", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    mkdirSync(path.join(harnessRoot, "milestones", "foundation", "m5-circulation"), { recursive: true });
+    writeFileSync(path.join(harnessRoot, "AGENTS.md"), "# Harness Agents\n");
+    writeFileSync(path.join(harnessRoot, "milestones", "foundation", "m5-circulation", "01-feature-breakdown.md"), "# M5 Circulation Features\n");
+
+    const created = runJson(rootDir, [
+      "new-task",
+      "--title", "Docmap Task",
+      "--register-module", "m5-circulation",
+      "--module-title", "M5 Circulation",
+      "--module-scope", "packages/**"
+    ]);
+    const readSetPath = path.join(rootDir, created.packagePath, "read_set.md");
+
+    assert.equal(created.ok, true);
+    assert.equal(created.generated.includes("read_set.md"), true);
+    assert.equal(created.report.docmap.source, "derived");
+    assert.match(readFileSync(readSetPath, "utf8"), /milestones\/foundation\/m5-circulation\/01-feature-breakdown\.md/u);
+  });
+});
+
 test("CLI doc list fails closed on invalid manifest", () => {
   withTempRoot((rootDir) => {
     writeDocmap(rootDir, {
@@ -86,6 +139,18 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function initHarnessGit(harnessRoot: string): void {
+  execFileSync("git", ["-C", harnessRoot, "init"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "config", "user.name", "Harness Test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "add", "--", "."], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "seed"], { stdio: "ignore" });
+}
+
+function gitStatus(harnessRoot: string): string {
+  return execFileSync("git", ["-C", harnessRoot, "status", "--short"], { encoding: "utf8" }).trim();
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {

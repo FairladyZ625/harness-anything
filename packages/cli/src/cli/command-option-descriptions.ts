@@ -26,6 +26,7 @@ const descriptions: Record<string, string> = {
   "--current-step": "Set the current module step.",
   "--decided-at": "Set the decision timestamp for transition commands.",
   "--deleted-by": "Record the actor deleting or superseding the task.",
+  "--detected-at": "Set the detected session timestamp for explicit session export.",
   "--depends-on": "Register a module dependency.",
   "--dry-run": "Preview the operation without writing changes.",
   "--evidence": "Attach evidence in type:path:summary format.",
@@ -110,9 +111,11 @@ const descriptions: Record<string, string> = {
   "--title": "Set the required task title used for generated package metadata and slug.",
   "--type": "Set the relation type.",
   "--urgency": "Set decision urgency as low, medium, or high.",
+  "--user": "Set the user label for explicit session export.",
   "--vertical": "Select a vertical definition; task create defaults to software/coding.",
   "--version": "Print the installed CLI version.",
-  "--why-not": "Set the rationale for rejecting the alternative."
+  "--why-not": "Set the rationale for rejecting the alternative.",
+  "--write": "Persist the generated artifact instead of returning a dry-run report."
 };
 
 export function optionDescription(flag: string): string {
