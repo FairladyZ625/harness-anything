@@ -44,6 +44,7 @@ for (const { name, error, code } of writeFailureCases) {
   test(`completeTask surfaces the real writer error code for ${name}`, () => {
     withTempRoot((rootDir) => {
       writeTaskPackage(rootDir, "task-1", "Complete Task");
+      writeFact(rootDir, "task-1");
       const orchestrator = makeTaskLifecycleOrchestrator({
         rootDir,
         taskWriter: failingWriter(error),
@@ -115,6 +116,15 @@ function writeTaskPackage(rootDir: string, directoryName: string, title: string)
     "## Residual Risk",
     "",
     "No residual risk accepted.",
+    ""
+  ].join("\n"), "utf8");
+}
+
+function writeFact(rootDir: string, directoryName: string): void {
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "facts.md"), [
+    "# Facts",
+    "",
+    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
     ""
   ].join("\n"), "utf8");
 }
