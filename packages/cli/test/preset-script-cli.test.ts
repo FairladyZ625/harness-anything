@@ -356,6 +356,83 @@ test("CLI process preset script entrypoint rejects repository-wide recursive rea
   });
 });
 
+test("CLI doc-canon-sync preset reports canonical drift into task artifacts", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/tasks/task-doc-sync/INDEX.md", [
+      "---",
+      "schema: task-package/v2",
+      "task_id: task-doc-sync",
+      "title: Doc canon sync fixture",
+      "---",
+      "# Doc canon sync fixture",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/AGENTS.md", [
+      "# Local Agent Entry",
+      "",
+      "<!-- canon-synced-through: dec_OLD @ 2026-07-01T00:00:00.000Z -->",
+      "",
+      "Use task packages for work tracking.",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/governance/standards/ops.md", [
+      "# Ops",
+      "",
+      "Task workflow remains the only documented path.",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/decisions/decision-dec_M5_E76_CLI_AGENT_ERGONOMICS/decision.md", [
+      "---",
+      "schema: decision-package/v1",
+      "decision_id: dec_M5_E76_CLI_AGENT_ERGONOMICS",
+      "title: E76 CLI agent ergonomics",
+      "state: active",
+      "decidedAt: 2026-07-04T02:01:45.822Z",
+      "---",
+      "# E76 CLI agent ergonomics",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/decisions/decision-dec_M5_OLD_RETIRED/decision.md", [
+      "---",
+      "schema: decision-package/v1",
+      "decision_id: dec_M5_OLD_RETIRED",
+      "title: Retired decision",
+      "state: retired",
+      "decidedAt: 2026-07-04T02:01:45.822Z",
+      "---",
+      "# Retired decision",
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "harness/adr/ADR-0019-entity-crud-framework.md", [
+      "---",
+      "id: ADR-0019",
+      "status: accepted",
+      "date: 2026-07-04",
+      "title: Entity CRUD Framework",
+      "---",
+      "# Entity CRUD Framework",
+      ""
+    ].join("\n"));
+
+    const unauthorized = runJson(rootDir, ["preset", "action", "doc-canon-sync", "check", "--task", "task-doc-sync"], false);
+    assert.equal(unauthorized.ok, false);
+    assert.equal(unauthorized.error.code, "preset_script_authorization_required");
+
+    const blocked = runJson(rootDir, ["preset", "action", "doc-canon-sync", "check", "--task", "task-doc-sync", "--allow-scripts"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error.code, "preset_script_result_failed");
+    assert.equal(blocked.report.status, "blocked");
+    assert.equal(blocked.report.summary.red, 2);
+    assert.equal(blocked.report.drift.some((item: Record<string, unknown>) => item.canonicalId === "dec_M5_E76_CLI_AGENT_ERGONOMICS"), true);
+    assert.equal(blocked.report.drift.some((item: Record<string, unknown>) => item.canonicalId === "ADR-0019"), true);
+    assert.equal(blocked.report.drift.some((item: Record<string, unknown>) => item.canonicalId === "dec_M5_OLD_RETIRED"), false);
+    assert.equal(blocked.report.warnings.some((item: Record<string, unknown>) => item.code === "task_only_workflow_smell"), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-doc-sync/artifacts/doc-canon-drift.json")), true);
+    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-doc-sync/artifacts/doc-canon-drift.md"), "utf8"), /dec_M5_E76_CLI_AGENT_ERGONOMICS/u);
+  });
+});
+
 test("CLI process preset script entrypoint blocks out-of-scope filesystem writes", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness/presets/escape-script/preset.json", JSON.stringify({

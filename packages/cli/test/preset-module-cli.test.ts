@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const bundledPresetIndexPath = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/index.json");
 
 test("CLI preset discovery honors project over user over bundled presets", () => {
   withTempRoot((rootDir) => {
@@ -56,7 +57,8 @@ test("CLI preset CRUD validates, installs, audits, and removes project presets",
 
     const audit = runJson(rootDir, ["preset", "audit"]);
     assert.equal(audit.ok, true);
-    assert.equal(audit.report.totalResolved, 10);
+    const bundledPresetIndex = JSON.parse(readFileSync(bundledPresetIndexPath, "utf8")) as { readonly presets: ReadonlyArray<string> };
+    assert.equal(audit.report.totalResolved, bundledPresetIndex.presets.length + 1);
 
     const removed = runJson(rootDir, ["preset", "uninstall", "custom-task", "--project"]);
     assert.equal(removed.ok, true);

@@ -1,0 +1,30 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "doc-canon-sync",
+  "title": "Document Canon Sync",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [{ "id": "doc-canon-sync", "kind": "command", "version": "1", "required": false }],
+  "entrypoints": {
+    "check": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": [
+        "{{paths.decisionsRoot}}/**",
+        "{{paths.adrRoot}}/**",
+        "{{paths.authoredRoot}}/context/architecture/adr/**",
+        "{{paths.authoredRoot}}/AGENTS.md",
+        "{{paths.authoredRoot}}/governance/**",
+        "{{paths.authoredRoot}}/standards/**"
+      ],
+      "writes": ["{{outputRoot}}/**"],
+      "inputs": {
+        "watermarkFile": "{{paths.authoredRoot}}/AGENTS.md"
+      }
+    }
+  },
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "templateSelections": [] }],
+  "defaultProfile": "baseline"
+}
