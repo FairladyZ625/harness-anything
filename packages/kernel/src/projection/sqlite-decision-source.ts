@@ -4,6 +4,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+import type { DecisionPackage } from "../schemas/decision-package.ts";
 import type { DecisionProjectionRow } from "./types.ts";
 
 export function readDecisionProjectionRows(rootInput: HarnessLayoutInput): ReadonlyArray<DecisionProjectionRow> {
@@ -29,26 +30,63 @@ export function compareDecisionRows(a: DecisionProjectionRow, b: DecisionProject
 function decisionDocumentToProjectionRow(rootDir: string, documentPath: string): DecisionProjectionRow {
   const body = readFileSync(documentPath, "utf8");
   const frontmatter = readFrontmatter(body) ?? "";
-  const decisionId = readScalar(frontmatter, "decision_id", { required: true });
-  const legacyId = legacyIdFromDecisionId(decisionId);
-  const decidedAt = unquote(readScalar(frontmatter, "decidedAt"));
+  const decision = readDecisionSourceFields(frontmatter);
+  const legacyId = legacyIdFromDecisionId(decision.decision_id);
   return {
     schema: "d4-decision-row/v1",
-    decisionId,
+    decisionId: decision.decision_id,
     ...(legacyId ? { legacyId } : {}),
-    state: readScalar(frontmatter, "state") || "unknown",
-    title: unquote(readScalar(frontmatter, "title")) || decisionId,
-    question: unquote(readScalar(frontmatter, "question")),
-    chosen: parseObjectList(frontmatter, "chosen").map((entry) => String(entry.text ?? "")),
-    rejected: parseObjectList(frontmatter, "rejected").map((entry) => ({
-      text: String(entry.text ?? ""),
-      whyNot: String(entry.why_not ?? entry.whyNot ?? "")
+    state: decision.state,
+    title: decision.title || decision.decision_id,
+    question: decision.question,
+    chosen: decision.chosen.map((entry) => entry.text),
+    rejected: decision.rejected.map((entry) => ({
+      text: entry.text,
+      whyNot: entry.why_not
     })),
     path: relativeSourcePath(rootDir, documentPath),
-    moduleKeys: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules")),
-    productLineKeys: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines")),
-    ...(decidedAt ? { decidedAt } : {})
+    moduleKeys: decision.applies_to.modules,
+    productLineKeys: decision.applies_to.productLines,
+    ...(decision.decidedAt ? { decidedAt: decision.decidedAt } : {})
   };
+}
+
+type DecisionSourceFieldReaders = {
+  readonly [Field in keyof DecisionPackage]: (frontmatter: string) => DecisionPackage[Field];
+};
+
+const decisionSourceFieldReaders = {
+  schema: () => "decision-package/v1",
+  decision_id: (frontmatter) => readScalar(frontmatter, "decision_id", { required: true }),
+  _coordinatorWatermark: (frontmatter) => optional(unquote(readScalar(frontmatter, "_coordinatorWatermark"))),
+  title: (frontmatter) => unquote(readScalar(frontmatter, "title")),
+  state: (frontmatter) => (readScalar(frontmatter, "state") || "unknown") as DecisionPackage["state"],
+  riskTier: (frontmatter) => readScalar(frontmatter, "riskTier") as DecisionPackage["riskTier"],
+  urgency: (frontmatter) => readScalar(frontmatter, "urgency") as DecisionPackage["urgency"],
+  vertical: (frontmatter) => unquote(readScalar(frontmatter, "vertical")),
+  preset: (frontmatter) => unquote(readScalar(frontmatter, "preset")),
+  applies_to: (frontmatter) => ({
+    modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules")),
+    productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"))
+  }),
+  proposedBy: (frontmatter) => parseFlowObject(readScalar(frontmatter, "proposedBy")) as DecisionPackage["proposedBy"],
+  proposedAt: (frontmatter) => unquote(readScalar(frontmatter, "proposedAt")),
+  arbiter: (frontmatter) => parseFlowObject(readScalar(frontmatter, "arbiter")) as DecisionPackage["arbiter"],
+  decidedAt: (frontmatter) => optional(unquote(readScalar(frontmatter, "decidedAt"))),
+  provenance: (frontmatter) => parseObjectList(frontmatter, "provenance") as DecisionPackage["provenance"],
+  question: (frontmatter) => unquote(readScalar(frontmatter, "question")),
+  chosen: (frontmatter) => parseObjectList(frontmatter, "chosen") as DecisionPackage["chosen"],
+  rejected: (frontmatter) => parseObjectList(frontmatter, "rejected") as DecisionPackage["rejected"],
+  claims: (frontmatter) => parseObjectList(frontmatter, "claims") as DecisionPackage["claims"],
+  relations: (frontmatter) => parseObjectList(frontmatter, "relations") as DecisionPackage["relations"]
+} satisfies DecisionSourceFieldReaders;
+
+function readDecisionSourceFields(frontmatter: string): DecisionPackage {
+  return Object.fromEntries(
+    Object.entries(decisionSourceFieldReaders)
+      .map(([field, reader]) => [field, reader(frontmatter)])
+      .filter(([, value]) => value !== undefined)
+  ) as DecisionPackage;
 }
 
 function listDecisionDocumentPaths(decisionsRoot: string): ReadonlyArray<string> {
@@ -164,6 +202,10 @@ function unquote(value: string): string {
   } catch {
     return value;
   }
+}
+
+function optional(value: string): string | undefined {
+  return value ? value : undefined;
 }
 
 function relativeSourcePath(rootDir: string, filePath: string): string {

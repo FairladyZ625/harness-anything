@@ -279,6 +279,44 @@ test("CLI decision show finds a decision by legacy E number", () => {
   });
 });
 
+test("CLI decision amend appends rejected entries through schema-declared amendable fields", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_M5_E74_DERIVE",
+      "--title",
+      "E74 derive fields",
+      "--question",
+      "Should amend fields be derived?",
+      "--chosen",
+      "Use field contracts",
+      "--rejected",
+      "Keep title-only amend",
+      "--why-not",
+      "Schema-declared rejected alternatives must be editable"
+    ]);
+
+    const amended = runJson(rootDir, [
+      "decision",
+      "amend",
+      "dec_M5_E74_DERIVE",
+      "--append",
+      "rejected:{\"id\":\"RJ2\",\"text\":\"Hand-update decision markdown\",\"why_not\":\"WriteCoordinator and schema field coverage must own the edit surface\"}"
+    ]);
+    assert.equal(amended.ok, true);
+    assert.equal(amended.command, "decision-amend");
+
+    const shown = runJson(rootDir, ["decision", "show", "E74"]);
+    assert.equal(shown.ok, true);
+    assert.deepEqual(shown.report.decision.rejected.map((entry: any) => entry.text), [
+      "Keep title-only amend",
+      "Hand-update decision markdown"
+    ]);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-cli-"));
   try {

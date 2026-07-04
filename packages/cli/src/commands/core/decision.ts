@@ -10,7 +10,8 @@ import { deriveRelationId, type DecisionPackage, type DecisionState, type Entity
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
-import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import type { CliResult, DecisionAmendPatchInput, ParsedCommand } from "../../cli/types.ts";
+import { applyDecisionAmendPatches } from "./decision-amend-patch.ts";
 import { runDecisionQueryCommand } from "./decision-query.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
@@ -115,9 +116,13 @@ function runAmend(
     catch: (cause) => ({ _tag: "DecisionReadFailed" as const, cause })
   }).pipe(
     Effect.flatMap((current) => {
-      const next = { ...current, ...(action.title ? { title: action.title } : {}) };
+      const patchResult = applyDecisionAmendPatches(current, [
+        ...(action.title ? [{ field: "title", operation: "replace", value: action.title } satisfies DecisionAmendPatchInput] : []),
+        ...action.patches
+      ]);
+      if (!patchResult.ok) return Effect.succeed(patchResult.result);
       if (action.dryRun) return Effect.succeed(decisionResult(rootInput, "decision-amend", current.decision_id, current.state, true));
-      return service.amend({ current, next, body: action.body }).pipe(
+      return service.amend({ current, next: patchResult.next, body: action.body }).pipe(
         Effect.match({
           onFailure: (error): CliResult => decisionFailure("decision-amend", current.decision_id, error),
           onSuccess: (result): CliResult => decisionResult(rootInput, "decision-amend", result.decisionId, result.state, false)
