@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { Effect } from "effect";
 import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/index.ts";
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
+import { parseFactFlowRecords } from "../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, readFrontmatter, readScalar, taskDocumentPath } from "../../kernel/src/layout/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
@@ -95,6 +96,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
     completeTask: (payload) => Effect.gen(function* () {
       const review = yield* Effect.sync(() => reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now));
       if (!review.ok) {
+        if (review.error.code === "task_fact_required") return review;
         return {
           ok: false,
           taskId: payload.taskId,
@@ -186,6 +188,9 @@ function reviewTask(
   reviewerId: string,
   now: (() => string) | undefined
 ): TaskLifecycleResult {
+  const factGate = validateTaskFactGate(rootInput, taskId);
+  if (factGate) return factGate;
+
   const reviewPath = taskDocumentPath(rootInput, taskId, "review.md");
   if (!existsSync(reviewPath)) {
     return taskFailure(taskId, "review_document_missing", "Task review requires review.md in the task package.");
@@ -224,6 +229,15 @@ function reviewTask(
   }
 
   return { ok: true, taskId, report: gate, reviewContract: gate.contract };
+}
+
+function validateTaskFactGate(rootInput: HarnessLayoutInput, taskId: string): TaskLifecycleFailure | null {
+  const factsPath = taskDocumentPath(rootInput, taskId, "facts.md");
+  const remediation = `Task review and completion require at least one real F- fact record. Add one with: ha record fact --task ${taskId} --statement "<verified result>" --source "<evidence path or command>" --confidence high`;
+  if (!existsSync(factsPath)) return taskFailure(taskId, "task_fact_required", remediation);
+  const records = parseFactFlowRecords(readFileSync(factsPath, "utf8"));
+  if (records.length === 0) return taskFailure(taskId, "task_fact_required", remediation);
+  return null;
 }
 
 function terminalStatusFailure(taskId: string, status: DomainStatus): TaskLifecycleFailure {

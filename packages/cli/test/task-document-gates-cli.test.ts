@@ -11,6 +11,7 @@ test("CLI task-complete rejects template closeout placeholders and passes after 
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1");
+    writeFact(rootDir, "task-1");
     writeCloseout(rootDir, "task-1", [
       "## Summary",
       "",
@@ -40,6 +41,7 @@ test("CLI task-complete rejects template closeout placeholders and passes after 
 test("CLI task-complete rejects initial not-started review placeholders", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
+    writeFact(rootDir, "task-1");
     writeFileSync(path.join(rootDir, "harness/tasks/task-1/review.md"), [
       "# Review",
       "",
@@ -68,6 +70,7 @@ test("CLI task-complete reports the underlying completion write failure", () => 
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review", { provenance: false });
     writeReview(rootDir, "task-1");
+    writeFact(rootDir, "task-1");
     writeRealCloseout(rootDir, "task-1");
 
     const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
@@ -76,6 +79,60 @@ test("CLI task-complete reports the underlying completion write failure", () => 
     assert.equal(blocked.error?.code, "malformed_snapshot");
     assert.match(blocked.error?.hint, /Completion status update failed\./);
     assert.match(blocked.error?.hint, /minItems\(1\)|Expected a refinement/);
+  });
+});
+
+test("CLI task-review rejects tasks without a real fact and prints the remediation command", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Review Task", "in_review");
+    writeReview(rootDir, "task-1");
+
+    const blocked = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "task_fact_required");
+    assert.match(blocked.error?.hint, /ha record fact --task task-1 --statement/);
+  });
+});
+
+test("CLI task-review accepts a task with a real fact", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Review Task", "in_review");
+    writeReview(rootDir, "task-1");
+    writeFact(rootDir, "task-1");
+
+    const passed = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"]);
+
+    assert.equal(passed.ok, true);
+    assert.equal(passed.command, "task-review");
+    assert.equal(passed.data?.reviewContract?.schema ?? passed.reviewContract?.schema, "verifier-backed-review/v1");
+  });
+});
+
+test("CLI task-review does not count facts.md placeholders as facts", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Review Task", "in_review");
+    writeReview(rootDir, "task-1");
+    writeFileSync(path.join(rootDir, "harness/tasks/task-1/facts.md"), "# Facts\n\n- TODO: record a fact before closeout.\n", "utf8");
+
+    const blocked = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "task_fact_required");
+  });
+});
+
+test("CLI task-complete preserves the fact gate failure instead of masking it as review_not_passed", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-1", "Complete Task", "in_review");
+    writeReview(rootDir, "task-1");
+    writeRealCloseout(rootDir, "task-1");
+
+    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "task_fact_required");
+    assert.match(blocked.error?.hint, /ha record fact --task task-1 --statement/);
   });
 });
 
@@ -142,6 +199,15 @@ function writeRealCloseout(rootDir: string, directoryName: string): void {
     "",
     "No residual risk accepted."
   ]);
+}
+
+function writeFact(rootDir: string, directoryName: string): void {
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "facts.md"), [
+    "# Facts",
+    "",
+    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
+    ""
+  ].join("\n"), "utf8");
 }
 
 function writeCloseout(rootDir: string, directoryName: string, lines: ReadonlyArray<string>): void {

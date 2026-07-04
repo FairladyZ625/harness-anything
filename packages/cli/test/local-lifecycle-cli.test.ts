@@ -493,6 +493,7 @@ test("CLI check --post-merge stores prefixed external EntityRefs without resolvi
 test("CLI task-review fails closed on open release-blocking findings and emits pass contract when clean", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Review Task", "in_review");
+    writeFact(rootDir, "task-1");
     writeReview(rootDir, "task-1", [
       "| F-001 | P1 | Missing evidence. | diff | Add evidence. | yes | open | yes | none |"
     ]);
@@ -515,6 +516,7 @@ test("CLI task-review fails closed on open release-blocking findings and emits p
 test("CLI task-complete evaluates review, CI, and closeout readiness before setting status done", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
+    writeFact(rootDir, "task-1");
     writeReview(rootDir, "task-1", []);
     writeFileSync(path.join(rootDir, "harness/tasks/task-1/closeout.md"), "# Closeout\n", "utf8");
 
@@ -607,6 +609,15 @@ function writeReview(rootDir: string, directoryName: string, findingRows: Readon
     "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...findingRows,
+    ""
+  ].join("\n"), "utf8");
+}
+
+function writeFact(rootDir: string, directoryName: string): void {
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "facts.md"), [
+    "# Facts",
+    "",
+    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
     ""
   ].join("\n"), "utf8");
 }
