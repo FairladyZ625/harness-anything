@@ -31,9 +31,17 @@ export interface RelationCoverageRow {
   readonly relationPath: ReadonlyArray<string>;
 }
 
+export interface FactAnchorRow {
+  readonly factRef: string;
+  readonly taskId: string;
+  readonly factId: string;
+  readonly sourcePath: string;
+}
+
 export interface RelationGraphProjection {
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
 }
 
 interface DecisionSource {
@@ -49,6 +57,7 @@ interface GraphRefIndex {
   readonly decisionIds: ReadonlySet<string>;
   readonly decisionAnchors: ReadonlySet<string>;
   readonly factRefs: ReadonlySet<string>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
 }
 
 export interface RelationRecordEntry {
@@ -79,7 +88,8 @@ export function buildRelationGraphProjection(rootInput: HarnessLayoutInput): Rel
   const edges = relationEntriesToEdges(entries, refIndex);
   return {
     edges,
-    coverageRows: buildCoverageRows(decisions.filter((decision) => decision.visible), edges, refIndex)
+    coverageRows: buildCoverageRows(decisions.filter((decision) => decision.visible), edges, refIndex),
+    factAnchors: refIndex.factAnchors
   };
 }
 
@@ -400,13 +410,21 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
   const layout = resolveHarnessLayout(rootInput);
   const taskIds = new Set<string>();
   const factRefs = new Set<string>();
+  const factAnchors: FactAnchorRow[] = [];
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
     const taskId = readTaskPackageId(taskDir);
     taskIds.add(taskId);
     const factsPath = path.join(taskDir, layout.factDocumentName);
     if (!existsSync(factsPath)) continue;
     for (const record of parseFactFlowRecords(readFileSync(factsPath, "utf8"))) {
-      factRefs.add(`${taskId}/${record.fact_id}`);
+      const factKey = `${taskId}/${record.fact_id}`;
+      factRefs.add(factKey);
+      factAnchors.push({
+        factRef: `fact/${factKey}`,
+        taskId,
+        factId: record.fact_id,
+        sourcePath: sourcePath(layout.rootDir, factsPath)
+      });
     }
   }
 
@@ -419,7 +437,7 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
       decisionAnchors.add(`${decision.decisionId}/${anchor}`);
     }
   }
-  return { taskIds, decisionIds, decisionAnchors, factRefs };
+  return { taskIds, decisionIds, decisionAnchors, factRefs, factAnchors: factAnchors.sort((a, b) => a.factRef.localeCompare(b.factRef)) };
 }
 
 function isKnownLocalEndpoint(refText: string, refIndex: GraphRefIndex): boolean {

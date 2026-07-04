@@ -3,7 +3,7 @@ import path from "node:path";
 import { createHarnessRuntimeContext } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
-import type { RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
+import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
 import { queryDecisionProjectionRows, queryTaskProjectionRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRows } from "./sqlite-decision-source.ts";
@@ -57,7 +57,8 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     decisionRowsHash
   }, {
     relationEdges: relationGraph.edges,
-    coverageRows: relationGraph.coverageRows
+    coverageRows: relationGraph.coverageRows,
+    factAnchors: relationGraph.factAnchors
   });
   return {
     rows,
@@ -169,6 +170,7 @@ export function queryDecisionProjection(options: TaskProjectionOptions & { reado
 export function readRelationGraphProjection(options: TaskProjectionOptions): {
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
   readonly warnings: ProjectionReadResult["warnings"];
 } {
   const rootDir = path.resolve(options.rootDir);
@@ -180,6 +182,7 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
     return {
       edges: graphRows.relationEdges,
       coverageRows: graphRows.coverageRows,
+      factAnchors: graphRows.factAnchors,
       warnings: taskProjection.warnings
     };
   } catch {
@@ -188,6 +191,7 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
     return {
       edges: graphRows.relationEdges,
       coverageRows: graphRows.coverageRows,
+      factAnchors: graphRows.factAnchors,
       warnings: [...taskProjection.warnings, ...rebuilt.warnings]
     };
   }

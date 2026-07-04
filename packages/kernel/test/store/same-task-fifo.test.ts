@@ -95,6 +95,39 @@ test("WriteCoordinator stages hard-deleted task packages and clears replay journ
   });
 });
 
+test("WriteCoordinator rejects hard delete for task packages with anchored facts", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    const taskDir = path.join(rootDir, "harness/tasks/task-anchored");
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(path.join(taskDir, "INDEX.md"), indexBody("task-anchored", "Task Anchored", "planned"), "utf8");
+    writeFileSync(path.join(taskDir, "facts.md"), [
+      "# Facts",
+      "",
+      "- {fact_id: F-DEADBEEF, statement: \"Anchored fact blocks hard delete.\", source: \"test\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
+      ""
+    ].join("\n"), "utf8");
+    runGit(rootDir, "add", ".");
+    runGit(rootDir, "commit", "-m", "seed anchored task");
+
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+
+    assert.throws(
+      () => Effect.runSync(coordinator.enqueue({
+        opId: "op-hard-delete-anchored",
+        entityId: taskEntityId("task-anchored"),
+        kind: "package_delete_hard",
+        payload: {
+          reason: "mistaken anchored package"
+        }
+      })),
+      /1 anchored fact\(s\) and 0 active incoming relation\(s\).*ha task archive/u
+    );
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
+    assert.equal(existsSync(taskDir), true);
+  });
+});
+
 test("WriteCoordinator force-adds explicit harness paths ignored by target repo patterns", () => {
   withTempStore((rootDir) => {
     initializeGitRepo(rootDir);

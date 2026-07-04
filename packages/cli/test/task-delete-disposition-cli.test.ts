@@ -47,13 +47,41 @@ test("CLI task delete hard path is guarded by F5 disposition semantics", () => {
     assert.equal(terminalFailure.ok, false);
     assert.equal(terminalFailure.error?.code, "terminal_hard_delete_forbidden");
 
+    const anchored = runJson(rootDir, ["new-task", "--title", "Anchored Fact Delete"]);
+    const anchoredTaskId = assertGeneratedTaskId(anchored.taskId);
+    const anchoredPackagePath = path.join(rootDir, `harness/tasks/${anchoredTaskId}-anchored-fact-delete`);
+    runJson(rootDir, [
+      "fact",
+      "record",
+      "--task",
+      anchoredTaskId,
+      "--statement",
+      "Anchored fact must survive stage containment.",
+      "--source",
+      "delete semantics test",
+      "--confidence",
+      "high"
+    ]);
+    const anchoredFailure = runJson(rootDir, ["task", "delete", "--hard", anchoredTaskId, "--reason", "remove", "--confirm", anchoredTaskId], false);
+    assert.equal(anchoredFailure.ok, false);
+    assert.equal(anchoredFailure.error?.code, "related_task_hard_delete_forbidden");
+    assert.match(anchoredFailure.error?.hint ?? "", /1 anchored fact\(s\) and 0 active incoming relation\(s\)/u);
+    assert.match(anchoredFailure.error?.hint ?? "", /distill evidence into an anchor task/u);
+    assert.match(anchoredFailure.error?.hint ?? "", /ha task archive/u);
+    assert.equal(existsSync(anchoredPackagePath), true);
+
+    const archivedAnchored = runJson(rootDir, ["task", "archive", anchoredTaskId, "--reason", "stage contained by anchor task"]);
+    assert.equal(archivedAnchored.ok, true);
+    assert.match(readFileSync(path.join(anchoredPackagePath, "INDEX.md"), "utf8"), /packageDisposition: archived/);
+
     const related = runJson(rootDir, ["new-task", "--title", "Related Delete"]);
     const relatedTaskId = assertGeneratedTaskId(related.taskId);
     writeDecisionRelation(rootDir, "dec_DELETE_BLOCKER", `task/${relatedTaskId}`, "active");
     const relatedFailure = runJson(rootDir, ["task", "delete", "--hard", relatedTaskId, "--reason", "remove", "--confirm", relatedTaskId], false);
     assert.equal(relatedFailure.ok, false);
     assert.equal(relatedFailure.error?.code, "related_task_hard_delete_forbidden");
-    assert.match(relatedFailure.error?.hint ?? "", /active incoming relation/u);
+    assert.match(relatedFailure.error?.hint ?? "", /0 anchored fact\(s\) and 1 active incoming relation\(s\)/u);
+    assert.match(relatedFailure.error?.hint ?? "", /ha task archive/u);
 
     const deprecated = runJson(rootDir, ["new-task", "--title", "Deprecated Relation Delete"]);
     const deprecatedTaskId = assertGeneratedTaskId(deprecated.taskId);

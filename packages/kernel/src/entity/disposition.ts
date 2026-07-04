@@ -1,7 +1,7 @@
 /** @slice-activation M5 F5 entity CRUD framework exposes disposition evaluation for application services and W7 cascade graph consumers. */
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import { parseEntityRef } from "../domain/entity-ref.ts";
-import type { RelationGraphEdgeRow } from "../projection/relation-graph-projection.ts";
+import type { FactAnchorRow, RelationGraphEdgeRow } from "../projection/relation-graph-projection.ts";
 import { readRelationGraphProjection } from "../projection/sqlite-task-projection.ts";
 import { entityRegistry, type DispositionAction, type DispositionLevel, type KernelEntityKind } from "./registry.ts";
 
@@ -20,6 +20,7 @@ export interface EntityCascadeImpact {
   readonly entityRef: string;
   readonly incoming: ReadonlyArray<RelationGraphEdgeRow>;
   readonly outgoing: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly anchoredFacts: ReadonlyArray<FactAnchorRow>;
   readonly impactedRefs: ReadonlyArray<string>;
 }
 
@@ -33,6 +34,7 @@ export interface EntityDispositionEvaluation {
   readonly writeOpKinds: ReadonlyArray<string>;
   readonly lowerBound: {
     readonly activeIncomingCount: number;
+    readonly activeAnchoredFactCount: number;
     readonly blocksDestructiveDisposition: boolean;
   };
   readonly cascade: EntityCascadeImpact;
@@ -54,20 +56,23 @@ export function evaluateEntityDisposition(request: EntityDispositionRequest): En
   const registration = entityRegistry[entityKind];
   const matrixEntry = registration.dispositionMatrix.entries[request.action];
   const graph = readRelationGraphProjection(request);
-  const cascade = cascadeImpactFromEdges(request.entityRef, graph.edges);
+  const cascade = cascadeImpactFromProjection(request.entityRef, graph.edges, graph.factAnchors);
   const destructive = matrixEntry.level === "D3" || matrixEntry.level === "D4";
-  const blockedByIncoming = destructive && cascade.incoming.length > 0;
+  const blockedByLowerBound = destructive && (cascade.incoming.length > 0 || cascade.anchoredFacts.length > 0);
   if (!matrixEntry.supported) {
     return evaluation(request.entityRef, entityKind, request.action, matrixEntry.level, false, matrixEntry.reason, matrixEntry.writeOpKinds, cascade);
   }
-  if (blockedByIncoming) {
+  if (blockedByLowerBound) {
     return evaluation(
       request.entityRef,
       entityKind,
       request.action,
       matrixEntry.level,
       false,
-      `${request.entityRef} has ${cascade.incoming.length} active incoming relation(s); D3/D4 disposition is blocked by the lower-bound rule`,
+      [
+        `${request.entityRef} has ${cascade.anchoredFacts.length} anchored fact(s) and ${cascade.incoming.length} active incoming relation(s); D3/D4 disposition is blocked by the lower-bound rule.`,
+        "E79 defines delete as stage containment: distill evidence into an anchor task, reconnect facts/decisions to that anchor, then run ha task archive <id> --reason <reason>; hard delete has no --cascade escape hatch."
+      ].join(" "),
       matrixEntry.writeOpKinds,
       cascade
     );
@@ -77,7 +82,7 @@ export function evaluateEntityDisposition(request: EntityDispositionRequest): En
 
 export function readEntityCascadeImpact(options: EntityDispositionOptions & { readonly entityRef: string }): EntityCascadeImpact {
   const projection = readRelationGraphProjection(options);
-  return cascadeImpactFromEdges(options.entityRef, projection.edges);
+  return cascadeImpactFromProjection(options.entityRef, projection.edges, projection.factAnchors);
 }
 
 export function evaluateImplicitDispositionRecommendations(
@@ -120,21 +125,39 @@ function evaluation(
     writeOpKinds,
     lowerBound: {
       activeIncomingCount: cascade.incoming.length,
-      blocksDestructiveDisposition: cascade.incoming.length > 0
+      activeAnchoredFactCount: cascade.anchoredFacts.length,
+      blocksDestructiveDisposition: cascade.incoming.length > 0 || cascade.anchoredFacts.length > 0
     },
     cascade
   };
 }
 
-function cascadeImpactFromEdges(entityRef: string, edges: ReadonlyArray<RelationGraphEdgeRow>): EntityCascadeImpact {
+function cascadeImpactFromProjection(
+  entityRef: string,
+  edges: ReadonlyArray<RelationGraphEdgeRow>,
+  factAnchors: ReadonlyArray<FactAnchorRow>
+): EntityCascadeImpact {
   const incoming = activeSorted(edges.filter((edge) => edgeHasIncomingToEntity(edge, entityRef)));
   const outgoing = activeSorted(edges.filter((edge) => edgeHasOutgoingFromEntity(edge, entityRef)));
+  const anchoredFacts = activeAnchoredFacts(entityRef, factAnchors);
   return {
     entityRef,
     incoming,
     outgoing,
-    impactedRefs: uniqueSorted([...incoming, ...outgoing].flatMap((edge) => otherEndpointRefs(edge, entityRef)))
+    anchoredFacts,
+    impactedRefs: uniqueSorted([
+      ...anchoredFacts.map((fact) => fact.factRef),
+      ...[...incoming, ...outgoing].flatMap((edge) => otherEndpointRefs(edge, entityRef))
+    ])
   };
+}
+
+function activeAnchoredFacts(entityRef: string, factAnchors: ReadonlyArray<FactAnchorRow>): ReadonlyArray<FactAnchorRow> {
+  const entity = parseEntityRef(entityRef);
+  if (!entity || entity.externalHarness || entity.kind !== "task") return [];
+  return factAnchors
+    .filter((fact) => fact.taskId === entity.id)
+    .sort((left, right) => left.factRef.localeCompare(right.factRef));
 }
 
 function activeSorted(edges: ReadonlyArray<RelationGraphEdgeRow>): ReadonlyArray<RelationGraphEdgeRow> {

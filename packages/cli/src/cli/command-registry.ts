@@ -319,7 +319,7 @@ const commandSummaries = {
   "progress-append": "Append the provided text as-is to a task package, with optional evidence; no Markdown formatting or normalization is applied.",
   "task-archive": "Archive a task package while preserving its audit trail.",
   "task-supersede": "Archive old work and optionally create or link replacement work.",
-  "task-delete": "Soft-delete or guarded hard-delete a task package.",
+  "task-delete": "Soft-delete or guarded hard-delete a task package. E79 makes hard delete rare: anchored facts or incoming relations block it; use task archive after distilling evidence into an anchor task.",
   "task-reopen": "Reopen a non-terminal archived or tombstoned task package.",
   "task-review": "Evaluate the review gate for a task package.",
   "task-complete": "Evaluate the completion gate after CI has passed or failed. To make closeoutReadiness ready/passed, run task transition <id> in_review, replace closeout.md placeholder content, record a real fact, run task review, then run task complete --ci passed.",
