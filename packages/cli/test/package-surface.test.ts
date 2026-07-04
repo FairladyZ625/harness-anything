@@ -35,7 +35,12 @@ test("CLI package exposes the harness-anything package artifact surface without 
 test("bundled software coding assets have consistent template and process-preset surfaces", () => {
   const assetRoot = "packages/cli/src/commands/extensions/assets/software-coding";
   const catalog = JSON.parse(readFileSync(path.join(assetRoot, "template-catalog.json"), "utf8")) as {
-    readonly documents: ReadonlyArray<{ readonly id: string; readonly materializeAs: string }>;
+    readonly schema: string;
+    readonly documents: ReadonlyArray<{
+      readonly id: string;
+      readonly materializeAs: string;
+      readonly locales: ReadonlyArray<{ readonly locale: string; readonly body?: unknown; readonly bodyPath?: unknown }>;
+    }>;
   };
   const vertical = JSON.parse(readFileSync(path.join(assetRoot, "vertical.json"), "utf8")) as {
     readonly templateSelections: ReadonlyArray<TemplateSelection>;
@@ -58,6 +63,15 @@ test("bundled software coding assets have consistent template and process-preset
   const selectedMaterializedPaths = new Set<string>();
   const processPresetIds = new Set(["legacy-migration", "lesson-sedimentation", "milestone-closeout", "publish-standard", "release-closeout", "version-upgrade"]);
   const implementedProcessPresetIds = new Set(["legacy-migration", "milestone-closeout"]);
+
+  assert.equal(catalog.schema, "template-catalog/v2");
+  for (const document of catalog.documents) {
+    for (const locale of document.locales) {
+      assert.equal(locale.body, undefined, `${document.id} ${locale.locale} must not inline template body`);
+      assert.equal(typeof locale.bodyPath, "string", `${document.id} ${locale.locale} must reference bodyPath`);
+      assert.equal(statSync(path.join(assetRoot, String(locale.bodyPath))).isFile(), true, `${document.id} ${locale.locale} bodyPath must exist`);
+    }
+  }
 
   assert.equal(vertical.templateSelections.length, 0, "vertical top-level templateSelections stay deduplicated");
   const taskScaffoldSelections = vertical.packageScaffolds.find((scaffold) => scaffold.entityKind === "task")?.templateSelections ?? [];

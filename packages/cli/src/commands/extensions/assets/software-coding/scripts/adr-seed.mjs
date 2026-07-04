@@ -9,7 +9,8 @@ if (!contextPath || !resultPath) {
 }
 
 const context = JSON.parse(readFileSync(contextPath, "utf8"));
-const catalog = JSON.parse(readFileSync(new URL("../template-catalog.json", import.meta.url), "utf8"));
+const catalogUrl = new URL("../template-catalog.json", import.meta.url);
+const catalog = JSON.parse(readFileSync(catalogUrl, "utf8"));
 const locale = context.inputs?.locale === "zh-CN" ? "zh-CN" : "en-US";
 const adrRoot = context.paths.adrRoot;
 
@@ -38,6 +39,13 @@ function writeTemplate(id, outputPath) {
   const selected = document.locales.find((variant) => variant.locale === locale)
     ?? document.locales.find((variant) => variant.locale === document.fallbackLocale);
   if (!selected) throw new Error(`missing locale for template ${id}`);
-  writeFileSync(outputPath, selected.body.endsWith("\n") ? selected.body : `${selected.body}\n`, "utf8");
+  const body = readTemplateBody(selected);
+  writeFileSync(outputPath, body.endsWith("\n") ? body : `${body}\n`, "utf8");
   return path.relative(context.paths.rootDir, outputPath).split(path.sep).join("/");
+}
+
+function readTemplateBody(selected) {
+  if (typeof selected.body === "string") return selected.body;
+  if (typeof selected.bodyPath !== "string") throw new Error("template locale must declare bodyPath");
+  return readFileSync(new URL(selected.bodyPath, catalogUrl), "utf8");
 }

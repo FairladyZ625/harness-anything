@@ -10,12 +10,13 @@ import {
 import { cliError, CliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { bundledTemplateCatalog, bundledVerticalDefinition } from "./bundled.ts";
+import { decodeTemplateCatalogFile } from "./template-catalog-loader.ts";
 
 export function decodeTemplateCatalog(catalogPath?: string): { readonly ok: true; readonly value: Schema.Schema.Type<typeof TemplateCatalogSchema> } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {
   const bundled = catalogPath ? bundledTemplateCatalog(catalogPath) : bundledTemplateCatalog();
   if (bundled) return { ok: true, value: bundled };
   if (!catalogPath) return { ok: false, issues: [{ code: "template_catalog_not_found", path: "$", message: "Bundled template catalog was not found." }] };
-  return decodeExtensionJsonFile("template-catalog", catalogPath, TemplateCatalogSchema);
+  return decodeTemplateCatalogFile(catalogPath);
 }
 
 export function decodeVerticalDefinition(definitionPath?: string): { readonly ok: true; readonly value: Schema.Schema.Type<typeof VerticalDefinitionSchema> } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {

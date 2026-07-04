@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
-import { PresetManifestSchema, TemplateCatalogSchema, VerticalDefinitionSchema } from "../../../../kernel/src/index.ts";
+import { PresetManifestSchema, VerticalDefinitionSchema } from "../../../../kernel/src/index.ts";
+import { readTemplateCatalogFile, type TemplateCatalog } from "./template-catalog-loader.ts";
 
-type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 
@@ -22,7 +22,7 @@ export interface BundledVerticalDefinitionEntry {
 
 export function bundledTemplateCatalog(id?: string): TemplateCatalog | undefined {
   if (id && id !== "software/coding" && id !== "software-coding-core") return undefined;
-  return readBundledJson("template-catalog.json", TemplateCatalogSchema);
+  return readTemplateCatalogFile(assetPath("template-catalog.json"));
 }
 
 export function bundledVerticalDefinition(id?: string): VerticalDefinition | undefined {

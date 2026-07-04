@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -33,6 +33,17 @@ test("CLI template render materializes a selected locale without writing files",
   assert.equal(result.document.locale, "zh-CN");
   assert.equal(result.document.materializeAs, "stdout.md");
   assert.match(result.document.body, /## Goal/);
+});
+
+test("CLI template render hydrates template-catalog v2 bodyPath assets", () => {
+  withTempCatalogV2((catalogPath) => {
+    const result = runJson(["template", "render", "template://planning/task-flow@1", "--catalog", catalogPath, "--locale", "zh-CN"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "template-render");
+    assert.equal(result.document.locale, "zh-CN");
+    assert.match(result.document.body, /## Goal/);
+  });
 });
 
 test("CLI template commands use bundled software coding catalog by default", () => {
@@ -181,6 +192,27 @@ function withTempFile(name: string, body: () => string, fn: (filePath: string) =
     const filePath = path.join(rootDir, name);
     writeFileSync(filePath, body());
     fn(filePath);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function withTempCatalogV2(fn: (catalogPath: string) => void): void {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-template-catalog-v2-"));
+  try {
+    const catalog = JSON.parse(readFileSync(catalogFixture, "utf8")) as Record<string, any>;
+    const assetDir = path.join(rootDir, "templates/task.flow");
+    mkdirSync(assetDir, { recursive: true });
+    for (const locale of catalog.documents[0].locales) {
+      const bodyPath = `templates/task.flow/${locale.locale}.md`;
+      writeFileSync(path.join(rootDir, bodyPath), locale.body, "utf8");
+      delete locale.body;
+      locale.bodyPath = bodyPath;
+    }
+    catalog.schema = "template-catalog/v2";
+    const catalogPath = path.join(rootDir, "template-catalog.json");
+    writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+    fn(catalogPath);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

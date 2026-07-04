@@ -1,5 +1,5 @@
 {
-  "schema": "template-catalog/v1",
+  "schema": "template-catalog/v2",
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
@@ -34,7 +34,7 @@
             "## Implementation Plan",
             "## Verification"
           ],
-          "body": "# {{title}}\n\nTask Contract: harness-task v1\n\n## Brief\n\n一句话说明任务目标与范围。\n\n## Goal\n\n说明本任务要完成的可验证结果。\n\n## Context\n\n记录输入背景、相关约束和不应改变的边界。冷启动 agent 必须先区分三元语：task 记录要做什么，fact 记录已经观察到什么，decision 记录承重选择为什么成立。\n\n## Implementation Plan\n\n- 确认现有代码、文档和契约。\n- 用 `ha task progress append <task-id> --text \"...\" --evidence type:PATH:summary` 记录关键进展。\n- 对会支撑 review、PR、架构判断或后续选择的观察，运行 `ha record fact --task <task-id> --statement \"...\" --source \"...\" --confidence high`。\n- 对选路、推翻、长期边界或派生后续工作的承重选择，运行 `ha decision propose ...`；fact 支撑 decision 或 decision 派生 task 时，用 `ha decision relate ...` 建边。\n- 用测试和检查验证行为。\n\n## Verification\n\n- 列出需要通过的本地检查、CI 和 review。\n- E75 门：进入 `task-review` / `task-complete` 前必须已有至少一条真实 fact；没有 fact 就没有可裁决的产出。\n"
+          "bodyPath": "templates/task.plan/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -44,7 +44,7 @@
             "## Implementation Plan",
             "## Verification"
           ],
-          "body": "# {{title}}\n\nTask Contract: harness-task v1\n\n## Brief\n\nOne-line statement of the task objective and scope.\n\n## Goal\n\nDescribe the verifiable result this task must produce.\n\n## Context\n\nRecord input context, relevant constraints, and boundaries that must not change. A cold-start agent must separate the three primitives first: task records what work is being done, fact records what has been observed, and decision records why a load-bearing choice holds.\n\n## Implementation Plan\n\n- Inspect existing code, documents, and contracts.\n- Record key progress with `ha task progress append <task-id> --text \"...\" --evidence type:PATH:summary`.\n- For observations that support review, PRs, architecture judgment, or later choices, run `ha record fact --task <task-id> --statement \"...\" --source \"...\" --confidence high`.\n- For route choices, reversals, long-lived boundaries, or choices that derive follow-up work, run `ha decision propose ...`; when facts support decisions or decisions derive tasks, connect them with `ha decision relate ...`.\n- Verify behavior with tests and checks.\n\n## Verification\n\n- List required local checks, CI, and review evidence.\n- E75 gate: before `task-review` / `task-complete`, the task must have at least one real fact; without facts, there is no output to judge.\n"
+          "bodyPath": "templates/task.plan/en-US.md"
         }
       ]
     },
@@ -67,7 +67,7 @@
             "## Log",
             "## Evidence"
           ],
-          "body": "# Progress\n\n进展必须通过 `ha task progress append ... --evidence type:PATH:summary` 记录；不得只保留模板内容。progress 是时间线，不是 fact。承重观察必须另用 `ha record fact --task <task-id> ...` 写入 `facts.md`。\n\n## Log\n\n- 记录关键实现步骤、验证结果和阻塞。\n\n## Evidence\n\n| ID | Type | Evidence | Status |\n| --- | --- | --- | --- |\n"
+          "bodyPath": "templates/task.progress/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -75,7 +75,7 @@
             "## Log",
             "## Evidence"
           ],
-          "body": "# Progress\n\nProgress must be recorded with `ha task progress append ... --evidence type:PATH:summary`; do not leave only template content. Progress is the timeline, not the fact ledger. Load-bearing observations must also be recorded with `ha record fact --task <task-id> ...` into `facts.md`.\n\n## Log\n\n- Record key implementation steps, verification results, and blockers.\n\n## Evidence\n\n| ID | Type | Evidence | Status |\n| --- | --- | --- | --- |\n"
+          "bodyPath": "templates/task.progress/en-US.md"
         }
       ]
     },
@@ -98,7 +98,7 @@
             "## Reviewer",
             "## Findings"
           ],
-          "body": "# Review\n\nStatus: not-started\n\n收口前必须写入实际复核结论；初始 not-started 且无 findings 会阻止 task-complete。review 产出 task 裁决（PASS/FAIL），不是 decision 原语。若 review 暴露承重选路问题，再运行 `ha decision propose ...`。\n\nE75：review 前必须已有真实 fact；缺 fact 时先运行 `ha record fact --task <task-id> ...`。\n\n## Reviewer\n\n- Agent: pending\n- Mode: read-only review before merge\n\n## Findings\n\n| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+          "bodyPath": "templates/task.review/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -106,7 +106,7 @@
             "## Reviewer",
             "## Findings"
           ],
-          "body": "# Review\n\nStatus: not-started\n\nRecord the actual review result before closeout; initial not-started with no findings blocks task-complete. Review produces a task verdict (PASS/FAIL), not a decision primitive. If review exposes a load-bearing route choice, then run `ha decision propose ...`.\n\nE75: before review, the task must have a real fact; if missing, first run `ha record fact --task <task-id> ...`.\n\n## Reviewer\n\n- Agent: pending\n- Mode: read-only review before merge\n\n## Findings\n\n| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
+          "bodyPath": "templates/task.review/en-US.md"
         }
       ]
     },
@@ -131,7 +131,7 @@
             "## Verification",
             "## Residual Risk"
           ],
-          "body": "# Closeout\n\n收口前必须替换本文件占位内容；task-complete 会拒绝占位文本。closeout 总结 verdict，但不能替代 fact 账本或 decision/relation。\n\n## Summary\n\n总结完成的行为变化。\n\n## Verification\n\n列出通过的检查、CI、review 结果和支撑的 `F-...` fact。\n\n## Residual Risk\n\n记录已接受的非阻塞风险；若风险会影响后续选择，创建或关联 decision。\n"
+          "bodyPath": "templates/task.closeout/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -140,7 +140,7 @@
             "## Verification",
             "## Residual Risk"
           ],
-          "body": "# Closeout\n\nReplace this file's placeholder content before closeout; task-complete rejects placeholder text. Closeout summarizes the verdict, but it does not replace the fact ledger or decision/relation records.\n\n## Summary\n\nSummarize the completed behavior change.\n\n## Verification\n\nList passing checks, CI, review result, and supporting `F-...` facts.\n\n## Residual Risk\n\nRecord accepted non-blocking risks; if a risk affects later choices, create or relate a decision.\n"
+          "bodyPath": "templates/task.closeout/en-US.md"
         }
       ]
     },
@@ -161,14 +161,14 @@
           "anchors": [
             "## Inputs"
           ],
-          "body": "# References\n\n## Inputs\n\n- 列出设计、需求、审查和外部上下文。\n"
+          "bodyPath": "templates/task.references.index/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [
             "## Inputs"
           ],
-          "body": "# References\n\n## Inputs\n\n- List design, requirement, review, and external context.\n"
+          "bodyPath": "templates/task.references.index/en-US.md"
         }
       ]
     },
@@ -189,14 +189,14 @@
           "anchors": [
             "## Generated"
           ],
-          "body": "# Artifacts\n\n## Generated\n\n- 列出本任务生成的证据、报告和输出。\n"
+          "bodyPath": "templates/task.artifacts.index/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [
             "## Generated"
           ],
-          "body": "# Artifacts\n\n## Generated\n\n- List evidence, reports, and outputs generated by this task.\n"
+          "bodyPath": "templates/task.artifacts.index/en-US.md"
         }
       ]
     },
@@ -221,7 +221,7 @@
             "## Scope",
             "## Non-Goals"
           ],
-          "body": "# Brief\n\n## Objective\n\n说明任务目标和成功标准。\n\n## Scope\n\n列出本任务允许改变的文件、模块和行为。\n\n## Non-Goals\n\n列出不得顺手扩大的范围。\n"
+          "bodyPath": "templates/task.brief/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -230,7 +230,7 @@
             "## Scope",
             "## Non-Goals"
           ],
-          "body": "# Brief\n\n## Objective\n\nState the task objective and success bar.\n\n## Scope\n\nList files, modules, and behavior this task may change.\n\n## Non-Goals\n\nList work that must not be folded into this task.\n"
+          "bodyPath": "templates/task.brief/en-US.md"
         }
       ]
     },
@@ -255,7 +255,7 @@
             "## Checkpoints",
             "## Verification"
           ],
-          "body": "# Execution Strategy\n\n## Strategy\n\n描述实现顺序、并行边界和风险控制。\n\n## Checkpoints\n\n- 每个批次完成后记录证据和阻塞。\n\n## Verification\n\n- 列出每个批次需要运行的检查。\n"
+          "bodyPath": "templates/task.execution.strategy/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -264,7 +264,7 @@
             "## Checkpoints",
             "## Verification"
           ],
-          "body": "# Execution Strategy\n\n## Strategy\n\nDescribe implementation order, parallel boundaries, and risk controls.\n\n## Checkpoints\n\n- Record evidence and blockers after each batch.\n\n## Verification\n\n- List checks required for each batch.\n"
+          "bodyPath": "templates/task.execution.strategy/en-US.md"
         }
       ]
     },
@@ -287,7 +287,7 @@
             "## Active",
             "## Resolved"
           ],
-          "body": "# Findings\n\n## Active\n\n| ID | Severity | Finding | Status | Planned Closure |\n| --- | --- | --- | --- | --- |\n\n## Resolved\n\n| ID | Severity | Finding | Resolution | Evidence |\n| --- | --- | --- | --- | --- |\n"
+          "bodyPath": "templates/task.findings/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -295,7 +295,7 @@
             "## Active",
             "## Resolved"
           ],
-          "body": "# Findings\n\n## Active\n\n| ID | Severity | Finding | Status | Planned Closure |\n| --- | --- | --- | --- | --- |\n\n## Resolved\n\n| ID | Severity | Finding | Resolution | Evidence |\n| --- | --- | --- | --- | --- |\n"
+          "bodyPath": "templates/task.findings/en-US.md"
         }
       ]
     },
@@ -320,7 +320,7 @@
             "## Phase Table",
             "## Ownership"
           ],
-          "body": "# Visual Map\n\n## Flow\n\n```mermaid\nflowchart TD\n  A[Input] --> B[Implementation]\n  B --> C[Verification]\n```\n\n## Phase Table\n\n| Phase ID | Kind | Depends On | State | Completion | Output | Required Evidence | Exit Command | Actor | Evidence Status | Blocking Risk | Owner / Handoff |\n| --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |\n| INIT-01 | init | none | planned | 0 | plan | task_plan.md | n/a | coordinator | pending | unknown | coordinator |\n\n## Ownership\n\n记录模块、文件和责任边界。\n"
+          "bodyPath": "templates/task.visual.map/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -329,7 +329,7 @@
             "## Phase Table",
             "## Ownership"
           ],
-          "body": "# Visual Map\n\n## Flow\n\n```mermaid\nflowchart TD\n  A[Input] --> B[Implementation]\n  B --> C[Verification]\n```\n\n## Phase Table\n\n| Phase ID | Kind | Depends On | State | Completion | Output | Required Evidence | Exit Command | Actor | Evidence Status | Blocking Risk | Owner / Handoff |\n| --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- | --- |\n| INIT-01 | init | none | planned | 0 | plan | task_plan.md | n/a | coordinator | pending | unknown | coordinator |\n\n## Ownership\n\nRecord module, file, and responsibility boundaries.\n"
+          "bodyPath": "templates/task.visual.map/en-US.md"
         }
       ]
     },
@@ -346,12 +346,12 @@
         {
           "locale": "zh-CN",
           "anchors": [],
-          "body": ""
+          "bodyPath": "templates/task.keep/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [],
-          "body": ""
+          "bodyPath": "templates/task.keep/en-US.md"
         }
       ]
     },
@@ -372,14 +372,14 @@
           "anchors": [
             "## Candidates"
           ],
-          "body": "# Lesson Candidates\n\n## Candidates\n\n- 记录可能沉淀到长期规范的经验。lesson 不能替代 fact；承重观察先 record fact，承重选择先 propose decision。\n"
+          "bodyPath": "templates/task.lesson.candidates/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [
             "## Candidates"
           ],
-          "body": "# Lesson Candidates\n\n## Candidates\n\n- Record lessons that may become long-lived standards. Lessons do not replace facts; record load-bearing observations as facts first, and propose load-bearing choices as decisions first.\n"
+          "bodyPath": "templates/task.lesson.candidates/en-US.md"
         }
       ]
     },
@@ -404,7 +404,7 @@
             "## Review Loop",
             "## Stop Conditions"
           ],
-          "body": "# Long-Running Task Contract\n\n## Goal Boundary\n\n定义长任务允许持续执行的目标边界。\n\n## Review Loop\n\n定义 worker/reviewer 节奏和证据要求。\n\n## Stop Conditions\n\n列出必须停止并请求人工判断的条件。\n"
+          "bodyPath": "templates/task.long.running.contract/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -413,7 +413,7 @@
             "## Review Loop",
             "## Stop Conditions"
           ],
-          "body": "# Long-Running Task Contract\n\n## Goal Boundary\n\nDefine the goal boundary for sustained execution.\n\n## Review Loop\n\nDefine worker/reviewer cadence and evidence requirements.\n\n## Stop Conditions\n\nList conditions that require stopping for human judgment.\n"
+          "bodyPath": "templates/task.long.running.contract/en-US.md"
         }
       ]
     },
@@ -436,7 +436,7 @@
             "## Module",
             "## Steps"
           ],
-          "body": "# Module Plan\n\n## Module\n\n记录模块边界、owner 和依赖。\n\n## Steps\n\n| Step | Status | Evidence |\n| --- | --- | --- |\n"
+          "bodyPath": "templates/module.plan/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -444,7 +444,7 @@
             "## Module",
             "## Steps"
           ],
-          "body": "# Module Plan\n\n## Module\n\nRecord module boundary, owner, and dependencies.\n\n## Steps\n\n| Step | Status | Evidence |\n| --- | --- | --- |\n"
+          "bodyPath": "templates/module.plan/en-US.md"
         }
       ]
     },
@@ -467,7 +467,7 @@
             "## Module Objective",
             "## Interfaces"
           ],
-          "body": "# Module Brief\n\n## Module Objective\n\n说明模块任务的目标。\n\n## Interfaces\n\n记录该模块暴露或消费的接口。\n"
+          "bodyPath": "templates/module.brief/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -475,7 +475,7 @@
             "## Module Objective",
             "## Interfaces"
           ],
-          "body": "# Module Brief\n\n## Module Objective\n\nState the module task objective.\n\n## Interfaces\n\nRecord interfaces exposed or consumed by this module.\n"
+          "bodyPath": "templates/module.brief/en-US.md"
         }
       ]
     },
@@ -498,7 +498,7 @@
             "## Session Prompt",
             "## Required Context"
           ],
-          "body": "# Module Session Prompt\n\n## Session Prompt\n\n给执行 agent 的任务提示。\n\n## Required Context\n\n列出 agent 必须先读的上下文。\n"
+          "bodyPath": "templates/module.session.prompt/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -506,7 +506,7 @@
             "## Session Prompt",
             "## Required Context"
           ],
-          "body": "# Module Session Prompt\n\n## Session Prompt\n\nPrompt for the executing agent.\n\n## Required Context\n\nList context the agent must read first.\n"
+          "bodyPath": "templates/module.session.prompt/en-US.md"
         }
       ]
     },
@@ -523,12 +523,12 @@
         {
           "locale": "zh-CN",
           "anchors": [],
-          "body": "# Repository Governance\n\n- Authored shared state lives under `harness/`.\n- Generated local state lives under `.harness/` and must remain untracked.\n- Kernel primitives: `task` is the work unit, `fact` is a task-local immutable observation in `facts.md`, and `decision` is the load-bearing why in `decisions/`.\n- Use relation records to connect fact -> decision, decision -> task, and decision -> decision. Do not rely on prose-only ledgers for load-bearing links.\n- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.\n"
+          "bodyPath": "templates/repository.governance/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [],
-          "body": "# Repository Governance\n\n- Authored shared state lives under `harness/`.\n- Generated local state lives under `.harness/` and must remain untracked.\n- Kernel primitives: `task` is the work unit, `fact` is a task-local immutable observation in `facts.md`, and `decision` is the load-bearing why in `decisions/`.\n- Use relation records to connect fact -> decision, decision -> task, and decision -> decision. Do not rely on prose-only ledgers for load-bearing links.\n- Task identities use random `task_<ULID>` values; titles and slugs are display metadata.\n"
+          "bodyPath": "templates/repository.governance/en-US.md"
         }
       ]
     },
@@ -549,14 +549,14 @@
           "anchors": [
             "## Harness CLI"
           ],
-          "body": "# Harness Agent Entry\n\nRead `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.\n\n## Harness CLI\n\n- Invoke via `ha <command>` or `npx harness-anything <command>`. Create task packages with `new-task`; never hand-scaffold directories under the tasks root.\n- Choose the preset before creating a task. Use `standard-task` for ordinary implementation or document repair, `milestone-closeout` for milestone closeout, `legacy-migration` for legacy migration, `module` for module scaffolding, `long-running-task` for long-running work, `lesson-sedimentation` for lesson capture, `version-upgrade` for version upgrades, and `publish-standard` / `release-closeout` for release work. If operating docs lag active decisions or ADRs, use `doc-canon-sync` and run `ha preset action doc-canon-sync check --task <id> --allow-scripts` to produce `artifacts/doc-canon-drift.json`. If unsure, run `ha preset list`; do not default everything to `standard-task`.\n- Prefer command self-description before composing writes: `ha <command> --help`, preset manifests, and capabilities metadata. When a command supports JSON / `--from-file`, use structured input instead of shell-escaped long text; when it does not, use the current flags. During command-renaming transition, document the current runnable name and treat old aliases as compatibility only.\n- Task progress: `ha task status set <id> active`, then `ha task progress append <id> --text \"<记录>\" --evidence type:PATH:summary`. Progress is a timeline, not a fact ledger.\n- Fact gate: every task that reaches review/complete must have at least one real fact. Record load-bearing observations with `ha record fact --task <id> --statement \"<可复核观察>\" --source \"<来源>\" --confidence high`.\n- Review and completion: `ha task-review <id>`, then `ha task-complete <id> --ci passed|failed`. These commands produce a task verdict (PASS/FAIL). Missing facts, placeholder review, or placeholder closeout fail closed.\n- Decisions: route choices, reversals, long-lived boundaries, and choices that derive follow-up work use `ha decision propose --title ... --question ... --chosen ... --rejected ... --why-not ...`. A verdict is not a decision unless it exposes a strategic question.\n- Relations: connect supporting facts and downstream decisions/tasks with `ha decision relate <id> --anchor <CH1|C1|RJ1> --type supports|supersedes|refines|narrows|relates --target <entity-ref> --rationale \"...\"`. Isolated entities are audit findings.\n- Query through projections: `ha decision list --state active --module <key> --compact`, `ha decision show <id|E<n>>`, and `ha task list --module <key>`.\n- Disposition: do not physically delete decisions; supersede or retire them. Facts are append-only; invalidate stale facts instead of rewriting them. Check relation cascade impact before deleting or archiving anything.\n- Writes that go through the harness CLI are auto-committed when the harness root is inside a git repository, with semantic messages such as `task(progress-append): <id>` or `decision(relate): <id>`. Do not add a second commit for coordinator-owned writes. Hand-edited prose still needs a normal commit.\n- Boundary: machine-read fields and relations must be written through CLI commands. Human-read prose may be edited directly, but it does not replace facts, decisions, or relations.\n- Template assets are part of the operating surface. When AGENTS/task/governance workflow text changes, update the seeded templates too so new scaffolds do not teach stale behavior.\n\nGenerated state under `.harness/` is local-only and must not be committed.\n"
+          "bodyPath": "templates/repository.agent.entry/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [
             "## Harness CLI"
           ],
-          "body": "# Harness Agent Entry\n\nRead `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.\n\n## Harness CLI\n\n- Invoke via `ha <command>` or `npx harness-anything <command>`. Create task packages with `new-task`; never hand-scaffold directories under the tasks root.\n- Choose the preset before creating a task. Use `standard-task` for ordinary implementation or document repair, `milestone-closeout` for milestone closeout, `legacy-migration` for legacy migration, `module` for module scaffolding, `long-running-task` for long-running work, `lesson-sedimentation` for lesson capture, `version-upgrade` for version upgrades, and `publish-standard` / `release-closeout` for release work. If operating docs lag active decisions or ADRs, use `doc-canon-sync` and run `ha preset action doc-canon-sync check --task <id> --allow-scripts` to produce `artifacts/doc-canon-drift.json`. If unsure, run `ha preset list`; do not default everything to `standard-task`.\n- Prefer command self-description before composing writes: `ha <command> --help`, preset manifests, and capabilities metadata. When a command supports JSON / `--from-file`, use structured input instead of shell-escaped long text; when it does not, use the current flags. During command-renaming transition, document the current runnable name and treat old aliases as compatibility only.\n- Task progress: `ha task status set <id> active`, then `ha task progress append <id> --text \"<note>\" --evidence type:PATH:summary`. Progress is a timeline, not a fact ledger.\n- Fact gate: every task that reaches review/complete must have at least one real fact. Record load-bearing observations with `ha record fact --task <id> --statement \"<verifiable observation>\" --source \"<source>\" --confidence high`.\n- Review and completion: `ha task-review <id>`, then `ha task-complete <id> --ci passed|failed`. These commands produce a task verdict (PASS/FAIL). Missing facts, placeholder review, or placeholder closeout fail closed.\n- Decisions: route choices, reversals, long-lived boundaries, and choices that derive follow-up work use `ha decision propose --title ... --question ... --chosen ... --rejected ... --why-not ...`. A verdict is not a decision unless it exposes a strategic question.\n- Relations: connect supporting facts and downstream decisions/tasks with `ha decision relate <id> --anchor <CH1|C1|RJ1> --type supports|supersedes|refines|narrows|relates --target <entity-ref> --rationale \"...\"`. Isolated entities are audit findings.\n- Query through projections: `ha decision list --state active --module <key> --compact`, `ha decision show <id|E<n>>`, and `ha task list --module <key>`.\n- Disposition: do not physically delete decisions; supersede or retire them. Facts are append-only; invalidate stale facts instead of rewriting them. Check relation cascade impact before deleting or archiving anything.\n- Writes that go through the harness CLI are auto-committed when the harness root is inside a git repository, with semantic messages such as `task(progress-append): <id>` or `decision(relate): <id>`. Do not add a second commit for coordinator-owned writes. Hand-edited prose still needs a normal commit.\n- Boundary: machine-read fields and relations must be written through CLI commands. Human-read prose may be edited directly, but it does not replace facts, decisions, or relations.\n- Template assets are part of the operating surface. When AGENTS/task/governance workflow text changes, update the seeded templates too so new scaffolds do not teach stale behavior.\n\nGenerated state under `.harness/` is local-only and must not be committed.\n"
+          "bodyPath": "templates/repository.agent.entry/en-US.md"
         }
       ]
     },
@@ -573,12 +573,12 @@
         {
           "locale": "zh-CN",
           "anchors": [],
-          "body": "# Claude Harness Entry\n\nFollow `AGENTS.md` and the shared authored harness under `harness/`. Treat this as a compatibility pointer, not a second rule source. The required workflow is triadic: task progress for work state, task-local facts for load-bearing observations, decisions for load-bearing choices, and relations for cross-entity links.\n"
+          "bodyPath": "templates/repository.claude.entry/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [],
-          "body": "# Claude Harness Entry\n\nFollow `AGENTS.md` and the shared authored harness under `harness/`. Treat this as a compatibility pointer, not a second rule source. The required workflow is triadic: task progress for work state, task-local facts for load-bearing observations, decisions for load-bearing choices, and relations for cross-entity links.\n"
+          "bodyPath": "templates/repository.claude.entry/en-US.md"
         }
       ]
     },
@@ -599,14 +599,14 @@
           "anchors": [
             "## Usage"
           ],
-          "body": "# ADR\n\n## Usage\n\n- Store lightweight architecture decision records in this directory only when a repository-local ADR is more appropriate than a harness decision package.\n- For load-bearing harness choices, prefer `ha decision propose ...` so the decision gets lifecycle state, fact evidence, and relation edges.\n- Keep accepted ADRs linked from the relevant task or decision entity.\n"
+          "bodyPath": "templates/repository.adr.readme/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [
             "## Usage"
           ],
-          "body": "# ADR\n\n## Usage\n\n- Store lightweight architecture decision records in this directory only when a repository-local ADR is more appropriate than a harness decision package.\n- For load-bearing harness choices, prefer `ha decision propose ...` so the decision gets lifecycle state, fact evidence, and relation edges.\n- Keep accepted ADRs linked from the relevant task or decision entity.\n"
+          "bodyPath": "templates/repository.adr.readme/en-US.md"
         }
       ]
     },
@@ -633,7 +633,7 @@
             "## Decision",
             "## Consequences"
           ],
-          "body": "# ADR-0000 Title\n\n## Status\n\nProposed\n\n## Context\n\nDescribe the forces, constraints, and alternatives.\n\n## Decision\n\nDescribe the chosen direction.\n\n## Consequences\n\nDescribe expected tradeoffs, follow-up work, and validation evidence.\n"
+          "bodyPath": "templates/repository.adr.template/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -643,7 +643,7 @@
             "## Decision",
             "## Consequences"
           ],
-          "body": "# ADR-0000 Title\n\n## Status\n\nProposed\n\n## Context\n\nDescribe the forces, constraints, and alternatives.\n\n## Decision\n\nDescribe the chosen direction.\n\n## Consequences\n\nDescribe expected tradeoffs, follow-up work, and validation evidence.\n"
+          "bodyPath": "templates/repository.adr.template/en-US.md"
         }
       ]
     }
