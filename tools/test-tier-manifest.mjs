@@ -92,6 +92,7 @@ export const testTierManifest = {
     "packages/cli/test/new-task-cli.test.ts",
     "packages/cli/test/p16-command-parity-cli.test.ts",
     "packages/cli/test/post-merge-check-cli.test.ts",
+    "packages/cli/test/projection-freshness-cli.test.ts",
     "packages/cli/test/preset-module-cli.test.ts",
     "packages/cli/test/preset-script-cli.test.ts",
     "packages/cli/test/runtime-event-cli.test.ts",
