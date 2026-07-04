@@ -9,6 +9,7 @@ import type {
   RuntimeEventRuntime,
   RuntimeEventResultStatus
 } from "../../../kernel/src/domain/index.ts";
+import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/entity/field-contracts.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import type { CliError } from "./error-codes.ts";
 
@@ -46,6 +47,12 @@ export interface DecisionEvidenceRelationInput {
   readonly type: RelationType;
   readonly target: string;
   readonly rationale: string;
+}
+
+export interface DecisionAmendPatchInput {
+  readonly field: DecisionAmendField;
+  readonly operation: DecisionAmendOperation;
+  readonly value: string;
 }
 
 export interface CliResult {
@@ -144,7 +151,7 @@ export interface ParsedCommand {
     | { readonly kind: "decision-show"; readonly selector: string }
     | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: string; readonly rejected: string; readonly whyNot: string; readonly claim?: string; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly proposedBy?: string; readonly arbiter?: string; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly evidenceRelations: ReadonlyArray<DecisionEvidenceRelationInput>; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire"; readonly decisionId: string; readonly arbiter?: string; readonly decidedAt?: string; readonly body?: string; readonly dryRun: boolean }
-    | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly body?: string; readonly dryRun: boolean }
+    | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly body?: string; readonly patches: ReadonlyArray<DecisionAmendPatchInput>; readonly dryRun: boolean }
     | { readonly kind: "record-fact"; readonly taskId: string; readonly factId?: string; readonly statement: string; readonly source: string; readonly observedAt?: string; readonly confidence: "low" | "medium" | "high"; readonly memoryClass: FactMemoryClass; readonly memoryTags: ReadonlyArray<FactMemoryTag>; readonly dryRun: boolean }
     | { readonly kind: "distill-candidate"; readonly taskId: string; readonly inputPath: string }
     | { readonly kind: "distill-commit"; readonly taskId: string; readonly candidatePath: string; readonly claim: string; readonly factId?: string; readonly observedAt?: string; readonly confidence: "low" | "medium" | "high"; readonly memoryClass: FactMemoryClass; readonly memoryTags: ReadonlyArray<FactMemoryTag> }

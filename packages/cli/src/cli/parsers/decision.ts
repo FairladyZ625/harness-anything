@@ -1,11 +1,13 @@
 import {
+  decisionAmendFieldSupportsOperation,
+  isDecisionAmendField,
   parseEntityRef,
   relationTypes,
   type RelationType
 } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
-import type { CliResult, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
+import type { CliResult, DecisionAmendPatchInput, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
@@ -49,15 +51,56 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
     });
   }
   if (op === "amend" && args[2]) {
+    const patches = parseDecisionAmendPatches(args);
+    if (!patches.ok) return { ok: false, error: patches.error };
     return parsedDecision(rootDir, json, {
       kind: "decision-amend",
       decisionId: args[2],
       title: readOption(args, "--title"),
       body: readOption(args, "--body"),
+      patches: patches.value,
       dryRun: args.includes("--dry-run")
     });
   }
   return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|retire.") };
+}
+
+function parseDecisionAmendPatches(args: ReadonlyArray<string>):
+  | { readonly ok: true; readonly value: ReadonlyArray<DecisionAmendPatchInput> }
+  | { readonly ok: false; readonly error: CliResult["error"] } {
+  const patches: DecisionAmendPatchInput[] = [];
+  for (const value of readRepeatedRawOption(args, "--set")) {
+    const parsed = parseDecisionAmendPatch("replace", value);
+    if (!parsed.ok) return parsed;
+    patches.push(parsed.value);
+  }
+  for (const value of readRepeatedRawOption(args, "--append")) {
+    const parsed = parseDecisionAmendPatch("append", value);
+    if (!parsed.ok) return parsed;
+    patches.push(parsed.value);
+  }
+  return { ok: true, value: patches };
+}
+
+function parseDecisionAmendPatch(operation: DecisionAmendPatchInput["operation"], value: string | undefined):
+  | { readonly ok: true; readonly value: DecisionAmendPatchInput }
+  | { readonly ok: false; readonly error: CliResult["error"] } {
+  if (!value || value.startsWith("--")) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "Use decision amend --set <field>:<value> or --append <field>:<json>.") };
+  }
+  const separator = value.indexOf(":");
+  if (separator <= 0) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "Use decision amend --set <field>:<value> or --append <field>:<json>.") };
+  }
+  const field = value.slice(0, separator).trim();
+  const patchValue = value.slice(separator + 1).trim();
+  if (!isDecisionAmendField(field) || !decisionAmendFieldSupportsOperation(field, operation)) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, `decision field is not ${operation}-amendable: ${field}`) };
+  }
+  if (!patchValue) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, `decision amend patch value is empty for field: ${field}`) };
+  }
+  return { ok: true, value: { field, operation, value: patchValue } };
 }
 
 function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
