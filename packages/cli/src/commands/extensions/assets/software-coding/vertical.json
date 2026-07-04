@@ -4,21 +4,97 @@
   "title": "Software Coding",
   "version": "1.0.0",
   "entityKinds": [
-    { "id": "task", "entityType": "lifecycle", "packageKind": "task-package/v2", "contractEntity": true },
-    { "id": "decision", "entityType": "lifecycle", "packageKind": "decision-package/v1", "contractEntity": true },
-    { "id": "fact", "entityType": "schema", "schemaRef": "schema://fact-record", "contractEntity": true }
+    {
+      "id": "task",
+      "entityType": "lifecycle",
+      "packageKind": "task-package/v2",
+      "contractEntity": true
+    },
+    {
+      "id": "decision",
+      "entityType": "lifecycle",
+      "packageKind": "decision-package/v1",
+      "contractEntity": true
+    },
+    {
+      "id": "fact",
+      "entityType": "schema",
+      "schemaRef": "schema://fact-record",
+      "contractEntity": true
+    }
   ],
-  "contractEntityKinds": ["task", "decision", "fact"],
+  "contractEntityKinds": [
+    "task",
+    "decision",
+    "fact"
+  ],
   "packageScaffolds": [
     {
       "entityKind": "task",
       "templateSelections": [
-        { "slot": "task.plan", "templateRef": "template://planning/task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-        { "slot": "task.progress", "templateRef": "template://planning/progress@1", "materializeAs": "progress.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-        { "slot": "task.review", "templateRef": "template://planning/review@1", "materializeAs": "review.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-        { "slot": "task.closeout", "templateRef": "template://planning/closeout@1", "materializeAs": "closeout.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-        { "slot": "task.artifacts.keep", "templateRef": "template://planning/keep-file@1", "materializeAs": "artifacts/.gitkeep", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-        { "slot": "task.references.keep", "templateRef": "template://planning/keep-file@1", "materializeAs": "references/.gitkeep", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+        {
+          "slot": "task.plan",
+          "templateRef": "template://planning/task-plan@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "task.progress",
+          "templateRef": "template://planning/progress@1",
+          "materializeAs": "progress.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "task.facts",
+          "templateRef": "template://planning/keep-file@1",
+          "materializeAs": "facts.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "task.review",
+          "templateRef": "template://planning/review@1",
+          "materializeAs": "review.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "task.closeout",
+          "templateRef": "template://planning/closeout@1",
+          "materializeAs": "closeout.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "task.artifacts.keep",
+          "templateRef": "template://planning/keep-file@1",
+          "materializeAs": "artifacts/.gitkeep",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "task.references.keep",
+          "templateRef": "template://planning/keep-file@1",
+          "materializeAs": "references/.gitkeep",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        }
       ]
     },
     {
@@ -28,35 +104,70 @@
   ],
   "repositoryScaffold": {
     "entityRoots": [
-      { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" },
-      { "entityKind": "decision", "path": "{{paths.decisionsRoot}}", "create": "lazy" }
+      {
+        "entityKind": "task",
+        "path": "{{paths.tasksRoot}}",
+        "create": "init"
+      },
+      {
+        "entityKind": "decision",
+        "path": "{{paths.decisionsRoot}}",
+        "create": "lazy"
+      }
     ],
     "dirs": [
-      { "path": "{{paths.authoredRoot}}", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/standards", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/context", "create": "init" },
-      { "path": "{{paths.authoredRoot}}/context/architecture", "create": "init" },
-      { "path": "{{paths.adrRoot}}", "create": "init" },
-      { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
+      {
+        "path": "{{paths.authoredRoot}}",
+        "create": "init"
+      },
+      {
+        "path": "{{paths.authoredRoot}}/standards",
+        "create": "init"
+      },
+      {
+        "path": "{{paths.authoredRoot}}/context",
+        "create": "init"
+      },
+      {
+        "path": "{{paths.authoredRoot}}/context/architecture",
+        "create": "init"
+      },
+      {
+        "path": "{{paths.adrRoot}}",
+        "create": "init"
+      },
+      {
+        "path": "{{paths.sessionsRoot}}",
+        "create": "lazy"
+      }
     ],
     "seededDocs": [
       {
         "slot": "repository.governance",
         "templateRef": "template://repository/repo-governance@1",
         "materializeAs": "{{paths.authoredRoot}}/standards/repo-governance.md",
-        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
       },
       {
         "slot": "repository.agent.entry",
         "templateRef": "template://repository/agent-entry@1",
         "materializeAs": "{{paths.rootDir}}/AGENTS.md",
-        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
       },
       {
         "slot": "repository.claude.entry",
         "templateRef": "template://repository/claude-entry@1",
         "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
-        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
       }
     ]
   },
@@ -80,8 +191,12 @@
       "type": "script",
       "command": "scripts/adr-seed.mjs",
       "reads": [],
-      "writes": ["{{paths.adrRoot}}/**"],
-      "inputs": { "locale": "en-US" },
+      "writes": [
+        "{{paths.adrRoot}}/**"
+      ],
+      "inputs": {
+        "locale": "en-US"
+      },
       "metadata": {
         "description": "Seed repository ADR README and template documents.",
         "purpose": "scaffold",
@@ -96,8 +211,17 @@
   "templateSelections": [],
   "checkerProfile": "software-coding-standard",
   "projectionSchemas": [
-    { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" },
-    { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },
-    { "id": "fact-record", "schemaRef": "schema://fact-record" }
+    {
+      "id": "task-frontmatter",
+      "schemaRef": "schema://task-frontmatter"
+    },
+    {
+      "id": "decision-frontmatter",
+      "schemaRef": "schema://decision-frontmatter"
+    },
+    {
+      "id": "fact-record",
+      "schemaRef": "schema://fact-record"
+    }
   ]
 }
