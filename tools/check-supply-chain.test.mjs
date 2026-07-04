@@ -47,6 +47,46 @@ test("supply-chain check rejects unreviewed dependency licenses", async () => {
   });
 });
 
+test("supply-chain check accepts reviewed OR-license elections", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      lockMutator: (lock) => {
+        lock.packages["node_modules/expand-template"] = {
+          version: "2.0.3",
+          resolved: "https://registry.npmjs.org/expand-template/-/expand-template-2.0.3.tgz",
+          integrity: "sha512-test",
+          license: "(MIT OR WTFPL)"
+        };
+        lock.packages["node_modules/rc"] = {
+          version: "1.2.8",
+          resolved: "https://registry.npmjs.org/rc/-/rc-1.2.8.tgz",
+          integrity: "sha512-test",
+          license: "(BSD-2-Clause OR MIT OR Apache-2.0)"
+        };
+      },
+      sbomMutator: (sbom) => {
+        sbom.components.push(
+          {
+            name: "expand-template",
+            purl: "pkg:npm/expand-template@2.0.3",
+            hashes: [{ alg: "SHA-512", content: "test" }]
+          },
+          {
+            name: "rc",
+            purl: "pkg:npm/rc@1.2.8",
+            hashes: [{ alg: "SHA-512", content: "test" }]
+          }
+        );
+      }
+    });
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Supply chain check passed/u);
+  });
+});
+
 test("supply-chain check rejects CI drift", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
@@ -187,7 +227,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/m2-5-product-line.md", "See [supply](./m2-5-supply-chain-license.md).\n");
   writeFile(root, "docs-release/m2-5-supply-chain-license.md", options.supplyDocBody ?? validSupplyDoc());
-  writeMockNpm(root);
+  writeMockNpm(root, options.sbomMutator);
 }
 
 function validReadme() {
@@ -244,9 +284,11 @@ function validWorkflow() {
   ].join("\n");
 }
 
-function writeMockNpm(root) {
+function writeMockNpm(root, sbomMutator) {
   const mockPath = path.join(root, ".mock-bin/npm");
-  const sbom = JSON.stringify(validSbom());
+  const sbomValue = validSbom();
+  sbomMutator?.(sbomValue);
+  const sbom = JSON.stringify(sbomValue);
   writeFile(root, ".mock-bin/npm", [
     "#!/usr/bin/env node",
     "const args = process.argv.slice(2).join(' ');",

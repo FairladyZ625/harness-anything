@@ -121,9 +121,10 @@ function validatePackageLock() {
     if (!metadata.resolved || !metadata.integrity) {
       record(`package-lock.json entry ${packagePath} must include resolved URL and integrity for release SBOM traceability`);
     }
+    const packageName = packageNameFromNodeModules(packagePath);
     if (!metadata.license) {
       record(`package-lock.json entry ${packagePath} must include license metadata`);
-    } else if (!policy.licensePolicy.allowedDependencyLicenses.includes(metadata.license)) {
+    } else if (!isAllowedDependencyLicense(packageName, metadata.license)) {
       record(`package-lock.json entry ${packagePath} has unreviewed license ${metadata.license}`);
     }
   }
@@ -220,17 +221,37 @@ function validateSbom(output) {
       record(`SBOM component ${component.name ?? "<unknown>"} must include at least one hash`);
     }
     const licenseId = component.licenses?.[0]?.license?.id;
-    if (policy.sbom.requiresComponentLicense && !licenseId) {
+    if (policy.sbom.requiresComponentLicense && !licenseId && !hasReviewedDependencyLicenseChoice(component.name)) {
       record(`SBOM component ${component.name ?? "<unknown>"} must include license`);
-    } else if (licenseId && !isWorkspace && !policy.licensePolicy.allowedDependencyLicenses.includes(licenseId)) {
+    } else if (licenseId && !isWorkspace && !isAllowedDependencyLicense(component.name, licenseId)) {
       record(`SBOM component ${component.name ?? "<unknown>"} has unreviewed license ${licenseId}`);
     }
   }
 }
 
+function isAllowedDependencyLicense(packageName, declaredLicense) {
+  if (policy.licensePolicy.allowedDependencyLicenses.includes(declaredLicense)) return true;
+  const review = policy.licensePolicy.reviewedDependencyLicenseChoices.find((choice) =>
+    choice.packageName === packageName &&
+    choice.declaredLicenseExpression === declaredLicense &&
+    policy.licensePolicy.allowedDependencyLicenses.includes(choice.electedLicense)
+  );
+  return Boolean(review);
+}
+
+function hasReviewedDependencyLicenseChoice(packageName) {
+  return policy.licensePolicy.reviewedDependencyLicenseChoices.some((choice) =>
+    choice.packageName === packageName &&
+    policy.licensePolicy.allowedDependencyLicenses.includes(choice.electedLicense)
+  );
+}
+
 function isWorkspaceLink(packagePath) {
-  const packageName = packagePath.replace(/^node_modules\//u, "");
-  return packageName.startsWith("@harness-anything/");
+  return packageNameFromNodeModules(packagePath).startsWith("@harness-anything/");
+}
+
+function packageNameFromNodeModules(packagePath) {
+  return packagePath.replace(/^node_modules\//u, "");
 }
 
 function isHarnessWorkspaceComponent(component) {

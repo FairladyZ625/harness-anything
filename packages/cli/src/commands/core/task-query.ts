@@ -1,11 +1,10 @@
 import path from "node:path";
 import { Effect } from "effect";
-import { checkTaskProjection, readTaskProjection } from "../../../../kernel/src/index.ts";
+import { checkTaskProjection, queryTaskProjection } from "../../../../kernel/src/index.ts";
 import { commandRegistry } from "../../cli/command-registry.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
-import { filterTaskProjectionRows } from "../task-list-filter.ts";
 
 type TaskQueryAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-list" | "status" }>;
 
@@ -13,11 +12,11 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskQueryAction;
   if (action.kind === "task-list") {
     return Effect.sync(() => {
-      const result = readTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides });
+      const result = queryTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides, filters: action.filters });
       return {
         ok: true,
         command: "task-list",
-        tasks: filterTaskProjectionRows(result.rows, action.filters),
+        tasks: result.rows,
         warnings: result.warnings
       } satisfies CliResult;
     });

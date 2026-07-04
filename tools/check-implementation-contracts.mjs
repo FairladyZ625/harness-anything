@@ -342,7 +342,8 @@ if (hasTaskProjectionImplementation) {
   const rebuildTestText = readFileSync(path.join(root, "packages/kernel/test/store/sqlite-rebuild.test.ts"), "utf8");
   const cliTestText = readFileSync(path.join(root, "packages/cli/test/local-lifecycle-cli.test.ts"), "utf8");
   for (const requiredSnippet of [
-    "DatabaseSync",
+    "@effect/sql",
+    "@effect/sql-sqlite-node",
     "rebuildTaskProjection",
     "projection_tampered",
     "sourceHash",

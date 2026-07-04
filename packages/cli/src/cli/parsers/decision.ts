@@ -23,6 +23,9 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
       search: readOption(args, "--search"),
       legacyId: readOption(args, "--legacy-id"),
       legacyRange: readOption(args, "--legacy-range"),
+      state: readOption(args, "--state"),
+      moduleKey: readOption(args, "--module"),
+      productLine: readOption(args, "--product-line"),
       compact: args.includes("--compact")
     });
   }

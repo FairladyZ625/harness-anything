@@ -199,6 +199,56 @@ test("CLI decision list returns question chosen rejected summaries", () => {
   });
 });
 
+test("CLI decision list filters projected rows by state and module", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_M5_E72_SELFHOST",
+      "--title",
+      "E72 Self-hosting",
+      "--question",
+      "Should M5 self-host decisions?",
+      "--chosen",
+      "Use kernel decisions",
+      "--rejected",
+      "Keep only the manual ledger",
+      "--why-not",
+      "Manual-only decisions are not queryable",
+      "--module",
+      "m5-circulation"
+    ]);
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_M5_E73_QUERY",
+      "--title",
+      "E73 Query",
+      "--question",
+      "Should agents query decisions in one command?",
+      "--chosen",
+      "Expose decision list",
+      "--rejected",
+      "Read every decision file manually",
+      "--why-not",
+      "Cold-start reading cost would regress",
+      "--module",
+      "other-module"
+    ]);
+    runJson(rootDir, ["decision", "accept", "dec_M5_E72_SELFHOST", "--arbiter", "human:ZeyuLi"]);
+
+    const result = runJson(rootDir, ["decision", "list", "--state", "active", "--module", "m5-circulation"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "decision-list");
+    assert.equal(result.rows, 1);
+    assert.deepEqual(result.report.filters, { state: "active", module: "m5-circulation" });
+    assert.deepEqual(result.report.decisions.map((entry: any) => entry.legacyId), ["E72"]);
+  });
+});
+
 test("CLI decision show finds a decision by legacy E number", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, [

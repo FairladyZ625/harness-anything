@@ -71,6 +71,25 @@ test("SQLite task projection rebuild is deterministic after cache deletion", () 
   });
 });
 
+test("SQLite projection rebuild materializes decision rows for query readers", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-1", "Task One", "active");
+    writeDecision(rootDir, "dec_M5_E72_SELFHOST", "wm-1");
+
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const db = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      const row = db.prepare("SELECT decision_id, legacy_id, state FROM decision_projection WHERE legacy_id = ?").get("E72") as Record<string, unknown>;
+      assert.equal(row.decision_id, "dec_M5_E72_SELFHOST");
+      assert.equal(row.legacy_id, "E72");
+      assert.equal(row.state, "active");
+    } finally {
+      db.close();
+    }
+  });
+});
+
 test("SQLite task projection row hash is deterministic and content-addressed", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-2", "Task Two", "done");
@@ -109,9 +128,7 @@ test("generated SQLite edits are reported and rebuilt from markdown truth", () =
     const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath);
     try {
-      const row = JSON.parse(db.prepare("SELECT row_json FROM task_projection WHERE task_id = ?").get("task-1").row_json as string) as Record<string, unknown>;
-      row.title = "Edited In Projection";
-      db.prepare("UPDATE task_projection SET row_json = ? WHERE task_id = ?").run(JSON.stringify(row), "task-1");
+      db.prepare("UPDATE task_projection SET title = ? WHERE task_id = ?").run("Edited In Projection", "task-1");
     } finally {
       db.close();
     }
@@ -134,9 +151,7 @@ test("generated SQLite timestamp edits are reported even though projection hashe
     const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath);
     try {
-      const row = JSON.parse(db.prepare("SELECT row_json FROM task_projection WHERE task_id = ?").get("task-1").row_json as string) as Record<string, unknown>;
-      row.updatedAt = "1999-01-01T00:00:00.000Z";
-      db.prepare("UPDATE task_projection SET row_json = ? WHERE task_id = ?").run(JSON.stringify(row), "task-1");
+      db.prepare("UPDATE task_projection SET updated_at = ? WHERE task_id = ?").run("1999-01-01T00:00:00.000Z", "task-1");
     } finally {
       db.close();
     }
@@ -156,7 +171,7 @@ test("corrupted SQLite projection is reported with a stable warning and rebuilt 
     const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath);
     try {
-      db.prepare("UPDATE task_projection SET row_json = ? WHERE task_id = ?").run("{bad-json", "task-1");
+      db.prepare("UPDATE task_projection SET created_by_json = ? WHERE task_id = ?").run("{bad-json", "task-1");
     } finally {
       db.close();
     }
@@ -239,6 +254,27 @@ function writeDecision(rootDir: string, decisionId: string, watermark: string): 
     ...(watermark ? [`_coordinatorWatermark: ${watermark}`] : []),
     "title: Test decision",
     "state: active",
+    "riskTier: medium",
+    "urgency: medium",
+    "vertical: \"software/coding\"",
+    "preset: \"architecture-decision\"",
+    "applies_to:",
+    "  modules: [\"m5-circulation\"]",
+    "  productLines: []",
+    "proposedBy: { kind: \"agent\", id: \"test\" }",
+    "proposedAt: \"2026-07-04T00:00:00.000Z\"",
+    "arbiter: { kind: \"human\", id: \"ZeyuLi\" }",
+    "decidedAt: \"2026-07-04T00:00:00.000Z\"",
+    "provenance:",
+    "  - { runtime: \"human\", sessionId: \"human-cli-1\", boundAt: \"2026-07-04T00:00:00.000Z\" }",
+    "question: \"Should projection materialize decisions?\"",
+    "chosen:",
+    "  - { id: \"CH1\", text: \"Use D4 projection\" }",
+    "rejected:",
+    "  - { id: \"RJ1\", text: \"Use markdown scans\", why_not: \"Query path must align\" }",
+    "claims:",
+    "  - { id: \"C1\", text: \"Decision projection exists\" }",
+    "relations:",
     "---",
     "",
     "# Test decision",

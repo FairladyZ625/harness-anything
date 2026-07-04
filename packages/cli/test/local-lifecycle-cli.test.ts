@@ -408,9 +408,7 @@ test("CLI check reports projection tampering as a stable JSON error", () => {
     execFileSync(process.execPath, ["--input-type=module", "-e", [
       "import { DatabaseSync } from 'node:sqlite';",
       `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
-      `const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get(${JSON.stringify(taskId)}).row_json);`,
-      "row.title = 'Projection Edit';",
-      `db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), ${JSON.stringify(taskId)});`,
+      `db.prepare('UPDATE task_projection SET title = ? WHERE task_id = ?').run('Projection Edit', ${JSON.stringify(taskId)});`,
       "db.close();"
     ].join("\n")]);
 
@@ -433,9 +431,7 @@ test("CLI task list does not emit tampered SQLite row content as task truth", ()
     execFileSync(process.execPath, ["--input-type=module", "-e", [
       "import { DatabaseSync } from 'node:sqlite';",
       `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
-      `const row = JSON.parse(db.prepare('SELECT row_json FROM task_projection WHERE task_id = ?').get(${JSON.stringify(taskId)}).row_json);`,
-      "row.title = 'SQLite Lie';",
-      `db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run(JSON.stringify(row), ${JSON.stringify(taskId)});`,
+      `db.prepare('UPDATE task_projection SET title = ? WHERE task_id = ?').run('SQLite Lie', ${JSON.stringify(taskId)});`,
       "db.close();"
     ].join("\n")]);
 
@@ -457,7 +453,7 @@ test("CLI check reports corrupted projection without crashing or leaking root", 
     execFileSync(process.execPath, ["--input-type=module", "-e", [
       "import { DatabaseSync } from 'node:sqlite';",
       `const db = new DatabaseSync(${JSON.stringify(projectionPath)});`,
-      `db.prepare('UPDATE task_projection SET row_json = ? WHERE task_id = ?').run('{bad-json', ${JSON.stringify(taskId)});`,
+      `db.prepare('UPDATE task_projection SET created_by_json = ? WHERE task_id = ?').run('{bad-json', ${JSON.stringify(taskId)});`,
       "db.close();"
     ].join("\n")]);
 

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { listDecisionDocuments } from "../../../../application/src/index.ts";
-import type { DecisionPackage } from "../../../../kernel/src/index.ts";
+import { queryDecisionProjection } from "../../../../kernel/src/index.ts";
+import type { DecisionProjectionRow } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -10,12 +10,14 @@ type DecisionQueryAction = Extract<ParsedCommand["action"], { readonly kind: "de
 interface DecisionSummary {
   readonly decisionId: string;
   readonly legacyId?: string;
-  readonly state: DecisionPackage["state"];
+  readonly state: string;
   readonly title: string;
   readonly question: string;
   readonly chosen: ReadonlyArray<string>;
   readonly rejected: ReadonlyArray<{ readonly text: string; readonly whyNot: string }>;
   readonly path: string;
+  readonly moduleKeys: ReadonlyArray<string>;
+  readonly productLineKeys: ReadonlyArray<string>;
 }
 
 interface CompactDecisionSummary {
@@ -27,7 +29,6 @@ interface CompactDecisionSummary {
 
 export const runDecisionQueryCommand: CommandRunner = (context, command) => Effect.sync(() => {
   const action = command.action as DecisionQueryAction;
-  const decisions = listDecisionDocuments(context.layoutInput).decisions.map((entry) => summarizeDecision(entry.decision, entry.path));
   if (action.kind === "decision-list") {
     const legacyRange = action.legacyRange ? parseLegacyRange(action.legacyRange) : undefined;
     if (action.legacyRange && !legacyRange) {
@@ -37,17 +38,33 @@ export const runDecisionQueryCommand: CommandRunner = (context, command) => Effe
         error: cliError(CliErrorCode.InvalidDecisionLegacyRange, `invalid legacy range: ${action.legacyRange}`)
       } satisfies CliResult;
     }
-    const filtered = decisions.filter((entry) => matchesDecisionListFilter(entry, action));
+    const result = queryDecisionProjection({
+      rootDir: context.rootDir,
+      layoutOverrides: context.layoutOverrides,
+      filters: {
+        ...(action.search ? { search: action.search } : {}),
+        ...(action.legacyId ? { legacyId: normalizeLegacySelector(action.legacyId) } : {}),
+        ...(legacyRange ? { legacyRange } : {}),
+        ...(action.state ? { state: action.state } : {}),
+        ...(action.moduleKey ? { moduleKey: action.moduleKey } : {}),
+        ...(action.productLine ? { productLine: action.productLine } : {})
+      }
+    });
+    const filtered = result.rows.map(summarizeDecision);
     return {
       ok: true,
       command: "decision-list",
       rows: filtered.length,
+      warnings: result.warnings,
       report: {
         schema: "decision-query-report/v1",
         filters: {
           ...(action.search ? { search: action.search } : {}),
           ...(action.legacyId ? { legacyId: normalizeLegacySelector(action.legacyId) } : {}),
           ...(legacyRange ? { legacyRange: `${legacyRange.startLabel}-${legacyRange.endLabel}` } : {}),
+          ...(action.state ? { state: action.state } : {}),
+          ...(action.moduleKey ? { module: action.moduleKey } : {}),
+          ...(action.productLine ? { productLine: action.productLine } : {}),
           ...(action.compact ? { compact: true } : {})
         },
         decisions: action.compact ? filtered.map(compactDecisionSummary) : filtered
@@ -56,7 +73,12 @@ export const runDecisionQueryCommand: CommandRunner = (context, command) => Effe
   }
 
   const selector = normalizeDecisionSelector(action.selector);
-  const match = decisions.find((entry) => matchesDecisionSelector(entry, selector));
+  const result = queryDecisionProjection({
+    rootDir: context.rootDir,
+    layoutOverrides: context.layoutOverrides,
+    filters: selector.startsWith("dec_") ? {} : { legacyId: normalizeLegacySelector(selector) }
+  });
+  const match = result.rows.map(summarizeDecision).find((entry) => matchesDecisionSelector(entry, selector));
   if (!match) {
     return {
       ok: false,
@@ -70,6 +92,7 @@ export const runDecisionQueryCommand: CommandRunner = (context, command) => Effe
     command: "decision-show",
     decisionId: match.decisionId,
     path: match.path,
+    warnings: result.warnings,
     report: {
       schema: "decision-query-report/v1",
       selector: action.selector,
@@ -78,16 +101,18 @@ export const runDecisionQueryCommand: CommandRunner = (context, command) => Effe
   } satisfies CliResult;
 });
 
-function summarizeDecision(decision: DecisionPackage, documentPath: string): DecisionSummary {
+function summarizeDecision(decision: DecisionProjectionRow): DecisionSummary {
   return {
-    decisionId: decision.decision_id,
-    ...(legacyIdFromDecisionId(decision.decision_id) ? { legacyId: legacyIdFromDecisionId(decision.decision_id)! } : {}),
+    decisionId: decision.decisionId,
+    ...(decision.legacyId ? { legacyId: decision.legacyId } : {}),
     state: decision.state,
     title: decision.title,
     question: decision.question,
-    chosen: decision.chosen.map((entry) => entry.text),
-    rejected: decision.rejected.map((entry) => ({ text: entry.text, whyNot: entry.why_not })),
-    path: documentPath
+    chosen: decision.chosen,
+    rejected: decision.rejected,
+    path: decision.path,
+    moduleKeys: decision.moduleKeys,
+    productLineKeys: decision.productLineKeys
   };
 }
 
@@ -98,25 +123,6 @@ function compactDecisionSummary(entry: DecisionSummary): CompactDecisionSummary 
     chosen: entry.chosen,
     rejected: entry.rejected.map((rejected) => rejected.text)
   };
-}
-
-function matchesDecisionListFilter(entry: DecisionSummary, action: Extract<DecisionQueryAction, { readonly kind: "decision-list" }>): boolean {
-  if (action.legacyId && entry.legacyId !== normalizeLegacySelector(action.legacyId)) return false;
-  if (action.legacyRange) {
-    const range = parseLegacyRange(action.legacyRange);
-    const legacyNumber = entry.legacyId ? legacyNumberFromSelector(entry.legacyId) : undefined;
-    if (!range || legacyNumber === undefined || legacyNumber < range.start || legacyNumber > range.end) return false;
-  }
-  if (!action.search) return true;
-  const needle = action.search.toLowerCase();
-  return [
-    entry.decisionId,
-    entry.legacyId ?? "",
-    entry.title,
-    entry.question,
-    ...entry.chosen,
-    ...entry.rejected.flatMap((rejected) => [rejected.text, rejected.whyNot])
-  ].some((value) => value.toLowerCase().includes(needle));
 }
 
 function matchesDecisionSelector(entry: DecisionSummary, selector: string): boolean {
@@ -141,16 +147,4 @@ function parseLegacyRange(value: string): { readonly start: number; readonly end
   const end = Number(match[2]);
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) return undefined;
   return { start, end, startLabel: `E${start}`, endLabel: `E${end}` };
-}
-
-function legacyNumberFromSelector(value: string): number | undefined {
-  const match = /^E?(\d+)$/iu.exec(value.trim());
-  if (!match) return undefined;
-  const parsed = Number(match[1]);
-  return Number.isInteger(parsed) ? parsed : undefined;
-}
-
-function legacyIdFromDecisionId(decisionId: string): string | undefined {
-  const match = /(?:^|_)E(\d+)(?:_|$)/u.exec(decisionId);
-  return match ? `E${Number(match[1])}` : undefined;
 }

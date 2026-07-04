@@ -64,7 +64,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
     kind: "decision-propose",
     fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: "Chosen", rejected: "Rejected", whyNot: "Because", riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], dryRun: true }
   },
-  { name: "decision list", argv: ["decision", "list", "--search", "self-host", "--legacy-id", "E72", "--legacy-range", "E1-E72", "--compact"], kind: "decision-list", fields: { search: "self-host", legacyId: "E72", legacyRange: "E1-E72", compact: true } },
+  { name: "decision list", argv: ["decision", "list", "--search", "self-host", "--legacy-id", "E72", "--legacy-range", "E1-E72", "--state", "active", "--module", "m5-circulation", "--product-line", "kernel", "--compact"], kind: "decision-list", fields: { search: "self-host", legacyId: "E72", legacyRange: "E1-E72", state: "active", moduleKey: "m5-circulation", productLine: "kernel", compact: true } },
   { name: "decision show", argv: ["decision", "show", "E72"], kind: "decision-show", fields: { selector: "E72" } },
   { name: "decision accept", argv: ["decision", "accept", "dec_TEST", "--arbiter", "human:ZeyuLi"], kind: "decision-accept", fields: { decisionId: "dec_TEST", arbiter: "human:ZeyuLi" } },
   { name: "decision reject", argv: ["decision", "reject", "dec_TEST"], kind: "decision-reject", fields: { decisionId: "dec_TEST" } },

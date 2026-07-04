@@ -28,6 +28,7 @@ export interface OsvContract {
 export interface LicensePolicyContract {
   readonly projectLicense: "AGPL-3.0-or-later";
   readonly allowedDependencyLicenses: readonly ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"];
+  readonly reviewedDependencyLicenseChoices: readonly ReviewedDependencyLicenseChoice[];
   readonly networkServiceReleaseNotesRequired: true;
   readonly networkServiceReleaseChecklist: readonly [
     "public source offer and license notice",
@@ -37,6 +38,14 @@ export interface LicensePolicyContract {
     "third-party license notices included with release evidence"
   ];
   readonly agplNoticeRequired: true;
+}
+
+export interface ReviewedDependencyLicenseChoice {
+  readonly packageName: string;
+  readonly declaredLicenseExpression: string;
+  readonly electedLicense: LicensePolicyContract["allowedDependencyLicenses"][number];
+  readonly reviewedAt: string;
+  readonly rationale: string;
 }
 
 export interface DependabotCoverageContract {
@@ -150,6 +159,22 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   licensePolicy: {
     projectLicense: "AGPL-3.0-or-later",
     allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"],
+    reviewedDependencyLicenseChoices: [
+      {
+        packageName: "expand-template",
+        declaredLicenseExpression: "(MIT OR WTFPL)",
+        electedLicense: "MIT",
+        reviewedAt: "2026-07-04",
+        rationale: "Transitive dependency of @effect/sql-sqlite-node via better-sqlite3/prebuild tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch."
+      },
+      {
+        packageName: "rc",
+        declaredLicenseExpression: "(BSD-2-Clause OR MIT OR Apache-2.0)",
+        electedLicense: "MIT",
+        reviewedAt: "2026-07-04",
+        rationale: "Transitive dependency of @effect/sql-sqlite-node via better-sqlite3/prebuild tooling. The SPDX OR expression includes MIT; project elects the permissive MIT branch."
+      }
+    ],
     networkServiceReleaseNotesRequired: true,
     networkServiceReleaseChecklist: [
       "public source offer and license notice",
@@ -219,6 +244,11 @@ export function validateSupplyChainReleaseReadiness(
     policy.licensePolicy.projectLicense !== "AGPL-3.0-or-later" ||
     !policy.licensePolicy.allowedDependencyLicenses.includes("BlueOak-1.0.0") ||
     !policy.licensePolicy.allowedDependencyLicenses.includes("MIT") ||
+    !policy.licensePolicy.reviewedDependencyLicenseChoices.every((choice) =>
+      policy.licensePolicy.allowedDependencyLicenses.includes(choice.electedLicense) &&
+      choice.reviewedAt.length > 0 &&
+      choice.rationale.length > 0
+    ) ||
     policy.licensePolicy.networkServiceReleaseNotesRequired !== true ||
     policy.licensePolicy.networkServiceReleaseChecklist.length !== 5 ||
     policy.licensePolicy.agplNoticeRequired !== true

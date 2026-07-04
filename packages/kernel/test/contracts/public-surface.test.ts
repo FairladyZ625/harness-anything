@@ -101,6 +101,8 @@ const publicRuntimeSurface = [
   "parseFactFlowRecords",
   "parseWriteEntityId",
   "planTemplateMaterialization",
+  "queryDecisionProjection",
+  "queryTaskProjection",
   "readDecisionFactCoverage",
   "readDocmapManifest",
   "readRelationGraphProjection",

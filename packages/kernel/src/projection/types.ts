@@ -56,6 +56,45 @@ export interface TaskProjectionRow {
   readonly createdBy?: TaskCreatedBy;
 }
 
+export interface TaskProjectionQueryFilters {
+  readonly state?: string;
+  readonly moduleKey?: string;
+  readonly queue?: string;
+  readonly preset?: string;
+  readonly review?: string;
+  readonly lesson?: "present" | "missing";
+  readonly missingMaterials?: boolean;
+  readonly includeArchived?: boolean;
+  readonly search?: string;
+}
+
+export interface DecisionProjectionRow {
+  readonly schema: "d4-decision-row/v1";
+  readonly decisionId: string;
+  readonly legacyId?: string;
+  readonly state: string;
+  readonly title: string;
+  readonly question: string;
+  readonly chosen: ReadonlyArray<string>;
+  readonly rejected: ReadonlyArray<{ readonly text: string; readonly whyNot: string }>;
+  readonly path: string;
+  readonly moduleKeys: ReadonlyArray<string>;
+  readonly productLineKeys: ReadonlyArray<string>;
+  readonly decidedAt?: string;
+}
+
+export interface DecisionProjectionQueryFilters {
+  readonly search?: string;
+  readonly legacyId?: string;
+  readonly legacyRange?: {
+    readonly start: number;
+    readonly end: number;
+  };
+  readonly state?: string;
+  readonly moduleKey?: string;
+  readonly productLine?: string;
+}
+
 export interface ProjectionWarning {
   readonly code: ProjectionWarningCode;
   readonly source: ProjectionWarningSource;
@@ -104,4 +143,5 @@ export interface TaskProjectionOptions {
 export interface ProjectionMeta {
   readonly sourceHash: string;
   readonly rowsHash: string;
+  readonly decisionRowsHash?: string;
 }
