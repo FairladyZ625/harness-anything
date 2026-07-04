@@ -261,6 +261,29 @@
           "{{paths.adrRoot}}/0000-template.md"
         ]
       }
+    },
+    {
+      "id": "vertical:software-coding:adr-render",
+      "type": "script",
+      "command": "scripts/adr-render.mjs",
+      "reads": [
+        "{{paths.decisionsRoot}}/**",
+        "{{paths.adrRoot}}/**"
+      ],
+      "writes": [
+        "{{paths.adrRoot}}/**"
+      ],
+      "inputs": {
+        "locale": "en-US"
+      },
+      "metadata": {
+        "description": "Render an ADR document from a decision entity (decision is SoT).",
+        "purpose": "generate",
+        "contractVersion": "script-entry/v1",
+        "produces": [
+          "{{paths.adrRoot}}/*.md"
+        ]
+      }
     }
   ],
   "templateSelections": [],
