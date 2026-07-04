@@ -20,6 +20,7 @@ export type DecisionWriteOpKind =
   | "decision_defer"
   | "decision_supersede"
   | "decision_amend"
+  | "decision_relate"
   | "decision_retire";
 
 export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind;

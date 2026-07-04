@@ -6,6 +6,7 @@ import {
   validateRelationRecordsForHost,
   type DecisionPackage,
   type DecisionState,
+  type EntityRelationRecord,
   type ProvenancePayload,
   type WriteCoordinator,
   type WriteError,
@@ -46,6 +47,13 @@ export interface DecisionAmendRequest {
   readonly opIdPrefix?: string;
 }
 
+export interface DecisionRelateRequest {
+  readonly current: DecisionPackage;
+  readonly relation: EntityRelationRecord;
+  readonly body?: string;
+  readonly opIdPrefix?: string;
+}
+
 export interface DecisionWriteResult {
   readonly decisionId: string;
   readonly state: DecisionState;
@@ -64,6 +72,7 @@ export interface DecisionWriteService {
   readonly defer: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
   readonly supersede: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
   readonly amend: (request: DecisionAmendRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
+  readonly relate: (request: DecisionRelateRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
   readonly retire: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
 }
 
@@ -94,6 +103,13 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
         return Effect.fail(rejection(request.current.decision_id, "decision_amend cannot change decision state"));
       }
       return writeDecision(options.coordinator, hashPayload, "decision_amend", request.next, request);
+    },
+    relate: (request) => {
+      const next = {
+        ...request.current,
+        relations: [...request.current.relations, request.relation]
+      };
+      return writeDecision(options.coordinator, hashPayload, "decision_relate", next, request);
     },
     retire: (request) => transitionDecision(options.coordinator, hashPayload, "decision_retire", request, "retired", timestamp())
   };

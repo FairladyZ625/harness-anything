@@ -168,6 +168,46 @@ test("relation graph projection auto-rebuilds when decision relations change", (
   });
 });
 
+test("relation graph projection indexes chosen and rejected decision anchors", () => {
+  withTempStore((rootDir) => {
+    writeDecision(rootDir, "dec_OLD_STORAGE", "wm-old-storage", []);
+    const relation = relationRecord({
+      source: "decision/dec_NEW_STORAGE/O1",
+      target: "decision/dec_OLD_STORAGE",
+      type: "supersedes"
+    });
+    writeDecision(rootDir, "dec_NEW_STORAGE", "wm-new-storage", [relation]);
+
+    rebuildTaskProjection({ rootDir });
+    const graph = readRelationGraphProjection({ rootDir });
+
+    assert.equal(graph.edges.some((edge) =>
+      edge.relationId === relation.relation_id &&
+      edge.sourceRef === "decision/dec_NEW_STORAGE/O1" &&
+      edge.targetRef === "decision/dec_OLD_STORAGE" &&
+      edge.relationType === "supersedes"
+    ), true);
+  });
+});
+
+test("post-merge relation validation reports skipped unknown endpoints", () => {
+  withTempStore((rootDir) => {
+    writeDecision(rootDir, "dec_TARGET", "wm-target", []);
+    writeDecision(rootDir, "dec_BAD_ENDPOINT", "wm-bad-endpoint", [relationRecord({
+      source: "decision/dec_BAD_ENDPOINT/CH404",
+      target: "decision/dec_TARGET",
+      type: "relates"
+    })]);
+
+    const result = checkTaskProjection({ rootDir, postMerge: true });
+
+    assert.equal(result.ok, false);
+    const warning = result.warnings.find((entry) => entry.code === "relation_endpoint_unknown");
+    assert.ok(warning);
+    assert.match(warning.message, /CH404/u);
+  });
+});
+
 test("relation graph projection excludes ghost decisions without coordinator watermark", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-ghost", "Task Ghost");

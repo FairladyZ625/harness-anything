@@ -69,6 +69,20 @@ test("decision write service preserves supplied relation records", () => {
   assert.deepEqual(payload.decision?.relations, [relation]);
 });
 
+test("decision write service appends relation records through relation-specific op", () => {
+  const enqueued: WriteOp[] = [];
+  const service = makeDecisionWriteService({ coordinator: fakeCoordinator(enqueued) });
+  const current = decisionPackage({ state: "active" });
+  const relation = relationRecord("decision/dec_TEST/CH1", "decision/dec_OLD", "supersedes");
+
+  const result = Effect.runSync(service.relate({ current, relation }));
+
+  assert.deepEqual(result, { decisionId: "dec_TEST", state: "active" });
+  assert.equal(enqueued[0]?.kind, "decision_relate");
+  const payload = enqueued[0]?.payload as { readonly decision?: DecisionPackage };
+  assert.deepEqual(payload.decision?.relations, [relation]);
+});
+
 test("decision write service rejects relation records not hosted by the decision", () => {
   const service = makeDecisionWriteService({ coordinator: fakeCoordinator([]) });
   const relation = relationRecord("decision/dec_OTHER/C1", "fact/task_01ABC/F-1234ABCD");
@@ -190,11 +204,11 @@ function decisionPackage(overrides: Partial<DecisionPackage> = {}): DecisionPack
   };
 }
 
-function relationRecord(source: string, target: string): EntityRelationRecord {
+function relationRecord(source: string, target: string, type: EntityRelationRecord["type"] = "supports"): EntityRelationRecord {
   const base = {
     source,
     target,
-    type: "supports",
+    type,
     strength: "strong",
     direction: "directed",
     origin: "declared",

@@ -28,6 +28,7 @@ export const commandReceiptContractsByKind = {
   "decision-defer": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },
   "decision-supersede": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },
   "decision-amend": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },
+  "decision-relate": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },
   "decision-retire": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },
   "record-fact": { data: ["taskId", "factId", "factRef", "report"], paths: ["primary"] },
   "distill-candidate": { data: ["taskId", "report"], paths: ["primary"] },

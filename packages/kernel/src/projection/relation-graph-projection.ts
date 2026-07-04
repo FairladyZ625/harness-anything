@@ -5,6 +5,7 @@ import type { EntityRelationRecord, EntityRelationValidationIssue } from "../dom
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+import { parseRelationFlowRecords } from "./relation-flow-frontmatter.ts";
 import { sourcePath } from "./sqlite-task-source.ts";
 
 export interface RelationGraphEdgeRow {
@@ -64,6 +65,10 @@ export interface RelationRecordValidationIssue {
     readonly code: "relation_provenance_inheritance_mismatch";
     readonly relationId?: string;
     readonly message: string;
+  } | {
+    readonly code: "relation_endpoint_unknown";
+    readonly relationId?: string;
+    readonly message: string;
   };
 }
 
@@ -79,7 +84,11 @@ export function buildRelationGraphProjection(rootInput: HarnessLayoutInput): Rel
 }
 
 export function validateRelationGraphRecords(rootInput: HarnessLayoutInput): ReadonlyArray<RelationRecordValidationIssue> {
-  return validateRelationRecordEntries(collectRelationRecordEntries(rootInput, readDecisionSources(rootInput)));
+  const decisions = readDecisionSources(rootInput);
+  return validateRelationRecordEntries(
+    collectRelationRecordEntries(rootInput, decisions),
+    buildGraphRefIndex(rootInput, decisions)
+  );
 }
 
 export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdgeRow>): ReadonlyArray<ReadonlyArray<string>> {
@@ -237,7 +246,10 @@ function relationEntriesToEdges(
   return edges.sort(compareEdges);
 }
 
-function validateRelationRecordEntries(entries: ReadonlyArray<RelationRecordEntry>): ReadonlyArray<RelationRecordValidationIssue> {
+function validateRelationRecordEntries(
+  entries: ReadonlyArray<RelationRecordEntry>,
+  refIndex: GraphRefIndex
+): ReadonlyArray<RelationRecordValidationIssue> {
   const issues: RelationRecordValidationIssue[] = [];
   const seen = new Map<string, { readonly canonicalRecord: string; readonly entry: RelationRecordEntry }>();
   for (const entry of entries) {
@@ -253,6 +265,26 @@ function validateRelationRecordEntries(entries: ReadonlyArray<RelationRecordEntr
           }
         });
       }
+    }
+    if (!isKnownLocalEndpoint(entry.record.source, refIndex)) {
+      issues.push({
+        entry,
+        issue: {
+          code: "relation_endpoint_unknown",
+          relationId: entry.record.relation_id,
+          message: `Relation ${entry.record.relation_id} has unknown source endpoint ${entry.record.source}`
+        }
+      });
+    }
+    if (!isKnownLocalEndpoint(entry.record.target, refIndex)) {
+      issues.push({
+        entry,
+        issue: {
+          code: "relation_endpoint_unknown",
+          relationId: entry.record.relation_id,
+          message: `Relation ${entry.record.relation_id} has unknown target endpoint ${entry.record.target}`
+        }
+      });
     }
 
     const canonicalRecord = canonicalRelationRecord(entry.record);
@@ -383,7 +415,7 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
   for (const decision of decisions) {
     if (!decision.visible) continue;
     decisionIds.add(decision.decisionId);
-    for (const anchor of findRelationGraphDecisionAnchors(decision.frontmatter)) {
+    for (const anchor of findRelationGraphDecisionEndpointAnchors(decision.frontmatter)) {
       decisionAnchors.add(`${decision.decisionId}/${anchor}`);
     }
   }
@@ -399,97 +431,16 @@ function isKnownLocalEndpoint(refText: string, refIndex: GraphRefIndex): boolean
   return false;
 }
 
-function parseRelationFlowRecords(body: string): ReadonlyArray<EntityRelationRecord> {
-  const records: EntityRelationRecord[] = [];
-  const lines = body.split(/\r?\n/u);
-  let inRelations = false;
-  for (const line of lines) {
-    if (/^\s*relations:\s*$/u.test(line)) {
-      inRelations = true;
-      continue;
-    }
-    if (!inRelations) continue;
-    if (/^\s*-\s*\{/u.test(line)) {
-      const record = parseRelationFlowLine(line);
-      if (record) records.push(record);
-      continue;
-    }
-    if (line.trim().length === 0 || /^\s+#/u.test(line)) continue;
-    if (/^\S/u.test(line)) inRelations = false;
-  }
-  return records;
-}
-
-function parseRelationFlowLine(line: string): EntityRelationRecord | null {
-  const body = line.match(/^\s*-\s*\{\s*(.*)\s*\}\s*$/u)?.[1];
-  if (!body || !body.includes("relation_id:")) return null;
-  const fields = new Map<string, string>();
-  for (const chunk of splitFlowFields(body)) {
-    const separator = chunk.indexOf(":");
-    if (separator <= 0) continue;
-    fields.set(chunk.slice(0, separator).trim(), parseFlowValue(chunk.slice(separator + 1).trim()));
-  }
-  const record = {
-    relation_id: fields.get("relation_id") ?? "",
-    source: fields.get("source") ?? "",
-    target: fields.get("target") ?? "",
-    type: fields.get("type") ?? "",
-    strength: fields.get("strength") ?? "",
-    direction: fields.get("direction") ?? "",
-    origin: fields.get("origin") ?? "",
-    rationale: fields.get("rationale") ?? "",
-    state: fields.get("state") ?? ""
-  };
-  if (!record.relation_id || !record.source || !record.target) return null;
-  if (!isRelationType(record.type) || !isRelationStrength(record.strength) || !isRelationDirection(record.direction) || !isRelationOrigin(record.origin) || !isRelationState(record.state)) {
-    return null;
-  }
-  return {
-    relation_id: record.relation_id,
-    source: record.source,
-    target: record.target,
-    type: record.type,
-    strength: record.strength,
-    direction: record.direction,
-    origin: record.origin,
-    rationale: record.rationale,
-    state: record.state
-  };
-}
-
-function splitFlowFields(body: string): ReadonlyArray<string> {
-  const fields: string[] = [];
-  let current = "";
-  let quote: string | null = null;
-  for (let index = 0; index < body.length; index += 1) {
-    const character = body[index] ?? "";
-    if ((character === "\"" || character === "'") && body[index - 1] !== "\\") {
-      quote = quote === character ? null : quote ?? character;
-    }
-    if (character === "," && !quote) {
-      fields.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += character;
-  }
-  if (current.trim()) fields.push(current.trim());
-  return fields;
-}
-
-function parseFlowValue(value: string): string {
-  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value.slice(1, -1);
-    }
-  }
-  return value;
-}
-
 function findRelationGraphDecisionAnchors(frontmatter: string): ReadonlyArray<string> {
-  return [...readFlowObjectBlock(frontmatter, "claims").matchAll(/^\s*-\s*\{\s*id:\s*"?([A-Za-z][A-Za-z0-9_-]*)"?/gmu)]
+  return readDecisionAnchorsFromBlock(frontmatter, "claims");
+}
+
+function findRelationGraphDecisionEndpointAnchors(frontmatter: string): ReadonlyArray<string> {
+  return ["claims", "chosen", "rejected"].flatMap((key) => readDecisionAnchorsFromBlock(frontmatter, key));
+}
+
+function readDecisionAnchorsFromBlock(frontmatter: string, key: string): ReadonlyArray<string> {
+  return [...readFlowObjectBlock(frontmatter, key).matchAll(/^\s*-\s*\{\s*id:\s*"?([A-Za-z][A-Za-z0-9_-]*)"?/gmu)]
     .map((match) => match[1])
     .filter((anchor): anchor is string => Boolean(anchor));
 }
@@ -549,24 +500,4 @@ function compareEdges(a: RelationGraphEdgeRow, b: RelationGraphEdgeRow): number 
 
 function compareRelationRecordEntries(a: RelationRecordEntry, b: RelationRecordEntry): number {
   return `${a.sourcePath}\0${a.recordIndex}`.localeCompare(`${b.sourcePath}\0${b.recordIndex}`);
-}
-
-function isRelationType(value: string): value is EntityRelationRecord["type"] {
-  return ["supports", "supersedes", "derives", "blocks", "relates", "implements", "invalidated-by", "supersedes-fact"].includes(value);
-}
-
-function isRelationStrength(value: string): value is EntityRelationRecord["strength"] {
-  return value === "strong" || value === "weak";
-}
-
-function isRelationDirection(value: string): value is EntityRelationRecord["direction"] {
-  return value === "directed" || value === "undirected";
-}
-
-function isRelationOrigin(value: string): value is EntityRelationRecord["origin"] {
-  return value === "declared" || value === "imported_snapshot" || value === "generated" || value === "inferred";
-}
-
-function isRelationState(value: string): value is EntityRelationRecord["state"] {
-  return value === "active" || value === "deprecated" || value === "deleted";
 }

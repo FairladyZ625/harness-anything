@@ -5,6 +5,8 @@ import type { ParsedEntityRef } from "./entity-ref.ts";
 export const relationTypes = [
   "supports",
   "supersedes",
+  "refines",
+  "narrows",
   "derives",
   "blocks",
   "relates",
@@ -129,6 +131,8 @@ function requiresRationale(record: EntityRelationRecord): boolean {
     record.type === "supports" ||
     record.type === "blocks" ||
     record.type === "supersedes" ||
+    record.type === "refines" ||
+    record.type === "narrows" ||
     record.type === "supersedes-fact" ||
     record.type === "invalidated-by";
 }
