@@ -138,13 +138,18 @@ function readRelationGraphSourceInputs(
   layout: ReturnType<typeof resolveHarnessLayout>,
   entries: ReadonlyArray<TaskSourceEntry>
 ): ReadonlyArray<{ readonly kind: string; readonly sourcePath: string; readonly body: string }> {
-  const factsInputs = entries
-    .map((entry) => path.join(path.dirname(entry.indexPath), layout.factDocumentName))
-    .filter((factsPath) => existsSync(factsPath))
-    .map((factsPath) => ({
-      kind: "task-facts",
-      sourcePath: sourcePath(rootDir, factsPath),
-      body: readFileSync(factsPath, "utf8")
+  const taskDocumentInputs = entries
+    .flatMap((entry) => [
+      { kind: "task-facts", path: path.join(path.dirname(entry.indexPath), layout.factDocumentName) },
+      { kind: "task-module", path: path.join(path.dirname(entry.indexPath), "module.md") },
+      { kind: "task-review", path: path.join(path.dirname(entry.indexPath), "review.md") },
+      { kind: "task-closeout", path: path.join(path.dirname(entry.indexPath), "closeout.md") }
+    ])
+    .filter((input) => existsSync(input.path))
+    .map((input) => ({
+      kind: input.kind,
+      sourcePath: sourcePath(rootDir, input.path),
+      body: readFileSync(input.path, "utf8")
     }));
   const decisionInputs = listDecisionDocuments(layout.decisionsRoot)
     .map((decisionPath) => ({
@@ -152,7 +157,7 @@ function readRelationGraphSourceInputs(
       sourcePath: sourcePath(rootDir, decisionPath),
       body: readFileSync(decisionPath, "utf8")
     }));
-  return [...factsInputs, ...decisionInputs].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
+  return [...taskDocumentInputs, ...decisionInputs].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
 }
 
 function listDecisionDocuments(decisionsRoot: string): ReadonlyArray<string> {

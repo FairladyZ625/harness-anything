@@ -33,7 +33,7 @@ export type { PackageDisposition } from "./package-disposition.ts";
 export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
 export type { EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
-export { decisionEntityId, decisionIdFromEntityId, parseWriteEntityId, taskEntityId, taskIdFromEntityId } from "./entity-id.ts";
+export { decisionEntityId, decisionIdFromEntityId, moduleEntityId, moduleKeyFromEntityId, parseWriteEntityId, taskEntityId, taskIdFromEntityId } from "./entity-id.ts";
 export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
 export {

@@ -1,14 +1,17 @@
-import { mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import { moduleEntityId } from "../../../../kernel/src/index.ts";
+import type { WriteCoordinator } from "../../../../kernel/src/ports/index.ts";
+import { stablePayloadHash, writeCoordinatedPayload } from "../../../../kernel/src/write-coordination/write-helpers.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
   moduleNotFound,
   readModules,
-  writeModules
+  writeModulesCoordinated
 } from "./state.ts";
-import { writeIfMissing } from "./shared.ts";
 
 type ModuleAction = Extract<ParsedCommand["action"], {
   readonly kind:
@@ -20,7 +23,7 @@ type ModuleAction = Extract<ParsedCommand["action"], {
     | "module-step"
 }>;
 
-export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAction): CliResult {
+export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAction, coordinator?: WriteCoordinator): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   if (action.kind === "module-list") {
@@ -56,7 +59,12 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     const modules = existing
       ? registry.modules.map((candidate) => candidate.key === action.moduleKey ? module : candidate)
       : [...registry.modules, module];
-    writeModules(rootInput, { modules });
+    if (!coordinator) throw new Error("module register requires write coordinator");
+    Effect.runSync(writeModulesCoordinated(rootInput, coordinator, {
+      registry: { modules },
+      moduleKey: action.moduleKey,
+      operation: "register"
+    }));
     return { ok: true, command: "module-register", module };
   }
 
@@ -65,9 +73,18 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-scaffold", action.moduleKey);
     const moduleRoot = path.join(layout.authoredRoot, "modules", module.key);
-    mkdirSync(moduleRoot, { recursive: true });
-    writeIfMissing(path.join(moduleRoot, "brief.md"), `# ${module.title}\n\nModule key: ${module.key}\n`);
-    writeIfMissing(path.join(moduleRoot, "module_plan.md"), `# ${module.title} Module Plan\n\n| Step | State |\n| --- | --- |\n`);
+    if (!coordinator) throw new Error("module scaffold requires write coordinator");
+    const writes = [
+      { path: "brief.md", body: `# ${module.title}\n\nModule key: ${module.key}\n` },
+      { path: "module_plan.md", body: `# ${module.title} Module Plan\n\n| Step | State |\n| --- | --- |\n` }
+    ].filter((write) => !existsSync(path.join(moduleRoot, write.path)));
+    if (writes.length > 0) {
+      Effect.runSync(writeCoordinatedPayload(coordinator, stablePayloadHash, {
+        entityId: moduleEntityId(module.key),
+        kind: "module_scaffold_write",
+        payload: { writes }
+      }));
+    }
     return {
       ok: true,
       command: "module-scaffold",
@@ -81,9 +98,14 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     const module = registry.modules.find((candidate) => candidate.key === action.moduleKey);
     if (!module || module.status === "unregistered") return moduleNotFound("module-unregister", action.moduleKey);
     const next = { ...module, status: "unregistered" };
-    writeModules(rootInput, {
+    if (!coordinator) throw new Error("module unregister requires write coordinator");
+    Effect.runSync(writeModulesCoordinated(rootInput, coordinator, {
+      moduleKey: module.key,
+      operation: "unregister",
+      registry: {
       modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
-    });
+      }
+    }));
     return { ok: true, command: "module-unregister", module: next };
   }
 
@@ -95,8 +117,13 @@ export function runModuleCommand(rootInput: HarnessLayoutInput, action: ModuleAc
     ? module.steps.map((candidate) => candidate.id === step.id ? step : candidate)
     : [...module.steps, step];
   const next = { ...module, steps };
-  writeModules(rootInput, {
-    modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
-  });
+  if (!coordinator) throw new Error("module step requires write coordinator");
+  Effect.runSync(writeModulesCoordinated(rootInput, coordinator, {
+    moduleKey: module.key,
+    operation: "step",
+    registry: {
+      modules: registry.modules.map((candidate) => candidate.key === module.key ? next : candidate)
+    }
+  }));
   return { ok: true, command: "module-step", module: next };
 }

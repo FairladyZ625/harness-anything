@@ -6,6 +6,7 @@ export type TaskWriteOpKind =
   | "package_create"
   | "transition_local"
   | "progress_append"
+  | "doc_stage"
   | "doc_write"
   | "package_archive"
   | "package_tombstone"
@@ -23,7 +24,11 @@ export type DecisionWriteOpKind =
   | "decision_relate"
   | "decision_retire";
 
-export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind;
+export type ModuleWriteOpKind =
+  | "module_registry_write"
+  | "module_scaffold_write";
+
+export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | ModuleWriteOpKind;
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 

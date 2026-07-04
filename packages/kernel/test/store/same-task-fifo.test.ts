@@ -168,7 +168,7 @@ test("WriteCoordinator commits self-host authored writes inside ignored nested h
 
     assert.equal(report.watermark, "op-nested");
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "nested");
-    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /harness write op-nested/);
+    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /task\(doc\): task-1 notes\.md \[op-nested\]/);
     assert.equal(runGit(path.join(rootDir, "harness"), "show", "--name-only", "--format=", "HEAD"), "tasks/task-1/notes.md");
     assert.equal(runGit(path.join(rootDir, "harness"), "status", "--short"), "M notes/unrelated.md");
     assert.equal(runGit(rootDir, "status", "--short"), "");
@@ -207,7 +207,7 @@ test("WriteCoordinator accepts non-native case root paths on case-insensitive fi
 
     assert.equal(report.watermark, "op-mixed-case");
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "mixed");
-    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /harness write op-mixed-case/);
+    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "-1"), /task\(doc\): task-1 notes\.md \[op-mixed-case\]/);
   });
 });
 

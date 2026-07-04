@@ -109,6 +109,35 @@ test("CLI task-review accepts a task with a real fact", () => {
   });
 });
 
+test("CLI task-review and task-complete stage reviewed artifacts through WriteCoordinator", () => {
+  withTempRoot((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), ".harness/\n", "utf8");
+    writeIndex(rootDir, "task-1", "Review Task", "in_review");
+    writeFact(rootDir, "task-1");
+    runGit(rootDir, "add", ".gitignore", "harness/tasks/task-1/INDEX.md", "harness/tasks/task-1/facts.md");
+    runGit(rootDir, "commit", "-m", "seed task");
+
+    writeReview(rootDir, "task-1");
+    assert.match(runGit(rootDir, "status", "--short"), /review\.md/);
+
+    const reviewed = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"]);
+    assert.equal(reviewed.ok, true);
+    assert.equal(runGit(rootDir, "status", "--short"), "");
+    assert.match(runGit(rootDir, "log", "--oneline", "-1"), /task\(doc-stage\): task-1 review\.md/);
+
+    writeRealCloseout(rootDir, "task-1");
+    assert.match(runGit(rootDir, "status", "--short"), /closeout\.md/);
+
+    const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    assert.equal(completed.ok, true);
+    assert.equal(completed.data?.status ?? completed.status, "done");
+    assert.equal(runGit(rootDir, "status", "--short"), "");
+    assert.match(runGit(rootDir, "log", "--oneline", "-3"), /task\(transition\): task-1/);
+    assert.match(runGit(rootDir, "log", "--oneline", "-3"), /task\(doc-stage\): task-1 closeout\.md/);
+  });
+});
+
 test("CLI task-review does not count facts.md placeholders as facts", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Review Task", "in_review");
@@ -221,6 +250,16 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function initializeGitRepo(rootDir: string): void {
+  runGit(rootDir, "init");
+  runGit(rootDir, "config", "user.email", "test@example.com");
+  runGit(rootDir, "config", "user.name", "Test User");
+}
+
+function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {

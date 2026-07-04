@@ -11,7 +11,7 @@ import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.t
 import { resolveTaskCreatedBy } from "./created-by.ts";
 import { hasTaskRelations, renderSupersedesRelation } from "./task-relations.ts";
 import { indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
-import { appendProgressDelta, deleteTaskPackage, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
+import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
 import type {
   AppendProgressInput,
   CreateLocalTaskInput,
@@ -24,6 +24,7 @@ import type {
   LocalTaskResult,
   LocalWriteCoordinatorOptions,
   SetLocalStatusInput,
+  StageTaskDocumentInput,
   SupersedeTaskInput,
   TaskReasonInput
 } from "./types.ts";
@@ -43,6 +44,7 @@ export type {
   LocalTaskResult,
   LocalWriteCoordinatorOptions,
   SetLocalStatusInput,
+  StageTaskDocumentInput,
   SupersedeTaskInput,
   TaskReasonInput
 } from "./types.ts";
@@ -65,6 +67,7 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
     createTask: (input) => createTask(runtimeContext, coordinator, clock, input, options.bindCreateProvenance),
     setStatus: (input) => setStatus(runtimeContext, coordinator, input),
     appendProgress: (input) => appendProgress(runtimeContext, coordinator, input),
+    stageDocument: (input) => stageDocument(runtimeContext, coordinator, input),
     archiveTask: (input) => archiveTask(runtimeContext, coordinator, input),
     supersedeTask: (input) => supersedeTask(runtimeContext, coordinator, clock, input, options.bindCreateProvenance),
     deleteTask: (input) => deleteTask(runtimeContext, coordinator, input),
@@ -163,6 +166,18 @@ function appendProgress(
     // rolls back hand-edits with a stale full-file snapshot.
     yield* appendProgressDelta(coordinator, stablePayloadHash, input.taskId, input.text);
     return { taskId: input.taskId, path: "progress.md" } satisfies LocalProgressResult;
+  });
+}
+
+function stageDocument(
+  rootInput: HarnessLayoutInput,
+  coordinator: WriteCoordinator,
+  input: StageTaskDocumentInput
+): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+  return Effect.gen(function* () {
+    yield* readIndexEffect(rootInput, input.taskId);
+    yield* stageTaskDocument(coordinator, stablePayloadHash, input.taskId, input.path);
+    return { taskId: input.taskId, path: input.path } satisfies LocalProgressResult;
   });
 }
 
