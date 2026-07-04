@@ -168,6 +168,60 @@
           "prefer": "project",
           "fallback": "en-US"
         }
+      },
+      {
+        "slot": "repository.adr.readme",
+        "templateRef": "template://repository/adr-readme@1",
+        "materializeAs": "{{paths.adrRoot}}/README.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
+      },
+      {
+        "slot": "repository.decisions.readme",
+        "templateRef": "template://repository/decisions-readme@1",
+        "materializeAs": "{{paths.decisionsRoot}}/README.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
+      },
+      {
+        "slot": "repository.milestones.readme",
+        "templateRef": "template://repository/milestones-readme@1",
+        "materializeAs": "{{paths.milestonesRoot}}/README.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
+      },
+      {
+        "slot": "repository.sessions.readme",
+        "templateRef": "template://repository/sessions-readme@1",
+        "materializeAs": "{{paths.sessionsRoot}}/README.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
+      },
+      {
+        "slot": "repository.standards.readme",
+        "templateRef": "template://repository/standards-readme@1",
+        "materializeAs": "{{paths.standardsRoot}}/README.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
+      },
+      {
+        "slot": "repository.context.readme",
+        "templateRef": "template://repository/context-readme@1",
+        "materializeAs": "{{paths.contextRoot}}/README.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
       }
     ]
   },

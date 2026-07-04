@@ -17,13 +17,20 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(result.path, "harness/harness.yaml");
     assert.match(config, new RegExp(`^name: ${path.basename(rootDir)}$`, "m"));
     assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/decisions")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/sessions")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
-    assert.equal(existsSync(path.join(rootDir, "harness/adr/README.md")), false);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/repo-governance.md"), "utf8"), /Repository Governance/u);
     assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /Harness Agent Entry/u);
     assert.match(readFileSync(path.join(rootDir, "CLAUDE.md"), "utf8"), /Claude Harness Entry/u);
+    // Every scaffold folder ships a guide README (ADR-0021 D1). Seeding the
+    // decisions/sessions guides also materializes their (otherwise lazy) roots.
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/sessions")), true);
+    assert.match(readFileSync(path.join(rootDir, "harness/adr/README.md"), "utf8"), /## Usage/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/decisions/README.md"), "utf8"), /## 用途/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/milestones/README.md"), "utf8"), /## 用途/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/sessions/README.md"), "utf8"), /## 用途/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/standards/README.md"), "utf8"), /## 用途/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/context/README.md"), "utf8"), /## 用途/u);
   });
 });
 

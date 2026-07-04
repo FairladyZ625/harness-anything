@@ -646,6 +646,146 @@
           "bodyPath": "templates/repository.adr.template/en-US.md"
         }
       ]
+    },
+    {
+      "id": "repository/decisions-readme",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.decisions.readme",
+      "materializeAs": "harness/decisions/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## 用途"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.decisions.readme/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.decisions.readme/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/milestones-readme",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.milestones.readme",
+      "materializeAs": "harness/milestones/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## 用途"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.milestones.readme/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.milestones.readme/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/sessions-readme",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.sessions.readme",
+      "materializeAs": "harness/sessions/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## 用途"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.sessions.readme/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.sessions.readme/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/standards-readme",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.standards.readme",
+      "materializeAs": "harness/standards/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## 用途"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.standards.readme/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.standards.readme/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/context-readme",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.context.readme",
+      "materializeAs": "harness/context/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## 用途"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.context.readme/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## 用途"
+          ],
+          "bodyPath": "templates/repository.context.readme/en-US.md"
+        }
+      ]
     }
   ]
 }
