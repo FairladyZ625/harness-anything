@@ -339,8 +339,23 @@ test("CLI status --json returns local projection health envelope", () => {
     assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "generated-cache" && axis.warningCount === 0), true);
     assert.equal(result.report.axes.some((axis: Record<string, unknown>) => axis.axis === "collaboration-gate" && axis.warningCount === 0), true);
     assert.equal(result.warnings.length, 0);
-    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "task-supersede" && entry.resultEnvelope === "CommandReceipt/v1"), true);
+    assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "task-supersede" && entry.resultEnvelope === "command-receipt/v2"), true);
     assert.equal(result.commands.some((entry: Record<string, unknown>) => entry.kind === "preset-validate" && entry.primary === "harness-anything preset validate <manifest> [--kernel-version <version>] [--json]"), true);
+  });
+});
+
+test("CLI capabilities expose registry-derived entity operations through receipt v2", () => {
+  withTempRoot((rootDir) => {
+    const receipt = runRawJson(rootDir, ["decision", "capabilities"]);
+
+    assert.equal(receipt.ok, true);
+    assert.equal(receipt.schema, "command-receipt/v2");
+    assert.equal(receipt.command, "capabilities");
+    assert.equal(receipt.entity?.kind, "capabilities");
+    assert.equal(receipt.rows > 0, true);
+    assert.equal(Array.isArray(receipt.items), true);
+    assert.equal(receipt.items.some((op: Record<string, any>) => op.action === "propose" && op.input?.schemaId === "harness://schema/cli/decision-propose-input/v1"), true);
+    assert.equal(receipt.details?.report?.generatedFrom?.commandRegistry, "packages/cli/src/cli/command-registry.ts");
   });
 });
 
@@ -653,8 +668,15 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };
-    return JSON.parse(failure.stdout ?? "{}") as Record<string, any>;
+    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function runRawJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8"
+  });
+  return JSON.parse(stdout) as Record<string, any>;
 }
 
 function runText(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): string {

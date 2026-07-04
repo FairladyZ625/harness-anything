@@ -134,21 +134,21 @@ function resolveBinCommand(consumerDir, name) {
 
 function unwrapReceipt(value) {
   const oldTopLevel = ["taskId", "path", "packagePath", "projectionPath", "report", "summary", "launchPlan", "document"];
-  if (value.ok !== true || value.receipt !== "CommandReceipt/v1" || typeof value.command !== "string") {
-    throw new Error(`unexpected CommandReceipt/v1 output: ${JSON.stringify(value)}`);
+  if (value.ok !== true || value.schema !== "command-receipt/v2" || typeof value.command !== "string") {
+    throw new Error(`unexpected command-receipt/v2 output: ${JSON.stringify(value)}`);
   }
   for (const key of oldTopLevel) {
     if (Object.prototype.hasOwnProperty.call(value, key) && key !== "summary") {
       throw new Error(`receipt leaked old top-level field ${key}: ${JSON.stringify(value)}`);
     }
   }
-  const data = value.data && typeof value.data === "object" ? value.data : {};
-  const paths = value.paths && typeof value.paths === "object" ? value.paths : {};
+  const data = value.details?.data && typeof value.details.data === "object" ? value.details.data : {};
+  const paths = Object.fromEntries(Array.isArray(value.paths) ? value.paths.map((entry) => [entry.role, entry.path]) : []);
   return {
     ...data,
     ok: value.ok,
     command: value.command,
-    receipt: value.receipt,
+    receipt: value.schema,
     receiptSummary: value.summary,
     paths,
     path: paths.primary,

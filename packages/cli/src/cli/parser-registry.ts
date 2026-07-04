@@ -3,6 +3,7 @@ import { parseDoctorArgs } from "./parse-doctor-args.ts";
 import { parseGitDiffArgs } from "./parse-git-diff-args.ts";
 import { parseMigrationArgs } from "./parse-migration-args.ts";
 import { parseCoreTaskArgs } from "./parsers/core-task.ts";
+import { parseCapabilitiesArgs } from "./parsers/capabilities.ts";
 import { parseDecisionArgs } from "./parsers/decision.ts";
 import { parseDistillArgs } from "./parsers/distill.ts";
 import { parseDocArgs } from "./parsers/doc.ts";
@@ -42,6 +43,11 @@ export const parserRegistry = [
       if (args[0] !== "version" && !args.includes("--version") && !args.includes("-v")) return null;
       return { ok: true, value: { rootDir, json, action: { kind: "version" } } };
     }
+  },
+  {
+    id: "capabilities",
+    commandKinds: commandKindsForParser("capabilities"),
+    parse: parseCapabilitiesArgs
   },
   {
     id: "core-task",

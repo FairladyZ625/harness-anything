@@ -8,13 +8,13 @@ import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine, makeLocalWriteCoordinator } from "../../adapters/local/src/index.ts";
 import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
-import { renderReceiptText, toCommandReceipt, type CommandReceipt } from "./cli/receipt.ts";
+import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
-    emit({ ok: false, command: "parse", error: parsed.error }, true);
+    emit(toCommandReceipt({ ok: false, command: "parse", error: parsed.error }), true);
     return 2;
   }
 
@@ -79,19 +79,20 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   return output.ok ? 0 : 1;
 }
 
-function emit(output: CommandReceipt | (CliResult & { readonly ok: false }), json: boolean): void {
+function emit(output: CommandReceipt | CommandFailureReceipt, json: boolean): void {
   if (json) {
     console.log(JSON.stringify(output));
     return;
   }
 
   if (output.ok) {
+    const data = receiptDetailsData(output);
     if (output.command === "version") {
-      console.log(`harness-anything ${String(output.data?.version ?? "unknown")}`);
+      console.log(`harness-anything ${String(data.version ?? "unknown")}`);
       return;
     }
-    if (output.command === "help" && Array.isArray(output.data?.commands)) {
-      console.log(renderHelp(output.data));
+    if (output.command === "help" && Array.isArray(data.commands)) {
+      console.log(renderHelp(data));
       return;
     }
     console.log(renderReceiptText(output));

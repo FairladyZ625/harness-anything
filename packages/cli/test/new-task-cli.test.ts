@@ -51,7 +51,7 @@ test("CLI creates a local task with generated identity, provenance, and stable J
     assert.match(index, /engine: local/);
     assertHumanProvenance(rootDir, index);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
-    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command=new-task task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path summary=/u);
+    assert.match(runText(rootDir, ["new-task", "--title", "Text Path"]), /ok command="task create" task=task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26} status=planned path=harness\/tasks\/task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}-text-path summary=/u);
   });
 });
 
@@ -87,7 +87,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };
-    return JSON.parse(failure.stdout ?? "{}") as Record<string, any>;
+    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
 }
 

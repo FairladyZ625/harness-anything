@@ -59,16 +59,16 @@ try {
 
 function unwrapReceipt(value) {
   if (value.ok !== true) return value;
-  if (value.receipt !== "CommandReceipt/v1") {
-    throw new Error(`unexpected CommandReceipt/v1 output: ${JSON.stringify(value)}`);
+  if (value.schema !== "command-receipt/v2") {
+    throw new Error(`unexpected command-receipt/v2 output: ${JSON.stringify(value)}`);
   }
-  const data = value.data && typeof value.data === "object" ? value.data : {};
-  const paths = value.paths && typeof value.paths === "object" ? value.paths : {};
+  const data = value.details?.data && typeof value.details.data === "object" ? value.details.data : {};
+  const paths = Object.fromEntries(Array.isArray(value.paths) ? value.paths.map((entry) => [entry.role, entry.path]) : []);
   return {
     ...data,
     ok: value.ok,
     command: value.command,
-    receipt: value.receipt,
+    receipt: value.schema,
     path: paths.primary,
     packagePath: paths.package,
     projectionPath: paths.projection,

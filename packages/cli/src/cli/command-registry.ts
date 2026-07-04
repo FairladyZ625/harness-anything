@@ -21,6 +21,7 @@ export type CommandParserId =
   | "migration"
   | "git-diff"
   | "doctor"
+  | "capabilities"
   | "gui"
   | "template"
   | "preset"
@@ -44,6 +45,7 @@ export type CommandRunnerId =
   | "migration"
   | "diagnostics"
   | "extension"
+  | "capabilities"
   | "gui";
 
 export interface CommandUsage {
@@ -58,8 +60,10 @@ const deprecatedAlias = (alias: string, replacement: string) => `${alias} (${ali
 const commandUsages = [
   { kind: "help", usage: "help", aliases: ["--help", "-h"] },
   { kind: "version", usage: "version", aliases: ["--version", "-v"] },
+  { kind: "entity-list", usage: "entity list [--json]" },
+  { kind: "capabilities", usage: "capabilities [--kind <entity-kind>] [--json]" },
   { kind: "init", usage: "init [--name <name>] [--add-npm-scripts]" },
-  { kind: "new-task", usage: "task create --title <title> [--vertical software/coding --preset <id> --module <key>] [--register-module <key> --module-title <title> --module-scope <path>] [--long-running] [--dry-run] [--locale zh-CN|en-US] [--from-legacy <legacy-id>] [--json]", aliases: [deprecatedAlias("new-task --title <title>", "task create")] },
+  { kind: "new-task", usage: "task create --title <title> [--from-file <path>|--json-input <json>] [--vertical software/coding --preset <id> --module <key>] [--register-module <key> --module-title <title> --module-scope <path>] [--long-running] [--dry-run] [--locale zh-CN|en-US] [--from-legacy <legacy-id>] [--json]", aliases: [deprecatedAlias("new-task --title <title>", "task create")] },
   { kind: "status-set", usage: "task transition <id> <status> [--force --reason <reason>]", aliases: [deprecatedAlias("task status set <id> <status>", "task transition")] },
   { kind: "progress-append", usage: "task progress append <id> --text <text> [--evidence type:PATH:summary]" },
   { kind: "task-archive", usage: "task archive <id> --reason <reason> [--archived-by <actor>] [--archive-field <field>]" },
@@ -70,7 +74,7 @@ const commandUsages = [
   { kind: "task-complete", usage: "task complete <id> --ci passed|failed [--reviewer <id>]", aliases: [deprecatedAlias("task-complete <id>", "task complete")] },
   { kind: "decision-list", usage: "decision list [--search <text>] [--legacy-id E<n>] [--legacy-range E<n>-E<n>] [--state <state>] [--module <key>] [--product-line <key>] [--compact] [--json]" },
   { kind: "decision-show", usage: "decision show <decision-id|E<n>> [--json]" },
-  { kind: "decision-propose", usage: "decision propose --title <title> --question <text> --chosen <text> --rejected <text> --why-not <text> [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--proposed-by kind:id] [--arbiter kind:id] [--claim <text>] [--evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>] [--body <text>] [--dry-run] [--json]" },
+  { kind: "decision-propose", usage: "decision propose --title <title> --question <text> --chosen <text> --rejected <text> --why-not <text> [--from-file <path>|--json-input <json>] [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--proposed-by kind:id] [--arbiter kind:id] [--claim <text>] [--evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>] [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-accept", usage: "decision accept <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
   { kind: "decision-reject", usage: "decision reject <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
   { kind: "decision-defer", usage: "decision defer <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
@@ -78,10 +82,10 @@ const commandUsages = [
   { kind: "decision-amend", usage: "decision amend <decision-id> [--title <title>] [--set <field>:<value>] [--append <field>:<json>] [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-relate", usage: "decision relate <decision-id> --anchor <CH1|RJ1|C1> --type <relation-type> --target <entity-ref> --rationale <text> [--body <text>] [--dry-run] [--json]" },
   { kind: "decision-retire", usage: "decision retire <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]" },
-  { kind: "record-fact", usage: "fact record --task <task-id> --statement <text> --source <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--dry-run] [--json]", aliases: [deprecatedAlias("record fact --task <task-id>", "fact record")] },
+  { kind: "record-fact", usage: "fact record --task <task-id> --statement <text> --source <text> [--from-file <path>|--json-input <json>] [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--dry-run] [--json]", aliases: [deprecatedAlias("record fact --task <task-id>", "fact record")] },
   { kind: "distill-candidate", usage: "distill candidate --task <task-id> --input <path> [--json]" },
   { kind: "distill-commit", usage: "distill promote --task <task-id> --candidate <path> --claim <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--json]", aliases: [deprecatedAlias("distill commit --task <task-id>", "distill promote")] },
-  { kind: "runtime-event-append", usage: "event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]", aliases: [deprecatedAlias("runtime-event append", "event append")] },
+  { kind: "runtime-event-append", usage: "event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--from-file <path>|--json-input <json>] [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]", aliases: [deprecatedAlias("runtime-event append", "event append")] },
   { kind: "runtime-event-list", usage: "event list --session <session-id> [--json]", aliases: [deprecatedAlias("runtime-event list", "event list")] },
   { kind: "doc-list", usage: "doc list [--module <key>] [--product-line <key>] [--json]" },
   { kind: "doc-map", usage: "doc map [--module <key>] [--product-line <key>] [--json]" },
@@ -135,6 +139,8 @@ type RegisteredCommandKind = (typeof commandUsages)[number]["kind"];
 const commandParserIds = {
   "help": "help",
   "version": "version",
+  "entity-list": "capabilities",
+  "capabilities": "capabilities",
   "init": "core-task",
   "new-task": "new-task",
   "decision-list": "decision",
@@ -210,6 +216,8 @@ const commandParserIds = {
 const commandRunnerIds = {
   "help": "help",
   "version": "version",
+  "entity-list": "capabilities",
+  "capabilities": "capabilities",
   "init": "init",
   "new-task": "new-task",
   "decision-list": "decision",
@@ -285,6 +293,8 @@ const commandRunnerIds = {
 const commandSummaries = {
   "help": "Show global help or detailed help for one command.",
   "version": "Print the installed CLI version.",
+  "entity-list": "List entity kinds derived from registered command descriptors.",
+  "capabilities": "Describe entity operations, input schemas, shortcuts, and examples.",
   "init": "Create the harness directory layout and optional npm shortcuts.",
   "new-task": "Create a new task package, optionally through a vertical or preset.",
   "status-set": "Move a local task to a new lifecycle status.",
@@ -360,6 +370,8 @@ const commandSummaries = {
 const commandExamples = {
   "help": [`${cliCommandName} help task create`],
   "version": [`${cliCommandName} version`],
+  "entity-list": [`${cliCommandName} entity list --json`],
+  "capabilities": [`${cliCommandName} decision capabilities --json`],
   "init": [`${cliCommandName} init --name my-project --add-npm-scripts`],
   "new-task": [`${cliCommandName} task create --title "Normalize CLI help" --vertical software/coding --preset standard-task`],
   "status-set": [`${cliCommandName} task transition task_01ABC active --reason "work started"`],

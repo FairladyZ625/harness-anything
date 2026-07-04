@@ -120,6 +120,32 @@ test("CLI record fact defaults to episodic memory class and rejects unknown memo
   });
 });
 
+test("CLI record fact accepts schema-shaped JSON input from file", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "JSON Fact Owner"]);
+    const taskId = String(created.taskId);
+    const payloadPath = path.join(rootDir, "fact-input.json");
+    writeFileSync(payloadPath, JSON.stringify({
+      taskId,
+      factId: "F-ABCDEF12",
+      statement: "Global --from-file input reaches the fact parser.",
+      source: "packages/cli/test/fact-cli.test.ts",
+      confidence: "high",
+      memoryClass: "procedural",
+      memoryTags: ["tool_memory"]
+    }), "utf8");
+
+    const result = runJson(rootDir, ["fact", "record", "--from-file", payloadPath]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "record-fact");
+    assert.equal(result.factId, "F-ABCDEF12");
+    const factsBody = readFileSync(path.join(rootDir, String(created.packagePath), "facts.md"), "utf8");
+    assert.match(factsBody, /Global --from-file input reaches the fact parser\./u);
+    assert.match(factsBody, /memoryClass: procedural, memoryTags: \[tool_memory\]/u);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-cli-"));
   try {
@@ -146,6 +172,6 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };
-    return JSON.parse(failure.stdout ?? "{}") as Record<string, any>;
+    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
 }

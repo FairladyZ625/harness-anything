@@ -62,7 +62,7 @@ export function findCliHelpContractViolations(rootDir = process.cwd()) {
     violations.push("command help must not use generic summary or option-description fallback text");
   }
   if (/CliResult\/v1/u.test(source) || /CliResult\/v1/u.test(receiptSource) || /CliResult\/v1/u.test(entrypointSource)) {
-    violations.push("CLI success output must use CommandReceipt/v1, not CliResult/v1");
+    violations.push("CLI success output must use command-receipt/v2, not CliResult/v1");
   }
   if (/JSON\.stringify\(result\)/u.test(entrypointSource)) {
     violations.push("CLI entrypoint must serialize normalized CommandReceipt output, not raw CliResult");

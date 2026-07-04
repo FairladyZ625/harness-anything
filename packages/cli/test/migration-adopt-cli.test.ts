@@ -544,7 +544,7 @@ function runJson(
     const body = failure.stdout && failure.stdout.trim().length > 0 ? failure.stdout : failure.stderr ?? "";
     const parsed = JSON.parse(body);
     if (expectSuccess) assert.fail(body);
-    return parsed;
+    return unwrapCommandReceipt(parsed);
   }
 }
 

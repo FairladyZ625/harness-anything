@@ -119,6 +119,10 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "legacy verify", argv: ["legacy", "verify"], kind: "legacy-verify" },
   { name: "git diff", argv: ["git", "diff", "--base", "origin/main"], kind: "git-diff", fields: { baseRef: "origin/main" } },
   { name: "doctor", argv: ["doctor"], kind: "doctor" },
+  { name: "entity list", argv: ["entity", "list"], kind: "entity-list" },
+  { name: "capabilities index", argv: ["capabilities"], kind: "capabilities", fields: { entityKind: undefined } },
+  { name: "capabilities by kind", argv: ["decision", "capabilities"], kind: "capabilities", fields: { entityKind: "decision" } },
+  { name: "capabilities kind option", argv: ["capabilities", "--kind", "task"], kind: "capabilities", fields: { entityKind: "task" } },
   { name: "gui", argv: ["gui"], kind: "gui" },
   { name: "template list", argv: ["template", "list", "--catalog", "catalog.json"], kind: "template-list", fields: { catalogPath: "catalog.json" } },
   { name: "template render", argv: ["template", "render", "template://planning/task@1", "--catalog", "catalog.json", "--locale", "en-US"], kind: "template-render", fields: { templateRef: "template://planning/task@1", catalogPath: "catalog.json", locale: "en-US" } },
@@ -239,7 +243,7 @@ test("command registry exposes help metadata for every command", () => {
   for (const entry of commandRegistry) {
     assert.equal(entry.commandPath.length > 0, true, entry.kind);
     assert.equal(entry.summary.length > 0, true, entry.kind);
-    assert.equal(entry.resultEnvelope, "CommandReceipt/v1", entry.kind);
+    assert.equal(entry.resultEnvelope, "command-receipt/v2", entry.kind);
   }
 });
 
@@ -286,6 +290,7 @@ test("parseArgs pins stable parse error envelopes", () => {
     { argv: ["module", "register", "billing", "--title", "Billing"], code: "missing_module_fields" },
     { argv: ["module-step", "billing", "T-1", "--state", "started"], code: "invalid_module_step_state" },
     { argv: ["decision", "amend", "dec_TEST", "--append", "state:active"], code: "invalid_decision_amend_patch" },
+    { argv: ["fact", "record", "--json-input", "{\"taskId\":\"task_1\"}", "--from-file", "input.json"], code: "invalid_json_input" },
     { argv: ["init", "--name"], code: "missing_name" },
     { argv: ["init", "--name", "--add-npm-scripts"], code: "missing_name" },
     { argv: ["new-task"], code: "missing_title" },
@@ -301,6 +306,38 @@ test("parseArgs pins stable parse error envelopes", () => {
       assert.equal(parsed.error.hint.includes(candidate.hintIncludes), true);
     }
   }
+});
+
+test("parseArgs injects inline JSON input before command parsers and keeps flags as overrides", () => {
+  const payload = JSON.stringify({
+    title: "JSON Decision",
+    question: "Use global JSON input?",
+    chosen: [{ text: "Use injected input" }],
+    rejected: [{ text: "Per-parser payloads", whyNot: "They duplicate schema translation." }],
+    riskTier: "medium",
+    urgency: "high",
+    modules: ["cli", "m5-circulation"],
+    dryRun: true
+  });
+  const parsed = parseArgs([
+    "decision",
+    "propose",
+    "--json-input",
+    payload,
+    "--title",
+    "Flag Title"
+  ]);
+
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.value.action.kind, "decision-propose");
+  assert.equal(parsed.value.action.title, "Flag Title");
+  assert.equal(parsed.value.action.question, "Use global JSON input?");
+  assert.equal(parsed.value.action.chosen, "Use injected input");
+  assert.equal(parsed.value.action.rejected, "Per-parser payloads");
+  assert.equal(parsed.value.action.whyNot, "They duplicate schema translation.");
+  assert.deepEqual(parsed.value.action.modules, ["cli", "m5-circulation"]);
+  assert.equal(parsed.value.action.dryRun, true);
 });
 
 test("parseArgs keeps deprecated command aliases during the E77/F6 transition", () => {

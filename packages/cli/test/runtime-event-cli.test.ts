@@ -161,6 +161,6 @@ function runJson(
   } catch (error) {
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };
-    return JSON.parse(failure.stdout ?? "{}") as Record<string, any>;
+    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
 }
