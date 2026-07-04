@@ -14,6 +14,7 @@ import { actionTaskId } from "./parse-args.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 import {
   runDiagnosticsCommand,
+  runCapabilitiesCommand,
   runDecisionCommand,
   runDistillCommand,
   runDocCommand,
@@ -97,6 +98,7 @@ export type CommandRunner = (
 
 export const runnerRegistry = {
   help: runHelpCommand,
+  capabilities: runCapabilitiesCommand,
   version: runVersionCommand,
   init: runInitCommand,
   "new-task": runNewTaskCommand,

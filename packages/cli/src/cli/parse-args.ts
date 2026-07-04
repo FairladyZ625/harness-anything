@@ -1,12 +1,16 @@
 import { commandRegistry, findCommandHelpMatch } from "./command-registry.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
+import { applyJsonInputLayer } from "./json-input.ts";
 import { parseRegisteredCommand } from "./parser-registry.ts";
 import { stripGlobalOptions } from "./parse-options.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
-  const { rootDir, authoredRoot, json, args } = stripGlobalOptions(argv);
+  const { rootDir, authoredRoot, json, args: rawArgs } = stripGlobalOptions(argv);
+  const jsonInput = applyJsonInputLayer(rawArgs, process.cwd());
+  if (!jsonInput.ok) return { ok: false, error: jsonInput.error };
+  const args = jsonInput.args;
   const layoutOverrides = authoredRoot ? { authoredRoot } : undefined;
 
   const help = parseHelpRequest(args, rootDir, json, layoutOverrides);

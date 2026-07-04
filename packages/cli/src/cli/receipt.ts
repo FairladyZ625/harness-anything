@@ -2,32 +2,61 @@ import type { CliResult } from "./types.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { commandReceiptContractsByKind } from "./receipt-contracts.ts";
 
-export const commandReceiptEnvelope = "CommandReceipt/v1" as const;
+export const commandReceiptEnvelope = "command-receipt/v2" as const;
+const legacyReceiptEnvelope = "CommandReceipt/v1" as const;
 
 export interface CommandReceipt<Command extends string = string> {
   readonly ok: true;
-  readonly receipt: typeof commandReceiptEnvelope;
+  readonly schema: typeof commandReceiptEnvelope;
+  readonly command: Command;
+  readonly entity?: { readonly kind: string; readonly id?: string };
+  readonly action: string;
+  readonly summary: string;
+  readonly rows?: number;
+  readonly item?: unknown;
+  readonly items?: ReadonlyArray<unknown>;
+  readonly paths?: ReadonlyArray<{ readonly role: string; readonly path: string }>;
+  readonly warnings?: ReadonlyArray<unknown>;
+  readonly next?: ReadonlyArray<{ readonly command: string; readonly description?: string }>;
+  readonly details?: Record<string, unknown>;
+  readonly meta: {
+    readonly generatedAt: string;
+    readonly compatibility: { readonly legacyReceipt?: string; readonly legacyReport?: string };
+  };
+}
+
+export interface CommandFailureReceipt<Command extends string = string> {
+  readonly ok: false;
+  readonly schema: typeof commandReceiptEnvelope;
+  readonly command: Command;
+  readonly action: string;
+  readonly summary: string;
+  readonly error?: CliResult["error"];
+  readonly warnings?: ReadonlyArray<unknown>;
+  readonly details?: Record<string, unknown>;
+  readonly meta: {
+    readonly generatedAt: string;
+    readonly compatibility: { readonly legacyReceipt?: string };
+  };
+}
+
+interface LegacyCommandReceipt<Command extends string = string> {
+  readonly ok: true;
+  readonly receipt: typeof legacyReceiptEnvelope;
   readonly command: Command;
   readonly summary: string;
   readonly data?: Record<string, unknown>;
   readonly paths?: Record<string, string>;
-  readonly write?: CommandReceiptWrite;
   readonly warnings?: ReadonlyArray<unknown>;
   readonly next?: ReadonlyArray<string>;
-}
-
-export interface CommandReceiptWrite {
-  readonly opId?: string;
-  readonly committed?: boolean;
-  readonly paths?: ReadonlyArray<string>;
 }
 
 const baseResultKeys = new Set(["ok", "command", "error", "path", "packagePath", "projectionPath", "warnings"]);
 
 type CliFailureResult = CliResult & { readonly ok: false };
 
-export function toCommandReceipt(result: CliResult): CommandReceipt | CliFailureResult {
-  if (!result.ok) return result as CliFailureResult;
+export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFailureReceipt {
+  if (!result.ok) return failureToReceipt(result as CliFailureResult);
 
   const raw = result as unknown as Record<string, unknown>;
   const data: Record<string, unknown> = {};
@@ -47,47 +76,105 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CliFailure
     setPath(paths, "forceAudit", (forceAudit as { path: string }).path);
   }
 
-  const receipt = {
+  const legacy = {
     ok: true,
-    receipt: commandReceiptEnvelope,
+    receipt: legacyReceiptEnvelope,
     command: result.command,
     summary: summarizeResult(raw),
     ...(Object.keys(data).length > 0 ? { data } : {}),
     ...(Object.keys(paths).length > 0 ? { paths } : {}),
     ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {})
-  } satisfies CommandReceipt;
-  const contractViolation = validateReceiptContract(receipt);
+  } satisfies LegacyCommandReceipt;
+  const contractViolation = validateReceiptContract(legacy);
   if (contractViolation) {
-    return {
+    return failureToReceipt({
       ok: false,
       command: result.command,
       error: cliError(CliErrorCode.CommandReceiptContractMismatch, contractViolation)
-    } satisfies CliFailureResult;
+    } satisfies CliFailureResult);
   }
-  return receipt;
+  return legacyToV2(legacy);
 }
 
 export function renderReceiptText(receipt: CommandReceipt): string {
+  const data = receiptDetailsData(receipt);
   const parts = [`ok`, `command=${formatToken(receipt.command)}`];
-  const taskId = receipt.data?.taskId;
+  const taskId = typeof data.taskId === "string" ? data.taskId : receipt.entity?.kind === "task" ? receipt.entity.id : undefined;
   if (typeof taskId === "string") parts.push(`task=${formatToken(taskId)}`);
-  const status = receipt.data?.status;
+  const status = typeof data.status === "string" ? data.status : undefined;
   if (typeof status === "string") parts.push(`status=${formatToken(status)}`);
-  const primaryPath = receipt.paths?.package ?? receipt.paths?.primary ?? receipt.paths?.projection;
+  const primaryPath = receipt.paths?.find((entry) => ["package", "primary", "projection"].includes(entry.role))?.path;
   if (primaryPath) parts.push(`path=${formatToken(primaryPath)}`);
-  const rows = receipt.data?.rows;
-  if (typeof rows === "number") parts.push(`rows=${rows}`);
-  const mode = launchMode(receipt.data?.launchPlan);
+  if (typeof receipt.rows === "number") parts.push(`rows=${receipt.rows}`);
+  const mode = launchMode(data.launchPlan);
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
   parts.push(`summary=${formatToken(receipt.summary)}`);
   return parts.join(" ");
+}
+
+export function receiptDetailsData(receipt: CommandReceipt): Record<string, unknown> {
+  const detailsData = receipt.details?.data;
+  return detailsData && typeof detailsData === "object" && !Array.isArray(detailsData) ? detailsData as Record<string, unknown> : {};
+}
+
+function legacyToV2(legacy: LegacyCommandReceipt): CommandReceipt {
+  const display = displayCommand(legacy.command);
+  const data = legacy.data ?? {};
+  const report = isReceiptRecord(data.report) ? data.report : undefined;
+  const paths = Object.entries(legacy.paths ?? {}).map(([role, path]) => ({ role, path }));
+  const rows = typeof data.rows === "number" ? data.rows : typeof report?.rows === "number" ? report.rows as number : undefined;
+  const items = itemsFromData(data, report);
+  const item = itemFromData(data, report);
+  const legacyReport = typeof report?.schema === "string" ? report.schema : undefined;
+  return {
+    ok: true,
+    schema: commandReceiptEnvelope,
+    command: display.command,
+    entity: entityFromData(display.entity, data),
+    action: display.action,
+    summary: legacy.summary,
+    ...(rows !== undefined ? { rows } : {}),
+    ...(item !== undefined ? { item } : {}),
+    ...(items ? { items } : {}),
+    ...(paths.length > 0 ? { paths } : {}),
+    ...(legacy.warnings && legacy.warnings.length > 0 ? { warnings: legacy.warnings } : {}),
+    ...(legacy.next && legacy.next.length > 0 ? { next: legacy.next.map((command) => ({ command })) } : {}),
+    details: {
+      ...(Object.keys(data).length > 0 ? { data } : {}),
+      ...(legacy.paths ? { pathsByRole: legacy.paths } : {}),
+      ...(report ? { report } : {})
+    },
+    meta: {
+      generatedAt: new Date().toISOString(),
+      compatibility: { legacyReceipt: legacyReceiptEnvelope, ...(legacyReport ? { legacyReport } : {}) }
+    }
+  };
+}
+
+function failureToReceipt(result: CliFailureResult): CommandFailureReceipt {
+  const display = displayCommand(result.command);
+  const raw = result as unknown as Record<string, unknown>;
+  const data = Object.fromEntries(Object.entries(raw).filter(([key, value]) =>
+    !["ok", "command", "error", "warnings"].includes(key) && value !== undefined
+  ));
+  return {
+    ok: false,
+    schema: commandReceiptEnvelope,
+    command: display.command,
+    action: display.action,
+    summary: result.error?.hint ?? "Command failed.",
+    ...(result.error ? { error: result.error } : {}),
+    ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    ...(Object.keys(data).length > 0 ? { details: { data } } : {}),
+    meta: { generatedAt: new Date().toISOString(), compatibility: { legacyReceipt: legacyReceiptEnvelope } }
+  };
 }
 
 function setPath(paths: Record<string, string>, key: string, value: unknown): void {
   if (typeof value === "string" && value.length > 0) paths[key] = value;
 }
 
-function validateReceiptContract(receipt: CommandReceipt): string | undefined {
+function validateReceiptContract(receipt: LegacyCommandReceipt): string | undefined {
   const contract = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
   if (!contract) return `missing receipt contract for command ${receipt.command}`;
   const allowedData: ReadonlySet<string> = new Set(contract.data);
@@ -135,9 +222,66 @@ function summarizeResult(raw: Record<string, unknown>): string {
   if (command === "init" && path) return `initialized harness at ${path}`;
   if (command === "version" && version) return `resolved CLI version ${version}`;
   if (command === "help") return "rendered CLI help";
-  if (rows !== undefined) return `completed ${command} with ${rows} row${rows === 1 ? "" : "s"}`;
-  if (taskId) return `completed ${command} for ${taskId}`;
-  return `completed ${command}`;
+  if (rows !== undefined) return `completed ${displayCommand(command).command} with ${rows} row${rows === 1 ? "" : "s"}`;
+  if (taskId) return `completed ${displayCommand(command).command} for ${taskId}`;
+  return `completed ${displayCommand(command).command}`;
+}
+
+function displayCommand(command: string): { readonly command: string; readonly entity?: string; readonly action: string } {
+  const explicit: Record<string, string> = {
+    "new-task": "task create",
+    "status-set": "task transition",
+    "record-fact": "fact record",
+    "distill-commit": "distill promote",
+    "runtime-event-append": "event append",
+    "runtime-event-list": "event list",
+    "lesson-promote": "lesson promote",
+    "lesson-sediment": "lesson sediment",
+    "migrate-plan": "migrate plan",
+    "migrate-structure": "migrate structure",
+    "migrate-provenance": "migrate provenance",
+    "migrate-run": "migrate run",
+    "migrate-verify": "migrate verify",
+    "legacy-intake-plan": "legacy plan",
+    "legacy-copy-safe-docs": "legacy copy-docs",
+    "git-diff": "git diff",
+    "module-step": "module step",
+    "entity-list": "entity list",
+    capabilities: "capabilities"
+  };
+  const display = explicit[command] ?? command.replace(/-/gu, " ");
+  const [entity, ...rest] = display.split(" ");
+  return { command: display, entity, action: rest.join(" ") || entity || display };
+}
+
+function entityFromData(kind: string | undefined, data: Record<string, unknown>): { readonly kind: string; readonly id?: string } | undefined {
+  if (!kind) return undefined;
+  const id = typeof data.decisionId === "string" ? data.decisionId
+    : typeof data.taskId === "string" ? data.taskId
+      : typeof data.factRef === "string" ? data.factRef
+        : undefined;
+  return { kind, ...(id ? { id } : {}) };
+}
+
+function itemsFromData(data: Record<string, unknown>, report: Record<string, unknown> | undefined): ReadonlyArray<unknown> | undefined {
+  for (const key of ["items", "ops", "decisions", "tasks", "templates", "presets", "scripts", "modules", "commands"] as const) {
+    const value = report?.[key] ?? data[key];
+    if (Array.isArray(value)) return value;
+  }
+  return undefined;
+}
+
+function itemFromData(data: Record<string, unknown>, report: Record<string, unknown> | undefined): unknown {
+  for (const key of ["item", "decision", "task", "preset", "script", "module", "document"] as const) {
+    const value = report?.[key] ?? data[key];
+    if (value !== undefined && !Array.isArray(value)) return value;
+  }
+  const idItem = Object.fromEntries(Object.entries(data).filter(([key]) => ["taskId", "decisionId", "factId", "factRef", "status", "decisionState"].includes(key)));
+  return Object.keys(idItem).length > 0 ? idItem : undefined;
+}
+
+function isReceiptRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function launchMode(value: unknown): { readonly mode: string; readonly packageName: string } | undefined {

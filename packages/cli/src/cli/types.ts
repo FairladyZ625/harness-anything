@@ -114,7 +114,7 @@ export interface CliResult {
   readonly error?: CliError;
 }
 
-export type CommandReceiptEnvelope = "CommandReceipt/v1";
+export type CommandReceiptEnvelope = "command-receipt/v2";
 
 export interface CommandRegistryEntry {
   readonly kind: string;
@@ -182,6 +182,8 @@ export interface ParsedCommand {
     | { readonly kind: "git-diff"; readonly baseRef?: string }
     | { readonly kind: "doctor" }
     | { readonly kind: "help"; readonly commandKind?: string; readonly commandPrefix?: ReadonlyArray<string> }
+    | { readonly kind: "entity-list" }
+    | { readonly kind: "capabilities"; readonly entityKind?: string }
     | { readonly kind: "gui" }
     | { readonly kind: "template-list"; readonly catalogPath?: string }
     | { readonly kind: "template-render"; readonly templateRef: string; readonly catalogPath?: string; readonly locale: "zh-CN" | "en-US" }

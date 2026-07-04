@@ -64,3 +64,24 @@ test("command receipts accept declared success data and paths", () => {
   assert.equal(deleteReceipt.ok, true);
   assert.equal(presetReceipt.ok, true);
 });
+
+test("command receipts expose v2 shallow fields and user-facing command names", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "runtime-event-list",
+    rows: 1,
+    report: {
+      schema: "runtime-event-ledger-cli-report/v1",
+      items: [{ eventId: "evt_1", kind: "interrupt" }]
+    }
+  });
+
+  assert.equal(receipt.ok, true);
+  if (!receipt.ok) return;
+  assert.equal(receipt.schema, "command-receipt/v2");
+  assert.equal(receipt.command, "event list");
+  assert.equal(receipt.action, "list");
+  assert.equal(receipt.rows, 1);
+  assert.deepEqual(receipt.items, [{ eventId: "evt_1", kind: "interrupt" }]);
+  assert.equal("runtime-event-append" in receipt, false);
+});

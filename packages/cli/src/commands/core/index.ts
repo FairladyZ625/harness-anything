@@ -3,6 +3,7 @@ export { runExtensionRunnerCommand } from "./extension.ts";
 export { runGovernanceCommand } from "./governance.ts";
 export { runGuiCommand } from "./gui.ts";
 export { runHelpCommand } from "./help.ts";
+export { runCapabilitiesCommand } from "./capabilities.ts";
 export { runInitCommand } from "./init.ts";
 export { runDecisionCommand } from "./decision.ts";
 export { runDistillCommand } from "./distill.ts";

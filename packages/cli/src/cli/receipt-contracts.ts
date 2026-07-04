@@ -10,6 +10,8 @@ export type CommandKind = ParsedCommand["action"]["kind"];
 export const commandReceiptContractsByKind = {
   "help": { data: ["commands", "report"], paths: [] },
   "version": { data: ["version"], paths: [] },
+  "entity-list": { data: ["rows", "report"], paths: [] },
+  "capabilities": { data: ["rows", "report"], paths: [] },
   "init": { data: ["generated"], paths: ["primary", "config"] },
   "new-task": { data: ["taskId", "slug", "status", "preset", "module", "generated", "report"], paths: ["package"] },
   "status-set": { data: ["taskId", "status", "forced", "forceAudit"], paths: ["primary", "forceAudit"] },
