@@ -87,6 +87,7 @@ export const testTierManifest = {
     "packages/cli/test/doctor-cli.test.ts",
     "packages/cli/test/extension-cli.test.ts",
     "packages/cli/test/fact-cli.test.ts",
+    "packages/cli/test/graph-cli.test.ts",
     "packages/cli/test/init-cli.test.ts",
     "packages/cli/test/local-lifecycle-cli.test.ts",
     "packages/cli/test/migration-adopt-cli.test.ts",

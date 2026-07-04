@@ -61,6 +61,7 @@ export const commandReceiptContractsByKind = {
   "legacy-verify": { data: ["rows", "report"], paths: [] },
   "git-diff": { data: ["report"], paths: [] },
   "doctor": { data: ["report"], paths: [] },
+  "graph": { data: ["rows", "report"], paths: ["primary", "projection"] },
   "preset-validate": { data: ["preset", "report"], paths: [] },
   "preset-list": { data: ["presets", "issues"], paths: [] },
   "preset-inspect": { data: ["preset", "issues"], paths: [] },

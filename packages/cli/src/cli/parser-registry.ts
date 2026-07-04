@@ -7,6 +7,7 @@ import { parseCapabilitiesArgs } from "./parsers/capabilities.ts";
 import { parseDecisionArgs } from "./parsers/decision.ts";
 import { parseDistillArgs } from "./parsers/distill.ts";
 import { parseDocArgs } from "./parsers/doc.ts";
+import { parseGraphArgs } from "./parsers/graph.ts";
 import { parseModuleArgs } from "./parsers/extensions-module.ts";
 import { parsePresetArgs } from "./parsers/extensions-preset.ts";
 import { parseScriptArgs } from "./parsers/extensions-script.ts";
@@ -109,6 +110,11 @@ export const parserRegistry = [
       const parsed = parseDoctorArgs(args, rootDir, json);
       return parsed ? { ok: true, value: parsed } : null;
     }
+  },
+  {
+    id: "graph",
+    commandKinds: commandKindsForParser("graph"),
+    parse: parseGraphArgs
   },
   {
     id: "gui",

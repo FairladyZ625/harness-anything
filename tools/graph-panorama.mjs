@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import process from "node:process";
+import { readEntityCascadeImpact } from "../packages/kernel/src/entity/disposition.ts";
+import { readRelationGraphProjection } from "../packages/kernel/src/projection/sqlite-task-projection.ts";
 
 const defaultProjectionPath = ".harness/cache/projections.sqlite";
 const defaultOutputPath = ".harness/generated/graph-panorama/index.html";
@@ -11,24 +13,38 @@ export function generateGraphPanorama(input = {}) {
   const rootDir = path.resolve(input.rootDir ?? process.cwd());
   const projectionPath = path.resolve(rootDir, input.projectionPath ?? defaultProjectionPath);
   const outputPath = path.resolve(rootDir, input.outputPath ?? defaultOutputPath);
-  const graphRows = readGraphRows(projectionPath);
-  const model = buildPanoramaModel(graphRows);
+  const graphRows = readFreshGraphRows({ rootDir, projectionPath, usesDefaultProjection: !input.projectionPath });
+  const projectedEntities = readProjectedEntities(projectionPath);
+  const cascade = input.focus ? readEntityCascadeImpact({ rootDir, projectionPath, entityRef: input.focus }) : undefined;
+  const model = buildPanoramaModel(graphRows, projectedEntities, { focus: input.focus, cascade });
   const html = renderPanoramaHtml(model);
 
   mkdirSync(path.dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, html);
   return {
+    schema: "graph-panorama-report/v1",
     outputPath,
     projectionPath,
     summary: model.summary,
-    statusCounts: model.statusCounts
+    statusCounts: model.statusCounts,
+    focus: model.focus,
+    islands: model.islands
+  };
+}
+
+function readFreshGraphRows({ rootDir, projectionPath, usesDefaultProjection }) {
+  if (!existsSync(projectionPath)) {
+    throw new Error(`Projection database not found: ${projectionPath}`);
+  }
+  if (!usesDefaultProjection) return readGraphRows(projectionPath);
+  const projection = readRelationGraphProjection({ rootDir, projectionPath });
+  return {
+    relationEdges: projection.edges,
+    coverageRows: projection.coverageRows
   };
 }
 
 function readGraphRows(projectionPath) {
-  if (!existsSync(projectionPath)) {
-    throw new Error(`Projection database not found: ${projectionPath}`);
-  }
   const db = new DatabaseSync(projectionPath, { readOnly: true });
   try {
     const relationEdges = db
@@ -45,7 +61,28 @@ function readGraphRows(projectionPath) {
   }
 }
 
-function buildPanoramaModel({ relationEdges, coverageRows }) {
+function readProjectedEntities(projectionPath) {
+  const db = new DatabaseSync(projectionPath, { readOnly: true });
+  try {
+    const tasks = safeAll(db, "SELECT task_id, title, canonical_status AS state FROM task_projection ORDER BY task_id")
+      .map((row) => ({ kind: "task", ref: `task/${row.task_id}`, title: String(row.title ?? ""), state: String(row.state ?? "") }));
+    const decisions = safeAll(db, "SELECT decision_id, title, state FROM decision_projection ORDER BY decision_id")
+      .map((row) => ({ kind: "decision", ref: `decision/${row.decision_id}`, title: String(row.title ?? ""), state: String(row.state ?? "") }));
+    return [...tasks, ...decisions];
+  } finally {
+    db.close();
+  }
+}
+
+function safeAll(db, sql) {
+  try {
+    return db.prepare(sql).all();
+  } catch {
+    return [];
+  }
+}
+
+function buildPanoramaModel({ relationEdges, coverageRows }, projectedEntities, options = {}) {
   const refs = new Map();
   for (const edge of relationEdges) {
     addRef(refs, edge.sourceRef, "source");
@@ -65,6 +102,13 @@ function buildPanoramaModel({ relationEdges, coverageRows }) {
   const uncoveredClaims = coverageRows.filter((row) => row.status !== "covered");
   const activeEdges = relationEdges.filter((edge) => edge.state === "active");
   const inactiveEdges = relationEdges.filter((edge) => edge.state !== "active");
+  const islands = collectIslands(projectedEntities, activeEdges);
+  const focus = options.focus ? {
+    entityRef: options.focus,
+    incoming: options.cascade?.incoming ?? [],
+    outgoing: options.cascade?.outgoing ?? [],
+    impactedRefs: options.cascade?.impactedRefs ?? []
+  } : undefined;
   return {
     generatedAt: new Date().toISOString(),
     refs: Array.from(refs.values()).sort((left, right) => left.ref.localeCompare(right.ref)),
@@ -74,13 +118,17 @@ function buildPanoramaModel({ relationEdges, coverageRows }) {
     activeEdges,
     inactiveEdges,
     statusCounts,
+    focus,
+    islands,
     summary: {
       refs: refs.size,
       edges: relationEdges.length,
       activeEdges: activeEdges.length,
       inactiveEdges: inactiveEdges.length,
       coverageRows: coverageRows.length,
-      uncoveredClaims: uncoveredClaims.length
+      uncoveredClaims: uncoveredClaims.length,
+      islands: islands.length,
+      ...(focus ? { focusIncoming: focus.incoming.length, focusOutgoing: focus.outgoing.length, focusImpactedRefs: focus.impactedRefs.length } : {})
     }
   };
 }
@@ -102,6 +150,8 @@ function renderPanoramaHtml(model) {
   const edgeRows = model.relationEdges.map(renderEdgeRow).join("");
   const coverageRows = model.coverageRows.map(renderCoverageRow).join("");
   const refRows = model.refs.map(renderRefRow).join("");
+  const islandRows = model.islands.map(renderIslandRow).join("");
+  const focusRows = model.focus ? renderFocus(model.focus) : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -145,8 +195,17 @@ ${statCard("edges", model.summary.edges)}
 ${statCard("active edges", model.summary.activeEdges)}
 ${statCard("coverage rows", model.summary.coverageRows)}
 ${statCard("uncovered claims", model.summary.uncoveredClaims)}
+${statCard("islands", model.summary.islands)}
 ${statusCards}
 </div>
+</section>
+${model.focus ? `<section>
+<h2>Focused Cascade</h2>
+${focusRows}
+</section>` : ""}
+<section>
+<h2>Island Audit</h2>
+${islandRows ? `<table><thead><tr><th>Entity</th><th>Kind</th><th>State</th><th>Title</th></tr></thead><tbody>${islandRows}</tbody></table>` : `<div class="empty">No projected task or decision islands.</div>`}
 </section>
 <section>
 <h2>Coverage</h2>
@@ -199,6 +258,41 @@ function renderRefRow(row) {
   return `<tr><td>${escapeHtml(row.ref)}</td><td>${escapeHtml(Array.from(row.roles).sort().join(", "))}</td></tr>`;
 }
 
+function renderIslandRow(row) {
+  return `<tr><td>${escapeHtml(row.ref)}</td><td>${escapeHtml(row.kind)}</td><td>${escapeHtml(row.state)}</td><td>${escapeHtml(row.title)}</td></tr>`;
+}
+
+function renderFocus(focus) {
+  const incoming = focus.incoming.map(renderEdgeRow).join("");
+  const outgoing = focus.outgoing.map(renderEdgeRow).join("");
+  return [
+    `<p>Focus: <strong>${escapeHtml(focus.entityRef)}</strong>. Impacted refs: ${escapeHtml(focus.impactedRefs.join(", ") || "none")}.</p>`,
+    `<h2>Incoming</h2>`,
+    incoming ? `<table><thead><tr><th>Relation</th><th>Source</th><th>Target</th><th>Type</th><th>State</th><th>Owner</th></tr></thead><tbody>${incoming}</tbody></table>` : `<div class="empty">No active incoming edges.</div>`,
+    `<h2>Outgoing</h2>`,
+    outgoing ? `<table><thead><tr><th>Relation</th><th>Source</th><th>Target</th><th>Type</th><th>State</th><th>Owner</th></tr></thead><tbody>${outgoing}</tbody></table>` : `<div class="empty">No active outgoing edges.</div>`
+  ].join("\n");
+}
+
+function collectIslands(projectedEntities, activeEdges) {
+  const incident = new Set();
+  for (const edge of activeEdges) {
+    incident.add(baseEntityRef(edge.sourceRef));
+    incident.add(baseEntityRef(edge.targetRef));
+  }
+  return projectedEntities
+    .filter((entity) => !incident.has(entity.ref))
+    .sort((left, right) => `${left.kind}\0${left.ref}`.localeCompare(`${right.kind}\0${right.ref}`));
+}
+
+function baseEntityRef(ref) {
+  const parts = String(ref).split("/");
+  if (parts[0] === "decision" && parts[1]) return `decision/${parts[1]}`;
+  if (parts[0] === "task" && parts[1]) return `task/${parts[1]}`;
+  if (parts[0] === "fact" && parts[1] && parts[2]) return `fact/${parts[1]}/${parts[2]}`;
+  return String(ref);
+}
+
 function escapeHtml(value) {
   return value
     .replaceAll("&", "&amp;")
@@ -216,13 +310,14 @@ function parseCliArgs(argv) {
       options.json = true;
       continue;
     }
-    if (token === "--root" || token === "--projection" || token === "--out") {
+    if (token === "--root" || token === "--projection" || token === "--out" || token === "--focus") {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${token} requires a value`);
       index += 1;
       if (token === "--root") options.rootDir = value;
       if (token === "--projection") options.projectionPath = value;
       if (token === "--out") options.outputPath = value;
+      if (token === "--focus") options.focus = value;
       continue;
     }
     throw new Error(`Unknown argument: ${token}`);

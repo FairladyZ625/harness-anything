@@ -98,6 +98,7 @@ function descriptionForEntity(kind: string): string {
     task: "Task packages and lifecycle workflow state.",
     fact: "Task-local factual evidence anchors.",
     event: "Runtime event JSONL records.",
+    graph: "Generated relation graph inspection artifacts over the SQLite projection.",
     module: "Registered project module metadata."
   };
   return descriptions[kind] ?? `Capabilities for ${kind} commands.`;

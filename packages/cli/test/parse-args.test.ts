@@ -18,7 +18,7 @@ interface ParseCase {
   readonly fields?: Readonly<Record<string, unknown>>;
 }
 
-const rootDir = path.resolve("/tmp/harness-parser-root");
+const rootDir = path.resolve(".");
 
 const parseCases: ReadonlyArray<ParseCase> = [
   { name: "help", argv: ["--help"], kind: "help" },
@@ -119,9 +119,11 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "legacy verify", argv: ["legacy", "verify"], kind: "legacy-verify" },
   { name: "git diff", argv: ["git", "diff", "--base", "origin/main"], kind: "git-diff", fields: { baseRef: "origin/main" } },
   { name: "doctor", argv: ["doctor"], kind: "doctor" },
+  { name: "graph", argv: ["graph", "--out", ".harness/generated/graph-panorama/index.html", "--focus", "decision/dec_LEDGER_E51", "--projection", ".harness/cache/projections.sqlite"], kind: "graph", fields: { outputPath: ".harness/generated/graph-panorama/index.html", focus: "decision/dec_LEDGER_E51", projectionPath: ".harness/cache/projections.sqlite" } },
   { name: "entity list", argv: ["entity", "list"], kind: "entity-list" },
   { name: "capabilities index", argv: ["capabilities"], kind: "capabilities", fields: { entityKind: undefined } },
   { name: "capabilities by kind", argv: ["decision", "capabilities"], kind: "capabilities", fields: { entityKind: "decision" } },
+  { name: "graph capabilities", argv: ["graph", "capabilities"], kind: "capabilities", fields: { entityKind: "graph" } },
   { name: "capabilities kind option", argv: ["capabilities", "--kind", "task"], kind: "capabilities", fields: { entityKind: "task" } },
   { name: "gui", argv: ["gui"], kind: "gui" },
   { name: "template list", argv: ["template", "list", "--catalog", "catalog.json"], kind: "template-list", fields: { catalogPath: "catalog.json" } },

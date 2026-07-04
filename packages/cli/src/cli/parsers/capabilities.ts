@@ -3,7 +3,7 @@ import type { CliResult, ParsedCommand } from "../types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
-const knownEntityKinds = new Set(["task", "decision", "fact", "event", "doc", "template", "preset", "script", "module", "legacy", "migrate", "governance", "status", "git", "doctor", "vertical", "gui"]);
+const knownEntityKinds = new Set(["task", "decision", "fact", "event", "doc", "template", "preset", "script", "module", "legacy", "migrate", "governance", "status", "git", "doctor", "graph", "vertical", "gui"]);
 
 export function parseCapabilitiesArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] === "entity" && args[1] === "list") return { ok: true, value: { rootDir, json, action: { kind: "entity-list" } } };

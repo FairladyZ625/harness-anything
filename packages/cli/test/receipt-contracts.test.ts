@@ -85,3 +85,28 @@ test("command receipts expose v2 shallow fields and user-facing command names", 
   assert.deepEqual(receipt.items, [{ eventId: "evt_1", kind: "interrupt" }]);
   assert.equal("runtime-event-append" in receipt, false);
 });
+
+test("graph receipts expose the generated HTML path and shallow edge count", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "graph",
+    rows: 42,
+    path: ".harness/generated/graph-panorama/index.html",
+    projectionPath: ".harness/cache/projections.sqlite",
+    report: {
+      schema: "graph-panorama-report/v1",
+      outputPath: ".harness/generated/graph-panorama/index.html",
+      projectionPath: ".harness/cache/projections.sqlite",
+      summary: { edges: 42, activeEdges: 42, coverageRows: 3, uncoveredClaims: 1, islands: 2 },
+      statusCounts: { covered: 2, uncovered: 1 },
+      islands: []
+    }
+  });
+
+  assert.equal(receipt.ok, true);
+  if (!receipt.ok) return;
+  assert.equal(receipt.command, "graph");
+  assert.equal(receipt.rows, 42);
+  assert.equal(receipt.paths?.some((entry) => entry.role === "primary" && entry.path.endsWith("index.html")), true);
+  assert.equal(receipt.paths?.some((entry) => entry.role === "projection" && entry.path.endsWith("projections.sqlite")), true);
+});

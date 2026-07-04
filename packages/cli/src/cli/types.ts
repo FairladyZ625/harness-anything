@@ -181,6 +181,7 @@ export interface ParsedCommand {
     | { readonly kind: "legacy-verify" }
     | { readonly kind: "git-diff"; readonly baseRef?: string }
     | { readonly kind: "doctor" }
+    | { readonly kind: "graph"; readonly outputPath?: string; readonly focus?: string; readonly projectionPath?: string }
     | { readonly kind: "help"; readonly commandKind?: string; readonly commandPrefix?: ReadonlyArray<string> }
     | { readonly kind: "entity-list" }
     | { readonly kind: "capabilities"; readonly entityKind?: string }

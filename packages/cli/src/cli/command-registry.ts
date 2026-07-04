@@ -21,6 +21,7 @@ export type CommandParserId =
   | "migration"
   | "git-diff"
   | "doctor"
+  | "graph"
   | "capabilities"
   | "gui"
   | "template"
@@ -111,6 +112,7 @@ const commandUsages = [
   { kind: "legacy-verify", usage: "legacy verify [--json]" },
   { kind: "git-diff", usage: "git diff [--base <ref>] [--json]", aliases: [deprecatedAlias("git-diff", "git diff")] },
   { kind: "doctor", usage: "doctor --json" },
+  { kind: "graph", usage: "graph [--out <path>] [--focus <entity-ref>] [--projection <path>] [--json]" },
   { kind: "preset-validate", usage: "preset validate <manifest> [--kernel-version <version>] [--json]" },
   { kind: "preset-list", usage: "preset list [--json]" },
   { kind: "preset-inspect", usage: "preset inspect <id> [--json]" },
@@ -190,6 +192,7 @@ const commandParserIds = {
   "legacy-verify": "migration",
   "git-diff": "git-diff",
   "doctor": "doctor",
+  "graph": "graph",
   "preset-validate": "preset",
   "preset-list": "preset",
   "preset-inspect": "preset",
@@ -267,6 +270,7 @@ const commandRunnerIds = {
   "legacy-verify": "migration",
   "git-diff": "diagnostics",
   "doctor": "diagnostics",
+  "graph": "diagnostics",
   "preset-validate": "extension",
   "preset-list": "extension",
   "preset-inspect": "extension",
@@ -344,6 +348,7 @@ const commandSummaries = {
   "legacy-verify": "Verify legacy migration readiness and generated state.",
   "git-diff": "Capture git diff evidence against a base ref.",
   "doctor": "Report read-only local environment and harness diagnostics.",
+  "graph": "Generate a self-contained relation graph HTML panorama from the SQLite projection, with optional F5 cascade focus.",
   "preset-validate": "Validate a preset manifest against the preset schema.",
   "preset-list": "List installed presets from project and user layers.",
   "preset-inspect": "Inspect one preset manifest and public summary.",
@@ -421,6 +426,7 @@ const commandExamples = {
   "legacy-verify": [`${cliCommandName} legacy verify --json`],
   "git-diff": [`${cliCommandName} git diff --base origin/main --json`],
   "doctor": [`${cliCommandName} doctor --json`],
+  "graph": [`${cliCommandName} graph --focus decision/dec_LEDGER_E51 --out .harness/generated/graph-panorama/index.html --json`],
   "preset-validate": [`${cliCommandName} preset validate preset.json --kernel-version 1.0.0`],
   "preset-list": [`${cliCommandName} preset list --json`],
   "preset-inspect": [`${cliCommandName} preset inspect standard-task`],
