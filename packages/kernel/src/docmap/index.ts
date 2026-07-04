@@ -4,6 +4,7 @@ import { Schema } from "effect";
 import type { DocmapDocument, DocmapManifest, DocmapReadSet } from "../domain/docmap.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { DocmapManifestSchema } from "../schemas/docmap.ts";
+import { assertUniqueDocmapIds } from "./docmap-unique.ts";
 
 export interface DocmapReadResult {
   readonly manifest: DocmapManifest;
@@ -35,6 +36,7 @@ export function readDocmapManifest(rootInput: HarnessLayoutInput): DocmapReadRes
     ...document,
     path: normalizeRelativeDocumentPath(document.path)
   }));
+  assertUniqueDocmapIds(documents);
   return {
     manifest: {
       schema: "docmap/v1",

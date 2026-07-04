@@ -1,8 +1,15 @@
 import { Effect } from "effect";
-import { cliCommandAlias, commandDescriptors, commandRegistry } from "../../cli/command-registry.ts";
+import { cliCommandAlias, commandDescriptors, commandRegistry, type CommandKind } from "../../cli/command-registry.ts";
 import { actionForCommand, commandInputDescriptorFor, entityForCommand } from "../../cli/command-input-descriptors.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+
+export const capabilityExcludedCommandKinds = new Set<CommandKind>([
+  "help",
+  "version",
+  "capabilities",
+  "entity-list"
+] as const);
 
 export const runCapabilitiesCommand: CommandRunner = (_context, command) => {
   const action = command.action as Extract<ParsedCommand["action"], { readonly kind: "entity-list" | "capabilities" }>;
@@ -52,11 +59,12 @@ function capabilitiesResult(entityKind: string | undefined): CliResult {
 function entities(): Map<string, { readonly kind: string; readonly ops: ReadonlyArray<Record<string, unknown> & { readonly action: string; readonly examples: ReadonlyArray<string> }> }> {
   const byEntity = new Map<string, Array<Record<string, unknown> & { readonly action: string; readonly examples: ReadonlyArray<string> }>>();
   for (const descriptor of commandDescriptors) {
-    if (descriptor.kind === "help" || descriptor.kind === "version" || descriptor.kind === "capabilities" || descriptor.kind === "entity-list") continue;
+    if (capabilityExcludedCommandKinds.has(descriptor.kind)) continue;
     const entity = entityForCommand(descriptor);
     const input = commandInputDescriptorFor(descriptor);
     const registryEntry = commandRegistry.find((entry) => entry.kind === descriptor.kind);
     const op = {
+      commandKind: descriptor.kind,
       name: input.action,
       action: input.action,
       command: registryEntry?.aliases.find((alias) => alias.startsWith(`${cliCommandAlias} `)) ?? `${cliCommandAlias} ${descriptor.usage}`,

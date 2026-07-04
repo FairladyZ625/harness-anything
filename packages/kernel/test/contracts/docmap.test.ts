@@ -43,6 +43,20 @@ test("docmap manifest reader rejects unsafe document paths", () => {
   });
 });
 
+test("docmap manifest reader rejects duplicate document ids", () => {
+  withTempRoot((rootDir) => {
+    writeDocmap(rootDir, {
+      schema: "docmap/v1",
+      documents: [
+        doc("duplicate", "adr/ADR-0001-one.md", [], []),
+        doc("duplicate", "adr/ADR-0002-two.md", [], [])
+      ]
+    });
+
+    assert.throws(() => readDocmapManifest(rootDir), /duplicate document ids/u);
+  });
+});
+
 function doc(id: string, docPath: string, modules: string[], productLines: string[]) {
   return {
     id,

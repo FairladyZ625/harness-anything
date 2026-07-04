@@ -203,7 +203,7 @@ function sessionIdFromRuntimeLog(runtime: Exclude<CurrentSessionRuntime, "human"
 
 function fileNameMatchesSession(filePath: string, sessionId: string): boolean {
   const basename = path.basename(filePath, ".jsonl");
-  return basename === sessionId || basename.endsWith(`-${sessionId}`) || basename.includes(sessionId);
+  return basename === sessionId || basename.endsWith(`-${sessionId}`);
 }
 
 function parseClaudeRuntimeJsonl(body: string, warnings: string[]): ReadonlyArray<RuntimeConversationMessage> {

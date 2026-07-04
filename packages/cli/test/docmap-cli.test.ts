@@ -65,6 +65,7 @@ test("CLI doc generate derives and persists manifest from authored canonical doc
     assert.equal(generated.report.git.committed, true);
     assert.equal(existsSync(path.join(harnessRoot, "docmap.json")), true);
     assert.equal(gitStatus(harnessRoot), "");
+    assert.equal(generated.report.documents[0].id, "milestone:foundation:m5-circulation:01-feature-breakdown");
     assert.deepEqual(
       generated.report.documents.map((entry: { readonly path: string }) => entry.path),
       ["milestones/foundation/m5-circulation/01-feature-breakdown.md"]
@@ -74,6 +75,33 @@ test("CLI doc generate derives and persists manifest from authored canonical doc
     assert.equal(mapped.ok, true);
     assert.equal(mapped.report.readSet.mandatory[0].path, "milestones/foundation/m5-circulation/01-feature-breakdown.md");
     assert.ok(mapped.report.readSet.recommended.some((entry: { readonly path: string }) => entry.path === "AGENTS.md"));
+  });
+});
+
+test("CLI doc generate fails closed on duplicate derived docmap ids", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    mkdirSync(path.join(harnessRoot, "adr"), { recursive: true });
+    writeFileSync(path.join(harnessRoot, "adr", "ADR-0001-one.md"), [
+      "---",
+      "docmap.id: duplicate-doc",
+      "---",
+      "# ADR One",
+      ""
+    ].join("\n"));
+    writeFileSync(path.join(harnessRoot, "adr", "ADR-0002-two.md"), [
+      "---",
+      "docmap.id: duplicate-doc",
+      "---",
+      "# ADR Two",
+      ""
+    ].join("\n"));
+
+    const failure = runJson(rootDir, ["doc", "generate"], false);
+
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "docmap_invalid");
+    assert.match(failure.error?.hint ?? "", /duplicate document ids/u);
   });
 });
 

@@ -6,7 +6,6 @@ import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts"
 import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
 import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/domain/index.ts";
-import { buildDocmapReadSet, readDocmapManifest } from "../../../kernel/src/docmap/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
@@ -247,19 +246,7 @@ export function runNewTaskWithPreset(
 function resolveTaskReadSet(
   rootInput: HarnessLayoutInput,
   moduleKey: string | undefined
-): ReturnType<typeof buildDerivedDocmapReadSet> | {
-  readonly source: "persisted";
-  readonly manifest: ReturnType<typeof readDocmapManifest>["manifest"];
-  readonly readSet: ReturnType<typeof buildDocmapReadSet>;
-} {
-  const persisted = readDocmapManifest(rootInput).manifest;
-  if (persisted.documents.length > 0) {
-    return {
-      source: "persisted",
-      manifest: persisted,
-      readSet: buildDocmapReadSet(persisted, { moduleKey })
-    };
-  }
+): ReturnType<typeof buildDerivedDocmapReadSet> {
   return buildDerivedDocmapReadSet(rootInput, moduleKey);
 }
 

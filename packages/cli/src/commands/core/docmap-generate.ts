@@ -3,6 +3,7 @@ import path from "node:path";
 import { Schema } from "effect";
 import type { DocmapDocument, DocmapManifest, DocmapReadSet } from "../../../../kernel/src/domain/docmap.ts";
 import { buildDocmapReadSet, docmapManifestPath } from "../../../../kernel/src/docmap/index.ts";
+import { assertUniqueDocmapIds } from "../../../../kernel/src/docmap/docmap-unique.ts";
 import { readFrontmatter, readScalar } from "../../../../kernel/src/markdown/frontmatter.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { DocmapManifestSchema } from "../../../../kernel/src/schemas/docmap.ts";
@@ -21,6 +22,7 @@ export interface WrittenDocmapResult extends DerivedDocmapResult {
 export function deriveDocmapManifest(rootInput: HarnessLayoutInput): DerivedDocmapResult {
   const layout = resolveHarnessLayout(rootInput);
   const docs = discoverDocmapDocuments(rootInput);
+  assertUniqueDocmapIds(docs);
   const manifest = Schema.decodeUnknownSync(DocmapManifestSchema)({
     schema: "docmap/v1",
     documents: docs
@@ -158,13 +160,14 @@ function inferDocument(relativePath: string, pathParts: ReadonlyArray<string>, b
     return { id: `adr:${basenameId(relativePath)}`, kind: "adr", modules: [], productLines: [], owner: "architecture", brief: titleFromPath(relativePath, body), tags: ["adr"] };
   }
   if (pathParts[0] === "milestones") {
-    const productLine = pathParts[1] ?? "";
-    const moduleKey = pathParts[2] ?? "";
+    const productLine = pathParts.length > 2 ? pathParts[1] ?? "" : "root";
+    const moduleKey = pathParts.length > 3 ? pathParts[2] ?? "" : "";
+    const context = [productLine, moduleKey, basenameId(relativePath)].filter(Boolean).join(":");
     return {
-      id: `milestone:${basenameId(relativePath)}`,
+      id: `milestone:${context}`,
       kind: "roadmap",
       modules: moduleKey ? [moduleKey] : [],
-      productLines: productLine ? [productLine] : [],
+      productLines: productLine === "root" ? [] : [productLine],
       owner: "architecture",
       brief: titleFromPath(relativePath, body),
       tags: ["milestone"]

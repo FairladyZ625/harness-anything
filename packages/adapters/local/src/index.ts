@@ -3,13 +3,14 @@ import path from "node:path";
 import { Effect } from "effect";
 import type { EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
 import { explainStatusTransition, isTerminalStatus } from "../../../kernel/src/domain/index.ts";
+import { evaluateEntityDisposition } from "../../../kernel/src/entity/disposition.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, harnessRuntimeRoot } from "../../../kernel/src/layout/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
 import { resolveTaskCreatedBy } from "./created-by.ts";
-import { hasTaskRelations, renderSupersedesRelation } from "./task-relations.ts";
+import { renderSupersedesRelation } from "./task-relations.ts";
 import { indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
 import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
 import type {
@@ -249,8 +250,18 @@ function deleteTask(
     if (isTerminalStatus(index.status)) {
       return yield* Effect.fail({ _tag: "TerminalHardDeleteForbidden", taskId: input.taskId, status: index.status } satisfies EngineError);
     }
-    if (hasTaskRelations(rootInput, input.taskId)) {
-      return yield* Effect.fail({ _tag: "RelatedTaskHardDeleteForbidden", taskId: input.taskId } satisfies EngineError);
+    const disposition = evaluateEntityDisposition({
+      rootDir: harnessRuntimeRoot(rootInput),
+      layoutOverrides: typeof rootInput === "string" ? undefined : rootInput.layoutOverrides,
+      entityRef: `task/${input.taskId}`,
+      action: "hard-delete"
+    });
+    if (!disposition.allowed) {
+      return yield* Effect.fail({
+        _tag: "RelatedTaskHardDeleteForbidden",
+        taskId: input.taskId,
+        reason: disposition.reason
+      } satisfies EngineError);
     }
     yield* deleteTaskPackage(coordinator, stablePayloadHash, input.taskId, input.reason);
     return { taskId: input.taskId, mode: "hard" } satisfies LocalDeleteResult;

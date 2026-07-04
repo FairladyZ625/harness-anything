@@ -127,13 +127,13 @@ function evaluation(
 }
 
 function cascadeImpactFromEdges(entityRef: string, edges: ReadonlyArray<RelationGraphEdgeRow>): EntityCascadeImpact {
-  const incoming = activeSorted(edges.filter((edge) => refMatchesEntity(edge.targetRef, entityRef)));
-  const outgoing = activeSorted(edges.filter((edge) => refMatchesEntity(edge.sourceRef, entityRef)));
+  const incoming = activeSorted(edges.filter((edge) => edgeHasIncomingToEntity(edge, entityRef)));
+  const outgoing = activeSorted(edges.filter((edge) => edgeHasOutgoingFromEntity(edge, entityRef)));
   return {
     entityRef,
     incoming,
     outgoing,
-    impactedRefs: uniqueSorted([...incoming.map((edge) => edge.sourceRef), ...outgoing.map((edge) => edge.targetRef)])
+    impactedRefs: uniqueSorted([...incoming, ...outgoing].flatMap((edge) => otherEndpointRefs(edge, entityRef)))
   };
 }
 
@@ -148,6 +148,27 @@ function refMatchesEntity(candidateRef: string, entityRef: string): boolean {
   const entity = parseEntityRef(entityRef);
   if (!entity || entity.kind === "fact") return false;
   return candidateRef.startsWith(`${entityRef}/`);
+}
+
+function edgeHasIncomingToEntity(edge: RelationGraphEdgeRow, entityRef: string): boolean {
+  if (edge.direction === "undirected") return edgeTouchesEntity(edge, entityRef);
+  return refMatchesEntity(edge.targetRef, entityRef);
+}
+
+function edgeHasOutgoingFromEntity(edge: RelationGraphEdgeRow, entityRef: string): boolean {
+  if (edge.direction === "undirected") return edgeTouchesEntity(edge, entityRef);
+  return refMatchesEntity(edge.sourceRef, entityRef);
+}
+
+function edgeTouchesEntity(edge: RelationGraphEdgeRow, entityRef: string): boolean {
+  return refMatchesEntity(edge.sourceRef, entityRef) || refMatchesEntity(edge.targetRef, entityRef);
+}
+
+function otherEndpointRefs(edge: RelationGraphEdgeRow, entityRef: string): ReadonlyArray<string> {
+  const refs: string[] = [];
+  if (refMatchesEntity(edge.targetRef, entityRef)) refs.push(edge.sourceRef);
+  if (refMatchesEntity(edge.sourceRef, entityRef)) refs.push(edge.targetRef);
+  return refs;
 }
 
 function entityKindFromRef(entityRef: string): KernelEntityKind {

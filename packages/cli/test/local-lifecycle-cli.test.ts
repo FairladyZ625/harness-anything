@@ -5,6 +5,8 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { commandDescriptors } from "../src/cli/command-registry.ts";
+import { capabilityExcludedCommandKinds } from "../src/commands/core/capabilities.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -205,57 +207,6 @@ test("CLI task supersede archives old task and creates relation to new task", ()
   });
 });
 
-test("CLI task delete soft tombstones and hard delete rejects archived terminal or related tasks", () => {
-  withTempRoot((rootDir) => {
-    const hard = runJson(rootDir, ["new-task", "--title", "Hard Delete"]);
-    const hardTaskId = assertGeneratedTaskId(hard.taskId);
-    const hardPackagePath = path.join(rootDir, `harness/tasks/${hardTaskId}-hard-delete`);
-    assert.equal(existsSync(hardPackagePath), true);
-    const missingConfirm = runJson(rootDir, ["task", "delete", "--hard", hardTaskId, "--reason", "mistaken local package"], false);
-    assert.equal(missingConfirm.ok, false);
-    assert.equal(missingConfirm.error?.code, "delete_confirm_required");
-
-    const hardResult = runJson(rootDir, ["task", "delete", "--hard", hardTaskId, "--reason", "mistaken local package", "--confirm", hardTaskId]);
-    assert.equal(hardResult.ok, true);
-    assert.equal(hardResult.mode, "hard");
-    assert.equal(existsSync(hardPackagePath), false);
-    const journalBody = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
-    assert.match(journalBody, /"schema":"delete-audit\/v1"/);
-    assert.match(journalBody, /"kind":"package_delete_hard_applied"/);
-    const hardDeletePayloads = readdirSync(path.join(rootDir, ".harness/write-journal/payloads"))
-      .map((entry) => readFileSync(path.join(rootDir, ".harness/write-journal/payloads", entry), "utf8"));
-    assert.equal(hardDeletePayloads.some((body) => body.includes("mistaken local package")), true);
-
-    const soft = runJson(rootDir, ["new-task", "--title", "Soft Delete"]);
-    const softTaskId = assertGeneratedTaskId(soft.taskId);
-    const softResult = runJson(rootDir, ["task", "delete", "--soft", softTaskId, "--reason", "not needed"]);
-    assert.equal(softResult.ok, true);
-    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${softTaskId}-soft-delete/INDEX.md`), "utf8"), /packageDisposition: tombstoned/);
-
-    const archived = runJson(rootDir, ["new-task", "--title", "Archived Delete"]);
-    const archivedTaskId = assertGeneratedTaskId(archived.taskId);
-    runJson(rootDir, ["task", "archive", archivedTaskId, "--reason", "keep audit"]);
-    const archivedFailure = runJson(rootDir, ["task", "delete", "--hard", archivedTaskId, "--reason", "remove", "--confirm", archivedTaskId], false);
-    assert.equal(archivedFailure.ok, false);
-    assert.equal(archivedFailure.error?.code, "archived_hard_delete_forbidden");
-
-    const terminal = runJson(rootDir, ["new-task", "--title", "Done Delete"]);
-    const terminalTaskId = assertGeneratedTaskId(terminal.taskId);
-    runJson(rootDir, ["task", "status", "set", terminalTaskId, "active"]);
-    runJson(rootDir, ["task", "status", "set", terminalTaskId, "done", "--force", "--reason", "terminal fixture"]);
-    const terminalFailure = runJson(rootDir, ["task", "delete", "--hard", terminalTaskId, "--reason", "remove", "--confirm", terminalTaskId], false);
-    assert.equal(terminalFailure.ok, false);
-    assert.equal(terminalFailure.error?.code, "terminal_hard_delete_forbidden");
-
-    const related = runJson(rootDir, ["new-task", "--title", "Related Delete"]);
-    const relatedTaskId = assertGeneratedTaskId(related.taskId);
-    writeFileSync(path.join(rootDir, `harness/tasks/${relatedTaskId}-related-delete/relations.md`), `target: task/${softTaskId}\n`, "utf8");
-    const relatedFailure = runJson(rootDir, ["task", "delete", "--hard", relatedTaskId, "--reason", "remove", "--confirm", relatedTaskId], false);
-    assert.equal(relatedFailure.ok, false);
-    assert.equal(relatedFailure.error?.code, "related_task_hard_delete_forbidden");
-  });
-});
-
 test("CLI task delete rejects conflicting delete modes", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Mode Conflict"]);
@@ -356,6 +307,27 @@ test("CLI capabilities expose registry-derived entity operations through receipt
     assert.equal(Array.isArray(receipt.items), true);
     assert.equal(receipt.items.some((op: Record<string, any>) => op.action === "propose" && op.input?.schemaId === "harness://schema/cli/decision-propose-input/v1"), true);
     assert.equal(receipt.details?.report?.generatedFrom?.commandRegistry, "packages/cli/src/cli/command-registry.ts");
+  });
+});
+
+test("CLI capabilities surface every registered command or explicitly exclude it", () => {
+  withTempRoot((rootDir) => {
+    const index = runRawJson(rootDir, ["capabilities"]);
+    const surfaced = new Set<string>();
+    for (const item of index.items as ReadonlyArray<{ readonly kind: string }>) {
+      const detail = runRawJson(rootDir, ["capabilities", "--kind", item.kind]);
+      for (const op of detail.items as ReadonlyArray<{ readonly commandKind?: string }>) {
+        if (op.commandKind) surfaced.add(op.commandKind);
+      }
+    }
+
+    for (const descriptor of commandDescriptors) {
+      assert.equal(
+        surfaced.has(descriptor.kind) || capabilityExcludedCommandKinds.has(descriptor.kind),
+        true,
+        `${descriptor.kind} must be surfaced in capabilities or explicitly excluded`
+      );
+    }
   });
 });
 

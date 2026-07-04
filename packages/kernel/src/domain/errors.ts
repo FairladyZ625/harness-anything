@@ -19,7 +19,7 @@ export type EngineError =
   | { readonly _tag: "TerminalReopenRequiresSupersede"; readonly taskId: TaskId; readonly status: string }
   | { readonly _tag: "ArchivedHardDeleteForbidden"; readonly taskId: TaskId }
   | { readonly _tag: "TerminalHardDeleteForbidden"; readonly taskId: TaskId; readonly status: string }
-  | { readonly _tag: "RelatedTaskHardDeleteForbidden"; readonly taskId: TaskId }
+  | { readonly _tag: "RelatedTaskHardDeleteForbidden"; readonly taskId: TaskId; readonly reason?: string }
   | { readonly _tag: "RateLimited"; readonly engine: EngineId; readonly retryAfterMs?: number }
   | { readonly _tag: "EngineUnreachable"; readonly engine: EngineId; readonly cause?: unknown }
   | { readonly _tag: "Timeout"; readonly ms: number };

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type {
@@ -11,12 +11,12 @@ import type {
 } from "../ports/write-coordinator.ts";
 import type { EntityId, TaskId, WriteError } from "../domain/index.ts";
 import {
-  findEntityRefs,
   isDomainStatus,
   isPackageDisposition,
   isTerminalStatus,
   taskIdFromEntityId
 } from "../domain/index.ts";
+import { evaluateEntityDisposition } from "../entity/disposition.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { assertDocumentWritePathsDoNotCollide } from "./markdown-artifact-store.ts";
@@ -330,11 +330,11 @@ function assertHardDeleteAllowed(
 
   const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
   if (!frontmatter) rejectTaskWrite(`hard delete forbidden: malformed task package ${taskId}`, taskId);
-  const disposition = readScalar(frontmatter, "packageDisposition");
-  if (!isPackageDisposition(disposition)) {
+  const packageDisposition = readScalar(frontmatter, "packageDisposition");
+  if (!isPackageDisposition(packageDisposition)) {
     rejectTaskWrite(`hard delete forbidden: invalid package disposition ${taskId}`, taskId);
   }
-  if (disposition === "archived") {
+  if (packageDisposition === "archived") {
     rejectTaskWrite(`hard delete forbidden for archived task: ${taskId}`, taskId);
   }
   const status = readScalar(frontmatter, "  status");
@@ -342,33 +342,15 @@ function assertHardDeleteAllowed(
   if (isTerminalStatus(status)) {
     rejectTaskWrite(`hard delete forbidden for terminal task: ${taskId}`, taskId);
   }
-  if (hasTaskRelations(rootInput, taskId, packagePath)) {
-    rejectTaskWrite(`hard delete forbidden for related task: ${taskId}`, taskId);
+  const evaluation = evaluateEntityDisposition({
+    rootDir: typeof rootInput === "string" ? path.resolve(rootInput) : rootInput.rootDir,
+    layoutOverrides: typeof rootInput === "string" ? undefined : rootInput.layoutOverrides,
+    entityRef: `task/${taskId}`,
+    action: "hard-delete"
+  });
+  if (!evaluation.allowed) {
+    rejectTaskWrite(evaluation.reason, taskId);
   }
-}
-
-function hasTaskRelations(rootInput: HarnessLayoutInput, taskId: TaskId, ownPackage: string): boolean {
-  for (const filePath of listTextFiles(resolveHarnessLayout(rootInput).authoredRoot)) {
-    const body = readFileSync(filePath, "utf8");
-    const refs = findEntityRefs(body);
-    if (refs.some((ref) => !ref.externalHarness && ref.id === taskId)) return true;
-    if (filePath.startsWith(ownPackage) && refs.some((ref) => !ref.externalHarness && ref.id !== taskId)) return true;
-  }
-  return false;
-}
-
-function listTextFiles(inputPath: string): ReadonlyArray<string> {
-  if (!existsSync(inputPath)) return [];
-  const files: string[] = [];
-  for (const entry of readdirSync(inputPath, { withFileTypes: true })) {
-    const fullPath = path.join(inputPath, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listTextFiles(fullPath));
-      continue;
-    }
-    if (/\.(md|markdown|txt|ya?ml|json)$/iu.test(entry.name)) files.push(fullPath);
-  }
-  return files;
 }
 
 function rebuildProjectionHash(rootDir: string, rootInput: HarnessLayoutInput): string {
