@@ -1,7 +1,8 @@
 import type { TaskFrontmatter } from "../schemas/registry.ts";
 import type { DecisionPackage } from "../schemas/decision-package.ts";
+import type { FactRecordDocument } from "../schemas/fact-record.ts";
 
-export type EntityKindWithFieldCoverage = "decision" | "task";
+export type EntityKindWithFieldCoverage = "decision" | "task" | "fact";
 export type EntityFieldMutability = "immutable" | "lifecycle" | "amendable" | "derived";
 export type EntityFieldReadSurface =
   | { readonly kind: "projection"; readonly path: string; readonly queryable: boolean }
@@ -19,6 +20,7 @@ export interface EntityFieldContract {
 
 export type DecisionFieldKey = keyof DecisionPackage;
 export type TaskFieldKey = keyof TaskFrontmatter;
+export type FactFieldKey = keyof FactRecordDocument;
 
 export const decisionFieldContracts = {
   schema: immutable("schema discriminator is fixed by the entity kind", show("decision.schema")),
@@ -56,9 +58,22 @@ export const taskFieldContracts = {
   createdBy: immutable("createdBy is captured from the local author at task creation", projection("createdBy", false), show("task.createdBy"))
 } satisfies Record<TaskFieldKey, EntityFieldContract>;
 
+export const factFieldContracts = {
+  schema: immutable("schema discriminator is fixed by the entity kind", show("fact.schema")),
+  fact_id: immutable("fact identity is append-only; record a new fact or invalidate the old one", show("fact.fact_id")),
+  statement: immutable("fact statements are append-only observations; changing reality requires a new fact or invalidate", show("fact.statement")),
+  source: immutable("fact source is provenance-bearing evidence and cannot be amended", show("fact.source")),
+  observedAt: immutable("observation time is provenance-bearing evidence and cannot be amended", show("fact.observedAt")),
+  confidence: immutable("confidence is captured with the observation; later doubt is expressed by another fact or invalidation", show("fact.confidence")),
+  memoryClass: immutable("memory class is create-time classification", show("fact.memoryClass")),
+  memoryTags: immutable("memory tags are create-time classification", show("fact.memoryTags")),
+  provenance: immutable("provenance is bound by create/write services, not amended as content", show("fact.provenance"))
+} satisfies Record<FactFieldKey, EntityFieldContract>;
+
 export const entityFieldContracts = {
   decision: decisionFieldContracts,
-  task: taskFieldContracts
+  task: taskFieldContracts,
+  fact: factFieldContracts
 } as const;
 
 export const decisionAmendableFields = ["title", "chosen", "rejected", "claims"] as const satisfies ReadonlyArray<DecisionFieldKey>;

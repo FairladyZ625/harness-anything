@@ -29,6 +29,8 @@ export type {
   DecisionWriteServiceOptions
 } from "./decision-write-service.ts";
 export type {
+  FactInvalidateRequest,
+  FactInvalidateResult,
   FactRecordRequest,
   FactWriteRejected,
   FactWriteResult,

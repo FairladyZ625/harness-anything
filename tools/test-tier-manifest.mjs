@@ -24,6 +24,7 @@ export const testTierManifest = {
   contract: [
     "packages/application/test/current-session-probe.test.ts",
     "packages/application/test/decision-write-service.test.ts",
+    "packages/application/test/fact-write-service.test.ts",
     "packages/application/test/provenance-binding-service.test.ts",
     "packages/application/test/provenance-session-exporter.test.ts",
     "packages/application/test/runtime-event-ledger-service.test.ts",
