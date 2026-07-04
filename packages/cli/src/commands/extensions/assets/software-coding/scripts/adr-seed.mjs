@@ -15,8 +15,9 @@ const locale = context.inputs?.locale === "zh-CN" ? "zh-CN" : "en-US";
 const adrRoot = context.paths.adrRoot;
 
 mkdirSync(adrRoot, { recursive: true });
+// adr/README.md is owned by the init seededDoc (single source, ADR-0021 D1).
+// adr-seed only seeds the ADR template stub, which init does not materialize.
 const produced = [
-  writeTemplate("repository/adr-readme", path.join(adrRoot, "README.md")),
   writeTemplate("repository/adr-template", path.join(adrRoot, "0000-template.md"))
 ];
 
@@ -28,7 +29,7 @@ writeFileSync(resultPath, JSON.stringify({
     source: context.source,
     verticalId: context.verticalId,
     adrRoot: path.relative(context.paths.authoredRoot, adrRoot).split(path.sep).join("/"),
-    templateRefs: ["template://repository/adr-readme@1", "template://repository/adr-template@1"]
+    templateRefs: ["template://repository/adr-template@1"]
   },
   produced
 }, null, 2), "utf8");

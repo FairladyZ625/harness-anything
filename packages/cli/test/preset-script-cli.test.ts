@@ -116,9 +116,10 @@ test("CLI script command discovers and runs the vertical ADR seed scaffold", () 
     assert.equal(result.ok, true);
     assert.equal(result.command, "script-run");
     assert.equal(result.script.id, "vertical:software-coding:adr-seed");
-    assert.equal(result.generated.includes("harness/adr/README.md"), true);
+    // adr/README.md is materialized by init's seededDoc (single source, ADR-0021 D1);
+    // adr-seed now only produces the ADR template stub, not the README.
     assert.equal(result.generated.includes("harness/adr/0000-template.md"), true);
-    assert.match(readFileSync(path.join(rootDir, "harness/adr/README.md"), "utf8"), /# ADR/u);
+    assert.equal(result.generated.includes("harness/adr/README.md"), false);
     assert.match(readFileSync(path.join(rootDir, "harness/adr/0000-template.md"), "utf8"), /## Decision/u);
   });
 });
