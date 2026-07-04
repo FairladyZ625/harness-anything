@@ -65,6 +65,7 @@ function writeProjectionFixture(projectionPath) {
     db.exec([
       "CREATE TABLE relation_edges (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL, direction TEXT NOT NULL, state TEXT NOT NULL, row_json TEXT NOT NULL)",
       "CREATE TABLE relation_coverage (claim_ref TEXT PRIMARY KEY, decision_ref TEXT NOT NULL, status TEXT NOT NULL, covering_fact_ref TEXT, row_json TEXT NOT NULL)",
+      "CREATE TABLE task_fact_anchors (fact_ref TEXT PRIMARY KEY, task_id TEXT NOT NULL, fact_id TEXT NOT NULL, source_path TEXT NOT NULL, row_json TEXT NOT NULL)",
       "CREATE TABLE task_projection (task_id TEXT PRIMARY KEY, title TEXT NOT NULL, canonical_status TEXT NOT NULL)",
       "CREATE TABLE decision_projection (decision_id TEXT PRIMARY KEY, title TEXT NOT NULL, state TEXT NOT NULL)"
     ].join(";\n"));

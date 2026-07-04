@@ -3,7 +3,7 @@ import path from "node:path";
 import { SqlClient } from "@effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Effect } from "effect";
-import type { RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
+import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import type {
   DecisionProjectionQueryFilters,
   DecisionProjectionRow,
@@ -17,6 +17,7 @@ const projectionVersion = "entity-projection/d4-v1";
 export interface ProjectionGraphRows {
   readonly relationEdges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
 }
 
 export function writeProjectionDatabase(
@@ -24,7 +25,7 @@ export function writeProjectionDatabase(
   rows: ReadonlyArray<TaskProjectionRow>,
   decisionRows: ReadonlyArray<DecisionProjectionRow>,
   meta: ProjectionMeta,
-  graphRows: ProjectionGraphRows = { relationEdges: [], coverageRows: [] }
+  graphRows: ProjectionGraphRows = { relationEdges: [], coverageRows: [], factAnchors: [] }
 ): void {
   mkdirSync(path.dirname(projectionPath), { recursive: true });
   const tempPath = `${projectionPath}.${process.pid}.${Date.now()}.tmp`;
@@ -92,6 +93,15 @@ export function writeProjectionDatabase(
         row_json TEXT NOT NULL
       )
     `;
+    yield* sql`
+      CREATE TABLE task_fact_anchors (
+        fact_ref TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        fact_id TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        row_json TEXT NOT NULL
+      )
+    `;
     yield* insertMeta(sql, "version", projectionVersion);
     yield* insertMeta(sql, "sourceHash", meta.sourceHash);
     yield* insertMeta(sql, "rowsHash", meta.rowsHash);
@@ -100,6 +110,7 @@ export function writeProjectionDatabase(
     for (const row of decisionRows) yield* insertDecisionRow(sql, row);
     for (const edge of graphRows.relationEdges) yield* insertRelationEdge(sql, edge);
     for (const row of graphRows.coverageRows) yield* insertCoverageRow(sql, row);
+    for (const row of graphRows.factAnchors) yield* insertFactAnchor(sql, row);
     yield* sql`CREATE INDEX task_projection_status ON task_projection (canonical_status, coordination_status)`;
     yield* sql`CREATE INDEX task_projection_module_key ON task_projection (module_key)`;
     yield* sql`CREATE INDEX decision_projection_legacy_number ON decision_projection (legacy_number)`;
@@ -107,6 +118,7 @@ export function writeProjectionDatabase(
     yield* sql`CREATE INDEX relation_edges_source_ref ON relation_edges (source_ref)`;
     yield* sql`CREATE INDEX relation_edges_target_ref ON relation_edges (target_ref)`;
     yield* sql`CREATE INDEX relation_coverage_decision_ref ON relation_coverage (decision_ref)`;
+    yield* sql`CREATE INDEX task_fact_anchors_task_id ON task_fact_anchors (task_id)`;
   }));
   renameSync(tempPath, projectionPath);
 }
@@ -147,9 +159,11 @@ export function readRelationGraphRows(projectionPath: string): ProjectionGraphRo
     const sql = yield* SqlClient.SqlClient;
     const edgeRecords = yield* sql`SELECT row_json FROM relation_edges ORDER BY source_ref, target_ref, relation_id`;
     const coverageRecords = yield* sql`SELECT row_json FROM relation_coverage ORDER BY claim_ref`;
+    const factAnchorRecords = yield* sql`SELECT row_json FROM task_fact_anchors ORDER BY fact_ref`;
     return {
       relationEdges: edgeRecords.map((record) => JSON.parse(String(record.row_json)) as RelationGraphEdgeRow),
-      coverageRows: coverageRecords.map((record) => JSON.parse(String(record.row_json)) as RelationCoverageRow)
+      coverageRows: coverageRecords.map((record) => JSON.parse(String(record.row_json)) as RelationCoverageRow),
+      factAnchors: factAnchorRecords.map((record) => JSON.parse(String(record.row_json)) as FactAnchorRow)
     };
   }));
 }
@@ -226,6 +240,13 @@ function insertCoverageRow(sql: SqlClient.SqlClient, row: RelationCoverageRow): 
   return sql`
     INSERT OR REPLACE INTO relation_coverage (claim_ref, decision_ref, status, covering_fact_ref, row_json)
     VALUES (${row.claimRef}, ${row.decisionRef}, ${row.status}, ${row.coveringFactRef ?? null}, ${JSON.stringify(row)})
+  `;
+}
+
+function insertFactAnchor(sql: SqlClient.SqlClient, row: FactAnchorRow): Effect.Effect<unknown, unknown> {
+  return sql`
+    INSERT OR REPLACE INTO task_fact_anchors (fact_ref, task_id, fact_id, source_path, row_json)
+    VALUES (${row.factRef}, ${row.taskId}, ${row.factId}, ${row.sourcePath}, ${JSON.stringify(row)})
   `;
 }
 

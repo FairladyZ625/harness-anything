@@ -116,6 +116,12 @@ function descriptionForEntity(kind: string): string {
 
 function dispositionForEntity(kind: string): ReadonlyArray<Record<string, unknown>> {
   if (kind === "decision") return [{ level: "D1", name: "semantic-retire", commands: ["ha decision retire <id>"], soTCheckRequired: true }];
-  if (kind === "task") return [{ level: "D1", name: "archive-or-delete", commands: ["ha task archive <id>", "ha task delete --soft <id>"], soTCheckRequired: true }];
+  if (kind === "task") return [{
+    level: "D2",
+    name: "archive",
+    commands: ["ha task archive <id> --reason <reason>"],
+    soTCheckRequired: true,
+    description: "E79 daily containment path: distill evidence into an anchor task, reconnect relations, then archive the original task. Hard delete is blocked when anchored facts or active incoming relations exist."
+  }];
   return [];
 }
