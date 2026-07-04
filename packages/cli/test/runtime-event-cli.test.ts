@@ -7,6 +7,14 @@ import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const cleanRuntimeEnv = {
+  CLAUDE_CODE_SESSION_ID: "",
+  CLAUDE_SESSION_ID: "",
+  CODEX_SESSION_ID: "",
+  CODEX_THREAD_ID: "",
+  ZCODE_SESSION_ID: "",
+  ANTIGRAVITY_SESSION_ID: ""
+} as const;
 
 test("CLI authored write commands append a current-session result event", () => {
   withTempRoot((rootDir) => {
@@ -157,7 +165,7 @@ function runJson(
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: { ...process.env, ...cleanRuntimeEnv, ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

@@ -132,6 +132,62 @@ test("CLI metadata check fails closed on missing preset-selected document and an
   });
 });
 
+test("CLI metadata check enforces milestone dossier artifact and resolvable provenance refs", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const created = runJson(rootDir, ["new-task", "--title", "Milestone Dossier", "--vertical", "software/coding", "--preset", "milestone-dossier"]);
+    assert.equal(existsSync(path.join(rootDir, created.packagePath, "artifacts", "dossier.scaffold.html")), true);
+
+    const missing = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+    assert.equal(missing.ok, false);
+    assert.equal(missing.warnings.some((warning: Record<string, unknown>) => warning.source === "dossier-gate-checker" && warning.code === "dossier_html_missing"), true);
+
+    const artifactsDir = path.join(rootDir, created.packagePath, "artifacts");
+    mkdirSync(artifactsDir, { recursive: true });
+    writeFileSync(path.join(artifactsDir, "dossier.html"), "<!doctype html><p>Unresolved decision/dec_MISSING.</p>\n", "utf8");
+    const unresolved = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+    assert.equal(unresolved.ok, false);
+    assert.equal(unresolved.warnings.some((warning: Record<string, unknown>) => warning.code === "dossier_entity_ref_unresolved" && warning.message.includes("decision/dec_MISSING")), true);
+
+    writeFileSync(path.join(rootDir, created.packagePath, "facts.md"), [
+      "# Facts",
+      "",
+      "- {fact_id: F-DEADBEEF, statement: \"Milestone dossier has anchored evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
+      ""
+    ].join("\n"), "utf8");
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_DOSSIER",
+      "--title",
+      "Dossier Boundary",
+      "--question",
+      "Should the milestone close?",
+      "--chosen",
+      "Close with dossier evidence",
+      "--rejected",
+      "Close without dossier",
+      "--why-not",
+      "Boundary understanding must be reviewable"
+    ]);
+
+    writeFileSync(path.join(artifactsDir, "dossier.html"), [
+      "<!doctype html>",
+      "<html><body>",
+      `<p>Resolved task/${created.taskId}.</p>`,
+      "<p>Resolved decision/dec_DOSSIER and decision/dec_DOSSIER/CH1.</p>",
+      `<p>Resolved fact/${created.taskId}/F-DEADBEEF.</p>`,
+      "</body></html>",
+      ""
+    ].join("\n"), "utf8");
+
+    const passed = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
+    assert.equal(passed.ok, true);
+    assert.equal(passed.warnings.some((warning: Record<string, unknown>) => warning.source === "dossier-gate-checker"), false);
+  });
+});
+
 test("CLI metadata check does not resolve preset overrides for default tasks", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);

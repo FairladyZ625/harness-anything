@@ -100,6 +100,7 @@ export const testTierManifest = {
     "packages/cli/test/projection-freshness-cli.test.ts",
     "packages/cli/test/preset-module-cli.test.ts",
     "packages/cli/test/preset-script-cli.test.ts",
+    "packages/cli/test/preset-script-dossier-cli.test.ts",
     "packages/cli/test/runtime-event-cli.test.ts",
     "packages/cli/test/session-cli.test.ts",
     "packages/cli/test/settings-cli.test.ts",

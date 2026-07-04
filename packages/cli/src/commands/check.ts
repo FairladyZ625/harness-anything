@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "../../../application/src/index.ts";
+import { findEntityRefs, parseFactFlowRecords } from "../../../kernel/src/domain/index.ts";
 import { checkTaskProjection } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
@@ -79,6 +80,7 @@ function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfi
     for (const taskDir of taskDirs) {
       issues.push(...validateTaskPackageContracts(rootInput, taskDir, profile, strict, settings));
     }
+    issues.push(...validateMilestoneDossierGate(rootInput, taskDirs));
   }
 
   if (profile === "private-harness" || profile === "target-project") {
@@ -357,6 +359,124 @@ function validateGovernanceGeneratedViews(rootInput: HarnessLayoutInput, strict:
     issues.push(profileIssue("governance-boundary", "module_registry_projection_missing", strictSeverity(strict), ".harness/generated/Module-Registry.md is missing for authored modules.json.", "Run harness-anything module scaffold/register or governance rebuild to regenerate local views."));
   }
   return issues;
+}
+
+function validateMilestoneDossierGate(rootInput: HarnessLayoutInput, taskDirs: ReadonlyArray<string>): ReadonlyArray<ProfileValidationIssue> {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const index = buildResolvableEntityIndex(rootInput);
+  const issues: ProfileValidationIssue[] = [];
+  for (const taskDir of taskDirs) {
+    const relativeTaskDir = relativePath(rootDir, taskDir);
+    const indexPath = path.join(taskDir, "INDEX.md");
+    if (!existsSync(indexPath)) continue;
+    const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+    if (!frontmatter || readScalar(frontmatter, "preset") !== "milestone-dossier") continue;
+
+    const dossierPath = path.join(taskDir, "artifacts", "dossier.html");
+    if (!existsSync(dossierPath)) {
+      issues.push(profileIssue(
+        "dossier-gate-checker",
+        "dossier_html_missing",
+        "hard-fail",
+        `${relativeTaskDir}/artifacts/dossier.html is required by preset milestone-dossier.`,
+        "Run the milestone-dossier gather entrypoint, write the understanding dossier by hand, and keep it under the coordination task artifacts directory."
+      ));
+      continue;
+    }
+
+    let body: string;
+    try {
+      body = readFileSync(dossierPath, "utf8");
+    } catch {
+      issues.push(profileIssue(
+        "dossier-gate-checker",
+        "dossier_html_unreadable",
+        "hard-fail",
+        `${relativeTaskDir}/artifacts/dossier.html could not be read as UTF-8 text.`,
+        "Restore a readable HTML dossier artifact."
+      ));
+      continue;
+    }
+
+    const unresolved = [...new Set(findEntityRefs(body)
+      .filter((ref) => !ref.externalHarness)
+      .map((ref) => ref.raw))]
+      .filter((ref) => !index.refs.has(ref));
+    for (const ref of unresolved) {
+      issues.push(profileIssue(
+        "dossier-gate-checker",
+        "dossier_entity_ref_unresolved",
+        "hard-fail",
+        `${relativeTaskDir}/artifacts/dossier.html references unresolved entity ${ref}.`,
+        "Replace bubble references with real task, decision, or fact refs from authored Harness packages."
+      ));
+    }
+  }
+  return issues;
+}
+
+function buildResolvableEntityIndex(rootInput: HarnessLayoutInput): { readonly refs: ReadonlySet<string> } {
+  const layout = resolveHarnessLayout(rootInput);
+  const refs = new Set<string>();
+  for (const indexPath of listTaskIndexPaths(rootInput)) {
+    const taskDir = path.dirname(indexPath);
+    const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+    const taskId = frontmatter ? readScalar(frontmatter, "task_id") || path.basename(taskDir) : path.basename(taskDir);
+    refs.add(`task/${taskId}`);
+    const factsPath = path.join(taskDir, layout.factDocumentName);
+    if (existsSync(factsPath)) {
+      for (const fact of parseFactFlowRecords(readFileSync(factsPath, "utf8"))) {
+        refs.add(`fact/${taskId}/${fact.fact_id}`);
+      }
+    }
+  }
+
+  for (const decisionPath of listDecisionDocuments(layout.decisionsRoot)) {
+    const body = readFileSync(decisionPath, "utf8");
+    const frontmatter = readFrontmatter(body);
+    if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
+    const decisionId = readScalar(frontmatter, "decision_id") || path.basename(path.dirname(decisionPath));
+    refs.add(`decision/${decisionId}`);
+    for (const anchor of readDecisionEndpointAnchors(frontmatter)) {
+      refs.add(`decision/${decisionId}/${anchor}`);
+    }
+  }
+  return { refs };
+}
+
+function listDecisionDocuments(inputPath: string): ReadonlyArray<string> {
+  if (!existsSync(inputPath)) return [];
+  return readdirSync(inputPath, { withFileTypes: true }).flatMap((entry): ReadonlyArray<string> => {
+    const entryPath = path.join(inputPath, entry.name);
+    if (entry.isDirectory()) return listDecisionDocuments(entryPath);
+    if (entry.isFile() && entry.name === "decision.md") return [entryPath];
+    return [];
+  }).sort();
+}
+
+function readDecisionEndpointAnchors(frontmatter: string): ReadonlyArray<string> {
+  return ["claims", "chosen", "rejected"].flatMap((key) => readDecisionAnchorBlock(frontmatter, key));
+}
+
+function readDecisionAnchorBlock(frontmatter: string, key: string): ReadonlyArray<string> {
+  const lines = frontmatter.split(/\r?\n/u);
+  const output: string[] = [];
+  let inBlock = false;
+  for (const line of lines) {
+    if (line === `${key}:`) {
+      inBlock = true;
+      continue;
+    }
+    if (!inBlock) continue;
+    if (/^\s*-\s*\{/u.test(line)) {
+      const match = /^\s*-\s*\{\s*id:\s*"?([A-Za-z][A-Za-z0-9_-]*)"?/u.exec(line);
+      if (match?.[1]) output.push(match[1]);
+      continue;
+    }
+    if (/^\S/u.test(line)) break;
+  }
+  return output;
 }
 
 function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {

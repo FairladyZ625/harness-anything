@@ -201,6 +201,43 @@
       ]
     },
     {
+      "id": "dossier/editorial-shell",
+      "version": "1",
+      "documentKind": "milestone-dossier-shell",
+      "slot": "dossier-shell",
+      "materializeAs": "artifacts/dossier.scaffold.html",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "data-dossier-section=\"brief\"",
+        "data-dossier-section=\"boundary\"",
+        "data-dossier-section=\"evidence\"",
+        "data-dossier-section=\"provenance\""
+      ],
+      "fallbackLocale": "zh-CN",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "data-dossier-section=\"brief\"",
+            "data-dossier-section=\"boundary\"",
+            "data-dossier-section=\"evidence\"",
+            "data-dossier-section=\"provenance\""
+          ],
+          "bodyPath": "templates/dossier.editorial.shell/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "data-dossier-section=\"brief\"",
+            "data-dossier-section=\"boundary\"",
+            "data-dossier-section=\"evidence\"",
+            "data-dossier-section=\"provenance\""
+          ],
+          "bodyPath": "templates/dossier.editorial.shell/en-US.md"
+        }
+      ]
+    },
+    {
       "id": "planning/brief",
       "version": "1",
       "documentKind": "brief",
