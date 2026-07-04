@@ -124,6 +124,102 @@ test("CLI script command discovers and runs the vertical ADR seed scaffold", () 
   });
 });
 
+test("CLI script command renders an ADR from a decision entity, reuses the number, and preserves the human block", () => {
+  withTempRoot((rootDir) => {
+    writeDecisionFixture(rootDir, "dec_ADR_RENDER_FIXTURE");
+
+    const inspected = runJson(rootDir, ["script", "inspect", "vertical:software-coding:adr-render"]);
+    assert.equal(inspected.ok, true);
+    assert.equal(inspected.script.source, "vertical");
+    assert.equal(inspected.script.purpose, "generate");
+    assert.deepEqual(inspected.script.reads, ["{{paths.decisionsRoot}}/**", "{{paths.adrRoot}}/**"]);
+    assert.deepEqual(inspected.script.writes, ["{{paths.adrRoot}}/**"]);
+
+    const listed = runJson(rootDir, ["script", "list", "--source", "vertical", "--purpose", "generate"]);
+    assert.equal(listed.scripts.some((script: Record<string, unknown>) => script.id === "vertical:software-coding:adr-render"), true);
+
+    const result = runJson(rootDir, ["script", "run", "vertical:software-coding:adr-render", "--input", "decisionId=dec_ADR_RENDER_FIXTURE"]);
+    assert.equal(result.ok, true);
+    assert.equal(result.report.decisionId, "dec_ADR_RENDER_FIXTURE");
+    assert.equal(result.report.reused, false);
+    assert.equal(result.report.watermark, "wm-1");
+    const adrRelPath = result.report.adrPath as string;
+    assert.match(adrRelPath, /^harness\/adr\/ADR-0000-/u);
+
+    const adrPath = path.join(rootDir, adrRelPath);
+    const rendered = readFileSync(adrPath, "utf8");
+    // D8: never writes decisionsRoot; only adrRoot.
+    assert.equal(result.generated.every((filePath: string) => filePath.startsWith("harness/adr/")), true);
+    // Machine sentinel carries decision id + watermark.
+    assert.match(rendered, /<!-- adr-render:begin machine \(decision dec_ADR_RENDER_FIXTURE @ wm-1\) -->/u);
+    // Status ← state + decidedAt + decision anchor.
+    assert.match(rendered, /Accepted 2026-07-04T00:00:00\.000Z/u);
+    assert.match(rendered, /Decision 锚：`dec_ADR_RENDER_FIXTURE`（active）/u);
+    // Decision ← chosen + rejected.why_not.
+    assert.match(rendered, /### CH1 · chosen anchor text/u);
+    assert.match(rendered, /否决理由：rejected because drift/u);
+    // Consequences ← claims + relations.
+    assert.match(rendered, /- C1：claim anchor text/u);
+    assert.match(rendered, /derives → task\/task_FIXTURE/u);
+    // Human block present.
+    assert.match(rendered, /<!-- adr-render:human -->/u);
+
+    // Inject manual narrative, rerun: number reused, machine block byte-stable, human preserved.
+    const machineBefore = sliceMachineBlock(rendered);
+    writeFileSync(adrPath, rendered.replace("此处人工补充", "MANUAL-NARRATIVE-SENTINEL"), "utf8");
+    const rerun = runJson(rootDir, ["script", "run", "vertical:software-coding:adr-render", "--input", "decisionId=dec_ADR_RENDER_FIXTURE"]);
+    assert.equal(rerun.report.reused, true);
+    assert.equal((rerun.report.adrPath as string), adrRelPath);
+    const rerendered = readFileSync(adrPath, "utf8");
+    assert.equal(sliceMachineBlock(rerendered), machineBefore);
+    assert.match(rerendered, /MANUAL-NARRATIVE-SENTINEL/u);
+  });
+});
+
+function writeDecisionFixture(rootDir: string, decisionId: string): void {
+  writeFile(rootDir, `harness/decisions/decision-${decisionId}/decision.md`, [
+    "---",
+    "schema: decision-package/v1",
+    `decision_id: ${decisionId}`,
+    "_coordinatorWatermark: wm-1",
+    "title: \"Fixture decision for ADR render\"",
+    "state: active",
+    "riskTier: medium",
+    "urgency: medium",
+    "vertical: \"software/coding\"",
+    "preset: \"architecture-decision\"",
+    "applies_to:",
+    "  modules: []",
+    "  productLines: []",
+    "proposedBy: { kind: \"agent\", id: \"claude-opus\" }",
+    "proposedAt: \"2026-07-04T00:00:00.000Z\"",
+    "arbiter: { kind: \"human\", id: \"zeyuli\" }",
+    "decidedAt: \"2026-07-04T00:00:00.000Z\"",
+    "provenance:",
+    "  - { runtime: \"claude-code\", sessionId: \"session-fixture\", boundAt: \"2026-07-04T00:00:00.000Z\" }",
+    "question: \"what is the fixture question?\"",
+    "chosen:",
+    "  - { id: \"CH1\", text: \"chosen anchor text\" }",
+    "rejected:",
+    "  - { id: \"RJ1\", text: \"rejected anchor text\", why_not: \"rejected because drift\" }",
+    "claims:",
+    "  - { id: \"C1\", text: \"claim anchor text\" }",
+    "relations:",
+    "  - { relation_id: \"rel_0000000000000000\", source: \"decision/dec_ADR_RENDER_FIXTURE/CH1\", target: \"task/task_FIXTURE\", type: \"derives\", strength: \"strong\", direction: \"directed\", origin: \"declared\", rationale: \"fixture relation\", state: \"active\" }",
+    "---",
+    "",
+    "# Fixture decision for ADR render",
+    ""
+  ].join("\n"));
+}
+
+function sliceMachineBlock(body: string): string {
+  const begin = body.indexOf("<!-- adr-render:begin machine");
+  const endMarker = "<!-- adr-render:end machine -->";
+  const end = body.indexOf(endMarker);
+  return body.slice(begin, end + endMarker.length);
+}
+
 test("CLI script command runs with an explicit environment allowlist", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, ".harness/presets/env-check/preset.json", JSON.stringify({
