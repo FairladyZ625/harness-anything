@@ -63,7 +63,7 @@ test("runtime release readiness check rejects release overclaim docs", async () 
 test("runtime release readiness check scans product-line docs and mixed clauses", async () => {
   await withFixtureRepo((root) => {
     writeValidRuntimeReleaseFixture(root);
-    writeFile(root, "docs-release/m2-5-product-line.md", "Signed installers remain unshipped, but release feeds are available.\n");
+    writeFile(root, "docs-release/other-notes.md", "Signed installers remain unshipped, but release feeds are available.\n");
 
     const result = runCheck(root);
 
@@ -126,13 +126,12 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
     "Run npm run check.",
     "rewrite-ci covers Node 24 and Node 26 plus package smoke.",
     "Run node packages/cli/src/index.ts --json doctor.",
-    "- [M2.5 runtime and release readiness](./docs-release/m2-5-runtime-release.md)",
+    "- [Release posture](./docs-release/release-posture.md)",
     "No signed desktop installer, notarized build, or auto-update capability is",
     "  claimed.",
     "No npm package release is claimed."
   ].join("\n"));
-  writeFile(root, "docs-release/m2-5-runtime-release.md", options.runtimeDocBody ?? validRuntimeDoc());
-  writeFile(root, "docs-release/m2-5-gui-distribution.md", "# Distribution\n");
+  writeFile(root, "docs-release/release-posture.md", options.runtimeDocBody ?? validRuntimeDoc());
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "packages/cli/src/index.ts", "console.log(JSON.stringify({ ok: true, schema: \"command-receipt/v2\", command: \"doctor\", action: \"doctor\", summary: \"completed doctor\", details: { data: { report: { readOnly: true } } }, meta: { generatedAt: \"2026-07-04T00:00:00.000Z\", compatibility: { legacyReceipt: \"CommandReceipt/v1\" } } }));\n");
 }

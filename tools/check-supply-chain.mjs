@@ -157,7 +157,7 @@ function validateDependabot() {
 }
 
 function validateDocsAndWorkflow() {
-  const supplyDoc = "docs-release/m2-5-supply-chain-license.md";
+  const supplyDoc = "docs-release/release-posture.md";
   if (!existsSync(path.join(root, supplyDoc))) {
     record(`Missing supply-chain release documentation: ${supplyDoc}`);
   } else {
@@ -173,10 +173,9 @@ function validateDocsAndWorkflow() {
     requireIncludes(supplyDoc, "release artifacts are not published", "non-shipped release artifact boundary");
   }
 
-  requireIncludes("README.md", "docs-release/m2-5-supply-chain-license.md", "M2.5 supply-chain license doc link");
+  requireIncludes("README.md", "docs-release/release-posture.md", "release posture doc link");
   requireIncludes("README.md", "OSV readiness", "OSV readiness");
   requireIncludes("README.md", "AGPL network-service release-note checklist", "AGPL release checklist");
-  requireIncludes("docs-release/m2-5-product-line.md", "m2-5-supply-chain-license.md", "supply-chain product-line link");
 
   const workflow = read(".github/workflows/rewrite-ci.yml");
   if (!workflow.includes("npm run harness:check-supply-chain")) {

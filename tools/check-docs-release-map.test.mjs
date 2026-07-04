@@ -70,50 +70,24 @@ async function withFixtureRepo(fn) {
 }
 
 function writeValidDocsMap(root, options = {}) {
-  const expectedDocs = [
-    "m1-minimal-loop.md",
-    "m2-coding-vertical.md",
-    "m2-5-gui-distribution.md",
-    "m2-5-runtime-release.md",
-    "m2-5-supply-chain-license.md",
-    "harness-agent-skill.md"
-  ];
-
   writeFile(root, "README.md", [
     "# Harness Anything",
-    "- [M1 minimal loop](./docs-release/m1-minimal-loop.md)",
-    "- [M2 coding vertical](./docs-release/m2-coding-vertical.md)",
-    "- [M2.5 product line map](./docs-release/m2-5-product-line.md)",
-    "- [M2.5 GUI distribution and update](./docs-release/m2-5-gui-distribution.md)",
-    "- [M2.5 runtime and release readiness](./docs-release/m2-5-runtime-release.md)",
-    "- [M2.5 supply-chain and license gate](./docs-release/m2-5-supply-chain-license.md)",
-    "- [Harness agent skill](./docs-release/harness-agent-skill.md)",
+    "- [Release posture](./docs-release/release-posture.md)",
     "M2.5 GUI/daemon foundation is foundation-only.",
     "Private planning lives in `.harness-private/`.",
     "Do not add `.harness-private/` to public commits.",
     options.readmeSuffix ?? ""
   ].join("\n"));
 
-  for (const doc of expectedDocs) {
-    writeFile(root, `docs-release/${doc}`, "# Placeholder\n\nFuture or shipped status is explicit here.\n");
-  }
-
-  writeFile(root, "docs-release/m2-5-product-line.md", [
-    "# M2.5 Product Line Map",
+  writeFile(root, "docs-release/release-posture.md", [
+    "# Release Posture",
     "## Status taxonomy",
     "- Shipped: usable from this repository.",
     "- Foundation: contract exists, but end-user product capability is not shipped yet.",
     "- Planned: owned by a later milestone.",
-    "## Current product line",
+    "## Product line status",
     "M2.5 GUI/daemon foundation",
     "M3-M7",
-    "## Public documentation map",
-    "- [M1 minimal loop](./m1-minimal-loop.md)",
-    "- [M2 coding vertical](./m2-coding-vertical.md)",
-    "- [M2.5 GUI distribution and update](./m2-5-gui-distribution.md)",
-    "- [M2.5 runtime and release readiness](./m2-5-runtime-release.md)",
-    "- [M2.5 supply-chain and license gate](./m2-5-supply-chain-license.md)",
-    "- [Harness agent skill](./harness-agent-skill.md)",
     options.docsSuffix ?? ""
   ].join("\n"));
 }

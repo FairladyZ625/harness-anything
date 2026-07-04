@@ -2,13 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const expectedDocs = [
-  "docs-release/m1-minimal-loop.md",
-  "docs-release/m2-coding-vertical.md",
-  "docs-release/m2-5-product-line.md",
-  "docs-release/m2-5-gui-distribution.md",
-  "docs-release/m2-5-runtime-release.md",
-  "docs-release/m2-5-supply-chain-license.md",
-  "docs-release/harness-agent-skill.md"
+  "docs-release/release-posture.md"
 ];
 
 const requiredProductLinePhrases = [
@@ -45,17 +39,11 @@ for (const docPath of expectedDocs) {
   if (!readme.includes(readmeLink)) errors.push(`README.md does not link ${readmeLink}`);
 }
 
-const productLinePath = "docs-release/m2-5-product-line.md";
+const productLinePath = "docs-release/release-posture.md";
 if (existsSync(productLinePath)) {
   const productLine = read(productLinePath);
   for (const phrase of requiredProductLinePhrases) {
     if (!productLine.includes(phrase)) errors.push(`${productLinePath} is missing required phrase: ${phrase}`);
-  }
-  for (const docPath of expectedDocs) {
-    const productLineLink = `./${docPath.replace(/^docs-release\//, "")}`;
-    if (docPath !== productLinePath && !productLine.includes(productLineLink)) {
-      errors.push(`${productLinePath} does not link ${docPath}`);
-    }
   }
 }
 
@@ -74,8 +62,8 @@ validateReadmePrivateBoundary(readme, errors);
 if (!readme.includes("M2.5 GUI/daemon foundation")) {
   errors.push("README.md must expose the M2.5 GUI/daemon foundation status");
 }
-if (!readme.includes("docs-release/m2-5-product-line.md")) {
-  errors.push("README.md must link the public product-line map");
+if (!readme.includes("docs-release/release-posture.md")) {
+  errors.push("README.md must link the public release-posture page");
 }
 
 if (errors.length > 0) {

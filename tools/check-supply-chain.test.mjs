@@ -225,15 +225,14 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, ".github/dependabot.yml", options.dependabotBody ?? validDependabot());
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "README.md", validReadme());
-  writeFile(root, "docs-release/m2-5-product-line.md", "See [supply](./m2-5-supply-chain-license.md).\n");
-  writeFile(root, "docs-release/m2-5-supply-chain-license.md", options.supplyDocBody ?? validSupplyDoc());
+  writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
   writeMockNpm(root, options.sbomMutator);
 }
 
 function validReadme() {
   return [
     "# Harness Anything",
-    "Read [M2.5 supply-chain and license gate](./docs-release/m2-5-supply-chain-license.md).",
+    "Read [Release posture](./docs-release/release-posture.md).",
     "This covers OSV readiness.",
     "This includes the AGPL network-service release-note checklist."
   ].join("\n");
@@ -241,7 +240,7 @@ function validReadme() {
 
 function validSupplyDoc() {
   return [
-    "# M2.5 Supply Chain And License Gate",
+    "# Release Posture",
     "release artifacts are not published.",
     "The live OSV scan is not part of the default local gate.",
     "npx --yes osv-scanner@latest --lockfile=package-lock.json",
