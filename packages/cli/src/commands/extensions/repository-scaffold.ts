@@ -48,7 +48,8 @@ function resolveScaffoldPath(template: string, layout: ReturnType<typeof resolve
     .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot)
     .replaceAll("{{paths.decisionsRoot}}", layout.decisionsRoot)
     .replaceAll("{{paths.sessionsRoot}}", layout.sessionsRoot)
-    .replaceAll("{{paths.adrRoot}}", layout.adrRoot);
+    .replaceAll("{{paths.adrRoot}}", layout.adrRoot)
+    .replaceAll("{{paths.milestonesRoot}}", layout.milestonesRoot);
   if (resolved.includes("{{") || resolved.includes("}}")) {
     throw new Error(`unsupported repository scaffold path: ${template}`);
   }

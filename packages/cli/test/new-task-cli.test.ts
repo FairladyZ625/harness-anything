@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,8 @@ const noAgentRuntimeEnv = {
 test("CLI init dogfoods coding vertical defaults for new tasks", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
+    assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/milestones")), true);
 
     const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"], true, noAgentRuntimeEnv);
     const taskId = assertGeneratedTaskId(result.taskId);

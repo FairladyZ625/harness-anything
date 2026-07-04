@@ -137,6 +137,10 @@
         "create": "init"
       },
       {
+        "path": "{{paths.milestonesRoot}}",
+        "create": "init"
+      },
+      {
         "path": "{{paths.sessionsRoot}}",
         "create": "lazy"
       }
