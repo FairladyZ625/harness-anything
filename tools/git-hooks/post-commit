@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+set -eu
+
+# Installed by pointing git at this directory:
+#   git config core.hooksPath tools/git-hooks   (or: npm run hooks:install)
+#
+# Keeps the workspace CLI dist fresh after LOCAL commits that changed CLI source
+# or bundled assets, so local `ha` shims that point at dist do not go stale.
+# post-commit cannot abort the commit; a failed build only prints, never blocks.
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+# Merge commits are handled by post-merge; skip here to avoid a double build.
+if git rev-parse --verify --quiet HEAD^2 >/dev/null 2>&1; then
+  exit 0
+fi
+
+parent=$(git rev-parse --verify --quiet HEAD~1 || true)
+if [ -z "$parent" ]; then
+  echo "post-commit: root commit; rebuilding CLI conservatively."
+  npm run build -w @harness-anything/cli
+  exit 0
+fi
+
+changed_paths=$(git diff --name-only "$parent" HEAD -- \
+  package-lock.json \
+  package.json \
+  packages/cli/package.json \
+  packages/cli/tsconfig.build.json \
+  packages/cli/scripts/copy-assets.mjs \
+  packages/cli/src)
+
+if [ -z "$changed_paths" ]; then
+  echo "post-commit: no CLI source or asset changes; skipping CLI build."
+  exit 0
+fi
+
+echo "post-commit: CLI source or assets changed; rebuilding @harness-anything/cli."
+npm run build -w @harness-anything/cli

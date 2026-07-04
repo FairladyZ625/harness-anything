@@ -1,0 +1,45 @@
+#!/usr/bin/env sh
+set -eu
+
+# Installed by pointing git at this directory:
+#   git config core.hooksPath tools/git-hooks   (or: npm run hooks:install)
+#
+# Rebuilds CLI dist after a BRANCH checkout that changed CLI source or bundled
+# assets, so local `ha` reflects the branch you switched to.
+# Args (git-provided): $1 = previous HEAD, $2 = new HEAD, $3 = 1 for branch
+# checkout / 0 for file checkout.
+
+prev_head=$1
+new_head=$2
+branch_checkout=$3
+
+# Only branch checkouts matter; ignore per-file checkouts.
+[ "$branch_checkout" = "1" ] || exit 0
+# No-op when HEAD did not actually move.
+[ "$prev_head" != "$new_head" ] || exit 0
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+# Fresh clone / unborn prev ref: cannot diff, so rebuild conservatively.
+if ! git rev-parse --verify --quiet "$prev_head^{commit}" >/dev/null 2>&1; then
+  echo "post-checkout: initial checkout; rebuilding CLI conservatively."
+  npm run build -w @harness-anything/cli
+  exit 0
+fi
+
+changed_paths=$(git diff --name-only "$prev_head" "$new_head" -- \
+  package-lock.json \
+  package.json \
+  packages/cli/package.json \
+  packages/cli/tsconfig.build.json \
+  packages/cli/scripts/copy-assets.mjs \
+  packages/cli/src)
+
+if [ -z "$changed_paths" ]; then
+  echo "post-checkout: no CLI source or asset changes; skipping CLI build."
+  exit 0
+fi
+
+echo "post-checkout: CLI source or assets changed; rebuilding @harness-anything/cli."
+npm run build -w @harness-anything/cli

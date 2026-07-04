@@ -43,7 +43,8 @@
     "harness:check-legacy-intake-readiness": "node tools/check-legacy-intake-readiness.mjs",
     "harness:check-supply-chain": "node tools/check-supply-chain.mjs",
     "harness:smoke-legacy-intake": "node tools/smoke-legacy-intake.mjs",
-    "harness:smoke-cli-package": "node tools/smoke-cli-package.mjs"
+    "harness:smoke-cli-package": "node tools/smoke-cli-package.mjs",
+    "hooks:install": "git config core.hooksPath tools/git-hooks"
   },
   "engines": {
     "node": ">=24"

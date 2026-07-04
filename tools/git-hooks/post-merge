@@ -1,9 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-# Install from repo root:
-#   mkdir -p "$(dirname "$(git rev-parse --git-path hooks/post-merge)")"
-#   ln -sf "$(pwd)/tools/git-hooks/post-merge" "$(git rev-parse --git-path hooks/post-merge)"
+# Installed by pointing git at this directory:
+#   git config core.hooksPath tools/git-hooks   (or: npm run hooks:install)
 #
 # Keeps the workspace CLI dist fresh after merges that changed CLI source or
 # bundled assets, so local `ha` shims that point at dist do not go stale.
