@@ -136,15 +136,14 @@ ha check --post-merge --json
 
 The CLI (`harness-anything`, alias `ha`) exposes 50+ commands across project
 setup, task creation, lifecycle, review/CI gates, migration intake, evidence,
-and an extension surface. The full catalog lives in
-[the coding-vertical guide](./docs-release/m2-coding-vertical.md).
+and an extension surface. The daily command reference lives in the
+[Start guide](./docs-release/start/en/03-daily-commands.md).
 
 ## Documentation
 
-- [Minimal loop](./docs-release/m1-minimal-loop.md) — the basic task model and post-merge check
-- [Coding vertical](./docs-release/m2-coding-vertical.md) — full command reference, doctor, legacy intake
-- [Harness agent skill](./docs-release/harness-agent-skill.md) — operating rules for agents
-- [Product line map](./docs-release/m2-5-product-line.md) · [GUI distribution](./docs-release/m2-5-gui-distribution.md) · [Runtime & release](./docs-release/m2-5-runtime-release.md) · [Supply chain & license](./docs-release/m2-5-supply-chain-license.md)
+- [Start guide](./docs-release/start/en/00-what-is-this.md) — install, first loop, and daily commands ([中文](./docs-release/start/zh/00-what-is-this.md))
+- [Learn guide](./docs-release/learn/en/00-overview.md) — the kernel, decisions, gates, verticals, and roadmap ([中文](./docs-release/learn/zh/00-overview.md))
+- [Release posture](./docs-release/release-posture.md) — runtime/release, supply-chain & license, and product-line status
 - [Minimal example project](./examples/minimal-project/)
 
 ## Under the hood

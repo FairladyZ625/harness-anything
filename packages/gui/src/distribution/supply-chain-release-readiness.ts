@@ -57,7 +57,7 @@ export interface DependabotCoverageContract {
 export interface ElectronUpgradeContract {
   readonly packageName: "electron";
   readonly upgradeRequiresSecurityReview: true;
-  readonly reviewDoc: "docs-release/m2-5-supply-chain-license.md";
+  readonly reviewDoc: "docs-release/release-posture.md";
 }
 
 export interface SupplyChainReleaseBoundaryContract {
@@ -193,7 +193,7 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   electronUpgrade: {
     packageName: "electron",
     upgradeRequiresSecurityReview: true,
-    reviewDoc: "docs-release/m2-5-supply-chain-license.md"
+    reviewDoc: "docs-release/release-posture.md"
   },
   releaseBoundary: {
     packagesPrivate: true,

@@ -133,15 +133,14 @@ ha check --post-merge --json
 ```
 
 CLI 命令是 `harness-anything`，短别名 `ha`，覆盖项目初始化、任务创建、生命
-周期、review/CI 门槛、迁移接入、证据和扩展表面等 50+ 个命令。完整清单见
-[coding vertical 指南](./docs-release/m2-coding-vertical.md)。
+周期、review/CI 门槛、迁移接入、证据和扩展表面等 50+ 个命令。日常命令参考见
+[上手指南](./docs-release/start/zh/03-daily-commands.md)。
 
 ## 文档
 
-- [最小循环](./docs-release/m1-minimal-loop.md) — 基础任务模型与 post-merge 检查
-- [Coding vertical](./docs-release/m2-coding-vertical.md) — 完整命令参考、doctor、legacy 接入
-- [Harness agent skill](./docs-release/harness-agent-skill.md) — 面向 agent 的操作规则
-- [产品线地图](./docs-release/m2-5-product-line.md) · [GUI 分发](./docs-release/m2-5-gui-distribution.md) · [运行时与发布](./docs-release/m2-5-runtime-release.md) · [供应链与 license](./docs-release/m2-5-supply-chain-license.md)
+- [上手指南](./docs-release/start/zh/00-what-is-this.md) — 安装、第一条循环与日常命令（[English](./docs-release/start/en/00-what-is-this.md)）
+- [深入指南](./docs-release/learn/zh/00-overview.md) — 内核、决策、门槛、vertical 与路线图（[English](./docs-release/learn/en/00-overview.md)）
+- [发布态势](./docs-release/release-posture.md) — 运行时/发布、供应链与 license、产品线状态
 - [最小示例项目](./examples/minimal-project/)
 
 ## 深入了解

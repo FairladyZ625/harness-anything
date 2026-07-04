@@ -22,8 +22,7 @@ const shippedClaim = /\b(shipped|available|implemented|complete|completed|ready|
 const negativeOrFuture = /\b(no|not|never|without|unshipped|planned|future|later|requires|remain|remains|before|deferred|placeholder)\b/i;
 
 const expectedDocs = [
-  "docs-release/m2-5-runtime-release.md",
-  "docs-release/m2-5-gui-distribution.md"
+  "docs-release/release-posture.md"
 ];
 
 function read(relativePath) {
@@ -99,18 +98,18 @@ requireIncludes("README.md", commandBySurface.get("source-run")?.command ?? "", 
 requireIncludes("README.md", commandBySurface.get("full-check")?.command ?? "", "full check command");
 requireIncludes("README.md", "Node 24 and Node 26", "Node 24/26 CI coverage");
 requireIncludes("README.md", "package smoke", "package smoke validation");
-requireIncludes("README.md", "docs-release/m2-5-runtime-release.md", "M2.5 runtime release doc link");
+requireIncludes("README.md", "docs-release/release-posture.md", "release posture doc link");
 requireIncludes("README.md", "No signed desktop installer, notarized build, or auto-update capability is\n  claimed", "non-shipped desktop release boundary");
 requireIncludes("README.md", "No npm package release is claimed", "non-shipped npm release boundary");
 
-requireIncludes("docs-release/m2-5-runtime-release.md", "Status: source checkout and package smoke only", "runtime status");
-requireIncludes("docs-release/m2-5-runtime-release.md", "Node 24 and Node 26", "Node 24/26 coverage");
-requireIncludes("docs-release/m2-5-runtime-release.md", commandBySurface.get("source-run")?.command ?? "", "source-run command");
-requireIncludes("docs-release/m2-5-runtime-release.md", commandBySurface.get("full-check")?.command ?? "", "full check command");
-requireIncludes("docs-release/m2-5-runtime-release.md", commandBySurface.get("pr-check")?.command ?? "", "PR check command");
-requireIncludes("docs-release/m2-5-runtime-release.md", commandBySurface.get("package-smoke")?.command ?? "", "package smoke command");
-requireIncludes("docs-release/m2-5-runtime-release.md", commandBySurface.get("gui-build")?.command ?? "", "GUI build command");
-requireIncludes("docs-release/m2-5-runtime-release.md", "signed installers, notarized builds, auto-update, release feeds, and published\n  artifacts are not shipped", "non-shipped release boundary");
+requireIncludes("docs-release/release-posture.md", "Status: source checkout and package smoke only", "runtime status");
+requireIncludes("docs-release/release-posture.md", "Node 24 and Node 26", "Node 24/26 coverage");
+requireIncludes("docs-release/release-posture.md", commandBySurface.get("source-run")?.command ?? "", "source-run command");
+requireIncludes("docs-release/release-posture.md", commandBySurface.get("full-check")?.command ?? "", "full check command");
+requireIncludes("docs-release/release-posture.md", commandBySurface.get("pr-check")?.command ?? "", "PR check command");
+requireIncludes("docs-release/release-posture.md", commandBySurface.get("package-smoke")?.command ?? "", "package smoke command");
+requireIncludes("docs-release/release-posture.md", commandBySurface.get("gui-build")?.command ?? "", "GUI build command");
+requireIncludes("docs-release/release-posture.md", "signed installers, notarized builds, auto-update, release feeds, and published\n  artifacts are not shipped", "non-shipped release boundary");
 
 executeSourceRunSmoke();
 collectReleaseOverclaims();
