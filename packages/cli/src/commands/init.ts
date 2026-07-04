@@ -19,7 +19,11 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
     layout.cacheRoot,
     layout.writeJournalRoot,
     layout.payloadsRoot,
-    layout.locksRoot
+    layout.locksRoot,
+    // sessions is base infrastructure, not vertical-specific: every scenario gets it
+    // regardless of the active vertical, so it is created unconditionally here rather
+    // than via the vertical's repositoryScaffold.
+    layout.sessionsRoot
   ]) {
     mkdirSync(directory, { recursive: true });
   }

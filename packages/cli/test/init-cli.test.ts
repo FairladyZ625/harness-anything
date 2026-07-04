@@ -18,7 +18,7 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.match(config, new RegExp(`^name: ${path.basename(rootDir)}$`, "m"));
     assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/decisions")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/sessions")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/sessions")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/adr/README.md")), false);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/repo-governance.md"), "utf8"), /Repository Governance/u);
