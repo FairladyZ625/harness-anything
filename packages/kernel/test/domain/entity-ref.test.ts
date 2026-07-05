@@ -123,9 +123,10 @@ test("relation validator rejects host drift, duplicates, missing rationale, and 
 
 test("relation whitelist implements the ratified physical-direction matrix", () => {
   // dec_mr74sbka: every edge reads `source <verb> target` in the storage direction.
-  // decision->fact evidence: evidenced-by is canonical; supports is transitional.
+  // decision->fact evidence: evidenced-by is the single canonical verb; the transitional
+  // supports alias is gone now the ledger migration completed.
   assert.equal(isAllowedRelationKindTriple("decision", "evidenced-by", "fact"), true);
-  assert.equal(isAllowedRelationKindTriple("decision", "supports", "fact"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "supports", "fact"), false);
   assert.equal(isAllowedRelationKindTriple("decision", "supersedes-fact", "fact"), true);
   // decision->task: derives (spawned by the decision) or relates (later-found link).
   assert.equal(isAllowedRelationKindTriple("decision", "derives", "task"), true);

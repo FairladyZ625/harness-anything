@@ -115,21 +115,21 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
     amend: (request) => {
       const rejectedChange = firstNonAmendableDecisionChange(request.current, request.next);
       if (rejectedChange) return Effect.fail(rejection(request.current.decision_id, rejectedChange));
-      return writeDecision(options.coordinator, hashPayload, "decision_amend", request.next, request);
+      return writeDecision(options.coordinator, hashPayload, "decision_amend", request.next, request, request.current);
     },
     relate: (request) => {
       const next = {
         ...request.current,
         relations: [...request.current.relations, request.relation]
       };
-      return writeDecision(options.coordinator, hashPayload, "decision_relate", next, request);
+      return writeDecision(options.coordinator, hashPayload, "decision_relate", next, request, request.current);
     },
     retireRelation: (request) => {
       const retired = retireRelationRecord(request.current, request.relationId);
       if (!retired.ok) return Effect.fail(rejection(request.current.decision_id, retired.reason));
       const disposition = assertDispositionAllowed(options, `relation/${request.relationId}`, "retire", request.current.decision_id);
       if (disposition) return Effect.fail(disposition);
-      return writeDecision(options.coordinator, hashPayload, "relation_retire", retired.decision, request);
+      return writeDecision(options.coordinator, hashPayload, "relation_retire", retired.decision, request, request.current);
     },
     replaceRelation: (request) => {
       const retired = retireRelationRecord(request.current, request.relationId);
@@ -140,7 +140,7 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
         ...retired.decision,
         relations: [...retired.decision.relations, request.replacement]
       };
-      return writeDecision(options.coordinator, hashPayload, "relation_replace", next, request);
+      return writeDecision(options.coordinator, hashPayload, "relation_replace", next, request, request.current);
     },
     retire: (request) => transitionDecision(options, hashPayload, "decision_retire", request, "retired", timestamp())
   };
@@ -212,7 +212,7 @@ function transitionDecision(
     arbiter: request.arbiter,
     decidedAt: request.decidedAt ?? fallbackDecidedAt
   };
-  return writeDecision(options.coordinator, hashPayload, kind, next, request);
+  return writeDecision(options.coordinator, hashPayload, kind, next, request, request.current);
 }
 
 function assertDispositionAllowed(
@@ -236,9 +236,10 @@ function writeDecision(
   hashPayload: PayloadHasher,
   kind: WriteOpKind,
   decision: DecisionPackage,
-  request: { readonly body?: string; readonly opIdPrefix?: string }
+  request: { readonly body?: string; readonly opIdPrefix?: string },
+  previous?: DecisionPackage
 ): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError> {
-  const validation = validateDecisionWrite(decision);
+  const validation = validateDecisionWrite(decision, previous);
   if (validation) return Effect.fail(validation);
   return writeCoordinatedPayload(coordinator, hashPayload, {
     entityId: decisionEntityId(decision.decision_id),
@@ -251,16 +252,28 @@ function writeDecision(
   }).pipe(Effect.as({ decisionId: decision.decision_id, state: decision.state }));
 }
 
-function validateDecisionWrite(decision: DecisionPackage): DecisionWriteRejected | null {
+function validateDecisionWrite(decision: DecisionPackage, previous?: DecisionPackage): DecisionWriteRejected | null {
   if (sameActor(decision.proposedBy, decision.arbiter)) {
     return rejection(decision.decision_id, "decision arbiter must differ from proposedBy");
   }
   if (decision.rejected.length === 0 || decision.rejected.some((entry) => entry.why_not.trim().length === 0)) {
     return rejection(decision.decision_id, "decision rejected alternatives require non-empty why_not");
   }
+  // Delta enforcement: a write must not introduce new relation issues, but is not
+  // blocked by pre-existing issues it leaves untouched. Without this, a host holding
+  // two or more legacy-illegal edges deadlocks: replacing either edge fails whole-doc
+  // validation on the other, so the healing operation is blocked by the disease it
+  // exists to fix. Creates (no previous) still enforce the full set fail-closed.
   const relationIssues = validateRelationRecordsForHost(`decision/${decision.decision_id}`, decision.relations);
-  if (relationIssues.length > 0) {
-    return rejection(decision.decision_id, relationIssues.map((issue) => issue.message).join("; "));
+  const preexisting = previous
+    ? new Set(
+        validateRelationRecordsForHost(`decision/${previous.decision_id}`, previous.relations)
+          .map((issue) => `${issue.code}|${issue.relationId ?? ""}`)
+      )
+    : new Set<string>();
+  const introduced = relationIssues.filter((issue) => !preexisting.has(`${issue.code}|${issue.relationId ?? ""}`));
+  if (introduced.length > 0) {
+    return rejection(decision.decision_id, introduced.map((issue) => issue.message).join("; "));
   }
   try {
     Schema.decodeUnknownSync(DecisionPackageSchema)(decision);
