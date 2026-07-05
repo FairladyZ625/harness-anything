@@ -16,7 +16,8 @@ export const DecisionStateSchema = Schema.Literal(
 
 const DecisionAnchorSchema = Schema.Struct({
   id: AnchorIdSchema,
-  text: NonBlankStringSchema
+  text: NonBlankStringSchema,
+  load_bearing: Schema.optional(Schema.Boolean)
 });
 
 const RejectedDecisionAnchorSchema = Schema.Struct({

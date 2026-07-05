@@ -43,7 +43,7 @@ export const decisionFieldContracts = {
   question: immutable("changing the core question changes the decision identity; use supersede", projection("question", true), show("decision.question")),
   chosen: amendable([amendWrite("append")], projection("chosen", false), show("decision.chosen")),
   rejected: amendable([amendWrite("append")], projection("rejected", false), show("decision.rejected")),
-  claims: amendable([amendWrite("append")], show("decision.claims")),
+  claims: amendable([amendWrite("append"), amendWrite("replace")], show("decision.claims")),
   relations: immutable("relation changes require relation/evidence-specific write surfaces", show("decision.relations"))
 } satisfies Record<DecisionFieldKey, EntityFieldContract>;
 

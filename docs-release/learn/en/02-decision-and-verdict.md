@@ -64,13 +64,11 @@ array stuffed into the document's frontmatter. This is deliberate:
 relation-based coverage means "is this claim reachable from a living fact?" is a
 graph query, not a count of entries in a list.
 
-It's also why the **acceptance contract** is defined in terms of coverage. The
-rule a decision is held to is: it can't go active unless enough of its
-load-bearing claims can reach supporting evidence. The question isn't "did you
-fill in the evidence field" — it's "can each claim actually reach a fact that
-backs it." That contract is enforced through checker profiles: a strict profile
-turns thin coverage into a blocked acceptance, so the depth of enforcement is a
-property of the profile you run, not a single hard-coded switch.
+That does **not** make acceptance a coverage gate. Accept is a judgment gate: a
+decision can go active once it has at least one evidence relation from a claim
+to a real graph entity, or an explicit judgment-only rationale. Full per-claim
+coverage is enforced later at reckoning and milestone exit, where facts now
+exist. There the checker fails closed for any uncovered load-bearing claim.
 
 ## The ADR is a projection, not a parallel ledger
 

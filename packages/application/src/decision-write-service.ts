@@ -40,6 +40,7 @@ export interface DecisionTransitionRequest {
   readonly current: DecisionPackage;
   readonly arbiter: DecisionPackage["arbiter"];
   readonly decidedAt?: string;
+  readonly judgmentOnlyRationale?: string;
   readonly body?: string;
   readonly opIdPrefix?: string;
 }
@@ -202,6 +203,10 @@ function transitionDecision(
   if (!transition.allowed) {
     return Effect.fail(rejection(request.current.decision_id, `decision state transition ${request.current.state} -> ${to} rejected: ${transition.reason}`));
   }
+  if (kind === "decision_accept" && request.current.state === "proposed") {
+    const evidenceFloor = acceptEvidenceFloor(request.current, request.judgmentOnlyRationale);
+    if (evidenceFloor) return Effect.fail(evidenceFloor);
+  }
   if (kind === "decision_retire") {
     const disposition = assertDispositionAllowed(options, `decision/${request.current.decision_id}`, "retire", request.current.decision_id);
     if (disposition) return Effect.fail(disposition);
@@ -212,7 +217,29 @@ function transitionDecision(
     arbiter: request.arbiter,
     decidedAt: request.decidedAt ?? fallbackDecidedAt
   };
-  return writeDecision(options.coordinator, hashPayload, kind, next, request, request.current);
+  return writeDecision(options.coordinator, hashPayload, kind, next, {
+    ...request,
+    body: kind === "decision_accept" ? withJudgmentOnlyBody(request) : request.body
+  }, request.current);
+}
+
+function acceptEvidenceFloor(decision: DecisionPackage, judgmentOnlyRationale?: string): DecisionWriteRejected | null {
+  if (judgmentOnlyRationale?.trim()) return null;
+  const claimRefs = new Set(decision.claims.map((claim) => `decision/${decision.decision_id}/${claim.id}`));
+  const hasEvidence = decision.relations.some((relation) =>
+    relation.state === "active" &&
+    claimRefs.has(relation.source) &&
+    /^(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|task\/[A-Za-z0-9_-]+|decision\/[A-Za-z0-9_-]+(?:\/[A-Za-z][A-Za-z0-9_-]*)?)$/u.test(relation.target)
+  );
+  return hasEvidence ? null : rejection(decision.decision_id, "decision_accept requires at least one evidence relation from a claim anchor, or --judgment-only <rationale>");
+}
+
+function withJudgmentOnlyBody(request: DecisionTransitionRequest): string | undefined {
+  const rationale = request.judgmentOnlyRationale?.trim();
+  if (!rationale) return request.body;
+  const existing = request.body?.trimEnd() ?? "";
+  const section = `## Judgment-only acceptance\n\n${rationale}`;
+  return existing ? `${existing}\n\n${section}` : section;
 }
 
 function assertDispositionAllowed(

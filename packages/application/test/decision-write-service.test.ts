@@ -7,13 +7,33 @@ import { Effect } from "effect";
 import { makeDecisionWriteService, readDecisionDocument, type DecisionWriteRejected } from "../src/index.ts";
 import { deriveRelationId, type DecisionPackage, type EntityRelationRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
 
-test("decision write service proposes and accepts through WriteCoordinator", () => {
+test("decision accept blocks zero-evidence decisions without judgment-only rationale", () => {
+  const service = makeDecisionWriteService({
+    coordinator: fakeCoordinator([]),
+    now: () => "2026-07-02T00:00:00Z"
+  });
+  const proposed = decisionPackage({ state: "proposed" });
+
+  const result = Effect.runSyncExit(service.accept({
+    current: proposed,
+    arbiter: { kind: "human", id: "ZeyuLi" },
+    opIdPrefix: "accept"
+  }));
+
+  assert.equal(result._tag, "Failure");
+  assert.match(failureReason(result.cause), /requires at least one evidence relation/u);
+});
+
+test("decision write service proposes and accepts through WriteCoordinator with evidence", () => {
   const enqueued: WriteOp[] = [];
   const service = makeDecisionWriteService({
     coordinator: fakeCoordinator(enqueued),
     now: () => "2026-07-02T00:00:00Z"
   });
-  const proposed = decisionPackage({ state: "proposed" });
+  const proposed = decisionPackage({
+    state: "proposed",
+    relations: [relationRecord("decision/dec_TEST/C1", "fact/task_01ABC/F-1234ABCD")]
+  });
 
   const propose = Effect.runSync(service.propose({ decision: proposed, opIdPrefix: "propose" }));
   const accept = Effect.runSync(service.accept({
@@ -29,6 +49,27 @@ test("decision write service proposes and accepts through WriteCoordinator", () 
   assert.equal(enqueued[1]?.kind, "decision_accept");
   assert.equal((enqueued[1]?.payload as { decision?: DecisionPackage }).decision?.state, "active");
   assert.equal((enqueued[1]?.payload as { decision?: DecisionPackage }).decision?.decidedAt, "2026-07-02T00:00:00Z");
+});
+
+test("decision accept permits explicit judgment-only rationale and records it in body", () => {
+  const enqueued: WriteOp[] = [];
+  const service = makeDecisionWriteService({
+    coordinator: fakeCoordinator(enqueued),
+    now: () => "2026-07-02T00:00:00Z"
+  });
+  const proposed = decisionPackage({ state: "proposed" });
+
+  const result = Effect.runSync(service.accept({
+    current: proposed,
+    arbiter: { kind: "human", id: "ZeyuLi" },
+    judgmentOnlyRationale: "CEO accepted this as a judgment-only policy choice.",
+    opIdPrefix: "accept"
+  }));
+
+  assert.deepEqual(result, { decisionId: "dec_TEST", state: "active" });
+  const payload = enqueued[0]?.payload as { readonly body?: string };
+  assert.match(payload.body ?? "", /## Judgment-only acceptance/u);
+  assert.match(payload.body ?? "", /CEO accepted this as a judgment-only policy choice/u);
 });
 
 test("decision write service rejects invalid arbiter and unsupported transitions", () => {

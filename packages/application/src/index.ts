@@ -57,6 +57,7 @@ export type {
 } from "./runtime-event-ledger-service.ts";
 import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 export {
+  evaluateDecisionReckonGate,
   evaluateCompletionGate,
   evaluateReviewGate,
   isCloseoutPlaceholderMarkdown,
@@ -70,6 +71,8 @@ export {
 } from "./task-lifecycle-orchestrator.ts";
 export type {
   CompletionGateInput,
+  DecisionReckonGateInput,
+  DecisionReckonGateResult,
   PhaseRow,
   ReviewFinding,
   ReviewGateInput,

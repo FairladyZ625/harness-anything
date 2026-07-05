@@ -30,8 +30,9 @@ function applyDecisionAmendPatch(
   patch: DecisionAmendPatchInput
 ): { readonly ok: true; readonly next: DecisionPackage } | { readonly ok: false; readonly reason: string } {
   if (patch.operation === "replace") {
-    if (patch.field !== "title") return { ok: false, reason: `replace is not supported for decision field: ${patch.field}` };
-    return { ok: true, next: { ...current, title: patch.value } };
+    if (patch.field === "title") return { ok: true, next: { ...current, title: patch.value } };
+    if (patch.field === "claims") return replaceClaimLoadBearing(current, patch.value);
+    return { ok: false, reason: `replace is not supported for decision field: ${patch.field}` };
   }
   if (patch.field === "chosen") {
     const entry = parseDecisionAnchorPatch(patch.value);
@@ -48,12 +49,33 @@ function applyDecisionAmendPatch(
   return { ok: false, reason: `append is not supported for decision field: ${patch.field}` };
 }
 
+function replaceClaimLoadBearing(
+  current: DecisionPackage,
+  value: string
+): { readonly ok: true; readonly next: DecisionPackage } | { readonly ok: false; readonly reason: string } {
+  const parsed = parsePatchObject(value);
+  if (!parsed) return { ok: false, reason: "claims replace requires JSON object with id and load_bearing" };
+  const id = typeof parsed.id === "string" ? parsed.id : "";
+  const loadBearing = typeof parsed.load_bearing === "boolean" ? parsed.load_bearing : undefined;
+  if (!id || loadBearing === undefined) return { ok: false, reason: "claims replace requires JSON object with id and load_bearing" };
+  let found = false;
+  const claims = current.claims.map((claim) => {
+    if (claim.id !== id) return claim;
+    found = true;
+    return { ...claim, load_bearing: loadBearing };
+  });
+  return found
+    ? { ok: true, next: { ...current, claims } }
+    : { ok: false, reason: `claim not found for load_bearing amendment: ${id}` };
+}
+
 function parseDecisionAnchorPatch(value: string): DecisionPackage["chosen"][number] | null {
   const parsed = parsePatchObject(value);
   if (!parsed) return null;
   const id = typeof parsed.id === "string" ? parsed.id : "";
   const text = typeof parsed.text === "string" ? parsed.text : "";
-  return id && text ? { id, text } : null;
+  const loadBearing = typeof parsed.load_bearing === "boolean" ? parsed.load_bearing : undefined;
+  return id && text ? { id, text, ...(loadBearing !== undefined ? { load_bearing: loadBearing } : {}) } : null;
 }
 
 function parseRejectedDecisionAnchorPatch(value: string): DecisionPackage["rejected"][number] | null {

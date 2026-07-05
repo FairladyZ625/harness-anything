@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  evaluateDecisionReckonGate,
   evaluateCompletionGate,
   evaluateReviewGate,
   isCloseoutPlaceholderMarkdown,
@@ -151,4 +152,42 @@ test("completion gate reports readiness without mutating lifecycle axes", () => 
   });
   assert.equal(failed.ok, false);
   assert.deepEqual(failed.issues.map((issue) => issue.code), ["review_not_passed", "closeout_not_ready"]);
+});
+
+test("decision reckon gate fails closed on uncovered load-bearing claims", () => {
+  const result = evaluateDecisionReckonGate({
+    decisionId: "dec_RECKON",
+    claims: [
+      { id: "C1", text: "Covered claim" },
+      { id: "C2", text: "Uncovered claim" }
+    ],
+    coverageRows: [
+      { decisionRef: "decision/dec_RECKON", claimRef: "decision/dec_RECKON/C1", status: "covered", coveringFactRef: "fact/task-a/F-11111111", relationPath: ["rel_1"] },
+      { decisionRef: "decision/dec_RECKON", claimRef: "decision/dec_RECKON/C2", status: "uncovered", relationPath: [] }
+    ],
+    reckonedAt: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "failed");
+  assert.deepEqual(result.uncoveredClaimRefs, ["decision/dec_RECKON/C2"]);
+});
+
+test("decision reckon gate passes covered load-bearing claims and ignores non-load-bearing claims", () => {
+  const result = evaluateDecisionReckonGate({
+    decisionId: "dec_RECKON",
+    claims: [
+      { id: "C1", text: "Covered claim" },
+      { id: "C2", text: "Non-load-bearing claim", load_bearing: false }
+    ],
+    coverageRows: [
+      { decisionRef: "decision/dec_RECKON", claimRef: "decision/dec_RECKON/C1", status: "covered", coveringFactRef: "fact/task-a/F-11111111", relationPath: ["rel_1"] },
+      { decisionRef: "decision/dec_RECKON", claimRef: "decision/dec_RECKON/C2", status: "uncovered", relationPath: [] }
+    ],
+    reckonedAt: "2026-07-05T00:00:00.000Z"
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "passed");
+  assert.deepEqual(result.loadBearingClaimRefs, ["decision/dec_RECKON/C1"]);
 });

@@ -62,13 +62,14 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task relate depends-on", argv: ["task", "relate", "task_1", "depends-on", "task_2", "--rationale", "needs output"], kind: "task-relate", fields: { sourceTaskId: "task_1", relationType: "depends-on", targetTaskId: "task_2", rationale: "needs output", dryRun: false } },
   {
     name: "decision propose",
-    argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--dry-run"],
+    argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--non-load-bearing", "--dry-run"],
     kind: "decision-propose",
-    fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: "Chosen", rejected: "Rejected", whyNot: "Because", riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], dryRun: true }
+    fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: "Chosen", rejected: "Rejected", whyNot: "Because", riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], claimLoadBearing: false, dryRun: true }
   },
   { name: "decision list", argv: ["decision", "list", "--search", "self-host", "--legacy-id", "E72", "--legacy-range", "E1-E72", "--state", "active", "--module", "m5-circulation", "--product-line", "kernel", "--compact"], kind: "decision-list", fields: { search: "self-host", legacyId: "E72", legacyRange: "E1-E72", state: "active", moduleKey: "m5-circulation", productLine: "kernel", compact: true } },
   { name: "decision show", argv: ["decision", "show", "E72"], kind: "decision-show", fields: { selector: "E72" } },
-  { name: "decision accept", argv: ["decision", "accept", "dec_TEST", "--arbiter", "human:ZeyuLi"], kind: "decision-accept", fields: { decisionId: "dec_TEST", arbiter: "human:ZeyuLi" } },
+  { name: "decision accept", argv: ["decision", "accept", "dec_TEST", "--arbiter", "human:ZeyuLi", "--judgment-only", "Manual judgment"], kind: "decision-accept", fields: { decisionId: "dec_TEST", arbiter: "human:ZeyuLi", judgmentOnlyRationale: "Manual judgment" } },
+  { name: "decision reckon", argv: ["decision", "reckon", "dec_TEST", "--task", "task_1"], kind: "decision-reckon", fields: { decisionId: "dec_TEST", taskId: "task_1" } },
   { name: "decision reject", argv: ["decision", "reject", "dec_TEST"], kind: "decision-reject", fields: { decisionId: "dec_TEST" } },
   { name: "decision defer", argv: ["decision", "defer", "dec_TEST"], kind: "decision-defer", fields: { decisionId: "dec_TEST" } },
   { name: "decision supersede", argv: ["decision", "supersede", "dec_TEST"], kind: "decision-supersede", fields: { decisionId: "dec_TEST" } },

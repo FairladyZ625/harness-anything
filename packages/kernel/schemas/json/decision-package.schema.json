@@ -117,7 +117,8 @@
       "required": ["id", "text"],
       "properties": {
         "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
-        "text": { "$ref": "#/$defs/nonBlankString" }
+        "text": { "$ref": "#/$defs/nonBlankString" },
+        "load_bearing": { "type": "boolean" }
       }
     },
     "rejectedDecisionAnchor": {

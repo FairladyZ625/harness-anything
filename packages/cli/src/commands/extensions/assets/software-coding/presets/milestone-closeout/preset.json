@@ -11,7 +11,7 @@
     "check": {
       "type": "script",
       "command": "scripts/preset-action.mjs",
-      "reads": ["{{outputRoot}}/**", "{{paths.milestonesRoot}}/**"],
+      "reads": ["{{outputRoot}}/**", "{{paths.milestonesRoot}}/**", "{{paths.decisionsRoot}}/**", "{{paths.tasksRoot}}/*/**"],
       "writes": ["{{outputRoot}}/**"],
       "inputs": {
         "milestoneCriteriaRoots": "{{paths.milestonesRoot}}"

@@ -83,6 +83,45 @@ export interface CompletionGateIssue {
   readonly message: string;
 }
 
+export interface DecisionReckonClaim {
+  readonly id: string;
+  readonly text: string;
+  readonly load_bearing?: boolean;
+}
+
+export interface DecisionReckonCoverageRow {
+  readonly decisionRef: string;
+  readonly claimRef: string;
+  readonly status: "covered" | "uncovered";
+  readonly coveringFactRef?: string;
+  readonly relationPath: ReadonlyArray<string>;
+}
+
+export interface DecisionReckonGateInput {
+  readonly decisionId: string;
+  readonly claims: ReadonlyArray<DecisionReckonClaim>;
+  readonly coverageRows: ReadonlyArray<DecisionReckonCoverageRow>;
+  readonly reckonedAt: string;
+}
+
+export type DecisionReckonGateResult = {
+  readonly ok: true;
+  readonly status: "passed";
+  readonly decisionRef: string;
+  readonly reckonedAt: string;
+  readonly loadBearingClaimRefs: ReadonlyArray<string>;
+  readonly uncoveredClaimRefs: readonly [];
+  readonly coveredClaimRefs: ReadonlyArray<string>;
+} | {
+  readonly ok: false;
+  readonly status: "failed";
+  readonly decisionRef: string;
+  readonly reckonedAt: string;
+  readonly loadBearingClaimRefs: ReadonlyArray<string>;
+  readonly uncoveredClaimRefs: ReadonlyArray<string>;
+  readonly coveredClaimRefs: ReadonlyArray<string>;
+};
+
 export interface TaskDocumentPlaceholderPolicy {
   readonly closeoutPlaceholderFingerprints: ReadonlyArray<string>;
 }
@@ -213,6 +252,25 @@ export function evaluateCompletionGate(input: CompletionGateInput): {
       closeoutReadiness: input.closeoutReadiness
     }
   };
+}
+
+export function evaluateDecisionReckonGate(input: DecisionReckonGateInput): DecisionReckonGateResult {
+  const decisionRef = `decision/${input.decisionId}`;
+  const coverageByClaimRef = new Map(input.coverageRows.map((row) => [row.claimRef, row]));
+  const loadBearingClaimRefs = input.claims
+    .filter((claim) => claim.load_bearing !== false)
+    .map((claim) => `${decisionRef}/${claim.id}`);
+  const uncoveredClaimRefs = loadBearingClaimRefs.filter((claimRef) => coverageByClaimRef.get(claimRef)?.status !== "covered");
+  const coveredClaimRefs = loadBearingClaimRefs.filter((claimRef) => coverageByClaimRef.get(claimRef)?.status === "covered");
+  const base = {
+    decisionRef,
+    reckonedAt: input.reckonedAt,
+    loadBearingClaimRefs,
+    coveredClaimRefs
+  };
+  return uncoveredClaimRefs.length === 0
+    ? { ok: true, status: "passed", ...base, uncoveredClaimRefs: [] }
+    : { ok: false, status: "failed", ...base, uncoveredClaimRefs };
 }
 
 function normalizeHeader(line: string): string {

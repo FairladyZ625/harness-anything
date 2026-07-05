@@ -39,14 +39,29 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
     });
   }
   if (op === "propose") return parseDecisionPropose(args, rootDir, json);
+  if (op === "reckon" && args[2]) {
+    const taskId = readOption(args, "--task");
+    if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use decision reckon <decision-id> --task <task-id>.") };
+    return parsedDecision(rootDir, json, {
+      kind: "decision-reckon",
+      decisionId: args[2],
+      taskId,
+      dryRun: args.includes("--dry-run")
+    });
+  }
   if (transitionOps.has(op ?? "") && args[2]) {
     const arbiter = readOption(args, "--arbiter");
     if (arbiter && !isActorRef(arbiter)) return invalidActor();
+    const judgmentOnlyRationale = readOption(args, "--judgment-only");
+    if (op === "accept" && args.includes("--judgment-only") && (!judgmentOnlyRationale || judgmentOnlyRationale.trim().length === 0)) {
+      return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use decision accept <decision-id> --judgment-only <rationale>.") };
+    }
     return parsedDecision(rootDir, json, {
       kind: `decision-${op}` as "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire",
       decisionId: args[2]!,
       arbiter,
       decidedAt: readOption(args, "--decided-at"),
+      ...(op === "accept" && judgmentOnlyRationale ? { judgmentOnlyRationale } : {}),
       body: readOption(args, "--body"),
       dryRun: args.includes("--dry-run")
     });
@@ -65,13 +80,20 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
   }
   if (op === "relate" && args[2]) return parseDecisionRelate(args, rootDir, json);
   if (op === "relation") return parseDecisionRelationOp(args, rootDir, json);
-  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|relate|relation|retire.") };
+  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|relate|reckon|relation|retire.") };
 }
 
 function parseDecisionAmendPatches(args: ReadonlyArray<string>):
   | { readonly ok: true; readonly value: ReadonlyArray<DecisionAmendPatchInput> }
   | { readonly ok: false; readonly error: CliResult["error"] } {
   const patches: DecisionAmendPatchInput[] = [];
+  const loadBearingClaimId = readOption(args, "--load-bearing");
+  const nonLoadBearingClaimId = readOption(args, "--non-load-bearing");
+  if (loadBearingClaimId && nonLoadBearingClaimId) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "Use only one of --load-bearing or --non-load-bearing for decision amend.") };
+  }
+  if (loadBearingClaimId) patches.push(loadBearingPatch(loadBearingClaimId, true));
+  if (nonLoadBearingClaimId) patches.push(loadBearingPatch(nonLoadBearingClaimId, false));
   for (const value of readRepeatedRawOption(args, "--set")) {
     const parsed = parseDecisionAmendPatch("replace", value);
     if (!parsed.ok) return parsed;
@@ -83,6 +105,14 @@ function parseDecisionAmendPatches(args: ReadonlyArray<string>):
     patches.push(parsed.value);
   }
   return { ok: true, value: patches };
+}
+
+function loadBearingPatch(claimId: string, loadBearing: boolean): DecisionAmendPatchInput {
+  return {
+    field: "claims",
+    operation: "replace",
+    value: JSON.stringify({ id: claimId, load_bearing: loadBearing })
+  };
 }
 
 function parseDecisionAmendPatch(operation: DecisionAmendPatchInput["operation"], value: string | undefined):
@@ -134,6 +164,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     rejected,
     whyNot,
     claim: readOption(args, "--claim"),
+    claimLoadBearing: !args.includes("--non-load-bearing"),
     riskTier,
     urgency,
     proposedBy,

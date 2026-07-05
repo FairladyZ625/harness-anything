@@ -41,7 +41,7 @@ propose ──▶ accept / reject / defer
 
 一个承重的 decision 进入集中存放的 `decisions/` 目录,它的证据被记录为**类型化的关系**——图里真实存在的边——而不是塞进文档 frontmatter 里的一个数组。这是刻意的设计:基于关系的 coverage(覆盖)意味着"这条主张能否从一个仍然存活的 fact 触达"是一个图查询,而不是数一数列表里有几项。
 
-这也是为什么**接受约定(acceptance contract)**要用 coverage 来定义。decision 被要求满足的规则是:除非有足够比例的承重主张能够触达支持性证据,否则它不能进入 active 状态。问题不是"你把证据字段填了没有",而是"每条主张是否真的能触达一个支持它的 fact"。这条约定由 checker profile 来执行:严格的 profile 会把覆盖不足直接变成被阻断的接受结果,所以执行的严格程度是你所运行的那个 profile 的属性,而不是某个写死的单一开关。
+但这并不意味着 accept 是 coverage gate。accept 是判断门:只要某条主张至少有一条证据关系连到真实图实体,或者显式记录了 judgment-only 理由,decision 就可以进入 active。完整的逐主张覆盖检查发生在后续 reckon 和 milestone exit,那时 fact 已经产生。此时 checker 会对任何未覆盖的承重主张 fail closed。
 
 ## ADR 是一个投影,不是另一本平行账本
 

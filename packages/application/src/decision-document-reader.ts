@@ -159,6 +159,8 @@ function parseBlockObjectLine(value: string): Record<string, unknown> {
 function parseFlowValue(value: string): unknown {
   if (value.startsWith("{")) return parseFlowObject(value);
   if (value.startsWith("[")) return parseStringArray(value);
+  if (value === "true") return true;
+  if (value === "false") return false;
   return unquote(value);
 }
 
