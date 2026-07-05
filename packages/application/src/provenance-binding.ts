@@ -1,11 +1,12 @@
 import { Effect } from "effect";
 import type { CurrentSessionProbePort, ProvenancePayload } from "../../kernel/src/index.ts";
 import { currentSessionToProvenancePayload } from "./current-session-probe.ts";
-import type { ProvenanceSessionExporter, ProvenanceSessionExporterRejected } from "./provenance-session-exporter.ts";
+import type { ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult } from "./provenance-session-exporter.ts";
 
 export interface ProvenanceBindingOptions {
   readonly currentSessionProbe?: CurrentSessionProbePort;
   readonly provenanceSessionExporter?: ProvenanceSessionExporter;
+  readonly syncExportedSession?: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
 }
 
 export function bindCreateProvenance(
@@ -19,6 +20,7 @@ export function bindCreateProvenance(
       if (!options.provenanceSessionExporter) return Effect.succeed(provenance);
       return options.provenanceSessionExporter.readById(session.sessionId).pipe(
         Effect.catchAll(() => options.provenanceSessionExporter!.exportSession(session)),
+        Effect.flatMap((result) => options.syncExportedSession ? options.syncExportedSession(result) : Effect.void),
         Effect.as(provenance)
       );
     })

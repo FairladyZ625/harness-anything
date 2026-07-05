@@ -11,7 +11,6 @@ import {
   parseFactFlowRecords,
   taskEntityId,
   type EntityRelationRecord,
-  type CurrentSessionProbePort,
   type FactConfidence,
   type FactMemoryClass,
   type FactMemoryTag,
@@ -23,14 +22,11 @@ import {
 } from "../../kernel/src/index.ts";
 import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
-import { bindCreateProvenance } from "./provenance-binding.ts";
-import type { ProvenanceSessionExporter } from "./provenance-session-exporter.ts";
+import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 
-export interface FactWriteServiceOptions {
+export interface FactWriteServiceOptions extends ProvenanceBindingOptions {
   readonly rootInput: HarnessLayoutInput;
   readonly coordinator: WriteCoordinator;
-  readonly currentSessionProbe?: CurrentSessionProbePort;
-  readonly provenanceSessionExporter?: ProvenanceSessionExporter;
   readonly hashPayload?: PayloadHasher;
   readonly now?: () => string;
   readonly generateFactId?: () => string;

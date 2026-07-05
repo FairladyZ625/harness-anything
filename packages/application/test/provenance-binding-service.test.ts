@@ -20,10 +20,14 @@ test("decision create service binds provenance and exports the session by id", (
       currentSessionProbe: probe,
       now: () => "2026-07-03T00:02:00.000Z"
     });
+    const syncedPaths: string[] = [];
     const service = makeDecisionWriteService({
       coordinator: fakeCoordinator(enqueued),
       currentSessionProbe: probe,
       provenanceSessionExporter: exporter,
+      syncExportedSession: (result) => Effect.sync(() => {
+        syncedPaths.push(result.path);
+      }),
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
@@ -38,6 +42,7 @@ test("decision create service binds provenance and exports the session by id", (
     const session = Effect.runSync(exporter.readById("human-cli-1783036800000"));
     assert.equal(session.path, "sessions/human-cli-1783036800000.md");
     assert.equal(session.session.runtime, "human");
+    assert.deepEqual(syncedPaths, ["sessions/human-cli-1783036800000.md"]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -56,11 +61,15 @@ test("fact create service binds provenance into the single-line record and expor
       currentSessionProbe: probe,
       now: () => "2026-07-03T00:02:00.000Z"
     });
+    const syncedPaths: string[] = [];
     const service = makeFactWriteService({
       rootInput: rootDir,
       coordinator: fakeCoordinator(enqueued),
       currentSessionProbe: probe,
       provenanceSessionExporter: exporter,
+      syncExportedSession: (result) => Effect.sync(() => {
+        syncedPaths.push(result.path);
+      }),
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
@@ -78,6 +87,7 @@ test("fact create service binds provenance into the single-line record and expor
     const session = Effect.runSync(exporter.readById("human-cli-1783036800000"));
     assert.equal(session.path, "sessions/human-cli-1783036800000.md");
     assert.equal(session.session.runtime, "human");
+    assert.deepEqual(syncedPaths, ["sessions/human-cli-1783036800000.md"]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

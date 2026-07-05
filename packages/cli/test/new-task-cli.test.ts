@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -70,6 +70,36 @@ test("CLI task create persists work kind and priority metadata", () => {
   });
 });
 
+test("CLI task create commits automatically exported runtime session provenance", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const sessionId = "019f32b3-0c38-7720-841d-b41048092cc8";
+    mkdirSync(harnessRoot, { recursive: true });
+    initHarnessGit(harnessRoot);
+
+    const result = runJson(rootDir, [
+      "new-task",
+      "--title",
+      "Runtime Provenance",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ], true, {
+      ...noAgentRuntimeEnv,
+      CODEX_THREAD_ID: sessionId
+    });
+    const taskId = assertGeneratedTaskId(result.taskId);
+    const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-runtime-provenance/INDEX.md`), "utf8");
+    const sessionPath = path.join(harnessRoot, "sessions", `${sessionId}.md`);
+
+    assert.match(index, new RegExp(`sessionId: "${sessionId}"`, "u"));
+    assert.match(readFileSync(sessionPath, "utf8"), new RegExp(`sessionId: ${sessionId}`, "u"));
+    execFileSync("git", ["-C", harnessRoot, "ls-files", "--error-unmatch", `sessions/${sessionId}.md`], { stdio: "ignore" });
+    assert.equal(gitStatus(harnessRoot), "");
+  });
+});
+
 function assertHumanProvenance(rootDir: string, index: string): void {
   assert.match(index, /provenance:\n  - \{runtime: "human", sessionId: "human-cli-\d+", boundAt: "\d{4}-\d{2}-\d{2}T/u);
   const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(index)?.[1];
@@ -118,4 +148,17 @@ function runText(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stderr?: string };
     return failure.stderr ?? "";
   }
+}
+
+function initHarnessGit(harnessRoot: string): void {
+  execFileSync("git", ["-C", harnessRoot, "init"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "config", "user.name", "Harness Test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
+  writeFileSync(path.join(harnessRoot, ".gitkeep"), "");
+  execFileSync("git", ["-C", harnessRoot, "add", "--", ".gitkeep"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "seed"], { stdio: "ignore" });
+}
+
+function gitStatus(harnessRoot: string): string {
+  return execFileSync("git", ["-C", harnessRoot, "status", "--short"], { encoding: "utf8" }).trim();
 }

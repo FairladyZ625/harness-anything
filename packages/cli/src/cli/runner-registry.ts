@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, RuntimeEventLedgerService } from "../../../application/src/index.ts";
+import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService } from "../../../application/src/index.ts";
 import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
@@ -41,6 +41,7 @@ export interface CommandRunnerContext {
   readonly engine: CommandRunnerEngine;
   readonly currentSessionProbe: CurrentSessionProbePort;
   readonly provenanceSessionExporter: ProvenanceSessionExporter;
+  readonly syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
   readonly runtimeEventLedgerService: RuntimeEventLedgerService;
   readonly makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
   readonly decisionWriteService: DecisionWriteService;
@@ -133,6 +134,7 @@ export function runRegisteredCommand(
   makeEngine: () => CommandRunnerEngine,
   makeCurrentSessionProbe: () => CurrentSessionProbePort,
   makeProvenanceSessionExporter: () => ProvenanceSessionExporter,
+  syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>,
   makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator,
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService,
@@ -174,6 +176,7 @@ export function runRegisteredCommand(
       provenanceSessionExporter ??= makeProvenanceSessionExporter();
       return provenanceSessionExporter;
     },
+    syncExportedSession,
     makeWriteCoordinator,
     get decisionWriteService() {
       decisionWriteService ??= makeDecisionWriteService();

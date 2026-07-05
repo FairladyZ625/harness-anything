@@ -32,7 +32,7 @@ export function commitAuthoredPaths(
     .map((entry) => entry.trim())
     .filter(Boolean);
   if (staged.length === 0) return { attempted: true, committed: false, paths, reason: "no_changes" };
-  execFileSync("git", ["-C", layout.authoredRoot, "commit", "-m", message], { stdio: "ignore" });
+  execFileSync("git", ["-C", layout.authoredRoot, "commit", "-m", message], { stdio: "ignore", env: authoredGitEnv() });
   return { attempted: true, committed: true, paths: staged.map((entry) => normalizeSlashes(entry)) };
 }
 
@@ -98,4 +98,14 @@ function normalizeExistingPath(inputPath: string): string {
     current = parent;
   }
   return path.join(realpathSync.native(current), ...pendingSegments);
+}
+
+function authoredGitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
+    GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness@example.invalid"
+  };
 }
