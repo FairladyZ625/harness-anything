@@ -25,3 +25,9 @@
 设计是深思熟虑的，每个选择都有理由。这条路径讲解原语内核、决策和裁决机制、守门人(gate)、扩展模型和方法论。
 
 → **[learn/](learn/zh/00-overview.md)**
+
+## 看它到底是怎么建的
+
+读完 `learn/`，好奇*系统到底如何兑现那些主张*？这条路径讲机制：分层架构、三个实体如何落在磁盘上、单一写入路径、可重建的 SQLite 投影、守门人(gate)以及 vertical 引擎。
+
+→ **[architecture/](architecture/zh/00-overview.md)**

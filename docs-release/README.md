@@ -25,3 +25,9 @@ Install it, run one real loop, watch the structure grow, and see what it does fo
 The design is deliberate, and every choice has a reason. This path walks through the primitive kernel, the decision and adjudication mechanics, the gates, the extension model, and the methodology.
 
 → **[learn/](learn/en/00-overview.md)**
+
+## See how it's actually built
+
+Finished `learn/` and wondering *how the system delivers on those claims*? This path is the mechanism: the layered architecture, how the three entities live on disk, the single write path, the rebuildable SQLite projection, the gates, and the vertical engine.
+
+→ **[architecture/](architecture/en/00-overview.md)**
