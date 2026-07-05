@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
-import { isPathInside } from "../../cli/path.ts";
+import { isPathInside, normalizeSlashes } from "../../cli/path.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 
@@ -84,7 +84,7 @@ function findTrustedGuiWorkspaceRoot(): string | undefined {
   }
 }
 
-function isTrustedGuiWorkspaceRoot(candidate: string, cliEntrypointPath: string): boolean {
+export function isTrustedGuiWorkspaceRoot(candidate: string, cliEntrypointPath: string): boolean {
   const rootPackageJsonPath = path.join(candidate, "package.json");
   const cliPackageJsonPath = path.join(candidate, "packages/cli/package.json");
   const guiPackageJsonPath = path.join(candidate, "packages/gui/package.json");
@@ -92,7 +92,9 @@ function isTrustedGuiWorkspaceRoot(candidate: string, cliEntrypointPath: string)
 
   try {
     const cliPackageRoot = realpathSync(path.join(candidate, "packages/cli"));
-    if (!isPathInside(cliPackageRoot, cliEntrypointPath)) return false;
+    const realCliEntrypointPath = realpathSync(cliEntrypointPath);
+    if (!isPathInside(cliPackageRoot, realCliEntrypointPath)) return false;
+    if (!isSourceCheckoutCliEntrypoint(cliPackageRoot, realCliEntrypointPath)) return false;
 
     const rootPackageJson = readPackageJson(rootPackageJsonPath);
     const cliPackageJson = readPackageJson(cliPackageJsonPath);
@@ -110,4 +112,10 @@ function isTrustedGuiWorkspaceRoot(candidate: string, cliEntrypointPath: string)
 
 function readPackageJson(packageJsonPath: string): PackageJsonSummary {
   return JSON.parse(readFileSync(packageJsonPath, "utf8")) as PackageJsonSummary;
+}
+
+function isSourceCheckoutCliEntrypoint(cliPackageRoot: string, cliEntrypointPath: string): boolean {
+  const relativeEntrypoint = normalizeSlashes(path.relative(cliPackageRoot, cliEntrypointPath));
+  const segments = relativeEntrypoint.split("/");
+  return (segments[0] === "src" || segments[0] === "dist") && !segments.includes("node_modules");
 }

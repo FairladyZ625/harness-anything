@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { isTrustedGuiWorkspaceRoot } from "../src/commands/core/gui.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -65,6 +66,22 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
   });
 });
 
+test("CLI gui workspace trust rejects nested CLI installs under caller-controlled packages/cli", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessPackageJsons(rootDir);
+    const nestedCliEntrypoint = path.join(rootDir, "packages/cli/node_modules/@harness-anything/cli/dist/cli/src/commands/core/gui.js");
+    const sourceCliEntrypoint = path.join(rootDir, "packages/cli/src/commands/core/gui.ts");
+    const distCliEntrypoint = path.join(rootDir, "packages/cli/dist/cli/src/commands/core/gui.js");
+    writeEntrypoint(nestedCliEntrypoint);
+    writeEntrypoint(sourceCliEntrypoint);
+    writeEntrypoint(distCliEntrypoint);
+
+    assert.equal(isTrustedGuiWorkspaceRoot(rootDir, nestedCliEntrypoint), false);
+    assert.equal(isTrustedGuiWorkspaceRoot(rootDir, sourceCliEntrypoint), true);
+    assert.equal(isTrustedGuiWorkspaceRoot(rootDir, distCliEntrypoint), true);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-cli-"));
   try {
@@ -93,6 +110,26 @@ function runJson(
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function writeHarnessPackageJsons(rootDir: string): void {
+  mkdirSync(path.join(rootDir, "packages/cli"), { recursive: true });
+  mkdirSync(path.join(rootDir, "packages/gui"), { recursive: true });
+  writeFileSync(path.join(rootDir, "package.json"), JSON.stringify({
+    name: "harness-anything",
+    workspaces: ["packages/*", "packages/adapters/*"]
+  }));
+  writeFileSync(path.join(rootDir, "packages/cli/package.json"), JSON.stringify({
+    name: "@harness-anything/cli"
+  }));
+  writeFileSync(path.join(rootDir, "packages/gui/package.json"), JSON.stringify({
+    name: "@harness-anything/gui"
+  }));
+}
+
+function writeEntrypoint(entrypointPath: string): void {
+  mkdirSync(path.dirname(entrypointPath), { recursive: true });
+  writeFileSync(entrypointPath, "");
 }
 
 function waitForJsonMarker(markerPath: string): Record<string, any> {
