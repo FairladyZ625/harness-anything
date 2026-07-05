@@ -4,6 +4,7 @@ import { findEntityRefs, parseEntityRef } from "../../src/domain/entity-ref.ts";
 import {
   deriveRelationId,
   formatRelationFlowRecord,
+  isAllowedRelationKindTriple,
   validateRelationRecordsForHost
 } from "../../src/domain/entity-relation.ts";
 import type { EntityRelationRecord } from "../../src/domain/entity-relation.ts";
@@ -118,6 +119,18 @@ test("relation validator rejects host drift, duplicates, missing rationale, and 
       .map((issue) => issue.code),
     ["invalid_relation_endpoint"]
   );
+});
+
+test("decision->fact allows both supersedes-fact and the supports evidence relation", () => {
+  // Evidence relations are physically stored decision->fact (hosted in the decision,
+  // pointing at its supporting fact), authored via `decision relate ... --type supports`.
+  assert.equal(isAllowedRelationKindTriple("decision", "supports", "fact"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "supersedes-fact", "fact"), true);
+  // Direction remains enforced elsewhere: decision->task stays derives (not implements),
+  // and an unrelated type on decision->fact is still rejected.
+  assert.equal(isAllowedRelationKindTriple("decision", "derives", "task"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "implements", "task"), false);
+  assert.equal(isAllowedRelationKindTriple("decision", "blocks", "fact"), false);
 });
 
 test("relation flow formatter emits one flow-style line per record", () => {

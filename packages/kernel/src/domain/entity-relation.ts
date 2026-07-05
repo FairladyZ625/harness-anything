@@ -146,7 +146,12 @@ export function isAllowedRelationKindTriple(
     return type === "supersedes" || type === "refines" || type === "narrows" || type === "relates" || type === "blocks";
   }
   if (sourceKind === "decision" && targetKind === "task") return type === "derives";
-  if (sourceKind === "decision" && targetKind === "fact") return type === "supersedes-fact";
+  // decision->fact is the physical storage direction: the relation is hosted in the
+  // decision's frontmatter and points at the fact. "supports" is the standard evidence
+  // relation (the decision's claim is supported by the fact), authored from the decision
+  // side via `decision relate ... --type supports --target fact/...`. It reads
+  // semantically as fact->decision but is stored decision->fact, so it must be allowed here.
+  if (sourceKind === "decision" && targetKind === "fact") return type === "supersedes-fact" || type === "supports";
   if (sourceKind === "task" && targetKind === "decision") return type === "implements";
   if (sourceKind === "task" && targetKind === "task") return type === "blocks" || type === "relates";
   if (sourceKind === "task" && targetKind === "fact") return type === "produces" || type === "evidences";
