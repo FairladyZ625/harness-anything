@@ -1,22 +1,18 @@
-import path from "node:path";
 import { Effect } from "effect";
 import {
-  evaluateDecisionReckonGate,
-  type FactWriteRejected,
-  type FactWriteService,
   readDecisionDocument,
   type DecisionWriteService,
-  type DecisionCreateInput,
-  type DecisionWriteRejected
 } from "../../../../application/src/index.ts";
-import { deriveRelationId, readDecisionFactCoverage, type DecisionPackage, type DecisionState, type EntityRelationRecord, type WriteError } from "../../../../kernel/src/index.ts";
-import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
+import { type DecisionState, type WriteError } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, DecisionAmendPatchInput, ParsedCommand } from "../../cli/types.ts";
 import { applyDecisionAmendPatches } from "./decision-amend-patch.ts";
+import { runPropose } from "./decision-propose.ts";
 import { runDecisionQueryCommand } from "./decision-query.ts";
+import { runReckon } from "./decision-reckon.ts";
 import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetire } from "./decision-relate.ts";
+import { decisionFailure, decisionResult, parseActor } from "./decision-shared.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
   | "decision-propose" | "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace" | "decision-retire"
@@ -50,32 +46,6 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
       return runDecisionRelationReplace(context.layoutInput, service, action);
   }
 };
-
-function runPropose(
-  rootInput: HarnessLayoutInput,
-  service: DecisionWriteService,
-  action: Extract<DecisionAction, { readonly kind: "decision-propose" }>
-): Effect.Effect<CliResult, WriteError> {
-  const now = new Date().toISOString();
-  const baseDecision = proposedDecision(action, now, []);
-  const relations = decisionEvidenceRelations(baseDecision, action.evidenceRelations);
-  if (!relations.ok) {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-propose",
-      decisionId: baseDecision.decision_id,
-      error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relations.reason)
-    } satisfies CliResult);
-  }
-  const decision = { ...baseDecision, relations: relations.records };
-  if (action.dryRun) return Effect.succeed(decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true));
-  return service.propose({ decision, body: action.body }).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => decisionFailure("decision-propose", decision.decision_id, error),
-      onSuccess: (result): CliResult => decisionResult(rootInput, "decision-propose", result.decisionId, result.state, false)
-    })
-  );
-}
 
 function runTransition(
   rootInput: Parameters<typeof readDecisionDocument>[0],
@@ -144,167 +114,6 @@ function runAmend(
   );
 }
 
-function proposedDecision(
-  action: Extract<DecisionAction, { readonly kind: "decision-propose" }>,
-  now: string,
-  relations: ReadonlyArray<EntityRelationRecord>
-): DecisionCreateInput {
-  return {
-    schema: "decision-package/v1",
-    decision_id: action.decisionId ?? `dec_${Date.now().toString(36)}`,
-    title: action.title,
-    state: "proposed",
-    riskTier: action.riskTier,
-    urgency: action.urgency,
-    vertical: "software/coding",
-    preset: "architecture-decision",
-    applies_to: {
-      modules: [...action.modules],
-      productLines: [...action.productLines]
-    },
-    proposedBy: parseActor(action.proposedBy) ?? { kind: "agent", id: "decision-cli" },
-    proposedAt: now,
-    arbiter: parseActor(action.arbiter) ?? { kind: "human", id: process.env.USER || "local-human" },
-    question: action.question,
-    chosen: [{ id: "CH1", text: action.chosen }],
-    rejected: [{ id: "RJ1", text: action.rejected, why_not: action.whyNot }],
-    claims: [{ id: "C1", text: action.claim ?? action.chosen, ...(action.claimLoadBearing ? {} : { load_bearing: false }) }],
-    relations
-  };
-}
-
-function runReckon(
-  rootInput: HarnessLayoutInput,
-  factService: FactWriteService,
-  action: Extract<DecisionAction, { readonly kind: "decision-reckon" }>
-): Effect.Effect<CliResult, WriteError> {
-  return Effect.try({
-    try: () => readDecisionDocument(rootInput, action.decisionId).decision,
-    catch: (cause) => ({ _tag: "DecisionReadFailed" as const, cause })
-  }).pipe(
-    Effect.flatMap((decision) => {
-      const reckonedAt = new Date().toISOString();
-      const coverage = readDecisionFactCoverage({
-        rootDir: harnessRuntimeRoot(rootInput),
-        layoutOverrides: typeof rootInput === "string" ? undefined : rootInput.layoutOverrides,
-        decisionId: decision.decision_id
-      });
-      const gate = evaluateDecisionReckonGate({
-        decisionId: decision.decision_id,
-        claims: decision.claims,
-        coverageRows: coverage.rows,
-        reckonedAt
-      });
-      const statement = gate.ok
-        ? `Decision ${decision.decision_id} reckon passed: load-bearing claims all covered @${reckonedAt}.`
-        : `Decision ${decision.decision_id} reckon failed: uncovered load-bearing claims ${gate.uncoveredClaimRefs.join(", ")} @${reckonedAt}.`;
-      const report = { schema: "decision-reckon-report/v1" as const, ...gate, coverageRows: coverage.rows };
-      if (action.dryRun) return Effect.succeed(reckonResult(action, report, undefined, undefined, undefined));
-      return factService.record({
-        ownerTaskId: action.taskId,
-        statement,
-        source: `ha decision reckon ${decision.decision_id}`,
-        observedAt: reckonedAt,
-        confidence: "high",
-        memoryClass: "semantic",
-        memoryTags: []
-      }).pipe(
-        Effect.match({
-          onFailure: (error): CliResult => reckonFactFailure(action, report, error),
-          onSuccess: (fact): CliResult => reckonResult(action, report, fact.factId, fact.ref, fact.path)
-        })
-      );
-    }),
-    Effect.catchTag("DecisionReadFailed", () => Effect.succeed({
-      ok: false,
-      command: "decision-reckon",
-      decisionId: action.decisionId,
-      taskId: action.taskId,
-      error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
-    } satisfies CliResult))
-  );
-}
-
-function reckonResult(
-  action: Extract<DecisionAction, { readonly kind: "decision-reckon" }>,
-  report: ReturnType<typeof evaluateDecisionReckonGate> & { readonly schema: "decision-reckon-report/v1"; readonly coverageRows: unknown },
-  factId: string | undefined,
-  factRef: string | undefined,
-  factPath: string | undefined
-): CliResult {
-  const base = {
-    command: "decision-reckon",
-    decisionId: action.decisionId,
-    taskId: action.taskId,
-    ...(factId ? { factId } : {}),
-    ...(factRef ? { factRef } : {}),
-    ...(factPath ? { path: factPath } : {}),
-    report
-  };
-  return report.ok ? { ok: true, ...base } : {
-    ok: false,
-    ...base,
-    error: cliError(CliErrorCode.DecisionReckonUncovered, `Decision ${action.decisionId} has uncovered load-bearing claims: ${report.uncoveredClaimRefs.join(", ")}`)
-  };
-}
-
-function reckonFactFailure(
-  action: Extract<DecisionAction, { readonly kind: "decision-reckon" }>,
-  report: ReturnType<typeof evaluateDecisionReckonGate> & { readonly schema: "decision-reckon-report/v1"; readonly coverageRows: unknown },
-  error: FactWriteRejected | WriteError
-): CliResult {
-  const reason = "_tag" in error && error._tag === "FactWriteRejected" ? error.reason : JSON.stringify(error);
-  return {
-    ok: false,
-    command: "decision-reckon",
-    decisionId: action.decisionId,
-    taskId: action.taskId,
-    report,
-    error: cliError(CliErrorCode.FactWriteRejected, reason)
-  };
-}
-
-function decisionEvidenceRelations(
-  decision: DecisionCreateInput,
-  inputs: Extract<DecisionAction, { readonly kind: "decision-propose" }>["evidenceRelations"]
-): { readonly ok: true; readonly records: ReadonlyArray<EntityRelationRecord> } | { readonly ok: false; readonly reason: string } {
-  const anchorIds = new Set([
-    ...decision.claims.map((entry) => entry.id),
-    ...decision.chosen.map((entry) => entry.id),
-    ...decision.rejected.map((entry) => entry.id)
-  ]);
-  const records: EntityRelationRecord[] = [];
-  for (const input of inputs) {
-    if (!anchorIds.has(input.anchor)) {
-      return { ok: false, reason: `decision evidence relation source anchor does not exist: ${input.anchor}` };
-    }
-    const base = {
-      source: `decision/${decision.decision_id}/${input.anchor}`,
-      target: input.target,
-      type: input.type,
-      strength: "strong",
-      direction: "directed",
-      origin: "declared",
-      rationale: input.rationale,
-      state: "active"
-    } satisfies Omit<EntityRelationRecord, "relation_id">;
-    records.push({
-      relation_id: deriveRelationId(base),
-      ...base
-    });
-  }
-  return { ok: true, records };
-}
-
-function parseActor(value: string | undefined): DecisionPackage["arbiter"] | null {
-  if (!value) return null;
-  const separator = value.indexOf(":");
-  if (separator <= 0 || separator === value.length - 1) return null;
-  const kind = value.slice(0, separator);
-  if (kind !== "agent" && kind !== "human" && kind !== "system") return null;
-  return { kind, id: value.slice(separator + 1) };
-}
-
 function transitionState(kind: TransitionAction["kind"]): DecisionState {
   switch (kind) {
     case "decision-accept":
@@ -317,27 +126,4 @@ function transitionState(kind: TransitionAction["kind"]): DecisionState {
     case "decision-retire":
       return "retired";
   }
-}
-
-function decisionResult(rootInput: HarnessLayoutInput, command: string, decisionId: string, state: string, dryRun: boolean): CliResult {
-  const layout = resolveHarnessLayout(rootInput);
-  const documentPath = layout.decisionDocumentPath(decisionId);
-  return {
-    ok: true,
-    command,
-    decisionId,
-    decisionState: state,
-    path: path.relative(layout.rootDir, documentPath).split(path.sep).join("/"),
-    report: { schema: "decision-write-cli-report/v1", dryRun }
-  };
-}
-
-function decisionFailure(command: string, decisionId: string, error: DecisionWriteRejected | WriteError): CliResult {
-  const reason = "_tag" in error && error._tag === "DecisionWriteRejected" ? error.reason : JSON.stringify(error);
-  return {
-    ok: false,
-    command,
-    decisionId,
-    error: cliError(CliErrorCode.DecisionWriteRejected, reason)
-  };
 }

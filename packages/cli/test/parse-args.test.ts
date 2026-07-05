@@ -73,7 +73,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "decision reject", argv: ["decision", "reject", "dec_TEST"], kind: "decision-reject", fields: { decisionId: "dec_TEST" } },
   { name: "decision defer", argv: ["decision", "defer", "dec_TEST"], kind: "decision-defer", fields: { decisionId: "dec_TEST" } },
   { name: "decision supersede", argv: ["decision", "supersede", "dec_TEST"], kind: "decision-supersede", fields: { decisionId: "dec_TEST" } },
-  { name: "decision amend", argv: ["decision", "amend", "dec_TEST", "--title", "Updated", "--append", "rejected:{\"id\":\"RJ2\",\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}"], kind: "decision-amend", fields: { decisionId: "dec_TEST", title: "Updated", patches: [{ field: "rejected", operation: "append", value: "{\"id\":\"RJ2\",\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}" }] } },
+  { name: "decision amend", argv: ["decision", "amend", "dec_TEST", "--title", "Updated", "--non-load-bearing", "C2", "--append", "rejected:{\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}"], kind: "decision-amend", fields: { decisionId: "dec_TEST", title: "Updated", patches: [{ field: "claims", operation: "metadata", value: "{\"id\":\"C2\",\"load_bearing\":false}" }, { field: "rejected", operation: "append", value: "{\"text\":\"Manual mapping\",\"why_not\":\"Coverage gate required\"}" }] } },
   { name: "decision relate", argv: ["decision", "relate", "dec_TEST", "--anchor", "CH1", "--type", "supersedes", "--target", "decision/dec_OLD", "--rationale", "Newer decision replaces older storage claim"], kind: "decision-relate", fields: { decisionId: "dec_TEST", anchor: "CH1", relationType: "supersedes", target: "decision/dec_OLD", rationale: "Newer decision replaces older storage claim", dryRun: false } },
   { name: "decision relation retire", argv: ["decision", "relation", "retire", "dec_TEST", "--relation", "rel_0123456789abcdef"], kind: "decision-relation-retire", fields: { decisionId: "dec_TEST", relationId: "rel_0123456789abcdef", dryRun: false } },
   { name: "decision relation replace", argv: ["decision", "relation", "replace", "dec_TEST", "--relation", "rel_0123456789abcdef", "--anchor", "CH1", "--type", "relates", "--target", "decision/dec_OLD", "--rationale", "Replacement edge"], kind: "decision-relation-replace", fields: { decisionId: "dec_TEST", relationId: "rel_0123456789abcdef", anchor: "CH1", relationType: "relates", target: "decision/dec_OLD", rationale: "Replacement edge", dryRun: false } },
@@ -332,6 +332,7 @@ test("parseArgs injects inline JSON input before command parsers and keeps flags
     riskTier: "medium",
     urgency: "high",
     modules: ["cli", "m5-circulation"],
+    claims: [{ text: "JSON claim one" }, { id: "C9", text: "JSON claim two", load_bearing: false }],
     dryRun: true
   });
   const parsed = parseArgs([
@@ -352,6 +353,7 @@ test("parseArgs injects inline JSON input before command parsers and keeps flags
   assert.equal(parsed.value.action.rejected, "Per-parser payloads");
   assert.equal(parsed.value.action.whyNot, "They duplicate schema translation.");
   assert.deepEqual(parsed.value.action.modules, ["cli", "m5-circulation"]);
+  assert.deepEqual(parsed.value.action.claims, [{ text: "JSON claim one" }, { id: "C9", text: "JSON claim two", load_bearing: false }]);
   assert.equal(parsed.value.action.dryRun, true);
 });
 

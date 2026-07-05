@@ -31,19 +31,22 @@ function applyDecisionAmendPatch(
 ): { readonly ok: true; readonly next: DecisionPackage } | { readonly ok: false; readonly reason: string } {
   if (patch.operation === "replace") {
     if (patch.field === "title") return { ok: true, next: { ...current, title: patch.value } };
-    if (patch.field === "claims") return replaceClaimLoadBearing(current, patch.value);
     return { ok: false, reason: `replace is not supported for decision field: ${patch.field}` };
   }
+  if (patch.operation === "metadata") {
+    if (patch.field === "claims") return replaceClaimLoadBearing(current, patch.value);
+    return { ok: false, reason: `metadata is not supported for decision field: ${patch.field}` };
+  }
   if (patch.field === "chosen") {
-    const entry = parseDecisionAnchorPatch(patch.value);
+    const entry = parseDecisionAnchorPatch(patch.value, nextAnchorId("CH", current.chosen.map((anchor) => anchor.id)));
     return entry ? { ok: true, next: { ...current, chosen: [...current.chosen, entry] } } : { ok: false, reason: "chosen append requires JSON object with id and text" };
   }
   if (patch.field === "claims") {
-    const entry = parseDecisionAnchorPatch(patch.value);
+    const entry = parseDecisionAnchorPatch(patch.value, nextAnchorId("C", current.claims.map((anchor) => anchor.id)));
     return entry ? { ok: true, next: { ...current, claims: [...current.claims, entry] } } : { ok: false, reason: "claims append requires JSON object with id and text" };
   }
   if (patch.field === "rejected") {
-    const entry = parseRejectedDecisionAnchorPatch(patch.value);
+    const entry = parseRejectedDecisionAnchorPatch(patch.value, nextAnchorId("RJ", current.rejected.map((anchor) => anchor.id)));
     return entry ? { ok: true, next: { ...current, rejected: [...current.rejected, entry] } } : { ok: false, reason: "rejected append requires JSON object with id, text, and why_not" };
   }
   return { ok: false, reason: `append is not supported for decision field: ${patch.field}` };
@@ -69,22 +72,30 @@ function replaceClaimLoadBearing(
     : { ok: false, reason: `claim not found for load_bearing amendment: ${id}` };
 }
 
-function parseDecisionAnchorPatch(value: string): DecisionPackage["chosen"][number] | null {
+function parseDecisionAnchorPatch(value: string, fallbackId: string): DecisionPackage["chosen"][number] | null {
   const parsed = parsePatchObject(value);
   if (!parsed) return null;
-  const id = typeof parsed.id === "string" ? parsed.id : "";
+  const id = typeof parsed.id === "string" && parsed.id.trim() ? parsed.id : fallbackId;
   const text = typeof parsed.text === "string" ? parsed.text : "";
   const loadBearing = typeof parsed.load_bearing === "boolean" ? parsed.load_bearing : undefined;
   return id && text ? { id, text, ...(loadBearing !== undefined ? { load_bearing: loadBearing } : {}) } : null;
 }
 
-function parseRejectedDecisionAnchorPatch(value: string): DecisionPackage["rejected"][number] | null {
+function parseRejectedDecisionAnchorPatch(value: string, fallbackId: string): DecisionPackage["rejected"][number] | null {
   const parsed = parsePatchObject(value);
   if (!parsed) return null;
-  const id = typeof parsed.id === "string" ? parsed.id : "";
+  const id = typeof parsed.id === "string" && parsed.id.trim() ? parsed.id : fallbackId;
   const text = typeof parsed.text === "string" ? parsed.text : "";
   const whyNot = typeof parsed.why_not === "string" ? parsed.why_not : "";
   return id && text && whyNot ? { id, text, why_not: whyNot } : null;
+}
+
+function nextAnchorId(prefix: string, existingIds: ReadonlyArray<string>): string {
+  const max = existingIds.reduce((current, id) => {
+    const match = new RegExp(`^${prefix}(\\d+)$`, "u").exec(id);
+    return match ? Math.max(current, Number(match[1])) : current;
+  }, 0);
+  return `${prefix}${max + 1}`;
 }
 
 function parsePatchObject(value: string): Record<string, unknown> | null {

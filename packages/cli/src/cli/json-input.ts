@@ -109,6 +109,7 @@ function valuesForShortcut(payload: JsonObject, shortcut: CommandInputShortcut):
   if (shortcut.flag === "--why-not" && value === undefined) return rejectedWhyNot(payload);
   if (value === undefined || value === null) return [];
   if (shortcut.flag === "--chosen" || shortcut.flag === "--rejected") return firstTextValue(value);
+  if (shortcut.flag === "--claim") return claimValues(value);
   if (shortcut.flag === "--evidence-relation") return evidenceRelationValues(value);
   if (Array.isArray(value)) {
     if (shortcut.flag === "--module" || shortcut.flag === "--product-line") return [value.map(stringValue).filter(Boolean).join(",")].filter(Boolean);
@@ -116,6 +117,22 @@ function valuesForShortcut(payload: JsonObject, shortcut: CommandInputShortcut):
   }
   if (typeof value === "object") return [JSON.stringify(value)];
   return [value as string | number | boolean];
+}
+
+function claimValues(value: unknown): ReadonlyArray<string> {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry === "string") return [entry];
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as { readonly id?: unknown; readonly text?: unknown; readonly load_bearing?: unknown };
+    if (typeof candidate.text !== "string") return [];
+    return [JSON.stringify({
+      ...(typeof candidate.id === "string" ? { id: candidate.id } : {}),
+      text: candidate.text,
+      ...(typeof candidate.load_bearing === "boolean" ? { load_bearing: candidate.load_bearing } : {})
+    })];
+  });
 }
 
 function valueAtPath(payload: JsonObject, pathKey: string): unknown {

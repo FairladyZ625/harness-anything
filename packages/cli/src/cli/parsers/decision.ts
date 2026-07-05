@@ -1,13 +1,12 @@
 import {
-  decisionAmendFieldSupportsOperation,
-  isDecisionAmendField,
   parseEntityRef,
   relationTypes,
   type RelationType
 } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
-import type { CliResult, DecisionAmendPatchInput, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
+import type { CliResult, DecisionClaimInput, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
+import { parseDecisionAmendPatches } from "./decision-amend.ts";
 import { parseDecisionRelationOp } from "./decision-relation.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -83,59 +82,6 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
   return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|relate|reckon|relation|retire.") };
 }
 
-function parseDecisionAmendPatches(args: ReadonlyArray<string>):
-  | { readonly ok: true; readonly value: ReadonlyArray<DecisionAmendPatchInput> }
-  | { readonly ok: false; readonly error: CliResult["error"] } {
-  const patches: DecisionAmendPatchInput[] = [];
-  const loadBearingClaimId = readOption(args, "--load-bearing");
-  const nonLoadBearingClaimId = readOption(args, "--non-load-bearing");
-  if (loadBearingClaimId && nonLoadBearingClaimId) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "Use only one of --load-bearing or --non-load-bearing for decision amend.") };
-  }
-  if (loadBearingClaimId) patches.push(loadBearingPatch(loadBearingClaimId, true));
-  if (nonLoadBearingClaimId) patches.push(loadBearingPatch(nonLoadBearingClaimId, false));
-  for (const value of readRepeatedRawOption(args, "--set")) {
-    const parsed = parseDecisionAmendPatch("replace", value);
-    if (!parsed.ok) return parsed;
-    patches.push(parsed.value);
-  }
-  for (const value of readRepeatedRawOption(args, "--append")) {
-    const parsed = parseDecisionAmendPatch("append", value);
-    if (!parsed.ok) return parsed;
-    patches.push(parsed.value);
-  }
-  return { ok: true, value: patches };
-}
-
-function loadBearingPatch(claimId: string, loadBearing: boolean): DecisionAmendPatchInput {
-  return {
-    field: "claims",
-    operation: "replace",
-    value: JSON.stringify({ id: claimId, load_bearing: loadBearing })
-  };
-}
-
-function parseDecisionAmendPatch(operation: DecisionAmendPatchInput["operation"], value: string | undefined):
-  | { readonly ok: true; readonly value: DecisionAmendPatchInput }
-  | { readonly ok: false; readonly error: CliResult["error"] } {
-  if (!value || value.startsWith("--")) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "Use decision amend --set <field>:<value> or --append <field>:<json>.") };
-  }
-  const separator = value.indexOf(":");
-  if (separator <= 0) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "Use decision amend --set <field>:<value> or --append <field>:<json>.") };
-  }
-  const field = value.slice(0, separator).trim();
-  const patchValue = value.slice(separator + 1).trim();
-  if (!isDecisionAmendField(field) || !decisionAmendFieldSupportsOperation(field, operation)) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, `decision field is not ${operation}-amendable: ${field}`) };
-  }
-  if (!patchValue) {
-    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, `decision amend patch value is empty for field: ${field}`) };
-  }
-  return { ok: true, value: { field, operation, value: patchValue } };
-}
-
 function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const title = readOption(args, "--title");
   const question = readOption(args, "--question");
@@ -155,6 +101,8 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
   if (arbiter && !isActorRef(arbiter)) return invalidActor();
   const evidenceRelations = parseEvidenceRelations(args);
   if (!evidenceRelations.ok) return { ok: false, error: evidenceRelations.error };
+  const claims = parseClaimInputs(args, !args.includes("--non-load-bearing"));
+  if (!claims.ok) return { ok: false, error: claims.error };
   return parsedDecision(rootDir, json, {
     kind: "decision-propose",
     decisionId: readOption(args, "--id"),
@@ -164,6 +112,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     rejected,
     whyNot,
     claim: readOption(args, "--claim"),
+    claims: claims.value,
     claimLoadBearing: !args.includes("--non-load-bearing"),
     riskTier,
     urgency,
@@ -175,6 +124,43 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     body: readOption(args, "--body"),
     dryRun: args.includes("--dry-run")
   });
+}
+
+function parseClaimInputs(args: ReadonlyArray<string>, defaultLoadBearing: boolean):
+  | { readonly ok: true; readonly value: ReadonlyArray<DecisionClaimInput> }
+  | { readonly ok: false; readonly error: CliResult["error"] } {
+  const claims: DecisionClaimInput[] = [];
+  for (const raw of readRepeatedRawOption(args, "--claim")) {
+    const parsed = parseClaimInput(raw, defaultLoadBearing);
+    if (!parsed.ok) return parsed;
+    claims.push(parsed.value);
+  }
+  return { ok: true, value: claims };
+}
+
+function parseClaimInput(raw: string | undefined, defaultLoadBearing: boolean):
+  | { readonly ok: true; readonly value: DecisionClaimInput }
+  | { readonly ok: false; readonly error: CliResult["error"] } {
+  if (!raw || raw.startsWith("--")) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "Use --claim <text> or --claim <json-object>.") };
+  }
+  if (!raw.trim().startsWith("{")) return { ok: true, value: { text: raw, ...(defaultLoadBearing ? {} : { load_bearing: false }) } };
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("claim JSON must be an object");
+    const object = parsed as { readonly id?: unknown; readonly text?: unknown; readonly load_bearing?: unknown };
+    if (typeof object.text !== "string" || object.text.trim().length === 0) throw new Error("claim JSON requires text");
+    return {
+      ok: true,
+      value: {
+        ...(typeof object.id === "string" && object.id.trim() ? { id: object.id } : {}),
+        text: object.text,
+        ...(typeof object.load_bearing === "boolean" ? { load_bearing: object.load_bearing } : defaultLoadBearing ? {} : { load_bearing: false })
+      }
+    };
+  } catch (error) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, `Invalid --claim JSON: ${error instanceof Error ? error.message : String(error)}`) };
+  }
 }
 
 function parseDecisionRelate(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
