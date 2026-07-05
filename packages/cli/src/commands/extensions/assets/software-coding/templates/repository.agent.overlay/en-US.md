@@ -5,6 +5,7 @@
 - Prefer command self-description before composing writes: `ha <command> --help`, preset manifests, and capabilities metadata. When a command supports JSON / `--from-file`, use structured input instead of shell-escaped long text; when it does not, use the current flags.
 - Review and completion: move the task into review with `ha task transition <id> in_review`, replace placeholder review/closeout content with real evidence, run `ha task review <id>`, then `ha task complete <id> --ci passed|failed`. Missing facts, placeholder review, or placeholder closeout fail closed.
 - Query through projections: `ha decision list --state active --module <key> --compact`, `ha decision show <id|E<n>>`, and `ha task list --module <key>`.
+- Non-coordinator write closeout: after manually editing docs, standards, templates, artifact indexes, or source files, check `git status --short` in the affected repository and commit only paths touched in the task. Do not include unrelated dirty files. If a manual edit is intentionally not committed, record the owner and no-commit reason.
 - Template assets are part of the operating surface. When AGENTS/task/governance workflow text changes, update the seeded templates too so new scaffolds do not teach stale behavior.
 
 ## Scaffold folders (see each folder README, do not duplicate here)

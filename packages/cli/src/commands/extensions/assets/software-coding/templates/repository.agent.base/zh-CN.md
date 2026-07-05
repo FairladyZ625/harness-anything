@@ -13,7 +13,7 @@
 
 ## WriteCoordinator discipline
 
-- 经 harness CLI 的写入，在 harness 根位于 git 仓库内时会自动提交，提交信息带语义，如 `task(progress-append): <id>` 或 `decision(relate): <id>`。不要为协调器所有的写入再补一次提交。手改的散文仍需正常提交。
+- 经 harness CLI 的写入，在 harness 根位于 git 仓库内时会自动提交，提交信息带语义，如 `task(progress-append): <id>` 或 `decision(relate): <id>`。不要为协调器所有的写入再补一次提交。手改的散文、标准、模板、artifact 索引或源码由执行 Agent 在结束前检查 `git status --short`，只 stage 自己触碰的路径并提交；已有无关脏文件保持原状。
 - 边界：机读字段与关系必须走 CLI 命令写入。人读散文可以直接编辑，但不替代事实、决策与关系。
 - 处置：不要物理删除决策，用 supersede 或 retire；事实只追加，用失效而非改写；删除或归档前先检查关系级联影响。
 
