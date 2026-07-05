@@ -24,3 +24,4 @@ tmp/
 
 # release tarballs (npm pack output)
 *.tgz
+.gstack/
