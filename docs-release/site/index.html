@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness Anything — turn agent decisions, tasks &amp; facts into structure on git</title>
+<!--
+  Harness Anything — self-contained bilingual explainer (single file).
+  No external dependencies: all CSS and JS are inline; no web fonts, no CDN,
+  no network. Opens by double-click and just works, including under a strict CSP.
+  Three tabs (Try it / Why / How) map to the start/ learn/ architecture/ doc tracks.
+  Engine: EN|中 language toggle (default English, persisted), light/dark theme
+  (prefers-color-scheme first, manual choice wins, no FOUC), hash-based tab nav
+  with Back-button support, and cross-tab "shallow to deep" jump chips.
+  Content distilled faithfully from docs-release/{start,learn,architecture}/{en,zh}.
+-->
+<script>
+  /* No-FOUC bootstrap: set theme + language on <html> BEFORE first paint.
+     Guarded so private-mode / disabled storage never throws. */
+  (function () {
+    var root = document.documentElement;
+    function read(key) {
+      try { return window.localStorage.getItem(key); } catch (e) { return null; }
+    }
+    // Theme: manual choice wins; otherwise follow the OS preference.
+    var theme = read('ha-theme');
+    if (theme !== 'light' && theme !== 'dark') {
+      var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+      theme = (mq && mq.matches) ? 'dark' : 'light';
+    }
+    root.setAttribute('data-theme', theme);
+    // Language: DEFAULT ENGLISH. Never auto-detect the browser language.
+    var lang = read('ha-lang');
+    root.setAttribute('data-lang', (lang === 'zh') ? 'zh' : 'en');
+  })();
+</script>
+
+<style>
+  /* ============================================================
+     Design tokens — the real "ledger / wax-seal" palette.
+     Warm paper, ink text, seal-clay red accent. Two themes.
+     ============================================================ */
+  :root {
+    --bg:          #F3F1EA;  /* warm paper            */
+    --surface:     #FCFBF7;  /* raised panels         */
+    --ink:         #1B1A16;  /* primary text          */
+    --muted:       #6C685E;  /* secondary text        */
+    --line:        #E1DBCE;  /* hairlines / borders   */
+    --accent:      #A23A2B;  /* seal clay             */
+    --accent-weak: #F0E2DD;  /* accent tint fill      */
+    --good:        #2F6F4E;  /* committed / green     */
+    --code-bg:     #EEEBE2;
+
+    --serif: "Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:  -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:  ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+
+    --measure: 70ch;
+    --radius: 6px;
+    --rail: 2px;
+    --tick: 180ms;
+  }
+  [data-theme="dark"] {
+    --bg:          #131210;
+    --surface:     #1C1A16;
+    --ink:         #ECE7DB;
+    --muted:       #9C968A;
+    --line:        #2C2A22;
+    --accent:      #E0684F;
+    --accent-weak: #2A211D;
+    --good:        #6FBF95;
+    --code-bg:     #201E19;
+  }
+
+  /* ---- language visibility: show only the active language ---- */
+  [data-lang="en"] [lang="zh"] { display: none !important; }
+  [data-lang="zh"] [lang="en"] { display: none !important; }
+  /* inline twins sit tight in the text flow */
+  span[lang] { }
+
+  /* ============================================================
+     Base
+     ============================================================ */
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.7;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  [lang="zh"] { line-height: 1.85; }
+
+  h1, h2, h3, .wordmark, .tab-title { font-family: var(--serif); }
+  h1 { font-weight: 600; letter-spacing: -0.01em; }
+  h2 { font-weight: 600; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+
+  ::selection { background: var(--accent-weak); color: var(--ink); }
+
+  /* visible keyboard focus everywhere */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+  /* don't show focus rings on mouse click for buttons that manage their own state */
+  :focus:not(:focus-visible) { outline: none; }
+
+  /* skip link */
+  .skip {
+    position: absolute;
+    left: 12px;
+    top: -60px;
+    z-index: 100;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    transition: top var(--tick) ease;
+  }
+  .skip:focus { top: 12px; }
+
+  /* ============================================================
+     Top bar — slim, sticky. Wordmark | tabs | toggles.
+     ============================================================ */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 10px 20px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    min-width: 0;
+  }
+  .seal {
+    flex: none;
+    width: 22px; height: 22px;
+    color: var(--accent);
+    transform: translateY(3px);
+  }
+  .wordmark {
+    font-size: 1.12rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .wordmark .the { color: var(--muted); font-weight: 400; }
+
+  /* tablist centered */
+  .tablist {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+  }
+  .tab {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 0.95rem;
+    line-height: 1.15;
+    padding: 6px 14px;
+    cursor: pointer;
+    text-align: center;
+    transition: color var(--tick) ease, background var(--tick) ease, border-color var(--tick) ease;
+  }
+  .tab .tab-title { display: block; font-size: 1rem; font-weight: 600; }
+  .tab .tab-sub { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 1px; font-family: var(--sans); }
+  .tab:hover { color: var(--ink); background: var(--accent-weak); }
+  .tab[aria-selected="true"] {
+    color: var(--ink);
+    border-color: var(--line);
+    background: var(--surface);
+  }
+  .tab[aria-selected="true"] .tab-title { color: var(--accent); }
+
+  /* toggles */
+  .controls { display: flex; align-items: center; gap: 8px; justify-self: end; }
+  .toggle {
+    appearance: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 9px;
+    transition: border-color var(--tick) ease, color var(--tick) ease;
+  }
+  .toggle:hover { border-color: var(--accent); color: var(--accent); }
+  .toggle svg { width: 15px; height: 15px; flex: none; }
+  /* theme toggle shows the icon for the state you'd switch TO */
+  #theme-toggle .ic-sun { display: none; }
+  #theme-toggle .ic-moon { display: inline-block; }
+  [data-theme="dark"] #theme-toggle .ic-sun { display: inline-block; }
+  [data-theme="dark"] #theme-toggle .ic-moon { display: none; }
+  /* segmented language control */
+  .lang-seg { display: inline-flex; overflow: hidden; padding: 0; }
+  .lang-seg span {
+    padding: 6px 9px;
+    line-height: 1;
+    color: var(--muted);
+    transition: background var(--tick) ease, color var(--tick) ease;
+  }
+  .lang-seg .sep { padding: 6px 0; color: var(--line); }
+  [data-lang="en"] .lang-seg .en,
+  [data-lang="zh"] .lang-seg .zh { color: var(--ink); background: var(--accent-weak); font-weight: 600; }
+
+  /* ============================================================
+     Layout — centered reading column with a progress rail.
+     ============================================================ */
+  main { display: block; }
+  .panel { display: none; }
+  .panel.is-active { display: block; animation: fade var(--tick) ease both; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .wrap {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+  /* Make good use of wide screens: step the reading measure up progressively. */
+  @media (min-width: 1180px) { :root { --measure: 78ch; } }
+  @media (min-width: 1560px) { :root { --measure: 84ch; } }
+
+  /* Tab intro (the "explain to a smart friend" opener) */
+  .intro {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 54px 0 12px;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+  .intro .hero {
+    font-family: var(--serif);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    line-height: 1.1;
+    margin: 0 0 18px;
+  }
+  .intro .lede {
+    font-size: 1.16rem;
+    line-height: 1.6;
+    color: var(--ink);
+    margin: 0;
+  }
+  .intro .sub {
+    font-size: 1.05rem;
+    color: var(--muted);
+    margin: 16px 0 0;
+  }
+
+  /* Sectioned reading column with numbered rail */
+  .sections {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 8px 0 40px;
+  }
+  section.block {
+    position: relative;
+    padding: 34px 0 30px;
+    border-top: 1px solid var(--line);
+    scroll-margin-top: 84px;      /* so anchor jumps clear the sticky bar */
+  }
+  section.block:first-of-type { border-top: none; }
+  section.block > h2,
+  section.block > h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.5rem, 3vw, 2.1rem);
+    line-height: 1.2;
+    margin: 0 0 6px;
+  }
+  .sec-no {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 10px;
+  }
+  section.block p { margin: 0 0 16px; }
+  section.block ul, section.block ol { margin: 0 0 16px; padding-left: 1.25em; }
+  section.block li { margin: 0 0 8px; }
+  .lead { font-size: 1.06rem; }
+
+  /* plain-language gloss chip for a primitive on first use */
+  .gloss {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin: 0 0 16px;
+  }
+  .gloss dt {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 0.9rem;
+  }
+  .gloss dd { margin: 2px 0 12px; color: var(--ink); }
+  .gloss dd:last-child { margin-bottom: 0; }
+
+  /* term = inline code-ish for primitives in prose */
+  .term { font-family: var(--mono); font-size: 0.9em; color: var(--accent); }
+
+  /* Code / IDs */
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.12em 0.4em;
+    word-break: break-word;
+  }
+  .idchip {
+    font-family: var(--mono);
+    font-size: 0.82em;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.1em 0.45em;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+  figure.code {
+    margin: 0 0 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--code-bg);
+    overflow: hidden;
+  }
+  figure.code figcaption {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--code-bg) 60%, var(--surface));
+  }
+  figure.code pre {
+    margin: 0;
+    padding: 14px 16px;
+    overflow-x: auto;           /* wide code scrolls in its own box */
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+  pre .c { color: var(--muted); }             /* comment / dim */
+  pre .k { color: var(--accent); }            /* key token   */
+  pre .ok { color: var(--good); font-weight: 600; }
+
+  /* Tables (daily commands, comparisons) scroll horizontally on small screens */
+  .table-scroll { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: var(--radius); }
+  table.grid {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 30rem;
+    font-size: 0.92rem;
+  }
+  table.grid th, table.grid td {
+    text-align: left;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.grid thead th {
+    font-family: var(--sans);
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--surface);
+  }
+  table.grid tr:last-child td { border-bottom: none; }
+  table.grid td code { background: transparent; padding: 0; color: var(--accent); }
+
+  /* callout / note */
+  .note {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin: 0 0 18px;
+  }
+  .note.aha { border-left: 3px solid var(--good); }
+  .note.aha strong { color: var(--good); }
+  .note.warn { border-left: 3px solid var(--accent); }
+
+  /* pull line */
+  .pull {
+    font-family: var(--serif);
+    font-size: 1.2rem;
+    line-height: 1.5;
+    color: var(--ink);
+    border-left: var(--rail) solid var(--accent);
+    padding: 4px 0 4px 18px;
+    margin: 0 0 20px;
+  }
+
+  /* ---- cross-tab jump chips (the "shallow -> deep" spine) ---- */
+  .chip {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--accent-weak);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+    border-radius: 999px;
+    font-family: var(--sans);
+    font-size: 0.86rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1.2;
+    transition: background var(--tick) ease, transform var(--tick) ease;
+  }
+  .chip:hover { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); transform: translateY(-1px); }
+  .chip .arrow { font-family: var(--mono); }
+  .backchip { margin: 0 0 18px; }
+  .fwdchip-wrap {
+    margin: 8px 0 0;
+    padding: 22px 0 0;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  /* diagram figure */
+  figure.diagram {
+    margin: 6px 0 22px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 18px 16px 10px;
+  }
+  figure.diagram .diagram-scroll { overflow-x: auto; }
+  figure.diagram svg { display: block; width: 100%; height: auto; max-width: 100%; }
+  figure.diagram figcaption {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-top: 8px;
+    text-align: center;
+  }
+  /* svg token classes */
+  .svg-node { fill: var(--surface); stroke: var(--accent); }
+  .svg-node-soft { fill: var(--accent-weak); stroke: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .svg-label { fill: var(--ink); font-family: var(--sans); font-weight: 600; }
+  .svg-sub { fill: var(--muted); font-family: var(--sans); }
+  .svg-edge { stroke: var(--accent); fill: none; }
+  .svg-edge-label { fill: var(--muted); font-family: var(--mono); }
+  .svg-arrow { fill: var(--accent); }
+  .svg-layer { fill: var(--surface); stroke: var(--line); }
+  .svg-layer-k { fill: var(--accent-weak); stroke: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .svg-mono { font-family: var(--mono); fill: var(--muted); }
+
+  /* footer */
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 20px;
+  }
+  .foot-inner {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 28px 20px 48px;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .foot-inner p { margin: 0 0 8px; }
+
+  .path-list { display: grid; gap: 10px; margin: 6px 0 0; }
+  .path-list a {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 12px 16px;
+    text-decoration: none;
+    color: var(--ink);
+  }
+  .path-list a:hover { border-color: var(--accent); }
+  .path-list .plabel { color: var(--accent); font-weight: 600; }
+  .path-list .pdesc { color: var(--muted); font-size: 0.92rem; }
+
+  /* ============================================================
+     Responsive
+     ============================================================ */
+  @media (max-width: 860px) {
+    .topbar-inner { grid-template-columns: 1fr auto; grid-template-areas: "brand controls" "tabs tabs"; row-gap: 10px; }
+    .brand { grid-area: brand; }
+    .controls { grid-area: controls; }
+    .tablist {
+      grid-area: tabs;
+      justify-content: flex-start;
+      overflow-x: auto;             /* tabs become a horizontal scroller */
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
+      scrollbar-width: none;
+    }
+    .tablist::-webkit-scrollbar { display: none; }
+    .tab { flex: 0 0 auto; }
+  }
+  @media (max-width: 560px) {
+    body { font-size: 16px; }
+    .intro { padding-top: 38px; }
+    .tab .tab-sub { display: none; }   /* keep tabs compact */
+    .tab { padding: 8px 12px; }
+    .toggle, .lang-seg span { min-height: 40px; }
+    .wordmark { font-size: 1rem; }
+    /* free horizontal room so the full wordmark fits: theme control goes icon-only */
+    .theme-toggle-label { display: none; }
+    #theme-toggle { padding: 6px; }
+    .controls { gap: 6px; }
+  }
+
+  /* Respect reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+    .panel.is-active { animation: none; }
+    html { scroll-behavior: auto; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+</style>
+</head>
+<body>
+
+<a class="skip" href="#main">
+  <span lang="en">Skip to content</span><span lang="zh">跳到主要内容</span>
+</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <!-- wax-seal mark: a stamped ring with an impressed cross-mark -->
+      <svg class="seal" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="12" cy="12" r="6.1" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="1.2 1.7"/>
+        <path d="M12 8.4v7.2M8.4 12h7.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Harness&nbsp;Anything</span>
+    </div>
+
+    <nav class="tablist" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" id="tab-try" aria-controls="panel-try" aria-selected="true" tabindex="0" data-tab="try">
+        <span class="tab-title"><span lang="en">Try it</span><span lang="zh">上手</span></span>
+        <span class="tab-sub"><span lang="en">10 min · the feel</span><span lang="zh">10 分钟 · 亲手跑</span></span>
+      </button>
+      <button class="tab" role="tab" id="tab-why" aria-controls="panel-why" aria-selected="false" tabindex="-1" data-tab="why">
+        <span class="tab-title"><span lang="en">Why</span><span lang="zh">为什么</span></span>
+        <span class="tab-sub"><span lang="en">the ideas</span><span lang="zh">背后的想法</span></span>
+      </button>
+      <button class="tab" role="tab" id="tab-how" aria-controls="panel-how" aria-selected="false" tabindex="-1" data-tab="how">
+        <span class="tab-title"><span lang="en">How</span><span lang="zh">怎么做到</span></span>
+        <span class="tab-sub"><span lang="en">the machine</span><span lang="zh">这台机器</span></span>
+      </button>
+    </nav>
+
+    <div class="controls">
+      <button class="toggle lang-seg" id="lang-toggle" type="button" aria-label="Language / 语言">
+        <span class="en">EN</span><span class="sep">|</span><span class="zh">中</span>
+      </button>
+      <button class="toggle" id="theme-toggle" type="button" aria-label="Toggle light or dark theme">
+        <!-- sun (light) -->
+        <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+        </svg>
+        <!-- moon (dark) -->
+        <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M20 14.5A8 8 0 0 1 9.5 4a0.5 0.5 0 0 0-.7-.6A9 9 0 1 0 20.6 15.2a0.5 0.5 0 0 0-.6-.7z"/>
+        </svg>
+        <span class="tlabel theme-toggle-label"><span lang="en">Theme</span><span lang="zh">主题</span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============================================================
+       TAB 1 · TRY IT  (from docs-release/start/)  — shallowest
+       ============================================================ -->
+  <section class="panel is-active" id="panel-try" role="tabpanel" aria-labelledby="tab-try" tabindex="0">
+    <div class="wrap">
+      <div class="intro">
+        <p class="kicker"><span lang="en">Try it · about 10 minutes</span><span lang="zh">上手 · 约 10 分钟</span></p>
+        <h1 class="hero">
+          <span lang="en">Your agent did the work. Where did the <em>reasoning</em> go?</span>
+          <span lang="zh">代理把活干完了。可那些<em>推理</em>去哪了？</span>
+        </h1>
+        <p class="lede">
+          <span lang="en">An AI agent fixes a login bug at 2&nbsp;a.m. It weighs two approaches, picks one, notes what it observed — then the session ends and all of that lives in a chat transcript nobody will ever reopen. Harness Anything is a small command-line tool, <code>ha</code>, that captures that trail as durable records in your git repo instead: things you can review in a normal diff, query, and build on.</span>
+          <span lang="zh">凌晨两点，一个 AI 代理修好了一个登录 bug。它权衡了两种方案、选了一种、记下沿途的观察——然后会话一结束，这一切就躺进了一份没人会再打开的聊天记录里。Harness Anything 是一个小小的命令行工具 <code>ha</code>，它换一种做法：把这条轨迹变成你 git 仓库里可长期留存的记录——能在普通 diff 里审查、能查询、能在其上继续构建。</span>
+        </p>
+        <p class="sub">
+          <span lang="en">Run one command and structure starts accumulating in your repo. Below is a real loop, captured from an actual run — no screenshots, just the tool.</span>
+          <span lang="zh">运行一条命令，结构就开始在你的仓库里积累。下面是一个真实的循环，取自一次实际运行——没有截图，就是这个工具本身。</span>
+        </p>
+      </div>
+
+      <div class="sections">
+
+        <section class="block" id="what-is">
+          <span class="sec-no">01</span>
+          <h2><span lang="en">What it is, in one screen</span><span lang="zh">一屏说清它是什么</span></h2>
+          <p class="lead">
+            <span lang="en">Harness Anything turns the <strong>decisions, tasks, and facts</strong> your agents produce into first-class records on git — queryable, reversible, and reusable — instead of losing them inside a transcript. Every one lands as plain Markdown you can read in a git diff.</span>
+            <span lang="zh">Harness Anything 把你的代理产生的<strong>决策（decision）、任务（task）和事实（fact）</strong>变成 git 上的一等公民记录——可查询、可回滚、可重用——而不是把它们丢失在聊天记录里。每一条都落地为纯 Markdown，你可以在 git diff 里读它。</span>
+          </p>
+          <figure class="code">
+            <figcaption><span lang="en">one command, structure appears</span><span lang="zh">一条命令，结构出现</span></figcaption>
+<pre><span class="c">$</span> ha task create <span class="k">--title</span> "Fix login redirect bug"
+<span class="ok">ok</span> command="task create" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=planned
+   path=harness/tasks/task_01KWPP52D...-fix-login-redirect-bug
+
+<span class="c">$</span> ha status
+<span class="ok">ok</span> command=status path=.harness/cache/projections.sqlite rows=1</pre>
+          </figure>
+          <p>
+            <span lang="en">Three things to take away:</span>
+            <span lang="zh">三件要点：</span>
+          </p>
+          <ul>
+            <li><span lang="en">It solves the <em>"where did the reasoning go?"</em> problem — agent work stops evaporating into logs.</span><span lang="zh">它解决了<em>"推理去哪了？"</em>的问题——代理的工作不再蒸发进日志。</span></li>
+            <li><span lang="en">Unlike note-taking, these are structured, linked records <em>with a lifecycle</em>: decisions can be overturned; facts are anchored to the task that observed them.</span><span lang="zh">和记笔记不同，这些是结构化、有链接、<em>带生命周期</em>的记录：决策可以被推翻，事实锚定到观察到它们的那个任务。</span></li>
+            <li><span lang="en">You need <strong>Node.js 24+</strong> and <strong>git</strong>. There's no public npm release yet — you install it globally from source (<code>npm install -g .</code>) so the <code>ha</code> command is on your PATH.</span><span lang="zh">你需要 <strong>Node.js 24+</strong> 和 <strong>git</strong>。目前还没有公开的 npm 发布——你从源码全局安装（<code>npm install -g .</code>），让 <code>ha</code> 命令进入你的 PATH。</span></li>
+          </ul>
+        </section>
+
+        <section class="block" id="one-loop">
+          <span class="sec-no">02</span>
+          <h2><span lang="en">Run one real loop</span><span lang="zh">跑一个真实的循环</span></h2>
+          <p>
+            <span lang="en">Do this end to end in a scratch git repo. In a few minutes you'll have a real task, a fact, and an adjudicated decision — all as Markdown in your repo. First, <code>ha init</code> lays down the authored <code>harness/</code> directory (this goes into git; the generated <code>.harness/</code> cache stays out of it).</span>
+            <span lang="zh">在一个临时 git 仓库里端到端做一遍。几分钟内，你就有了一个真实的任务、一个事实、一个被裁决的决策——全部是仓库里的 Markdown。先用 <code>ha init</code> 铺好已撰写的 <code>harness/</code> 目录（它进 git；生成的 <code>.harness/</code> 缓存留在 git 之外）。</span>
+          </p>
+          <figure class="code">
+            <figcaption><span lang="en">move a task through its lifecycle</span><span lang="zh">让任务走过它的生命周期</span></figcaption>
+<pre><span class="c"># a task gets a stable id; the title is just display metadata</span>
+<span class="c">$</span> ha task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
+<span class="ok">ok</span> command="task transition" task=task_01KWPP52D... status=active
+
+<span class="c"># six states, done &amp; cancelled are terminal:</span>
+<span class="c">#</span> planned → active → blocked → in_review → done → cancelled</pre>
+          </figure>
+          <p>
+            <span lang="en">Then record a <span class="term">fact</span> — an append-only observation anchored to the task — and propose then <em>adjudicate</em> a <span class="term">decision</span>:</span>
+            <span lang="zh">然后记录一个 <span class="term">fact</span>——一条只增不改、锚定到任务的观察——再提议、进而<em>裁决</em>一个 <span class="term">decision</span>：</span>
+          </p>
+          <figure class="code">
+            <figcaption><span lang="en">record a fact, then propose &amp; accept a decision</span><span lang="zh">记录事实，然后提议并接受决策</span></figcaption>
+<pre><span class="c">$</span> ha fact record <span class="k">--task</span> task_01KWPP52D... \
+    <span class="k">--statement</span> "Redirect loops when the session cookie is missing" \
+    <span class="k">--source</span> "manual repro" <span class="k">--confidence</span> high
+<span class="ok">ok</span> command="fact record" task=task_01KWPP52D... path=facts.md
+
+<span class="c">$</span> ha decision propose <span class="k">--title</span> "Use a server-side redirect guard" \
+    <span class="k">--question</span> "How do we stop the login redirect loop?" \
+    <span class="k">--chosen</span> "Add a server-side guard" \
+    <span class="k">--rejected</span> "Client-only fix" <span class="k">--why-not</span> "Races with cookie set"
+<span class="ok">ok</span> command="decision propose" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
+
+<span class="c">$</span> ha decision accept dec_mr6f3b4z <span class="k">--arbiter</span> human:you
+<span class="ok">ok</span> command="decision accept" path=harness/decisions/decision-dec_mr6f3b4z/decision.md</pre>
+          </figure>
+          <p>
+            <span lang="en"><code>accept</code> is the adjudication checkpoint: it's where a decision's evidence is validated before the decision becomes binding. That's what makes an accepted decision <em>trustworthy</em> rather than merely asserted.</span>
+            <span lang="zh"><code>accept</code> 是裁决检查点：在决策变得有约束力之前，它的证据在这里被验证。这正是一个被接受的决策<em>可信</em>、而不只是被声称的原因。</span>
+          </p>
+          <div class="note aha">
+            <p style="margin:0">
+              <strong><span lang="en">This is the aha:</span><span lang="zh">这就是啊哈时刻：</span></strong>
+              <span lang="en"> what you produced isn't a chat log. It's real, versioned structure in your repo — the task, the fact it observed, and the decision it justified, all linked and all reviewable in a git diff. Run <code>ha graph</code> and it renders them as a self-contained HTML panorama.</span>
+              <span lang="zh"> 你产出的不是一份聊天记录。它是你仓库里真实、版本化的结构——任务、它观察到的事实、它所支撑的决策，全部有链接、全部能在 git diff 里审查。运行 <code>ha graph</code>，它会把它们渲染成一张自包含的 HTML 全景图。</span>
+            </p>
+          </div>
+        </section>
+
+        <section class="block" id="what-you-see">
+          <span class="sec-no">03</span>
+          <h2><span lang="en">The three record types, on disk</span><span lang="zh">三种记录，在磁盘上长什么样</span></h2>
+          <p>
+            <span lang="en">Nothing here is a mystery format. A task is a small directory; a decision is a folder with a Markdown file; a fact is a line appended to its task's <code>facts.md</code>. Here's the shape after your first loop:</span>
+            <span lang="zh">这里没有什么神秘格式。任务是一个小目录；决策是一个带 Markdown 文件的文件夹；事实是追加到它所属任务的 <code>facts.md</code> 里的一行。第一个循环之后，形状大致是这样：</span>
+          </p>
+          <figure class="code">
+            <figcaption><span lang="en">what landed in git</span><span lang="zh">进了 git 的东西</span></figcaption>
+<pre>harness/
+├── harness.yaml
+├── decisions/
+│   └── decision-dec_mr6f3b4z/
+│       └── decision.md          <span class="c"># the WHY: question, chosen, rejected</span>
+└── tasks/
+    └── task_01KWPP52D...-fix-login-redirect-bug/
+        ├── INDEX.md             <span class="c"># the WHAT: status, lifecycle</span>
+        ├── progress.md
+        └── facts.md             <span class="c"># the IS: append-only observations</span></pre>
+          </figure>
+          <p>
+            <span lang="en">A handful of commands cover almost everything you'll do day to day. Add <code>--json</code> to any of them for structured output.</span>
+            <span lang="zh">少数几条命令就覆盖了你日常几乎所有操作。给任意命令加 <code>--json</code> 得到结构化输出。</span>
+          </p>
+          <div class="table-scroll">
+            <table class="grid">
+              <thead>
+                <tr>
+                  <th><span lang="en">Command</span><span lang="zh">命令</span></th>
+                  <th><span lang="en">What it does</span><span lang="zh">做什么</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><code>ha init</code></td><td><span lang="en">Create the <code>harness/</code> layout in the current repo.</span><span lang="zh">在当前仓库创建 <code>harness/</code> 布局。</span></td></tr>
+                <tr><td><code>ha task create --title …</code></td><td><span lang="en">Create a new task package.</span><span lang="zh">创建一个新任务包。</span></td></tr>
+                <tr><td><code>ha task transition &lt;id&gt; &lt;state&gt;</code></td><td><span lang="en">Move a task to a new lifecycle state.</span><span lang="zh">把任务移到新的生命周期状态。</span></td></tr>
+                <tr><td><code>ha decision propose …</code></td><td><span lang="en">Propose a decision — question, chosen, rejected, why-not.</span><span lang="zh">提议一个决策——问题、已选、已拒、为何不。</span></td></tr>
+                <tr><td><code>ha decision accept &lt;id&gt;</code></td><td><span lang="en">Adjudicate a proposed decision — the evidence checkpoint.</span><span lang="zh">裁决一个提议的决策——证据检查点。</span></td></tr>
+                <tr><td><code>ha fact record --task &lt;id&gt; …</code></td><td><span lang="en">Record an append-only fact anchored to a task.</span><span lang="zh">记录一个锚定到任务、只增不改的事实。</span></td></tr>
+                <tr><td><code>ha status</code> · <code>ha check</code></td><td><span lang="en">Summarize state · run health checks.</span><span lang="zh">总结状态 · 运行健康检查。</span></td></tr>
+                <tr><td><code>ha graph</code></td><td><span lang="en">Render the relation graph as a self-contained HTML panorama.</span><span lang="zh">把关系图渲染成自包含 HTML 全景。</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <span lang="en">The always-current reference is the tool itself: <code>ha --help</code> and <code>ha capabilities</code> list every operation, its input schema, and examples.</span>
+            <span lang="zh">永远最新的参考是工具本身：<code>ha --help</code> 和 <code>ha capabilities</code> 会列出每个操作、它的输入 schema 和例子。</span>
+          </p>
+        </section>
+
+        <section class="block" id="daily-commands">
+          <span class="sec-no">04</span>
+          <h2><span lang="en">A few commands you'll actually type</span><span lang="zh">你真正会敲的几条命令</span></h2>
+          <p>
+            <span lang="en">Once the first loop clicks, day-to-day work narrows to a small handful. Here they are grouped the way you'll reach for them — moving a task, recording a choice, checking state. Add <code>--json</code> to any of them for structured output.</span>
+            <span lang="zh">第一个循环跑通之后，日常工作就收窄到寥寥几条。下面按你会去够它们的方式分组——推进任务、记下一个选择、检查状态。给任意一条加 <code>--json</code> 得到结构化输出。</span>
+          </p>
+          <figure class="code">
+            <figcaption><span lang="en">the ones you'll reach for</span><span lang="zh">你会去够的那几条</span></figcaption>
+<pre><span class="c"># move a task along its lifecycle</span>
+<span class="c">$</span> ha task list <span class="k">--state</span> active
+<span class="c">$</span> ha task progress append &lt;id&gt; <span class="k">--text</span> "Implemented first slice"
+
+<span class="c"># record a choice, then adjudicate it</span>
+<span class="c">$</span> ha decision list <span class="k">--state</span> active
+<span class="c">$</span> ha decision accept &lt;id&gt;        <span class="c"># or: reject | defer</span>
+
+<span class="c"># check state and navigate</span>
+<span class="c">$</span> ha status            <span class="c"># what state am I in?</span>
+<span class="c">$</span> ha graph             <span class="c"># see how it all links, as HTML</span></pre>
+          </figure>
+          <ul>
+            <li><span lang="en"><code>ha task list --state active</code> — the tasks in flight right now, with state / module / search filters.</span><span lang="zh"><code>ha task list --state active</code> —— 此刻在飞的任务，带状态 / 模块 / 搜索过滤。</span></li>
+            <li><span lang="en"><code>ha task progress append &lt;id&gt; --text …</code> — leave a dated line in the task's <code>progress.md</code> so the next agent inherits state, not a cold start.</span><span lang="zh"><code>ha task progress append &lt;id&gt; --text …</code> —— 在任务的 <code>progress.md</code> 里留下一行带日期的记录，让下一个代理接手的是状态，而不是冷启动。</span></li>
+            <li><span lang="en"><code>ha decision accept &lt;id&gt;</code> — the evidence checkpoint; its siblings <code>reject</code> and <code>defer</code> close the other doors.</span><span lang="zh"><code>ha decision accept &lt;id&gt;</code> —— 证据检查点；它的兄弟 <code>reject</code> 和 <code>defer</code> 关上另外两扇门。</span></li>
+            <li><span lang="en"><code>ha doctor</code> — read-only environment diagnostics when something feels off, safe to run anytime.</span><span lang="zh"><code>ha doctor</code> —— 感觉哪里不对时的只读环境诊断，随时跑都安全。</span></li>
+          </ul>
+        </section>
+
+        <div class="fwdchip-wrap">
+          <button class="chip" type="button" data-target-tab="why" data-target-id="the-problem">
+            <span lang="en">Curious why it's built this way</span><span lang="zh">好奇它为什么这样设计</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       TAB 2 · WHY  (from docs-release/learn/)  — the ideas
+       ============================================================ -->
+  <section class="panel" id="panel-why" role="tabpanel" aria-labelledby="tab-why" tabindex="0" hidden>
+    <div class="wrap">
+      <div class="intro">
+        <p class="kicker"><span lang="en">Why · the ideas</span><span lang="zh">为什么 · 背后的想法</span></p>
+        <h2 class="hero">
+          <span lang="en">AI agents are great at doing work — and terrible at remembering why.</span>
+          <span lang="zh">AI 代理很擅长做事——却极不擅长记住为什么。</span>
+        </h2>
+        <p class="lede">
+          <span lang="en">Give an agent a real task and it generates, in one session, a dense trail: why it chose this over that, how far it got, what it saw. Then the session ends and almost all of it evaporates. This tab is the argument for a fix — not better notes, but turning that trail into structure that lives in git.</span>
+          <span lang="zh">给代理一个真实任务，它会在单次会话里生成一条密集的轨迹：为什么选这个而不是那个、做到了哪一步、看到了什么。然后会话结束，几乎全部蒸发。这个标签页讲的是一个解法——不是"记更好的笔记"，而是把那条轨迹变成活在 git 里的结构。</span>
+        </p>
+      </div>
+
+      <div class="sections">
+
+        <section class="block" id="the-problem">
+          <span class="sec-no">01</span>
+          <h3><span lang="en">The entropy problem</span><span lang="zh">熵问题</span></h3>
+          <p class="lead">
+            <span lang="en">Every session produces three kinds of durable content, whether or not anyone captures it — <em>choices</em> ("we're going with Postgres, not SQLite, because…"), <em>progress</em> ("the migration is half done; the index rebuild is blocked"), and <em>observations</em> ("at 10k QPS the p99 latency was 50ms").</span>
+            <span lang="zh">每个会话都会产生三类持久内容，不管有没有人去捕捉它——<em>选择</em>（"我们选 Postgres 而不是 SQLite，因为……"）、<em>进度</em>（"迁移做到一半；索引重建卡住了"）、<em>观察</em>（"10k QPS 下 p99 延迟是 50ms"）。</span>
+          </p>
+          <p>
+            <span lang="en">By default these live in the chat transcript. So once the conversation scrolls away, the <em>why</em> is gone, the <em>state</em> is gone, and the <em>evidence</em> is gone. The next agent — or the next you, a week later — starts cold. Decisions get silently re-litigated. Work gets redone. Nothing is auditable, because there's no artifact to audit.</span>
+            <span lang="zh">默认情况下，这些都活在聊天记录里。于是对话一翻篇，"为什么"没了，"进度"没了，"证据"也没了。下一个代理——或者一周后的你自己——只能从零开始。决策被悄悄地重新讨论一遍。工作被重做。整件事都无法审计，因为根本没有可审计的工件。</span>
+          </p>
+          <p class="pull">
+            <span lang="en">This is entropy: information produced but never consumed, accumulating until it's indistinguishable from noise. A pond that only takes inflow eventually turns green.</span>
+            <span lang="zh">这就是熵：产生了却从未被消费的信息，不断堆积，直到和噪声再也分不清。一个只进水不出水的池塘，迟早会变绿发臭。</span>
+          </p>
+        </section>
+
+        <section class="block" id="the-bet">
+          <span class="sec-no">02</span>
+          <h3><span lang="en">The bet: make these first-class, in git</span><span lang="zh">我们的赌注：把它们做成一等公民，存进 git</span></h3>
+          <p class="lead">
+            <span lang="en">The fix isn't better note-taking. It's promoting that trail into <strong>structured entities that live in git</strong> — Markdown as the source of truth, the repository as the single place the truth lives.</span>
+            <span lang="zh">解法不是"做更好的笔记"，而是把那条轨迹提升为<strong>活在 git 里的结构化实体</strong>——以 Markdown 作为真相的载体，代码库作为真相唯一的栖身之所。</span>
+          </p>
+          <p>
+            <span lang="en">Not a scratchpad — entities with lifecycles, state machines, and typed relations between them. A choice becomes a decision that can be proposed, accepted, and later overturned, with a paper trail. Progress becomes a task that moves through defined states. An observation becomes a fact that is immutable and carries its own provenance. Because they're plain files under version control, they're diffable, reviewable, and permanent, and any agent can pick them up without a warm conversation to inherit.</span>
+            <span lang="zh">这不是一块随手记的草稿板，而是一组有生命周期、有状态机、彼此之间存在类型化关系的实体。选择变成一个可被提议、被接受、日后也可被推翻的决策，并留下完整记录。进度变成一个在既定状态间流转的任务。观察变成一个不可变、自带来源的事实。因为它们只是版本控制下的纯文本文件，所以可对比差异、可审查、能长期留存，任何代理接手时都不需要先补一段热身对话。</span>
+          </p>
+          <button class="chip" type="button" data-target-tab="how" data-target-id="overview">
+            <span lang="en">See how it's built</span><span lang="zh">看它是怎么搭起来的</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </section>
+
+        <section class="block" id="three-primitives">
+          <span class="sec-no">03</span>
+          <h3><span lang="en">The kernel is only three primitives</span><span lang="zh">内核只有三个原语</span></h3>
+          <p>
+            <span lang="en">Everything else is a combination of these three. Here's each one, in plain words, on first use:</span>
+            <span lang="zh">其他一切都是这三者的组合。先把每一个用大白话讲清楚：</span>
+          </p>
+          <dl class="gloss">
+            <dt>decision <span lang="en">— the WHY</span><span lang="zh">—— 为什么</span></dt>
+            <dd><span lang="en">a <em>why</em> frozen into a commitment you can later reverse. It has alternatives and evidence, and it moves <code>proposed → accepted → active → retired / rejected / deferred</code>.</span><span lang="zh">一个"为什么"被冻结成一个你日后可以推翻的承诺。它带着备选项和证据，并沿 <code>proposed → accepted → active → retired / rejected / deferred</code> 流转。</span></dd>
+            <dt>task <span lang="en">— the WHAT</span><span lang="zh">—— 做什么</span></dt>
+            <dd><span lang="en">a <em>what</em> in motion, with real states — planned, active, blocked, in&#8209;review, done, cancelled — and operations to move between them.</span><span lang="zh">一个"做什么"在流转中，拥有真实的状态——planned、active、blocked、in&#8209;review、done、cancelled——以及在这些状态之间移动的操作。</span></dd>
+            <dt>fact <span lang="en">— the IS</span><span lang="zh">—— 是什么</span></dt>
+            <dd><span lang="en">an <em>is</em>: born immutable, it never changes. If the world changes, you don't edit the old fact — you record a new one.</span><span lang="zh">一个"是"：生来不可变，永远不会再改。如果现实变了，你不去改旧的事实，而是记录一个新的。</span></dd>
+          </dl>
+          <p>
+            <span lang="en">They interlock into a closed loop. A decision <em>derives</em> a task; executing the task <em>produces</em> facts; those facts are <em>referenced back</em> by decisions as evidence. Remove any one and the loop can't close.</span>
+            <span lang="zh">它们咬合成一个闭环。一个决策<em>衍生</em>出一个任务；执行任务<em>产生</em>事实；这些事实又被决策<em>反向引用</em>作为证据。拿掉任何一个，环就闭不上。</span>
+          </p>
+
+          <figure class="diagram">
+            <div class="diagram-scroll">
+              <svg viewBox="0 0 640 250" role="img" aria-labelledby="loop-title loop-desc">
+                <title id="loop-title"><span></span></title>
+                <desc id="loop-desc">A closed loop: decision derives task, task produces fact, fact is referenced back by decision.</desc>
+                <defs>
+                  <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0 0L10 5L0 10z" class="svg-arrow"/>
+                  </marker>
+                </defs>
+                <!-- three nodes -->
+                <g>
+                  <rect class="svg-node" x="24" y="96" width="150" height="58" rx="8"/>
+                  <text class="svg-label" x="99" y="120" text-anchor="middle" font-size="16">decision</text>
+                  <text class="svg-sub" x="99" y="139" text-anchor="middle" font-size="11.5"><tspan lang="en">the WHY</tspan><tspan lang="zh">为什么</tspan></text>
+                </g>
+                <g>
+                  <rect class="svg-node" x="245" y="26" width="150" height="58" rx="8"/>
+                  <text class="svg-label" x="320" y="50" text-anchor="middle" font-size="16">task</text>
+                  <text class="svg-sub" x="320" y="69" text-anchor="middle" font-size="11.5"><tspan lang="en">the WHAT</tspan><tspan lang="zh">做什么</tspan></text>
+                </g>
+                <g>
+                  <rect class="svg-node" x="466" y="96" width="150" height="58" rx="8"/>
+                  <text class="svg-label" x="541" y="120" text-anchor="middle" font-size="16">fact</text>
+                  <text class="svg-sub" x="541" y="139" text-anchor="middle" font-size="11.5"><tspan lang="en">the IS</tspan><tspan lang="zh">是什么</tspan></text>
+                </g>
+                <!-- edges -->
+                <path class="svg-edge" d="M166 104 C 210 74, 226 62, 258 58" stroke-width="1.8" marker-end="url(#ah)"/>
+                <text class="svg-edge-label" x="196" y="72" text-anchor="middle" font-size="11"><tspan lang="en">derives</tspan><tspan lang="zh">衍生</tspan></text>
+
+                <path class="svg-edge" d="M382 58 C 414 62, 430 74, 474 104" stroke-width="1.8" marker-end="url(#ah)"/>
+                <text class="svg-edge-label" x="444" y="72" text-anchor="middle" font-size="11"><tspan lang="en">produces</tspan><tspan lang="zh">产生</tspan></text>
+
+                <path class="svg-edge" d="M472 150 C 360 214, 280 214, 168 150" stroke-width="1.8" marker-end="url(#ah)"/>
+                <text class="svg-edge-label" x="320" y="205" text-anchor="middle" font-size="11"><tspan lang="en">referenced back as evidence</tspan><tspan lang="zh">被反向引用作为证据</tspan></text>
+              </svg>
+            </div>
+            <figcaption><span lang="en">The closed loop: decision → task → fact → decision.</span><span lang="zh">闭环：decision → task → fact → decision。</span></figcaption>
+          </figure>
+
+          <p>
+            <span lang="en">They even store asymmetrically. Decisions are <strong>centralized</strong> — the spine, the one projection a human is meant to watch. Tasks are <strong>containers</strong>, each its own directory. Facts are <strong>embedded</strong> in the task that produced them — because a fact without its task is untrustworthy. Take "redis p99 = 50ms at 10k QPS" out of context and you've stripped its provenance. The rule: don't move it, reference it.</span>
+            <span lang="zh">它们的存储方式甚至是不对称的。决策是<strong>集中存放</strong>的——主干，人类该盯着看的那个唯一投影。任务是<strong>容器</strong>，各自一个目录。事实是<strong>嵌入</strong>在产生它的任务里的——因为脱离了任务的事实是不可信的。把"redis 在 10k QPS 下 p99 = 50ms"抽离语境，你就剥掉了它的出处。口号是：不要搬它，引用它。</span>
+          </p>
+          <button class="chip" type="button" data-target-tab="how" data-target-id="storage">
+            <span lang="en">See how it's built</span><span lang="zh">看它是怎么存的</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </section>
+
+        <section class="block" id="decision-vs-verdict">
+          <span class="sec-no">04</span>
+          <h3><span lang="en">Decision vs. verdict — the one confusion that matters</span><span lang="zh">决策 vs 裁决——最要紧的一个混淆</span></h3>
+          <p>
+            <span lang="en">A <strong>decision</strong> answers <em>which path do we take?</em> — a load-bearing choice you can later supersede. A <strong>verdict</strong> answers <em>does this one output hold?</em> — a one-shot PASS/FAIL judgment on a concrete result, produced when a task goes through review or completion. A decision is a cause; a verdict is an effect.</span>
+            <span lang="zh"><strong>决策（decision）</strong>回答的是<em>我们走哪条路？</em>——一次承重的选择，你日后可以推翻（supersede）。<strong>裁决（verdict）</strong>回答的是<em>这个输出成立吗？</em>——在任务走 review 或 completion 时，对某个具体结果的一次性 PASS/FAIL 判断。决策是原因；裁决是结果。</span>
+          </p>
+          <p>
+            <span lang="en">Why keep them apart? Because if every routine PASS/FAIL is funneled through the decision machinery, the decision queue fills with per-output bookkeeping until no one can see it. Routine verdicts are the flood; keeping them out is what keeps the decision queue meaningful. A verdict does not get a <span class="idchip">dec_</span> id, does not enter the decisions directory, and does not go on the queue.</span>
+            <span lang="zh">为什么要分开？因为如果每一次日常的 PASS/FAIL 都被塞进决策这套机制里，决策队列就会被大量逐条记账式的检查结果淹没，直到没人看得清它。日常的裁决就是那场洪水；把它们挡在队列之外，才能让决策队列继续有意义。裁决拿不到 <span class="idchip">dec_</span> 式的 id，不进入 decisions 目录，也不上队列。</span>
+          </p>
+          <p>
+            <span lang="en">And the routing is <em>not</em> automatic. Nothing turns a FAIL into a new decision on its own. Only when a verdict surfaces something <em>strategic</em> ("these results suggest we chose the wrong path") does it <em>prompt</em> a human to propose a new decision — a deliberate act.</span>
+            <span lang="zh">而且这条路由<em>不是</em>自动的。没有任何东西会自己把一个 FAIL 变成一个新决策。只有当裁决暴露出某种<em>战略性</em>问题时（"这批结果说明我们可能选错了路"），它才会<em>促使</em>人去提出一个新决策——一个刻意的动作。</span>
+          </p>
+          <button class="chip" type="button" data-target-tab="how" data-target-id="provenance">
+            <span lang="en">See how it's built</span><span lang="zh">看它是怎么落实的</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </section>
+
+        <section class="block" id="gates">
+          <span class="sec-no">05</span>
+          <h3><span lang="en">Every load-bearing write passes a gate — and gates fail closed</span><span lang="zh">每个承重写入都要过一扇门——而门默认关闭</span></h3>
+          <p class="lead">
+            <span lang="en">The core rule: <strong>every load-bearing write passes through a gate, and the gate is closed by default.</strong> If the evidence is insufficient or a check doesn't pass, the write is <em>rejected</em>, not waved through. The safe default is "no"; you have to earn the "yes".</span>
+            <span lang="zh">核心规则：<strong>每一次承重写入都必须经过一扇门，而门默认是关闭的。</strong>证据不足，或某项检查没通过，写入就会被<em>拒绝</em>，而不是被放行。安全的默认值是"否"；你必须自己赚得那个"是"。</span>
+          </p>
+          <p>
+            <span lang="en">A fail-open system trusts that nothing went wrong. Fail-closed <em>assumes</em> something might have, and makes you prove otherwise. Load-bearing writes never touch disk directly — they go through a single write coordinator that stamps and commits every accepted write, so there's one place to enforce the rule and every accepted write leaves a durable, attributable trace.</span>
+            <span lang="zh">一个默认开放的系统信任"什么都没出错"。fail-closed 则<em>假设</em>"可能出错了"，要求你先证明没出错。承重写入从不直接落盘——它们经过唯一的写协调器（write coordinator），它给每次被接受的写入盖章并提交，于是只有一个地方执行规则，而每次被接受的写入都留下持久、可追溯的痕迹。</span>
+          </p>
+          <p>
+            <span lang="en">One gate is a hard floor: a task cannot enter <code>in_review</code> or <code>done</code> unless its <code>facts.md</code> holds at least one real fact. "Done" that observed nothing isn't done.</span>
+            <span lang="zh">有一道门是硬底线：一个任务无法进入 <code>in_review</code> 或 <code>done</code>，除非它的 <code>facts.md</code> 里至少有一条真实的事实。什么都没观察到的"完成"，不算完成。</span>
+          </p>
+          <button class="chip" type="button" data-target-tab="how" data-target-id="how-gates">
+            <span lang="en">See the three gates in the pipeline</span><span lang="zh">看流水线里的三扇门</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </section>
+
+        <section class="block" id="adoption-law">
+          <span class="sec-no">06</span>
+          <h3><span lang="en">The adoption law — and four layers of "done"</span><span lang="zh">采用律——以及"完成"的四层</span></h3>
+          <p class="lead">
+            <span lang="en">A capability is adopted <em>if and only if</em> it is the sole legal path on a load-bearing route. If a legacy alternative still exists and migration isn't forced, the legacy wins by inertia. The mechanism has to <em>be</em> the road, not a sign beside it.</span>
+            <span lang="zh">一项能力被采用，<em>当且仅当</em>它是某条承重路径上唯一的合法路径。只要遗留方案仍然存在、迁移没有被强制，遗留方案就会凭惯性获胜。这套机制必须<em>就是</em>那条路，而不是立在路边的一块提示牌。</span>
+          </p>
+          <p>
+            <span lang="en">That reframes what "done" means. It has four layers:</span>
+            <span lang="zh">这重新定义了"完成"。它有四层：</span>
+          </p>
+          <ol>
+            <li><span lang="en"><strong>Structural justice</strong> — tests &amp; CI green, no hard-gate violations. Proves the code runs, not that it matters.</span><span lang="zh"><strong>结构正义</strong>——测试和 CI 全绿，没有硬门违规。证明代码能跑，证明不了它有意义。</span></li>
+            <li><span lang="en"><strong>Semantic acceptance</strong> — the implementation matches the decision it claims to implement. Not a plausible neighbor; the thing itself.</span><span lang="zh"><strong>语义验收</strong>——实现真正匹配它所声称要落实的那个决策。不是相似物，而是那个决策本身。</span></li>
+            <li><span lang="en"><strong>Adversarial verification</strong> — the load-bearing pieces survive a double-blind red team.</span><span lang="zh"><strong>对抗式验证</strong>——承重的部分扛得住双盲红队测试。</span></li>
+            <li><span lang="en"><strong>Usage proof</strong> — real usage appears after delivery, or the thing is the forced path with no legacy alternative left.</span><span lang="zh"><strong>使用证明</strong>——交付后真实使用出现，或者这东西本身就是强制路径、不再有遗留替代方案。</span></li>
+          </ol>
+          <p>
+            <span lang="en">Something that clears the first three but fails the fourth is <strong>shipped-unused</strong>: it exists, it works, nobody reaches for it. That does not count as a completed milestone. The reinforcing signal is the mirror image: the structures we unconsciously reach for by hand, over and over, are the innovations already validated by behavior.</span>
+            <span lang="zh">通过了前三层却在第四层失手的东西，叫作<strong>已发布未使用（shipped-unused）</strong>：它存在，能运行，但没人用它。这不算完成的里程碑。而强化信号是它的镜像：我们无意识地反复用手工去够的那些结构，正是已经被行为验证过的创新。</span>
+          </p>
+          <button class="chip" type="button" data-target-tab="how" data-target-id="vertical-engine">
+            <span lang="en">See how domains extend without touching the kernel</span><span lang="zh">看领域如何扩展而不动内核</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </section>
+
+        <section class="block" id="where-its-going">
+          <span class="sec-no">07</span>
+          <h3><span lang="en">Where it's going</span><span lang="zh">它往哪走</span></h3>
+          <p class="lead">
+            <span lang="en">A note on direction, not a schedule — no dates, no ordering, all of it subject to change. The base is settled: the three-primitive kernel and a working CLI, already used to manage its own development. Everything below grows outward from that.</span>
+            <span lang="zh">这是一段关于方向的说明，不是时间表——没有日期，没有先后，一切都可能变。基础已经定下：三原语内核加一个能用的 CLI，并且已经在用来管理自身的开发。下面的一切都从这里向外生长。</span>
+          </p>
+          <ul>
+            <li><span lang="en"><strong>Self-hosting the loop</strong> — turn the tool fully on its own development. It's the only honest proof of usefulness: a tool that can't carry its own work has no business carrying anyone else's.</span><span lang="zh"><strong>让循环自我托管</strong>——把工具彻底用在它自己的开发上。这是有用性唯一诚实的证明：连自己的工作都扛不起来的工具，没资格去扛别人的。</span></li>
+            <li><span lang="en"><strong>A visual surface</strong> — let people who don't live on the command line still <em>see</em> the structure, since the command line is the real adoption bottleneck and most people meet a tool through its surface.</span><span lang="zh"><strong>一个可视界面</strong>——让不常泡命令行的人也能<em>看到</em>结构，因为命令行才是真正的采用瓶颈，而大多数人是通过表层认识一个工具的。</span></li>
+            <li><span lang="en"><strong>New scenarios</strong> — bring domains beyond coding (research, operations) onto the same vertical model. It's the test of the central bet: a kernel that knows nothing about any domain should absorb a new one purely through a declaration.</span><span lang="zh"><strong>新场景</strong>——把编码之外的领域（研究、运维）纳入同一套场景模型。这是对核心赌注的检验：一个对任何领域一无所知的内核，应该仅凭一份声明就能吸收一个新领域。</span></li>
+          </ul>
+          <p>
+            <span lang="en">One thing is deliberately <em>not</em> on the list: widening the kernel. New surfaces and new domains arrive in the layers around it; the moment a direction seems to need a new primitive, that's a signal to reexamine the direction, not the kernel.</span>
+            <span lang="zh">有一件事刻意<em>不</em>在清单上：拓宽内核。新的界面和领域都出现在它周围的层里；一旦某个方向看起来需要一个新原语，那是重新审视方向的信号，而不是审视内核。</span>
+          </p>
+        </section>
+
+        <div class="fwdchip-wrap">
+          <button class="chip" type="button" data-target-tab="how" data-target-id="overview">
+            <span lang="en">Now see the machine that makes this true</span><span lang="zh">现在看让这一切成真的那台机器</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       TAB 3 · HOW  (from docs-release/architecture/)  — the machine
+       ============================================================ -->
+  <section class="panel" id="panel-how" role="tabpanel" aria-labelledby="tab-how" tabindex="0" hidden>
+    <div class="wrap">
+      <div class="intro">
+        <p class="kicker"><span lang="en">How · the machine</span><span lang="zh">怎么做到 · 这台机器</span></p>
+        <h2 class="hero">
+          <span lang="en">The shape of the machine that holds the bet up.</span>
+          <span lang="zh">撑起这个赌注的那台机器的形状。</span>
+        </h2>
+        <p class="lede">
+          <span lang="en">The Why tab made a bet: promote the agent's trail into structured entities in git, with Markdown as the source of truth. This tab shows the machine — what the layers are, where the truth actually sits, and the single door every durable write goes through. Each section opens with a back-link to the claim it proves.</span>
+          <span lang="zh">"为什么"标签页押下了一个赌注：把代理的轨迹提升为 git 里的结构化实体，以 Markdown 作为真相的载体。这个标签页展示那台机器——有哪些层、真相到底落在哪里、以及每一次持久写入都要经过的那扇唯一的门。每一节开头都带一个回链，指向它所证明的那个主张。</span>
+        </p>
+      </div>
+
+      <div class="sections">
+
+        <section class="block" id="overview">
+          <span class="sec-no">01</span>
+          <button class="chip backchip" type="button" data-target-tab="why" data-target-id="the-bet">
+            <span class="arrow" aria-hidden="true">←</span>
+            <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
+          </button>
+          <h3><span lang="en">Two stores, and they are not peers</span><span lang="zh">两个存储，而它们并不对等</span></h3>
+          <p class="pull">
+            <span lang="en">Markdown in your git repository is the source of truth. SQLite is a rebuildable projection — a fast read cache you can delete and regenerate from the Markdown at any time.</span>
+            <span lang="zh">你 git 仓库里的 Markdown 是真相的来源。SQLite 是一个可重建的投影——一个快速的读缓存，你随时可以删掉它，再从 Markdown 重新生成。</span>
+          </p>
+          <p>
+            <span lang="en">Every entity — decision, task, fact — is a plain Markdown file with YAML frontmatter, committed to git. Nothing about correctness depends on the database surviving: delete it and the next read rebuilds it from the files. When the two disagree, the Markdown wins by definition, and a freshness check exists precisely to notice. Hold onto that asymmetry — it explains the whole layout: writes flow <em>down</em> toward Markdown and git; reads are served <em>from</em> a projection any write can invalidate and any command can rebuild.</span>
+            <span lang="zh">每个实体——decision、task、fact——都是一份带 YAML frontmatter 的纯 Markdown 文件，提交进 git。正确性不依赖数据库的存活：删掉它，下一次读取就从文件把它重建出来。当两者不一致时，按定义 Markdown 说了算，而一个新鲜度检查的存在正是为了发现这种不一致。记住这处不对称——它解释了整个布局：写入朝着 Markdown 与 git <em>向下</em>流动；读取则由一个任何写入都能让它失效、任何命令都能把它重建的<em>投影</em>来提供。</span>
+          </p>
+
+          <figure class="diagram">
+            <div class="diagram-scroll">
+              <svg viewBox="0 0 660 300" role="img" aria-labelledby="stack-title stack-desc">
+                <title id="stack-title"><span></span></title>
+                <desc id="stack-desc">Four-layer stack: CLI command surface, application lifecycle and gates, kernel, durable git and Markdown store. Writes flow down, reads flow up from a projection.</desc>
+                <defs>
+                  <marker id="ahd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="svg-arrow"/></marker>
+                </defs>
+                <!-- layers -->
+                <g>
+                  <rect class="svg-layer" x="70" y="18" width="470" height="46" rx="6"/>
+                  <text class="svg-label" x="86" y="40" font-size="14"><tspan lang="en">CLI command surface</tspan><tspan lang="zh">CLI 命令面</tspan></text>
+                  <text class="svg-mono" x="86" y="56" font-size="11">packages/cli/ — the `ha` command</text>
+                </g>
+                <g>
+                  <rect class="svg-layer" x="70" y="76" width="470" height="46" rx="6"/>
+                  <text class="svg-label" x="86" y="98" font-size="14"><tspan lang="en">Application / lifecycle + gates</tspan><tspan lang="zh">应用层 / 生命周期 + 门</tspan></text>
+                  <text class="svg-mono" x="86" y="114" font-size="11">packages/application/ — orchestration, fail-closed gates</text>
+                </g>
+                <g>
+                  <rect class="svg-layer-k" x="70" y="134" width="470" height="70" rx="6"/>
+                  <text class="svg-label" x="86" y="155" font-size="14"><tspan lang="en">Kernel (kept small)</tspan><tspan lang="zh">内核（保持精简）</tspan></text>
+                  <text class="svg-mono" x="86" y="172" font-size="10.5">packages/kernel/src/ — domain · schemas · store</text>
+                  <text class="svg-mono" x="86" y="188" font-size="10.5">write-coordination (the single write path) · projection (SQLite)</text>
+                </g>
+                <g>
+                  <rect class="svg-layer" x="70" y="216" width="470" height="46" rx="6"/>
+                  <text class="svg-label" x="86" y="238" font-size="14"><tspan lang="en">Durable store</tspan><tspan lang="zh">持久存储</tspan></text>
+                  <text class="svg-mono" x="86" y="254" font-size="11">git + plain Markdown files — the source of truth</text>
+                </g>
+                <!-- write arrow (down, left side) -->
+                <path class="svg-edge" d="M40 26 L 40 254" stroke-width="1.8" marker-end="url(#ahd)"/>
+                <text class="svg-edge-label" x="34" y="150" font-size="11" text-anchor="middle" transform="rotate(-90 34 150)"><tspan lang="en">writes</tspan><tspan lang="zh">写入</tspan></text>
+                <!-- read arrow (up, right side) -->
+                <path class="svg-edge" d="M570 254 L 570 26" stroke-width="1.8" marker-end="url(#ahd)"/>
+                <text class="svg-edge-label" x="588" y="150" font-size="11" text-anchor="middle" transform="rotate(90 588 150)"><tspan lang="en">reads (from projection)</tspan><tspan lang="zh">读取（走投影）</tspan></text>
+              </svg>
+            </div>
+            <figcaption><span lang="en">The layer stack. Writes flow down to git; reads flow up from a rebuildable projection.</span><span lang="zh">层栈。写入向下流到 git；读取从一个可重建的投影向上流出。</span></figcaption>
+          </figure>
+        </section>
+
+        <section class="block" id="storage">
+          <span class="sec-no">02</span>
+          <button class="chip backchip" type="button" data-target-tab="why" data-target-id="three-primitives">
+            <span class="arrow" aria-hidden="true">←</span>
+            <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
+          </button>
+          <h3><span lang="en">How the three entities live on disk</span><span lang="zh">三个实体在磁盘上怎么住</span></h3>
+          <p>
+            <span lang="en">Every entity is the same physical thing: a Markdown file with a YAML frontmatter block on top. The frontmatter isn't decoration — it's validated against a schema in <code>packages/kernel/src/schemas/</code> before the file is accepted, so the fields are contracts, not conventions. Three primitives, but only two storage sites: decisions centralized, tasks as containers, facts embedded.</span>
+            <span lang="zh">每个实体都是同一种物理东西：一份顶部带 YAML frontmatter 块的 Markdown 文件。frontmatter 不是装饰——在文件被接受之前，它要经 <code>packages/kernel/src/schemas/</code> 里的 schema 校验，所以这些字段是合同，不是约定。三个原语，却只有两个存储点：决策集中，任务作容器，事实嵌入。</span>
+          </p>
+          <p>
+            <span lang="en">The IDs are shaped and enforced. A decision id matches <span class="idchip">dec_…</span>. A task id is <span class="idchip">task_&lt;ULID&gt;-&lt;slug&gt;</span> — the ULID is sortable and unique, the slug is human-readable. A fact id is <span class="idchip">F-</span> plus exactly eight Crockford base32 characters (digits and uppercase, excluding <code>I L O U</code>), e.g. <span class="idchip">F-3DQ0KZRV</span>.</span>
+            <span lang="zh">这些 ID 有固定形状并被强制。决策 id 匹配 <span class="idchip">dec_…</span>。任务 id 是 <span class="idchip">task_&lt;ULID&gt;-&lt;slug&gt;</span>——ULID 可排序且唯一，slug 人类可读。事实 id 是 <span class="idchip">F-</span> 加上恰好八个 Crockford base32 字符（数字和大写字母，排除 <code>I L O U</code>），例如 <span class="idchip">F-3DQ0KZRV</span>。</span>
+          </p>
+          <figure class="code">
+            <figcaption><span lang="en">directory layout — two storage sites</span><span lang="zh">目录布局——两个存储点</span></figcaption>
+<pre>&lt;repo root&gt;/
+├── decisions/                       <span class="c"># centralized: the spine</span>
+│   └── decision-dec_.../decision.md
+└── &lt;tasks root&gt;/
+    └── task_&lt;ULID&gt;-&lt;slug&gt;/           <span class="c"># one directory per task</span>
+        ├── INDEX.md                 <span class="c"># frontmatter: task-package/v2</span>
+        ├── task_plan.md · progress.md · review.md · closeout.md
+        └── facts.md                 <span class="c"># the local fact ledger</span></pre>
+          </figure>
+          <p>
+            <span lang="en">The decision file's frontmatter is validated against <code>decision-package/v1</code> and carries load-bearing fields like <code>question</code>, <code>chosen[]</code>, <code>rejected[]</code> (each with a <code>why_not</code>), <code>claims[]</code>, <code>relations[]</code>, and <code>provenance[]</code>. One rule is enforced by the schema itself: a decision whose <code>proposedBy</code> equals its <code>arbiter</code> is <em>rejected</em> — you cannot arbitrate your own proposal, and a record of that shape never reaches disk.</span>
+            <span lang="zh">决策文件的 frontmatter 依 <code>decision-package/v1</code> 校验，携带承重字段，如 <code>question</code>、<code>chosen[]</code>、<code>rejected[]</code>（每个带一个 <code>why_not</code>）、<code>claims[]</code>、<code>relations[]</code> 和 <code>provenance[]</code>。有一条规则由 schema 本身强制：<code>proposedBy</code> 等于 <code>arbiter</code> 的决策会被<em>拒绝</em>——你不能裁决自己的提议，这种形状的记录根本到不了磁盘。</span>
+          </p>
+          <p>
+            <span lang="en">Each of the three primitives has its own frontmatter schema and each is versioned in the name itself: a task's <code>INDEX.md</code> declares <code>task-package/v2</code>, a decision declares <code>decision-package/v1</code>, and a fact line is validated against <code>fact-record/v1</code>. The version suffix is a contract, not a label — the loader knows exactly which shape to expect, and a file that doesn't match its declared schema is refused at the door rather than half-read.</span>
+            <span lang="zh">三个原语各有自己的 frontmatter schema，而且版本号就写在名字里：任务的 <code>INDEX.md</code> 声明 <code>task-package/v2</code>，决策声明 <code>decision-package/v1</code>，事实行则依 <code>fact-record/v1</code> 校验。版本后缀是合同，不是标签——加载器清楚知道该期待哪种形状，而一份对不上自己所声明 schema 的文件会在门口被拒，而不是被读到一半。</span>
+          </p>
+        </section>
+
+        <section class="block" id="write-path">
+          <span class="sec-no">03</span>
+          <button class="chip backchip" type="button" data-target-tab="why" data-target-id="gates">
+            <span class="arrow" aria-hidden="true">←</span>
+            <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
+          </button>
+          <h3><span lang="en">The single write path — the seal</span><span lang="zh">唯一的写路径——那枚印章</span></h3>
+          <p>
+            <span lang="en">Load-bearing writes — creating a task, transitioning it, appending progress, proposing or accepting a decision — never touch disk directly. They go through one component, the <strong>write coordinator</strong> (<code>WriteCoordinator</code> in <code>packages/kernel/src/ports/write-coordinator.ts</code>), whose interface is tiny on purpose:</span>
+            <span lang="zh">承重写入——创建任务、迁移它、追加进度、提议或接受决策——从不直接落盘。它们经过一个组件，<strong>写协调器</strong>（<code>packages/kernel/src/ports/write-coordinator.ts</code> 里的 <code>WriteCoordinator</code>），它的接口刻意做得很小：</span>
+          </p>
+          <figure class="code">
+            <figcaption><span lang="en">enqueue intent, then flush effect</span><span lang="zh">先把意图入队，再落实效果</span></figcaption>
+<pre>WriteCoordinator
+  <span class="k">enqueue</span>(op)   → WriteAck        <span class="c"># record intent in the journal</span>
+  <span class="k">flush</span>(reason) → FlushReport      <span class="c"># apply pending ops, commit, watermark</span>
+  <span class="k">recover</span>       → RecoveryReport   <span class="c"># replay anything left half-applied</span></pre>
+          </figure>
+          <p>
+            <span lang="en">Every write splits into two phases so a crash leaves a recoverable state, not a corrupt one. <strong>Enqueue</strong> records <em>intent</em>: it validates the op, runs a preflight check, and appends a record to an append-only journal — nothing in your tree has changed yet. <strong>Flush</strong> produces the <em>effect</em>: under a repository lock it applies each pending op to disk (atomically, via a temp-file write then rename), commits the touched paths to git, and finally writes a <strong>watermark</strong> — the authoritative record of what has been committed.</span>
+            <span lang="zh">每次写入分成两个阶段，好让崩溃留下一个可恢复的状态，而不是一个损坏的状态。<strong>Enqueue</strong> 记录<em>意图</em>：它校验 op、跑一次预检、往一个只增不改的 journal 追加一条记录——你的工作树此刻还什么都没变。<strong>Flush</strong> 产生<em>效果</em>：在仓库锁下，它把每条待处理的 op 原子地应用到磁盘（先写临时文件再改名），把被触碰的路径提交到 git，最后写一个<strong>水印（watermark）</strong>——已提交内容的权威记录。</span>
+          </p>
+          <p>
+            <span lang="en">That watermark is the wax seal. Each decision document also gets a <code>_coordinatorWatermark</code> stamped into its frontmatter; its presence proves the file went through the single write path, and post-merge checks hard-fail if it's missing or duplicated. The git commit carries a semantic message like <code>task(transition): &lt;id&gt; → in_review [&lt;opId&gt;]</code>. There is no "write these bytes to that path" primitive — if an operation isn't one of the enumerated kinds, it cannot enter the system.</span>
+            <span lang="zh">那个水印就是蜡封。每个决策文档还会被在 frontmatter 里盖上一个 <code>_coordinatorWatermark</code>；它的存在证明这份文件走过了那条唯一的写路径，合并后的检查会在它缺失或重复时硬失败。git 提交带一条语义信息，如 <code>task(transition): &lt;id&gt; → in_review [&lt;opId&gt;]</code>。系统里没有"把这些字节写到那个路径"的原语——如果一个操作不属于被枚举的种类之一，它就进不来。</span>
+          </p>
+          <p>
+            <span lang="en">Read that as one design move: <strong>stamp, then commit — one door.</strong> Because every load-bearing write ends by stamping a watermark and then committing to git, there is exactly one place where structure becomes durable, and exactly one artifact to audit afterward. A record without its watermark, or one that never became a git commit, simply isn't a real write — and the checks that run after a merge are built to notice precisely that.</span>
+            <span lang="zh">把这理解成一个设计动作：<strong>先盖章，再提交——一扇门。</strong>因为每一次承重写入都以盖一个水印、再提交到 git 收尾，所以结构变得持久的地方只有一个，事后可审计的工件也只有一个。一条没有水印、或从未变成 git 提交的记录，根本不算一次真实的写入——而合并之后跑的检查，正是为发现这一点而造的。</span>
+          </p>
+        </section>
+
+        <section class="block" id="projection">
+          <span class="sec-no">04</span>
+          <button class="chip backchip" type="button" data-target-tab="why" data-target-id="the-bet">
+            <span class="arrow" aria-hidden="true">←</span>
+            <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
+          </button>
+          <h3><span lang="en">The projection: Markdown to SQLite</span><span lang="zh">投影：从 Markdown 到 SQLite</span></h3>
+          <p>
+            <span lang="en">The read side is served from a SQLite file at <code>.harness/cache/projections.sqlite</code> — a <em>rebuildable projection</em>, safe to delete because the Markdown in git is authoritative and the rebuild is a pure, reproducible function of the files. Rebuild is a single pass: scan the Markdown (task <code>INDEX.md</code> files, decision docs), validate and convert each entry into a typed row, compute content hashes, build the relation graph, then write a fresh SQLite to a temp file and rename it into place atomically.</span>
+            <span lang="zh">读取一侧由一个 SQLite 文件提供，位于 <code>.harness/cache/projections.sqlite</code>——一个<em>可重建的投影</em>，删掉也安全，因为 git 里的 Markdown 是权威，而重建是这些文件的一个纯粹、可复现的函数。重建是单趟：扫描 Markdown（任务 <code>INDEX.md</code> 文件、决策文档），校验并把每条 entry 转成类型化的行，计算内容哈希，构建关系图，然后把全新的 SQLite 写到临时文件并原子改名到位。</span>
+          </p>
+          <p>
+            <span lang="en">Freshness is checked on every read. If the stored <code>sourceHash</code> matches the Markdown, the read is served from the database. If it differs, the projection is stale and gets rebuilt transparently. If a stored row-hash doesn't match — a sign of tampering — it hard-fails and rebuilds. Missing or unreadable file? Rebuilt. The cache holds real tables (<code>task_projection</code>, <code>decision_projection</code>, <code>relation_edges</code>, <code>relation_coverage</code>, <code>task_fact_anchors</code>, and a <code>projection_meta</code> row of fingerprints), but none of them is a source of truth.</span>
+            <span lang="zh">每次读取都会检查新鲜度。如果存下的 <code>sourceHash</code> 与 Markdown 匹配，读取就从数据库来。如果不同，投影就是陈旧的，会被透明重建。如果某个存下的行哈希对不上——篡改的迹象——它会硬失败并重建。文件缺失或读不出？重建。这个缓存里有真实的表（<code>task_projection</code>、<code>decision_projection</code>、<code>relation_edges</code>、<code>relation_coverage</code>、<code>task_fact_anchors</code>，还有一行指纹用的 <code>projection_meta</code>），但它们没有一个是真相的来源。</span>
+          </p>
+          <p>
+            <span lang="en">The practical upshot: this whole SQLite file is <em>disposable</em>. It lives under <code>.harness/</code>, stays out of git, and can be deleted at any moment with zero loss — the next command rebuilds it from the Markdown that git already holds. That's what lets the tables above be aggressive and denormalized for fast reads without ever becoming a liability: a projection you can always throw away is one you never have to migrate, back up, or trust over the files.</span>
+            <span lang="zh">实际的结论是：整个 SQLite 文件是<em>可丢弃</em>的。它住在 <code>.harness/</code> 下，留在 git 之外，随时可以删掉而毫无损失——下一条命令会从 git 早已保存的 Markdown 把它重建出来。正因如此，上面那些表可以为了读取速度而激进地反范式，却永远不会变成负担：一个你随时能扔掉的投影，就是一个你永远不必迁移、不必备份、也不必凌驾于文件之上去信任的投影。</span>
+          </p>
+        </section>
+
+        <section class="block" id="how-gates">
+          <span class="sec-no">05</span>
+          <button class="chip backchip" type="button" data-target-tab="why" data-target-id="gates">
+            <span class="arrow" aria-hidden="true">←</span>
+            <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
+          </button>
+          <h3><span lang="en">Gates in the pipeline</span><span lang="zh">流水线里的门</span></h3>
+          <p>
+            <span lang="en">The lifecycle gates live in <code>packages/application/src/task-lifecycle-gates.ts</code>. Each collects <em>issues</em>; a non-empty list blocks the transition. The default is reject. Three fire along a task's path to "done":</span>
+            <span lang="zh">生命周期的门住在 <code>packages/application/src/task-lifecycle-gates.ts</code>。每扇门收集<em>问题（issues）</em>；一个非空列表就挡住迁移。默认是拒绝。沿着任务走向"完成"的路上，有三扇门触发：</span>
+          </p>
+          <div class="table-scroll">
+            <table class="grid">
+              <thead>
+                <tr>
+                  <th><span lang="en">Gate</span><span lang="zh">门</span></th>
+                  <th><span lang="en">Fires when</span><span lang="zh">触发时机</span></th>
+                  <th><span lang="en">Guards against</span><span lang="zh">防的是</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span lang="en">Fact hard-gate</span><span lang="zh">Fact 硬门</span></td>
+                  <td><span lang="en">before <code>in_review</code> / <code>done</code></span><span lang="zh"><code>in_review</code> / <code>done</code> 之前</span></td>
+                  <td><span lang="en">a "done" with <code>facts.md</code> empty → <code>task_fact_required</code></span><span lang="zh"><code>facts.md</code> 为空的"完成" → <code>task_fact_required</code></span></td>
+                </tr>
+                <tr>
+                  <td><span lang="en">Review gate</span><span lang="zh">Review 门</span></td>
+                  <td><span lang="en">on move to <code>in_review</code></span><span lang="zh">迁到 <code>in_review</code> 时</span></td>
+                  <td><span lang="en">any finding both open &amp; release-blocking → <code>release_blocking_finding</code></span><span lang="zh">任何既 open 又阻断发布的发现 → <code>release_blocking_finding</code></span></td>
+                </tr>
+                <tr>
+                  <td><span lang="en">Completion gate</span><span lang="zh">Completion 门</span></td>
+                  <td><span lang="en">on move to <code>done</code></span><span lang="zh">迁到 <code>done</code> 时</span></td>
+                  <td><span lang="en">review / CI not passed, or closeout not ready</span><span lang="zh">review / CI 未过，或收尾未就绪</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <span lang="en">Beyond the lifecycle, coarser gates guard whole milestones and deletions. The <strong>Exit Gate</strong> passes only when all load-bearing decisions are settled, the task chain is closed, and the event ledger is complete. The <strong>Usability Gate</strong> checks that a fresh agent — given only <code>--help</code> and the capabilities listing, no memory — can drive the capability end to end. The <strong>Disposition Guard</strong> refuses unsafe deletion: anything with inbound edges is protected. A referenced decision is never physically deleted (at most retired, keeping its id and edges); a fact is never deleted in isolation, because something may depend on it for provenance.</span>
+            <span lang="zh">在生命周期之外，还有更粗的门守着整个里程碑和删除。<strong>Exit Gate</strong> 只有在所有承重决策都已解决、任务链闭合、事件账本完整时才通过。<strong>Usability Gate</strong> 检查一个全新的代理——只拿到 <code>--help</code> 和能力清单、没有记忆——能否端到端把这项能力跑通。<strong>Disposition Guard</strong> 拒绝不安全的删除：任何有入边的东西都受保护。被引用的决策永不被物理删除（最多退役，保留它的 id 和边）；事实永不被单独删除，因为可能有东西依赖它做出处追溯。</span>
+          </p>
+        </section>
+
+        <section class="block" id="vertical-engine">
+          <span class="sec-no">06</span>
+          <button class="chip backchip" type="button" data-target-tab="why" data-target-id="adoption-law">
+            <span class="arrow" aria-hidden="true">←</span>
+            <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
+          </button>
+          <h3><span lang="en">Verticals: the declaration engine</span><span lang="zh">场景合同：声明式引擎</span></h3>
+          <p>
+            <span lang="en">The kernel is the part deliberately kept small — decisions, tasks, facts, relations. New domains don't arrive by rewriting it; they arrive as declarative <strong>verticals</strong>. A vertical is a single <code>vertical.json</code>, validated against <code>VerticalDefinitionSchema</code>, that declares the entity kinds, document scaffolds, checker rules, and allowed relation types for a domain. The engine reads the declaration; the kernel that reads it does not change.</span>
+            <span lang="zh">内核是被刻意保持精简的那部分——decision、task、fact、关系。新领域不是靠重写它来加入的；它们作为声明式的<strong>场景合同（vertical）</strong>加入。一个场景合同是单个 <code>vertical.json</code>，经 <code>VerticalDefinitionSchema</code> 校验，声明某个领域的实体种类、文档脚手架、检查器规则和允许的关系类型。引擎读这份声明；读它的那个内核不变。</span>
+          </p>
+          <p>
+            <span lang="en">Entity kinds come in flavors: a <em>lifecycle</em> kind (like task or decision) declares a <code>packageKind</code> such as <code>task-package/v2</code> and gets a full document package; a <em>schema</em> kind (like fact) declares a <code>schemaRef</code> and constrains fields only, with no document template. The guiding rule is <em>convention over declaration</em>: if the engine can infer something from files that already exist — directory structure, file names, schema validity — that's convention; only what no filesystem can reveal (a load-bearing flag, a checker profile, a locale fallback) is declared, and kept minimal.</span>
+            <span lang="zh">实体种类分几种：一个<em>生命周期</em>种类（如 task 或 decision）声明一个 <code>packageKind</code>，比如 <code>task-package/v2</code>，并得到完整的文档包；一个 <em>schema</em> 种类（如 fact）声明一个 <code>schemaRef</code>，只约束字段，没有文档模板。指导原则是<em>约定优于声明</em>：如果引擎能从已经存在的文件里推断出某件事——目录结构、文件名、schema 合法性——那就是约定；只有文件系统无法揭示的东西（一个承重标志、一个检查器档案、一个语言回退）才被声明，而且尽量最小化。</span>
+          </p>
+          <p class="pull">
+            <span lang="en">A milestone is a coding idea; a research project might have <em>phases</em> instead. New surfaces and new domains arrive in the layers <em>around</em> the kernel — verticals, presets, tooling — while the primitives stay fixed.</span>
+            <span lang="zh">里程碑是一个编码领域的概念；一个研究项目可能改用<em>阶段（phases）</em>。新的界面和新的领域出现在内核<em>周围</em>的那些层——场景合同、预设、工具——而原语本身保持不变。</span>
+          </p>
+        </section>
+
+        <section class="block" id="provenance">
+          <span class="sec-no">07</span>
+          <button class="chip backchip" type="button" data-target-tab="why" data-target-id="decision-vs-verdict">
+            <span class="arrow" aria-hidden="true">←</span>
+            <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
+          </button>
+          <h3><span lang="en">Provenance, verdicts, and the event ledger</span><span lang="zh">出处、裁决与事件账本</span></h3>
+          <p>
+            <span lang="en">Every entity carries a <code>provenance[]</code> array with at least one entry, so no record floats free of an origin. Each entry (<code>ProvenanceEntrySchema</code>) is exactly three non-blank fields: <code>runtime</code> (one of <code>human</code>, <code>claude-code</code>, <code>codex</code>, <code>zcode</code>, <code>antigravity</code>), <code>sessionId</code>, and <code>boundAt</code>. An entity can accumulate more than one binding as it passes through more than one run, but never zero.</span>
+            <span lang="zh">每个实体都携带一个 <code>provenance[]</code> 数组，至少有一条，于是没有任何记录会脱离一个来源而漂浮。每条（<code>ProvenanceEntrySchema</code>）恰好是三个非空字段：<code>runtime</code>（<code>human</code>、<code>claude-code</code>、<code>codex</code>、<code>zcode</code>、<code>antigravity</code> 之一）、<code>sessionId</code> 和 <code>boundAt</code>。一个实体在经过多次运行时可以累积不止一条绑定，但永远不会是零条。</span>
+          </p>
+          <p>
+            <span lang="en">This is the machinery that keeps decision and verdict apart. A verdict is a PASS/FAIL judgment on one concrete output, recorded next to the work it judged — it gets no <code>dec_</code>-style id, never enters the decisions directory, and never goes on the decision queue. Turning a strategically significant verdict into a new decision is a deliberate human act, never automatic.</span>
+            <span lang="zh">这正是让决策和裁决保持分开的机制。裁决是对某个具体输出的一次 PASS/FAIL 判断，被记录在它所判断的那项工作旁边——它拿不到 <code>dec_</code> 式的 id，从不进入 decisions 目录，也从不上决策队列。把一个有战略意义的裁决变成一个新决策，是人刻意的动作，从不自动发生。</span>
+          </p>
+          <p>
+            <span lang="en">Underneath sits the <strong>event ledger</strong> — an append-only record of what happened during a run (<code>runtime-event/v1</code>). Each event has an <code>evt_</code> id and a <code>kind</code> from a fixed set: <code>session · turn · step · tool · approval · interrupt · result · cost</code>. Its CLI surface has exactly two operations — append and list. No edit, no delete; the ledger only grows. That ledger is what the Exit Gate reads to confirm a piece of work is actually complete.</span>
+            <span lang="zh">在这之下坐着<strong>事件账本</strong>——一次运行期间发生过什么的只增记录（<code>runtime-event/v1</code>）。每条事件有一个 <code>evt_</code> id 和一个来自固定集合的 <code>kind</code>：<code>session · turn · step · tool · approval · interrupt · result · cost</code>。它的 CLI 面恰好两个操作——append 和 list。无编辑，无删除；账本只会增长。正是这个账本，被 Exit Gate 读取，用来确认一项工作确实完成了。</span>
+          </p>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="foot-inner">
+    <p>
+      <span lang="en">This page is a distilled explainer. The authoritative docs are three tracks in the repository:</span>
+      <span lang="zh">本页是一份提炼过的讲解。权威文档是仓库里的三条轨道：</span>
+    </p>
+    <div class="path-list">
+      <a href="#try" data-tab="try">
+        <span class="plabel"><span lang="en">Try it →</span><span lang="zh">上手 →</span></span>
+        <span class="pdesc"> <span lang="en">docs-release/start/ — install, run one loop, daily commands.</span><span lang="zh">docs-release/start/ —— 安装、跑一个循环、日常命令。</span></span>
+      </a>
+      <a href="#why" data-tab="why">
+        <span class="plabel"><span lang="en">Why →</span><span lang="zh">为什么 →</span></span>
+        <span class="pdesc"> <span lang="en">docs-release/learn/ — the primitive kernel, gates, the adoption law.</span><span lang="zh">docs-release/learn/ —— 原语内核、门、采用律。</span></span>
+      </a>
+      <a href="#how" data-tab="how">
+        <span class="plabel"><span lang="en">How →</span><span lang="zh">怎么做到 →</span></span>
+        <span class="pdesc"> <span lang="en">docs-release/architecture/ — storage, the write path, projection, provenance.</span><span lang="zh">docs-release/architecture/ —— 存储、写路径、投影、出处。</span></span>
+      </a>
+    </div>
+    <p style="margin-top:20px">
+      <span lang="en">The <code>ha</code> CLI is the tool you use today: it writes plain Markdown into your git repo and keeps a rebuildable SQLite projection for fast queries.</span>
+      <span lang="zh"><code>ha</code> CLI 是你今天就用的工具：它把纯 Markdown 写进你的 git 仓库，并维护一个可重建的 SQLite 投影用于快速查询。</span>
+    </p>
+  </div>
+</footer>
+
+<script>
+  /* ============================================================
+     Engine: tabs (hash-routed, Back-button aware), language and
+     theme toggles (persisted, storage-guarded), and cross-tab
+     jump chips. Vanilla, no build step.
+     ============================================================ */
+  (function () {
+    'use strict';
+
+    var root = document.documentElement;
+    var TABS = ['try', 'why', 'how'];
+
+    /* localStorage that never throws in private mode. */
+    var store = {
+      get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
+      set: function (k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
+    };
+
+    /* ---------- Tabs ---------- */
+    var tabButtons = Array.prototype.slice.call(document.querySelectorAll('.tab[role="tab"]'));
+
+    function panelFor(name) { return document.getElementById('panel-' + name); }
+    function tabFor(name) { return document.getElementById('tab-' + name); }
+
+    // Show a tab. `scrollId` optionally scrolls to a sub-section within it.
+    // `push` controls whether we add a browser history entry (so Back works).
+    function showTab(name, opts) {
+      opts = opts || {};
+      if (TABS.indexOf(name) === -1) { name = 'try'; }
+
+      tabButtons.forEach(function (btn) {
+        var isActive = btn.getAttribute('data-tab') === name;
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        btn.tabIndex = isActive ? 0 : -1;
+      });
+
+      TABS.forEach(function (t) {
+        var panel = panelFor(t);
+        if (!panel) { return; }
+        var on = (t === name);
+        panel.classList.toggle('is-active', on);
+        if (on) { panel.removeAttribute('hidden'); }
+        else { panel.setAttribute('hidden', ''); }
+      });
+
+      // Keep the URL hash in sync so tabs are deep-linkable + Back works.
+      var hash = '#' + name;
+      if (opts.push !== false && location.hash !== hash) {
+        history.pushState({ tab: name }, '', hash);
+      } else if (opts.replace) {
+        history.replaceState({ tab: name }, '', hash);
+      }
+
+      // Move focus/scroll intelligently.
+      if (opts.scrollId) {
+        // Scroll to a specific section inside the freshly shown panel.
+        var target = panelFor(name) && panelFor(name).querySelector('#' + cssEscape(opts.scrollId));
+        if (target) {
+          // rAF so layout settles after the panel is displayed.
+          // scrollIntoView finds the real scroll container; the sticky-header
+          // clearance comes from `scroll-margin-top` on the section. Double rAF
+          // so the freshly shown panel's layout settles before we measure.
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              target.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+              focusSection(target);
+            });
+          });
+          return;
+        }
+      }
+      if (opts.focusPanel) {
+        var p = panelFor(name);
+        if (p) { p.focus({ preventScroll: true }); }
+      }
+      if (opts.toTop) {
+        window.scrollTo({ top: 0, behavior: prefersReduced() ? 'auto' : 'smooth' });
+      }
+    }
+
+    // Give a jumped-to section programmatic focus for screen readers,
+    // without leaving a persistent outline.
+    function focusSection(el) {
+      var had = el.getAttribute('tabindex');
+      if (had === null) { el.setAttribute('tabindex', '-1'); }
+      el.focus({ preventScroll: true });
+      if (had === null) {
+        el.addEventListener('blur', function once() {
+          el.removeAttribute('tabindex');
+          el.removeEventListener('blur', once);
+        });
+      }
+    }
+
+    function prefersReduced() {
+      return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    // Minimal CSS.escape fallback for older engines (ids here are simple anyway).
+    function cssEscape(s) {
+      if (window.CSS && CSS.escape) { return CSS.escape(s); }
+      return String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    }
+
+    // Click a tab button.
+    tabButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        showTab(btn.getAttribute('data-tab'), { toTop: true });
+      });
+    });
+
+    // Roving keyboard nav on the tablist (Left/Right/Home/End).
+    var tablist = document.querySelector('.tablist');
+    tablist.addEventListener('keydown', function (e) {
+      var idx = tabButtons.indexOf(document.activeElement);
+      if (idx === -1) { return; }
+      var next = null;
+      switch (e.key) {
+        case 'ArrowRight': case 'ArrowDown': next = (idx + 1) % tabButtons.length; break;
+        case 'ArrowLeft': case 'ArrowUp': next = (idx - 1 + tabButtons.length) % tabButtons.length; break;
+        case 'Home': next = 0; break;
+        case 'End': next = tabButtons.length - 1; break;
+        default: return;
+      }
+      e.preventDefault();
+      var btn = tabButtons[next];
+      btn.focus();
+      showTab(btn.getAttribute('data-tab'), { toTop: true });
+    });
+
+    /* ---------- Cross-tab jump chips (the shallow→deep spine) ---------- */
+    document.addEventListener('click', function (e) {
+      var chip = e.target.closest ? e.target.closest('[data-target-tab]') : null;
+      if (!chip) { return; }
+      e.preventDefault();
+      var tab = chip.getAttribute('data-target-tab');
+      var id = chip.getAttribute('data-target-id');
+      showTab(tab, { scrollId: id });
+    });
+
+    // Footer path cards (plain <a href="#tab">) switch tabs too.
+    document.querySelectorAll('.path-list a[data-tab]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        showTab(a.getAttribute('data-tab'), { toTop: true });
+      });
+    });
+
+    /* ---------- History: Back/Forward walk tab history ---------- */
+    window.addEventListener('popstate', function () {
+      var name = (location.hash || '#try').replace('#', '');
+      showTab(name, { push: false });
+    });
+
+    /* ---------- Language toggle (persisted, default English) ---------- */
+    var langBtn = document.getElementById('lang-toggle');
+    function applyLang(lang) {
+      lang = (lang === 'zh') ? 'zh' : 'en';
+      root.setAttribute('data-lang', lang);
+      langBtn.setAttribute('aria-label', lang === 'zh' ? '语言：中文（点击切换到英文）' : 'Language: English (click to switch to Chinese)');
+      document.documentElement.lang = (lang === 'zh') ? 'zh-CN' : 'en';
+    }
+    langBtn.addEventListener('click', function () {
+      var next = (root.getAttribute('data-lang') === 'zh') ? 'en' : 'zh';
+      applyLang(next);
+      store.set('ha-lang', next);
+    });
+
+    /* ---------- Theme toggle (persisted; OS default on first visit) ---------- */
+    var themeBtn = document.getElementById('theme-toggle');
+    function applyTheme(theme) {
+      theme = (theme === 'dark') ? 'dark' : 'light';
+      root.setAttribute('data-theme', theme);
+      themeBtn.setAttribute('aria-label', theme === 'dark' ? 'Dark theme active — switch to light' : 'Light theme active — switch to dark');
+      themeBtn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
+    }
+    themeBtn.addEventListener('click', function () {
+      var next = (root.getAttribute('data-theme') === 'dark') ? 'light' : 'dark';
+      applyTheme(next);
+      store.set('ha-theme', next);
+    });
+    // If the user never made a manual choice, track OS changes live.
+    if (window.matchMedia) {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      var onOS = function (ev) {
+        if (!store.get('ha-theme')) { applyTheme(ev.matches ? 'dark' : 'light'); }
+      };
+      if (mq.addEventListener) { mq.addEventListener('change', onOS); }
+      else if (mq.addListener) { mq.addListener(onOS); }
+    }
+
+    /* ---------- Initial paint: sync ARIA labels + honor the hash ---------- */
+    applyLang(root.getAttribute('data-lang'));       // label only; value set pre-paint
+    applyTheme(root.getAttribute('data-theme'));      // label only; value set pre-paint
+
+    var initial = (location.hash || '').replace('#', '');
+    if (TABS.indexOf(initial) === -1) { initial = 'try'; }
+    // Use replaceState so the first entry is clean and Back doesn't loop.
+    showTab(initial, { push: false, replace: true });
+  })();
+</script>
+</body>
+</html>
