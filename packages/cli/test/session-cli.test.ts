@@ -96,6 +96,39 @@ test("CLI session backfill discovers Codex runtime logs and commits exports", ()
   });
 });
 
+test("CLI session backfill discovers ZCode runtime logs and commits exports", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const homeDir = path.join(rootDir, "home");
+    mkdirSync(path.join(homeDir, ".zcode", "cli", "rollout"), { recursive: true });
+    mkdirSync(harnessRoot, { recursive: true });
+    initHarnessGit(harnessRoot);
+    writeFileSync(path.join(homeDir, ".zcode", "cli", "rollout", "model-io-sess_zcode-thread-backfill.jsonl"), [
+      JSON.stringify({
+        startedAt: "2026-07-04T00:00:00.000Z",
+        type: "model_io",
+        querySource: "main_turn",
+        request: { body: { messages: [{ role: "user", content: [{ type: "text", text: "Backfill this ZCode thread." }] }] } },
+        response: { text: "ZCode backfill response." }
+      }),
+      ""
+    ].join("\n"));
+
+    const backfilled = runJson(rootDir, ["session", "backfill", "--runtime", "zcode", "--limit", "1"], true, {
+      HOME: homeDir
+    });
+
+    assert.equal(backfilled.ok, true);
+    assert.equal(backfilled.command, "session-backfill");
+    assert.equal(backfilled.rows, 1);
+    assert.equal(backfilled.report.exported[0].session.sessionId, "sess_zcode-thread-backfill");
+    assert.equal(backfilled.report.git.committed, true);
+    assert.match(readFileSync(path.join(harnessRoot, "sessions", "sess_zcode-thread-backfill.md"), "utf8"), /Backfill this ZCode thread/u);
+    assert.match(readFileSync(path.join(harnessRoot, "sessions", "sess_zcode-thread-backfill.md"), "utf8"), /ZCode backfill response/u);
+    assert.equal(gitStatus(harnessRoot), "");
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-session-cli-"));
   try {

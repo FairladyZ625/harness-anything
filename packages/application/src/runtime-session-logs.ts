@@ -41,16 +41,14 @@ export function resolveRuntimeConversation(
     return { messages: [], warnings };
   }
 
-  if (session.runtime === "zcode" || session.runtime === "antigravity") {
+  if (session.runtime === "antigravity") {
     warnings.push(`${session.runtime} runtime JSONL rendering is a progressive stub for M3.`);
     return { logPath, messages: [], warnings };
   }
 
   try {
     const body = readFileSync(logPath, "utf8");
-    const messages = session.runtime === "claude-code"
-      ? parseClaudeRuntimeJsonl(body, warnings)
-      : parseCodexRuntimeJsonl(body, warnings);
+    const messages = parseRuntimeJsonl(session.runtime, body, warnings);
     if (messages.length === 0) warnings.push(`No conversation text could be extracted from ${displayRuntimePath(logPath)}.`);
     return { logPath, messages, warnings };
   } catch (error) {
@@ -116,6 +114,12 @@ function defaultRuntimeLogRoots(runtime: CurrentSessionRuntime, homeDir = proces
     return [
       path.join(homeDir, ".codex", "sessions"),
       path.join(homeDir, ".codex", "archived_sessions")
+    ];
+  }
+  if (runtime === "zcode") {
+    return [
+      path.join(homeDir, ".zcode", "cli", "rollout"),
+      path.join(homeDir, ".zcode", "cli", "debug")
     ];
   }
   return [];
@@ -198,12 +202,25 @@ function sessionIdFromRuntimeLog(runtime: Exclude<CurrentSessionRuntime, "human"
     const rollout = basename.match(/^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)$/u)?.[1];
     return rollout ?? basename;
   }
+  if (runtime === "zcode") {
+    return basename.match(/^model-io-(sess_[A-Za-z0-9._-]+)$/u)?.[1];
+  }
   return basename;
 }
 
 function fileNameMatchesSession(filePath: string, sessionId: string): boolean {
   const basename = path.basename(filePath, ".jsonl");
-  return basename === sessionId || basename.endsWith(`-${sessionId}`);
+  return basename === sessionId || basename.endsWith(`-${sessionId}`) || basename.endsWith(`_${sessionId}`);
+}
+
+function parseRuntimeJsonl(
+  runtime: Exclude<CurrentSessionRuntime, "human" | "antigravity">,
+  body: string,
+  warnings: string[]
+): ReadonlyArray<RuntimeConversationMessage> {
+  if (runtime === "claude-code") return parseClaudeRuntimeJsonl(body, warnings);
+  if (runtime === "codex") return parseCodexRuntimeJsonl(body, warnings);
+  return parseZCodeRuntimeJsonl(body, warnings);
 }
 
 function parseClaudeRuntimeJsonl(body: string, warnings: string[]): ReadonlyArray<RuntimeConversationMessage> {
@@ -267,6 +284,43 @@ function parseCodexRuntimeJsonl(body: string, warnings: string[]): ReadonlyArray
     ...lastSnapshot.messages,
     ...streamAfterSnapshot.filter((message) => !recentSnapshotTexts.has(message.text))
   ];
+}
+
+function parseZCodeRuntimeJsonl(body: string, warnings: string[]): ReadonlyArray<RuntimeConversationMessage> {
+  const messages: RuntimeConversationMessage[] = [];
+  let lastUserText: string | undefined;
+  let lastAssistantText: string | undefined;
+  for (const line of body.split(/\r?\n/u)) {
+    const record = parseJsonlRecord(line, warnings);
+    if (!record) continue;
+    if (readString(record, "type") !== "model_io") continue;
+    if (readString(record, "querySource") === "session_title") continue;
+    const timestamp = readString(record, "startedAt") ?? readString(record, "completedAt");
+    const request = readRecord(record, "request");
+    const requestBody = request ? readRecord(request, "body") : undefined;
+    const userText = requestBody ? extractLastZCodeUserText(readArray(requestBody, "messages")) : "";
+    if (userText && userText !== lastUserText) {
+      appendMessage(messages, "user", userText, timestamp);
+      lastUserText = userText;
+    }
+    const response = readRecord(record, "response");
+    const assistantText = response ? readString(response, "text") ?? "" : "";
+    if (assistantText && assistantText !== lastAssistantText) {
+      appendMessage(messages, "assistant", assistantText, timestamp);
+      lastAssistantText = assistantText;
+    }
+  }
+  return messages;
+}
+
+function extractLastZCodeUserText(requestMessages: ReadonlyArray<unknown>): string {
+  for (let index = requestMessages.length - 1; index >= 0; index -= 1) {
+    const message = requestMessages[index];
+    if (!isJsonObject(message) || readString(message, "role") !== "user") continue;
+    const text = extractTextContent(message.content, "user");
+    if (text) return text;
+  }
+  return "";
 }
 
 function extractCodexReplacementHistory(

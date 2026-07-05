@@ -130,6 +130,73 @@ test("provenance session exporter renders Codex JSONL conversation text", () => 
   }
 });
 
+test("provenance session exporter renders ZCode model I/O JSONL conversation text", () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const logsRoot = path.join(rootDir, "runtime-logs", "zcode");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "model-io-sess_zcode-session-1.jsonl"), [
+      JSON.stringify({
+        startedAt: "2026-07-03T00:00:00.000Z",
+        type: "model_io",
+        querySource: "session_title",
+        request: { body: { messages: [{ role: "user", content: [{ type: "text", text: "ZCode user original line" }] }] } },
+        response: { text: "{\"title\":\"ZCode title\"}" }
+      }),
+      JSON.stringify({
+        startedAt: "2026-07-03T00:00:01.000Z",
+        type: "model_io",
+        querySource: "main_turn",
+        request: {
+          body: {
+            messages: [{
+              role: "user",
+              content: [{ type: "text", text: "<system-reminder>noise</system-reminder>ZCode user original line" }]
+            }]
+          }
+        },
+        response: { text: "ZCode assistant original line" }
+      }),
+      JSON.stringify({
+        startedAt: "2026-07-03T00:00:02.000Z",
+        type: "model_io",
+        querySource: "main_turn",
+        request: {
+          body: {
+            messages: [
+              { role: "assistant", content: "ZCode assistant original line" },
+              { role: "user", content: [{ type: "text", text: "<system-reminder>noise only</system-reminder>" }] }
+            ]
+          }
+        },
+        response: { text: "ZCode assistant follow-up line" }
+      })
+    ].join("\n"), "utf8");
+
+    const exporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "zcode",
+        sessionId: "sess_zcode-session-1",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { zcode: [logsRoot] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    assert.match(body, /## Conversation/u);
+    assert.match(body, /ZCode user original line/u);
+    assert.match(body, /ZCode assistant original line/u);
+    assert.match(body, /ZCode assistant follow-up line/u);
+    assert.doesNotMatch(body, /ZCode title/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("provenance session exporter backfills Codex runtime logs by discovered session id", () => {
   const rootDir = createHarnessRoot();
   try {
@@ -161,6 +228,45 @@ test("provenance session exporter backfills Codex runtime logs by discovered ses
     assert.deepEqual(result.exported.map((entry) => entry.session.sessionId), ["codex-thread-1"]);
     const body = readFileSync(path.join(rootDir, "harness", "sessions", "codex-thread-1.md"), "utf8");
     assert.match(body, /Backfilled Codex user line/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter backfills ZCode runtime logs by discovered session id", () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const logsRoot = path.join(rootDir, "runtime-logs", "zcode");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "model-io-sess_zcode-thread-1.jsonl"), [
+      JSON.stringify({
+        startedAt: "2026-07-03T00:00:01.000Z",
+        type: "model_io",
+        querySource: "main_turn",
+        request: { body: { messages: [{ role: "user", content: [{ type: "text", text: "Backfilled ZCode user line" }] }] } },
+        response: { text: "Backfilled ZCode assistant line" }
+      })
+    ].join("\n"), "utf8");
+
+    const exporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "zcode",
+        sessionId: "current-zcode-thread",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { zcode: [logsRoot] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const result = Effect.runSync(exporter.backfillRuntimeSessions({ runtime: "zcode" }));
+
+    assert.equal(result.schema, "provenance-session-backfill/v1");
+    assert.deepEqual(result.exported.map((entry) => entry.session.sessionId), ["sess_zcode-thread-1"]);
+    const body = readFileSync(path.join(rootDir, "harness", "sessions", "sess_zcode-thread-1.md"), "utf8");
+    assert.match(body, /Backfilled ZCode user line/u);
+    assert.match(body, /Backfilled ZCode assistant line/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
