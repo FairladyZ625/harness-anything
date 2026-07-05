@@ -5,6 +5,7 @@
 - 组装写入前优先自描述：`ha <command> --help`、preset manifest、capabilities 元数据。命令支持 JSON / `--from-file` 时用结构化输入，别塞 shell 转义的长文本；不支持时用当前 flag。
 - 复核与完成：用 `ha task transition <id> in_review` 进入 review，用真实证据替换占位的 review/closeout 内容，运行 `ha task review <id>`，再 `ha task complete <id> --ci passed|failed`。缺事实、占位 review 或占位 closeout 都会 fail closed。
 - 走投影查询：`ha decision list --state active --module <key> --compact`、`ha decision show <id|E<n>>`、`ha task list --module <key>`。
+- 非 coordinator 写入收尾：手工改文档、标准、模板、artifact 索引或源码后，结束前检查对应仓库 `git status --short`，只提交自己触碰的路径；不要把已有无关脏文件卷进来。若明确不提交，必须记录 owner 和 no-commit 理由。
 - 模板资产是操作面的一部分。AGENTS/task/governance 工作流文本变更时，同步更新 seeded 模板，避免新 scaffold 教旧行为。
 
 ## Scaffold folders (see each folder README, do not duplicate here)
