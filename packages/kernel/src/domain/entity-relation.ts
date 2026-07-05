@@ -158,10 +158,10 @@ export function isAllowedRelationKindTriple(
   if (sourceKind === "decision" && targetKind === "task") return type === "derives" || type === "relates";
   // Evidence relation, authored from the decision side: "the decision is evidenced-by the
   // fact" — a decision-subject verb so the sentence reads in the storage direction.
-  // "supports" is a transitional alias for existing edges; it is removed once the ledger
-  // migration to evidenced-by completes.
+  // The transitional "supports" alias was removed after the 2026-07-05 ledger migration
+  // moved every evidence edge to evidenced-by (dec_mr74sbka).
   if (sourceKind === "decision" && targetKind === "fact") {
-    return type === "supersedes-fact" || type === "evidenced-by" || type === "supports";
+    return type === "supersedes-fact" || type === "evidenced-by";
   }
   if (sourceKind === "task" && targetKind === "decision") return type === "implements";
   if (sourceKind === "task" && targetKind === "task") return type === "blocks" || type === "relates";

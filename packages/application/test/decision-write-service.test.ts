@@ -83,6 +83,39 @@ test("decision write service appends relation records through relation-specific 
   assert.deepEqual(payload.decision?.relations, [relation]);
 });
 
+test("healing writes are not blocked by pre-existing illegal sibling edges", () => {
+  // A host carrying two legacy-illegal edges must not deadlock: replacing either edge
+  // used to fail whole-doc validation on the other. Delta enforcement lets the
+  // migration proceed while still rejecting writes that introduce NEW violations.
+  const enqueued: WriteOp[] = [];
+  const service = makeDecisionWriteService({ coordinator: fakeCoordinator(enqueued) });
+  const illegalA = relationRecord("decision/dec_TEST/CH1", "task/task_01ABC", "implements");
+  const illegalB = relationRecord("decision/dec_TEST/CH1", "task/task_01DEF", "implements");
+  const current = decisionPackage({ state: "active", relations: [illegalA, illegalB] });
+  const replacement = relationRecord("decision/dec_TEST/CH1", "task/task_01ABC", "derives");
+
+  const result = Effect.runSync(service.replaceRelation({
+    current,
+    relationId: illegalA.relation_id,
+    replacement
+  }));
+  assert.deepEqual(result, { decisionId: "dec_TEST", state: "active" });
+  assert.equal(enqueued[0]?.kind, "relation_replace");
+
+  // Introducing a brand-new illegal edge still fails closed even alongside legacy ones.
+  const badNew = relationRecord("decision/dec_TEST/CH1", "task/task_01GHI", "supports");
+  const relateResult = Effect.runSyncExit(service.relate({ current, relation: badNew }));
+  assert.equal(relateResult._tag, "Failure");
+  assert.match(failureReason(relateResult.cause), /type supports is not allowed/u);
+
+  // Creates have no pre-state: full fail-closed enforcement is unchanged.
+  const proposeResult = Effect.runSyncExit(service.propose({
+    decision: decisionPackage({ relations: [illegalA] })
+  }));
+  assert.equal(proposeResult._tag, "Failure");
+  assert.match(failureReason(proposeResult.cause), /type implements is not allowed/u);
+});
+
 test("decision write service rejects relation records not hosted by the decision", () => {
   const service = makeDecisionWriteService({ coordinator: fakeCoordinator([]) });
   const relation = relationRecord("decision/dec_OTHER/C1", "fact/task_01ABC/F-1234ABCD");
