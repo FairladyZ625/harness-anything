@@ -7,7 +7,8 @@ import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
 import { makeLocalLifecycleEngine, makeLocalWriteCoordinator } from "../../adapters/local/src/index.ts";
-import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
+import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter, makeRuntimeEventLedgerService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult } from "../../application/src/index.ts";
+import { commitAuthoredPaths } from "./commands/core/authored-git.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
 
@@ -31,15 +32,31 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     rootInput: layoutInput,
     currentSessionProbe: getCurrentSessionProbe()
   });
+  const syncExportedSession = (result: ProvenanceSessionExportResult): Effect.Effect<void, ProvenanceSessionExporterRejected> => Effect.try({
+    try: () => {
+      try {
+        commitAuthoredPaths(layoutInput, [result.path], `session(export): ${result.session.sessionId}`);
+      } catch (error) {
+        if (error instanceof Error && error.message === "authored root is ignored by Git but is not a nested Git repository") return;
+        throw error;
+      }
+    },
+    catch: (error) => ({
+      _tag: "ProvenanceSessionExporterRejected" as const,
+      sessionId: result.session.sessionId,
+      reason: error instanceof Error ? error.message : "session git commit failed"
+    })
+  }).pipe(Effect.asVoid);
 
   const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides,
     bindCreateProvenance: (boundAt) => bindCreateProvenance({
       currentSessionProbe: getCurrentSessionProbe(),
-      provenanceSessionExporter: makeSessionExporter()
+      provenanceSessionExporter: makeSessionExporter(),
+      syncExportedSession
     }, boundAt)
-  }), getCurrentSessionProbe, makeSessionExporter, (actor) => makeLocalWriteCoordinator({
+  }), getCurrentSessionProbe, makeSessionExporter, syncExportedSession, (actor) => makeLocalWriteCoordinator({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides,
     actor
@@ -51,7 +68,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
       actor: { kind: "agent", id: "decision-cli" }
     }),
     currentSessionProbe: getCurrentSessionProbe(),
-    provenanceSessionExporter: makeSessionExporter()
+    provenanceSessionExporter: makeSessionExporter(),
+    syncExportedSession
   }), () => makeFactWriteService({
     rootInput: layoutInput,
     coordinator: makeLocalWriteCoordinator({
@@ -60,7 +78,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
       actor: { kind: "agent", id: "fact-cli" }
     }),
     currentSessionProbe: getCurrentSessionProbe(),
-    provenanceSessionExporter: makeSessionExporter()
+    provenanceSessionExporter: makeSessionExporter(),
+    syncExportedSession
   }), () => makeRuntimeEventLedgerService({
     rootInput: layoutInput
   })).pipe(

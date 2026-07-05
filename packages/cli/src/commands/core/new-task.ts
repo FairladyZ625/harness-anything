@@ -16,7 +16,8 @@ export const runNewTaskCommand: CommandRunner = (context, command) => {
   if (shouldUsePresetAwareNewTask(action) || shouldUseSettingsPresetAwareNewTask(settingsResult.settings)) {
     return runNewTaskWithPreset(context.layoutInput, action, settingsResult.settings, {
       currentSessionProbe: context.currentSessionProbe,
-      provenanceSessionExporter: context.provenanceSessionExporter
+      provenanceSessionExporter: context.provenanceSessionExporter,
+      syncExportedSession: context.syncExportedSession
     });
   }
 
