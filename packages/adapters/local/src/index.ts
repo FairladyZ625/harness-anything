@@ -53,13 +53,16 @@ export type {
 } from "./types.ts";
 
 export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions): WriteCoordinator {
-  return makeJournaledWriteCoordinator(options);
+  return makeJournaledWriteCoordinator({
+    ...options,
+    lockConflictRetry: localLockConflictRetry
+  });
 }
 
 export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalLifecycleEngine {
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
-  const coordinator = options.coordinator ?? makeJournaledWriteCoordinator({
+  const coordinator = options.coordinator ?? makeLocalWriteCoordinator({
     rootDir,
     layoutOverrides: options.layoutOverrides,
     actor: { kind: "agent", id: "local-lifecycle" }
@@ -78,6 +81,12 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
     reopenTask: (input) => reopenTask(runtimeContext, coordinator, input)
   };
 }
+
+const localLockConflictRetry = {
+  maxWaitMs: 5_000,
+  initialDelayMs: 25,
+  maxDelayMs: 250
+} as const;
 
 function createTask(
   rootInput: HarnessLayoutInput,

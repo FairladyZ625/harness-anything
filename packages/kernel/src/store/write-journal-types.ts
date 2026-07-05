@@ -9,6 +9,13 @@ export interface JournaledWriteCoordinatorOptions {
   readonly watermarkPath?: string;
   readonly actor?: JournalActor;
   readonly lockTtlMs?: number;
+  readonly lockConflictRetry?: LockConflictRetryOptions;
+}
+
+export interface LockConflictRetryOptions {
+  readonly maxWaitMs: number;
+  readonly initialDelayMs?: number;
+  readonly maxDelayMs?: number;
 }
 
 export interface JournalActor {
