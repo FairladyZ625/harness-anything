@@ -6,7 +6,7 @@
 
 ## 怎么用
 
-- 每份标准是一个独立 `.md`（如 `repo-governance.md`）。Agent 在动手前按 `AGENTS.md` 的任务阅读矩阵，只加载当前任务相关的标准，不要全量灌。
+- 每份标准是一个独立 `.md`（如 `repo-governance.md`）。Agent 在动手前按 `AGENTS.md` 的 context loading 与 governance routing，只加载当前任务相关的标准，不要全量灌。
 - 标准是"怎么做事"的规则集；它不是决策记录（承重选择 → `../decisions/`），也不是架构事实（系统结构 → `../context/architecture/`）。
 - 新增/修改标准应保持单一事实源：一条规则只在一处定义，别在 `AGENTS.md` 和这里各存一份（ADR-0021 D3 反漂移原则）。
 

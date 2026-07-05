@@ -1,24 +1,36 @@
 # Harness Agent Entry
 
-Read `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.
+This entry holds stable operating rules only. Current milestone context, roadmap state, temporary read sets, and task-specific background belong in the active task package or docmap, not in AGENTS.md.
+
+## Context loading
+
+- Read `harness/harness.yaml`.
+- If a task is assigned, read that task package first: `task_plan.md`, `read_set.md`, and any files explicitly named there.
+- Route from the task to the smallest relevant standard or folder README. Do not preload the full ADR, decision, milestone, or standards tree.
+
+## Worktree discipline
+
+- Background/parallel workers, and any public implementation or public docs PR, start from latest `origin/main` in `.worktrees/<slug>` on branch `codex/<slug>`.
+- Do not edit `packages/**`, `tools/**`, `docs-release/**`, or root public config from the shared repository root. Keep the shared root for coordination, private harness writes, local ignored entry files, and final sync.
+- Leave unrelated dirty files in their original checkout. After merge, delete the remote PR branch, clean the local worktree/branch, and record any residual cleanup.
 
 ## Kernel Workflow (triadic)
 
-The required workflow is triadic — do not skip a leg:
+- `task` is the work unit and status timeline.
+- `fact` is a task-local, append-only, verifiable observation. Every task reaching review/complete needs at least one real fact.
+- `decision` is the load-bearing why: choices, reversals, long-lived boundaries, and downstream work-spawning judgments.
+- Prose mentions do not replace facts, decisions, or relations.
 
-- Task progress is a work-state timeline: `ha task transition <id> active`, then `ha task progress append <id> --text "<note>" --evidence type:PATH:summary`. Progress is a timeline, not a fact ledger.
-- Facts are load-bearing observations, task-local and append-only: `ha fact record --task <id> --statement "<verifiable observation>" --source "<source>" --confidence high`. Every task reaching review/complete needs at least one real fact (fails closed otherwise).
-- Decisions are load-bearing choices, reversals, and long-lived boundaries: `ha decision propose --title ... --question ... --chosen ... --rejected ... --why-not ...`. A verdict is not a decision unless it exposes a strategic question.
-- Relations link cross-entity dependencies: `ha decision relate <id> --anchor <CH1|C1|RJ1> --type supports|supersedes|refines|narrows|relates --target <entity-ref> --rationale "..."`. Isolated entities are audit findings.
+## Relation edge rules
+
+- Write relations with canonical ids. Legacy `E<n>` selectors are projection-read conveniences for commands such as `ha decision show`; do not assume write commands accept them.
+- Decision-to-task edges use `derives` when the decision spawned the task and `relates` when the task was later found connected.
+- `refines` is for decision-to-decision revision, not for target `task/...`.
 
 ## WriteCoordinator discipline
 
-- Writes that go through the harness CLI are auto-committed when the harness root is inside a git repository, with semantic messages such as `task(progress-append): <id>` or `decision(relate): <id>`. Do not add a second commit for coordinator-owned writes. Hand-edited prose, standards, templates, artifact indexes, or source files must be committed by the agent that changed them: check `git status --short`, stage only paths touched in the task, and leave unrelated dirty files alone.
-- Boundary: machine-read fields and relations must be written through CLI commands. Human-read prose may be edited directly, but it does not replace facts, decisions, or relations.
-- Disposition: do not physically delete decisions; supersede or retire them. Facts are append-only; invalidate stale facts instead of rewriting them. Check relation cascade impact before deleting or archiving anything.
-
-## Task reading matrix
-
-Load only what the current task needs: this file, the `harness/standards/` files the action routes to, and the task-package directory. Do not preload the whole repository.
+- Writes through the harness CLI are auto-committed when the harness root is inside a Git repository. Do not add a second commit for coordinator-owned writes.
+- Hand-edited prose, standards, templates, artifact indexes, or source files must be committed by the agent that changed them: check `git status --short`, stage only paths touched in the task, and leave unrelated dirty files alone.
+- Machine-read fields and relations must be written through CLI commands. Human-read prose may be edited directly, but it does not create graph state.
 
 Generated state under `.harness/` is local-only and must not be committed.

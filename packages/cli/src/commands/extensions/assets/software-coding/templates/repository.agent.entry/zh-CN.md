@@ -1,21 +1,37 @@
 # Harness Agent Entry
 
-Read `harness/harness.yaml` and `harness/standards/repo-governance.md` before changing task state.
+这个 standalone 入口只为兼容保留。当前里程碑和临时读集属于当前任务包，不放进 AGENTS.md。
+
+## Context loading
+
+- 读取 `harness/harness.yaml`。
+- 如果已有 task，读取 `task_plan.md`、`read_set.md`，以及其中明确列出的文件。
+- 只加载当前任务相关的标准或文件夹 README。
+
+## Worktree discipline
+
+- public implementation、public docs PR 和后台/并行 worker 都从最新 `origin/main` 在 `.worktrees/<slug>` 使用 `codex/<slug>`。
+- 不要在共享仓库根工作树里改公开源码、公开文档或公开根配置。
 
 ## Harness CLI
 
-- Invoke via `ha <command>` or `npx harness-anything <command>`. Create task packages with `ha task create --title "<title>"`; never hand-scaffold directories under the tasks root.
-- Choose the preset before creating a task. Use `standard-task` for ordinary implementation or document repair, `milestone-closeout` for milestone closeout, `legacy-migration` for legacy migration, `module` for module scaffolding, `long-running-task` for long-running work, `lesson-sedimentation` for lesson capture, `version-upgrade` for version upgrades, and `publish-standard` / `release-closeout` for release work. If operating docs lag active decisions or ADRs, use `doc-canon-sync` and run `ha preset action doc-canon-sync check --task <id> --allow-scripts` to produce `artifacts/doc-canon-drift.json`. If unsure, run `ha preset list`; do not default everything to `standard-task`.
-- Prefer command self-description before composing writes: `ha <command> --help`, preset manifests, and capabilities metadata. When a command supports JSON / `--from-file`, use structured input instead of shell-escaped long text; when it does not, use the current flags. During command-renaming transition, document the current runnable name and treat old aliases as compatibility only.
-- Task progress: `ha task transition <id> active`, then `ha task progress append <id> --text "<记录>" --evidence type:PATH:summary`. Progress is a timeline, not a fact ledger.
-- Fact gate: every task that reaches review/complete must have at least one real fact. Record load-bearing observations with `ha fact record --task <id> --statement "<可复核观察>" --source "<来源>" --confidence high`.
-- Review and completion: move the task into review with `ha task transition <id> in_review`, replace placeholder review/closeout content with real evidence, run `ha task review <id>`, then `ha task complete <id> --ci passed|failed`. These commands produce a task verdict (PASS/FAIL). Missing facts, placeholder review, or placeholder closeout fail closed.
-- Decisions: route choices, reversals, long-lived boundaries, and choices that derive follow-up work use `ha decision propose --title ... --question ... --chosen ... --rejected ... --why-not ...`. A verdict is not a decision unless it exposes a strategic question.
-- Relations: connect supporting facts and downstream decisions/tasks with `ha decision relate <id> --anchor <CH1|C1|RJ1> --type supports|supersedes|refines|narrows|relates --target <entity-ref> --rationale "..."`. Isolated entities are audit findings.
-- Query through projections: `ha decision list --state active --module <key> --compact`, `ha decision show <id|E<n>>`, and `ha task list --module <key>`.
-- Disposition: do not physically delete decisions; supersede or retire them. Facts are append-only; invalidate stale facts instead of rewriting them. Check relation cascade impact before deleting or archiving anything.
-- Writes that go through the harness CLI are auto-committed when the harness root is inside a git repository, with semantic messages such as `task(progress-append): <id>` or `decision(relate): <id>`. Do not add a second commit for coordinator-owned writes. Hand-edited prose, standards, templates, artifact indexes, or source files must be committed by the agent that changed them: check `git status --short`, stage only paths touched in the task, and leave unrelated dirty files alone.
-- Boundary: machine-read fields and relations must be written through CLI commands. Human-read prose may be edited directly, but it does not replace facts, decisions, or relations.
-- Template assets are part of the operating surface. When AGENTS/task/governance workflow text changes, update the seeded templates too so new scaffolds do not teach stale behavior.
+- 通过 `ha <command>` 或 `npx harness-anything <command>` 调用。
+- 用 `ha task create --title "<title>" --vertical software/coding --preset <id>` 创建任务包；不要手写 tasks 目录。
+- 创建任务前先选 preset。拿不准就运行 `ha preset list`。
+- 组装写入前先看 `ha <command> --help`、preset manifest 和 capabilities。
+- 用 `ha fact record --task <id> --statement "<可复核观察>" --source "<来源>" --confidence high` 记录承重观察。
+- 通过投影查询：`ha decision list --state active --module <key> --compact`、`ha decision show <id|E<n>>`、`ha task list --module <key>`。
 
-Generated state under `.harness/` is local-only and must not be committed.
+## Relation edge rules
+
+- relation 写入使用 canonical decision id。legacy `E<n>` selector 是投影读便利；不要假设写命令接受。
+- decision 到 task 的边：decision 直接派生 task 时用 `derives`；task 后来发现有关联时用 `relates`。
+- `refines` 是 decision 到 decision 的修订关系，不用于 target `task/...`。
+
+## Write discipline
+
+- harness CLI 写入在 harness root 位于 Git 仓内时会自动提交。不要为 coordinator-owned 写入补第二个提交。
+- 手工编辑 prose、标准、模板、artifact 索引或源码后，执行 agent 必须提交自己触碰的路径，不纳入无关脏文件。
+- 模板资产是操作面。AGENTS/task/governance 工作流文本变化时，同步更新 seeded templates。
+
+`.harness/` 下的生成态仅本地有效，不得提交。

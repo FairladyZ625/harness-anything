@@ -21,3 +21,4 @@ Each scaffold folder owns the single source of truth for its own usage. This ent
 
 - PR / branch / merge / admin bypass → `harness/standards/repo-governance.md` and `.github/pull_request_template.md`
 - CI / required checks / release gates → `harness/standards/ci-cd-standard.md`
+- Testing tier / evidence depth / new test files → `harness/standards/testing-standard.md`

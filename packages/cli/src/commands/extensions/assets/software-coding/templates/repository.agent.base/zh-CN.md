@@ -1,24 +1,36 @@
 # Harness Agent Entry
 
-在改变任务状态前，先读 `harness/harness.yaml` 与 `harness/standards/repo-governance.md`。
+本入口只放稳定运行规则。当前里程碑、roadmap 状态、临时读集和任务背景属于当前任务包或 docmap，不放进 AGENTS.md。
+
+## Context loading
+
+- 读取 `harness/harness.yaml`。
+- 如果已有 task，先读该 task 的 `task_plan.md`、`read_set.md`，以及其中明确列出的文件。
+- 从任务路由到最小必要的标准或文件夹 README。不要预载整个 ADR、decision、milestone 或 standards 树。
+
+## Worktree discipline
+
+- 后台/并行 worker，以及任何 public implementation 或 public docs PR，都从最新 `origin/main` 在 `.worktrees/<slug>` 创建 `codex/<slug>` 分支。
+- 不要在共享仓库根工作树里改 `packages/**`、`tools/**`、`docs-release/**` 或公开根配置。共享 root 只做 coordinator、私有 harness、local ignored entry 文件和最终同步。
+- 已有无关脏文件留在原 checkout。合并后删除远端 PR 分支，清理本地 worktree/branch，并记录无法清理的 residual。
 
 ## Kernel Workflow (triadic)
 
-三元语工作流是强制的，任何一条都不能跳过：
+- `task` 是工作单元和状态时间线。
+- `fact` 是 task-local、append-only、可复核观察。进入 review/complete 的 task 必须至少有一条真实 fact。
+- `decision` 是承重 why：选路、推翻、长期边界，以及派生后续工作的判断。
+- prose 提及不能替代 fact、decision 或 relation。
 
-- 任务进展是工作状态的时间线：`ha task transition <id> active`，随后 `ha task progress append <id> --text "<记录>" --evidence type:PATH:summary`。进展是时间线，不是事实账本。
-- 事实是承重观察，任务本地、只追加：`ha fact record --task <id> --statement "<可复核观察>" --source "<来源>" --confidence high`。任何进入 review/complete 的任务至少要有一条真实事实，否则 fail closed。
-- 决策是承重选择、反转与长效边界：`ha decision propose --title ... --question ... --chosen ... --rejected ... --why-not ...`。裁决暴露出战略问题时才算决策。
-- 关系连接跨实体依赖：`ha decision relate <id> --anchor <CH1|C1|RJ1> --type supports|supersedes|refines|narrows|relates --target <entity-ref> --rationale "..."`。孤立实体是审计发现。
+## Relation edge rules
+
+- relation 写入使用 canonical id。legacy `E<n>` selector 只是 `ha decision show` 等投影读便利；不要假设写命令接受。
+- decision 到 task 的边：decision 直接派生 task 时用 `derives`；task 后来发现有关联时用 `relates`。
+- `refines` 是 decision 到 decision 的修订关系，不用于 target `task/...`。
 
 ## WriteCoordinator discipline
 
-- 经 harness CLI 的写入，在 harness 根位于 git 仓库内时会自动提交，提交信息带语义，如 `task(progress-append): <id>` 或 `decision(relate): <id>`。不要为协调器所有的写入再补一次提交。手改的散文、标准、模板、artifact 索引或源码由执行 Agent 在结束前检查 `git status --short`，只 stage 自己触碰的路径并提交；已有无关脏文件保持原状。
-- 边界：机读字段与关系必须走 CLI 命令写入。人读散文可以直接编辑，但不替代事实、决策与关系。
-- 处置：不要物理删除决策，用 supersede 或 retire；事实只追加，用失效而非改写；删除或归档前先检查关系级联影响。
-
-## Task reading matrix
-
-只加载当前任务需要的内容：本文件、动作路由到的 `harness/standards/` 文件、以及任务包目录。不要预载整个仓库。
+- 经 harness CLI 的写入在 harness root 位于 Git 仓内时会自动提交。不要为 coordinator-owned 写入补第二个提交。
+- 手工编辑 prose、标准、模板、artifact 索引或源码后，执行 agent 必须检查 `git status --short`，只 stage 本任务触碰的路径并提交；无关脏文件保持原状。
+- 机读字段和 relation 必须通过 CLI 写入。人读 prose 可以直接编辑，但不会创建 graph state。
 
 `.harness/` 下的生成态仅本地有效，不得提交。

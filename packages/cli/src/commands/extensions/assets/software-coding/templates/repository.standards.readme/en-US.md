@@ -6,7 +6,7 @@ This folder holds **repository-level standards**: governance conventions, coding
 
 ## 怎么用 (How to use)
 
-- Each standard is a standalone `.md` (e.g. `repo-governance.md`). Before starting, an agent follows the task-reading matrix in `AGENTS.md` and loads only the standards relevant to the current task — never load them all.
+- Each standard is a standalone `.md` (e.g. `repo-governance.md`). Before starting, an agent follows the context-loading and governance-routing rules in `AGENTS.md` and loads only the standards relevant to the current task — never load them all.
 - Standards are the "how we do things" ruleset; they are not decision records (load-bearing choices → `../decisions/`) nor architecture facts (system structure → `../context/architecture/`).
 - Adding/changing a standard must preserve a single source of truth: define a rule in one place only; do not keep a copy in both `AGENTS.md` and here (ADR-0021 D3 anti-drift principle).
 
