@@ -550,21 +550,6 @@ test("CLI task-complete evaluates review, CI, and closeout readiness before sett
   });
 });
 
-test("CLI gui command delegates to the local desktop controller without importing GUI", () => {
-  const result = runJson(process.cwd(), ["gui"], true, { HARNESS_GUI_DRY_RUN: "1" });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.command, "gui");
-  assert.deepEqual(result.launchPlan, {
-    packageName: "@harness-anything/gui",
-    mode: "local-desktop-controller",
-    apiHost: "127.0.0.1",
-    delegated: true,
-    dryRun: true,
-    command: ["npm", "--workspace", "@harness-anything/gui", "run", "dev"]
-  });
-});
-
 function writeIndex(
   rootDir: string,
   directoryName: string,

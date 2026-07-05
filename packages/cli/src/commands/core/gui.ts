@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { isPathInside } from "../../cli/path.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 
@@ -25,8 +29,20 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
     };
   }
 
+  const workspaceRoot = findTrustedGuiWorkspaceRoot();
+  if (!workspaceRoot) {
+    return {
+      ok: false,
+      command: "gui",
+      error: cliError(
+        CliErrorCode.GuiLauncherUnavailable,
+        "GUI launcher could not find a trusted harness-anything source workspace containing @harness-anything/gui; refusing to run npm scripts from the caller's current directory."
+      )
+    };
+  }
+
   const child = spawn(command[0], command.slice(1), {
-    cwd: process.cwd(),
+    cwd: workspaceRoot,
     detached: true,
     stdio: "ignore",
     env: {
@@ -50,4 +66,48 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
       pid: child.pid
     }
   };
+}
+
+interface PackageJsonSummary {
+  readonly name?: unknown;
+  readonly workspaces?: unknown;
+}
+
+function findTrustedGuiWorkspaceRoot(): string | undefined {
+  const cliEntrypointPath = realpathSync(fileURLToPath(import.meta.url));
+  let current = path.dirname(cliEntrypointPath);
+  while (true) {
+    if (isTrustedGuiWorkspaceRoot(current, cliEntrypointPath)) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+function isTrustedGuiWorkspaceRoot(candidate: string, cliEntrypointPath: string): boolean {
+  const rootPackageJsonPath = path.join(candidate, "package.json");
+  const cliPackageJsonPath = path.join(candidate, "packages/cli/package.json");
+  const guiPackageJsonPath = path.join(candidate, "packages/gui/package.json");
+  if (!existsSync(rootPackageJsonPath) || !existsSync(cliPackageJsonPath) || !existsSync(guiPackageJsonPath)) return false;
+
+  try {
+    const cliPackageRoot = realpathSync(path.join(candidate, "packages/cli"));
+    if (!isPathInside(cliPackageRoot, cliEntrypointPath)) return false;
+
+    const rootPackageJson = readPackageJson(rootPackageJsonPath);
+    const cliPackageJson = readPackageJson(cliPackageJsonPath);
+    const guiPackageJson = readPackageJson(guiPackageJsonPath);
+    return rootPackageJson.name === "harness-anything" &&
+      Array.isArray(rootPackageJson.workspaces) &&
+      rootPackageJson.workspaces.includes("packages/*") &&
+      rootPackageJson.workspaces.includes("packages/adapters/*") &&
+      cliPackageJson.name === "@harness-anything/cli" &&
+      guiPackageJson.name === "@harness-anything/gui";
+  } catch {
+    return false;
+  }
+}
+
+function readPackageJson(packageJsonPath: string): PackageJsonSummary {
+  return JSON.parse(readFileSync(packageJsonPath, "utf8")) as PackageJsonSummary;
 }
