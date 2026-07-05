@@ -22,6 +22,7 @@ export type ProjectionWarningCode =
   | "dangling_entity_ref"
   | "invalid_relation_endpoint"
   | "relation_host_source_mismatch"
+  | "invalid_relation_type_subset"
   | "relation_provenance_inheritance_mismatch"
   | "relation_id_mismatch"
   | "duplicate_relation_id"

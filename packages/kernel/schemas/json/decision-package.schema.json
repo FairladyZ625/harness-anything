@@ -142,12 +142,12 @@
         "relation_id": { "type": "string", "pattern": "^rel_[a-f0-9]{16}$" },
         "source": { "$ref": "#/$defs/entityRef" },
         "target": { "$ref": "#/$defs/entityRef" },
-        "type": { "enum": ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "invalidated-by", "supersedes-fact"] },
+        "type": { "enum": ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "produces", "evidences", "invalidated-by", "supersedes-fact"] },
         "strength": { "enum": ["strong", "weak"] },
         "direction": { "enum": ["directed", "undirected"] },
         "origin": { "enum": ["declared", "imported_snapshot", "generated", "inferred"] },
         "rationale": { "$ref": "#/$defs/nonBlankString" },
-        "state": { "enum": ["active", "deprecated", "deleted"] }
+        "state": { "enum": ["active", "retired", "deleted"] }
       }
     }
   }

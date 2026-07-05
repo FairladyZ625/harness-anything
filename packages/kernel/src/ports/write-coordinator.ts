@@ -27,11 +27,15 @@ export type DecisionWriteOpKind =
 export type FactWriteOpKind =
   | "fact_invalidate";
 
+export type RelationWriteOpKind =
+  | "relation_retire"
+  | "relation_replace";
+
 export type ModuleWriteOpKind =
   | "module_registry_write"
   | "module_scaffold_write";
 
-export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | ModuleWriteOpKind;
+export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind;
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 

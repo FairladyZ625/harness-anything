@@ -15,7 +15,9 @@ export const decisionWriteKinds = new Set<WriteOp["kind"]>([
   "decision_supersede",
   "decision_amend",
   "decision_relate",
-  "decision_retire"
+  "decision_retire",
+  "relation_retire",
+  "relation_replace"
 ]);
 
 export function writeDecisionDocument(rootInput: HarnessLayoutInput, op: WriteOp): void {

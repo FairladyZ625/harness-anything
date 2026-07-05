@@ -308,6 +308,9 @@ function relationRepairHint(code: ProjectionWarningCode): string {
   if (code === "relation_rationale_missing") {
     return "Add a non-blank rationale for strong or gate-bearing relation records.";
   }
+  if (code === "invalid_relation_type_subset") {
+    return "Use an allowed source-kind/type/target-kind relation triple from the entity relation matrix.";
+  }
   if (code === "relation_endpoint_unknown") {
     return "Restore the referenced task, decision anchor, or fact before rebuilding the relation graph projection.";
   }

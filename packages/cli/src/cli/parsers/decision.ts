@@ -8,6 +8,7 @@ import {
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionAmendPatchInput, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
+import { parseDecisionRelationOp } from "./decision-relation.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
@@ -63,7 +64,8 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
     });
   }
   if (op === "relate" && args[2]) return parseDecisionRelate(args, rootDir, json);
-  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|relate|retire.") };
+  if (op === "relation") return parseDecisionRelationOp(args, rootDir, json);
+  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use decision list|show|propose|accept|reject|defer|supersede|amend|relate|relation|retire.") };
 }
 
 function parseDecisionAmendPatches(args: ReadonlyArray<string>):

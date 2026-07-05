@@ -34,7 +34,7 @@ test("CLI milestone-dossier gather script writes focused dossier data from relat
       "--why-not",
       "The relation graph projection is already the source of truth",
       "--evidence-relation",
-      `C1:supports:fact/${created.taskId}/F-DEADBEEF:Fact F-DEADBEEF supports gather claim`
+      `C1:supersedes-fact:fact/${created.taskId}/F-DEADBEEF:Fact F-DEADBEEF supersedes gather claim`
     ]);
     runJson(rootDir, ["task", "list"]);
 

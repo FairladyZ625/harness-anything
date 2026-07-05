@@ -47,6 +47,16 @@ test("EntityRef parser accepts M3 decision and fact endpoints", () => {
   assert.equal(parseEntityRef("fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/not-a-fact"), null);
 });
 
+test("EntityRef parser accepts hosted relation entity refs", () => {
+  assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {
+    raw: "relation/rel_b75516c583945a52",
+    kind: "relation",
+    id: "rel_b75516c583945a52",
+    externalHarness: false
+  });
+  assert.equal(parseEntityRef("relation/not-a-relation"), null);
+});
+
 test("EntityRef scanner preserves external harness prefixes without resolving them", () => {
   const refs = findEntityRefs("depends on task/local-task and other-harness:task/remote-task");
 
@@ -73,10 +83,10 @@ test("relation ids are deterministic and ignore mutable relation attributes", ()
     ...base,
     strength: "weak",
     rationale: "Different rationale, same canonical edge.",
-    state: "deprecated"
+    state: "retired"
   } satisfies EntityRelationRecord;
 
-  assert.equal(deriveRelationId(base), "rel_2bd3fbc51839e11e");
+  assert.equal(deriveRelationId(base), "rel_b75516c583945a52");
   assert.equal(deriveRelationId(base), deriveRelationId(variant));
 });
 
@@ -114,17 +124,17 @@ test("relation flow formatter emits one flow-style line per record", () => {
   const line = formatRelationFlowRecord(relationRecord());
 
   assert.equal(line.includes("\n"), false);
-  assert.equal(line.startsWith("- {relation_id: rel_2bd3fbc51839e11e,"), true);
+  assert.equal(line.startsWith("- {relation_id: rel_b75516c583945a52,"), true);
   assert.equal(line.endsWith("state: active}"), true);
   assert.match(line, /rationale: "C1 is supported by the measured finding F-a3f2\."/u);
 });
 
 function relationRecord(): EntityRelationRecord {
   return {
-    relation_id: "rel_2bd3fbc51839e11e",
+    relation_id: "rel_b75516c583945a52",
     source: "decision/dec_01K7ZTRIADIC/C1",
     target: "fact/task_01KV5TBASE/F-a3f2",
-    type: "supports",
+    type: "supersedes-fact",
     strength: "strong",
     direction: "directed",
     origin: "declared",

@@ -1,16 +1,18 @@
-import { DecisionPackageSchema, FactRecordSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
+import { DecisionPackageSchema, EntityRelationRecordSchema, FactRecordSchema, TaskFrontmatterSchema } from "../schemas/registry.ts";
 import {
   decisionFieldContracts,
   factFieldContracts,
+  relationFieldContracts,
   taskFieldContracts,
   type DecisionFieldKey,
   type EntityFieldContract,
   type FactFieldKey,
+  type RelationFieldKey,
   type TaskFieldKey
 } from "./field-contracts.ts";
 
-export type KernelEntityKind = "decision" | "task" | "fact";
-export type EntityStorageForm = "lifecycle" | "schema" | "composite";
+export type KernelEntityKind = "decision" | "task" | "fact" | "relation";
+export type EntityStorageForm = "lifecycle" | "schema" | "composite" | "host_frontmatter";
 export type DispositionLevel = "D1" | "D2" | "D3" | "D4";
 export type DispositionAction =
   | "retire"
@@ -54,6 +56,7 @@ export type EntityRegistryShape = {
   readonly decision: EntityRegistration<DecisionFieldKey>;
   readonly task: EntityRegistration<TaskFieldKey>;
   readonly fact: EntityRegistration<FactFieldKey>;
+  readonly relation: EntityRegistration<RelationFieldKey>;
 };
 
 export const entityRegistry = {
@@ -114,6 +117,24 @@ export const entityRegistry = {
       unsupported("D4", "hard-delete", "fact must never be physically deleted as a standalone entity")
     ]),
     storageForm: "schema"
+  },
+  relation: {
+    kind: "relation",
+    schema: EntityRelationRecordSchema,
+    mutabilityContract: relationFieldContracts,
+    anchors: {
+      entityRef: "relation/{relation_id}",
+      anchors: []
+    },
+    dispositionMatrix: dispositionMatrix([
+      supported("D1", "retire", ["relation_retire"], "relation semantic retirement preserves the hosted edge record while removing it from active graph semantics"),
+      unsupported("D1", "supersede", "relation replacement is modeled as retire old edge plus append new edge"),
+      unsupported("D1", "invalidate", "relation invalidation is modeled as retire or replacing the edge"),
+      unsupported("D2", "archive", "relation storage is hosted in source frontmatter and follows the host document"),
+      unsupported("D3", "tombstone", "relation exit is represented by retired state, not tombstone"),
+      unsupported("D4", "hard-delete", "relation records are provenance-bearing and are not physically deleted")
+    ]),
+    storageForm: "host_frontmatter"
   }
 } satisfies EntityRegistryShape;
 

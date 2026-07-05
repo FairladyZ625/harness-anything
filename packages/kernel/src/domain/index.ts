@@ -83,6 +83,7 @@ export {
   canonicalRelationIdentityInput,
   deriveRelationId,
   formatRelationFlowRecord,
+  isAllowedRelationKindTriple,
   relationDirections,
   relationOrigins,
   relationStates,

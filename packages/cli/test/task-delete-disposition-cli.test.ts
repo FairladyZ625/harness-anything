@@ -83,13 +83,13 @@ test("CLI task delete hard path is guarded by F5 disposition semantics", () => {
     assert.match(relatedFailure.error?.hint ?? "", /0 anchored fact\(s\) and 1 active incoming relation\(s\)/u);
     assert.match(relatedFailure.error?.hint ?? "", /ha task archive/u);
 
-    const deprecated = runJson(rootDir, ["new-task", "--title", "Deprecated Relation Delete"]);
-    const deprecatedTaskId = assertGeneratedTaskId(deprecated.taskId);
-    const deprecatedPackagePath = path.join(rootDir, `harness/tasks/${deprecatedTaskId}-deprecated-relation-delete`);
-    writeDecisionRelation(rootDir, "dec_DELETE_DEPRECATED", `task/${deprecatedTaskId}`, "deprecated");
-    const deprecatedResult = runJson(rootDir, ["task", "delete", "--hard", deprecatedTaskId, "--reason", "remove deprecated relation target", "--confirm", deprecatedTaskId]);
-    assert.equal(deprecatedResult.ok, true);
-    assert.equal(existsSync(deprecatedPackagePath), false);
+    const retired = runJson(rootDir, ["new-task", "--title", "Retired Relation Delete"]);
+    const retiredTaskId = assertGeneratedTaskId(retired.taskId);
+    const retiredPackagePath = path.join(rootDir, `harness/tasks/${retiredTaskId}-retired-relation-delete`);
+    writeDecisionRelation(rootDir, "dec_DELETE_RETIRED", `task/${retiredTaskId}`, "retired");
+    const retiredResult = runJson(rootDir, ["task", "delete", "--hard", retiredTaskId, "--reason", "remove retired relation target", "--confirm", retiredTaskId]);
+    assert.equal(retiredResult.ok, true);
+    assert.equal(existsSync(retiredPackagePath), false);
   });
 });
 
@@ -104,12 +104,12 @@ test("CLI task delete soft path tombstones without invoking hard deletion", () =
   });
 });
 
-function writeDecisionRelation(rootDir: string, decisionId: string, targetRef: string, state: "active" | "deprecated"): void {
+function writeDecisionRelation(rootDir: string, decisionId: string, targetRef: string, state: "active" | "retired"): void {
   const source = `decision/${decisionId}/C1`;
   const relation = {
     source,
     target: targetRef,
-    type: "relates" as const,
+    type: "derives" as const,
     direction: "directed" as const
   };
   const relationId = deriveRelationId(relation);
@@ -143,7 +143,7 @@ function writeDecisionRelation(rootDir: string, decisionId: string, targetRef: s
     "claims:",
     "  - { id: \"C1\", statement: \"Fixture claim\", required: true }",
     "relations:",
-    `  - { relation_id: ${relationId}, source: ${source}, target: ${targetRef}, type: relates, strength: strong, direction: directed, origin: declared, rationale: "Fixture delete guard", state: ${state} }`,
+    `  - { relation_id: ${relationId}, source: ${source}, target: ${targetRef}, type: derives, strength: strong, direction: directed, origin: declared, rationale: "Fixture delete guard", state: ${state} }`,
     "---",
     "",
     `# ${decisionId}`,

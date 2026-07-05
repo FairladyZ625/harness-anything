@@ -54,6 +54,8 @@ export function resolveEntityRootForLayout(
         anchor: factId
       };
     }
+    case "relation":
+      throw new Error(`hosted relation refs cannot be resolved without their source host: ${entityRef.raw}`);
   }
 }
 

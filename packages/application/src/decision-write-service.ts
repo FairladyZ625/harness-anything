@@ -3,6 +3,7 @@ import {
   DecisionPackageSchema,
   decisionFieldContracts,
   decisionEntityId,
+  evaluateEntityDisposition,
   explainDecisionStateTransition,
   validateRelationRecordsForHost,
   type DecisionPackage,
@@ -13,12 +14,14 @@ import {
   type WriteError,
   type WriteOpKind
 } from "../../kernel/src/index.ts";
+import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 import type { ProvenanceSessionExporterRejected } from "./provenance-session-exporter.ts";
 
 export interface DecisionWriteServiceOptions extends ProvenanceBindingOptions {
   readonly coordinator: WriteCoordinator;
+  readonly rootInput?: HarnessLayoutInput;
   readonly hashPayload?: PayloadHasher;
   readonly now?: () => string;
 }
@@ -55,6 +58,17 @@ export interface DecisionRelateRequest {
   readonly opIdPrefix?: string;
 }
 
+export interface DecisionRelationRetireRequest {
+  readonly current: DecisionPackage;
+  readonly relationId: string;
+  readonly body?: string;
+  readonly opIdPrefix?: string;
+}
+
+export interface DecisionRelationReplaceRequest extends DecisionRelationRetireRequest {
+  readonly replacement: EntityRelationRecord;
+}
+
 export interface DecisionWriteResult {
   readonly decisionId: string;
   readonly state: DecisionState;
@@ -74,6 +88,8 @@ export interface DecisionWriteService {
   readonly supersede: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
   readonly amend: (request: DecisionAmendRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
   readonly relate: (request: DecisionRelateRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
+  readonly retireRelation: (request: DecisionRelationRetireRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
+  readonly replaceRelation: (request: DecisionRelationReplaceRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
   readonly retire: (request: DecisionTransitionRequest) => Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError>;
 }
 
@@ -90,12 +106,12 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
         Effect.flatMap((decision) => writeDecision(options.coordinator, hashPayload, "decision_propose", decision, request))
       );
     },
-    accept: (request) => transitionDecision(options.coordinator, hashPayload, "decision_accept", request, "active", timestamp()),
-    reject: (request) => transitionDecision(options.coordinator, hashPayload, "decision_reject", request, "rejected", timestamp()),
-    defer: (request) => transitionDecision(options.coordinator, hashPayload, "decision_defer", request, "deferred", timestamp()),
+    accept: (request) => transitionDecision(options, hashPayload, "decision_accept", request, "active", timestamp()),
+    reject: (request) => transitionDecision(options, hashPayload, "decision_reject", request, "rejected", timestamp()),
+    defer: (request) => transitionDecision(options, hashPayload, "decision_defer", request, "deferred", timestamp()),
     // M3 has no separate superseded DecisionState; the distinct op records
     // supersede intent while sharing the retired terminal state.
-    supersede: (request) => transitionDecision(options.coordinator, hashPayload, "decision_supersede", request, "retired", timestamp()),
+    supersede: (request) => transitionDecision(options, hashPayload, "decision_supersede", request, "retired", timestamp()),
     amend: (request) => {
       const rejectedChange = firstNonAmendableDecisionChange(request.current, request.next);
       if (rejectedChange) return Effect.fail(rejection(request.current.decision_id, rejectedChange));
@@ -108,8 +124,39 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
       };
       return writeDecision(options.coordinator, hashPayload, "decision_relate", next, request);
     },
-    retire: (request) => transitionDecision(options.coordinator, hashPayload, "decision_retire", request, "retired", timestamp())
+    retireRelation: (request) => {
+      const retired = retireRelationRecord(request.current, request.relationId);
+      if (!retired.ok) return Effect.fail(rejection(request.current.decision_id, retired.reason));
+      const disposition = assertDispositionAllowed(options, `relation/${request.relationId}`, "retire", request.current.decision_id);
+      if (disposition) return Effect.fail(disposition);
+      return writeDecision(options.coordinator, hashPayload, "relation_retire", retired.decision, request);
+    },
+    replaceRelation: (request) => {
+      const retired = retireRelationRecord(request.current, request.relationId);
+      if (!retired.ok) return Effect.fail(rejection(request.current.decision_id, retired.reason));
+      const disposition = assertDispositionAllowed(options, `relation/${request.relationId}`, "retire", request.current.decision_id);
+      if (disposition) return Effect.fail(disposition);
+      const next = {
+        ...retired.decision,
+        relations: [...retired.decision.relations, request.replacement]
+      };
+      return writeDecision(options.coordinator, hashPayload, "relation_replace", next, request);
+    },
+    retire: (request) => transitionDecision(options, hashPayload, "decision_retire", request, "retired", timestamp())
   };
+}
+
+function retireRelationRecord(
+  current: DecisionPackage,
+  relationId: string
+): { readonly ok: true; readonly decision: DecisionPackage } | { readonly ok: false; readonly reason: string } {
+  const index = current.relations.findIndex((relation) => relation.relation_id === relationId);
+  if (index < 0) return { ok: false, reason: `relation not found: ${relationId}` };
+  const relation = current.relations[index];
+  if (!relation) return { ok: false, reason: `relation not found: ${relationId}` };
+  if (relation.state !== "active") return { ok: false, reason: `relation ${relationId} is not active` };
+  const relations = current.relations.map((entry, relationIndex) => relationIndex === index ? { ...entry, state: "retired" as const } : entry);
+  return { ok: true, decision: { ...current, relations } };
 }
 
 function firstNonAmendableDecisionChange(current: DecisionPackage, next: DecisionPackage): string | null {
@@ -144,7 +191,7 @@ function existingProvenance(decision: DecisionCreateInput): ReadonlyArray<Proven
 }
 
 function transitionDecision(
-  coordinator: WriteCoordinator,
+  options: DecisionWriteServiceOptions,
   hashPayload: PayloadHasher,
   kind: WriteOpKind,
   request: DecisionTransitionRequest,
@@ -155,13 +202,33 @@ function transitionDecision(
   if (!transition.allowed) {
     return Effect.fail(rejection(request.current.decision_id, `decision state transition ${request.current.state} -> ${to} rejected: ${transition.reason}`));
   }
+  if (kind === "decision_retire") {
+    const disposition = assertDispositionAllowed(options, `decision/${request.current.decision_id}`, "retire", request.current.decision_id);
+    if (disposition) return Effect.fail(disposition);
+  }
   const next: DecisionPackage = {
     ...request.current,
     state: to,
     arbiter: request.arbiter,
     decidedAt: request.decidedAt ?? fallbackDecidedAt
   };
-  return writeDecision(coordinator, hashPayload, kind, next, request);
+  return writeDecision(options.coordinator, hashPayload, kind, next, request);
+}
+
+function assertDispositionAllowed(
+  options: DecisionWriteServiceOptions,
+  entityRef: string,
+  action: "retire",
+  decisionId: string
+): DecisionWriteRejected | null {
+  if (!options.rootInput) return null;
+  const evaluation = evaluateEntityDisposition({
+    rootDir: harnessRuntimeRoot(options.rootInput),
+    layoutOverrides: typeof options.rootInput === "string" ? undefined : options.rootInput.layoutOverrides,
+    entityRef,
+    action
+  });
+  return evaluation.allowed ? null : rejection(decisionId, evaluation.reason);
 }
 
 function writeDecision(

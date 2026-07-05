@@ -144,6 +144,8 @@ export const WriteJournalOpSchema = Schema.Struct({
     "decision_amend",
     "decision_relate",
     "decision_retire",
+    "relation_retire",
+    "relation_replace",
     "fact_invalidate"
   ),
   actor: ActorRefSchema,

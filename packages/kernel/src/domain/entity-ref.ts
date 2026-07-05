@@ -1,4 +1,4 @@
-export type EntityRefKind = "task" | "decision" | "fact";
+export type EntityRefKind = "task" | "decision" | "fact" | "relation";
 
 export interface ParsedEntityRef {
   readonly raw: string;
@@ -13,7 +13,8 @@ export interface ParsedEntityRef {
 const entityRefPrefixPattern = /^(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<body>.+)$/u;
 const taskOrDecisionRefPattern = /^(?<kind>task|decision)\/(?<id>[A-Za-z0-9_-]+)(?:\/(?<anchor>[A-Za-z0-9_-]+))?$/u;
 const factRefPattern = /^fact\/(?<ownerTaskId>[A-Za-z0-9_-]+)\/(?<factId>[A-Za-z0-9_-]+)$/u;
-const entityRefSearchPattern = /(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?)\b(?!\/)/gu;
+const relationRefPattern = /^relation\/(?<relationId>rel_[a-f0-9]{16})$/u;
+const entityRefSearchPattern = /(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:fact\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+|relation\/rel_[a-f0-9]{16}|(?:task|decision)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)?)\b(?!\/)/gu;
 
 function isPlausibleTaskRefId(id: string): boolean {
   return id.startsWith("task_") || id.includes("-");
@@ -25,6 +26,10 @@ function isPlausibleDecisionRefId(id: string): boolean {
 
 function isPlausibleFactRefId(id: string): boolean {
   return id.startsWith("F-");
+}
+
+function isPlausibleRelationRefId(id: string): boolean {
+  return /^rel_[a-f0-9]{16}$/u.test(id);
 }
 
 export function parseEntityRef(value: string): ParsedEntityRef | null {
@@ -41,6 +46,18 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
       kind: "fact",
       id: fact.groups.factId,
       ownerTaskId: fact.groups.ownerTaskId,
+      ...(harnessAlias ? { harnessAlias } : {}),
+      externalHarness: Boolean(harnessAlias)
+    };
+  }
+
+  const relation = body.match(relationRefPattern);
+  if (relation?.groups?.relationId) {
+    if (!isPlausibleRelationRefId(relation.groups.relationId)) return null;
+    return {
+      raw: value,
+      kind: "relation",
+      id: relation.groups.relationId,
       ...(harnessAlias ? { harnessAlias } : {}),
       externalHarness: Boolean(harnessAlias)
     };

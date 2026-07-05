@@ -190,6 +190,7 @@ export function commandInputDescriptorFor(command: CommandDescriptor): CommandIn
 
 export function entityForCommand(command: CommandDescriptor): string {
   const first = commandPath(command)[0] ?? command.kind.split("-")[0] ?? "command";
+  if (command.kind === "decision-relation-retire" || command.kind === "decision-relation-replace") return "relation";
   if (command.kind === "new-task" || first === "task") return "task";
   if (command.kind === "record-fact" || first === "fact") return "fact";
   if (first === "event") return "event";

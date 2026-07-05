@@ -1,8 +1,9 @@
 import type { TaskFrontmatter } from "../schemas/registry.ts";
 import type { DecisionPackage } from "../schemas/decision-package.ts";
+import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { FactRecordDocument } from "../schemas/fact-record.ts";
 
-export type EntityKindWithFieldCoverage = "decision" | "task" | "fact";
+export type EntityKindWithFieldCoverage = "decision" | "task" | "fact" | "relation";
 export type EntityFieldMutability = "immutable" | "lifecycle" | "amendable" | "derived";
 export type EntityFieldReadSurface =
   | { readonly kind: "projection"; readonly path: string; readonly queryable: boolean }
@@ -21,6 +22,7 @@ export interface EntityFieldContract {
 export type DecisionFieldKey = keyof DecisionPackage;
 export type TaskFieldKey = keyof TaskFrontmatter;
 export type FactFieldKey = keyof FactRecordDocument;
+export type RelationFieldKey = keyof EntityRelationRecord;
 
 export const decisionFieldContracts = {
   schema: immutable("schema discriminator is fixed by the entity kind", show("decision.schema")),
@@ -70,10 +72,23 @@ export const factFieldContracts = {
   provenance: immutable("provenance is bound by create/write services, not amended as content", show("fact.provenance"))
 } satisfies Record<FactFieldKey, EntityFieldContract>;
 
+export const relationFieldContracts = {
+  relation_id: derived("relation identity is sha256(source|target|type|direction) and changes when an endpoint or type changes", projection("relationId", true), show("relation.relation_id")),
+  source: immutable("relation source is identity-bearing; replace the relation to change it", projection("source", true), show("relation.source")),
+  target: immutable("relation target is identity-bearing; replace the relation to change it", projection("target", true), show("relation.target")),
+  type: immutable("relation type is identity-bearing; replace the relation to change it", projection("type", true), show("relation.type")),
+  strength: immutable("relation strength is provenance-bearing in the current write surface", projection("strength", true), show("relation.strength")),
+  direction: immutable("relation direction is identity-bearing; replace the relation to change it", projection("direction", true), show("relation.direction")),
+  origin: immutable("relation origin is provenance metadata", projection("origin", true), show("relation.origin")),
+  rationale: immutable("relation rationale is captured at append; replace the relation to change it", show("relation.rationale")),
+  state: lifecycle("relation lifecycle transitions own state", [lifecycleWrite("relation_retire")], projection("state", true), show("relation.state"))
+} satisfies Record<RelationFieldKey, EntityFieldContract>;
+
 export const entityFieldContracts = {
   decision: decisionFieldContracts,
   task: taskFieldContracts,
-  fact: factFieldContracts
+  fact: factFieldContracts,
+  relation: relationFieldContracts
 } as const;
 
 export const decisionAmendableFields = ["title", "chosen", "rejected", "claims"] as const satisfies ReadonlyArray<DecisionFieldKey>;

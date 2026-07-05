@@ -13,10 +13,10 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, DecisionAmendPatchInput, ParsedCommand } from "../../cli/types.ts";
 import { applyDecisionAmendPatches } from "./decision-amend-patch.ts";
 import { runDecisionQueryCommand } from "./decision-query.ts";
-import { runDecisionRelate } from "./decision-relate.ts";
+import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetire } from "./decision-relate.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
-  | "decision-propose" | "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-amend" | "decision-relate" | "decision-retire"
+  | "decision-propose" | "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-amend" | "decision-relate" | "decision-relation-retire" | "decision-relation-replace" | "decision-retire"
 }>;
 type TransitionAction = Extract<DecisionAction, { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire" }>;
 
@@ -39,6 +39,10 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
       return runAmend(context.layoutInput, service, action);
     case "decision-relate":
       return runDecisionRelate(context.layoutInput, service, action);
+    case "decision-relation-retire":
+      return runDecisionRelationRetire(context.layoutInput, service, action);
+    case "decision-relation-replace":
+      return runDecisionRelationReplace(context.layoutInput, service, action);
   }
 };
 

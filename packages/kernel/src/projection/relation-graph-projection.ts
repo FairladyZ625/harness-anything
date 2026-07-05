@@ -329,7 +329,7 @@ function buildCoverageRows(
   const graph = new Map<string, RelationGraphEdgeRow[]>();
   const invalidatedFactRefs = new Set(
     activeEdges
-      .filter((edge) => (edge.relationType === "invalidated-by" || edge.relationType === "supersedes-fact") && edge.targetRef.startsWith("fact/"))
+      .filter((edge) => edge.sourceRef.startsWith("fact/") && edge.targetRef.startsWith("fact/") && (edge.relationType === "invalidated-by" || edge.relationType === "supersedes-fact"))
       .map((edge) => edge.targetRef)
   );
   for (const edge of activeEdges) {

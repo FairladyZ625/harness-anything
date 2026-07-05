@@ -55,10 +55,10 @@
   ],
   "relations": [
     {
-      "relation_id": "rel_2bd3fbc51839e11e",
+      "relation_id": "rel_b75516c583945a52",
       "source": "decision/dec_01K7ZTRIADIC/C1",
       "target": "fact/task_01KV5TBASE/F-a3f2",
-      "type": "supports",
+      "type": "supersedes-fact",
       "strength": "strong",
       "direction": "directed",
       "origin": "declared",

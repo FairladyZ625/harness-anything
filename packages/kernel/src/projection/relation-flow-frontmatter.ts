@@ -90,7 +90,7 @@ function parseFlowValue(value: string): string {
 }
 
 function isRelationType(value: string): value is EntityRelationRecord["type"] {
-  return ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "invalidated-by", "supersedes-fact"].includes(value);
+  return ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "produces", "evidences", "invalidated-by", "supersedes-fact"].includes(value);
 }
 
 function isRelationStrength(value: string): value is EntityRelationRecord["strength"] {
@@ -106,5 +106,5 @@ function isRelationOrigin(value: string): value is EntityRelationRecord["origin"
 }
 
 function isRelationState(value: string): value is EntityRelationRecord["state"] {
-  return value === "active" || value === "deprecated" || value === "deleted";
+  return value === "active" || value === "retired" || value === "deleted";
 }

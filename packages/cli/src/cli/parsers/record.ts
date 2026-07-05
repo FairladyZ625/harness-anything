@@ -8,11 +8,68 @@ type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { read
 const confidenceLevels = new Set(["low", "medium", "high"]);
 
 export function parseRecordArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
-  const normalizedArgs = args[0] === "fact" && args[1] === "record" ? ["record", "fact", ...args.slice(2)] : args;
+  if (args[0] === "fact") return parseFactArgs(args, rootDir, json);
+  const normalizedArgs = args;
   if (normalizedArgs[0] !== "record") return null;
   if (normalizedArgs[1] !== "fact") {
     return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use fact record.") };
   }
+  return parseFactRecord(["fact", "record", ...normalizedArgs.slice(2)], rootDir, json);
+}
+
+function parseFactArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
+  const op = args[1];
+  if (op === "record") return parseFactRecord(args, rootDir, json);
+  if (op === "list") {
+    const taskId = readOption(args, "--task") ?? args[2];
+    if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use fact list --task <task-id>.") };
+    return { ok: true, value: { rootDir, json, action: { kind: "fact-list", taskId } } };
+  }
+  if (op === "show") {
+    const taskId = readOption(args, "--task");
+    const factId = readOption(args, "--id") ?? args[2];
+    if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use fact show --task <task-id> --id <fact-id>.") };
+    if (!factId || !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(factId)) {
+      return { ok: false, error: cliError(CliErrorCode.InvalidFactId, "Use fact ids as F-<8 Crockford base32 chars>.") };
+    }
+    return { ok: true, value: { rootDir, json, action: { kind: "fact-show", taskId, factId } } };
+  }
+  if (op === "invalidate") {
+    const taskId = readOption(args, "--task");
+    const factId = readOption(args, "--id") ?? args[2];
+    const invalidatedByFactId = readOption(args, "--by");
+    const rationale = readOption(args, "--rationale");
+    if (!taskId) return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use fact invalidate --task <task-id> --id <fact-id> --by <fact-id> --rationale <text>.") };
+    if (!factId || !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(factId)) {
+      return { ok: false, error: cliError(CliErrorCode.InvalidFactId, "Use fact ids as F-<8 Crockford base32 chars>.") };
+    }
+    if (!invalidatedByFactId || !/^F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(invalidatedByFactId)) {
+      return { ok: false, error: cliError(CliErrorCode.InvalidFactId, "Use --by F-<8 Crockford base32 chars>.") };
+    }
+    if (!rationale || rationale.trim().length === 0) {
+      return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use fact invalidate --rationale <text>.") };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "fact-invalidate",
+          taskId,
+          factId,
+          invalidatedByFactId,
+          rationale,
+          dryRun: args.includes("--dry-run")
+        }
+      }
+    };
+  }
+  return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use fact list|show|record|invalidate.") };
+}
+
+function parseFactRecord(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
+  const normalizedArgs = args;
   const taskId = readOption(normalizedArgs, "--task") ?? normalizedArgs[2];
   const statement = readOption(normalizedArgs, "--statement");
   const source = readOption(normalizedArgs, "--source");

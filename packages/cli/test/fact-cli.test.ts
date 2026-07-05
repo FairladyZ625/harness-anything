@@ -146,6 +146,45 @@ test("CLI record fact accepts schema-shaped JSON input from file", () => {
   });
 });
 
+test("CLI fact list show and invalidate use the fact write surface", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Fact Commands"]);
+    const taskId = String(created.taskId);
+    runJson(rootDir, ["fact", "record", "--task", taskId, "--id", "F-DEADBEEF", "--statement", "Old fact.", "--source", "test"]);
+    runJson(rootDir, ["fact", "record", "--task", taskId, "--id", "F-FEEDFACE", "--statement", "New fact.", "--source", "test"]);
+
+    const listed = runJson(rootDir, ["fact", "list", "--task", taskId]);
+    assert.equal(listed.ok, true);
+    assert.equal(listed.command, "fact-list");
+    assert.equal(listed.rows, 2);
+    assert.equal(listed.report.facts.some((fact: Record<string, unknown>) => fact.factId === "F-DEADBEEF"), true);
+
+    const shown = runJson(rootDir, ["fact", "show", "--task", taskId, "--id", "F-DEADBEEF"]);
+    assert.equal(shown.ok, true);
+    assert.equal(shown.command, "fact-show");
+    assert.equal(shown.factRef, `fact/${taskId}/F-DEADBEEF`);
+
+    const invalidated = runJson(rootDir, [
+      "fact",
+      "invalidate",
+      "--task",
+      taskId,
+      "--id",
+      "F-DEADBEEF",
+      "--by",
+      "F-FEEDFACE",
+      "--rationale",
+      "New fact supersedes old fact"
+    ]);
+    assert.equal(invalidated.ok, true);
+    assert.equal(invalidated.command, "fact-invalidate");
+    assert.match(String(invalidated.report.relationId), /^rel_[a-f0-9]{16}$/u);
+    const factsBody = readFileSync(path.join(rootDir, String(created.packagePath), "facts.md"), "utf8");
+    assert.match(factsBody, /relations:/u);
+    assert.match(factsBody, /type: supersedes-fact/u);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-cli-"));
   try {

@@ -66,13 +66,13 @@ test("CLI decision propose writes typed evidence relation frontmatter", () => {
       "--why-not",
       "Coverage requires relation graph edges",
       "--evidence-relation",
-      "C1:supports:fact/task_01REL/F-1234ABCD:Fact F-1234ABCD supports claim C1"
+      "C1:supersedes-fact:fact/task_01REL/F-1234ABCD:Fact F-1234ABCD supersedes claim C1"
     ]);
 
     assert.equal(result.ok, true);
     const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_RELCLI/decision.md"), "utf8");
     assert.match(body, /^relations:$/mu);
-    assert.match(body, /  - \{ relation_id: "rel_[a-f0-9]{16}", source: "decision\/dec_RELCLI\/C1", target: "fact\/task_01REL\/F-1234ABCD", type: "supports", strength: "strong", direction: "directed", origin: "declared", rationale: "Fact F-1234ABCD supports claim C1", state: "active" \}/u);
+    assert.match(body, /  - \{ relation_id: "rel_[a-f0-9]{16}", source: "decision\/dec_RELCLI\/C1", target: "fact\/task_01REL\/F-1234ABCD", type: "supersedes-fact", strength: "strong", direction: "directed", origin: "declared", rationale: "Fact F-1234ABCD supersedes claim C1", state: "active" \}/u);
   });
 });
 
@@ -94,7 +94,7 @@ test("CLI decision propose rejects strong evidence relation missing rationale", 
       "--why-not",
       "Relations need rationale",
       "--evidence-relation",
-      "C1:supports:fact/task_01REL/F-1234ABCD"
+      "C1:supersedes-fact:fact/task_01REL/F-1234ABCD"
     ], false);
 
     assert.equal(result.ok, false);
@@ -156,6 +156,104 @@ test("CLI decision relate appends typed relation frontmatter through relation wr
     assert.equal(result.command, "decision-relate");
     const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_NEWREL/decision.md"), "utf8");
     assert.match(body, /  - \{ relation_id: "rel_[a-f0-9]{16}", source: "decision\/dec_NEWREL\/CH1", target: "decision\/dec_OLDREL", type: "supersedes", strength: "strong", direction: "directed", origin: "declared", rationale: "New relation decision supersedes old storage", state: "active" \}/u);
+  });
+});
+
+test("CLI decision relation retire and replace rewrite hosted relation frontmatter", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_RELHOST",
+      "--title",
+      "Hosted relation decision",
+      "--question",
+      "Should hosted relation ops rewrite frontmatter?",
+      "--chosen",
+      "Rewrite hosted relation frontmatter",
+      "--rejected",
+      "Create relation documents",
+      "--why-not",
+      "Relations are hosted in source frontmatter"
+    ]);
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_TARGET_A",
+      "--title",
+      "Target A",
+      "--question",
+      "Target A?",
+      "--chosen",
+      "A",
+      "--rejected",
+      "Not A",
+      "--why-not",
+      "Fixture"
+    ]);
+    runJson(rootDir, [
+      "decision",
+      "propose",
+      "--id",
+      "dec_TARGET_B",
+      "--title",
+      "Target B",
+      "--question",
+      "Target B?",
+      "--chosen",
+      "B",
+      "--rejected",
+      "Not B",
+      "--why-not",
+      "Fixture"
+    ]);
+    runJson(rootDir, [
+      "decision",
+      "relate",
+      "dec_RELHOST",
+      "--anchor",
+      "CH1",
+      "--type",
+      "relates",
+      "--target",
+      "decision/dec_TARGET_A",
+      "--rationale",
+      "Initial relation"
+    ]);
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_RELHOST/decision.md");
+    const relationId = /relation_id: "(rel_[a-f0-9]{16})"/u.exec(readFileSync(decisionPath, "utf8"))?.[1];
+    assert.ok(relationId);
+
+    const replaced = runJson(rootDir, [
+      "decision",
+      "relation",
+      "replace",
+      "dec_RELHOST",
+      "--relation",
+      relationId,
+      "--anchor",
+      "CH1",
+      "--type",
+      "relates",
+      "--target",
+      "decision/dec_TARGET_B",
+      "--rationale",
+      "Replacement relation"
+    ]);
+    assert.equal(replaced.ok, true);
+    assert.equal(replaced.command, "decision-relation-replace");
+    const replacedBody = readFileSync(decisionPath, "utf8");
+    assert.match(replacedBody, new RegExp(`relation_id: "${relationId}".*state: "retired"`, "su"));
+    assert.match(replacedBody, /target: "decision\/dec_TARGET_B"/u);
+    const relationIds = [...replacedBody.matchAll(/relation_id: "(rel_[a-f0-9]{16})"/gu)].map((match) => match[1]);
+    const replacementRelationId = relationIds.find((id) => id !== relationId);
+    assert.ok(replacementRelationId);
+
+    const retired = runJson(rootDir, ["decision", "relation", "retire", "dec_RELHOST", "--relation", replacementRelationId]);
+    assert.equal(retired.ok, true);
+    assert.equal(retired.command, "decision-relation-retire");
   });
 });
 

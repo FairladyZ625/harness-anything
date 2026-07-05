@@ -21,7 +21,7 @@ if (!existsSync(decisionDocumentPath)) {
   fail(`decision document not found for ${decisionId} at ${decisionDocumentPath}`);
 }
 
-const decision = readDecisionSourceFields(readFrontmatter(readFileSync(decisionDocumentPath, "utf8")));
+const decision = readDecisionSourceFields(readDecisionFrontmatter(readFileSync(decisionDocumentPath, "utf8")));
 if (decision.decision_id && decision.decision_id !== decisionId) {
   fail(`decision_id mismatch: input ${decisionId} vs frontmatter ${decision.decision_id}`);
 }
@@ -265,29 +265,29 @@ function trimTrailingBlank(lines) {
 // Kept self-contained: sandboxed script cannot import kernel sources at runtime.
 // ---------------------------------------------------------------------------
 
-function readFrontmatter(body) {
+function readDecisionFrontmatter(body) {
   const match = body.match(/^---\n([\s\S]*?)\n---/u);
   return match ? match[1] : "";
 }
 
 function readDecisionSourceFields(frontmatter) {
   return {
-    decision_id: readScalar(frontmatter, "decision_id"),
-    _coordinatorWatermark: optional(unquote(readScalar(frontmatter, "_coordinatorWatermark"))),
-    title: unquote(readScalar(frontmatter, "title")),
-    state: readScalar(frontmatter, "state") || "unknown",
-    riskTier: readScalar(frontmatter, "riskTier"),
-    urgency: readScalar(frontmatter, "urgency"),
+    decision_id: readDecisionScalarField(frontmatter, "decision_id"),
+    _coordinatorWatermark: optional(unquote(readDecisionScalarField(frontmatter, "_coordinatorWatermark"))),
+    title: unquote(readDecisionScalarField(frontmatter, "title")),
+    state: readDecisionScalarField(frontmatter, "state") || "unknown",
+    riskTier: readDecisionScalarField(frontmatter, "riskTier"),
+    urgency: readDecisionScalarField(frontmatter, "urgency"),
     applies_to: {
       modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules")),
       productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"))
     },
-    proposedBy: parseFlowObject(readScalar(frontmatter, "proposedBy")),
-    proposedAt: unquote(readScalar(frontmatter, "proposedAt")),
-    arbiter: parseFlowObject(readScalar(frontmatter, "arbiter")),
-    decidedAt: optional(unquote(readScalar(frontmatter, "decidedAt"))),
+    proposedBy: parseFlowObject(readDecisionScalarField(frontmatter, "proposedBy")),
+    proposedAt: unquote(readDecisionScalarField(frontmatter, "proposedAt")),
+    arbiter: parseFlowObject(readDecisionScalarField(frontmatter, "arbiter")),
+    decidedAt: optional(unquote(readDecisionScalarField(frontmatter, "decidedAt"))),
     provenance: parseObjectList(frontmatter, "provenance"),
-    question: unquote(readScalar(frontmatter, "question")),
+    question: unquote(readDecisionScalarField(frontmatter, "question")),
     chosen: parseObjectList(frontmatter, "chosen"),
     rejected: parseObjectList(frontmatter, "rejected"),
     claims: parseObjectList(frontmatter, "claims"),
@@ -295,7 +295,7 @@ function readDecisionSourceFields(frontmatter) {
   };
 }
 
-function readScalar(frontmatter, key) {
+function readDecisionScalarField(frontmatter, key) {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const match = frontmatter.match(new RegExp(`^${escaped}:[ \\t]*(.*)$`, "mu"));
   return match ? match[1].trim() : "";

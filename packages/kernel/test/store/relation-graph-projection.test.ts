@@ -31,7 +31,7 @@ test("relation graph projection stores decision claim to live fact coverage in S
     const relation = relationRecord({
       source: "decision/dec_COVER/C1",
       target: "fact/task-coverage/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     });
     writeDecision(rootDir, "dec_COVER", "wm-cover", [relation]);
 
@@ -58,7 +58,7 @@ test("legacy facts without memory fields stay visible to post-merge checks and c
     const relation = relationRecord({
       source: "decision/dec_LEGACY_FACT/C1",
       target: "fact/task-legacy-facts/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     });
     writeDecision(rootDir, "dec_LEGACY_FACT", "wm-legacy-fact", [relation]);
 
@@ -114,7 +114,7 @@ test("relation graph projection resolves facts by task_id when task directory ha
     const relation = relationRecord({
       source: "decision/dec_SLUGGED/C1",
       target: `fact/${taskId}/F-DEADBEEF`,
-      type: "supports"
+      type: "supersedes-fact"
     });
     writeDecision(rootDir, "dec_SLUGGED", "wm-slugged", [relation]);
 
@@ -155,13 +155,13 @@ test("relation graph coverage treats invalidated facts as not live", () => {
       relationRecord({
         source: "fact/task-invalidated/F-FEEDFACE",
         target: "fact/task-invalidated/F-DEADBEEF",
-        type: "invalidated-by"
+        type: "supersedes-fact"
       })
     ]);
     writeDecision(rootDir, "dec_INVALIDATED", "wm-invalidated", [relationRecord({
       source: "decision/dec_INVALIDATED/C1",
       target: "fact/task-invalidated/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     })]);
 
     rebuildTaskProjection({ rootDir });
@@ -176,11 +176,12 @@ test("relation graph coverage treats invalidated facts as not live", () => {
   });
 });
 
-test("entity registry declares the five-tuple surface for decision task and fact", () => {
-  assert.deepEqual(Object.keys(entityRegistry).sort(), ["decision", "fact", "task"]);
+test("entity registry declares the five-tuple surface for decision task fact and relation", () => {
+  assert.deepEqual(Object.keys(entityRegistry).sort(), ["decision", "fact", "relation", "task"]);
   assert.equal(entityRegistry.decision.storageForm, "lifecycle");
   assert.equal(entityRegistry.task.storageForm, "lifecycle");
   assert.equal(entityRegistry.fact.storageForm, "schema");
+  assert.equal(entityRegistry.relation.storageForm, "host_frontmatter");
   assert.equal(entityRegistry.decision.dispositionMatrix.entries["hard-delete"].supported, false);
   assert.equal(entityRegistry.fact.dispositionMatrix.entries.invalidate.supported, true);
   assert.equal(entityRegistry.fact.dispositionMatrix.entries["hard-delete"].supported, false);
@@ -193,7 +194,7 @@ test("entity disposition lower-bound blocks D3 and D4 when active incoming relat
     writeDecision(rootDir, "dec_BLOCK_DELETE", "wm-block-delete", [relationRecord({
       source: "decision/dec_BLOCK_DELETE/C1",
       target: "task/task-blocked",
-      type: "relates"
+      type: "derives"
     })]);
 
     const tombstone = evaluateEntityDisposition({
@@ -263,7 +264,7 @@ test("entity cascade preview returns relation impact without applying recommenda
     const relation = relationRecord({
       source: "decision/dec_CASCADE/C1",
       target: "task/task-cascade",
-      type: "relates"
+      type: "derives"
     });
     writeDecision(rootDir, "dec_CASCADE", "wm-cascade", [relation]);
     rebuildTaskProjection({ rootDir });
@@ -309,7 +310,7 @@ test("relation graph projection auto-rebuilds when decision relations change", (
     writeDecision(rootDir, "dec_STALE", "wm-stale", [relationRecord({
       source: "decision/dec_STALE/C1",
       target: "fact/task-stale/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     })]);
     const coverage = readDecisionFactCoverage({ rootDir, decisionId: "dec_STALE" });
 
@@ -371,7 +372,7 @@ test("relation graph projection excludes ghost decisions without coordinator wat
     writeDecision(rootDir, "dec_GHOST", "", [relationRecord({
       source: "decision/dec_GHOST/C1",
       target: "fact/task-ghost/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     })]);
 
     rebuildTaskProjection({ rootDir });
@@ -396,12 +397,12 @@ test("relation graph projection excludes ghost decisions with duplicate coordina
     writeDecision(rootDir, "dec_DUPLICATE_A", "wm-duplicate", [relationRecord({
       source: "decision/dec_DUPLICATE_A/C1",
       target: "fact/task-duplicate-ghost/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     })]);
     writeDecision(rootDir, "dec_DUPLICATE_B", "wm-duplicate", [relationRecord({
       source: "decision/dec_DUPLICATE_B/C1",
       target: "fact/task-duplicate-ghost/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     })]);
 
     rebuildTaskProjection({ rootDir });
@@ -428,13 +429,13 @@ test("post-merge typed relation cycle detection terminates across decision and f
       relationRecord({
         source: "fact/task-cycle/F-DEADBEEF",
         target: "decision/dec_B/C1",
-        type: "relates"
+        type: "supports"
       })
     ]);
     writeDecision(rootDir, "dec_A", "wm-a", [relationRecord({
       source: "decision/dec_A/C1",
       target: "fact/task-cycle/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     })]);
     writeDecision(rootDir, "dec_B", "wm-b", [relationRecord({
       source: "decision/dec_B/C1",
@@ -465,8 +466,8 @@ test("post-merge relation validation rejects facts.md host drift and provenance 
     }], [
       relationRecord({
         source: "fact/task-other/F-DEADBEEF",
-        target: "task/task-owner",
-        type: "relates"
+        target: "fact/task-owner/F-DEADBEEF",
+        type: "supersedes-fact"
       })
     ]);
     writeIndex(rootDir, "task-other", "Task Other");
@@ -498,7 +499,7 @@ test("post-merge relation validation rejects relation_id mismatches", () => {
       confidence: "high"
     }]);
     writeDecisionRelationLines(rootDir, "dec_BAD_ID", "wm-bad-id", [
-      "- {relation_id: rel_0000000000000000, source: decision/dec_BAD_ID/C1, target: fact/task-bad-id/F-DEADBEEF, type: supports, strength: strong, direction: directed, origin: declared, rationale: \"Fixture relation\", state: active}"
+      "- {relation_id: rel_0000000000000000, source: decision/dec_BAD_ID/C1, target: fact/task-bad-id/F-DEADBEEF, type: supersedes-fact, strength: strong, direction: directed, origin: declared, rationale: \"Fixture relation\", state: active}"
     ]);
 
     const result = checkTaskProjection({ rootDir, postMerge: true });
@@ -521,7 +522,7 @@ test("post-merge relation validation rejects divergent duplicate relation_id rec
     const relation = relationRecord({
       source: "decision/dec_DUP_REL/C1",
       target: "fact/task-duplicate-relation/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     });
     writeDecision(rootDir, "dec_DUP_REL", "wm-dup-rel", [
       relation,
@@ -548,7 +549,7 @@ test("post-merge relation validation allows byte-identical duplicate records to 
     const relation = relationRecord({
       source: "decision/dec_IDENTICAL_REL/C1",
       target: "fact/task-identical-relation/F-DEADBEEF",
-      type: "supports"
+      type: "supersedes-fact"
     });
     writeDecision(rootDir, "dec_IDENTICAL_REL", "wm-identical-rel", [relation, relation]);
 

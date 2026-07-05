@@ -34,7 +34,7 @@ test("fact write service invalidates through a relation op without rewriting fac
     const payload = enqueued[0]?.payload as { readonly path?: string; readonly body?: string };
     assert.equal(payload.path, "facts.md");
     assert.match(payload.body ?? "", /relations:/u);
-    assert.match(payload.body ?? "", /type: invalidated-by/u);
+    assert.match(payload.body ?? "", /type: supersedes-fact/u);
     assert.match(payload.body ?? "", /target: fact\/task_fact_owner\/F-DEADBEEF/u);
     assert.equal(parseEntityRef(`fact/task_fact_owner/${result.invalidatedByFactId}`)?.kind, "fact");
   } finally {

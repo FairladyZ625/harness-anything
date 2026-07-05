@@ -44,6 +44,7 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     layoutOverrides: parsed.value.layoutOverrides,
     actor
   }), () => makeDecisionWriteService({
+    rootInput: layoutInput,
     coordinator: makeLocalWriteCoordinator({
       rootDir: parsed.value.rootDir,
       layoutOverrides: parsed.value.layoutOverrides,

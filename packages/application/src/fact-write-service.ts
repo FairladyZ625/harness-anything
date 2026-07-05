@@ -4,6 +4,7 @@ import { Effect, Schema } from "effect";
 import {
   FactRecordSchema,
   deriveRelationId,
+  evaluateEntityDisposition,
   formatFactFlowRecord,
   formatRelationFlowRecord,
   isFactId,
@@ -20,7 +21,7 @@ import {
   type WriteCoordinator,
   type WriteError
 } from "../../kernel/src/index.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
+import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
 import { bindCreateProvenance } from "./provenance-binding.ts";
 import type { ProvenanceSessionExporter } from "./provenance-session-exporter.ts";
@@ -159,6 +160,15 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
       if (!existingFacts.some((record) => record.fact_id === request.invalidatedByFactId)) {
         return yield* Effect.fail(factRejection(request.ownerTaskId, `invalidating fact not found: ${request.invalidatedByFactId}`));
       }
+      const disposition = evaluateEntityDisposition({
+        rootDir: harnessRuntimeRoot(options.rootInput),
+        layoutOverrides: typeof options.rootInput === "string" ? undefined : options.rootInput.layoutOverrides,
+        entityRef: `fact/${request.ownerTaskId}/${request.factId}`,
+        action: "invalidate"
+      });
+      if (!disposition.allowed) {
+        return yield* Effect.fail(factRejection(request.ownerTaskId, disposition.reason));
+      }
       const relation = invalidationRelation(request);
       const nextBody = appendFactRelation(existingBody, relation);
       if (!request.dryRun) {
@@ -206,7 +216,7 @@ function invalidationRelation(request: FactInvalidateRequest): EntityRelationRec
   const base = {
     source: `fact/${request.ownerTaskId}/${request.invalidatedByFactId}`,
     target: `fact/${request.ownerTaskId}/${request.factId}`,
-    type: "invalidated-by",
+    type: "supersedes-fact",
     direction: "directed"
   } satisfies Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">;
   return {

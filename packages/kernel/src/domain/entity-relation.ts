@@ -11,6 +11,8 @@ export const relationTypes = [
   "blocks",
   "relates",
   "implements",
+  "produces",
+  "evidences",
   "invalidated-by",
   "supersedes-fact"
 ] as const;
@@ -18,7 +20,7 @@ export const relationTypes = [
 export const relationStrengths = ["strong", "weak"] as const;
 export const relationDirections = ["directed", "undirected"] as const;
 export const relationOrigins = ["declared", "imported_snapshot", "generated", "inferred"] as const;
-export const relationStates = ["active", "deprecated", "deleted"] as const;
+export const relationStates = ["active", "retired", "deleted"] as const;
 
 export type RelationType = typeof relationTypes[number];
 export type RelationStrength = typeof relationStrengths[number];
@@ -41,6 +43,7 @@ export interface EntityRelationRecord {
 export type EntityRelationValidationIssueCode =
   | "invalid_relation_endpoint"
   | "relation_host_source_mismatch"
+  | "invalid_relation_type_subset"
   | "relation_id_mismatch"
   | "duplicate_relation_id"
   | "relation_rationale_missing";
@@ -88,6 +91,14 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       continue;
     }
 
+    if (!isAllowedRelationKindTriple(source.kind, record.type, target.kind)) {
+      issues.push({
+        code: "invalid_relation_type_subset",
+        relationId: record.relation_id,
+        message: `Relation ${record.relation_id} type ${record.type} is not allowed for ${source.kind}->${target.kind}`
+      });
+    }
+
     if (!hostOwnsSource(hostRef, source)) {
       issues.push({
         code: "relation_host_source_mismatch",
@@ -124,6 +135,24 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
   }
 
   return issues;
+}
+
+export function isAllowedRelationKindTriple(
+  sourceKind: ParsedEntityRef["kind"],
+  type: RelationType,
+  targetKind: ParsedEntityRef["kind"]
+): boolean {
+  if (sourceKind === "decision" && targetKind === "decision") {
+    return type === "supersedes" || type === "refines" || type === "narrows" || type === "relates" || type === "blocks";
+  }
+  if (sourceKind === "decision" && targetKind === "task") return type === "derives";
+  if (sourceKind === "decision" && targetKind === "fact") return type === "supersedes-fact";
+  if (sourceKind === "task" && targetKind === "decision") return type === "implements";
+  if (sourceKind === "task" && targetKind === "task") return type === "blocks" || type === "relates";
+  if (sourceKind === "task" && targetKind === "fact") return type === "produces" || type === "evidences";
+  if (sourceKind === "fact" && targetKind === "decision") return type === "supports" || type === "invalidated-by";
+  if (sourceKind === "fact" && targetKind === "fact") return type === "supersedes-fact";
+  return false;
 }
 
 function requiresRationale(record: EntityRelationRecord): boolean {

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { entityRegistry, entityRegistryKinds } from "../../../../kernel/src/index.ts";
 import { cliCommandAlias, commandDescriptors, commandRegistry, type CommandKind } from "../../cli/command-registry.ts";
 import { actionForCommand, commandInputDescriptorFor, entityForCommand } from "../../cli/command-input-descriptors.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -76,6 +77,9 @@ function entities(): Map<string, { readonly kind: string; readonly ops: Readonly
     };
     byEntity.set(entity, [...(byEntity.get(entity) ?? []), op]);
   }
+  for (const kind of entityRegistryKinds) {
+    if (!byEntity.has(kind)) byEntity.set(kind, []);
+  }
   return new Map([...byEntity.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([kind, ops]) => [kind, { kind, ops }]));
 }
 
@@ -95,7 +99,7 @@ function fieldsForEntity(kind: string): ReadonlyArray<Record<string, unknown>> {
 }
 
 function storageForEntity(kind: string): string {
-  if (kind === "decision" || kind === "task" || kind === "fact") return "lifecycle";
+  if (isRegisteredEntityKind(kind)) return entityRegistry[kind].storageForm;
   if (kind === "doc" || kind === "template") return "schema";
   return "composite";
 }
@@ -115,13 +119,33 @@ function descriptionForEntity(kind: string): string {
 }
 
 function dispositionForEntity(kind: string): ReadonlyArray<Record<string, unknown>> {
-  if (kind === "decision") return [{ level: "D1", name: "semantic-retire", commands: ["ha decision retire <id>"], soTCheckRequired: true }];
-  if (kind === "task") return [{
-    level: "D2",
-    name: "archive",
-    commands: ["ha task archive <id> --reason <reason>"],
-    soTCheckRequired: true,
-    description: "E79 daily containment path: distill evidence into an anchor task, reconnect relations, then archive the original task. Hard delete is blocked when anchored facts or active incoming relations exist."
-  }];
-  return [];
+  if (!isRegisteredEntityKind(kind)) return [];
+  return Object.values(entityRegistry[kind].dispositionMatrix.entries)
+    .filter((entry) => entry.supported)
+    .sort((left, right) => `${left.level}:${left.action}`.localeCompare(`${right.level}:${right.action}`))
+    .map((entry) => ({
+      level: entry.level,
+      name: entry.action,
+      commands: entry.writeOpKinds.map(commandForWriteOpKind),
+      soTCheckRequired: true,
+      description: entry.reason
+    }));
+}
+
+function commandForWriteOpKind(kind: string): string {
+  const commands: Record<string, string> = {
+    decision_retire: "ha decision retire <id>",
+    decision_supersede: "ha decision supersede <id>",
+    package_archive: "ha task archive <id> --reason <reason>",
+    package_tombstone: "ha task delete --soft <id> --reason <reason>",
+    package_delete_hard: "ha task delete --hard <id> --confirm <id> --reason <reason>",
+    package_supersede: "ha task supersede <old-id> --title <title> --reason <reason>",
+    fact_invalidate: "ha fact invalidate --task <task-id> --id <fact-id> --by <fact-id> --rationale <text>",
+    relation_retire: "ha decision relation retire <decision-id> --relation <relation-id>"
+  };
+  return commands[kind] ?? kind;
+}
+
+function isRegisteredEntityKind(kind: string): kind is typeof entityRegistryKinds[number] {
+  return (entityRegistryKinds as ReadonlyArray<string>).includes(kind);
 }

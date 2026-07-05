@@ -239,7 +239,7 @@ function decisionPackage(overrides: Partial<DecisionPackage> = {}): DecisionPack
   };
 }
 
-function relationRecord(source: string, target: string, type: EntityRelationRecord["type"] = "supports"): EntityRelationRecord {
+function relationRecord(source: string, target: string, type: EntityRelationRecord["type"] = "supersedes-fact"): EntityRelationRecord {
   const base = {
     source,
     target,
