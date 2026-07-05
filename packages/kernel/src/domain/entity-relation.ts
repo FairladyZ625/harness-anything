@@ -13,6 +13,7 @@ export const relationTypes = [
   "implements",
   "produces",
   "evidences",
+  "evidenced-by",
   "invalidated-by",
   "supersedes-fact"
 ] as const;
@@ -91,7 +92,10 @@ export function validateRelationRecordsForHost(host: string, records: ReadonlyAr
       continue;
     }
 
-    if (!isAllowedRelationKindTriple(source.kind, record.type, target.kind)) {
+    // The type-subset whitelist only governs live edges. Retired/deleted records are
+    // audit history: a migration retires an illegal edge in place, and re-validating the
+    // corpse would permanently block every future write to the host document.
+    if (record.state === "active" && !isAllowedRelationKindTriple(source.kind, record.type, target.kind)) {
       issues.push({
         code: "invalid_relation_type_subset",
         relationId: record.relation_id,
@@ -142,16 +146,23 @@ export function isAllowedRelationKindTriple(
   type: RelationType,
   targetKind: ParsedEntityRef["kind"]
 ): boolean {
+  // Ratified convention (dec_mr74sbka, 2026-07-05): every edge reads as one sentence,
+  // `source <verb> target`, in the physical (host -> target) direction — no cell whose
+  // verb reads backwards. Verbs are chosen so the source is always the grammatical subject.
   if (sourceKind === "decision" && targetKind === "decision") {
-    return type === "supersedes" || type === "refines" || type === "narrows" || type === "relates" || type === "blocks";
+    return type === "supersedes" || type === "refines" || type === "narrows" || type === "relates" ||
+      type === "blocks" || type === "derives" || type === "supports";
   }
-  if (sourceKind === "decision" && targetKind === "task") return type === "derives";
-  // decision->fact is the physical storage direction: the relation is hosted in the
-  // decision's frontmatter and points at the fact. "supports" is the standard evidence
-  // relation (the decision's claim is supported by the fact), authored from the decision
-  // side via `decision relate ... --type supports --target fact/...`. It reads
-  // semantically as fact->decision but is stored decision->fact, so it must be allowed here.
-  if (sourceKind === "decision" && targetKind === "fact") return type === "supersedes-fact" || type === "supports";
+  // derives = "the decision spawns the task"; relates = the task was not born from this
+  // decision but was later found to be connected to it.
+  if (sourceKind === "decision" && targetKind === "task") return type === "derives" || type === "relates";
+  // Evidence relation, authored from the decision side: "the decision is evidenced-by the
+  // fact" — a decision-subject verb so the sentence reads in the storage direction.
+  // "supports" is a transitional alias for existing edges; it is removed once the ledger
+  // migration to evidenced-by completes.
+  if (sourceKind === "decision" && targetKind === "fact") {
+    return type === "supersedes-fact" || type === "evidenced-by" || type === "supports";
+  }
   if (sourceKind === "task" && targetKind === "decision") return type === "implements";
   if (sourceKind === "task" && targetKind === "task") return type === "blocks" || type === "relates";
   if (sourceKind === "task" && targetKind === "fact") return type === "produces" || type === "evidences";
@@ -163,6 +174,7 @@ export function isAllowedRelationKindTriple(
 function requiresRationale(record: EntityRelationRecord): boolean {
   return record.strength === "strong" ||
     record.type === "supports" ||
+    record.type === "evidenced-by" ||
     record.type === "blocks" ||
     record.type === "supersedes" ||
     record.type === "refines" ||

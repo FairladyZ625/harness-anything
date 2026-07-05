@@ -110,7 +110,7 @@ const descriptions: Record<string, string> = {
   "--target": "Set the relation target entity ref.",
   "--text": "Progress text appended as-is (no Markdown formatting or normalization).",
   "--title": "Set the required task title used for generated package metadata and slug.",
-  "--type": "Set the relation type. Valid relation types: supports, supersedes, refines, narrows, derives, blocks, relates, implements, produces, evidences, invalidated-by, supersedes-fact.",
+  "--type": "Set the relation type. Valid relation types: supports, supersedes, refines, narrows, derives, blocks, relates, implements, produces, evidences, evidenced-by, invalidated-by, supersedes-fact.",
   "--urgency": "Set decision urgency as low, medium, or high.",
   "--user": "Set the user label for explicit session export.",
   "--vertical": "Select a vertical definition; task create defaults to software/coding.",

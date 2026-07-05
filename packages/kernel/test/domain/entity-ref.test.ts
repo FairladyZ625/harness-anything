@@ -121,16 +121,55 @@ test("relation validator rejects host drift, duplicates, missing rationale, and 
   );
 });
 
-test("decision->fact allows both supersedes-fact and the supports evidence relation", () => {
-  // Evidence relations are physically stored decision->fact (hosted in the decision,
-  // pointing at its supporting fact), authored via `decision relate ... --type supports`.
+test("relation whitelist implements the ratified physical-direction matrix", () => {
+  // dec_mr74sbka: every edge reads `source <verb> target` in the storage direction.
+  // decision->fact evidence: evidenced-by is canonical; supports is transitional.
+  assert.equal(isAllowedRelationKindTriple("decision", "evidenced-by", "fact"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "supports", "fact"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "supersedes-fact", "fact"), true);
-  // Direction remains enforced elsewhere: decision->task stays derives (not implements),
-  // and an unrelated type on decision->fact is still rejected.
+  // decision->task: derives (spawned by the decision) or relates (later-found link).
   assert.equal(isAllowedRelationKindTriple("decision", "derives", "task"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "relates", "task"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "implements", "task"), false);
+  assert.equal(isAllowedRelationKindTriple("decision", "supports", "task"), false);
+  // decision->decision: derives (spawns a child decision) and supports join the set.
+  assert.equal(isAllowedRelationKindTriple("decision", "derives", "decision"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "supports", "decision"), true);
+  // Unrelated combinations stay rejected.
   assert.equal(isAllowedRelationKindTriple("decision", "blocks", "fact"), false);
+  assert.equal(isAllowedRelationKindTriple("fact", "evidenced-by", "decision"), false);
+});
+
+test("type-subset whitelist only governs active relations", () => {
+  const retiredIllegal = {
+    relation_id: deriveRelationId({
+      source: "decision/dec_01K7ZTRIADIC/CH1",
+      target: "task/task_01KV5TBASE",
+      type: "implements",
+      direction: "directed"
+    }),
+    source: "decision/dec_01K7ZTRIADIC/CH1",
+    target: "task/task_01KV5TBASE",
+    type: "implements",
+    strength: "strong",
+    direction: "directed",
+    origin: "declared",
+    rationale: "Wrong-direction edge retired by the ledger migration.",
+    state: "retired"
+  } satisfies EntityRelationRecord;
+
+  // Retired audit history does not re-trip the whitelist ...
+  assert.deepEqual(
+    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [retiredIllegal]),
+    []
+  );
+  // ... but the same edge in active state still does.
+  assert.deepEqual(
+    validateRelationRecordsForHost("decision/dec_01K7ZTRIADIC", [
+      { ...retiredIllegal, state: "active" }
+    ]).map((issue) => issue.code),
+    ["invalid_relation_type_subset"]
+  );
 });
 
 test("relation flow formatter emits one flow-style line per record", () => {
