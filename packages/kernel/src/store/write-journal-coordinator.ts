@@ -39,13 +39,15 @@ import {
   isProgressAppendDeltaPayload,
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
-export type { JournalActor, JournaledWriteCoordinatorOptions } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
+export type { JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
 
 const defaultActor: JournalActor = { kind: "agent", id: "local" };
 // Flush writes the full op-id set before compaction for recovery safety, then
 // trims to a bounded recent-id window only after journal compaction succeeds.
 const maxWatermarkCommittedOpIds = 128;
+const defaultRetryInitialDelayMs = 25;
+const defaultRetryMaxDelayMs = 250;
 
 type JournalMappedError = WriteLockHeldError | WriteRejectedError | NonTaskWriteEntityError;
 
@@ -57,7 +59,17 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const watermarkPath = options.watermarkPath ?? layout.watermarkPath;
   const actor = options.actor ?? defaultActor;
   const lockTtlMs = options.lockTtlMs ?? 60_000;
+  const lockConflictRetry = options.lockConflictRetry;
   const pending: WriteOp[] = [];
+  const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
+    try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
+      const state = readDurableState(journalPath, watermarkPath, rootDir);
+      pending.splice(0, pending.length);
+      const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied);
+    }),
+    catch: (cause): WriteError => toJournalError(cause)
+  });
 
   return {
     enqueue: (op) => Effect.try({
@@ -76,15 +88,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       },
       catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
-    flush: (reason) => Effect.try({
-      try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
-        const state = readDurableState(journalPath, watermarkPath, rootDir);
-        pending.splice(0, pending.length);
-        const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied);
-      }),
-      catch: (cause): WriteError => toJournalError(cause)
-    }),
+    flush: (reason) => lockConflictRetry ? retryLockConflictFlush(() => flushOnce(reason), lockConflictRetry, Date.now(), 0) : flushOnce(reason),
     recover: Effect.try({
       try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
@@ -98,6 +102,33 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       catch: (cause): WriteError => toJournalError(cause)
     })
   };
+}
+
+function retryLockConflictFlush(
+  flushOnce: () => Effect.Effect<FlushReport, WriteError>,
+  retry: LockConflictRetryOptions,
+  startedAt: number,
+  attempt: number
+): Effect.Effect<FlushReport, WriteError> {
+  return flushOnce().pipe(
+    Effect.catchAll((error) => {
+      if (!isLockConflict(error)) return Effect.fail(error);
+      const remainingMs = retry.maxWaitMs - (Date.now() - startedAt);
+      if (remainingMs <= 0) return Effect.fail(error);
+      const delayMs = Math.min(
+        remainingMs,
+        retry.maxDelayMs ?? defaultRetryMaxDelayMs,
+        (retry.initialDelayMs ?? defaultRetryInitialDelayMs) * (2 ** attempt)
+      );
+      return Effect.promise<void>(() => new Promise((resolve) => setTimeout(resolve, delayMs))).pipe(
+        Effect.flatMap(() => retryLockConflictFlush(flushOnce, retry, startedAt, attempt + 1))
+      );
+    })
+  );
+}
+
+function isLockConflict(error: WriteError): boolean {
+  return error._tag === "GlobalWriteConflict" || error._tag === "WriteConflict";
 }
 
 function flushRecords(
