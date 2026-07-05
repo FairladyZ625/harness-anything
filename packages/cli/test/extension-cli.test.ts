@@ -80,6 +80,22 @@ test("CLI bundled template render fails closed on missing template refs", () => 
   assert.equal(result.issues.some((issue) => issue.code === "missing_template"), true);
 });
 
+test("CLI bundled AGENTS templates surface public worktree discipline", () => {
+  const agentEn = runJson(["template", "render", "template://repository/agent-base@1", "--locale", "en-US"]);
+  const agentZh = runJson(["template", "render", "template://repository/agent-base@1", "--locale", "zh-CN"]);
+  const governance = runJson(["template", "render", "template://repository/repo-governance@1", "--locale", "en-US"]);
+
+  assert.match(agentEn.document.body, /## Worktree discipline/u);
+  assert.match(agentEn.document.body, /\.worktrees\/<slug>/u);
+  assert.match(agentEn.document.body, /Do not edit `packages\/\*\*`.*shared repository root/u);
+  assert.match(agentEn.document.body, /## Relation edge rules/u);
+  assert.match(agentEn.document.body, /`refines` is for decision-to-decision revision, not for target `task\/\.\.\.`/u);
+  assert.match(agentZh.document.body, /后台\/并行 worker/u);
+  assert.match(agentZh.document.body, /\.worktrees\/<slug>/u);
+  assert.match(agentZh.document.body, /`refines` 是 decision 到 decision 的修订关系，不用于 target `task\/\.\.\.`/u);
+  assert.match(governance.document.body, /Public implementation work.*\.worktrees\/<slug>/u);
+});
+
 test("CLI preset validate reports kernel version incompatibility as stable JSON", () => {
   const result = runJson(["preset", "validate", presetFixture, "--kernel-version", "0.9.0"], false);
 

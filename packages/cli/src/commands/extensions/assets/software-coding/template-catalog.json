@@ -605,27 +605,33 @@
       "materializeAs": "AGENTS.md",
       "frontmatterSchema": "none",
       "requiredAnchors": [
+        "## Context loading",
+        "## Worktree discipline",
         "## Kernel Workflow (triadic)",
-        "## WriteCoordinator discipline",
-        "## Task reading matrix"
+        "## Relation edge rules",
+        "## WriteCoordinator discipline"
       ],
       "fallbackLocale": "en-US",
       "locales": [
         {
           "locale": "zh-CN",
           "anchors": [
+            "## Context loading",
+            "## Worktree discipline",
             "## Kernel Workflow (triadic)",
-            "## WriteCoordinator discipline",
-            "## Task reading matrix"
+            "## Relation edge rules",
+            "## WriteCoordinator discipline"
           ],
           "bodyPath": "templates/repository.agent.base/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": [
+            "## Context loading",
+            "## Worktree discipline",
             "## Kernel Workflow (triadic)",
-            "## WriteCoordinator discipline",
-            "## Task reading matrix"
+            "## Relation edge rules",
+            "## WriteCoordinator discipline"
           ],
           "bodyPath": "templates/repository.agent.base/en-US.md"
         }

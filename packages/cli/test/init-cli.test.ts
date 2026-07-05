@@ -23,9 +23,11 @@ test("CLI init defaults harness project name from the target root basename", () 
     // empty L3 `## Repository Specifics` anchor reserved (ADR-0021 D2).
     const agents = readFileSync(path.join(rootDir, "AGENTS.md"), "utf8");
     assert.match(agents, /Harness Agent Entry/u);
+    assert.match(agents, /## Context loading/u);
+    assert.match(agents, /## Worktree discipline/u);
     assert.match(agents, /## Kernel Workflow \(triadic\)/u);
+    assert.match(agents, /## Relation edge rules/u);
     assert.match(agents, /## WriteCoordinator discipline/u);
-    assert.match(agents, /## Task reading matrix/u);
     assert.match(agents, /## Harness CLI \(software\/coding\)/u);
     assert.match(agents, /## Scaffold folders/u);
     assert.match(agents, /## Governance routing \(near-field hard gates\)/u);

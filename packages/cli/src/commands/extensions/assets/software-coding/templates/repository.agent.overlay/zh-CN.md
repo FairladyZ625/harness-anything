@@ -21,3 +21,4 @@
 
 - PR / 分支 / 合并 / admin bypass → `harness/standards/repo-governance.md` 与 `.github/pull_request_template.md`
 - CI / required checks / 发布门禁 → `harness/standards/ci-cd-standard.md`
+- 测试 tier / 证据深度 / 新测试文件 → `harness/standards/testing-standard.md`
