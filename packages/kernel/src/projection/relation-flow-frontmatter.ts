@@ -90,7 +90,7 @@ function parseFlowValue(value: string): string {
 }
 
 function isRelationType(value: string): value is EntityRelationRecord["type"] {
-  return ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "produces", "evidences", "evidenced-by", "invalidated-by", "supersedes-fact"].includes(value);
+  return ["supports", "supersedes", "refines", "narrows", "derives", "blocks", "relates", "implements", "depends-on", "produces", "evidences", "evidenced-by", "invalidated-by", "supersedes-fact"].includes(value);
 }
 
 function isRelationStrength(value: string): value is EntityRelationRecord["strength"] {

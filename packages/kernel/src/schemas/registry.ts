@@ -113,6 +113,7 @@ export const TaskFrontmatterSchema = Schema.Struct({
   schema: Schema.Literal("task-package/v2"),
   task_id: Schema.String,
   title: Schema.String,
+  parent: Schema.optional(Schema.String),
   lifecycle: LifecycleBindingSchema,
   packageDisposition: Schema.Literal(...packageDispositions),
   vertical: Schema.String,

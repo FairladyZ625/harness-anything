@@ -137,6 +137,7 @@ test("decision package JSON schema is closed against evidence_refs drift", async
     "blocks",
     "relates",
     "implements",
+    "depends-on",
     "produces",
     "evidences",
     "evidenced-by",

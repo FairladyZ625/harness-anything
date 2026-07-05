@@ -2,6 +2,7 @@
   "schema": "task-package/v2",
   "task_id": "2026-06-11-kr-01-harness-infrastructure",
   "title": "Harness infrastructure baseline",
+  "parent": "2026-06-11-parent-task",
   "lifecycle": {
     "bindingSchema": "lifecycle-binding/v1",
     "engine": "local",

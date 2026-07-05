@@ -27,6 +27,8 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task-review" && args[1]) return parseTaskReview(args, rootDir, json);
   if (args[0] === "task" && args[1] === "complete" && args[2]) return parseTaskComplete(["task-complete", ...args.slice(2)], rootDir, json);
   if (args[0] === "task-complete" && args[1]) return parseTaskComplete(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "tree" && args[2]) return ok(rootDir, json, { kind: "task-tree", taskId: args[2] });
+  if (args[0] === "task" && args[1] === "relate" && args[2] && args[3] && args[4]) return parseTaskRelate(args, rootDir, json);
   if (args[0] === "task" && args[1] === "list") return parseTaskList(args, rootDir, json);
   return null;
 }
@@ -162,6 +164,24 @@ function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: b
   });
 }
 
+function parseTaskRelate(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
+  if (args[3] !== "depends-on") {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskRelation, "Only task->task depends-on relations are writable through task relate.") };
+  }
+  const rationale = readOption(args, "--rationale") ?? readOption(args, "--reason");
+  if (!rationale) {
+    return { ok: false, error: cliError(CliErrorCode.MissingReason, "task relate requires --rationale <text>.") };
+  }
+  return ok(rootDir, json, {
+    kind: "task-relate",
+    sourceTaskId: args[2],
+    relationType: "depends-on",
+    targetTaskId: args[4],
+    rationale,
+    dryRun: args.includes("--dry-run")
+  });
+}
+
 function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const lessonValue = readOptionalFlagValue(args, "--lesson");
   if (lessonValue && lessonValue !== "present" && lessonValue !== "missing") {
@@ -218,4 +238,4 @@ function ok(rootDir: string, json: boolean, action: ParsedCommand["action"]): Pa
   };
 }
 
-const optionValueFlags = new Set(["--reason", "--confirm", "--deleted-by"]);
+const optionValueFlags = new Set(["--reason", "--confirm", "--deleted-by", "--rationale"]);

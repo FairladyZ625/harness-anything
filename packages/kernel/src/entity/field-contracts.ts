@@ -51,6 +51,7 @@ export const taskFieldContracts = {
   schema: immutable("schema discriminator is fixed by the entity kind", show("task.schema")),
   task_id: immutable("task identity is create-only; use supersede for replacement", projection("taskId", true), show("task.task_id")),
   title: immutable("task title has no amend surface yet; changing identity-level text requires supersede", projection("title", true), show("task.title")),
+  parent: immutable("parent is a create-time task hierarchy binding; create a new child or supersede to change hierarchy", projection("parentTaskId", true), show("task.parent")),
   lifecycle: lifecycle("task lifecycle commands own lifecycle binding", [lifecycleWrite("status-set/reopen/archive/delete/supersede")], projection("canonicalStatus/rawStatus/lifecycleEngine", true), show("task.lifecycle")),
   packageDisposition: lifecycle("task archive/delete/reopen commands own package disposition", [lifecycleWrite("archive/delete/reopen/supersede")], projection("packageDisposition", true), show("task.packageDisposition")),
   vertical: immutable("vertical routing is create-time task metadata", projection("vertical", true), show("task.vertical")),

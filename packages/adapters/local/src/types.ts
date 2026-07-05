@@ -32,6 +32,7 @@ export interface CreateLocalTaskInput {
   readonly title: string;
   readonly allowManualId?: boolean;
   readonly slug?: string;
+  readonly parent?: TaskId;
   readonly vertical?: string;
   readonly preset?: string;
   readonly createdBy?: TaskCreatedBy;
@@ -50,6 +51,10 @@ export interface AppendProgressInput {
 export interface StageTaskDocumentInput {
   readonly taskId: TaskId;
   readonly path: string;
+}
+
+export interface WriteTaskDocumentInput extends StageTaskDocumentInput {
+  readonly body: string;
 }
 
 export interface TaskReasonInput {
@@ -100,6 +105,7 @@ export interface LocalLifecycleEngine {
   readonly setStatus: (input: SetLocalStatusInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
   readonly appendProgress: (input: AppendProgressInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
   readonly stageDocument: (input: StageTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
+  readonly replaceTaskDocument: (input: WriteTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
   readonly archiveTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
   readonly supersedeTask: (input: SupersedeTaskInput) => Effect.Effect<LocalSupersedeResult, EngineError | WriteError>;
   readonly deleteTask: (input: DeleteTaskInput) => Effect.Effect<LocalDeleteResult, EngineError | WriteError>;
@@ -109,6 +115,7 @@ export interface LocalLifecycleEngine {
 export interface LocalTaskIndex {
   readonly taskId: TaskId;
   readonly title: string;
+  readonly parent?: TaskId;
   readonly engine: string;
   readonly status: DomainStatus;
   readonly ref: string | null;

@@ -22,6 +22,8 @@ export const commandReceiptContractsByKind = {
   "task-reopen": { data: ["taskId", "status", "report"], paths: ["primary"] },
   "task-review": { data: ["taskId", "reviewContract", "completionGate", "report"], paths: [] },
   "task-complete": { data: ["taskId", "status", "reviewContract", "completionGate", "report"], paths: [] },
+  "task-tree": { data: ["taskId", "tasks", "report"], paths: [] },
+  "task-relate": { data: ["taskId", "report"], paths: ["primary"] },
   "decision-list": { data: ["rows", "report"], paths: [] },
   "decision-show": { data: ["decisionId", "report"], paths: ["primary"] },
   "decision-propose": { data: ["decisionId", "decisionState", "report"], paths: ["primary"] },

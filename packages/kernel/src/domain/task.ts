@@ -15,6 +15,7 @@ export interface Task {
   readonly id: TaskId;
   readonly title: string;
   readonly lifecycle: LifecycleBinding;
+  readonly parent?: TaskId;
 }
 
 export function createTaskIdentity(id: TaskId, title: string): TaskIdentity {

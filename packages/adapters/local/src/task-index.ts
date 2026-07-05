@@ -25,9 +25,40 @@ export function validateGeneratedTaskId(taskId: TaskId): EngineError | undefined
     : { _tag: "GeneratedTaskIdRequired", taskId };
 }
 
+export function assertValidParentBinding(
+  rootInput: HarnessLayoutInput,
+  childTaskId: TaskId,
+  parentTaskId: TaskId
+): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
+  validateTaskId(childTaskId);
+  validateTaskId(parentTaskId);
+  if (childTaskId === parentTaskId) {
+    return { ok: false, reason: `parent cycle detected: ${childTaskId} -> ${parentTaskId}` };
+  }
+  if (!existsIndex(rootInput, parentTaskId)) {
+    return { ok: false, reason: `parent task not found: ${parentTaskId}` };
+  }
+
+  const chain = [childTaskId, parentTaskId];
+  const visited = new Set<string>([childTaskId]);
+  let current = parentTaskId;
+  while (current) {
+    if (visited.has(current)) {
+      return { ok: false, reason: `parent cycle detected: ${chain.concat(current).join(" -> ")}` };
+    }
+    visited.add(current);
+    const parent = readIndex(rootInput, current).parent;
+    if (!parent) return { ok: true };
+    chain.push(parent);
+    current = parent;
+  }
+  return { ok: true };
+}
+
 export function makeIndex(input: {
   readonly taskId: TaskId;
   readonly title: string;
+  readonly parent?: TaskId;
   readonly status: DomainStatus;
   readonly bindingCreatedAt: string;
   readonly vertical: string;
@@ -44,6 +75,7 @@ export function makeIndex(input: {
   return {
     taskId: input.taskId,
     title: input.title,
+    ...(input.parent ? { parent: input.parent } : {}),
     engine: "local",
     status: input.status,
     ref: null,
@@ -66,6 +98,7 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
     "schema: task-package/v2",
     `task_id: ${index.taskId}`,
     `title: ${index.title}`,
+    ...(index.parent ? [`parent: ${index.parent}`] : []),
     "lifecycle:",
     "  bindingSchema: lifecycle-binding/v1",
     `  engine: ${index.engine}`,
@@ -120,6 +153,7 @@ export function readIndex(rootInput: HarnessLayoutInput, taskId: TaskId): LocalT
   return {
     taskId: readScalar(frontmatter, "task_id", { required: true }),
     title: readScalar(frontmatter, "title", { required: true }),
+    ...readParent(frontmatter),
     engine: readScalar(frontmatter, "  engine", { required: true }),
     status,
     ref: nullIfEmpty(readScalar(frontmatter, "  ref", { required: true })),
@@ -138,6 +172,15 @@ export function readIndex(rootInput: HarnessLayoutInput, taskId: TaskId): LocalT
 
 export function indexPath(rootInput: HarnessLayoutInput, taskId: TaskId): string {
   return taskDocumentPath(rootInput, taskId, "INDEX.md");
+}
+
+function existsIndex(rootInput: HarnessLayoutInput, taskId: TaskId): boolean {
+  try {
+    return Boolean(readIndex(rootInput, taskId));
+  } catch (error) {
+    if (isNodeErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
 }
 
 export function taskDocumentPath(rootInput: HarnessLayoutInput, taskId: TaskId, documentPath: string): string {
@@ -164,6 +207,11 @@ function readPackageDisposition(frontmatter: string): LocalTaskIndex["packageDis
 function readProfile(frontmatter: string): { readonly profile?: string } {
   const profile = frontmatter.match(/^profile:[ \t]*(.*)$/mu)?.[1]?.trim() ?? "";
   return profile ? { profile } : {};
+}
+
+function readParent(frontmatter: string): { readonly parent?: TaskId } {
+  const parent = readScalar(frontmatter, "parent");
+  return parent ? { parent } : {};
 }
 
 function humanFallbackProvenance(boundAt: string): ProvenancePayload {

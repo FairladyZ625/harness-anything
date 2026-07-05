@@ -79,6 +79,7 @@ export function taskEntryToRow(rootInput: HarnessLayoutInput, entry: TaskSourceE
     schema: "sqlite-task-row/v1",
     taskId: readScalar(entry.frontmatter, "task_id") || entry.taskId,
     title: readScalar(entry.frontmatter, "title") || entry.taskId,
+    ...readParent(entry.frontmatter),
     canonicalStatus,
     coordinationStatus: coordinationStatus(canonicalStatus),
     rawStatus,
@@ -108,6 +109,11 @@ function readCreatedBy(frontmatter: string): { readonly createdBy?: { readonly n
   const name = readNestedScalar(block, "name");
   const email = readNestedScalar(block, "email");
   return name && email ? { createdBy: { name, email } } : {};
+}
+
+function readParent(frontmatter: string): { readonly parentTaskId?: string } {
+  const parentTaskId = readScalar(frontmatter, "parent");
+  return parentTaskId ? { parentTaskId } : {};
 }
 
 function readExtensionMetadata(frontmatter: string): { readonly vertical?: string; readonly preset?: string; readonly profile?: string } {

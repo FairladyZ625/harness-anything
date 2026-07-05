@@ -4,6 +4,7 @@ import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCo
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
+import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-review" | "task-complete" }>;
 
@@ -21,7 +22,11 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     );
   }
   return orchestrator.completeTask({ taskId: action.taskId, reviewerId: action.reviewerId, ciGate: action.ciGate }).pipe(
-    Effect.map((result): CliResult => taskLifecycleResultToCliResult("task-complete", result))
+    Effect.map((result): CliResult => {
+      const output = taskLifecycleResultToCliResult("task-complete", result);
+      if (!output.ok) return output;
+      return { ...output, warnings: taskTreeSoftGateWarnings(context, action.taskId) };
+    })
   );
 };
 

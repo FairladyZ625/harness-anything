@@ -55,6 +55,7 @@ export interface CommandRunnerEngine {
   readonly createTask: (input: {
     readonly taskId: string;
     readonly title: string;
+    readonly parent?: string;
     readonly slug: string;
     readonly allowManualId: boolean;
   }) => EngineEffect<{ readonly taskId: string; readonly status: DomainStatus }>;
@@ -69,6 +70,11 @@ export interface CommandRunnerEngine {
   readonly stageDocument: (input: {
     readonly taskId: string;
     readonly path: string;
+  }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
+  readonly replaceTaskDocument: (input: {
+    readonly taskId: string;
+    readonly path: string;
+    readonly body: string;
   }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
   readonly archiveTask: (input: {
     readonly taskId: string;

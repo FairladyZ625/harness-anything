@@ -1,18 +1,19 @@
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy } from "../../../../application/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/domain/index.ts";
-import { explainStatusTransition, isTerminalStatus } from "../../../../kernel/src/domain/index.ts";
+import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { lifecycleReason } from "./task-lifecycle-shared.ts";
+import { runTaskRelate } from "./task-relations.ts";
 import { runTaskSupersede } from "./task-supersede.ts";
 
 export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
 type TaskLifecycleAction = Extract<
   Parameters<CommandRunner>[1]["action"],
-  { readonly kind: "status-set" | "progress-append" | "task-archive" | "task-supersede" | "task-delete" | "task-reopen" }
+  { readonly kind: "status-set" | "progress-append" | "task-archive" | "task-supersede" | "task-delete" | "task-reopen" | "task-relate" }
 >;
 
 export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
@@ -45,6 +46,8 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
         status: result.status,
         path: "INDEX.md"
       })));
+    case "task-relate":
+      return runTaskRelate(context, action);
   }
 };
 
@@ -124,9 +127,28 @@ function runStatusSet(
       status: result.status,
       path: audit.path,
       forced: true,
-      forceAudit: { path: audit.path, marker: FORCE_STATUS_AUDIT_MARKER }
+      forceAudit: { path: audit.path, marker: FORCE_STATUS_AUDIT_MARKER },
+      warnings: taskTreeSoftGateWarnings(context, taskId)
     } satisfies CliResult;
   });
+}
+
+export function taskTreeSoftGateWarnings(
+  context: Pick<CommandRunnerContext, "rootDir" | "layoutOverrides">,
+  taskId: string
+): ReadonlyArray<{ readonly severity: "warning"; readonly code: "open_child_tasks"; readonly message: string; readonly taskIds: ReadonlyArray<string> }> | undefined {
+  const children = queryTaskSubtree({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides, rootTaskId: taskId }).rows
+    .filter((row) => row.taskId !== taskId)
+    .filter((row) => row.coordinationStatus !== "terminal")
+    .map((row) => row.taskId)
+    .sort();
+  if (children.length === 0) return undefined;
+  return [{
+    severity: "warning",
+    code: "open_child_tasks",
+    message: `WARNING: closing ${taskId} with open child tasks: ${children.join(", ")}`,
+    taskIds: children
+  }];
 }
 
 function runTaskDelete(

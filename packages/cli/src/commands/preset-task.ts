@@ -3,7 +3,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts";
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
-import { indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
+import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
 import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/domain/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
@@ -104,6 +104,10 @@ export function runNewTaskWithPreset(
     if (existsSync(indexPath(rootInput, taskId))) {
       return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId } satisfies EngineError);
     }
+    if (action.parent) {
+      const parentValidation = assertValidParentBinding(rootInput, taskId, action.parent);
+      if (!parentValidation.ok) return yield* Effect.fail({ _tag: "WriteRejected", taskId, reason: parentValidation.reason } satisfies WriteError);
+    }
 
     const createdAt = new Date().toISOString();
     const docmap = resolveTaskReadSet(rootInput, action.moduleKey);
@@ -161,6 +165,7 @@ export function runNewTaskWithPreset(
     const index = makeIndex({
       taskId,
       title: action.title,
+      parent: action.parent,
       status: "planned",
       bindingCreatedAt: createdAt,
       vertical,

@@ -60,9 +60,11 @@ const expectedConflictPreflightKinds = [
   "task-complete",
   "task-delete",
   "task-list",
+  "task-relate",
   "task-reopen",
   "task-review",
-  "task-supersede"
+  "task-supersede",
+  "task-tree"
 ].sort();
 
 const expectedAutoRuntimeEventKinds = [
@@ -90,6 +92,7 @@ const expectedAutoRuntimeEventKinds = [
   "task-archive",
   "task-complete",
   "task-delete",
+  "task-relate",
   "task-reopen",
   "task-review",
   "task-supersede"

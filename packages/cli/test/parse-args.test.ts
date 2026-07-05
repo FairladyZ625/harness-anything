@@ -27,9 +27,9 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
   {
     name: "new-task preset task",
-    argv: ["task", "create", "--title", "Parser Task", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
+    argv: ["task", "create", "--title", "Parser Task", "--parent", "task_parent", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
     kind: "new-task",
-    fields: { title: "Parser Task", slug: "parser-task", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false, longRunning: true, locale: "en-US" }
+    fields: { title: "Parser Task", parent: "task_parent", slug: "parser-task", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false, longRunning: true, locale: "en-US" }
   },
   {
     name: "new-task register module dry run",
@@ -58,6 +58,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task reopen", argv: ["task", "reopen", "task_1", "--reason", "followup"], kind: "task-reopen", fields: { taskId: "task_1", reason: "followup" } },
   { name: "task review", argv: ["task", "review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
   { name: "task complete", argv: ["task", "complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
+  { name: "task tree", argv: ["task", "tree", "task_1"], kind: "task-tree", fields: { taskId: "task_1" } },
+  { name: "task relate depends-on", argv: ["task", "relate", "task_1", "depends-on", "task_2", "--rationale", "needs output"], kind: "task-relate", fields: { sourceTaskId: "task_1", relationType: "depends-on", targetTaskId: "task_2", rationale: "needs output", dryRun: false } },
   {
     name: "decision propose",
     argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--dry-run"],

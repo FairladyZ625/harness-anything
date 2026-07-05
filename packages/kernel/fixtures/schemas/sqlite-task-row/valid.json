@@ -2,6 +2,7 @@
   "schema": "sqlite-task-row/v1",
   "taskId": "2026-06-11-kr-01-harness-infrastructure",
   "title": "Harness infrastructure baseline",
+  "parentTaskId": "2026-06-11-parent-task",
   "canonicalStatus": "active",
   "coordinationStatus": "open",
   "rawStatus": "active",

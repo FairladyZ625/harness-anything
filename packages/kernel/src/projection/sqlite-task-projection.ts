@@ -5,7 +5,7 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
-import { queryDecisionProjectionRows, queryTaskProjectionRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
+import { queryDecisionProjectionRows, queryTaskChildrenRows, queryTaskProjectionRows, queryTaskSubtreeRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRows } from "./sqlite-decision-source.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
@@ -140,6 +140,44 @@ export function queryTaskProjection(options: TaskProjectionOptions & { readonly 
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
     return {
       rows: queryTaskProjectionRows(projectionPath, options.filters),
+      warnings: [...projection.warnings, ...rebuilt.warnings]
+    };
+  }
+}
+
+export function queryTaskChildren(options: TaskProjectionOptions & { readonly parentTaskId: string }): ProjectionReadResult {
+  const rootDir = path.resolve(options.rootDir);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  try {
+    return {
+      rows: queryTaskChildrenRows(projectionPath, options.parentTaskId),
+      warnings: projection.warnings
+    };
+  } catch {
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    return {
+      rows: queryTaskChildrenRows(projectionPath, options.parentTaskId),
+      warnings: [...projection.warnings, ...rebuilt.warnings]
+    };
+  }
+}
+
+export function queryTaskSubtree(options: TaskProjectionOptions & { readonly rootTaskId: string }): ProjectionReadResult {
+  const rootDir = path.resolve(options.rootDir);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  try {
+    return {
+      rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
+      warnings: projection.warnings
+    };
+  } catch {
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    return {
+      rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }

@@ -140,7 +140,7 @@ export interface ParsedCommand {
   readonly json: boolean;
   readonly action:
     | { readonly kind: "init"; readonly addNpmScripts: boolean; readonly projectName?: string }
-    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }
+    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly parent?: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: EvidenceAppendInput }
     | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }
@@ -149,6 +149,8 @@ export interface ParsedCommand {
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
+    | { readonly kind: "task-tree"; readonly taskId: string }
+    | { readonly kind: "task-relate"; readonly sourceTaskId: string; readonly relationType: "depends-on"; readonly targetTaskId: string; readonly rationale: string; readonly dryRun: boolean }
     | { readonly kind: "decision-list"; readonly search?: string; readonly legacyId?: string; readonly legacyRange?: string; readonly state?: string; readonly moduleKey?: string; readonly productLine?: string; readonly compact?: boolean }
     | { readonly kind: "decision-show"; readonly selector: string }
     | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: string; readonly rejected: string; readonly whyNot: string; readonly claim?: string; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly proposedBy?: string; readonly arbiter?: string; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly evidenceRelations: ReadonlyArray<DecisionEvidenceRelationInput>; readonly body?: string; readonly dryRun: boolean }

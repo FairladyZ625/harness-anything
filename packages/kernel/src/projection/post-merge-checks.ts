@@ -22,6 +22,7 @@ export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray
   warnings.push(...findDecisionWatermarkIssues(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries));
   warnings.push(...findRelationRecordIssues(rootInput));
+  warnings.push(...findParentCycles(rootDir, source.entries));
   warnings.push(...findRelationCycles(rootInput));
   return warnings;
 }
@@ -284,6 +285,47 @@ function findRelationCycles(rootInput: HarnessLayoutInput): ReadonlyArray<Projec
     `Entity relation cycle detected: ${cycle.join(" -> ")}.`,
     "Break the cyclic typed relation records before merging authored planning docs."
   )];
+}
+
+function findParentCycles(rootDir: string, entries: ReadonlyArray<TaskSourceEntry>): ReadonlyArray<ProjectionWarning> {
+  const parents = new Map<string, string>();
+  const sources = new Map<string, string>();
+  for (const entry of entries) {
+    const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
+    const parent = readScalar(entry.frontmatter, "parent");
+    sources.set(taskId, sourcePath(rootDir, entry.indexPath));
+    if (parent) parents.set(taskId, parent);
+  }
+
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const stack: string[] = [];
+
+  function visit(taskId: string): ReadonlyArray<string> | null {
+    if (visiting.has(taskId)) return stack.slice(stack.indexOf(taskId)).concat(taskId);
+    if (visited.has(taskId)) return null;
+    visiting.add(taskId);
+    stack.push(taskId);
+    const parent = parents.get(taskId);
+    const cycle = parent ? visit(parent) : null;
+    stack.pop();
+    visiting.delete(taskId);
+    visited.add(taskId);
+    return cycle;
+  }
+
+  for (const taskId of parents.keys()) {
+    const cycle = visit(taskId);
+    if (!cycle) continue;
+    const source = sources.get(cycle[0] ?? "") ?? "harness/tasks";
+    return [hardFail(
+      "source-package",
+      "relation_cycle_detected",
+      `Task parent cycle detected: ${cycle.join(" -> ")} (${source}).`,
+      "Break the cyclic parent fields before merging authored task packages."
+    )];
+  }
+  return [];
 }
 
 function findRelationRecordIssues(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {

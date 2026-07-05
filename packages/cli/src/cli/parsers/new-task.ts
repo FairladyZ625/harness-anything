@@ -39,6 +39,7 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
   }
   const title = explicitTitle ?? "Untitled task";
   const explicitSlug = readOption(normalizedArgs, "--slug");
+  const parent = readOption(normalizedArgs, "--parent");
   const vertical = readRequiredValueOption(normalizedArgs, "--vertical");
   if (!vertical.ok) return { ok: false, error: vertical.error };
   const preset = readRequiredValueOption(normalizedArgs, "--preset");
@@ -73,6 +74,7 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
         kind: "new-task",
         taskId: manualId,
         title,
+        parent,
         slug: explicitSlug ?? slugifyTaskTitle(title),
         allowManualId: migrationMode,
         fromLegacyId,

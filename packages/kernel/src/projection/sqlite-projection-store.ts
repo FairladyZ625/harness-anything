@@ -38,6 +38,7 @@ export function writeProjectionDatabase(
       CREATE TABLE task_projection (
         task_id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
+        parent_task_id TEXT,
         canonical_status TEXT NOT NULL,
         coordination_status TEXT NOT NULL,
         raw_status TEXT NOT NULL,
@@ -112,6 +113,7 @@ export function writeProjectionDatabase(
     for (const row of graphRows.coverageRows) yield* insertCoverageRow(sql, row);
     for (const row of graphRows.factAnchors) yield* insertFactAnchor(sql, row);
     yield* sql`CREATE INDEX task_projection_status ON task_projection (canonical_status, coordination_status)`;
+    yield* sql`CREATE INDEX task_projection_parent_task_id ON task_projection (parent_task_id)`;
     yield* sql`CREATE INDEX task_projection_module_key ON task_projection (module_key)`;
     yield* sql`CREATE INDEX decision_projection_legacy_number ON decision_projection (legacy_number)`;
     yield* sql`CREATE INDEX decision_projection_state ON decision_projection (state)`;
@@ -151,6 +153,34 @@ export function queryDecisionProjectionRows(projectionPath: string, filters: Dec
     const where = decisionWhereClause(filters);
     const records = yield* sql.unsafe<DecisionRecord>(`SELECT * FROM decision_projection ${where.sql} ORDER BY COALESCE(legacy_number, 1000000000), decision_id`, where.params);
     return records.map(recordToDecisionRow);
+  }));
+}
+
+export function queryTaskChildrenRows(projectionPath: string, parentTaskId: string): ReadonlyArray<TaskProjectionRow> {
+  return runSqlite(projectionPath, Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const records = yield* sql.unsafe<TaskRecord>("SELECT * FROM task_projection WHERE parent_task_id = ? ORDER BY task_id", [parentTaskId]);
+    return records.map(recordToTaskRow);
+  }));
+}
+
+export function queryTaskSubtreeRows(projectionPath: string, rootTaskId: string): ReadonlyArray<TaskProjectionRow> {
+  return runSqlite(projectionPath, Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const records = yield* sql.unsafe<TaskRecord>(`
+      WITH RECURSIVE subtree(task_id) AS (
+        SELECT task_id FROM task_projection WHERE task_id = ?
+        UNION
+        SELECT child.task_id
+        FROM task_projection child
+        JOIN subtree parent ON child.parent_task_id = parent.task_id
+      )
+      SELECT task_projection.*
+      FROM task_projection
+      JOIN subtree ON task_projection.task_id = subtree.task_id
+      ORDER BY task_projection.task_id
+    `, [rootTaskId]);
+    return records.map(recordToTaskRow);
   }));
 }
 
@@ -202,12 +232,12 @@ function insertMeta(sql: SqlClient.SqlClient, key: string, value: string): Effec
 function insertTaskRow(sql: SqlClient.SqlClient, row: TaskProjectionRow): Effect.Effect<unknown, unknown> {
   return sql`
     INSERT OR REPLACE INTO task_projection (
-      task_id, title, canonical_status, coordination_status, raw_status,
+      task_id, title, parent_task_id, canonical_status, coordination_status, raw_status,
       package_disposition, closeout_readiness, lifecycle_engine, freshness,
       updated_at, source, source_path, vertical, preset, profile, module_key,
       module_title, has_lesson_candidates, created_by_json
     ) VALUES (
-      ${row.taskId}, ${row.title}, ${row.canonicalStatus}, ${row.coordinationStatus}, ${row.rawStatus},
+      ${row.taskId}, ${row.title}, ${row.parentTaskId ?? null}, ${row.canonicalStatus}, ${row.coordinationStatus}, ${row.rawStatus},
       ${row.packageDisposition}, ${row.closeoutReadiness}, ${row.lifecycleEngine}, ${row.freshness},
       ${row.updatedAt}, ${row.source}, ${row.sourcePath}, ${row.vertical ?? null}, ${row.preset ?? null},
       ${row.profile ?? null}, ${row.moduleKey ?? null}, ${row.moduleTitle ?? null},
@@ -253,6 +283,7 @@ function insertFactAnchor(sql: SqlClient.SqlClient, row: FactAnchorRow): Effect.
 interface TaskRecord {
   readonly task_id: string;
   readonly title: string;
+  readonly parent_task_id: string | null;
   readonly canonical_status: string;
   readonly coordination_status: string;
   readonly raw_status: string;
@@ -292,6 +323,7 @@ function recordToTaskRow(record: TaskRecord): TaskProjectionRow {
     schema: "sqlite-task-row/v1",
     taskId: record.task_id,
     title: record.title,
+    ...(record.parent_task_id ? { parentTaskId: record.parent_task_id } : {}),
     canonicalStatus: record.canonical_status as TaskProjectionRow["canonicalStatus"],
     coordinationStatus: record.coordination_status as TaskProjectionRow["coordinationStatus"],
     rawStatus: record.raw_status,

@@ -39,6 +39,7 @@ export interface TaskProjectionRow {
   readonly schema: "sqlite-task-row/v1";
   readonly taskId: string;
   readonly title: string;
+  readonly parentTaskId?: string;
   readonly canonicalStatus: ProjectionCanonicalStatus;
   readonly coordinationStatus: CoordinationStatus;
   readonly rawStatus: string;

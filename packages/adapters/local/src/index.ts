@@ -11,7 +11,7 @@ import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
 import { resolveTaskCreatedBy } from "./created-by.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
-import { indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
+import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
 import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
 import type {
   AppendProgressInput,
@@ -27,7 +27,8 @@ import type {
   SetLocalStatusInput,
   StageTaskDocumentInput,
   SupersedeTaskInput,
-  TaskReasonInput
+  TaskReasonInput,
+  WriteTaskDocumentInput
 } from "./types.ts";
 
 export { collectGitDiffEvidence } from "./git-diff-evidence.ts";
@@ -47,7 +48,8 @@ export type {
   SetLocalStatusInput,
   StageTaskDocumentInput,
   SupersedeTaskInput,
-  TaskReasonInput
+  TaskReasonInput,
+  WriteTaskDocumentInput
 } from "./types.ts";
 
 export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions): WriteCoordinator {
@@ -69,6 +71,7 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
     setStatus: (input) => setStatus(runtimeContext, coordinator, input),
     appendProgress: (input) => appendProgress(runtimeContext, coordinator, input),
     stageDocument: (input) => stageDocument(runtimeContext, coordinator, input),
+    replaceTaskDocument: (input) => replaceTaskDocument(runtimeContext, coordinator, input),
     archiveTask: (input) => archiveTask(runtimeContext, coordinator, input),
     supersedeTask: (input) => supersedeTask(runtimeContext, coordinator, clock, input, options.bindCreateProvenance),
     deleteTask: (input) => deleteTask(runtimeContext, coordinator, input),
@@ -94,6 +97,10 @@ function createTask(
     if (existsSync(indexPath(rootInput, input.taskId))) {
       return yield* Effect.fail({ _tag: "TaskAlreadyExists", taskId: input.taskId } satisfies EngineError);
     }
+    if (input.parent) {
+      const parentValidation = assertValidParentBinding(rootInput, input.taskId, input.parent);
+      if (!parentValidation.ok) return yield* Effect.fail({ _tag: "WriteRejected", taskId: input.taskId, reason: parentValidation.reason } satisfies WriteError);
+    }
     const createdAt = clock().toISOString();
     const provenance = yield* bindProvenance(createdAt).pipe(
       Effect.mapError((error) => ({ _tag: "WriteRejected", taskId: input.taskId, reason: error.reason } satisfies WriteError))
@@ -101,6 +108,7 @@ function createTask(
     const index = makeIndex({
       taskId: input.taskId,
       title: input.title,
+      parent: input.parent,
       status: "planned",
       bindingCreatedAt: createdAt,
       vertical: input.vertical ?? "default",
@@ -178,6 +186,18 @@ function stageDocument(
   return Effect.gen(function* () {
     yield* readIndexEffect(rootInput, input.taskId);
     yield* stageTaskDocument(coordinator, stablePayloadHash, input.taskId, input.path);
+    return { taskId: input.taskId, path: input.path } satisfies LocalProgressResult;
+  });
+}
+
+function replaceTaskDocument(
+  rootInput: HarnessLayoutInput,
+  coordinator: WriteCoordinator,
+  input: WriteTaskDocumentInput
+): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+  return Effect.gen(function* () {
+    yield* readIndexEffect(rootInput, input.taskId);
+    yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, input.path, input.body, { kind: "doc_write" });
     return { taskId: input.taskId, path: input.path } satisfies LocalProgressResult;
   });
 }

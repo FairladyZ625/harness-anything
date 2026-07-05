@@ -24,6 +24,9 @@
     "title": {
       "type": "string"
     },
+    "parent": {
+      "type": "string"
+    },
     "lifecycle": {
       "type": "object",
       "required": [
