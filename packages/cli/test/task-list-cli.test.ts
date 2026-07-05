@@ -14,6 +14,9 @@ test("CLI task list filters projection rows without treating generated cache as 
       taskId: "task-billing",
       preset: "module",
       profile: "baseline",
+      workKind: "feat",
+      riskTier: "high",
+      urgency: "medium",
       moduleKey: "billing",
       moduleTitle: "Billing",
       lessonCandidates: true
@@ -34,7 +37,10 @@ test("CLI task list filters projection rows without treating generated cache as 
     });
     writeIndex(rootDir, "task-review", "Review Queue", "in_review", {
       taskId: "task-review",
-      preset: "standard-task"
+      preset: "standard-task",
+      workKind: "fix",
+      riskTier: "medium",
+      urgency: "high"
     });
     rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
 
@@ -52,6 +58,15 @@ test("CLI task list filters projection rows without treating generated cache as 
 
     const reviewQueue = runJson(rootDir, ["task", "list", "--queue", "review"]);
     assert.deepEqual(reviewQueue.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-review"]);
+
+    const metadataFiltered = runJson(rootDir, ["task", "list", "--kind", "feat", "--risk-tier", "high", "--urgency", "medium"]);
+    assert.deepEqual(metadataFiltered.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing"]);
+    assert.equal(metadataFiltered.tasks[0].workKind, "feat");
+    assert.equal(metadataFiltered.tasks[0].riskTier, "high");
+    assert.equal(metadataFiltered.tasks[0].urgency, "medium");
+
+    const noMetadataMatch = runJson(rootDir, ["task", "list", "--kind", "docs"]);
+    assert.deepEqual(noMetadataMatch.tasks, []);
 
     const withArchived = runJson(rootDir, ["task", "list", "--include-archived", "--preset", "standard-task"]);
     assert.deepEqual(withArchived.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-deleted", "task-docs", "task-missing", "task-review"]);
@@ -72,6 +87,9 @@ function writeIndex(
     readonly vertical?: string;
     readonly preset?: string;
     readonly profile?: string;
+    readonly workKind?: string;
+    readonly riskTier?: string;
+    readonly urgency?: string;
     readonly moduleKey?: string;
     readonly moduleTitle?: string;
     readonly lessonCandidates?: boolean;
@@ -94,6 +112,9 @@ function writeIndex(
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
     `packageDisposition: ${options.packageDisposition ?? "active"}`,
+    ...(options.workKind ? [`workKind: ${options.workKind}`] : []),
+    ...(options.riskTier ? [`riskTier: ${options.riskTier}`] : []),
+    ...(options.urgency ? [`urgency: ${options.urgency}`] : []),
     `vertical: ${options.vertical ?? "software/coding"}`,
     `preset: ${options.preset ?? "standard-task"}`,
     ...(options.profile ? [`profile: ${options.profile}`] : []),

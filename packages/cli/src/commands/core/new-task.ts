@@ -25,6 +25,9 @@ export const runNewTaskCommand: CommandRunner = (context, command) => {
     taskId,
     title: action.title,
     parent: action.parent,
+    workKind: action.workKind,
+    riskTier: action.riskTier,
+    urgency: action.urgency,
     slug: action.slug,
     allowManualId: action.allowManualId
   }).pipe(Effect.map((result): CliResult => ({

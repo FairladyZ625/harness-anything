@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { DomainStatus, EngineError, PackageDisposition, TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { DomainStatus, EngineError, PackageDisposition, PriorityTier, TaskId, TaskWorkKind, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import type { ProvenancePayload, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import type { TaskCreatedBy } from "./created-by.ts";
@@ -33,6 +33,9 @@ export interface CreateLocalTaskInput {
   readonly allowManualId?: boolean;
   readonly slug?: string;
   readonly parent?: TaskId;
+  readonly workKind?: TaskWorkKind;
+  readonly riskTier?: PriorityTier;
+  readonly urgency?: PriorityTier;
   readonly vertical?: string;
   readonly preset?: string;
   readonly createdBy?: TaskCreatedBy;
@@ -124,6 +127,9 @@ export interface LocalTaskIndex {
   readonly bindingCreatedAt: string;
   readonly bindingFingerprint: string;
   readonly packageDisposition: "active" | "archived" | "tombstoned";
+  readonly workKind?: TaskWorkKind;
+  readonly riskTier?: PriorityTier;
+  readonly urgency?: PriorityTier;
   readonly vertical: string;
   readonly preset: string;
   readonly provenance: ReadonlyArray<ProvenancePayload>;

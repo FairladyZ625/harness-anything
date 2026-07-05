@@ -49,6 +49,9 @@ export function writeProjectionDatabase(
         updated_at TEXT NOT NULL,
         source TEXT NOT NULL,
         source_path TEXT NOT NULL,
+        work_kind TEXT,
+        risk_tier TEXT,
+        urgency TEXT,
         vertical TEXT,
         preset TEXT,
         profile TEXT,
@@ -232,12 +235,12 @@ function insertMeta(sql: SqlClient.SqlClient, key: string, value: string): Effec
 function insertTaskRow(sql: SqlClient.SqlClient, row: TaskProjectionRow): Effect.Effect<unknown, unknown> {
   return sql`
     INSERT OR REPLACE INTO task_projection (
-      task_id, title, parent_task_id, canonical_status, coordination_status, raw_status,
+      task_id, title, parent_task_id, work_kind, risk_tier, urgency, canonical_status, coordination_status, raw_status,
       package_disposition, closeout_readiness, lifecycle_engine, freshness,
       updated_at, source, source_path, vertical, preset, profile, module_key,
       module_title, has_lesson_candidates, created_by_json
     ) VALUES (
-      ${row.taskId}, ${row.title}, ${row.parentTaskId ?? null}, ${row.canonicalStatus}, ${row.coordinationStatus}, ${row.rawStatus},
+      ${row.taskId}, ${row.title}, ${row.parentTaskId ?? null}, ${row.workKind ?? null}, ${row.riskTier ?? null}, ${row.urgency ?? null}, ${row.canonicalStatus}, ${row.coordinationStatus}, ${row.rawStatus},
       ${row.packageDisposition}, ${row.closeoutReadiness}, ${row.lifecycleEngine}, ${row.freshness},
       ${row.updatedAt}, ${row.source}, ${row.sourcePath}, ${row.vertical ?? null}, ${row.preset ?? null},
       ${row.profile ?? null}, ${row.moduleKey ?? null}, ${row.moduleTitle ?? null},
@@ -284,6 +287,9 @@ interface TaskRecord {
   readonly task_id: string;
   readonly title: string;
   readonly parent_task_id: string | null;
+  readonly work_kind: string | null;
+  readonly risk_tier: string | null;
+  readonly urgency: string | null;
   readonly canonical_status: string;
   readonly coordination_status: string;
   readonly raw_status: string;
@@ -324,6 +330,9 @@ function recordToTaskRow(record: TaskRecord): TaskProjectionRow {
     taskId: record.task_id,
     title: record.title,
     ...(record.parent_task_id ? { parentTaskId: record.parent_task_id } : {}),
+    ...(record.work_kind ? { workKind: record.work_kind as TaskProjectionRow["workKind"] } : {}),
+    ...(record.risk_tier ? { riskTier: record.risk_tier as TaskProjectionRow["riskTier"] } : {}),
+    ...(record.urgency ? { urgency: record.urgency as TaskProjectionRow["urgency"] } : {}),
     canonicalStatus: record.canonical_status as TaskProjectionRow["canonicalStatus"],
     coordinationStatus: record.coordination_status as TaskProjectionRow["coordinationStatus"],
     rawStatus: record.raw_status,
@@ -369,6 +378,9 @@ function taskWhereClause(filters: TaskProjectionQueryFilters): { readonly sql: s
   if (filters.moduleKey) addClause(clauses, params, "module_key = ?", filters.moduleKey);
   if (filters.queue) addTaskQueueFilter(clauses, params, filters.queue);
   if (filters.preset) addClause(clauses, params, "preset = ?", filters.preset);
+  if (filters.workKind) addClause(clauses, params, "work_kind = ?", filters.workKind);
+  if (filters.riskTier) addClause(clauses, params, "risk_tier = ?", filters.riskTier);
+  if (filters.urgency) addClause(clauses, params, "urgency = ?", filters.urgency);
   if (filters.review) addTaskReviewFilter(clauses, params, filters.review);
   if (filters.lesson) clauses.push(filters.lesson === "present" ? "has_lesson_candidates = 1" : "has_lesson_candidates = 0");
   if (filters.missingMaterials) clauses.push("closeout_readiness = 'missing'");

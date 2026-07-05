@@ -37,13 +37,13 @@ export const runDecisionCommand: CommandRunner = (context, command) => {
     case "decision-amend":
       return runAmend(context.layoutInput, service, action);
     case "decision-relate":
-      return runDecisionRelate(context.layoutInput, service, action);
+      return runDecisionRelate(context, service, action);
     case "decision-reckon":
       return runReckon(context.layoutInput, context.factWriteService, action);
     case "decision-relation-retire":
       return runDecisionRelationRetire(context.layoutInput, service, action);
     case "decision-relation-replace":
-      return runDecisionRelationReplace(context.layoutInput, service, action);
+      return runDecisionRelationReplace(context, service, action);
   }
 };
 

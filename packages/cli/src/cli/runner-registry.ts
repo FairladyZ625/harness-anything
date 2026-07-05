@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, RuntimeEventLedgerService } from "../../../application/src/index.ts";
 import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
-import type { ArtifactStoreError, DomainStatus, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
@@ -53,10 +53,13 @@ type EngineEffect<A> = Effect.Effect<A, EngineError | WriteError>;
 
 export interface CommandRunnerEngine {
   readonly createTask: (input: {
-    readonly taskId: string;
-    readonly title: string;
-    readonly parent?: string;
-    readonly slug: string;
+	    readonly taskId: string;
+	    readonly title: string;
+	    readonly parent?: string;
+	    readonly workKind?: TaskWorkKind;
+	    readonly riskTier?: PriorityTier;
+	    readonly urgency?: PriorityTier;
+	    readonly slug: string;
     readonly allowManualId: boolean;
   }) => EngineEffect<{ readonly taskId: string; readonly status: DomainStatus }>;
   readonly setStatus: (input: {

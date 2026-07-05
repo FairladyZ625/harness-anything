@@ -2,12 +2,14 @@ import type {
   DomainStatus,
   FactMemoryClass,
   FactMemoryTag,
+  PriorityTier,
   RelationType,
   RuntimeEventApprovalDecision,
   RuntimeEventInterruptAction,
   RuntimeEventKind,
   RuntimeEventRuntime,
-  RuntimeEventResultStatus
+  RuntimeEventResultStatus,
+  TaskWorkKind
 } from "../../../kernel/src/domain/index.ts";
 import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/entity/field-contracts.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
@@ -31,6 +33,9 @@ export interface TaskListFilters {
   readonly moduleKey?: string;
   readonly queue?: string;
   readonly preset?: string;
+  readonly workKind?: TaskWorkKind;
+  readonly riskTier?: PriorityTier;
+  readonly urgency?: PriorityTier;
   readonly review?: string;
   readonly lesson?: TaskListLessonFilter;
   readonly missingMaterials: boolean;
@@ -146,7 +151,7 @@ export interface ParsedCommand {
   readonly json: boolean;
   readonly action:
     | { readonly kind: "init"; readonly addNpmScripts: boolean; readonly projectName?: string }
-    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly parent?: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }
+    | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly parent?: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly workKind?: TaskWorkKind; readonly riskTier?: PriorityTier; readonly urgency?: PriorityTier; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: EvidenceAppendInput }
     | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }

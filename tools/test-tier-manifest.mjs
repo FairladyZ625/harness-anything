@@ -86,6 +86,7 @@ export const testTierManifest = {
     "packages/cli/test/conflict-preflight-cli.test.ts",
     "packages/cli/test/decision-cli.test.ts",
     "packages/cli/test/decision-coverage-cli.test.ts",
+    "packages/cli/test/decision-task-metadata-cli.test.ts",
     "packages/cli/test/docmap-cli.test.ts",
     "packages/cli/test/distill-cli.test.ts",
     "packages/cli/test/doctor-cli.test.ts",

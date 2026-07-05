@@ -11,6 +11,7 @@ import {
 import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { nextDecisionAnchorId } from "./decision-anchor-id.ts";
 import { decisionFailure, decisionResult, parseActor } from "./decision-shared.ts";
 
 type ProposeAction = Extract<ParsedCommand["action"], { readonly kind: "decision-propose" }>;
@@ -67,7 +68,7 @@ function proposedClaims(action: ProposeAction): DecisionCreateInput["claims"] {
   const inputs = action.claims.length > 0 ? action.claims : [{ text: action.claim ?? action.chosen, ...(action.claimLoadBearing ? {} : { load_bearing: false }) }];
   const used = new Set<string>();
   return inputs.map((claim, index) => {
-    const id = claim.id && !used.has(claim.id) ? claim.id : nextAnchorId("C", [...used], index + 1);
+    const id = claim.id && !used.has(claim.id) ? claim.id : nextDecisionAnchorId("C", [...used], index + 1);
     used.add(id);
     return {
       id,
@@ -75,14 +76,6 @@ function proposedClaims(action: ProposeAction): DecisionCreateInput["claims"] {
       ...(claim.load_bearing === false ? { load_bearing: false } : {})
     };
   });
-}
-
-function nextAnchorId(prefix: string, existingIds: ReadonlyArray<string>, minimum = 1): string {
-  const max = existingIds.reduce((current, id) => {
-    const match = new RegExp(`^${prefix}(\\d+)$`, "u").exec(id);
-    return match ? Math.max(current, Number(match[1])) : current;
-  }, minimum - 1);
-  return `${prefix}${max + 1}`;
 }
 
 function decisionEvidenceRelations(

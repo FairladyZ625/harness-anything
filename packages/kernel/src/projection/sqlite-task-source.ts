@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { CloseoutReadiness } from "../domain/index.ts";
-import { isDomainStatus, isPackageDisposition, isTerminalStatus } from "../domain/index.ts";
+import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind, isTerminalStatus } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -91,6 +91,7 @@ export function taskEntryToRow(rootInput: HarnessLayoutInput, entry: TaskSourceE
     source: lifecycleEngine === "local" ? "local-document" : "external-engine",
     sourcePath: source,
     ...readExtensionMetadata(entry.frontmatter),
+    ...readTaskMetadata(entry.frontmatter),
     ...readModuleMetadata(taskDir),
     hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
     ...readCreatedBy(entry.frontmatter)
@@ -124,6 +125,17 @@ function readExtensionMetadata(frontmatter: string): { readonly vertical?: strin
     ...(vertical ? { vertical } : {}),
     ...(preset ? { preset } : {}),
     ...(profile ? { profile } : {})
+  };
+}
+
+function readTaskMetadata(frontmatter: string): Pick<TaskProjectionRow, "workKind" | "riskTier" | "urgency"> {
+  const workKind = readScalar(frontmatter, "workKind");
+  const riskTier = readScalar(frontmatter, "riskTier");
+  const urgency = readScalar(frontmatter, "urgency");
+  return {
+    ...(isTaskWorkKind(workKind) ? { workKind } : {}),
+    ...(isPriorityTier(riskTier) ? { riskTier } : {}),
+    ...(isPriorityTier(urgency) ? { urgency } : {})
   };
 }
 

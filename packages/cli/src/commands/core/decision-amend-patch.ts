@@ -1,6 +1,7 @@
 import type { DecisionPackage } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, DecisionAmendPatchInput } from "../../cli/types.ts";
+import { nextDecisionAnchorId } from "./decision-anchor-id.ts";
 
 export function applyDecisionAmendPatches(
   current: DecisionPackage,
@@ -38,15 +39,15 @@ function applyDecisionAmendPatch(
     return { ok: false, reason: `metadata is not supported for decision field: ${patch.field}` };
   }
   if (patch.field === "chosen") {
-    const entry = parseDecisionAnchorPatch(patch.value, nextAnchorId("CH", current.chosen.map((anchor) => anchor.id)));
+    const entry = parseDecisionAnchorPatch(patch.value, nextDecisionAnchorId("CH", current.chosen.map((anchor) => anchor.id)));
     return entry ? { ok: true, next: { ...current, chosen: [...current.chosen, entry] } } : { ok: false, reason: "chosen append requires JSON object with id and text" };
   }
   if (patch.field === "claims") {
-    const entry = parseDecisionAnchorPatch(patch.value, nextAnchorId("C", current.claims.map((anchor) => anchor.id)));
+    const entry = parseDecisionAnchorPatch(patch.value, nextDecisionAnchorId("C", current.claims.map((anchor) => anchor.id)));
     return entry ? { ok: true, next: { ...current, claims: [...current.claims, entry] } } : { ok: false, reason: "claims append requires JSON object with id and text" };
   }
   if (patch.field === "rejected") {
-    const entry = parseRejectedDecisionAnchorPatch(patch.value, nextAnchorId("RJ", current.rejected.map((anchor) => anchor.id)));
+    const entry = parseRejectedDecisionAnchorPatch(patch.value, nextDecisionAnchorId("RJ", current.rejected.map((anchor) => anchor.id)));
     return entry ? { ok: true, next: { ...current, rejected: [...current.rejected, entry] } } : { ok: false, reason: "rejected append requires JSON object with id, text, and why_not" };
   }
   return { ok: false, reason: `append is not supported for decision field: ${patch.field}` };
@@ -88,14 +89,6 @@ function parseRejectedDecisionAnchorPatch(value: string, fallbackId: string): De
   const text = typeof parsed.text === "string" ? parsed.text : "";
   const whyNot = typeof parsed.why_not === "string" ? parsed.why_not : "";
   return id && text && whyNot ? { id, text, why_not: whyNot } : null;
-}
-
-function nextAnchorId(prefix: string, existingIds: ReadonlyArray<string>): string {
-  const max = existingIds.reduce((current, id) => {
-    const match = new RegExp(`^${prefix}(\\d+)$`, "u").exec(id);
-    return match ? Math.max(current, Number(match[1])) : current;
-  }, 0);
-  return `${prefix}${max + 1}`;
 }
 
 function parsePatchObject(value: string): Record<string, unknown> | null {

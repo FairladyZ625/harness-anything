@@ -124,6 +124,7 @@ export function runScriptEntrypoint(
   const beforeFiles = new Set(listGeneratedFiles(outputRoot));
   const readablePaths = uniquePermissionPaths([
     ...permissionPathsForScope(presetRoot, true),
+    ...scriptRelativeImportPermissions(scriptPath),
     contextPath,
     ...readScope.permissions
   ]);
@@ -184,6 +185,16 @@ export function runScriptEntrypoint(
       .map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
     scriptedResult: readScriptedResult(outputRoot)
   };
+}
+
+function scriptRelativeImportPermissions(scriptPath: string): ReadonlyArray<string> {
+  const source = readFileSync(scriptPath, "utf8");
+  const scriptRoot = path.dirname(scriptPath);
+  const imports = [...source.matchAll(/^\s*import\s+(?:[^"']+\s+from\s+)?["'](\.{1,2}\/[^"']+)["'];?/gmu)];
+  return uniquePermissionPaths(imports.flatMap((match) => {
+    const targetPath = path.resolve(scriptRoot, match[1]);
+    return existsSync(targetPath) ? permissionPathsForScope(targetPath, false) : [];
+  }));
 }
 
 export function scriptCliResult(options: {

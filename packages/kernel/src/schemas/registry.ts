@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
+import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
 import { ActorRefSchema, LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
@@ -104,10 +105,7 @@ type LifecycleBindingDecoded = Schema.Schema.Type<typeof LifecycleBindingSchema>
 true satisfies MutuallyAssignable<LifecycleBindingDecoded, LifecycleBinding>;
 true satisfies MutuallyAssignable<keyof LifecycleBindingDecoded, keyof LifecycleBinding>;
 
-const CreatedBySchema = Schema.Struct({
-  name: Schema.String,
-  email: Schema.String
-});
+const CreatedBySchema = Schema.Struct({ name: Schema.String, email: Schema.String });
 
 export const TaskFrontmatterSchema = Schema.Struct({
   schema: Schema.Literal("task-package/v2"),
@@ -116,6 +114,9 @@ export const TaskFrontmatterSchema = Schema.Struct({
   parent: Schema.optional(Schema.String),
   lifecycle: LifecycleBindingSchema,
   packageDisposition: Schema.Literal(...packageDispositions),
+  workKind: Schema.optional(Schema.Literal(...taskWorkKinds)),
+  riskTier: Schema.optional(Schema.Literal(...priorityTiers)),
+  urgency: Schema.optional(Schema.Literal(...priorityTiers)),
   vertical: Schema.String,
   preset: Schema.String,
   provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1)),
@@ -184,11 +185,7 @@ export const RedactionFindingSchema = Schema.Struct({
   path: OptionalString
 });
 
-const PublishableLinkSchema = Schema.Struct({
-  label: Schema.String,
-  href: Schema.String,
-  kind: LinkKindSchema
-});
+const PublishableLinkSchema = Schema.Struct({ label: Schema.String, href: Schema.String, kind: LinkKindSchema });
 
 export const PublishableProjectionSchema = Schema.Struct({
   visibility: Schema.Literal("public-safe"),
@@ -374,6 +371,9 @@ export const SqliteTaskRowSchema = Schema.Struct({
   schema: Schema.Literal("sqlite-task-row/v1"),
   taskId: Schema.String,
   title: Schema.String,
+  workKind: Schema.optional(Schema.Literal(...taskWorkKinds)),
+  riskTier: Schema.optional(Schema.Literal(...priorityTiers)),
+  urgency: Schema.optional(Schema.Literal(...priorityTiers)),
   canonicalStatus: SnapshotStatusSchema,
   coordinationStatus: Schema.Literal("open", "blocked", "in_review", "terminal", "unknown"),
   rawStatus: Schema.String,

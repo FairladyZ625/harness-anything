@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { readScalar } from "../../../../../../../../../kernel/src/markdown/frontmatter.ts";
 
 const contextPath = process.env.HARNESS_PRESET_CONTEXT;
 if (!contextPath) throw new Error("HARNESS_PRESET_CONTEXT is required");
@@ -185,11 +186,6 @@ function splitTopLevel(value) {
   }
   parts.push(value.slice(start).trim());
   return parts.filter(Boolean);
-}
-
-function readScalar(body, key) {
-  const match = new RegExp(`^${key}:\\s*(.+)$`, "mu").exec(body);
-  return match ? unquote(match[1].trim()) : "";
 }
 
 function unquote(value) {

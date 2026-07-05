@@ -90,6 +90,23 @@ test("SQLite projection rebuild materializes decision rows for query readers", (
   });
 });
 
+test("SQLite task projection metadata comes only from task frontmatter", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-1", "Task One", "active", "active", {
+      workKind: "docs",
+      riskTier: "low",
+      urgency: "medium"
+    });
+    writeDecision(rootDir, "dec_TASK_SOURCE_SHOULD_NOT_WIN", "wm-task-source");
+
+    const rows = rebuildTaskProjection({ rootDir }).rows;
+
+    assert.equal(rows[0]?.workKind, "docs");
+    assert.equal(rows[0]?.riskTier, "low");
+    assert.equal(rows[0]?.urgency, "medium");
+  });
+});
+
 test("SQLite task projection row hash is deterministic and content-addressed", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-2", "Task Two", "done");
@@ -218,7 +235,8 @@ function writeIndex(
   taskId: string,
   title: string,
   status: string,
-  packageDisposition: string | null = "active"
+  packageDisposition: string | null = "active",
+  metadata: { readonly workKind?: string; readonly riskTier?: string; readonly urgency?: string } = {}
 ): void {
   const dispositionLines = packageDisposition === null ? [] : [`packageDisposition: ${packageDisposition}`];
   mkdirSync(path.join(rootDir, "harness/tasks", taskId), { recursive: true });
@@ -237,6 +255,9 @@ function writeIndex(
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:fixture",
     ...dispositionLines,
+    ...(metadata.workKind ? [`workKind: ${metadata.workKind}`] : []),
+    ...(metadata.riskTier ? [`riskTier: ${metadata.riskTier}`] : []),
+    ...(metadata.urgency ? [`urgency: ${metadata.urgency}`] : []),
     "vertical: default",
     "preset: default",
     "---",

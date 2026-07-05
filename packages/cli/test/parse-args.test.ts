@@ -27,9 +27,9 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
   {
     name: "new-task preset task",
-    argv: ["task", "create", "--title", "Parser Task", "--parent", "task_parent", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
+    argv: ["task", "create", "--title", "Parser Task", "--parent", "task_parent", "--kind", "feat", "--risk-tier", "high", "--urgency", "medium", "--vertical", "software/coding", "--preset", "standard-task", "--profile", "baseline", "--module", "billing", "--long-running", "--locale", "en-US"],
     kind: "new-task",
-    fields: { title: "Parser Task", parent: "task_parent", slug: "parser-task", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false, longRunning: true, locale: "en-US" }
+    fields: { title: "Parser Task", parent: "task_parent", slug: "parser-task", workKind: "feat", riskTier: "high", urgency: "medium", vertical: "software/coding", preset: "standard-task", profile: "baseline", moduleKey: "billing", allowManualId: false, longRunning: true, locale: "en-US" }
   },
   {
     name: "new-task register module dry run",
@@ -96,7 +96,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
   {
     name: "task list filters",
-    argv: ["task", "list", "--state", "active", "--module", "billing", "--queue", "open", "--preset", "module", "--review", "missing", "--lesson", "missing", "--missing-materials", "--include-archived", "--search", "checkout"],
+    argv: ["task", "list", "--state", "active", "--module", "billing", "--queue", "open", "--preset", "module", "--kind", "fix", "--risk-tier", "medium", "--urgency", "high", "--review", "missing", "--lesson", "missing", "--missing-materials", "--include-archived", "--search", "checkout"],
     kind: "task-list",
     fields: {
       filters: {
@@ -104,6 +104,9 @@ const parseCases: ReadonlyArray<ParseCase> = [
         moduleKey: "billing",
         queue: "open",
         preset: "module",
+        workKind: "fix",
+        riskTier: "medium",
+        urgency: "high",
         review: "missing",
         lesson: "missing",
         missingMaterials: true,
@@ -321,6 +324,20 @@ test("parseArgs pins stable parse error envelopes", () => {
       assert.equal(parsed.error.hint.includes(candidate.hintIncludes), true);
     }
   }
+});
+
+test("parseArgs rejects invalid task metadata enum values", () => {
+  const invalidCreateKind = parseArgs(["task", "create", "--title", "Bad", "--kind", "feature"]);
+  assert.equal(invalidCreateKind.ok, false);
+  assert.equal(invalidCreateKind.ok ? undefined : invalidCreateKind.error.code, "invalid_task_metadata");
+
+  const invalidCreateTier = parseArgs(["task", "create", "--title", "Bad", "--risk-tier", "critical"]);
+  assert.equal(invalidCreateTier.ok, false);
+  assert.equal(invalidCreateTier.ok ? undefined : invalidCreateTier.error.code, "invalid_task_metadata");
+
+  const invalidListUrgency = parseArgs(["task", "list", "--urgency", "soon"]);
+  assert.equal(invalidListUrgency.ok, false);
+  assert.equal(invalidListUrgency.ok ? undefined : invalidListUrgency.error.code, "invalid_task_metadata");
 });
 
 test("parseArgs injects inline JSON input before command parsers and keeps flags as overrides", () => {

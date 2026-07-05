@@ -20,6 +20,8 @@ import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 export function applyWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
   if (decisionWriteKinds.has(op.kind)) {
     writeDecisionDocument(rootInput, op);
+    const taskWrites = decisionPayloadTaskWrites(op.payload);
+    if (taskWrites.length > 0) writeDocumentsAtomically(rootInput, taskWrites);
     return null;
   }
   if (op.kind === "module_registry_write") {
@@ -53,7 +55,10 @@ export function applyWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): Docume
 
 export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {
   if (decisionWriteKinds.has(op.kind)) {
-    return [decisionDocumentTargetPath(rootInput, op)];
+    return [
+      decisionDocumentTargetPath(rootInput, op),
+      ...decisionPayloadTaskWrites(op.payload).map((write) => documentTargetPath(rootInput, write))
+    ];
   }
   if (op.kind === "module_registry_write") {
     return [path.join(resolveHarnessLayout(rootInput).authoredRoot, "modules.json")];
@@ -81,7 +86,7 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
 
 export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   if (decisionWriteKinds.has(op.kind)) {
-    return [];
+    return decisionPayloadTaskWrites(op.payload);
   }
   if (op.kind === "module_registry_write" || op.kind === "module_scaffold_write") {
     return [];
@@ -169,6 +174,22 @@ function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, pa
 function isBatchDocumentWritePayload(payload: unknown): payload is BatchDocumentWritePayload {
   if (!payload || typeof payload !== "object" || !("writes" in payload)) return false;
   return Array.isArray((payload as { readonly writes?: unknown }).writes);
+}
+
+function decisionPayloadTaskWrites(payload: unknown): ReadonlyArray<DocumentWrite> {
+  if (!payload || typeof payload !== "object") return [];
+  const taskWrites = (payload as { readonly taskWrites?: unknown }).taskWrites;
+  if (!Array.isArray(taskWrites)) return [];
+  return taskWrites.filter(isDocumentWrite);
+}
+
+function isDocumentWrite(value: unknown): value is DocumentWrite {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { readonly taskId?: unknown; readonly path?: unknown; readonly body?: unknown; readonly packageSlug?: unknown };
+  return typeof candidate.taskId === "string" &&
+    typeof candidate.path === "string" &&
+    typeof candidate.body === "string" &&
+    (candidate.packageSlug === undefined || typeof candidate.packageSlug === "string");
 }
 
 function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: ReadonlyArray<DocumentWrite>): void {

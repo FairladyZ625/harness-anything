@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
-import type { DomainStatus, EngineError, TaskId } from "../../../kernel/src/domain/index.ts";
-import { isDomainStatus, isPackageDisposition } from "../../../kernel/src/domain/index.ts";
+import type { DomainStatus, EngineError, PriorityTier, TaskId, TaskWorkKind } from "../../../kernel/src/domain/index.ts";
+import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind } from "../../../kernel/src/domain/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../../../kernel/src/markdown/frontmatter.ts";
@@ -61,6 +61,9 @@ export function makeIndex(input: {
   readonly parent?: TaskId;
   readonly status: DomainStatus;
   readonly bindingCreatedAt: string;
+  readonly workKind?: TaskWorkKind;
+  readonly riskTier?: PriorityTier;
+  readonly urgency?: PriorityTier;
   readonly vertical: string;
   readonly preset: string;
   readonly provenance?: ReadonlyArray<ProvenancePayload>;
@@ -84,6 +87,9 @@ export function makeIndex(input: {
     bindingCreatedAt: input.bindingCreatedAt,
     bindingFingerprint: `sha256:${fingerprint}`,
     packageDisposition: "active",
+    ...(input.workKind ? { workKind: input.workKind } : {}),
+    ...(input.riskTier ? { riskTier: input.riskTier } : {}),
+    ...(input.urgency ? { urgency: input.urgency } : {}),
     vertical: input.vertical,
     preset: input.preset,
     provenance: input.provenance ?? [humanFallbackProvenance(input.bindingCreatedAt)],
@@ -109,6 +115,9 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
     `  bindingCreatedAt: ${index.bindingCreatedAt}`,
     `  bindingFingerprint: ${index.bindingFingerprint}`,
     `packageDisposition: ${index.packageDisposition}`,
+    ...(index.workKind ? [`workKind: ${index.workKind}`] : []),
+    ...(index.riskTier ? [`riskTier: ${index.riskTier}`] : []),
+    ...(index.urgency ? [`urgency: ${index.urgency}`] : []),
     `vertical: ${index.vertical}`,
     `preset: ${index.preset}`,
     "provenance:",
@@ -162,6 +171,7 @@ export function readIndex(rootInput: HarnessLayoutInput, taskId: TaskId): LocalT
     bindingCreatedAt,
     bindingFingerprint: readScalar(frontmatter, "  bindingFingerprint", { required: true }),
     packageDisposition: readPackageDisposition(frontmatter),
+    ...readTaskMetadata(frontmatter),
     vertical: readScalar(frontmatter, "vertical", { required: true }),
     preset: readScalar(frontmatter, "preset", { required: true }),
     provenance,
@@ -202,6 +212,17 @@ function readCreatedBy(frontmatter: string): { readonly createdBy?: TaskCreatedB
 function readPackageDisposition(frontmatter: string): LocalTaskIndex["packageDisposition"] {
   const value = readScalar(frontmatter, "packageDisposition", { required: true });
   return isPackageDisposition(value) ? value : "active";
+}
+
+function readTaskMetadata(frontmatter: string): Pick<LocalTaskIndex, "workKind" | "riskTier" | "urgency"> {
+  const workKind = readScalar(frontmatter, "workKind");
+  const riskTier = readScalar(frontmatter, "riskTier");
+  const urgency = readScalar(frontmatter, "urgency");
+  return {
+    ...(isTaskWorkKind(workKind) ? { workKind } : {}),
+    ...(isPriorityTier(riskTier) ? { riskTier } : {}),
+    ...(isPriorityTier(urgency) ? { urgency } : {})
+  };
 }
 
 function readProfile(frontmatter: string): { readonly profile?: string } {

@@ -3,6 +3,7 @@ import { slugifyTaskTitle } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
+import { parseTaskList } from "./core-task-list.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
@@ -180,41 +181,6 @@ function parseTaskRelate(args: ReadonlyArray<string>, rootDir: string, json: boo
     rationale,
     dryRun: args.includes("--dry-run")
   });
-}
-
-function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
-  const lessonValue = readOptionalFlagValue(args, "--lesson");
-  if (lessonValue && lessonValue !== "present" && lessonValue !== "missing") {
-    return { ok: false, error: cliError(CliErrorCode.InvalidLessonFilter, "Use --lesson, --lesson present, or --lesson missing.") };
-  }
-  const lesson = lessonValue === "missing" ? "missing" : "present";
-  const state = readOption(args, "--state");
-  const moduleKey = readOption(args, "--module");
-  const queue = readOption(args, "--queue");
-  const preset = readOption(args, "--preset");
-  const review = readOption(args, "--review");
-  const search = readOption(args, "--search");
-  return ok(rootDir, json, {
-    kind: "task-list",
-    filters: {
-      ...(state ? { state } : {}),
-      ...(moduleKey ? { moduleKey } : {}),
-      ...(queue ? { queue } : {}),
-      ...(preset ? { preset } : {}),
-      ...(review ? { review } : {}),
-      ...(args.includes("--lesson") ? { lesson } : {}),
-      missingMaterials: args.includes("--missing-materials"),
-      includeArchived: args.includes("--include-archived"),
-      ...(search ? { search } : {})
-    }
-  });
-}
-
-function readOptionalFlagValue(args: ReadonlyArray<string>, flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  if (index === -1) return undefined;
-  const value = args[index + 1];
-  return value && !value.startsWith("--") ? value : undefined;
 }
 
 function parseEvidence(value: string | undefined):

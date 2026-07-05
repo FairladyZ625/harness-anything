@@ -36,6 +36,9 @@ const explicitInputDescriptors = {
     required: ["title"],
     properties: {
       title: { type: "string", description: "Task title used for package metadata and slug." },
+      workKind: { type: "string", description: "Task work kind: feat, fix, refactor, docs, test, or chore." },
+      riskTier: { type: "string", description: "Task risk tier: low, medium, or high. Explicit task values override one-time derives-edge seeding." },
+      urgency: { type: "string", description: "Task urgency: low, medium, or high. Explicit task values override one-time derives-edge seeding." },
       vertical: { type: "string", description: "Vertical id, usually software/coding." },
       preset: { type: "string", description: "Preset id used to materialize task content." },
       moduleKey: { type: "string", description: "Registered module key." },
@@ -46,6 +49,9 @@ const explicitInputDescriptors = {
     },
     shortcuts: [
       shortcut("--title", "$.title", "set"),
+      shortcut("--kind", "$.workKind", "set"),
+      shortcut("--risk-tier", "$.riskTier", "set"),
+      shortcut("--urgency", "$.urgency", "set"),
       shortcut("--vertical", "$.vertical", "set"),
       shortcut("--preset", "$.preset", "set"),
       shortcut("--module", "$.moduleKey", "set"),

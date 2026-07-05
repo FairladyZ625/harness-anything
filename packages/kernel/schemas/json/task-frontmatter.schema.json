@@ -89,6 +89,30 @@
         "tombstoned"
       ]
     },
+    "workKind": {
+      "enum": [
+        "feat",
+        "fix",
+        "refactor",
+        "docs",
+        "test",
+        "chore"
+      ]
+    },
+    "riskTier": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "urgency": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
     "vertical": {
       "type": "string"
     },

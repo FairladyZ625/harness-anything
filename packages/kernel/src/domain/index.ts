@@ -1,6 +1,9 @@
 export { createTaskIdentity } from "./task.ts";
 export type { Task, TaskIdentity, TaskId, EngineId, ExternalRef, IsoTimestamp, Sha256Fingerprint } from "./task.ts";
 
+export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";
+export type { PriorityTier, TaskWorkKind } from "./task-metadata.ts";
+
 export {
   domainStatuses,
   openDomainStatuses,

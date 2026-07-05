@@ -2,6 +2,7 @@ import { slugifyTaskTitle } from "../../../../kernel/src/layout/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
+import { readPriorityTier, readTaskWorkKind } from "./task-metadata-options.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
@@ -40,6 +41,12 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
   const title = explicitTitle ?? "Untitled task";
   const explicitSlug = readOption(normalizedArgs, "--slug");
   const parent = readOption(normalizedArgs, "--parent");
+  const workKind = readTaskWorkKind(readOption(normalizedArgs, "--kind"));
+  if (!workKind.ok) return { ok: false, error: workKind.error };
+  const riskTier = readPriorityTier(readOption(normalizedArgs, "--risk-tier"));
+  if (!riskTier.ok) return { ok: false, error: riskTier.error };
+  const urgency = readPriorityTier(readOption(normalizedArgs, "--urgency"));
+  if (!urgency.ok) return { ok: false, error: urgency.error };
   const vertical = readRequiredValueOption(normalizedArgs, "--vertical");
   if (!vertical.ok) return { ok: false, error: vertical.error };
   const preset = readRequiredValueOption(normalizedArgs, "--preset");
@@ -80,6 +87,9 @@ export function parseNewTaskArgs(args: ReadonlyArray<string>, rootDir: string, j
         fromLegacyId,
         titleProvided: Boolean(explicitTitle),
         slugProvided: Boolean(explicitSlug),
+        workKind: workKind.value,
+        riskTier: riskTier.value,
+        urgency: urgency.value,
         vertical: vertical.value,
         preset: preset.value,
         profile: profile.value,

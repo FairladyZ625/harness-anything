@@ -58,6 +58,18 @@ test("CLI creates a local task with generated identity, provenance, and stable J
   });
 });
 
+test("CLI task create persists work kind and priority metadata", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["task", "create", "--title", "Metadata Task", "--kind", "feat", "--risk-tier", "high", "--urgency", "low"], true, noAgentRuntimeEnv);
+    const taskId = assertGeneratedTaskId(result.taskId);
+    const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-metadata-task/INDEX.md`), "utf8");
+
+    assert.match(index, /^workKind: feat$/mu);
+    assert.match(index, /^riskTier: high$/mu);
+    assert.match(index, /^urgency: low$/mu);
+  });
+});
+
 function assertHumanProvenance(rootDir: string, index: string): void {
   assert.match(index, /provenance:\n  - \{runtime: "human", sessionId: "human-cli-\d+", boundAt: "\d{4}-\d{2}-\d{2}T/u);
   const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(index)?.[1];

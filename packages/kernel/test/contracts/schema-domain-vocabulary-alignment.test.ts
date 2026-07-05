@@ -11,6 +11,10 @@ import {
   packageDispositions
 } from "../../src/domain/package-disposition.ts";
 import {
+  priorityTiers,
+  taskWorkKinds
+} from "../../src/domain/task-metadata.ts";
+import {
   DecisionStateSchema,
   DomainStatusSchema,
   TaskFrontmatterSchema
@@ -59,3 +63,45 @@ test("task frontmatter schema accepts every domain package disposition", () => {
     assert.equal(decoded.packageDisposition, disposition);
   }
 });
+
+test("task frontmatter schema accepts every task metadata vocabulary value", () => {
+  for (const workKind of taskWorkKinds) {
+    const decoded = Schema.decodeUnknownSync(TaskFrontmatterSchema)(taskFixture({ workKind }));
+    assert.equal(decoded.workKind, workKind);
+  }
+  for (const riskTier of priorityTiers) {
+    const decoded = Schema.decodeUnknownSync(TaskFrontmatterSchema)(taskFixture({ riskTier }));
+    assert.equal(decoded.riskTier, riskTier);
+  }
+  for (const urgency of priorityTiers) {
+    const decoded = Schema.decodeUnknownSync(TaskFrontmatterSchema)(taskFixture({ urgency }));
+    assert.equal(decoded.urgency, urgency);
+  }
+});
+
+function taskFixture(metadata: { readonly workKind?: string; readonly riskTier?: string; readonly urgency?: string }): Record<string, unknown> {
+  return {
+    schema: "task-package/v2",
+    task_id: "task-1",
+    title: "Task",
+    lifecycle: {
+      bindingSchema: "lifecycle-binding/v1",
+      engine: "local",
+      status: "planned",
+      ref: null,
+      titleSnapshot: null,
+      url: null,
+      bindingCreatedAt: "2026-06-11T00:00:00.000Z",
+      bindingFingerprint: "sha256:0123456789abcdef"
+    },
+    packageDisposition: "active",
+    ...metadata,
+    vertical: "software/coding",
+    preset: "standard-task",
+    provenance: [{
+      runtime: "human",
+      sessionId: "human-cli-1783036800000",
+      boundAt: "2026-06-11T00:00:00.000Z"
+    }]
+  };
+}

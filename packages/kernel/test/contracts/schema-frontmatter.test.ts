@@ -36,6 +36,18 @@ test("task frontmatter schema requires provenance with a known runtime", async (
   }));
 });
 
+test("task frontmatter schema accepts optional metadata and rejects invalid values", async () => {
+  const fixture = await readJson(validFixtureUrl) as Record<string, unknown>;
+  const decoded = Schema.decodeUnknownSync(TaskFrontmatterSchema)(fixture);
+
+  assert.equal(decoded.workKind, "feat");
+  assert.equal(decoded.riskTier, "high");
+  assert.equal(decoded.urgency, "medium");
+  assert.throws(() => Schema.decodeUnknownSync(TaskFrontmatterSchema)({ ...fixture, workKind: "feature" }));
+  assert.throws(() => Schema.decodeUnknownSync(TaskFrontmatterSchema)({ ...fixture, riskTier: "urgent" }));
+  assert.throws(() => Schema.decodeUnknownSync(TaskFrontmatterSchema)({ ...fixture, urgency: "soon" }));
+});
+
 test("decision package schema decodes and encodes the valid fixture", async () => {
   const fixture = await readJson(validDecisionFixtureUrl);
   const decoded = Schema.decodeUnknownSync(DecisionPackageSchema)(fixture);

@@ -1,8 +1,16 @@
 import type { DecisionPackage } from "../schemas/decision-package.ts";
 
+export interface DecisionDocumentTaskWrite {
+  readonly taskId: string;
+  readonly path: string;
+  readonly body: string;
+  readonly packageSlug?: string;
+}
+
 export interface DecisionDocumentPayload {
   readonly decision: DecisionPackage;
   readonly body?: string;
+  readonly taskWrites?: ReadonlyArray<DecisionDocumentTaskWrite>;
 }
 
 export function isDecisionDocumentPayload(payload: unknown): payload is DecisionDocumentPayload {

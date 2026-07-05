@@ -14,6 +14,7 @@ import {
   type WriteError,
   type WriteOpKind
 } from "../../kernel/src/index.ts";
+import type { DocumentWrite } from "../../kernel/src/ports/artifact-store-writer.ts";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
@@ -55,6 +56,7 @@ export interface DecisionAmendRequest {
 export interface DecisionRelateRequest {
   readonly current: DecisionPackage;
   readonly relation: EntityRelationRecord;
+  readonly taskWrites?: ReadonlyArray<DocumentWrite>;
   readonly body?: string;
   readonly opIdPrefix?: string;
 }
@@ -68,6 +70,7 @@ export interface DecisionRelationRetireRequest {
 
 export interface DecisionRelationReplaceRequest extends DecisionRelationRetireRequest {
   readonly replacement: EntityRelationRecord;
+  readonly taskWrites?: ReadonlyArray<DocumentWrite>;
 }
 
 export interface DecisionWriteResult {
@@ -263,7 +266,7 @@ function writeDecision(
   hashPayload: PayloadHasher,
   kind: WriteOpKind,
   decision: DecisionPackage,
-  request: { readonly body?: string; readonly opIdPrefix?: string },
+  request: { readonly body?: string; readonly opIdPrefix?: string; readonly taskWrites?: ReadonlyArray<DocumentWrite> },
   previous?: DecisionPackage
 ): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError> {
   const validation = validateDecisionWrite(decision, previous);
@@ -273,6 +276,7 @@ function writeDecision(
     kind,
     payload: {
       decision,
+      ...(request.taskWrites && request.taskWrites.length > 0 ? { taskWrites: request.taskWrites } : {}),
       ...(request.body ? { body: request.body } : {})
     },
     ...(request.opIdPrefix ? { opIdPrefix: request.opIdPrefix } : {})

@@ -1,4 +1,4 @@
-import type { CloseoutReadiness, DomainStatus, PackageDisposition } from "../domain/index.ts";
+import type { CloseoutReadiness, DomainStatus, PackageDisposition, PriorityTier, TaskWorkKind } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
@@ -40,6 +40,9 @@ export interface TaskProjectionRow {
   readonly taskId: string;
   readonly title: string;
   readonly parentTaskId?: string;
+  readonly workKind?: TaskWorkKind;
+  readonly riskTier?: PriorityTier;
+  readonly urgency?: PriorityTier;
   readonly canonicalStatus: ProjectionCanonicalStatus;
   readonly coordinationStatus: CoordinationStatus;
   readonly rawStatus: string;
@@ -64,6 +67,9 @@ export interface TaskProjectionQueryFilters {
   readonly moduleKey?: string;
   readonly queue?: string;
   readonly preset?: string;
+  readonly workKind?: TaskWorkKind;
+  readonly riskTier?: PriorityTier;
+  readonly urgency?: PriorityTier;
   readonly review?: string;
   readonly lesson?: "present" | "missing";
   readonly missingMaterials?: boolean;

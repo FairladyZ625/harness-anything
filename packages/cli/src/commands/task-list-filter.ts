@@ -11,6 +11,9 @@ export function filterTaskProjectionRows(
     if (filters.moduleKey && row.moduleKey !== filters.moduleKey) return false;
     if (filters.queue && !matchesQueue(row, filters.queue)) return false;
     if (filters.preset && row.preset !== filters.preset) return false;
+    if (filters.workKind && row.workKind !== filters.workKind) return false;
+    if (filters.riskTier && row.riskTier !== filters.riskTier) return false;
+    if (filters.urgency && row.urgency !== filters.urgency) return false;
     if (filters.review && !matchesReview(row, filters.review)) return false;
     if (filters.lesson && !matchesLesson(row, filters.lesson)) return false;
     if (filters.missingMaterials && row.closeoutReadiness !== "missing") return false;
