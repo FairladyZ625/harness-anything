@@ -188,7 +188,8 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
   const knownRefs = buildEntityRefIndex(rootInput, entries);
   const warnings: ProjectionWarning[] = [];
   const files = listTextFiles(layout.authoredRoot)
-    .filter((filePath) => !isInsideRoot(layout.sessionsRoot, filePath));
+    .filter((filePath) => !isInsideRoot(layout.sessionsRoot, filePath))
+    .filter((filePath) => !isGeneratedArtifactCapture(layout.tasksRoot, filePath));
   for (const filePath of files) {
     const body = readFileSync(filePath, "utf8");
     for (const ref of findEntityRefs(body)) {
@@ -232,6 +233,16 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
 function isInsideRoot(rootDir: string, filePath: string): boolean {
   const relative = path.relative(rootDir, filePath);
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function isGeneratedArtifactCapture(tasksRoot: string, filePath: string): boolean {
+  const relative = path.relative(tasksRoot, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  const parts = relative.split(path.sep);
+  const artifactIndex = parts.indexOf("artifacts");
+  if (artifactIndex < 0) return false;
+  const captureKind = parts[artifactIndex + 1];
+  return ["baseline", "before", "after", "captures", "snapshots", "transcripts", "raw", "orchestration"].includes(captureKind);
 }
 
 interface EntityRefIndex {
