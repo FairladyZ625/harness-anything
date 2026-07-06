@@ -61,8 +61,26 @@ test("bundled software coding assets have consistent template and process-preset
   };
   const catalogIds = new Set(catalog.documents.map((document) => document.id));
   const selectedMaterializedPaths = new Set<string>();
-  const processPresetIds = new Set(["legacy-migration", "lesson-sedimentation", "milestone-closeout", "publish-standard", "release-closeout", "version-upgrade"]);
-  const implementedProcessPresetIds = new Set(["legacy-migration", "milestone-closeout"]);
+  const processPresetIds = new Set([
+    "doc-canon-sync",
+    "dogfood-utilization-audit",
+    "legacy-migration",
+    "lesson-sedimentation",
+    "milestone-closeout",
+    "milestone-dossier",
+    "publish-standard",
+    "release-closeout",
+    "subtask-expansion",
+    "version-upgrade"
+  ]);
+  const implementedProcessPresetIds = new Set([
+    "doc-canon-sync",
+    "dogfood-utilization-audit",
+    "legacy-migration",
+    "milestone-closeout",
+    "milestone-dossier",
+    "subtask-expansion"
+  ]);
 
   assert.equal(catalog.schema, "template-catalog/v2");
   for (const document of catalog.documents) {
@@ -104,11 +122,16 @@ test("bundled software coding assets have consistent template and process-preset
       if (!implementedProcessPresetIds.has(presetId)) {
         assert.match(manifest.title, /Capability Smoke/u);
       }
+    }
+    if (manifest.kind === "process-action") {
       assert.notEqual(Object.keys(manifest.entrypoints ?? {}).length, 0);
       for (const entrypoint of Object.values(manifest.entrypoints ?? {})) {
-        const scriptEntrypoint = entrypoint as { readonly reads?: ReadonlyArray<string>; readonly writes?: ReadonlyArray<string> };
+        const scriptEntrypoint = entrypoint as { readonly command?: string; readonly reads?: ReadonlyArray<string>; readonly writes?: ReadonlyArray<string> };
         assert.equal(scriptEntrypoint.reads?.includes("{{paths.rootDir}}/**") ?? false, false, `${presetId} declares repo-wide recursive reads`);
         assert.equal(scriptEntrypoint.writes?.includes("{{paths.rootDir}}/**") ?? false, false, `${presetId} declares repo-wide recursive writes`);
+        if (typeof scriptEntrypoint.command === "string") {
+          assertPresetScriptImportsStayInsidePackage(path.join(assetRoot, "presets", presetId), scriptEntrypoint.command);
+        }
       }
     }
   }
@@ -132,4 +155,16 @@ function assertKnownTemplateRef(catalogIds: ReadonlySet<string>, templateRef: st
   const match = /^template:\/\/(.+)@\d+$/u.exec(templateRef);
   assert.notEqual(match, null, `malformed template ref ${templateRef}`);
   assert.equal(catalogIds.has(match[1]), true, `unknown template ref ${templateRef}`);
+}
+
+function assertPresetScriptImportsStayInsidePackage(presetRoot: string, command: string): void {
+  const scriptPath = path.resolve(presetRoot, command);
+  const source = readFileSync(scriptPath, "utf8");
+  const relativeImports = [...source.matchAll(/^\s*import\s+(?:[^"']+\s+from\s+)?["'](\.{1,2}\/[^"']+)["'];?/gmu)]
+    .map((match) => match[1]);
+  for (const specifier of relativeImports) {
+    const target = path.resolve(path.dirname(scriptPath), specifier);
+    const relative = path.relative(path.resolve(presetRoot), target);
+    assert.equal(relative.startsWith("..") || path.isAbsolute(relative), false, `${command} imports outside preset package: ${specifier}`);
+  }
 }

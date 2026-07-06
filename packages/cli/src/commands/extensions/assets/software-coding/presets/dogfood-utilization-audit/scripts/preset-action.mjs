@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { readScalar } from "../../../../../../../../../kernel/src/markdown/frontmatter.ts";
 
 const contextPath = process.env.HARNESS_PRESET_CONTEXT;
 if (!contextPath) throw new Error("HARNESS_PRESET_CONTEXT is required");
@@ -11,7 +10,7 @@ mkdirSync(artifactsDir, { recursive: true });
 
 const trackedPresets = splitCsv(context.inputs.trackedPresets);
 const trackedArtifacts = splitCsv(context.inputs.trackedArtifacts);
-const taskPackages = readTaskPackages(context.paths.tasksRoot);
+const taskPackages = readTaskPackages();
 const runtimeEvents = readRuntimeEvents(path.join(context.paths.generatedRoot, "runtime-events"));
 const presetEvidence = readPresetEvidence(context.paths.tasksRoot);
 const artifactItems = trackedArtifacts.map(evaluateArtifact);
@@ -134,18 +133,13 @@ function artifactStats(targetPath, mode) {
   };
 }
 
-function readTaskPackages(tasksRoot) {
-  if (!existsSync(tasksRoot)) return [];
-  return readdirSync(tasksRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
-    const indexPath = path.join(tasksRoot, entry.name, "INDEX.md");
-    if (!existsSync(indexPath)) return [];
-    const body = readFileSync(indexPath, "utf8");
-    return [{
-      taskId: readScalar(body, "task_id") ?? entry.name,
-      preset: readScalar(body, "preset") ?? "",
-      sourcePath: relative(indexPath)
-    }];
-  });
+function readTaskPackages() {
+  if (!Array.isArray(context.taskIndex)) return [];
+  return context.taskIndex.map((task) => ({
+    taskId: task.taskId,
+    preset: task.preset ?? "",
+    sourcePath: task.indexPath ?? task.packagePath ?? ""
+  }));
 }
 
 function readRuntimeEvents(eventsRoot) {

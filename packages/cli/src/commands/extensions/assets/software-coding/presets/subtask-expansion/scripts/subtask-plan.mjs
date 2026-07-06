@@ -1,11 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import {
-  readFrontmatter,
-  readNestedScalar as readNestedFrontmatterScalar,
-  readScalar as readFrontmatterScalar
-} from "../../../../../../../../../kernel/src/markdown/frontmatter.ts";
 
 const contextPath = process.env.HARNESS_PRESET_CONTEXT;
 if (!contextPath) throw new Error("HARNESS_PRESET_CONTEXT is required");
@@ -25,10 +20,9 @@ mkdirSync(artifactsDir, { recursive: true });
 const childRoles = parseRoles(inputs.childRoles);
 const dependencyStyle = String(inputs.dependencyStyle ?? "chain");
 const titlePrefixFormat = String(inputs.titlePrefixFormat ?? "[{role}] ");
-const tasksRoot = String(paths.tasksRoot ?? "");
 const rootDir = String(paths.rootDir ?? process.cwd());
 
-const allTasks = tasksRoot ? readTaskIndexes(tasksRoot) : [];
+const allTasks = Array.isArray(context.taskIndex) ? context.taskIndex : [];
 const parentTask = allTasks.find((task) => task.taskId === parentTaskId);
 
 if (!parentTask) {
@@ -52,8 +46,8 @@ if (["done", "cancelled", "archived"].includes(parentTask.status)) {
 }
 
 const parentTitle = parentTask.title || parentTaskId;
-const parentPlan = readOptional(path.join(path.dirname(parentTask.indexPath), "task_plan.md"));
-const milestoneNotes = readMilestoneNotes(String(paths.milestonesRoot ?? ""));
+const parentPlanSummary = parentTask.taskPlanSummary || "";
+const milestoneNotes = Array.isArray(context.milestoneNotes) ? context.milestoneNotes : [];
 const existingRoleMap = new Map();
 for (const task of allTasks.filter((candidate) => candidate.parent === parentTaskId)) {
   const role = roleFromTitle(task.title, childRoles, titlePrefixFormat);
@@ -69,7 +63,7 @@ const children = childRoles.map((role) => {
     status: existing ? "exists" : "pending",
     ...(existing ? { existingTaskId: existing.taskId } : {}),
     title,
-    brief: briefForRole(role, parentTitle, parentPlan, milestoneNotes),
+    brief: briefForRole(role, parentTitle, parentPlanSummary, milestoneNotes),
     createCommand: `ha task create --title ${quoteShell(title)} --parent ${parentTaskId} --vertical software/coding --preset standard-task --json`
   };
 });
@@ -127,67 +121,9 @@ function parseRoles(value) {
   return roles.length > 0 ? [...new Set(roles)] : ["implement", "test", "qa", "review"];
 }
 
-function readTaskIndexes(root) {
-  if (!existsSync(root)) return [];
-  const results = [];
-  for (const indexPath of findIndexFiles(root)) {
-    const body = readOptional(indexPath);
-    const frontmatter = readFrontmatter(body);
-    if (!frontmatter) continue;
-    const taskId = scalar(frontmatter, "task_id");
-    if (!taskId) continue;
-    results.push({
-      taskId,
-      title: scalar(frontmatter, "title"),
-      parent: scalar(frontmatter, "parent"),
-      status: nestedScalar(frontmatter, "status") || scalar(frontmatter, "status") || "unknown",
-      indexPath
-    });
-  }
-  return results;
-}
-
-function findIndexFiles(root) {
-  const files = [];
-  const entries = readdirSync(root, { withFileTypes: true });
-  for (const entry of entries) {
-    const entryPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      const indexPath = path.join(entryPath, "INDEX.md");
-      if (existsSync(indexPath)) files.push(indexPath);
-      files.push(...findIndexFiles(entryPath));
-    }
-  }
-  return files;
-}
-
-function readOptional(filename) {
-  try {
-    return readFileSync(filename, "utf8");
-  } catch {
-    return "";
-  }
-}
-
-function scalar(frontmatter, key) {
-  return unquoteYamlScalar(readFrontmatterScalar(frontmatter, key));
-}
-
-function nestedScalar(frontmatter, key) {
-  return unquoteYamlScalar(readNestedFrontmatterScalar(frontmatter, key));
-}
-
-function unquoteYamlScalar(value) {
-  const trimmed = value.trim();
-  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
 function roleFromTitle(title, roles, prefixFormat) {
   for (const role of roles) {
-    if (title.startsWith(expandTitlePrefix(prefixFormat, role))) return role;
+    if (String(title ?? "").startsWith(expandTitlePrefix(prefixFormat, role))) return role;
   }
   return undefined;
 }
@@ -196,8 +132,8 @@ function expandTitlePrefix(format, role) {
   return format.replaceAll("{role}", role);
 }
 
-function briefForRole(role, parentTitle, parentPlan, milestoneNotes) {
-  const parentSummary = summarize(parentPlan) || `parent task ${parentTitle}`;
+function briefForRole(role, parentTitle, parentPlanSummary, milestoneNotes) {
+  const parentSummary = parentPlanSummary || `parent task ${parentTitle}`;
   if (role === "implement") {
     return {
       objective: `Implement the planned change for ${parentTitle}.`,
@@ -243,39 +179,6 @@ function briefForRole(role, parentTitle, parentPlan, milestoneNotes) {
     scope: `Follow the parent task plan: ${parentSummary}`,
     acceptance: ["Role-specific work is complete and evidence is recorded."]
   };
-}
-
-function summarize(markdown) {
-  return markdown
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#") && !line.startsWith("---"))
-    .slice(0, 3)
-    .join(" ");
-}
-
-function readMilestoneNotes(root) {
-  if (!root || !existsSync(root)) return [];
-  const notes = [];
-  for (const filename of findMarkdownFiles(root).slice(0, 20)) {
-    const body = readOptional(filename);
-    for (const line of body.split(/\r?\n/u)) {
-      const trimmed = line.trim();
-      if (/acceptance|验收|criteria/iu.test(trimmed)) notes.push(trimmed.replace(/^[-*#\s]+/u, ""));
-      if (notes.length >= 3) return notes;
-    }
-  }
-  return notes;
-}
-
-function findMarkdownFiles(root) {
-  const files = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const entryPath = path.join(root, entry.name);
-    if (entry.isDirectory()) files.push(...findMarkdownFiles(entryPath));
-    if (entry.isFile() && entry.name.endsWith(".md")) files.push(entryPath);
-  }
-  return files;
 }
 
 function buildDependencies(children, style) {
