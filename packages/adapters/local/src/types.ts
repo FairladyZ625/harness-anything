@@ -58,6 +58,16 @@ export interface StageTaskDocumentInput {
   readonly path: string;
 }
 
+export interface StageTaskTreeInput {
+  readonly taskId: TaskId;
+}
+
+export interface LocalTaskTreeStatusResult {
+  readonly taskId: TaskId;
+  readonly dirty: boolean;
+  readonly entries: ReadonlyArray<string>;
+}
+
 export interface WriteTaskDocumentInput extends StageTaskDocumentInput {
   readonly body: string;
 }
@@ -110,6 +120,8 @@ export interface LocalLifecycleEngine {
   readonly setStatus: (input: SetLocalStatusInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
   readonly appendProgress: (input: AppendProgressInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
   readonly stageDocument: (input: StageTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
+  readonly stageTaskTree: (input: StageTaskTreeInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
+  readonly taskTreeStatus: (input: StageTaskTreeInput) => Effect.Effect<LocalTaskTreeStatusResult, EngineError | WriteError>;
   readonly replaceTaskDocument: (input: WriteTaskDocumentInput) => Effect.Effect<LocalProgressResult, EngineError | WriteError>;
   readonly archiveTask: (input: TaskReasonInput) => Effect.Effect<LocalTaskResult, EngineError | WriteError>;
   readonly supersedeTask: (input: SupersedeTaskInput) => Effect.Effect<LocalSupersedeResult, EngineError | WriteError>;

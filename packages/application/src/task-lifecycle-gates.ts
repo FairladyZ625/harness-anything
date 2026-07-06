@@ -79,7 +79,7 @@ export interface CompletionGateInput {
 }
 
 export interface CompletionGateIssue {
-  readonly code: "review_not_passed" | "ci_not_passed" | "closeout_not_ready";
+  readonly code: "review_not_passed" | "ci_not_passed" | "closeout_not_ready" | "task_tree_dirty";
   readonly message: string;
 }
 

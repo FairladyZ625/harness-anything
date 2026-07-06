@@ -6,16 +6,29 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024;
 
-export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir, message?: string, sessionId?: string): string {
+export function commitTouchedPaths(
+  rootDir: string,
+  touchedPaths: ReadonlyArray<string>,
+  opIds: ReadonlyArray<string>,
+  layoutInput: HarnessLayoutInput = rootDir,
+  message?: string,
+  sessionId?: string,
+  options: { readonly respectGitignorePaths?: ReadonlyArray<string> } = {}
+): string {
   if (touchedPaths.length === 0) return "no-git-change";
 
   const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput);
   if (!plan) return "no-git-change";
+  const respectGitignore = new Set(resolveCommitPlan(rootDir, options.respectGitignorePaths ?? [], layoutInput)?.relativePaths ?? []);
+  const forcedPaths = plan.relativePaths.filter((relativePath) => !respectGitignore.has(relativePath));
+  const unforcedPaths = plan.relativePaths.filter((relativePath) => respectGitignore.has(relativePath));
   const sessionBranch = sessionBranchName(sessionId);
 
   if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch);
   try {
-    runGit(plan.repoRoot, "add", "-A", "-f", "--", ...plan.relativePaths);
+    if (forcedPaths.length > 0) runGit(plan.repoRoot, "add", "-A", "-f", "--", ...forcedPaths);
+    if (unforcedPaths.length > 0) runGit(plan.repoRoot, "add", "-A", "--", ...unforcedPaths);
+    unstageLogFiles(plan.repoRoot, plan.relativePaths);
     const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
     if (staged.length === 0) return currentGitHead(plan.repoRoot);
 
@@ -148,6 +161,19 @@ function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
   } catch (error) {
     throw new Error(`git ${args[0] ?? "command"} failed: ${gitErrorMessage(error)}`);
   }
+}
+
+function unstageLogFiles(repoRoot: string, relativePaths: ReadonlyArray<string>): void {
+  const logPathspecs = relativePaths.flatMap((relativePath) => logPathspecsFor(relativePath));
+  if (logPathspecs.length === 0) return;
+  runGit(repoRoot, "reset", "-q", "--", ...unique(logPathspecs));
+}
+
+function logPathspecsFor(relativePath: string): ReadonlyArray<string> {
+  const normalized = relativePath.replace(/\/+$/u, "");
+  if (normalized.length === 0 || normalized === ".") return [":(glob)**/*.log", "*.log"];
+  if (normalized.endsWith(".log")) return [normalized];
+  return [`:(glob)${normalized}/**/*.log`, `${normalized}/*.log`];
 }
 
 function checkoutSessionBranch(repoRoot: string, branchName: string): void {

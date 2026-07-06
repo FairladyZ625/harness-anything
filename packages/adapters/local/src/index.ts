@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
@@ -6,13 +7,13 @@ import { explainStatusTransition, isTerminalStatus } from "../../../kernel/src/d
 import { evaluateEntityDisposition } from "../../../kernel/src/entity/disposition.ts";
 import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { createHarnessRuntimeContext, harnessRuntimeRoot } from "../../../kernel/src/layout/index.ts";
+import { createHarnessRuntimeContext, harnessRuntimeRoot, taskPackagePath } from "../../../kernel/src/layout/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
 import { makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../../kernel/src/store/index.ts";
 import { resolveTaskCreatedBy } from "./created-by.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
 import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
-import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
+import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, stageTaskTree, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
 import type {
   AppendProgressInput,
   CreateLocalTaskInput,
@@ -22,10 +23,12 @@ import type {
   LocalLifecycleOptions,
   LocalProgressResult,
   LocalSupersedeResult,
+  LocalTaskTreeStatusResult,
   LocalTaskResult,
   LocalWriteCoordinatorOptions,
   SetLocalStatusInput,
   StageTaskDocumentInput,
+  StageTaskTreeInput,
   SupersedeTaskInput,
   TaskReasonInput,
   WriteTaskDocumentInput
@@ -44,10 +47,12 @@ export type {
   LocalLifecycleOptions,
   LocalProgressResult,
   LocalSupersedeResult,
+  LocalTaskTreeStatusResult,
   LocalTaskResult,
   LocalWriteCoordinatorOptions,
   SetLocalStatusInput,
   StageTaskDocumentInput,
+  StageTaskTreeInput,
   SupersedeTaskInput,
   TaskReasonInput,
   WriteTaskDocumentInput
@@ -75,6 +80,8 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
     setStatus: (input) => setStatus(runtimeContext, coordinator, input),
     appendProgress: (input) => appendProgress(runtimeContext, coordinator, input),
     stageDocument: (input) => stageDocument(runtimeContext, coordinator, input),
+    stageTaskTree: (input) => stageTaskPackageTree(runtimeContext, coordinator, input),
+    taskTreeStatus: (input) => taskTreeStatus(runtimeContext, input),
     replaceTaskDocument: (input) => replaceTaskDocument(runtimeContext, coordinator, input),
     archiveTask: (input) => archiveTask(runtimeContext, coordinator, input),
     supersedeTask: (input) => supersedeTask(runtimeContext, coordinator, clock, input, options.bindCreateProvenance),
@@ -203,6 +210,31 @@ function stageDocument(
   });
 }
 
+function stageTaskPackageTree(
+  rootInput: HarnessLayoutInput,
+  coordinator: WriteCoordinator,
+  input: StageTaskTreeInput
+): Effect.Effect<LocalProgressResult, EngineError | WriteError> {
+  return Effect.gen(function* () {
+    yield* readIndexEffect(rootInput, input.taskId);
+    yield* stageTaskTree(coordinator, stablePayloadHash, input.taskId);
+    return { taskId: input.taskId, path: "." } satisfies LocalProgressResult;
+  });
+}
+
+function taskTreeStatus(
+  rootInput: HarnessLayoutInput,
+  input: StageTaskTreeInput
+): Effect.Effect<LocalTaskTreeStatusResult, EngineError | WriteError> {
+  return Effect.gen(function* () {
+    yield* readIndexEffect(rootInput, input.taskId);
+    return yield* Effect.try({
+      try: () => readTaskTreeStatus(rootInput, input.taskId),
+      catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
+    });
+  });
+}
+
 function replaceTaskDocument(
   rootInput: HarnessLayoutInput,
   coordinator: WriteCoordinator,
@@ -213,6 +245,43 @@ function replaceTaskDocument(
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, input.path, input.body, { kind: "doc_write" });
     return { taskId: input.taskId, path: input.path } satisfies LocalProgressResult;
   });
+}
+
+const gitMaxBuffer = 256 * 1024 * 1024;
+
+function readTaskTreeStatus(rootInput: HarnessLayoutInput, taskId: string): LocalTaskTreeStatusResult {
+  const packagePath = taskPackagePath(rootInput, taskId);
+  if (!gitTopLevel(packagePath)) return { taskId, dirty: false, entries: [] };
+  const output = execFileSync("git", ["-C", packagePath, "status", "--porcelain", "-uall", "--", "."], {
+    encoding: "utf8",
+    maxBuffer: gitMaxBuffer,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const entries = output
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry) => !statusEntryPath(entry).endsWith(".log"));
+  return { taskId, dirty: entries.length > 0, entries };
+}
+
+function gitTopLevel(inputPath: string): string | null {
+  try {
+    return execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      maxBuffer: gitMaxBuffer,
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function statusEntryPath(entry: string): string {
+  const renamedSeparator = " -> ";
+  const pathText = entry.slice(3);
+  const renamedIndex = pathText.indexOf(renamedSeparator);
+  return renamedIndex >= 0 ? pathText.slice(renamedIndex + renamedSeparator.length) : pathText;
 }
 
 function archiveTask(

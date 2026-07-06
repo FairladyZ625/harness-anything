@@ -20,10 +20,18 @@ export interface TaskLifecycleProgressWriteResult {
   readonly path: string;
 }
 
+export interface TaskLifecycleTreeStatusResult {
+  readonly taskId: string;
+  readonly dirty: boolean;
+  readonly entries: ReadonlyArray<string>;
+}
+
 export interface TaskLifecycleWriter {
   readonly setStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleStatusWriteResult, EngineError | WriteError>;
   readonly appendProgress: (payload: { readonly taskId: string; readonly text: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
   readonly stageDocument: (payload: { readonly taskId: string; readonly path: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
+  readonly stageTaskTree: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleProgressWriteResult, EngineError | WriteError>;
+  readonly taskTreeStatus: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleTreeStatusResult, EngineError | WriteError>;
 }
 
 export interface TaskLifecycleOrchestratorOptions {
@@ -76,33 +84,39 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
   const layoutInput = createHarnessRuntimeContext(options.rootDir, options.layoutOverrides);
 
   return {
-    setTaskStatus: (payload) => {
+    setTaskStatus: (payload) => Effect.gen(function* () {
       if (isTerminalStatus(payload.status)) {
-        return Effect.succeed(terminalStatusFailure(payload.taskId, payload.status));
+        return terminalStatusFailure(payload.taskId, payload.status);
       }
-      return options.taskWriter.setStatus(payload).pipe(
+      const status = yield* options.taskWriter.setStatus(payload).pipe(
         Effect.match({
           onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Status update failed."),
           onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
         })
       );
-    },
-    startTaskReview: (payload) => options.taskWriter.setStatus({ taskId: payload.taskId, status: "in_review" }).pipe(
-      Effect.match({
-        onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Review transition failed."),
-        onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
-      })
-    ),
+      if (!status.ok || payload.status !== "in_review") return status;
+      const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Review transition task-tree staging failed.");
+      if (!staged.ok) return staged;
+      return status;
+    }),
+    startTaskReview: (payload) => Effect.gen(function* () {
+      const status = yield* options.taskWriter.setStatus({ taskId: payload.taskId, status: "in_review" }).pipe(
+        Effect.match({
+          onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Review transition failed."),
+          onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
+        })
+      );
+      if (!status.ok) return status;
+      const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Review transition task-tree staging failed.");
+      if (!staged.ok) return staged;
+      return { ok: true, taskId: payload.taskId, status: "in_review" } satisfies TaskLifecycleResult;
+    }),
     reviewTask: (payload) => Effect.gen(function* () {
       const review = reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now);
       if (!review.ok) return review;
-      const staged = yield* options.taskWriter.stageDocument({ taskId: payload.taskId, path: "review.md" }).pipe(
-        Effect.match({
-          onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Review artifact staging failed."),
-          onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, path: result.path, report: review.report, reviewContract: review.reviewContract })
-        })
-      );
-      return staged;
+      const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Review artifact staging failed.");
+      if (!staged.ok) return staged;
+      return { ok: true, taskId: payload.taskId, path: staged.path, report: review.report, reviewContract: review.reviewContract };
     }),
     completeTask: (payload) => Effect.gen(function* () {
       const review = yield* Effect.sync(() => reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now));
@@ -148,6 +162,19 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         } satisfies TaskLifecycleResult;
       }
 
+      const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Completion task-tree staging failed.");
+      if (!staged.ok) return staged;
+      const taskTreeStatus = yield* options.taskWriter.taskTreeStatus({ taskId: payload.taskId }).pipe(
+        Effect.match({
+          onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Completion task-tree dirty check failed."),
+          onSuccess: (result): TaskLifecycleResult => result.dirty
+            ? taskTreeDirtyFailure(payload.taskId, result.entries, completionGate)
+            : ({ ok: true, taskId: result.taskId } satisfies TaskLifecycleResult)
+        })
+      );
+      if (!taskTreeStatus.ok) {
+        return taskTreeStatus;
+      }
       const status = yield* options.taskWriter.setStatus({ taskId: payload.taskId, status: "done" }).pipe(
         Effect.match({
           onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Completion status update failed."),
@@ -155,15 +182,6 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         })
       );
       if (!status.ok) return status;
-      for (const documentPath of ["review.md", "closeout.md"]) {
-        const staged = yield* options.taskWriter.stageDocument({ taskId: payload.taskId, path: documentPath }).pipe(
-          Effect.match({
-            onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, `${documentPath} staging failed.`),
-            onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, path: result.path })
-          })
-        );
-        if (!staged.ok) return staged;
-      }
       return {
         ok: true,
         taskId: payload.taskId,
@@ -173,6 +191,19 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       } satisfies TaskLifecycleResult;
     })
   };
+}
+
+function stageTaskTree(
+  writer: TaskLifecycleWriter,
+  taskId: string,
+  failureHint: string
+): Effect.Effect<TaskLifecycleResult> {
+  return writer.stageTaskTree({ taskId }).pipe(
+    Effect.match({
+      onFailure: (error): TaskLifecycleResult => writeFailure(taskId, error, failureHint),
+      onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, path: result.path })
+    })
+  );
 }
 
 function validateCompletionDocumentPlaceholders(
@@ -272,6 +303,31 @@ function terminalStatusFailure(taskId: string, status: DomainStatus): TaskLifecy
 
 function taskFailure(taskId: string, code: string, hint: string): TaskLifecycleFailure {
   return { ok: false, taskId, error: { code, hint } };
+}
+
+function taskTreeDirtyFailure(
+  taskId: string,
+  entries: ReadonlyArray<string>,
+  completionGate: CompletionGateResult
+): TaskLifecycleFailure {
+  const issue = {
+    code: "task_tree_dirty" as const,
+    message: `Task package has uncommitted changes after sweep: ${entries.slice(0, 5).join(", ")}${entries.length > 5 ? ", ..." : ""}`
+  };
+  return {
+    ok: false,
+    taskId,
+    completionGate: {
+      ...completionGate,
+      ok: false,
+      issues: [...completionGate.issues, issue]
+    },
+    issues: [issue],
+    error: {
+      code: issue.code,
+      hint: "Task completion requires tasks/<id>/ to be clean after the transition sweep. Let the lifecycle transition commit the task package, then rerun task complete."
+    }
+  };
 }
 
 function writeFailure(taskId: string, error: EngineError | WriteError, fallbackHint: string): TaskLifecycleFailure {

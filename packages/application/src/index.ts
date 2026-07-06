@@ -89,6 +89,7 @@ export type {
   TaskLifecycleProgressWriteResult,
   TaskLifecycleResult,
   TaskLifecycleStatusWriteResult,
+  TaskLifecycleTreeStatusResult,
   TaskLifecycleSuccess,
   TaskLifecycleWriter
 } from "./task-lifecycle-orchestrator.ts";
@@ -167,10 +168,18 @@ export interface LocalControllerProgressWriteResult {
   readonly path: string;
 }
 
+export interface LocalControllerTaskTreeStatusResult {
+  readonly taskId: string;
+  readonly dirty: boolean;
+  readonly entries: ReadonlyArray<string>;
+}
+
 export interface LocalControllerTaskWriter {
   readonly setStatus: (payload: SetTaskStatusPayload) => Effect.Effect<LocalControllerStatusWriteResult, EngineError | WriteError>;
   readonly appendProgress: (payload: AppendTaskProgressPayload) => Effect.Effect<LocalControllerProgressWriteResult, EngineError | WriteError>;
   readonly stageDocument: (payload: TaskDocumentPayload) => Effect.Effect<LocalControllerProgressWriteResult, EngineError | WriteError>;
+  readonly stageTaskTree: (payload: TaskIdPayload) => Effect.Effect<LocalControllerProgressWriteResult, EngineError | WriteError>;
+  readonly taskTreeStatus: (payload: TaskIdPayload) => Effect.Effect<LocalControllerTaskTreeStatusResult, EngineError | WriteError>;
 }
 
 export interface ShellPanelPolicy {
