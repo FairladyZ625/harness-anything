@@ -30,7 +30,7 @@ import { hashTaskProjectionRows, rebuildTaskProjection } from "../projection/sql
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
 import { runLedgerMaterializer } from "./ledger-materializer.ts";
-import { withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
+import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord, taskIdForWriteOp } from "./write-journal-entity.ts";
 import { decisionDocumentTargetPath, decisionWriteKinds } from "./write-journal-decision-documents.ts";
 import { rejectTaskWrite, rejectWrite, WriteRejectedError } from "./write-journal-rejection.ts";
@@ -61,6 +61,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const actor = options.actor ?? defaultActor;
   const lockTtlMs = options.lockTtlMs ?? 60_000;
   const lockConflictRetry = options.lockConflictRetry;
+  const heldGlobalLock = options.heldGlobalLock;
   const sessionId = cleanSessionId(options.sessionId);
   const autoMaterialize = options.autoMaterialize ?? true;
   const pending: WriteOp[] = [];
@@ -70,7 +71,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       pending.splice(0, pending.length);
       const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
       return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId);
-    }),
+    }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
 
@@ -79,6 +80,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
         preflightWriteOp(rootDir, runtimeContext, op);
+        if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         if (state.applied.has(op.opId) || state.records.some((record) => record.opId === op.opId) || pending.some((item) => item.opId === op.opId)) {
           return { opId: op.opId, entityId: op.entityId, accepted: true };
@@ -104,7 +106,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
           replayedOps: report.opCount,
           recoveredWatermark: report.watermark
         };
-      }),
+      }, { heldGlobalLock }),
       catch: (cause): WriteError => toJournalError(cause)
     })
   };
