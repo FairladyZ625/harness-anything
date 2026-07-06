@@ -1,6 +1,6 @@
 import type { CliResult } from "./types.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
-import { commandReceiptContractsByKind } from "./receipt-contracts.ts";
+import { commandReceiptContractsByKind, type CommandReceiptContract } from "./receipt-contracts.ts";
 
 export const commandReceiptEnvelope = "command-receipt/v2" as const;
 const legacyReceiptEnvelope = "CommandReceipt/v1" as const;
@@ -189,20 +189,29 @@ function setPath(paths: Record<string, string>, key: string, value: unknown): vo
 }
 
 function validateReceiptContract(receipt: LegacyCommandReceipt): string | undefined {
-  const contract = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
+  const contract: CommandReceiptContract | undefined = commandReceiptContractsByKind[receipt.command as keyof typeof commandReceiptContractsByKind];
   if (!contract) return `missing receipt contract for command ${receipt.command}`;
-  const allowedData: ReadonlySet<string> = new Set(contract.data);
-  const allowedPaths: ReadonlySet<string> = new Set(contract.paths);
+  const allowedData: ReadonlySet<string> = new Set([...contract.data, ...Object.keys(contract.optionalData ?? {})]);
+  const allowedPaths: ReadonlySet<string> = new Set([...contract.paths, ...Object.keys(contract.optionalPaths ?? {})]);
   const dataKeys = Object.keys(receipt.data ?? {});
   const pathKeys = Object.keys(receipt.paths ?? {});
   const unexpectedData = dataKeys.filter((key) => !allowedData.has(key));
   const unexpectedPaths = pathKeys.filter((key) => !allowedPaths.has(key));
-  const violations = [
+  const missingData = contract.data.filter((key) => !dataKeys.includes(key));
+  const missingPaths = contract.paths.filter((key) => !pathKeys.includes(key));
+  const unexpectedViolations = [
     ...unexpectedData.map((key) => `data.${key}`),
     ...unexpectedPaths.map((key) => `paths.${key}`)
   ];
-  return violations.length > 0
-    ? `receipt for command ${receipt.command} emitted undeclared fields: ${violations.join(", ")}`
+  if (unexpectedViolations.length > 0) {
+    return `receipt for command ${receipt.command} emitted undeclared fields: ${unexpectedViolations.join(", ")}`;
+  }
+  const missingViolations = [
+    ...missingData.map((key) => `data.${key}`),
+    ...missingPaths.map((key) => `paths.${key}`)
+  ];
+  return missingViolations.length > 0
+    ? `receipt for command ${receipt.command} missed declared fields: ${missingViolations.join(", ")}`
     : undefined;
 }
 
