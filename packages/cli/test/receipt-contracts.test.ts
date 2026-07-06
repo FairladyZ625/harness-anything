@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { commandReceiptContractsByKind } from "../src/cli/receipt-contracts.ts";
 import { toCommandReceipt } from "../src/cli/receipt.ts";
 
 test("command receipts fail closed on undeclared path fields", () => {
@@ -8,7 +9,6 @@ test("command receipts fail closed on undeclared path fields", () => {
     command: "task-delete",
     taskId: "task_1",
     mode: "soft",
-    report: { schema: "task-delete-report/v1" },
     path: "soft"
   });
 
@@ -76,6 +76,124 @@ test("command receipts fail closed on missing declared paths", () => {
     assert.equal(receipt.error?.code, "command_receipt_contract_mismatch");
     assert.match(receipt.error?.hint ?? "", /paths\.primary/u);
   }
+});
+
+test("command receipts allow explicitly optional declared data to be absent", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "new-task",
+    taskId: "task_1",
+    slug: "task-1",
+    status: "active",
+    packagePath: "harness/tasks/task_1"
+  });
+
+  assert.equal(receipt.ok, true);
+  if (!receipt.ok) return;
+  assert.equal(receipt.entity?.id, "task_1");
+  assert.equal(receipt.paths?.some((entry) => entry.role === "package"), true);
+});
+
+test("command receipts accept explicitly optional declared data when present", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "new-task",
+    taskId: "task_1",
+    slug: "task-1",
+    status: "active",
+    preset: "standard-task",
+    module: "kernel",
+    generated: ["task_plan.md"],
+    report: { schema: "new-task-report/v1" },
+    packagePath: "harness/tasks/task_1"
+  });
+
+  assert.equal(receipt.ok, true);
+  if (!receipt.ok) return;
+  assert.equal(receipt.details?.data && typeof receipt.details.data === "object" && "preset" in receipt.details.data, true);
+});
+
+test("optional receipt contract fields carry non-empty absence reasons", () => {
+  const optionalEntries = Object.entries(commandReceiptContractsByKind)
+    .flatMap(([command, contract]) => [
+      ...Object.entries(contract.optionalData ?? {}).map(([field, reason]) => ({ command, field: `data.${field}`, reason })),
+      ...Object.entries(contract.optionalPaths ?? {}).map(([field, reason]) => ({ command, field: `paths.${field}`, reason }))
+    ]);
+
+  assert.deepEqual(optionalEntries, [{
+    command: "new-task",
+    field: "data.preset",
+    reason: "Only emitted when task creation runs through a selected preset."
+  }, {
+    command: "new-task",
+    field: "data.module",
+    reason: "Only emitted when --module is supplied or preset/module routing materializes module metadata."
+  }, {
+    command: "new-task",
+    field: "data.generated",
+    reason: "Only emitted when preset or template materialization produces generated files."
+  }, {
+    command: "new-task",
+    field: "data.report",
+    reason: "Only emitted when the creation path produces a structured creation report."
+  }, {
+    command: "status-set",
+    field: "data.forced",
+    reason: "Only emitted for audited terminal recovery transitions invoked with --force."
+  }, {
+    command: "status-set",
+    field: "data.forceAudit",
+    reason: "Only emitted for audited terminal recovery transitions that append force audit evidence."
+  }, {
+    command: "status-set",
+    field: "paths.primary",
+    reason: "Only emitted for audited terminal recovery transitions where the audit progress path is returned as the primary path."
+  }, {
+    command: "status-set",
+    field: "paths.forceAudit",
+    reason: "Only emitted for audited terminal recovery transitions that append force audit evidence."
+  }, {
+    command: "progress-append",
+    field: "data.report",
+    reason: "Only emitted when --evidence is supplied and the receipt includes the appended evidence payload."
+  }, {
+    command: "task-supersede",
+    field: "data.report",
+    reason: "Only emitted when superseding by an existing replacement task via --by."
+  }, {
+    command: "task-supersede",
+    field: "paths.package",
+    reason: "Only emitted when supersede creates a new replacement task package."
+  }, {
+    command: "task-delete",
+    field: "data.report",
+    reason: "Only emitted when delete attribution such as --deleted-by is supplied."
+  }, {
+    command: "task-review",
+    field: "data.completionGate",
+    reason: "Only emitted by completion-oriented task gate results; ordinary task review emits the review contract only."
+  }, {
+    command: "task-complete",
+    field: "data.report",
+    reason: "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate."
+  }, {
+    command: "governance-rebuild",
+    field: "data.generated",
+    reason: "Only emitted for apply/archive rebuild modes that write generated governance views."
+  }, {
+    command: "preset-action",
+    field: "data.taskId",
+    reason: "Only emitted by scripted preset actions that echo the task id in their script result."
+  }, {
+    command: "preset-action",
+    field: "data.rows",
+    reason: "Only emitted when a scripted preset action writes a numeric rows value in its result."
+  }, {
+    command: "script-run",
+    field: "data.rows",
+    reason: "Only emitted when a script writes a numeric rows value in its script-result/v1 payload."
+  }]);
+  assert.equal(optionalEntries.every((entry) => entry.reason.trim().length > 0), true);
 });
 
 test("command receipts accept declared success data and paths", () => {
