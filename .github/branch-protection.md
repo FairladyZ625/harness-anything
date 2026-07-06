@@ -6,7 +6,9 @@ This repository accepts work through pull requests against `main`.
 
 1. Create a `codex/` branch from the latest `origin/main`.
 2. Keep public implementation and private planning evidence separated.
-3. Open a pull request with the full repository PR template.
+3. Open a pull request with the full repository PR template. Mergify-generated
+   merge-queue verification pull requests are synthetic CI artifacts and do not
+   replace the original pull request body.
 4. Wait for the required `rewrite-ci` pull request contexts to pass.
 5. Resolve or explicitly route open P0/P1/P2 findings before merge.
 6. Let Mergify merge through the queue, then delete the merged PR branch.
@@ -32,10 +34,13 @@ manual workflow dispatch. It remains the release-grade gate and still covers
 typecheck, all node tests, boundaries, package policy, schema/API/service gates,
 supply-chain, Legacy Intake smoke, and CLI package smoke.
 
-GitHub branch protection for `main` should require pull request review and the
-`rewrite-ci` status checks, with `required_status_checks.strict = false`.
-Mergify owns the up-to-date guarantee by testing queued pull requests against
-the predicted merge state.
+GitHub repository rulesets for `main` should require pull requests, the
+`rewrite-ci` status checks, deletion blocking, and non-fast-forward/force-push
+blocking with no bypass actors. Classic branch protection keeps the same
+required status checks with `required_status_checks.strict = false`, approval
+count `0`, and required conversation resolution disabled. Mergify owns the
+up-to-date guarantee by testing queued pull requests against the predicted
+merge state.
 
 The current GitHub branch-protection configuration for `main` has administrator
 enforcement disabled and requires these status contexts:
@@ -64,23 +69,42 @@ Mergify queue rules track the fast gate subset:
 - fast-contract
 - pr-body-lint
 
+The `pr-body-lint` job checks human-authored pull request bodies against the
+repository template. It narrowly skips Mergify synthetic queue verification pull
+requests only when the pull request is authored by `mergify[bot]`, uses a
+`mergify/merge-queue/*` head branch, and carries the Mergify queue payload
+marker.
+
+The `rewrite-ci` workflow may cancel superseded ordinary pull request runs, but
+must not cancel `mergify/merge-queue/*` pull request runs. Mergify can emit
+multiple queue-verification pull request events for the same synthetic branch,
+and cancelled replacement races can make the queue treat otherwise passing
+checks as failed.
+
+When Mergify edits only the metadata body of a synthetic
+`mergify/merge-queue/*` pull request, required jobs should complete with a
+fast no-op success. That keeps queue bookkeeping edits from launching another
+full CI pass while preserving normal `edited` body validation for
+human-authored pull requests.
+
 The slower `integration`, `supply-chain`, `gui-build`, and
 `node26-compatibility` contexts remain GitHub branch-protection required
 contexts even though they are outside the Mergify fast-gate subset.
 
-This repository may leave administrator enforcement disabled so a single-owner
-repository can still merge after recorded local review evidence. Any admin
-bypass must be explicit in the task evidence and PR body.
+This repository may leave classic administrator enforcement disabled so a
+single-owner/admin-agent workflow can merge after recorded local review
+evidence. The active ruleset still blocks force pushes, deletion, missing
+required checks, and non-PR updates to `main`.
 
 ## Admin Bypass
 
-Administrator bypass is only acceptable after local task evidence records:
+Administrator merge is the normal autonomous path after local task evidence
+records:
 
-- human approval for the bypass
 - verification commands
 - self-review
 - reviewer review
 - residual risks
 - the latest `origin/main` sync state
 
-Bypass does not make review optional.
+Bypass does not make checks, conflict resolution, or review evidence optional.
