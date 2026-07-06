@@ -17,6 +17,7 @@ test("CLI task list filters projection rows without treating generated cache as 
       workKind: "feat",
       riskTier: "high",
       urgency: "medium",
+      taskClass: "milestone",
       moduleKey: "billing",
       moduleTitle: "Billing",
       lessonCandidates: true
@@ -40,7 +41,8 @@ test("CLI task list filters projection rows without treating generated cache as 
       preset: "standard-task",
       workKind: "fix",
       riskTier: "medium",
-      urgency: "high"
+      urgency: "high",
+      taskClass: "epic"
     });
     rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
 
@@ -64,6 +66,10 @@ test("CLI task list filters projection rows without treating generated cache as 
     assert.equal(metadataFiltered.tasks[0].workKind, "feat");
     assert.equal(metadataFiltered.tasks[0].riskTier, "high");
     assert.equal(metadataFiltered.tasks[0].urgency, "medium");
+
+    const taskClassFiltered = runJson(rootDir, ["task", "list", "--taskClass", "milestone"]);
+    assert.deepEqual(taskClassFiltered.tasks.map((row: Record<string, unknown>) => row.taskId), ["task-billing"]);
+    assert.deepEqual(taskClassFiltered.tasks[0].fieldExtensions, { taskClass: "milestone" });
 
     const noMetadataMatch = runJson(rootDir, ["task", "list", "--kind", "docs"]);
     assert.deepEqual(noMetadataMatch.tasks, []);
@@ -90,6 +96,7 @@ function writeIndex(
     readonly workKind?: string;
     readonly riskTier?: string;
     readonly urgency?: string;
+    readonly taskClass?: string;
     readonly moduleKey?: string;
     readonly moduleTitle?: string;
     readonly lessonCandidates?: boolean;
@@ -115,6 +122,7 @@ function writeIndex(
     ...(options.workKind ? [`workKind: ${options.workKind}`] : []),
     ...(options.riskTier ? [`riskTier: ${options.riskTier}`] : []),
     ...(options.urgency ? [`urgency: ${options.urgency}`] : []),
+    ...(options.taskClass ? [`taskClass: ${options.taskClass}`] : []),
     `vertical: ${options.vertical ?? "software/coding"}`,
     `preset: ${options.preset ?? "standard-task"}`,
     ...(options.profile ? [`profile: ${options.profile}`] : []),

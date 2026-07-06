@@ -84,11 +84,26 @@ const VerticalScriptSchema = Schema.Struct({
   })
 });
 
+const EntityFieldExtensionSchema = Schema.Struct({
+  extends: Schema.Literal("task"),
+  field: Schema.String,
+  kind: Schema.Literal("enum-facet"),
+  values: StringArray.pipe(Schema.minItems(1)),
+  default: Schema.Literal(null),
+  mutability: Schema.Literal("amendable"),
+  projection: Schema.Struct({
+    column: Schema.String,
+    queryable: Schema.Boolean
+  }),
+  reason: Schema.String
+});
+
 export const VerticalDefinitionSchema = Schema.Struct({
   schema: Schema.Literal("vertical-definition/v1"),
   id: Schema.String,
   title: Schema.String,
   version: Schema.String,
+  entityFieldExtensions: Schema.optional(Schema.Array(EntityFieldExtensionSchema)),
   entityKinds: Schema.Array(Schema.Union(
     Schema.Struct({
       id: Schema.String,

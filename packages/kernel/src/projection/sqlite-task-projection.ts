@@ -24,6 +24,7 @@ export type {
   ProjectionWarningSource,
   DecisionProjectionQueryFilters,
   DecisionProjectionRow,
+  TaskFieldExtensionProjection,
   TaskProjectionQueryFilters,
   TaskProjectionOptions,
   TaskProjectionRow
@@ -46,7 +47,7 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
   const source = readMarkdownSource(runtimeContext);
-  const rows = source.entries.map((entry) => taskEntryToRow(runtimeContext, entry)).sort(compareRows);
+  const rows = source.entries.map((entry) => taskEntryToRow(runtimeContext, entry, options.taskFieldExtensions)).sort(compareRows);
   const decisionRows = readDecisionProjectionRows(runtimeContext);
   const rowsHash = hashExactRows(rows);
   const decisionRowsHash = hashDecisionProjectionRows(decisionRows);
@@ -59,7 +60,7 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     relationEdges: relationGraph.edges,
     coverageRows: relationGraph.coverageRows,
     factAnchors: relationGraph.factAnchors
-  });
+  }, options.taskFieldExtensions);
   return {
     rows,
     warnings: source.warnings
@@ -80,11 +81,11 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection cache was missing and has been rebuilt.",
       "Run harness-anything governance rebuild to materialize a fresh local projection cache before relying on generated state."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return { rows: rebuilt.rows, warnings };
   }
 
-  const existing = tryReadProjectionDatabase(projectionPath);
+  const existing = tryReadProjectionDatabase(projectionPath, options.taskFieldExtensions);
   if (!existing.ok) {
     warnings.push(hardFail(
       "generated-cache",
@@ -92,7 +93,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection cache could not be read and has been rebuilt from markdown.",
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
@@ -103,7 +104,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection cache was stale and has been rebuilt from markdown.",
       "Run harness-anything governance rebuild after authored task changes or merges."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
@@ -116,7 +117,7 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "Projection rows no longer match their recorded hash.",
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
     ));
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
@@ -130,16 +131,16 @@ export function queryTaskProjection(options: TaskProjectionOptions & { readonly 
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
-      rows: queryTaskProjectionRows(projectionPath, options.filters),
+      rows: queryTaskProjectionRows(projectionPath, options.filters, options.taskFieldExtensions),
       warnings: projection.warnings
     };
   } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
-      rows: queryTaskProjectionRows(projectionPath, options.filters),
+      rows: queryTaskProjectionRows(projectionPath, options.filters, options.taskFieldExtensions),
       warnings: [...projection.warnings, ...rebuilt.warnings]
     };
   }
@@ -149,14 +150,14 @@ export function queryTaskChildren(options: TaskProjectionOptions & { readonly pa
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
       rows: queryTaskChildrenRows(projectionPath, options.parentTaskId),
       warnings: projection.warnings
     };
   } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
       rows: queryTaskChildrenRows(projectionPath, options.parentTaskId),
       warnings: [...projection.warnings, ...rebuilt.warnings]
@@ -168,14 +169,14 @@ export function queryTaskSubtree(options: TaskProjectionOptions & { readonly roo
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
       rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
       warnings: projection.warnings
     };
   } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
       rows: queryTaskSubtreeRows(projectionPath, options.rootTaskId),
       warnings: [...projection.warnings, ...rebuilt.warnings]
@@ -190,14 +191,14 @@ export function queryDecisionProjection(options: TaskProjectionOptions & { reado
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     return {
       rows: [...queryDecisionProjectionRows(projectionPath, options.filters)].sort(compareDecisionRows),
       warnings: projection.warnings
     };
   } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return {
       rows: [...queryDecisionProjectionRows(projectionPath, options.filters)].sort(compareDecisionRows),
       warnings: [...projection.warnings, ...rebuilt.warnings]
@@ -214,7 +215,7 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const taskProjection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  const taskProjection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   try {
     const graphRows = readRelationGraphRows(projectionPath);
     return {
@@ -224,7 +225,7 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
       warnings: taskProjection.warnings
     };
   } catch {
-    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     const graphRows = readRelationGraphRows(projectionPath);
     return {
       edges: graphRows.relationEdges,
@@ -251,7 +252,7 @@ export function checkTaskProjection(options: TaskProjectionOptions): ProjectionC
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
-  const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath });
+  const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
   const postMergeWarnings = options.postMerge ? runPostMergeChecks(runtimeContext) : [];
   const warnings = [...result.warnings, ...postMergeWarnings];
   const ok = warnings.every((item) => item.severity !== "hard-fail");

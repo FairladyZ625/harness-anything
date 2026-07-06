@@ -1,7 +1,8 @@
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
-import type { CliResult, ParsedCommand } from "../types.ts";
+import type { CliResult, ParsedCommand, TaskListFilters } from "../types.ts";
 import { readPriorityTier, readTaskWorkKind } from "./task-metadata-options.ts";
+import { bundledVerticalDefinition } from "../../commands/extensions/bundled.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
@@ -23,6 +24,7 @@ export function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json
   if (!urgency.ok) return { ok: false, error: urgency.error };
   const review = readOption(args, "--review");
   const search = readOption(args, "--search");
+  const fieldExtensions = readFieldExtensionFilters(args);
   return taskListOk(rootDir, json, {
     kind: "task-list",
     filters: {
@@ -37,9 +39,22 @@ export function parseTaskList(args: ReadonlyArray<string>, rootDir: string, json
       ...(args.includes("--lesson") ? { lesson } : {}),
       missingMaterials: args.includes("--missing-materials"),
       includeArchived: args.includes("--include-archived"),
-      ...(search ? { search } : {})
+      ...(search ? { search } : {}),
+      ...(fieldExtensions.length > 0 ? { fieldExtensions } : {})
     }
   });
+}
+
+function readFieldExtensionFilters(args: ReadonlyArray<string>): NonNullable<TaskListFilters["fieldExtensions"]> {
+  const vertical = bundledVerticalDefinition();
+  return (vertical?.entityFieldExtensions ?? [])
+    .filter((extension) => extension.projection.queryable)
+    .flatMap((extension) => {
+      const value = readOption(args, `--${extension.field}`);
+      return value && !value.startsWith("--")
+        ? [{ field: extension.field, column: extension.projection.column, value }]
+        : [];
+    });
 }
 
 function readOptionalFlagValue(args: ReadonlyArray<string>, flag: string): string | undefined {

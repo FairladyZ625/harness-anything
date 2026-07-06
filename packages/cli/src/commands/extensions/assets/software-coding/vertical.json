@@ -3,6 +3,21 @@
   "id": "software/coding",
   "title": "Software Coding",
   "version": "1.0.0",
+  "entityFieldExtensions": [
+    {
+      "extends": "task",
+      "field": "taskClass",
+      "kind": "enum-facet",
+      "values": ["milestone", "epic"],
+      "default": null,
+      "mutability": "amendable",
+      "projection": {
+        "column": "task_class",
+        "queryable": true
+      },
+      "reason": "coding vertical rendering height: milestone or epic"
+    }
+  ],
   "entityKinds": [
     {
       "id": "task",

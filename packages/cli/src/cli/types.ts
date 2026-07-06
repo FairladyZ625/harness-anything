@@ -42,6 +42,11 @@ export interface TaskListFilters {
   readonly missingMaterials: boolean;
   readonly includeArchived: boolean;
   readonly search?: string;
+  readonly fieldExtensions?: ReadonlyArray<{
+    readonly field: string;
+    readonly column: string;
+    readonly value: string;
+  }>;
 }
 
 export interface EvidenceAppendInput {
