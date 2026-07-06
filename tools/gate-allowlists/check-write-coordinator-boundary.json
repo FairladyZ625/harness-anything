@@ -1,0 +1,53 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-write-coordinator-boundary",
+  "entries": {
+    "knownMetabolicDecisionDebt": [
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#named-import:../entity/disposition.ts:evaluateEntityDisposition:evaluateEntityDisposition",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "ADR-0022 F6 identifies the current hard-delete disposition policy inside WriteCoordinator as structural debt; this task gates against growth without changing implementation."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#named-import:../domain/index.ts:isDomainStatus:isDomainStatus",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current hard-delete admissibility checks task lifecycle status inside WriteCoordinator; allowed only as existing F6 debt."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#named-import:../domain/index.ts:isPackageDisposition:isPackageDisposition",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current hard-delete admissibility checks package disposition inside WriteCoordinator; allowed only as existing F6 debt."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#named-import:../domain/index.ts:isTerminalStatus:isTerminalStatus",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current hard-delete admissibility checks terminal lifecycle state inside WriteCoordinator; allowed only as existing F6 debt."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#call-import:../entity/disposition.ts:evaluateEntityDisposition:evaluateEntityDisposition",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current hard-delete path calls entity disposition evaluation from WriteCoordinator; allowed only as existing F6 debt."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#call-import:../domain/index.ts:isDomainStatus:isDomainStatus",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current hard-delete path calls lifecycle status validation from WriteCoordinator; allowed only as existing F6 debt."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#call-import:../domain/index.ts:isPackageDisposition:isPackageDisposition",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current hard-delete path calls package disposition validation from WriteCoordinator; allowed only as existing F6 debt."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#call-import:../domain/index.ts:isTerminalStatus:isTerminalStatus",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current hard-delete path calls terminal lifecycle classification from WriteCoordinator; allowed only as existing F6 debt."
+      },
+      {
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#local-function:assertHardDeleteAllowed",
+        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+        "reason": "Current WriteCoordinator owns hard-delete admissibility logic; ADR-0022 F6 requires this to be visible as debt until a later implementation task extracts it."
+      }
+    ]
+  }
+}
