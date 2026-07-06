@@ -1,17 +1,14 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const root = process.cwd();
 const scannedRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
-const authorities = new Map([
-  ["sha256Text", "packages/kernel/src/integrity/stable-hash.ts"],
-  ["stablePayloadHash", "packages/kernel/src/integrity/stable-hash.ts"],
-  ["stableStringify", "packages/kernel/src/integrity/stable-hash.ts"],
-  ["readFrontmatter", "packages/kernel/src/markdown/frontmatter.ts"],
-  ["readScalar", "packages/kernel/src/markdown/frontmatter.ts"],
-  ["readNestedScalar", "packages/kernel/src/markdown/frontmatter.ts"]
-]);
+const allowlist = loadGateAllowlist("check-integrity-single-source", {
+  requiredSections: ["authorities"]
+});
+const authorities = new Map(allowlist.authorities.map((entry) => [entry.symbol, entry.path]));
 const violations = [];
 
 async function walk(dir) {

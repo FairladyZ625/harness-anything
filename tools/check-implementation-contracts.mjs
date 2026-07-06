@@ -1,38 +1,58 @@
 import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { entryPairs, entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
 const violations = [];
 
-const expectedRuntimeTestFiles = {
-  gui: [
-    "packages/gui/test/renderer-no-node.test.ts",
-    "packages/gui/test/preload-allowlist.test.ts",
-    "packages/gui/test/ipc-handler-registration.test.ts",
-    "packages/gui/test/service-bridge.test.ts",
-    "packages/gui/test/markdown-sanitize.test.ts",
-    "packages/gui/test/local-api-auth.test.ts",
-    "packages/gui/test/path-traversal.test.ts",
-    "packages/gui/test/terminal-no-ingestion.test.ts",
-    "packages/application/test/local-controller-service.test.ts"
-  ],
-  store: [
-    "packages/kernel/test/store/journal-idempotency.test.ts",
-    "packages/kernel/test/store/same-task-fifo.test.ts",
-    "packages/kernel/test/store/global-committer-lock.test.ts",
-    "packages/kernel/test/store/crash-before-watermark.test.ts",
-    "packages/kernel/test/store/payload-hash.test.ts",
-    "packages/kernel/test/store/portable-path-collision.test.ts",
-    "packages/kernel/test/store/sqlite-rebuild.test.ts"
-  ],
-  publish: [
-    "packages/kernel/test/publish/redaction.test.ts",
-    "packages/kernel/test/publish/idempotency.test.ts",
-    "packages/kernel/test/publish/private-evidence-rejection.test.ts"
+const allowlist = loadGateAllowlist("check-implementation-contracts", {
+  requiredSections: [
+    "expectedRuntimeTestFiles",
+    "packageLockVersions",
+    "forbiddenLockfiles",
+    "expectedWorkspaceTsconfigs",
+    "requiredCompilerOptions",
+    "portablePathRequiredSnippets",
+    "portablePathTestEvidence",
+    "guiCliTextFiles",
+    "guiImplementationSnippets",
+    "applicationServiceSnippets",
+    "guiSecurityEvidence",
+    "storeRequiredSnippets",
+    "localLifecycleCliTextFiles",
+    "localLifecycleRequiredSnippets",
+    "taskProjectionRequiredSnippets",
+    "multicaRequiredSnippets",
+    "multicaForbiddenVerbs",
+    "extensionRequiredSnippets",
+    "extensionSchemaPaths",
+    "browserWindowRequiredPatterns"
   ]
-};
+});
+const expectedRuntimeTestFiles = Object.fromEntries(
+  Object.entries(allowlist.expectedRuntimeTestFiles).map(([kind, entries]) => [kind, entryValues(entries)])
+);
+const packageLockVersions = entryPairs(allowlist.packageLockVersions, "path", "version");
+const forbiddenLockfiles = entryValues(allowlist.forbiddenLockfiles);
+const expectedWorkspaceTsconfigs = entryValues(allowlist.expectedWorkspaceTsconfigs).sort();
+const requiredCompilerOptions = Object.fromEntries(allowlist.requiredCompilerOptions.map((entry) => [entry.option, entry.value]));
+const portablePathRequiredSnippets = entryValues(allowlist.portablePathRequiredSnippets);
+const portablePathTestEvidence = entryValues(allowlist.portablePathTestEvidence);
+const guiCliTextFiles = entryValues(allowlist.guiCliTextFiles);
+const guiImplementationSnippets = entryValues(allowlist.guiImplementationSnippets);
+const applicationServiceSnippets = entryValues(allowlist.applicationServiceSnippets);
+const guiSecurityEvidence = entryValues(allowlist.guiSecurityEvidence);
+const storeRequiredSnippets = entryValues(allowlist.storeRequiredSnippets);
+const localLifecycleCliTextFiles = entryValues(allowlist.localLifecycleCliTextFiles);
+const localLifecycleRequiredSnippets = entryValues(allowlist.localLifecycleRequiredSnippets);
+const taskProjectionRequiredSnippets = entryValues(allowlist.taskProjectionRequiredSnippets);
+const multicaRequiredSnippets = entryValues(allowlist.multicaRequiredSnippets);
+const multicaForbiddenVerbs = entryValues(allowlist.multicaForbiddenVerbs);
+const extensionRequiredSnippets = entryValues(allowlist.extensionRequiredSnippets);
+const extensionSchemaPaths = entryValues(allowlist.extensionSchemaPaths);
+const browserWindowRequiredPatterns = allowlist.browserWindowRequiredPatterns.map((entry) => new RegExp(entry.pattern));
 
 function record(message) {
   violations.push(message);
@@ -82,32 +102,17 @@ if (rootPackage.devDependencies?.typescript !== "5.9.3") record("typescript vers
 if (rootPackage.devDependencies?.["@types/node"] !== "24.13.2") record("@types/node version must remain 24.13.2");
 if (!existsSync(path.join(root, "package-lock.json"))) record("package-lock.json is required; npm is the package manager");
 const packageLock = existsSync(path.join(root, "package-lock.json")) ? readJson("package-lock.json") : { packages: {} };
-for (const [lockPath, expected] of [
-  ["node_modules/effect", "3.21.4"],
-  ["node_modules/@effect/platform", "0.96.2"],
-  ["node_modules/typescript", "5.9.3"],
-  ["node_modules/@types/node", "24.13.2"]
-]) {
+for (const [lockPath, expected] of packageLockVersions) {
   const actual = packageLock.packages?.[lockPath]?.version;
   if (actual !== expected) record(`package-lock ${lockPath} must be ${expected}, got ${actual ?? "missing"}`);
 }
-for (const forbiddenLockfile of ["pnpm-lock.yaml", "yarn.lock", "bun.lockb"]) {
+for (const forbiddenLockfile of forbiddenLockfiles) {
   if (existsSync(path.join(root, forbiddenLockfile))) record(`${forbiddenLockfile} is not allowed in this npm workspace`);
 }
 
 const workspaceTsconfigs = (rootTsconfig.references ?? [])
   .map((reference) => `${reference.path.replace(/^\.\//, "")}/tsconfig.json`)
   .sort();
-const expectedWorkspaceTsconfigs = [
-  "packages/adapters/github-issues/tsconfig.json",
-  "packages/adapters/linear/tsconfig.json",
-  "packages/adapters/local/tsconfig.json",
-  "packages/adapters/multica/tsconfig.json",
-  "packages/application/tsconfig.json",
-  "packages/cli/tsconfig.json",
-  "packages/gui/tsconfig.json",
-  "packages/kernel/tsconfig.json"
-].sort();
 if (JSON.stringify(workspaceTsconfigs) !== JSON.stringify(expectedWorkspaceTsconfigs)) {
   record(`tsconfig references must match expected workspaces: ${expectedWorkspaceTsconfigs.join(", ")}`);
 }
@@ -115,20 +120,7 @@ if (JSON.stringify(workspaceTsconfigs) !== JSON.stringify(expectedWorkspaceTscon
 for (const tsconfigPath of workspaceTsconfigs) {
   const tsconfig = readJson(tsconfigPath);
   const options = tsconfig.compilerOptions ?? {};
-  const requiredOptions = {
-    composite: true,
-    declaration: true,
-    emitDeclarationOnly: true,
-    module: "NodeNext",
-    moduleResolution: "NodeNext",
-    target: "ES2024",
-    strict: true,
-    allowImportingTsExtensions: true,
-    erasableSyntaxOnly: true,
-    rootDir: "./src",
-    outDir: "./dist"
-  };
-  for (const [key, expected] of Object.entries(requiredOptions)) {
+  for (const [key, expected] of Object.entries(requiredCompilerOptions)) {
     if (options[key] !== expected) record(`${tsconfigPath} compilerOptions.${key} must be ${JSON.stringify(expected)}`);
   }
 }
@@ -139,15 +131,7 @@ if (!existsSync(portablePathPath)) {
   record("kernel layout must expose a portable path contract at packages/kernel/src/layout/portable-path.ts");
 } else {
   const portablePathText = readFileSync(portablePathPath, "utf8");
-  for (const requiredSnippet of [
-    "normalizeRelativeDocumentPath",
-    "path.posix.isAbsolute",
-    "path.win32.isAbsolute",
-    "windowsReservedName",
-    "windowsForbiddenChars",
-    "findPortablePathCollisions",
-    "toLocaleLowerCase(\"en-US\")"
-  ]) {
+  for (const requiredSnippet of portablePathRequiredSnippets) {
     if (!portablePathText.includes(requiredSnippet)) record(`portable path contract must include ${requiredSnippet}`);
   }
 }
@@ -157,13 +141,7 @@ if (!existsSync(portablePathTestPath)) {
   record("portable path contract requires packages/kernel/test/layout/portable-path.test.ts");
 } else {
   const portablePathTestText = readFileSync(portablePathTestPath, "utf8");
-  for (const requiredEvidence of [
-    "C:\\\\Users\\\\name\\\\secret.md",
-    "\\\\\\\\server\\\\share\\\\secret.md",
-    "notes\\\\progress.md",
-    "con.md",
-    "findPortablePathCollisions"
-  ]) {
+  for (const requiredEvidence of portablePathTestEvidence) {
     if (!portablePathTestText.includes(requiredEvidence)) record(`portable path tests must prove: ${requiredEvidence}`);
   }
 }
@@ -203,38 +181,11 @@ if (hasGuiImplementation) {
     .filter((file) => relative(file).startsWith("packages/application/"))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
-  const cliText = [
-    "packages/cli/src/index.ts",
-    "packages/cli/src/commands/core/gui.ts",
-    "packages/cli/src/cli/error-codes.ts",
-    "packages/cli/src/cli/error-mapper.ts"
-  ].map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
-  for (const requiredSnippet of [
-    "nodeIntegration: false",
-    "contextIsolation: true",
-    "sandbox: true",
-    "webSecurity: true",
-    "guiContentSecurityPolicy",
-    "HARNESS_PRELOAD_API",
-    "allowedPreloadApi",
-    "localApiBindHost = \"127.0.0.1\"",
-    "createLocalApiSession",
-    "authorizeLocalApiRequest",
-    "validateProjectPath",
-    "sanitizeMarkdownHtml",
-    "registerHarnessIpcHandlers",
-    "createGuiServiceBridge",
-    "shellPanelPolicy",
-    "outputCreatesTaskState: false",
-    "buildGuiViewModel"
-  ]) {
+  const cliText = guiCliTextFiles.map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
+  for (const requiredSnippet of guiImplementationSnippets) {
     if (!guiText.includes(requiredSnippet)) record(`GUI implementation must include ${requiredSnippet}`);
   }
-  for (const requiredSnippet of [
-    "makeLocalControllerService",
-    "taskWriter",
-    "readTaskProjection"
-  ]) {
+  for (const requiredSnippet of applicationServiceSnippets) {
     if (!applicationText.includes(requiredSnippet)) record(`application service must include ${requiredSnippet}`);
   }
   const serviceInterface = applicationText.match(/export interface LocalControllerService \{[\s\S]*?\n\}/)?.[0] ?? "";
@@ -251,17 +202,7 @@ if (hasGuiImplementation) {
     record("CLI must delegate a gui launch command without importing the GUI package");
   }
   const guiSecurityTests = expectedRuntimeTestFiles.gui.map((testPath) => readFileSync(path.join(root, testPath), "utf8")).join("\n");
-  for (const requiredEvidence of [
-    "renderer model has no Node or Electron privileged surface",
-    "preload exposes only the approved API methods",
-    "main process registers one IPC handler for each preload allowlist method",
-    "GUI service bridge reaches application service",
-    "local controller service reads projection and writes through injected task writer",
-    "Markdown sanitizer strips scripts",
-    "local API binds localhost",
-    "path guard rejects traversal",
-    "PTY output stays display-only"
-  ]) {
+  for (const requiredEvidence of guiSecurityEvidence) {
     if (!guiSecurityTests.includes(requiredEvidence)) record(`GUI security tests must prove: ${requiredEvidence}`);
   }
 }
@@ -271,21 +212,7 @@ if (hasStoreImplementation) {
     .filter((file) => relative(file).startsWith("packages/kernel/src/store/"))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
-  for (const requiredSnippet of [
-    "write-journal/v1",
-    "write-watermark/v1",
-    "lock-takeover/v1",
-    "payloadRef",
-    "fsyncSync",
-    "ownerToken",
-    "heartbeatAt",
-    ".takeover",
-    "renameSync",
-    "commitTouchedPaths",
-    "rebuildProjectionHash",
-    "hashTaskProjectionRows",
-    "compactJournalDurably"
-  ]) {
+  for (const requiredSnippet of storeRequiredSnippets) {
     if (!coordinatorText.includes(requiredSnippet)) {
       record(`store implementation must include ${requiredSnippet}`);
     }
@@ -310,20 +237,10 @@ if (hasStoreImplementation) {
 
 if (hasLocalLifecycleImplementation) {
   const localAdapterText = readFileSync(path.join(root, "packages/adapters/local/src/index.ts"), "utf8");
-  const cliText = [
-    "packages/cli/src/index.ts",
-    "packages/cli/src/cli/error-codes.ts",
-    "packages/cli/src/cli/error-mapper.ts"
-  ].map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
+  const cliText = localLifecycleCliTextFiles.map((relativePath) => readFileSync(path.join(root, relativePath), "utf8")).join("\n");
   const cliTestPath = "packages/cli/test/local-lifecycle-cli.test.ts";
   if (!existsSync(path.join(root, cliTestPath))) record(`local lifecycle CLI requires contract test: ${cliTestPath}`);
-  for (const requiredSnippet of [
-    "WriteCoordinator",
-    "makeJournaledWriteCoordinator",
-    "engine_owns_status",
-    "invalid transition",
-    "task_not_found"
-  ]) {
+  for (const requiredSnippet of localLifecycleRequiredSnippets) {
     if (!`${localAdapterText}\n${cliText}`.includes(requiredSnippet)) {
       record(`local lifecycle CLI implementation must include ${requiredSnippet}`);
     }
@@ -344,16 +261,7 @@ if (hasTaskProjectionImplementation) {
     .join("\n");
   const rebuildTestText = readFileSync(path.join(root, "packages/kernel/test/store/sqlite-rebuild.test.ts"), "utf8");
   const cliTestText = readFileSync(path.join(root, "packages/cli/test/local-lifecycle-cli.test.ts"), "utf8");
-  for (const requiredSnippet of [
-    "@effect/sql",
-    "@effect/sql-sqlite-node",
-    "rebuildTaskProjection",
-    "projection_tampered",
-    "sourceHash",
-    "rowsHash",
-    "closeoutReadiness",
-    "coordinationStatus"
-  ]) {
+  for (const requiredSnippet of taskProjectionRequiredSnippets) {
     if (!projectionText.includes(requiredSnippet)) {
       record(`task projection implementation must include ${requiredSnippet}`);
     }
@@ -377,21 +285,10 @@ if (hasMulticaAdapterImplementation) {
   const multicaTestPath = "packages/adapters/multica/test/multica-readonly-adopt.test.ts";
   const multicaTestText = existsSync(path.join(root, multicaTestPath)) ? readFileSync(path.join(root, multicaTestPath), "utf8") : "";
   if (!existsSync(path.join(root, multicaTestPath))) record(`Multica readonly adapter requires contract test: ${multicaTestPath}`);
-  for (const requiredSnippet of [
-    "makeMulticaLifecycleEngine",
-    "makeMulticaAdoptionService",
-    "stableMulticaBindingFingerprint",
-    "acquireAdoptClaims",
-    "publishNote: false",
-    "stale-but-usable",
-    "unavailable-no-cache",
-    "status_unmapped",
-    "findBindingByExternalRef",
-    "WriteCoordinator"
-  ]) {
+  for (const requiredSnippet of multicaRequiredSnippets) {
     if (!multicaText.includes(requiredSnippet)) record(`Multica readonly adapter implementation must include ${requiredSnippet}`);
   }
-  for (const forbiddenVerb of ["transition", "assign", "rerun", "cancel", "comment", "externalWrite", "writeExternal"]) {
+  for (const forbiddenVerb of multicaForbiddenVerbs) {
     const exposedVerb = new RegExp(`(?:readonly\\s+)?${forbiddenVerb}\\s*[?:=(:]`, "u");
     if (exposedVerb.test(multicaText)) record(`Multica readonly adapter must not expose external write verb: ${forbiddenVerb}`);
   }
@@ -425,17 +322,7 @@ if (hasExtensionModelImplementation) {
   const cliExtensionTestPath = "packages/cli/test/extension-cli.test.ts";
   if (!existsSync(path.join(root, extensionTestPath))) record(`extension model implementation requires contract test: ${extensionTestPath}`);
   if (!existsSync(path.join(root, cliExtensionTestPath))) record(`extension model CLI surface requires contract test: ${cliExtensionTestPath}`);
-  for (const requiredSnippet of [
-    "validateTemplateCatalog",
-    "validatePresetManifests",
-    "validateVerticalDefinition",
-    "planTemplateMaterialization",
-    "preset_extends_cycle",
-    "template_locale_structure_mismatch",
-    "status_mapping_forbidden",
-    "unknown_extension_field",
-    "incompatible_kernel"
-  ]) {
+  for (const requiredSnippet of extensionRequiredSnippets) {
     if (!`${extensionModelText}\n${cliText}`.includes(requiredSnippet)) {
       record(`extension model implementation must include ${requiredSnippet}`);
     }
@@ -443,11 +330,7 @@ if (hasExtensionModelImplementation) {
   if (/from\s+["']effect["']/.test(extensionModelText) || /Effect\./.test(extensionModelText)) {
     record("extension model domain helpers must remain pure and must not import or run Effect");
   }
-  for (const schemaPath of [
-    "packages/kernel/schemas/json/template-catalog.schema.json",
-    "packages/kernel/schemas/json/preset-manifest.schema.json",
-    "packages/kernel/schemas/json/vertical-definition.schema.json"
-  ]) {
+  for (const schemaPath of extensionSchemaPaths) {
     if (!readFileSync(path.join(root, schemaPath), "utf8").includes("\"additionalProperties\": false")) {
       record(`${schemaPath} must reject unknown extension fields`);
     }
@@ -569,12 +452,7 @@ for (const file of files) {
   }
 
   if (/new\s+BrowserWindow\s*\(/.test(text)) {
-    for (const required of [
-      /nodeIntegration\s*:\s*false/,
-      /contextIsolation\s*:\s*true/,
-      /sandbox\s*:\s*true/,
-      /webSecurity\s*:\s*true/
-    ]) {
+    for (const required of browserWindowRequiredPatterns) {
       if (!required.test(text)) record(`${rel}: BrowserWindow must set ${required.source}`);
     }
   }

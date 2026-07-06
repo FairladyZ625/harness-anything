@@ -410,9 +410,9 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "eslint.config.js",
+        "location": "tools/kernel-import-boundary-known-debt.mjs",
         "adrOrDecisionRequired": true,
-        "notes": "Lint ignores or rule exceptions on protected surfaces are governance changes."
+        "notes": "Kernel deep-import known debt is already externalized from eslint.config.mjs; kept in place because ESLint imports this module directly and each entry carries decision+reason evidence."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -1196,9 +1196,9 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/check-import-boundaries.mjs",
+        "location": "tools/gate-allowlists/check-import-boundaries.json",
         "adrOrDecisionRequired": true,
-        "notes": "Current rule/allowlist source is checker-local; ADR-0022/0023 require future externalized authority."
+        "notes": "Boundary composition roots and known-debt entries are externalized; each entry must carry ref+reason and the checker reports entry-count trend."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -1258,9 +1258,9 @@
       },
       "allowlistPolicy": {
         "allowed": false,
-        "location": null,
+        "location": "tools/gate-allowlists/scan-forbidden-symbols.json",
         "adrOrDecisionRequired": true,
-        "notes": "Current forbidden symbol list is in the checker; adding/removing symbols is governance-controlled."
+        "notes": "No allowlist exemptions are allowed; the forbidden-symbol authority list is externalized with ref+reason and trend reporting."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -1376,9 +1376,9 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/check-integrity-single-source.mjs",
+        "location": "tools/gate-allowlists/check-integrity-single-source.json",
         "adrOrDecisionRequired": true,
-        "notes": "ADR-0022 identifies the current symbol table as checker-local debt; growth requires governance evidence."
+        "notes": "Canonical symbol authorities are externalized; each entry must carry ref+reason and the checker reports entry-count trend."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -1435,9 +1435,9 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/check-private-boundary.mjs",
+        "location": "tools/gate-allowlists/check-private-boundary.json",
         "adrOrDecisionRequired": true,
-        "notes": "Private-boundary exclusions are governance-controlled because they define publishable scope."
+        "notes": "Private marker authority entries are externalized; each entry must carry ref+reason and the checker reports entry-count trend."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -1870,9 +1870,9 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/check-implementation-contracts.mjs",
+        "location": "tools/gate-allowlists/check-implementation-contracts.json",
         "adrOrDecisionRequired": true,
-        "notes": "Current composition-root and known-debt lists live in the checker; ADR-0023 requires governed handling."
+        "notes": "Implementation-contract expected and forbidden lists are externalized; each entry must carry ref+reason and the checker reports entry-count trend."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,

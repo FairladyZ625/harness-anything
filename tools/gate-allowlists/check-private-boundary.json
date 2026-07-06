@@ -1,0 +1,23 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-private-boundary",
+  "entries": {
+    "privateContentMarkers": [
+      {
+        "parts": ["/Users/", "lizeyu/"],
+        "ref": "ADR-0023#D6",
+        "reason": "Local absolute user paths are private boundary evidence and must not enter public tracked files."
+      },
+      {
+        "parts": ["Harness", "重设计"],
+        "ref": "ADR-0023#D6",
+        "reason": "Private project planning markers are not publishable public repository content."
+      },
+      {
+        "parts": ["kernel-rewrite-2026-06-", "final"],
+        "ref": "ADR-0023#D6",
+        "reason": "Legacy private milestone markers are not publishable public repository content."
+      }
+    ]
+  }
+}

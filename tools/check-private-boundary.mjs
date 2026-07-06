@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { entryJoinedValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 function git(args, options = {}) {
   return execFileSync("git", args, {
@@ -52,11 +53,10 @@ for (const trackedPath of explicitlyForbidden) {
 const allTracked = git(["ls-files", "-z"])
   .split("\0")
   .filter(Boolean);
-const privateContentMarkers = [
-  ["/Users/", "lizeyu/"].join(""),
-  ["Harness", "重设计"].join(""),
-  ["kernel-rewrite-2026-06-", "final"].join("")
-];
+const allowlist = loadGateAllowlist("check-private-boundary", {
+  requiredSections: ["privateContentMarkers"]
+});
+const privateContentMarkers = entryJoinedValues(allowlist.privateContentMarkers);
 
 for (const trackedPath of allTracked) {
   if (

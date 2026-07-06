@@ -1,0 +1,44 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-integrity-single-source",
+  "entries": {
+    "authorities": [
+      {
+        "symbol": "sha256Text",
+        "path": "packages/kernel/src/integrity/stable-hash.ts",
+        "ref": "ADR-0022#D6",
+        "reason": "Stable hash helpers have a single canonical implementation authority."
+      },
+      {
+        "symbol": "stablePayloadHash",
+        "path": "packages/kernel/src/integrity/stable-hash.ts",
+        "ref": "ADR-0022#D6",
+        "reason": "Stable hash helpers have a single canonical implementation authority."
+      },
+      {
+        "symbol": "stableStringify",
+        "path": "packages/kernel/src/integrity/stable-hash.ts",
+        "ref": "ADR-0022#D6",
+        "reason": "Stable hash helpers have a single canonical implementation authority."
+      },
+      {
+        "symbol": "readFrontmatter",
+        "path": "packages/kernel/src/markdown/frontmatter.ts",
+        "ref": "ADR-0022#D6",
+        "reason": "Frontmatter parsing helpers have a single canonical implementation authority."
+      },
+      {
+        "symbol": "readScalar",
+        "path": "packages/kernel/src/markdown/frontmatter.ts",
+        "ref": "ADR-0022#D6",
+        "reason": "Frontmatter parsing helpers have a single canonical implementation authority."
+      },
+      {
+        "symbol": "readNestedScalar",
+        "path": "packages/kernel/src/markdown/frontmatter.ts",
+        "ref": "ADR-0022#D6",
+        "reason": "Frontmatter parsing helpers have a single canonical implementation authority."
+      }
+    ]
+  }
+}

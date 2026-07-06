@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const root = process.cwd();
 const sourceRoots = [path.join(root, "packages")];
@@ -7,19 +8,12 @@ const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
 const violations = [];
 const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
-const guiAdapterCompositionRoots = new Set([
-  "packages/gui/src/main/local-composition-root.ts"
-]);
-const cliAdapterCompositionRoots = new Set([
-  "packages/cli/src/index.ts"
-]);
-const cliAdapterKnownDebt = new Set([
-  "packages/cli/src/commands/adopt.ts",
-  "packages/cli/src/commands/git-diff.ts",
-  "packages/cli/src/commands/legacy-rebuild.ts",
-  "packages/cli/src/commands/lifecycle.ts",
-  "packages/cli/src/commands/preset-task.ts"
-]);
+const allowlist = loadGateAllowlist("check-import-boundaries", {
+  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "cliAdapterKnownDebt"]
+});
+const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompositionRoots));
+const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
+const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
 
 async function walk(dir) {
   let entries;

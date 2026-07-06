@@ -1,0 +1,47 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-import-boundaries",
+  "entries": {
+    "guiAdapterCompositionRoots": [
+      {
+        "value": "packages/gui/src/main/local-composition-root.ts",
+        "ref": "ADR-0022#D3",
+        "reason": "GUI may instantiate external adapters only at its local composition root."
+      }
+    ],
+    "cliAdapterCompositionRoots": [
+      {
+        "value": "packages/cli/src/index.ts",
+        "ref": "ADR-0022#D3",
+        "reason": "CLI adapter imports are confined to the CLI composition root until the boundary is derived from the consumer graph."
+      }
+    ],
+    "cliAdapterKnownDebt": [
+      {
+        "value": "packages/cli/src/commands/adopt.ts",
+        "ref": "dec_GATE_DEFENSE_ROOT_CAUSE",
+        "reason": "Existing CLI command adapter import debt predates the external allowlist policy and is tracked as boundary debt."
+      },
+      {
+        "value": "packages/cli/src/commands/git-diff.ts",
+        "ref": "dec_GATE_DEFENSE_ROOT_CAUSE",
+        "reason": "Existing CLI command adapter import debt predates the external allowlist policy and is tracked as boundary debt."
+      },
+      {
+        "value": "packages/cli/src/commands/legacy-rebuild.ts",
+        "ref": "dec_GATE_DEFENSE_ROOT_CAUSE",
+        "reason": "Existing CLI command adapter import debt predates the external allowlist policy and is tracked as boundary debt."
+      },
+      {
+        "value": "packages/cli/src/commands/lifecycle.ts",
+        "ref": "dec_GATE_DEFENSE_ROOT_CAUSE",
+        "reason": "Existing CLI command adapter import debt predates the external allowlist policy and is tracked as boundary debt."
+      },
+      {
+        "value": "packages/cli/src/commands/preset-task.ts",
+        "ref": "dec_GATE_DEFENSE_ROOT_CAUSE",
+        "reason": "Existing CLI command adapter import debt predates the external allowlist policy and is tracked as boundary debt."
+      }
+    ]
+  }
+}
