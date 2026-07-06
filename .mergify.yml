@@ -1,0 +1,32 @@
+queue_rules:
+  - name: default
+    merge_conditions:
+      - check-success = boundaries
+      - check-success = package-policy
+      - check-success = "typecheck (24)"
+      - check-success = "typecheck (26)"
+      - check-success = fast-contract
+      - check-success = pr-body-lint
+
+pull_request_rules:
+  - name: merge via queue when CI passes
+    conditions:
+      - base = main
+      - label = merge-queue
+    actions:
+      queue:
+        name: default
+
+  - name: auto-queue approved PRs
+    conditions:
+      - base = main
+      - "#approved-reviews-by >= 1"
+      - check-success = boundaries
+      - check-success = package-policy
+      - check-success = "typecheck (24)"
+      - check-success = "typecheck (26)"
+      - check-success = fast-contract
+      - check-success = pr-body-lint
+    actions:
+      queue:
+        name: default
