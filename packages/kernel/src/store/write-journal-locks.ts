@@ -10,6 +10,15 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./write-journal-durable.ts";
 import type { JournalActor, LockRecord, LockTakeoverRecord, OwnedLock } from "./write-journal-types.ts";
 
+export interface DaemonGlobalLock extends OwnedLock {
+  readonly refreshHeartbeat: () => void;
+  readonly release: () => void;
+}
+
+export interface RepoLockOptions {
+  readonly heldGlobalLock?: OwnedLock;
+}
+
 export class WriteLockHeldError extends Error {
   readonly _tag = "WriteLockHeldError";
   readonly owner: string;
@@ -42,13 +51,18 @@ export function withRepoLocks<T>(
   actor: JournalActor,
   lockTtlMs: number,
   entityIds: ReadonlyArray<EntityId>,
-  fn: () => T
+  fn: () => T,
+  options: RepoLockOptions = {}
 ): T {
   const locks: OwnedLock[] = [];
 
   try {
     const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
-    locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs));
+    if (options.heldGlobalLock) {
+      assertHeldLock(options.heldGlobalLock);
+    } else {
+      locks.push(acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs));
+    }
     const state = readJournal(journalPath, rootDir);
     const lockedEntityIds = new Set([...entityIds, ...state.map((record) => record.entityId)]);
     for (const entityId of [...lockedEntityIds].sort()) {
@@ -60,13 +74,47 @@ export function withRepoLocks<T>(
   }
 }
 
+export function acquireDaemonGlobalLock(
+  rootDir: string,
+  layoutInput: HarnessLayoutInput,
+  journalPath: string,
+  actor: JournalActor,
+  lockTtlMs: number
+): DaemonGlobalLock {
+  const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
+  const lock = acquireLock(rootDir, journalPath, actor, `${lockRoot}/global.lock`, lockTtlMs, undefined, "daemon");
+  const refreshHeartbeat = () => refreshLockHeartbeat(lock);
+  const interval = setInterval(refreshHeartbeat, Math.max(1_000, Math.floor(lockTtlMs / 3)));
+  interval.unref();
+  return {
+    ...lock,
+    refreshHeartbeat,
+    release: () => {
+      clearInterval(interval);
+      releaseLock(lock);
+    }
+  };
+}
+
+export function assertDirectWriteAllowed(rootDir: string, layoutInput: HarnessLayoutInput, lockTtlMs: number): void {
+  const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
+  const relativeLockPath = `${lockRoot}/global.lock`;
+  const lockPath = path.join(rootDir, relativeLockPath);
+  if (!existsSync(lockPath)) return;
+  const existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
+  if (existing.ownerKind === "daemon" && !isStaleLock(existing, lockTtlMs)) {
+    throw lockHeld(lockOwnerMessage(relativeLockPath, existing));
+  }
+}
+
 function acquireLock(
   rootDir: string,
   journalPath: string,
   actor: JournalActor,
   relativeLockPath: string,
   lockTtlMs: number,
-  entityId?: EntityId
+  entityId?: EntityId,
+  ownerKind?: LockRecord["ownerKind"]
 ): OwnedLock {
   const lockPath = path.join(rootDir, relativeLockPath);
   const claimPath = `${lockPath}.takeover`;
@@ -83,14 +131,14 @@ function acquireLock(
     if (existsSync(lockPath)) {
       const existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (!isStaleLock(existing, lockTtlMs)) {
-        throw lockHeld(relativeLockPath, entityId);
+        throw lockHeld(lockOwnerMessage(relativeLockPath, existing), entityId);
       }
 
       acquireTakeoverClaim(claimPath, ownerToken, entityId);
       ownsTakeoverClaim = true;
       const current = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
       if (current.ownerToken !== existing.ownerToken) {
-        throw lockHeld(relativeLockPath, entityId, "changed-during-takeover");
+        throw lockHeld(lockOwnerMessage(relativeLockPath, current), entityId, "changed-during-takeover");
       }
 
       staleTakeover = {
@@ -122,7 +170,8 @@ function acquireLock(
         hostname: hostname(),
         acquiredAt: new Date().toISOString(),
         heartbeatAt: new Date().toISOString(),
-        ownerToken
+        ownerToken,
+        ...(ownerKind ? { ownerKind } : {})
       } satisfies LockRecord));
       fsyncSync(fd);
     } finally {
@@ -138,7 +187,7 @@ function acquireLock(
     if (staleQuarantinePath) rmSync(staleQuarantinePath, { force: true });
     if (ownsTakeoverClaim) rmSync(claimPath, { force: true });
 
-    return { path: lockPath, ownerToken };
+    return { path: lockPath, ownerToken, ...(ownerKind ? { ownerKind } : {}) };
   } catch (error) {
     if (ownsTakeoverClaim) rmSync(claimPath, { force: true });
     if (staleQuarantinePath && existsSync(staleQuarantinePath) && !existsSync(lockPath)) {
@@ -152,6 +201,34 @@ function releaseLock(lock: OwnedLock): void {
   if (!existsSync(lock.path)) return;
   const current = JSON.parse(readFileSync(lock.path, "utf8")) as Partial<LockRecord>;
   if (current.ownerToken === lock.ownerToken) unlinkSync(lock.path);
+}
+
+function assertHeldLock(lock: OwnedLock): void {
+  if (!existsSync(lock.path)) {
+    throw lockHeld(path.basename(lock.path));
+  }
+  const current = JSON.parse(readFileSync(lock.path, "utf8")) as Partial<LockRecord>;
+  if (current.ownerToken !== lock.ownerToken) {
+    throw lockHeld(path.basename(lock.path));
+  }
+}
+
+function refreshLockHeartbeat(lock: OwnedLock): void {
+  if (!existsSync(lock.path)) return;
+  const current = JSON.parse(readFileSync(lock.path, "utf8")) as LockRecord;
+  if (current.ownerToken !== lock.ownerToken) return;
+  const next = {
+    ...current,
+    heartbeatAt: new Date().toISOString()
+  } satisfies LockRecord;
+  const fd = openSync(lock.path, "w");
+  try {
+    writeSync(fd, JSON.stringify(next));
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  fsyncDirectory(path.dirname(lock.path));
 }
 
 function acquireTakeoverClaim(claimPath: string, ownerToken: string, entityId?: EntityId): void {
@@ -237,4 +314,9 @@ function lockHeld(
   reason?: WriteLockHeldError["reason"]
 ): WriteLockHeldError {
   return new WriteLockHeldError({ owner, entityId, reason });
+}
+
+function lockOwnerMessage(relativeLockPath: string, record: LockRecord): string {
+  if (record.ownerKind !== "daemon") return relativeLockPath;
+  return `${relativeLockPath} (held by daemon pid ${record.pid}; write through daemon via the daemon-backed ha client/API instead of direct WriteCoordinator writes)`;
 }
