@@ -45,6 +45,7 @@ const publicRuntimeSurface = [
   "Sha256FingerprintSchema",
   "SnapshotStatusSchema",
   "SqliteTaskRowSchema",
+  "SubtaskPlanSchema",
   "TaskFrontmatterSchema",
   "TaskSnapshotSchema",
   "TemplateCatalogSchema",

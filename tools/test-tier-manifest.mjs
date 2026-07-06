@@ -105,6 +105,7 @@ export const testTierManifest = {
     "packages/cli/test/preset-dogfood-utilization-cli.test.ts",
     "packages/cli/test/preset-milestone-closeout-cli.test.ts",
     "packages/cli/test/preset-module-cli.test.ts",
+    "packages/cli/test/preset-subtask-expansion-cli.test.ts",
     "packages/cli/test/preset-script-cli.test.ts",
     "packages/cli/test/preset-script-dossier-cli.test.ts",
     "packages/cli/test/runtime-event-cli.test.ts",

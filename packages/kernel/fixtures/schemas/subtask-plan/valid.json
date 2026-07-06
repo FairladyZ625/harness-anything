@@ -1,0 +1,45 @@
+{
+  "schema": "subtask-plan/v1",
+  "parentTaskId": "task_01KWT9823XEWFW5E7DXE2V115N",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "children": [
+    {
+      "role": "implement",
+      "enabled": true,
+      "status": "pending",
+      "title": "[implement] Parent task",
+      "brief": {
+        "objective": "Implement the planned change.",
+        "scope": "Parent task scope.",
+        "acceptance": ["Implementation is complete."]
+      },
+      "createCommand": "ha task create --title \"[implement] Parent task\" --parent task_01KWT9823XEWFW5E7DXE2V115N --vertical software/coding --preset standard-task --json"
+    },
+    {
+      "role": "test",
+      "enabled": true,
+      "status": "exists",
+      "existingTaskId": "task_01KWT9823XEWFW5E7DXE2V115A",
+      "title": "[test] Parent task",
+      "brief": {
+        "objective": "Test the planned change.",
+        "scope": "Parent task verification scope.",
+        "acceptance": ["Tests pass."]
+      },
+      "createCommand": "ha task create --title \"[test] Parent task\" --parent task_01KWT9823XEWFW5E7DXE2V115N --vertical software/coding --preset standard-task --json"
+    }
+  ],
+  "dependencies": [
+    {
+      "sourceRole": "test",
+      "type": "depends-on",
+      "targetRole": "implement",
+      "rationale": "test waits for implement (subtask-expansion chain)"
+    }
+  ],
+  "applyContract": {
+    "order": ["create-all-children", "then-relate-by-role-map"],
+    "idempotencyKey": "title-role-prefix-under-parent",
+    "relateCommandTemplate": "ha task relate <sourceTaskId> depends-on <targetTaskId> --rationale \"<rationale>\" --json"
+  }
+}

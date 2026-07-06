@@ -1,0 +1,19 @@
+{
+  "schema": "subtask-plan/v1",
+  "parentTaskId": "task_01KWT9823XEWFW5E7DXE2V115N",
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "children": [],
+  "dependencies": [
+    {
+      "sourceRole": "test",
+      "type": "blocks",
+      "targetRole": "implement",
+      "rationale": "wrong relation type"
+    }
+  ],
+  "applyContract": {
+    "order": ["then-relate-by-role-map", "create-all-children"],
+    "idempotencyKey": "title-role-prefix-under-parent",
+    "relateCommandTemplate": "ha task relate <sourceTaskId> depends-on <targetTaskId>"
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/subtask-plan.schema.json",
+  "x-harness-schema-id": "subtask-plan",
+  "title": "Subtask Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "parentTaskId", "generatedAt", "children", "dependencies", "applyContract"],
+  "properties": {
+    "schema": { "const": "subtask-plan/v1" },
+    "parentTaskId": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "children": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/child" }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dependency" }
+    },
+    "applyContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "idempotencyKey", "relateCommandTemplate"],
+      "properties": {
+        "order": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "create-all-children" },
+            { "const": "then-relate-by-role-map" }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "idempotencyKey": { "const": "title-role-prefix-under-parent" },
+        "relateCommandTemplate": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "enabled", "status", "title", "brief", "createCommand"],
+      "properties": {
+        "role": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "status": { "enum": ["pending", "exists"] },
+        "existingTaskId": { "type": "string" },
+        "title": { "type": "string" },
+        "brief": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["objective", "scope", "acceptance"],
+          "properties": {
+            "objective": { "type": "string" },
+            "scope": { "type": "string" },
+            "acceptance": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "createCommand": { "type": "string" }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRole", "type", "targetRole", "rationale"],
+      "properties": {
+        "sourceRole": { "type": "string" },
+        "type": { "const": "depends-on" },
+        "targetRole": { "type": "string" },
+        "rationale": { "type": "string" }
+      }
+    }
+  }
+}

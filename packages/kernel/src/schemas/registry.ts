@@ -8,14 +8,22 @@ import { DecisionPackageSchema } from "./decision-package.ts";
 import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
 import { FactRecordSchema } from "./fact-record.ts";
+import { HarnessCheckReportSchema } from "./harness-check-report.ts";
 import { RuntimeEventRecordSchema } from "./runtime-event.ts";
+import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
 export { DocmapDocumentSchema, DocmapManifestSchema } from "./docmap.ts";
 export { FactRecordSchema } from "./fact-record.ts";
+export {
+  HarnessCheckReportSchema,
+  ProjectionWarningCodeSchema,
+  ProjectionWarningSourceSchema
+} from "./harness-check-report.ts";
 export { RuntimeEventRecordSchema } from "./runtime-event.ts";
+export { SubtaskPlanSchema } from "./subtask-plan.ts";
 export {
   EntityRelationRecordSchema,
   EntityRelationsSchema,
@@ -388,49 +396,6 @@ export const SqliteTaskRowSchema = Schema.Struct({
   createdBy: Schema.optional(CreatedBySchema)
 });
 
-export const ProjectionWarningSourceSchema = Schema.Literal("source-package", "generated-cache", "collaboration-gate");
-export const ProjectionWarningCodeSchema = Schema.Literal(
-  "projection_missing",
-  "projection_stale",
-  "projection_tampered",
-  "source_malformed",
-  "duplicate_task_id",
-  "duplicate_external_binding",
-  "generated_tracked",
-  "binding_tampered",
-  "conflict_marker_present",
-  "decision_watermark_missing",
-  "decision_watermark_duplicate",
-  "dangling_entity_ref",
-  "invalid_relation_endpoint",
-  "relation_host_source_mismatch",
-  "relation_provenance_inheritance_mismatch",
-  "relation_id_mismatch",
-  "duplicate_relation_id",
-  "relation_rationale_missing",
-  "relation_endpoint_unknown",
-  "relation_cycle_detected"
-);
-
-const HarnessCheckAxisReportSchema = Schema.Struct({
-  axis: ProjectionWarningSourceSchema,
-  ok: Schema.Boolean,
-  warningCount: Schema.Number,
-  hardFailCount: Schema.Number,
-  codes: Schema.Array(ProjectionWarningCodeSchema)
-});
-
-export const HarnessCheckReportSchema = Schema.Struct({
-  schema: Schema.Literal("harness-check-report/v1"),
-  ok: Schema.Boolean,
-  axes: Schema.Tuple(HarnessCheckAxisReportSchema, HarnessCheckAxisReportSchema, HarnessCheckAxisReportSchema),
-  summary: Schema.Struct({
-    rowCount: Schema.Number,
-    warningCount: Schema.Number,
-    hardFailCount: Schema.Number
-  })
-});
-
 export const DocsReleasePromotionBundleSchema = Schema.Struct({
   schema: Schema.Literal("docs-release-promotion-bundle/v1"),
   projectionVersion: Schema.String,
@@ -464,6 +429,7 @@ export type LegacyCollisionReport = Schema.Schema.Type<typeof LegacyCollisionRep
 export type SqliteTaskRow = Schema.Schema.Type<typeof SqliteTaskRowSchema>;
 export type HarnessCheckReport = Schema.Schema.Type<typeof HarnessCheckReportSchema>;
 export type DocsReleasePromotionBundle = Schema.Schema.Type<typeof DocsReleasePromotionBundleSchema>;
+export type SubtaskPlan = Schema.Schema.Type<typeof SubtaskPlanSchema>;
 
 export const schemaRegistry = [
   {
@@ -591,6 +557,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/docs-release-promotion-bundle.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/docs-release-promotion-bundle/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/docs-release-promotion-bundle/invalid.json"
+  },
+  {
+    id: "subtask-plan",
+    schema: SubtaskPlanSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/subtask-plan.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/subtask-plan/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/subtask-plan/invalid.json"
   }
 ] as const;
 

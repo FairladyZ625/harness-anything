@@ -23,7 +23,8 @@ const expectedSchemaIds = [
   "legacy-collision-report",
   "sqlite-task-row",
   "harness-check-report",
-  "docs-release-promotion-bundle"
+  "docs-release-promotion-bundle",
+  "subtask-plan"
 ];
 const violations = [];
 

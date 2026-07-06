@@ -1,0 +1,37 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "subtask-expansion",
+  "title": "Subtask Expansion",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "relation-graph-projection", "kind": "projection", "version": "1", "required": true }
+  ],
+  "entrypoints": {
+    "plan": {
+      "type": "script",
+      "command": "scripts/subtask-plan.mjs",
+      "reads": [
+        "{{paths.tasksRoot}}/**",
+        "{{paths.milestonesRoot}}/**"
+      ],
+      "writes": [
+        "{{outputRoot}}/**"
+      ],
+      "inputs": {
+        "childRoles": "implement,test,qa,review",
+        "dependencyStyle": "chain",
+        "titlePrefixFormat": "[{role}] "
+      }
+    }
+  },
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "software-coding-standard",
+    "templateSelections": []
+  }],
+  "defaultProfile": "baseline"
+}
