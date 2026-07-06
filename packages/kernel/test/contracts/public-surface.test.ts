@@ -149,6 +149,7 @@ const publicRuntimeSurface = [
   "readEntityCascadeImpact",
   "readFrontmatter",
   "readNestedScalar",
+  "readRelationGraphAuthoredSourceKinds",
   "readRelationGraphProjection",
   "readScalar",
   "readTaskProjection",
