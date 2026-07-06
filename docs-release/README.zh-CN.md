@@ -20,6 +20,12 @@ Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产
 
 → **[start/](start/zh/00-what-is-this.md)**
 
+## 贡献时不要绕过门禁
+
+想帮忙构建 Harness Anything，或把 agent 指向这个仓库？先读贡献路径：本地准备、改动流程、CI 证据、PR 审查、合入权限，以及 agent 专用规则。
+
+→ **[contributing/](contributing/zh/00-overview.md)**
+
 ## 理解为什么这样设计
 
 设计是深思熟虑的，每个选择都有理由。这条路径讲解原语内核、决策和裁决机制、守门人(gate)、扩展模型和方法论。

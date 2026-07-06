@@ -20,6 +20,14 @@ Install it, run one real loop, watch the structure grow, and see what it does fo
 
 → **[start/](start/en/00-what-is-this.md)**
 
+## Contribute without bypassing the gates
+
+Want to help build Harness Anything, or point an agent at the repo? Start with
+the contribution path: local setup, change flow, CI evidence, PR review, merge
+authority, and agent-specific rules.
+
+→ **[contributing/](contributing/en/00-overview.md)**
+
 ## Understand why it's built this way
 
 The design is deliberate, and every choice has a reason. This path walks through the primitive kernel, the decision and adjudication mechanics, the gates, the extension model, and the methodology.
