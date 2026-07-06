@@ -181,6 +181,8 @@ jobs:
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         run: npm run harness:check-write-coordinator-boundary
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-kernel-dead-exports
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         run: npm run harness:check-file-complexity
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         run: npm run harness:scan-forbidden-symbols

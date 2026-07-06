@@ -58,6 +58,7 @@
         "check-error-classification",
         "check-import-boundaries",
         "check-write-coordinator-boundary",
+        "check-kernel-dead-exports",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -92,6 +93,7 @@
         "check-error-classification",
         "check-import-boundaries",
         "check-write-coordinator-boundary",
+        "check-kernel-dead-exports",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -110,7 +112,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 26
+      "harnessLeafGateCount": 27
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -1454,6 +1456,72 @@
           "check": true,
           "checkPr": true,
           "script": "harness:check-write-coordinator-boundary"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-kernel-dead-exports",
+      "command": "npm run harness:check-kernel-dead-exports",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/index.ts",
+        "packages/kernel/tsconfig.json",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f8-d4-projection-zero-consumption-dead-code--two-cycle-detectors",
+        "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+      ],
+      "consumerScope": [
+        "non-test imports from packages/** and tools/** into packages/kernel/src/**",
+        "kernel public barrel export symbols from packages/kernel/src/index.ts"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-kernel-dead-exports.json",
+        "adrOrDecisionRequired": true,
+        "notes": "F8a first pass externalizes the existing zero-consumption kernel barrel export baseline; future zero-consumption exports fail unless explicitly governed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-kernel-dead-exports.mjs",
+          "tools/gate-allowlists/check-kernel-dead-exports.json",
+          "package.json:scripts.harness:check-kernel-dead-exports",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-kernel-dead-exports"
         },
         "rewriteCi": {
           "pullRequestJobs": [
