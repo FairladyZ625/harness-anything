@@ -3,6 +3,8 @@ import type { ParsedCommand } from "./types.ts";
 export interface CommandReceiptContract {
   readonly data: ReadonlyArray<string>;
   readonly paths: ReadonlyArray<string>;
+  readonly optionalData?: Readonly<Record<string, string>>;
+  readonly optionalPaths?: Readonly<Record<string, string>>;
 }
 
 export type CommandKind = ParsedCommand["action"]["kind"];
