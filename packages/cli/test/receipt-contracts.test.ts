@@ -8,6 +8,7 @@ test("command receipts fail closed on undeclared path fields", () => {
     command: "task-delete",
     taskId: "task_1",
     mode: "soft",
+    report: { schema: "task-delete-report/v1" },
     path: "soft"
   });
 
@@ -47,12 +48,43 @@ test("command receipts fail closed on undeclared success data", () => {
   }
 });
 
+test("command receipts fail closed on missing declared success data", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "task-archive",
+    taskId: "task_1",
+    status: "cancelled"
+  });
+
+  assert.equal(receipt.ok, false);
+  if (!receipt.ok) {
+    assert.equal(receipt.error?.code, "command_receipt_contract_mismatch");
+    assert.match(receipt.error?.hint ?? "", /data\.report/u);
+  }
+});
+
+test("command receipts fail closed on missing declared paths", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "decision-show",
+    decisionId: "dec_MISSING_PATH",
+    report: { schema: "decision-show-report/v1" }
+  });
+
+  assert.equal(receipt.ok, false);
+  if (!receipt.ok) {
+    assert.equal(receipt.error?.code, "command_receipt_contract_mismatch");
+    assert.match(receipt.error?.hint ?? "", /paths\.primary/u);
+  }
+});
+
 test("command receipts accept declared success data and paths", () => {
   const deleteReceipt = toCommandReceipt({
     ok: true,
     command: "task-delete",
     taskId: "task_1",
-    mode: "soft"
+    mode: "soft",
+    report: { schema: "task-delete-report/v1" }
   });
   const presetReceipt = toCommandReceipt({
     ok: true,
@@ -70,6 +102,7 @@ test("command receipts expose v2 shallow fields and user-facing command names", 
     ok: true,
     command: "runtime-event-list",
     rows: 1,
+    path: "harness/events/runtime-events.jsonl",
     report: {
       schema: "runtime-event-ledger-cli-report/v1",
       items: [{ eventId: "evt_1", kind: "interrupt" }]
