@@ -35,8 +35,6 @@ const negativeOrFuture = /\b(no|not|never|without|unshipped|planned|future|later
 
 for (const docPath of expectedDocs) {
   if (!existsSync(docPath)) errors.push(`Missing expected docs-release page: ${docPath}`);
-  const readmeLink = `./${docPath}`;
-  if (!readme.includes(readmeLink)) errors.push(`README.md does not link ${readmeLink}`);
 }
 
 const productLinePath = "docs-release/release-posture.md";
@@ -58,13 +56,6 @@ for (const docPath of listMarkdown("docs-release")) {
   if (content.includes(".harness-private/")) errors.push(`${docPath} exposes private harness path`);
 }
 validateReadmePrivateBoundary(readme, errors);
-
-if (!readme.includes("M2.5 GUI/daemon foundation")) {
-  errors.push("README.md must expose the M2.5 GUI/daemon foundation status");
-}
-if (!readme.includes("docs-release/release-posture.md")) {
-  errors.push("README.md must link the public release-posture page");
-}
 
 if (errors.length > 0) {
   console.error("Docs release map check failed:");

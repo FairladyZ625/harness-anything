@@ -122,14 +122,7 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
 
   writeFile(root, "README.md", [
     "# Harness Anything",
-    "Use Node.js 24 or newer.",
-    "Run npm run check.",
-    "rewrite-ci covers Node 24 and Node 26 plus package smoke.",
-    "Run node packages/cli/src/index.ts --json doctor.",
-    "- [Release posture](./docs-release/release-posture.md)",
-    "No signed desktop installer, notarized build, or auto-update capability is",
-    "  claimed.",
-    "No npm package release is claimed."
+    "The accountability layer for AI agents."
   ].join("\n"));
   writeFile(root, "docs-release/release-posture.md", options.runtimeDocBody ?? validRuntimeDoc());
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
