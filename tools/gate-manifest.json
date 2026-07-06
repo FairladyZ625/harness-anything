@@ -59,6 +59,7 @@
         "check-import-boundaries",
         "check-write-coordinator-boundary",
         "check-kernel-dead-exports",
+        "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -94,6 +95,7 @@
         "check-import-boundaries",
         "check-write-coordinator-boundary",
         "check-kernel-dead-exports",
+        "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -112,7 +114,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 27
+      "harnessLeafGateCount": 28
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -1522,6 +1524,70 @@
           "check": true,
           "checkPr": true,
           "script": "harness:check-kernel-dead-exports"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-relation-cycle-substrate",
+      "command": "npm run harness:check-relation-cycle-substrate",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/projection/relation-graph-projection.ts#detectRelationGraphCycles",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f8-d4-projection-zero-consumption-dead-code--two-cycle-detectors",
+        "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+      ],
+      "consumerScope": [
+        "entity relation graph cycle detection over RelationGraphEdgeRow / EntityRelationRecord surfaces",
+        "non-test packages/** and tools/** source files"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The canonical entity relation cycle substrate is packages/kernel/src/projection/relation-graph-projection.ts#detectRelationGraphCycles; wrappers must delegate to it."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-relation-cycle-substrate.mjs",
+          "package.json:scripts.harness:check-relation-cycle-substrate",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-relation-cycle-substrate"
         },
         "rewriteCi": {
           "pullRequestJobs": [
