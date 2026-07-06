@@ -63,6 +63,7 @@ interface GraphRefIndex {
 export interface RelationRecordEntry {
   readonly hostRef: string;
   readonly ownerRef: string;
+  readonly sourceKind: "task-index" | "task-facts" | "decision-document";
   readonly record: EntityRelationRecord;
   readonly sourcePath: string;
   readonly recordIndex: number;
@@ -99,6 +100,11 @@ export function validateRelationGraphRecords(rootInput: HarnessLayoutInput): Rea
     collectRelationRecordEntries(rootInput, decisions),
     buildGraphRefIndex(rootInput, decisions)
   );
+}
+
+export function readRelationGraphAuthoredSourceKinds(rootInput: HarnessLayoutInput): ReadonlyArray<RelationRecordEntry["sourceKind"]> {
+  const decisions = readDecisionSources(rootInput);
+  return [...new Set(collectRelationRecordEntries(rootInput, decisions).map((entry) => entry.sourceKind))].sort();
 }
 
 export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdgeRow>): ReadonlyArray<ReadonlyArray<string>> {
@@ -160,6 +166,7 @@ function collectRelationRecordEntries(
         entries.push(...recordsToEntries({
           hostRef: `task/${taskId}`,
           ownerRef: `task/${taskId}`,
+          sourceKind: "task-index",
           records: parseRelationFlowRecords(frontmatter),
           sourceFile: indexPath,
           rootDir
@@ -173,6 +180,7 @@ function collectRelationRecordEntries(
       entries.push(...recordsToEntries({
         hostRefForRecord: (record) => factRelationHostRef(taskId, record),
         ownerRef: `task/${taskId}`,
+        sourceKind: "task-facts",
         records: parseRelationFlowRecords(factsBody),
         sourceFile: factsPath,
         rootDir
@@ -185,6 +193,7 @@ function collectRelationRecordEntries(
     entries.push(...recordsToEntries({
       hostRef: decision.decisionRef,
       ownerRef: decision.decisionRef,
+      sourceKind: "decision-document",
       records: parseRelationFlowRecords(decision.frontmatter),
       sourceFile: decision.filePath,
       rootDir
@@ -198,6 +207,7 @@ function recordsToEntries(input: {
   readonly hostRef?: string;
   readonly hostRefForRecord?: (record: EntityRelationRecord) => string;
   readonly ownerRef: string;
+  readonly sourceKind: RelationRecordEntry["sourceKind"];
   readonly records: ReadonlyArray<EntityRelationRecord>;
   readonly sourceFile: string;
   readonly rootDir: string;
@@ -207,6 +217,7 @@ function recordsToEntries(input: {
     entries.push({
       hostRef: input.hostRefForRecord?.(record) ?? input.hostRef ?? input.ownerRef,
       ownerRef: input.ownerRef,
+      sourceKind: input.sourceKind,
       sourcePath: sourcePath(input.rootDir, input.sourceFile),
       record,
       recordIndex: index

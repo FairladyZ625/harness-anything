@@ -13,11 +13,28 @@ export function readMarkdownSource(rootInput: HarnessLayoutInput): {
   readonly hash: string;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 } {
+  const source = readTaskProjectionSource(rootInput);
+  return {
+    entries: source.entries,
+    hash: hashText(JSON.stringify(source.sourceInputs)),
+    warnings: source.warnings
+  };
+}
+
+export function readTaskProjectionSourceHashInputs(rootInput: HarnessLayoutInput): ReadonlyArray<TaskProjectionSourceHashInput> {
+  return readTaskProjectionSource(rootInput).sourceInputs;
+}
+
+function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
+  readonly entries: ReadonlyArray<TaskSourceEntry>;
+  readonly sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+} {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const tasksDir = layout.tasksRoot;
   if (!existsSync(tasksDir)) {
-    return { entries: [], hash: hashText("[]"), warnings: [] };
+    return { entries: [], sourceInputs: [], warnings: [] };
   }
 
   const warnings: ProjectionWarning[] = [];
@@ -46,7 +63,7 @@ export function readMarkdownSource(rootInput: HarnessLayoutInput): {
 
   return {
     entries,
-    hash: hashText(JSON.stringify([
+    sourceInputs: [
       ...entries.map((entry) => ({
         kind: "task-index",
         taskId: entry.taskId,
@@ -54,7 +71,7 @@ export function readMarkdownSource(rootInput: HarnessLayoutInput): {
         body: entry.body
       })),
       ...readRelationGraphSourceInputs(rootDir, layout, entries)
-    ])),
+    ],
     warnings
   };
 }
@@ -64,6 +81,12 @@ export interface TaskSourceEntry {
   readonly indexPath: string;
   readonly body: string;
   readonly frontmatter: string;
+}
+
+export interface TaskProjectionSourceHashInput {
+  readonly kind: string;
+  readonly sourcePath: string;
+  readonly body: string;
 }
 
 export function taskEntryToRow(

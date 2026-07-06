@@ -56,6 +56,7 @@ export const testTierManifest = {
     "packages/kernel/test/contracts/lifecycle-engine-contract.test.ts",
     "packages/kernel/test/contracts/port-registry.test.ts",
     "packages/kernel/test/contracts/public-surface.test.ts",
+    "packages/kernel/test/contracts/relation-source-hash-inputs.test.ts",
     "packages/kernel/test/contracts/schema-domain-vocabulary-alignment.test.ts",
     "packages/kernel/test/contracts/schema-frontmatter.test.ts",
     "packages/kernel/test/publish/private-evidence-rejection.test.ts",
