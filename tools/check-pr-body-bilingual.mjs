@@ -10,6 +10,9 @@ export const defaultThresholds = Object.freeze({
 const ENGLISH_HEADING = /^# English\s*$/mu;
 const CHINESE_HEADING = /^# 中文\s*$/mu;
 const SHARED_CHECKLIST_HEADING = /^## PR Gate Checklist \/ PR 门禁清单\s*$/mu;
+const MERGIFY_QUEUE_BRANCH = /^mergify\/merge-queue\//u;
+const MERGIFY_QUEUE_PAYLOAD = /"merge-queue-pr"\s*:\s*true/u;
+const MERGIFY_AUTHORS = new Set(["mergify[bot]", "app/mergify"]);
 
 export function countBilingualSignals(body) {
   return {
@@ -101,6 +104,16 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
   };
 }
 
+export function shouldSkipPrBodyBilingualCheck({
+  body = "",
+  headRefName = "",
+  authorLogin = ""
+} = {}) {
+  return MERGIFY_AUTHORS.has(authorLogin)
+    && MERGIFY_QUEUE_BRANCH.test(headRefName)
+    && MERGIFY_QUEUE_PAYLOAD.test(body);
+}
+
 function readBodyFromArgs(argv) {
   if (argv.length === 0) return process.env.PR_BODY ?? "";
   for (let index = 0; index < argv.length; index += 1) {
@@ -132,6 +145,15 @@ function readBodyFromArgs(argv) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const body = readBodyFromArgs(process.argv.slice(2));
+    if (shouldSkipPrBodyBilingualCheck({
+      body,
+      headRefName: process.env.PR_HEAD_REF ?? "",
+      authorLogin: process.env.PR_AUTHOR_LOGIN ?? ""
+    })) {
+      process.stdout.write("PR body bilingual block check skipped for Mergify merge-queue verification PR.\n");
+      process.exit(0);
+    }
+
     const result = checkPrBodyBilingual(body);
     if (result.ok) {
       process.stdout.write([

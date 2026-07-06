@@ -281,7 +281,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "No allowlist; PR body must satisfy the bilingual template contract."
+        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract. Mergify merge-queue verification PRs are narrowly skipped when authored by mergify[bot], using a mergify/merge-queue/* head ref, and carrying the Mergify queue payload marker."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
