@@ -82,6 +82,26 @@ test("CLI task list filters projection rows without treating generated cache as 
   });
 });
 
+test("CLI task amend rejects invalid vertical enum field values", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-review", "Review Queue", "in_review", {
+      taskId: "task-review",
+      preset: "standard-task",
+      workKind: "fix",
+      riskTier: "medium",
+      urgency: "high",
+      taskClass: "epic"
+    });
+
+    const failure = runJsonFailure(rootDir, ["task", "amend", "task-review", "--set", "taskClass:invalid-value"]);
+    assert.equal(failure.ok, false);
+    assert.equal(failure.command, "task-amend");
+    assert.equal(failure.error?.code, "invalid_task_metadata");
+    assert.match(failure.error?.hint ?? "", /taskClass/);
+    assert.match(failure.error?.hint ?? "", /invalid-value/);
+  });
+});
+
 function writeIndex(
   rootDir: string,
   directoryName: string,
@@ -150,6 +170,16 @@ function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, a
     encoding: "utf8"
   });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function runJsonFailure(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+  try {
+    runJson(rootDir, args);
+    assert.fail("expected command to fail");
+  } catch (error) {
+    const failure = error as { readonly stdout?: string };
+    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
+  }
 }
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
