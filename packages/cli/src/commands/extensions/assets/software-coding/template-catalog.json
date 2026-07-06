@@ -21,6 +21,8 @@
       "requiredAnchors": [
         "## Goal",
         "## Context",
+        "## Constraints",
+        "## Checkpoint",
         "## Implementation Plan",
         "## Verification"
       ],
@@ -31,6 +33,8 @@
           "anchors": [
             "## Goal",
             "## Context",
+            "## Constraints",
+            "## Checkpoint",
             "## Implementation Plan",
             "## Verification"
           ],
@@ -41,6 +45,8 @@
           "anchors": [
             "## Goal",
             "## Context",
+            "## Constraints",
+            "## Checkpoint",
             "## Implementation Plan",
             "## Verification"
           ],
