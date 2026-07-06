@@ -28,6 +28,8 @@ jobs:
       - name: Check bilingual PR body
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/check-pr-body-bilingual.mjs --env PR_BODY
 
   # Detect what a PR touched so heavy, package-scoped jobs can no-op their
