@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-known-debt.mjs";
 
 const nodeGlobals = Object.fromEntries([
   "AbortController",
@@ -47,6 +48,72 @@ const nodeGlobals = Object.fromEntries([
   "setTimeout",
   "structuredClone"
 ].map((name) => [name, "readonly"]));
+
+const kernelDeepImportPattern = {
+  group: ["**/kernel/src/**/*", "!**/kernel/src/index.ts"],
+  message: "Import kernel through its public barrel instead of deep src paths."
+};
+
+function noRestrictedKernelImports(allowedPatterns = []) {
+  return [
+    "error",
+    {
+      patterns: [
+        {
+          ...kernelDeepImportPattern,
+          group: [
+            ...kernelDeepImportPattern.group,
+            ...allowedPatterns
+          ]
+        }
+      ]
+    }
+  ];
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\/]/gu, "\\$&");
+}
+
+function kernelDeepImportSyntaxRestrictions(allowedTargets = []) {
+  const allowedTails = [
+    "index\\.ts",
+    ...allowedTargets.map((target) => escapeRegExp(target.replace(/^packages\/kernel\/src\//u, "")))
+  ];
+  const sourcePattern = `kernel\\/src\\/(?!(?:${allowedTails.join("|")})$)`;
+  return [
+    {
+      selector: `ImportDeclaration[source.value=/${sourcePattern}/u]`,
+      message: kernelDeepImportPattern.message
+    },
+    {
+      selector: `ExportNamedDeclaration[source.value=/${sourcePattern}/u]`,
+      message: kernelDeepImportPattern.message
+    },
+    {
+      selector: `ExportAllDeclaration[source.value=/${sourcePattern}/u]`,
+      message: kernelDeepImportPattern.message
+    },
+    {
+      selector: `ImportExpression[source.type='Literal'][source.value=/${sourcePattern}/u]`,
+      message: "Dynamic imports must not bypass the kernel public barrel."
+    }
+  ];
+}
+
+const kernelImportKnownDebtOverrides = Object.values(Object.groupBy(
+  kernelImportBoundaryKnownDebt,
+  (entry) => entry.file
+)).map((entries) => ({
+  files: [entries[0].file],
+  rules: {
+    "no-restricted-imports": "off",
+    "no-restricted-syntax": [
+      "error",
+      ...kernelDeepImportSyntaxRestrictions(entries.map((entry) => entry.target))
+    ]
+  }
+}));
 
 export default tseslint.config(
   {
@@ -100,15 +167,7 @@ export default tseslint.config(
     files: ["packages/**/*.{ts,tsx,js,mjs}"],
     rules: {
       "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["**/kernel/src/**/*", "!**/kernel/src/index.ts"],
-              message: "Import kernel through its public barrel instead of deep src paths."
-            }
-          ]
-        }
+        ...noRestrictedKernelImports()
       ],
       "no-restricted-syntax": [
         "error",
@@ -119,6 +178,7 @@ export default tseslint.config(
       ]
     }
   },
+  ...kernelImportKnownDebtOverrides,
   {
     // tools/*.mjs are gate/tooling scripts and are intentionally exempted in the
     // first boundary pass; this task only closes the packages/** consumer graph.
