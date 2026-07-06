@@ -121,7 +121,7 @@ test("WriteCoordinator rejects hard delete for task packages with anchored facts
           reason: "mistaken anchored package"
         }
       })),
-      /1 anchored fact\(s\) and 0 active incoming relation\(s\).*ha task archive/u
+      /1 anchored fact\(s\), 0 active incoming relation\(s\), and 0 child task\(s\).*ha task archive/u
     );
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
     assert.equal(existsSync(taskDir), true);

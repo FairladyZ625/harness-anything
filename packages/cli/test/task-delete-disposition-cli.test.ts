@@ -65,7 +65,7 @@ test("CLI task delete hard path is guarded by F5 disposition semantics", () => {
     const anchoredFailure = runJson(rootDir, ["task", "delete", "--hard", anchoredTaskId, "--reason", "remove", "--confirm", anchoredTaskId], false);
     assert.equal(anchoredFailure.ok, false);
     assert.equal(anchoredFailure.error?.code, "related_task_hard_delete_forbidden");
-    assert.match(anchoredFailure.error?.hint ?? "", /1 anchored fact\(s\) and 0 active incoming relation\(s\)/u);
+    assert.match(anchoredFailure.error?.hint ?? "", /1 anchored fact\(s\), 0 active incoming relation\(s\), and 0 child task\(s\)/u);
     assert.match(anchoredFailure.error?.hint ?? "", /distill evidence into an anchor task/u);
     assert.match(anchoredFailure.error?.hint ?? "", /ha task archive/u);
     assert.equal(existsSync(anchoredPackagePath), true);
@@ -80,8 +80,28 @@ test("CLI task delete hard path is guarded by F5 disposition semantics", () => {
     const relatedFailure = runJson(rootDir, ["task", "delete", "--hard", relatedTaskId, "--reason", "remove", "--confirm", relatedTaskId], false);
     assert.equal(relatedFailure.ok, false);
     assert.equal(relatedFailure.error?.code, "related_task_hard_delete_forbidden");
-    assert.match(relatedFailure.error?.hint ?? "", /0 anchored fact\(s\) and 1 active incoming relation\(s\)/u);
+    assert.match(relatedFailure.error?.hint ?? "", /0 anchored fact\(s\), 1 active incoming relation\(s\), and 0 child task\(s\)/u);
     assert.match(relatedFailure.error?.hint ?? "", /ha task archive/u);
+
+    const parent = runJson(rootDir, ["new-task", "--title", "Parent Delete"]);
+    const parentTaskId = assertGeneratedTaskId(parent.taskId);
+    const child = runJson(rootDir, ["new-task", "--title", "Child Delete", "--parent", parentTaskId]);
+    const childTaskId = assertGeneratedTaskId(child.taskId);
+    const parentPackagePath = path.join(rootDir, `harness/tasks/${parentTaskId}-parent-delete`);
+    const childPackagePath = path.join(rootDir, `harness/tasks/${childTaskId}-child-delete`);
+    const parentFailure = runJson(rootDir, ["task", "delete", "--hard", parentTaskId, "--reason", "remove parent", "--confirm", parentTaskId], false);
+    assert.equal(parentFailure.ok, false);
+    assert.equal(parentFailure.error?.code, "related_task_hard_delete_forbidden");
+    assert.match(parentFailure.error?.hint ?? "", /0 anchored fact\(s\), 0 active incoming relation\(s\), and 1 child task\(s\)/u);
+    assert.match(parentFailure.error?.hint ?? "", /archive\/delete\/supersede child tasks before hard delete/u);
+    assert.equal(existsSync(parentPackagePath), true);
+
+    const childResult = runJson(rootDir, ["task", "delete", "--hard", childTaskId, "--reason", "remove child", "--confirm", childTaskId]);
+    assert.equal(childResult.ok, true);
+    assert.equal(existsSync(childPackagePath), false);
+    const archivedParent = runJson(rootDir, ["task", "archive", parentTaskId, "--reason", "stage contained after child cleanup"]);
+    assert.equal(archivedParent.ok, true);
+    assert.match(readFileSync(path.join(parentPackagePath, "INDEX.md"), "utf8"), /packageDisposition: archived/);
 
     const retired = runJson(rootDir, ["new-task", "--title", "Retired Relation Delete"]);
     const retiredTaskId = assertGeneratedTaskId(retired.taskId);
