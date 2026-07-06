@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Schema } from "effect";
 import test from "node:test";
-import { SubtaskPlanSchema } from "../../kernel/src/schemas/registry.ts";
+import { SubtaskPlanSchema } from "../../kernel/src/index.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 

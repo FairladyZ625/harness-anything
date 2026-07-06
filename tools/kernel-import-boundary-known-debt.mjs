@@ -68,19 +68,5 @@ export const kernelImportBoundaryKnownDebt = [
     target: "packages/kernel/src/write-coordination/write-helpers.ts",
     decision: "dec_GATE_DEFENSE_ROOT_CAUSE",
     reason: "State extension commands call write-coordination helpers directly; F6 owns the extension/write seam cleanup."
-  },
-  {
-    file: "packages/cli/src/commands/extensions/assets/software-coding/presets/dogfood-utilization-audit/scripts/preset-action.mjs",
-    specifier: "../../../../../../../../../kernel/src/markdown/frontmatter.ts",
-    target: "packages/kernel/src/markdown/frontmatter.ts",
-    decision: "dec_GATE_DEFENSE_ROOT_CAUSE",
-    reason: "Preset asset scripts run under ScriptHost read-scope constraints; importing the full kernel barrel requires broader source reads and fails closed with preset_read_scope_violation."
-  },
-  {
-    file: "packages/cli/src/commands/extensions/assets/software-coding/presets/milestone-closeout/scripts/preset-action.mjs",
-    specifier: "../../../../../../../../../kernel/src/markdown/frontmatter.ts",
-    target: "packages/kernel/src/markdown/frontmatter.ts",
-    decision: "dec_GATE_DEFENSE_ROOT_CAUSE",
-    reason: "Preset asset scripts run under ScriptHost read-scope constraints; importing the full kernel barrel requires broader source reads and fails closed with preset_read_scope_violation."
   }
 ];
