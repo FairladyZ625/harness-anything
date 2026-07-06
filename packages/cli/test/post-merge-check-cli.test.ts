@@ -101,6 +101,33 @@ test("CLI check --post-merge hard-fails a relation to a missing decision", () =>
   });
 });
 
+test("CLI check --post-merge excludes generated artifact captures from dangling entity refs", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-a", "A", "planned");
+    const generatedCaptureDir = path.join(rootDir, "harness/tasks/task-a/artifacts/after");
+    mkdirSync(generatedCaptureDir, { recursive: true });
+    writeFileSync(path.join(generatedCaptureDir, "help-after.json"), "{\"example\":\"decision/dec_00XYZ\"}\n", "utf8");
+    const baselineCaptureDir = path.join(rootDir, "harness/tasks/task-a/artifacts/baseline");
+    mkdirSync(baselineCaptureDir, { recursive: true });
+    writeFileSync(path.join(baselineCaptureDir, "help-baseline.json"), "{\"example\":\"decision/dec_00XYZ\"}\n", "utf8");
+    const orchestrationDir = path.join(rootDir, "harness/tasks/task-a/artifacts/orchestration");
+    mkdirSync(orchestrationDir, { recursive: true });
+    writeFileSync(path.join(orchestrationDir, "mission.md"), "Mission text cites decision/dec_00XYZ as an example failure.\n", "utf8");
+
+    const generatedResult = runJson(rootDir, ["check", "--post-merge"]);
+    assert.equal(generatedResult.ok, true);
+    assert.equal(generatedResult.warnings.some((warning: any) => warning.code === "dangling_entity_ref"), false);
+
+    const authoredArtifactDir = path.join(rootDir, "harness/tasks/task-a/artifacts/notes");
+    mkdirSync(authoredArtifactDir, { recursive: true });
+    writeFileSync(path.join(authoredArtifactDir, "manual.md"), "Authored note cites decision/dec_00XYZ.\n", "utf8");
+
+    const authoredResult = runJson(rootDir, ["check", "--post-merge"], false);
+    assert.equal(authoredResult.ok, false);
+    assert.equal(authoredResult.warnings.some((warning: any) => warning.code === "dangling_entity_ref"), true);
+  });
+});
+
 test("CLI check --post-merge reports done task document placeholders as hard-fails", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-a", "A", "done");
