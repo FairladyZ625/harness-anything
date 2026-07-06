@@ -42,6 +42,8 @@ interface AnchorBackfillSkippedEntry {
     | "materialization_failed"
     | "invalid_materialized_path"
     | "materialized_document_missing"
+    | "materialized_document_unreadable"
+    | "duplicate_task_id"
     | "template_anchor_missing";
   readonly detail?: string;
 }
@@ -93,7 +95,9 @@ export function runMigrateAnchors(
   action: MigrateAnchorsAction
 ): Effect.Effect<CliResult, WriteError> {
   const settingsResult = readProjectHarnessSettings(rootInput, "migrate-anchors");
-  const locale = settingsResult.ok ? settingsResult.settings.locale ?? "zh-CN" : "zh-CN";
+  if (!settingsResult.ok) return Effect.succeed(settingsResult.result);
+
+  const locale = settingsResult.settings.locale ?? "zh-CN";
   const scan = scanAnchorBackfill(rootInput, locale);
   const report = (appliedDocuments: number, appliedAnchors: number): AnchorBackfillReport => ({
     schema: "anchor-backfill-report/v1",
@@ -152,6 +156,7 @@ function anchorBackfillResult(action: MigrateAnchorsAction, report: AnchorBackfi
 function scanAnchorBackfill(rootInput: HarnessLayoutInput, locale: "zh-CN" | "en-US"): ScanResult {
   const layout = resolveHarnessLayout(rootInput);
   const indexPaths = listTaskIndexPaths(rootInput);
+  const duplicateTaskIds = findDuplicateTaskIds(layout.rootDir, indexPaths);
   const entries: AnchorBackfillEntry[] = [];
   const skipped: AnchorBackfillSkippedEntry[] = [];
   let scannedDocuments = 0;
@@ -164,6 +169,17 @@ function scanAnchorBackfill(rootInput: HarnessLayoutInput, locale: "zh-CN" | "en
     const frontmatter = readFrontmatter(indexBody);
     if (!frontmatter) {
       skipped.push({ path: relativeIndexPath, reason: "missing_frontmatter" });
+      continue;
+    }
+
+    const taskId = (readScalar(frontmatter, "task_id") || path.basename(taskDir)) as TaskId;
+    const duplicateTaskPaths = duplicateTaskIds.get(taskId);
+    if (duplicateTaskPaths) {
+      skipped.push({
+        path: relativeIndexPath,
+        reason: "duplicate_task_id",
+        detail: `${taskId} appears in ${duplicateTaskPaths.join(", ")}`
+      });
       continue;
     }
 
@@ -217,7 +233,17 @@ function scanAnchorBackfill(rootInput: HarnessLayoutInput, locale: "zh-CN" | "en
       }
 
       scannedDocuments += 1;
-      const body = readFileSync(documentPath, "utf8");
+      let body: string;
+      try {
+        body = readFileSync(documentPath, "utf8");
+      } catch (error) {
+        skipped.push({
+          path: relativeDocumentPath,
+          reason: "materialized_document_unreadable",
+          detail: error instanceof Error ? error.message : "could not be read as a file"
+        });
+        continue;
+      }
       const patched = patchMissingAnchors(body, document);
       if (!patched.ok) {
         skipped.push({ path: relativeDocumentPath, reason: "template_anchor_missing", detail: patched.anchor });
@@ -228,7 +254,7 @@ function scanAnchorBackfill(rootInput: HarnessLayoutInput, locale: "zh-CN" | "en
         continue;
       }
       entries.push({
-        taskId: (readScalar(frontmatter, "task_id") || path.basename(taskDir)) as TaskId,
+        taskId,
         path: relativeDocumentPath,
         documentPath: safeDocumentPath,
         preset: presetId,
@@ -248,6 +274,25 @@ function scanAnchorBackfill(rootInput: HarnessLayoutInput, locale: "zh-CN" | "en
     entries,
     skipped
   };
+}
+
+function findDuplicateTaskIds(
+  rootDir: string,
+  indexPaths: ReadonlyArray<string>
+): ReadonlyMap<string, ReadonlyArray<string>> {
+  const pathsByTaskId = new Map<string, string[]>();
+  for (const indexPath of indexPaths) {
+    const taskDir = path.dirname(indexPath);
+    const body = readFileSync(indexPath, "utf8");
+    const frontmatter = readFrontmatter(body);
+    if (!frontmatter) continue;
+    const taskId = readScalar(frontmatter, "task_id") || path.basename(taskDir);
+    const paths = pathsByTaskId.get(taskId) ?? [];
+    paths.push(relativeRootPath(rootDir, indexPath));
+    pathsByTaskId.set(taskId, paths);
+  }
+
+  return new Map([...pathsByTaskId].filter(([, paths]) => paths.length > 1));
 }
 
 function patchMissingAnchors(

@@ -69,11 +69,109 @@ test("CLI migrate anchors backfills required task plan anchors and is idempotent
   });
 });
 
+test("CLI migrate anchors fails closed on invalid settings without writing", () => {
+  withTempRoot((rootDir) => {
+    writeContextDocs(rootDir);
+    runJson(rootDir, ["init"]);
+
+    const oldTask = runJson(rootDir, ["new-task", "--title", "Bad Settings Plan"]);
+    const oldPlanPath = path.join(rootDir, oldTask.packagePath, "task_plan.md");
+    writeFileSync(oldPlanPath, oldTaskPlan(), "utf8");
+    const before = readFileSync(oldPlanPath, "utf8");
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  locale: fr-FR",
+      "  defaultVertical: software/coding",
+      "  defaultPreset: standard-task",
+      ""
+    ]);
+
+    const failed = runJson(rootDir, ["migrate", "anchors", "--apply"], false);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.command, "migrate-anchors");
+    assert.equal(failed.error.code, "harness_settings_invalid");
+    assert.equal(readFileSync(oldPlanPath, "utf8"), before);
+  });
+});
+
+test("CLI migrate anchors skips unreadable materialized documents and keeps scanning", () => {
+  withTempRoot((rootDir) => {
+    writeContextDocs(rootDir);
+    runJson(rootDir, ["init"]);
+
+    const unreadableTask = runJson(rootDir, ["new-task", "--title", "Unreadable Plan"]);
+    const patchableTask = runJson(rootDir, ["new-task", "--title", "Patchable Plan"]);
+    const unreadablePlanPath = path.join(rootDir, unreadableTask.packagePath, "task_plan.md");
+    const patchablePlanPath = path.join(rootDir, patchableTask.packagePath, "task_plan.md");
+    rmSync(unreadablePlanPath);
+    mkdirSync(unreadablePlanPath);
+    writeFileSync(patchablePlanPath, oldTaskPlan(), "utf8");
+
+    const dryRun = runJson(rootDir, ["migrate", "anchors", "--dry-run"]);
+    assert.equal(dryRun.ok, true);
+    assert.equal(dryRun.report.summary.needsBackfill, 1);
+    assert.equal(dryRun.report.entries[0].path, `${patchableTask.packagePath}/task_plan.md`);
+    assert.deepEqual(skippedReasons(dryRun), ["materialized_document_unreadable"]);
+
+    const applied = runJson(rootDir, ["migrate", "anchors", "--apply"]);
+    assert.equal(applied.ok, true);
+    assert.equal(applied.report.summary.appliedDocuments, 1);
+    assert.equal(applied.report.summary.appliedAnchors, 2);
+    assert.deepEqual(skippedReasons(applied), ["materialized_document_unreadable"]);
+
+    const patched = readFileSync(patchablePlanPath, "utf8");
+    assert.equal(patched.match(/^## Constraints$/gmu)?.length, 1);
+    assert.equal(patched.match(/^## Checkpoint$/gmu)?.length, 1);
+  });
+});
+
+test("CLI migrate anchors skips duplicate task ids before coordinated writes", () => {
+  withTempRoot((rootDir) => {
+    writeContextDocs(rootDir);
+    runJson(rootDir, ["init"]);
+
+    const firstTask = runJson(rootDir, ["new-task", "--title", "Duplicate One"]);
+    const secondTask = runJson(rootDir, ["new-task", "--title", "Duplicate Two"]);
+    const firstIndexPath = path.join(rootDir, firstTask.packagePath, "INDEX.md");
+    const secondIndexPath = path.join(rootDir, secondTask.packagePath, "INDEX.md");
+    const duplicateTaskId = taskIdFromIndex(readFileSync(firstIndexPath, "utf8"));
+    writeFileSync(secondIndexPath, readFileSync(secondIndexPath, "utf8").replace(/^task_id: .+$/mu, `task_id: ${duplicateTaskId}`), "utf8");
+
+    const firstPlanPath = path.join(rootDir, firstTask.packagePath, "task_plan.md");
+    const secondPlanPath = path.join(rootDir, secondTask.packagePath, "task_plan.md");
+    writeFileSync(firstPlanPath, oldTaskPlan(), "utf8");
+    writeFileSync(secondPlanPath, oldTaskPlan(), "utf8");
+    const firstBefore = readFileSync(firstPlanPath, "utf8");
+    const secondBefore = readFileSync(secondPlanPath, "utf8");
+
+    const applied = runJson(rootDir, ["migrate", "anchors", "--apply"]);
+    assert.equal(applied.ok, true);
+    assert.equal(applied.rows, 0);
+    assert.equal(applied.report.summary.appliedDocuments, 0);
+    assert.deepEqual(skippedReasons(applied), ["duplicate_task_id", "duplicate_task_id"]);
+    assert.equal(readFileSync(firstPlanPath, "utf8"), firstBefore);
+    assert.equal(readFileSync(secondPlanPath, "utf8"), secondBefore);
+  });
+});
+
 function requiredAnchorIssues(result: Record<string, any>): ReadonlyArray<string> {
   return (result.warnings as ReadonlyArray<Record<string, string>>)
     .filter((issue) => issue.code === "metadata_required_anchor_missing")
     .map((issue) => issue.message)
     .sort();
+}
+
+function skippedReasons(result: Record<string, any>): ReadonlyArray<string> {
+  return (result.report.skipped as ReadonlyArray<Record<string, string>>)
+    .map((entry) => entry.reason)
+    .sort();
+}
+
+function taskIdFromIndex(body: string): string {
+  const match = /^task_id:\s*(.+)$/mu.exec(body);
+  assert.ok(match);
+  return match[1];
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
@@ -101,6 +199,10 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 function writeContextDocs(rootDir: string): void {
   writeFile(rootDir, "AGENTS.md", "# Agent Context\n");
   writeFile(rootDir, "CLAUDE.md", "# Claude Context\n");
+}
+
+function writeHarnessConfig(rootDir: string, lines: ReadonlyArray<string>): void {
+  writeFile(rootDir, "harness/harness.yaml", lines.join("\n"));
 }
 
 function writeDefaultTask(rootDir: string): void {
