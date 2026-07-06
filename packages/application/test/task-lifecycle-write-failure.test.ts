@@ -65,7 +65,10 @@ for (const { name, error, code } of writeFailureCases) {
 function failingWriter(error: EngineError | WriteError): TaskLifecycleWriter {
   return {
     setStatus: () => Effect.fail(error),
-    appendProgress: () => Effect.fail(error)
+    appendProgress: () => Effect.fail(error),
+    stageDocument: () => Effect.succeed({ taskId: "task-1", path: "review.md" }),
+    stageTaskTree: () => Effect.succeed({ taskId: "task-1", path: "." }),
+    taskTreeStatus: () => Effect.succeed({ taskId: "task-1", dirty: false, entries: [] })
   };
 }
 

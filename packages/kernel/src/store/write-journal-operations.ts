@@ -45,6 +45,9 @@ export function applyWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): Docume
   if (op.kind === "doc_stage") {
     return null;
   }
+  if (op.kind === "task_tree_stage") {
+    return null;
+  }
   if (!documentWriteKinds.has(op.kind)) {
     rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
   }
@@ -78,6 +81,9 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
   if (op.kind === "doc_stage") {
     return [documentTargetPath(rootInput, documentStageWrite(op))];
   }
+  if (op.kind === "task_tree_stage") {
+    return [taskPackagePath(rootInput, taskIdForWriteOp(op))];
+  }
   if (!documentWriteKinds.has(op.kind)) {
     rejectWrite(`unsupported write op kind: ${op.kind}`, op.entityId);
   }
@@ -101,6 +107,9 @@ export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWri
     return [progressAppendDeltaWrite(op, op.payload)];
   }
   if (op.kind === "doc_stage") {
+    return [];
+  }
+  if (op.kind === "task_tree_stage") {
     return [];
   }
   if (!documentWriteKinds.has(op.kind)) {

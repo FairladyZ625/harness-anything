@@ -78,7 +78,7 @@ test("CLI task-complete reports the underlying completion write failure", () => 
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "malformed_snapshot");
-    assert.match(blocked.error?.hint, /Completion status update failed\./);
+    assert.match(blocked.error?.hint, /Completion task-tree staging failed\./);
     assert.match(blocked.error?.hint, /minItems\(1\)|Expected a refinement/);
   });
 });
@@ -146,7 +146,7 @@ test("CLI task-review and task-complete stage reviewed artifacts through WriteCo
     const reviewed = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"]);
     assert.equal(reviewed.ok, true);
     assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(doc-stage\): task-1 review\.md/);
+    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
 
     writeRealCloseout(rootDir, "task-1");
     assert.match(runGit(rootDir, "status", "--short"), /closeout\.md/);
@@ -156,7 +156,7 @@ test("CLI task-review and task-complete stage reviewed artifacts through WriteCo
     assert.equal(completed.data?.status ?? completed.status, "done");
     assert.equal(runGit(rootDir, "status", "--short"), "");
     assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(transition\): task-1/);
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(doc-stage\): task-1 closeout\.md/);
+    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
   });
 });
 

@@ -7,6 +7,7 @@ export type TaskWriteOpKind =
   | "transition_local"
   | "progress_append"
   | "doc_stage"
+  | "task_tree_stage"
   | "doc_write"
   | "package_archive"
   | "package_tombstone"

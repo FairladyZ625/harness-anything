@@ -77,6 +77,18 @@ export function stageTaskDocument(
   });
 }
 
+export function stageTaskTree(
+  coordinator: WriteCoordinator,
+  hashPayload: HashPayload,
+  taskId: TaskId
+): Effect.Effect<void, WriteError> {
+  return writeCoordinatedPayload(coordinator, hashPayload, {
+    entityId: taskEntityId(taskId),
+    kind: "task_tree_stage",
+    payload: { scope: "task-package" }
+  });
+}
+
 export function writeSupersedeTaskDocuments(
   coordinator: WriteCoordinator,
   hashPayload: HashPayload,

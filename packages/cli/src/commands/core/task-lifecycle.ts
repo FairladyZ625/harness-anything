@@ -78,12 +78,18 @@ function runStatusSet(
   reason?: string
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   if (!isTerminalStatus(status)) {
-    return context.engine.setStatus({ taskId, status }).pipe(Effect.map((result): CliResult => ({
-      ok: true,
-      command: "status-set",
-      taskId: result.taskId,
-      status: result.status
-    })));
+    return Effect.gen(function* () {
+      const result = yield* context.engine.setStatus({ taskId, status });
+      if (status === "in_review") {
+        yield* context.engine.stageTaskTree({ taskId });
+      }
+      return {
+        ok: true,
+        command: "status-set",
+        taskId: result.taskId,
+        status: result.status
+      } satisfies CliResult;
+    });
   }
 
   const taskPolicy = readTaskLifecyclePolicy(context.layoutInput, taskId);

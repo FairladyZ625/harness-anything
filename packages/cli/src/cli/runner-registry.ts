@@ -73,10 +73,9 @@ export interface CommandRunnerEngine {
     readonly taskId: string;
     readonly text: string;
   }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
-  readonly stageDocument: (input: {
-    readonly taskId: string;
-    readonly path: string;
-  }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
+  readonly stageDocument: (input: { readonly taskId: string; readonly path: string }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
+  readonly stageTaskTree: (input: { readonly taskId: string }) => EngineEffect<{ readonly taskId: string; readonly path: string }>;
+  readonly taskTreeStatus: (input: { readonly taskId: string }) => EngineEffect<{ readonly taskId: string; readonly dirty: boolean; readonly entries: ReadonlyArray<string> }>;
   readonly replaceTaskDocument: (input: {
     readonly taskId: string;
     readonly path: string;

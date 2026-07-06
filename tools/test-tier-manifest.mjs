@@ -113,6 +113,7 @@ export const testTierManifest = {
     "packages/cli/test/task-delete-disposition-cli.test.ts",
     "packages/cli/test/task-document-gates-cli.test.ts",
     "packages/cli/test/task-list-cli.test.ts",
+    "packages/cli/test/task-transition-sweep-cli.test.ts",
     "packages/cli/test/task-tree-cli.test.ts",
     "packages/cli/test/write-lock-retry-cli.test.ts",
     "packages/kernel/test/store/crash-before-watermark.test.ts",

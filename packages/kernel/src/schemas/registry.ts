@@ -132,6 +132,7 @@ export const WriteJournalOpSchema = Schema.Struct({
     "package_create",
     "transition_local",
     "progress_append",
+    "task_tree_stage",
     "doc_write",
     "package_archive",
     "package_tombstone",

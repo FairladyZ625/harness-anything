@@ -192,7 +192,15 @@ function flushRecords(
     committedOpIds.push(record.opId);
   }
 
-  const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds, rootInput, semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)), sessionId);
+  const lastCommitSha = commitTouchedPaths(
+    rootDir,
+    touchedPaths,
+    committedOpIds,
+    rootInput,
+    semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)),
+    sessionId,
+    { respectGitignorePaths: plannedRecords.filter((entry) => entry.record.kind === "task_tree_stage").flatMap((entry) => entry.touchedPaths) }
+  );
   const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir, rootInput) : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const recentCommitted = recentOpIds(allCommitted);
@@ -363,6 +371,7 @@ function recordCommitDetail(kind: JournalRecordKind, payload: Record<string, unk
   if (kind === "transition_local" && typeof payload.to === "string") return `-> ${payload.to}`;
   if (kind === "progress_append") return "progress.md";
   if ((kind === "doc_write" || kind === "doc_stage") && typeof payload.path === "string") return payload.path;
+  if (kind === "task_tree_stage") return "task package";
   if (kind === "module_registry_write" && typeof payload.operation === "string") return payload.operation;
   if (kind === "module_scaffold_write") return "scaffold";
   if (kind === "decision_relate") {
