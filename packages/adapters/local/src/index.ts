@@ -329,6 +329,12 @@ function supersedeTask(
     yield* writeSupersedeTaskDocuments(coordinator, stablePayloadHash, input.oldTaskId, [
       { taskId: input.oldTaskId, path: "INDEX.md", body: renderIndex({ ...oldIndex, packageDisposition: "archived" }, input.reason) },
       { taskId: input.newTaskId, path: "INDEX.md", body: renderIndex(newIndex), packageSlug: input.slug },
+      ...(input.scaffoldDocuments ?? []).map((document) => ({
+        taskId: input.newTaskId,
+        path: document.path,
+        body: document.body,
+        packageSlug: input.slug
+      })),
       { taskId: input.newTaskId, path: "relations.md", body: renderSupersedesRelation(input.newTaskId, input.oldTaskId, input.reason), packageSlug: input.slug }
     ]);
     return { oldTaskId: input.oldTaskId, newTaskId: input.newTaskId, packageDisposition: "archived" } satisfies LocalSupersedeResult;

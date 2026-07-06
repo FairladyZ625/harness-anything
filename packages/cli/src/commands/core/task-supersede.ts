@@ -1,11 +1,13 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { EngineError, WriteError } from "../../../../kernel/src/index.ts";
-import { createTaskPackagePath, generateTaskId, taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { createTaskPackagePath, generateTaskId, readFrontmatter, readScalar, taskDocumentPath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
+import { materializePresetTaskScaffold, renderTemplateBody } from "../preset-task.ts";
+import { readProjectHarnessSettings } from "../settings.ts";
 import { lifecycleReason } from "./task-lifecycle-shared.ts";
 
 type TaskSupersedeAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-supersede" }>;
@@ -67,20 +69,67 @@ function createReplacementTask(
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   const newTaskId = generateTaskId();
   const slug = action.slug ?? "replacement-task";
-  return context.engine.supersedeTask({
-    oldTaskId: action.oldTaskId,
-    newTaskId,
-    title: action.title ?? "Replacement Task",
-    slug,
-    reason: lifecycleReason(action.reason, {
-      deletedBy: action.deletedBy,
-      allowOpenFindings: action.allowOpenFindings ? "true" : undefined
-    })
-  }).pipe(Effect.map((result): CliResult => ({
-    ok: true,
-    command: "task-supersede",
-    taskId: result.oldTaskId,
-    path: `task/${result.newTaskId}`,
-    packagePath: path.relative(context.rootDir, createTaskPackagePath(context.layoutInput, result.newTaskId, slug)).split(path.sep).join("/")
-  })));
+  const title = action.title ?? "Replacement Task";
+  return Effect.gen(function* () {
+    const scaffoldSource = readSupersededTaskScaffoldSource(context, action.oldTaskId);
+    if (!scaffoldSource.ok) return yield* Effect.fail(scaffoldSource.error);
+    const settingsResult = readProjectHarnessSettings(context.layoutInput, "task-supersede");
+    if (!settingsResult.ok) return settingsResult.result;
+    const scaffold = scaffoldSource.vertical === "software/coding"
+      ? materializePresetTaskScaffold(context.layoutInput, {
+        command: "task-supersede",
+        vertical: scaffoldSource.vertical,
+        presetId: scaffoldSource.preset,
+        profileId: scaffoldSource.profile ?? settingsResult.settings.defaultProfile,
+        locale: settingsResult.settings.locale ?? "zh-CN"
+      }, settingsResult.settings)
+      : { ok: true as const, materialized: { documents: [] } };
+    if (!scaffold.ok) return scaffold.result;
+    return yield* context.engine.supersedeTask({
+      oldTaskId: action.oldTaskId,
+      newTaskId,
+      title,
+      slug,
+      reason: lifecycleReason(action.reason, {
+        deletedBy: action.deletedBy,
+        allowOpenFindings: action.allowOpenFindings ? "true" : undefined
+      }),
+      scaffoldDocuments: scaffold.materialized.documents.map((document) => ({
+        path: document.materializeAs,
+        body: renderTemplateBody(document.body, title)
+      }))
+    }).pipe(Effect.map((result): CliResult => ({
+      ok: true,
+      command: "task-supersede",
+      taskId: result.oldTaskId,
+      path: `task/${result.newTaskId}`,
+      packagePath: path.relative(context.rootDir, createTaskPackagePath(context.layoutInput, result.newTaskId, slug)).split(path.sep).join("/")
+    })));
+  });
+}
+
+function readSupersededTaskScaffoldSource(
+  context: CommandRunnerContext,
+  taskId: string
+): { readonly ok: true; readonly vertical: string; readonly preset: string; readonly profile?: string } | { readonly ok: false; readonly error: EngineError } {
+  try {
+    const body = readFileSync(taskDocumentPath(context.layoutInput, taskId, "INDEX.md"), "utf8");
+    const frontmatter = readFrontmatter(body);
+    if (!frontmatter) return { ok: false, error: { _tag: "MalformedSnapshot", raw: "INDEX.md missing frontmatter" } };
+    const profile = frontmatter.match(/^profile:[ \t]*(.*)$/mu)?.[1]?.trim() ?? "";
+    return {
+      ok: true,
+      vertical: readScalar(frontmatter, "vertical", { required: true }),
+      preset: readScalar(frontmatter, "preset", { required: true }),
+      ...(profile ? { profile } : {})
+    };
+  } catch (cause) {
+    return isNodeErrorCode(cause, "ENOENT")
+      ? { ok: false, error: { _tag: "TaskNotFound", taskId } }
+      : { ok: false, error: { _tag: "MalformedSnapshot", raw: cause instanceof Error ? cause.message.replace(/'[^']*'/gu, "[path]") : "malformed task package" } };
+  }
+}
+
+function isNodeErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }

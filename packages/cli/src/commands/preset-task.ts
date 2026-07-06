@@ -5,17 +5,45 @@ import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts"
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
-import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/index.ts";
-import { stablePayloadHash } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import {
+  createTaskPackagePath,
+  generateTaskId,
+  resolveHarnessLayout,
+  stablePayloadHash,
+  taskEntityId,
+  type EngineError,
+  type ExtensionValidationIssue,
+  type HarnessLayoutInput,
+  type HarnessLayoutOverrides,
+  type MaterializedTemplatePlan,
+  type WriteError
+} from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { buildDerivedDocmapReadSet, renderDocmapReadSetMarkdown } from "./core/docmap-generate.ts";
-import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated } from "./extensions/state.ts";
+import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated, type ResolvedPreset } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 
 type NewTaskAction = Extract<ParsedCommand["action"], { readonly kind: "new-task" }>;
+
+interface PresetTaskMaterializationInput {
+  readonly command: string;
+  readonly vertical: string;
+  readonly presetId: string;
+  readonly profileId?: string;
+  readonly locale: "zh-CN" | "en-US";
+}
+
+interface PresetTaskMaterializationResult {
+  readonly vertical: string;
+  readonly preset: ResolvedPreset;
+  readonly materialized: {
+    readonly ok: true;
+    readonly profile: NonNullable<ReturnType<typeof materializePresetTaskDocuments>["profile"]>;
+    readonly documents: ReadonlyArray<MaterializedTemplatePlan>;
+    readonly issues: ReadonlyArray<ExtensionValidationIssue>;
+  };
+}
 
 export function shouldUsePresetAwareNewTask(action: NewTaskAction): boolean {
   return Boolean(action.vertical || action.preset || action.profile || action.moduleKey || action.registerModule || action.longRunning || action.dryRun || action.locale);
@@ -30,9 +58,6 @@ export function runNewTaskWithPreset(
   return Effect.gen(function* () {
     const rootDir = resolveHarnessLayout(rootInput).rootDir;
     const vertical = action.vertical ?? settings?.defaultVertical ?? "software/coding";
-    if (vertical !== "software/coding") {
-      return customVerticalGateResult(rootInput, "new-task", settings);
-    }
 
     let presetId = action.preset ?? settings?.defaultPreset ?? "standard-task";
     if (action.longRunning) presetId = "long-running-task";
@@ -44,31 +69,15 @@ export function runNewTaskWithPreset(
         error: cliError(CliErrorCode.MissingModule, "Use task create --preset module --module <key>.")
       } satisfies CliResult;
     }
-    const preset = resolvePresetEntry(rootInput, presetId);
-    if (!preset) return presetNotFound("new-task", presetId);
-    if (isInvalidPreset(preset)) {
-      return {
-        ok: false,
-        command: "new-task",
-        preset: { id: preset.id, layer: preset.layer, valid: false },
-        issues: preset.issues,
-        error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
-      } satisfies CliResult;
-    }
-
-    const materialized = materializePresetTaskDocuments(preset.manifest, {
+    const scaffold = materializePresetTaskScaffold(rootInput, {
+      command: "new-task",
+      vertical,
+      presetId,
       profileId: action.profile ?? settings?.defaultProfile,
       locale: action.locale ?? settings?.locale ?? "zh-CN"
-    });
-    if (!materialized.ok || !materialized.profile) {
-      return {
-        ok: false,
-        command: "new-task",
-        preset: publicPresetSummary(preset),
-        issues: materialized.issues,
-        error: cliError(CliErrorCode.PresetMaterializationFailed, "Preset-selected templates could not be materialized.")
-      } satisfies CliResult;
-    }
+    }, settings);
+    if (!scaffold.ok) return scaffold.result;
+    const { materialized, preset } = scaffold;
 
     const registeredModule = action.registerModule
       ? {
@@ -251,6 +260,59 @@ export function runNewTaskWithPreset(
   });
 }
 
+export function materializePresetTaskScaffold(
+  rootInput: HarnessLayoutInput,
+  input: PresetTaskMaterializationInput,
+  settings?: ProjectHarnessSettings
+): { readonly ok: true } & PresetTaskMaterializationResult | { readonly ok: false; readonly result: CliResult } {
+  if (input.vertical !== "software/coding") {
+    return { ok: false, result: customVerticalGateResult(rootInput, input.command, settings) };
+  }
+  const preset = resolvePresetEntry(rootInput, input.presetId);
+  if (!preset) return { ok: false, result: presetNotFound(input.command, input.presetId) };
+  if (isInvalidPreset(preset)) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        command: input.command,
+        preset: { id: preset.id, layer: preset.layer, valid: false },
+        issues: preset.issues,
+        error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
+      } satisfies CliResult
+    };
+  }
+
+  const materialized = materializePresetTaskDocuments(preset.manifest, {
+    profileId: input.profileId,
+    locale: input.locale
+  });
+  if (!materialized.ok || !materialized.profile) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        command: input.command,
+        preset: publicPresetSummary(preset),
+        issues: materialized.issues,
+        error: cliError(CliErrorCode.PresetMaterializationFailed, "Preset-selected templates could not be materialized.")
+      } satisfies CliResult
+    };
+  }
+
+  return {
+    ok: true,
+    vertical: input.vertical,
+    preset,
+    materialized: {
+      ok: true,
+      profile: materialized.profile,
+      documents: materialized.documents,
+      issues: materialized.issues
+    }
+  };
+}
+
 function resolveTaskReadSet(
   rootInput: HarnessLayoutInput,
   moduleKey: string | undefined
@@ -278,6 +340,6 @@ function renderModuleSelection(module: { readonly key: string; readonly title: s
   ].join("\n");
 }
 
-function renderTemplateBody(body: string, title: string): string {
+export function renderTemplateBody(body: string, title: string): string {
   return body.replace(/\{\{title\}\}/gu, title);
 }

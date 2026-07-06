@@ -91,6 +91,7 @@ export interface CommandRunnerEngine {
     readonly title: string;
     readonly slug: string;
     readonly reason: string;
+    readonly scaffoldDocuments?: ReadonlyArray<{ readonly path: string; readonly body: string }>;
   }) => EngineEffect<{ readonly oldTaskId: string; readonly newTaskId: string }>;
   readonly deleteTask: (input: {
     readonly taskId: string;

@@ -332,6 +332,10 @@ test("CLI settings locale controls bundled materialization and metadata check", 
     const taskPlan = readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8");
     assert.match(taskPlan, /Describe the verifiable result/);
 
+    const superseded = runJson(rootDir, ["task", "supersede", created.taskId, "--title", "English Replacement", "--reason", "scope changed"]);
+    const replacementTaskPlan = readFileSync(path.join(rootDir, superseded.packagePath, "task_plan.md"), "utf8");
+    assert.match(replacementTaskPlan, /Describe the verifiable result/);
+
     const checked = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
     assert.equal(checked.ok, true);
   });

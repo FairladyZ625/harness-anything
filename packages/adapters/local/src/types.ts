@@ -83,6 +83,10 @@ export interface SupersedeTaskInput {
   readonly title: string;
   readonly slug: string;
   readonly reason: string;
+  readonly scaffoldDocuments?: ReadonlyArray<{
+    readonly path: string;
+    readonly body: string;
+  }>;
 }
 
 export type DeleteMode = "soft" | "hard";
