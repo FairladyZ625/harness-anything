@@ -30,6 +30,64 @@ test("import boundary check rejects application imports from adapters", () => {
   }
 });
 
+test("import boundary check fails closed on invalid allowlist JSON", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-policy-"));
+  try {
+    writeFileSync(path.join(policyRoot, "check-import-boundaries.json"), "{ invalid json", "utf8");
+
+    const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Gate allowlist load failed for check-import-boundaries/);
+    assert.match(result.stderr, /not valid JSON/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check fails closed on allowlist entries without refs", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-policy-"));
+  try {
+    writeFileSync(path.join(policyRoot, "check-import-boundaries.json"), JSON.stringify({
+      schema: "harness-anything/gate-allowlist/v1",
+      gateId: "check-import-boundaries",
+      entries: {
+        guiAdapterCompositionRoots: [
+          {
+            value: "packages/gui/src/main/local-composition-root.ts",
+            reason: "fixture omits ref"
+          }
+        ],
+        cliAdapterCompositionRoots: [
+          {
+            value: "packages/cli/src/index.ts",
+            ref: "ADR-0022#D3",
+            reason: "fixture includes ref"
+          }
+        ],
+        cliAdapterKnownDebt: [
+          {
+            value: "packages/cli/src/commands/lifecycle.ts",
+            ref: "dec_GATE_DEFENSE_ROOT_CAUSE",
+            reason: "fixture includes ref"
+          }
+        ]
+      }
+    }), "utf8");
+
+    const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must include a non-empty ref/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 test("import boundary check allows application imports from kernel public contracts", () => {
   const root = makeFixtureRoot();
   try {
@@ -232,9 +290,13 @@ function writeLocalAdapter(root) {
   ].join("\n"), "utf8");
 }
 
-function runChecker(cwd) {
+function runChecker(cwd, options = {}) {
   return spawnSync(process.execPath, [checkerPath], {
     cwd,
-    encoding: "utf8"
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...(options.env ?? {})
+    }
   });
 }

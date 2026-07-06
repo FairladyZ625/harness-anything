@@ -70,3 +70,14 @@ export const kernelImportBoundaryKnownDebt = [
     reason: "State extension commands call write-coordination helpers directly; F6 owns the extension/write seam cleanup."
   }
 ];
+
+for (const [index, entry] of kernelImportBoundaryKnownDebt.entries()) {
+  for (const field of ["file", "specifier", "target", "decision", "reason"]) {
+    if (typeof entry[field] !== "string" || entry[field].trim() === "") {
+      throw new Error(`kernelImportBoundaryKnownDebt[${index}] must include non-empty ${field}`);
+    }
+  }
+  if (!/^dec_[A-Za-z0-9_]+$/u.test(entry.decision)) {
+    throw new Error(`kernelImportBoundaryKnownDebt[${index}].decision must cite a decision id`);
+  }
+}

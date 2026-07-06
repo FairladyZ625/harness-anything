@@ -1,0 +1,50 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "scan-forbidden-symbols",
+  "entries": {
+    "forbiddenSymbols": [
+      {
+        "label": "requestTransition",
+        "pattern": "requestTransition",
+        "ref": "ADR-0022#D6",
+        "reason": "Deprecated lifecycle transition APIs must not re-enter package source."
+      },
+      {
+        "label": "syncMode",
+        "pattern": "syncMode",
+        "ref": "ADR-0022#D6",
+        "reason": "Deprecated synchronization mode surface must not re-enter package source."
+      },
+      {
+        "label": "bindingRole",
+        "pattern": "bindingRole",
+        "ref": "ADR-0022#D6",
+        "reason": "Deprecated binding role surface must not re-enter package source."
+      },
+      {
+        "label": "canStructurallyTransition",
+        "pattern": "canStructurallyTransition",
+        "ref": "ADR-0022#D6",
+        "reason": "Deprecated transition helper surface must not re-enter package source."
+      },
+      {
+        "label": "canTransition",
+        "pattern": "canTransition",
+        "ref": "ADR-0022#D6",
+        "reason": "Deprecated transition helper surface must not re-enter package source."
+      },
+      {
+        "label": "taskId: \"unknown\"",
+        "pattern": "taskId\\s*:\\s*[\"']unknown[\"']",
+        "ref": "ADR-0022#D6",
+        "reason": "Unknown task sentinel values are forbidden in package source."
+      },
+      {
+        "label": "setHarnessLayoutOverrides",
+        "pattern": "setHarnessLayoutOverrides",
+        "ref": "ADR-0022#D6",
+        "reason": "Global layout override hooks are not part of the governed runtime boundary."
+      }
+    ]
+  }
+}

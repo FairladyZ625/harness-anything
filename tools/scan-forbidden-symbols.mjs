@@ -1,18 +1,14 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { loadGateAllowlist, patternEntries } from "./gate-allowlists/load-gate-allowlist.mjs";
 
 const root = process.cwd();
 const scannedRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|mts|js|mjs)$/;
-const forbidden = [
-  { label: "requestTransition", pattern: /requestTransition/u },
-  { label: "syncMode", pattern: /syncMode/u },
-  { label: "bindingRole", pattern: /bindingRole/u },
-  { label: "canStructurallyTransition", pattern: /canStructurallyTransition/u },
-  { label: "canTransition", pattern: /canTransition/u },
-  { label: "taskId: \"unknown\"", pattern: /taskId\s*:\s*["']unknown["']/u },
-  { label: "setHarnessLayoutOverrides", pattern: /setHarnessLayoutOverrides/u }
-];
+const allowlist = loadGateAllowlist("scan-forbidden-symbols", {
+  requiredSections: ["forbiddenSymbols"]
+});
+const forbidden = patternEntries(allowlist.forbiddenSymbols);
 const violations = [];
 
 async function walk(dir) {

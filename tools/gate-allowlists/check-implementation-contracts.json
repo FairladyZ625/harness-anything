@@ -1,0 +1,204 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-implementation-contracts",
+  "entries": {
+    "expectedRuntimeTestFiles": {
+      "gui": [
+        { "value": "packages/gui/test/renderer-no-node.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/gui/test/preload-allowlist.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/gui/test/ipc-handler-registration.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/gui/test/service-bridge.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/gui/test/markdown-sanitize.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/gui/test/local-api-auth.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/gui/test/path-traversal.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/gui/test/terminal-no-ingestion.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this runtime/security contract test." },
+        { "value": "packages/application/test/local-controller-service.test.ts", "ref": "ADR-0022#D6", "reason": "GUI implementation requires this application service contract test." }
+      ],
+      "store": [
+        { "value": "packages/kernel/test/store/journal-idempotency.test.ts", "ref": "ADR-0022#D6", "reason": "Store implementation requires this WriteCoordinator contract test." },
+        { "value": "packages/kernel/test/store/same-task-fifo.test.ts", "ref": "ADR-0022#D6", "reason": "Store implementation requires this WriteCoordinator contract test." },
+        { "value": "packages/kernel/test/store/global-committer-lock.test.ts", "ref": "ADR-0022#D6", "reason": "Store implementation requires this WriteCoordinator contract test." },
+        { "value": "packages/kernel/test/store/crash-before-watermark.test.ts", "ref": "ADR-0022#D6", "reason": "Store implementation requires this WriteCoordinator contract test." },
+        { "value": "packages/kernel/test/store/payload-hash.test.ts", "ref": "ADR-0022#D6", "reason": "Store implementation requires this WriteCoordinator contract test." },
+        { "value": "packages/kernel/test/store/portable-path-collision.test.ts", "ref": "ADR-0022#D6", "reason": "Store implementation requires this authored-path contract test." },
+        { "value": "packages/kernel/test/store/sqlite-rebuild.test.ts", "ref": "ADR-0022#D6", "reason": "Store implementation requires this projection rebuild contract test." }
+      ],
+      "publish": [
+        { "value": "packages/kernel/test/publish/redaction.test.ts", "ref": "ADR-0022#D6", "reason": "Publish implementation requires this release-safety contract test." },
+        { "value": "packages/kernel/test/publish/idempotency.test.ts", "ref": "ADR-0022#D6", "reason": "Publish implementation requires this release-safety contract test." },
+        { "value": "packages/kernel/test/publish/private-evidence-rejection.test.ts", "ref": "ADR-0022#D6", "reason": "Publish implementation requires this private-evidence contract test." }
+      ]
+    },
+    "packageLockVersions": [
+      { "path": "node_modules/effect", "version": "3.21.4", "ref": "task_01KWNFNGG9H41724SADGFSMEZ3", "reason": "Effect version is pinned by the implementation contract." },
+      { "path": "node_modules/@effect/platform", "version": "0.96.2", "ref": "task_01KWNFNGG9H41724SADGFSMEZ3", "reason": "Effect platform version is pinned by the implementation contract." },
+      { "path": "node_modules/typescript", "version": "5.9.3", "ref": "ADR-0023#D6", "reason": "TypeScript version drift is a governed implementation-contract change." },
+      { "path": "node_modules/@types/node", "version": "24.13.2", "ref": "ADR-0023#D6", "reason": "Node type version drift is a governed implementation-contract change." }
+    ],
+    "forbiddenLockfiles": [
+      { "value": "pnpm-lock.yaml", "ref": "ADR-0023#D6", "reason": "npm is the governed package manager for this workspace." },
+      { "value": "yarn.lock", "ref": "ADR-0023#D6", "reason": "npm is the governed package manager for this workspace." },
+      { "value": "bun.lockb", "ref": "ADR-0023#D6", "reason": "npm is the governed package manager for this workspace." }
+    ],
+    "expectedWorkspaceTsconfigs": [
+      { "value": "packages/adapters/github-issues/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/adapters/linear/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/adapters/local/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/adapters/multica/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/application/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/cli/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/gui/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/kernel/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." }
+    ],
+    "requiredCompilerOptions": [
+      { "option": "composite", "value": true, "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "declaration", "value": true, "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "emitDeclarationOnly", "value": true, "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "module", "value": "NodeNext", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "moduleResolution", "value": "NodeNext", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "target", "value": "ES2024", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "strict", "value": true, "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "allowImportingTsExtensions", "value": true, "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "erasableSyntaxOnly", "value": true, "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "rootDir", "value": "./src", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." },
+      { "option": "outDir", "value": "./dist", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript build settings are a governed implementation contract." }
+    ],
+    "portablePathRequiredSnippets": [
+      { "value": "normalizeRelativeDocumentPath", "ref": "ADR-0022#D6", "reason": "Portable path contract must expose the governed normalization helper." },
+      { "value": "path.posix.isAbsolute", "ref": "ADR-0022#D6", "reason": "Portable path contract must reject POSIX absolute paths." },
+      { "value": "path.win32.isAbsolute", "ref": "ADR-0022#D6", "reason": "Portable path contract must reject Windows absolute paths." },
+      { "value": "windowsReservedName", "ref": "ADR-0022#D6", "reason": "Portable path contract must guard Windows reserved names." },
+      { "value": "windowsForbiddenChars", "ref": "ADR-0022#D6", "reason": "Portable path contract must guard Windows forbidden characters." },
+      { "value": "findPortablePathCollisions", "ref": "ADR-0022#D6", "reason": "Portable path contract must expose collision detection." },
+      { "value": "toLocaleLowerCase(\"en-US\")", "ref": "ADR-0022#D6", "reason": "Portable path collision folding must stay locale-stable." }
+    ],
+    "portablePathTestEvidence": [
+      { "value": "C:\\\\Users\\\\name\\\\secret.md", "ref": "ADR-0022#D6", "reason": "Portable path tests must prove Windows absolute path rejection." },
+      { "value": "\\\\\\\\server\\\\share\\\\secret.md", "ref": "ADR-0022#D6", "reason": "Portable path tests must prove UNC path rejection." },
+      { "value": "notes\\\\progress.md", "ref": "ADR-0022#D6", "reason": "Portable path tests must prove backslash normalization." },
+      { "value": "con.md", "ref": "ADR-0022#D6", "reason": "Portable path tests must prove reserved-name rejection." },
+      { "value": "findPortablePathCollisions", "ref": "ADR-0022#D6", "reason": "Portable path tests must prove collision detection." }
+    ],
+    "guiCliTextFiles": [
+      { "value": "packages/cli/src/index.ts", "ref": "ADR-0022#D6", "reason": "GUI launch delegation contract reads this CLI surface." },
+      { "value": "packages/cli/src/commands/core/gui.ts", "ref": "ADR-0022#D6", "reason": "GUI launch delegation contract reads this CLI surface." },
+      { "value": "packages/cli/src/cli/error-codes.ts", "ref": "ADR-0022#D6", "reason": "GUI launch delegation contract reads this CLI surface." },
+      { "value": "packages/cli/src/cli/error-mapper.ts", "ref": "ADR-0022#D6", "reason": "GUI launch delegation contract reads this CLI surface." }
+    ],
+    "guiImplementationSnippets": [
+      { "value": "nodeIntegration: false", "ref": "ADR-0022#D6", "reason": "GUI runtime security must keep Node integration disabled." },
+      { "value": "contextIsolation: true", "ref": "ADR-0022#D6", "reason": "GUI runtime security must keep context isolation enabled." },
+      { "value": "sandbox: true", "ref": "ADR-0022#D6", "reason": "GUI runtime security must keep sandboxing enabled." },
+      { "value": "webSecurity: true", "ref": "ADR-0022#D6", "reason": "GUI runtime security must keep web security enabled." },
+      { "value": "guiContentSecurityPolicy", "ref": "ADR-0022#D6", "reason": "GUI runtime security must define an explicit CSP." },
+      { "value": "HARNESS_PRELOAD_API", "ref": "ADR-0022#D6", "reason": "GUI bridge must expose a governed preload API surface." },
+      { "value": "allowedPreloadApi", "ref": "ADR-0022#D6", "reason": "GUI bridge must expose a governed preload allowlist." },
+      { "value": "localApiBindHost = \"127.0.0.1\"", "ref": "ADR-0022#D6", "reason": "Local API must bind only to localhost." },
+      { "value": "createLocalApiSession", "ref": "ADR-0022#D6", "reason": "Local API must use explicit local session authorization." },
+      { "value": "authorizeLocalApiRequest", "ref": "ADR-0022#D6", "reason": "Local API must authorize requests explicitly." },
+      { "value": "validateProjectPath", "ref": "ADR-0022#D6", "reason": "GUI API must guard project paths." },
+      { "value": "sanitizeMarkdownHtml", "ref": "ADR-0022#D6", "reason": "GUI markdown rendering must sanitize HTML." },
+      { "value": "registerHarnessIpcHandlers", "ref": "ADR-0022#D6", "reason": "GUI main process must register governed IPC handlers." },
+      { "value": "createGuiServiceBridge", "ref": "ADR-0022#D6", "reason": "GUI renderer must reach application services through a bridge." },
+      { "value": "shellPanelPolicy", "ref": "ADR-0022#D6", "reason": "GUI shell panel behavior must remain policy-backed." },
+      { "value": "outputCreatesTaskState: false", "ref": "ADR-0022#D6", "reason": "Terminal output must not become implicit task state." },
+      { "value": "buildGuiViewModel", "ref": "ADR-0022#D6", "reason": "GUI renderer must use a view model boundary." }
+    ],
+    "applicationServiceSnippets": [
+      { "value": "makeLocalControllerService", "ref": "ADR-0022#D6", "reason": "Application service surface must expose the local controller service." },
+      { "value": "taskWriter", "ref": "ADR-0022#D6", "reason": "Application service writes must use the injected task writer seam." },
+      { "value": "readTaskProjection", "ref": "ADR-0022#D6", "reason": "Application service reads must use the task projection seam." }
+    ],
+    "guiSecurityEvidence": [
+      { "value": "renderer model has no Node or Electron privileged surface", "ref": "ADR-0022#D6", "reason": "GUI tests must prove renderer privilege isolation." },
+      { "value": "preload exposes only the approved API methods", "ref": "ADR-0022#D6", "reason": "GUI tests must prove preload API allowlist enforcement." },
+      { "value": "main process registers one IPC handler for each preload allowlist method", "ref": "ADR-0022#D6", "reason": "GUI tests must prove IPC/preload alignment." },
+      { "value": "GUI service bridge reaches application service", "ref": "ADR-0022#D6", "reason": "GUI tests must prove bridge-to-service wiring." },
+      { "value": "local controller service reads projection and writes through injected task writer", "ref": "ADR-0022#D6", "reason": "GUI tests must prove application service read/write seams." },
+      { "value": "Markdown sanitizer strips scripts", "ref": "ADR-0022#D6", "reason": "GUI tests must prove markdown sanitization." },
+      { "value": "local API binds localhost", "ref": "ADR-0022#D6", "reason": "GUI tests must prove localhost-only API binding." },
+      { "value": "path guard rejects traversal", "ref": "ADR-0022#D6", "reason": "GUI tests must prove path traversal rejection." },
+      { "value": "PTY output stays display-only", "ref": "ADR-0022#D6", "reason": "GUI tests must prove terminal output is display-only." }
+    ],
+    "storeRequiredSnippets": [
+      { "value": "write-journal/v1", "ref": "ADR-0022#D6", "reason": "Store implementation must keep the governed journal format." },
+      { "value": "write-watermark/v1", "ref": "ADR-0022#D6", "reason": "Store implementation must keep the governed watermark format." },
+      { "value": "lock-takeover/v1", "ref": "ADR-0022#D6", "reason": "Store implementation must keep the governed lock takeover format." },
+      { "value": "payloadRef", "ref": "ADR-0022#D6", "reason": "Store implementation must keep payload references." },
+      { "value": "fsyncSync", "ref": "ADR-0022#D6", "reason": "Store implementation must durably fsync writes." },
+      { "value": "ownerToken", "ref": "ADR-0022#D6", "reason": "Store implementation must keep owner token handling." },
+      { "value": "heartbeatAt", "ref": "ADR-0022#D6", "reason": "Store implementation must keep heartbeat tracking." },
+      { "value": ".takeover", "ref": "ADR-0022#D6", "reason": "Store implementation must keep takeover files." },
+      { "value": "renameSync", "ref": "ADR-0022#D6", "reason": "Store implementation must keep atomic rename behavior." },
+      { "value": "commitTouchedPaths", "ref": "ADR-0022#D6", "reason": "Store implementation must commit touched authored paths." },
+      { "value": "rebuildProjectionHash", "ref": "ADR-0022#D6", "reason": "Store implementation must keep projection hash rebuild support." },
+      { "value": "hashTaskProjectionRows", "ref": "ADR-0022#D6", "reason": "Store implementation must keep task projection row hashing." },
+      { "value": "compactJournalDurably", "ref": "ADR-0022#D6", "reason": "Store implementation must keep durable journal compaction." }
+    ],
+    "localLifecycleCliTextFiles": [
+      { "value": "packages/cli/src/index.ts", "ref": "ADR-0022#D6", "reason": "Local lifecycle contract reads this CLI surface." },
+      { "value": "packages/cli/src/cli/error-codes.ts", "ref": "ADR-0022#D6", "reason": "Local lifecycle contract reads this CLI surface." },
+      { "value": "packages/cli/src/cli/error-mapper.ts", "ref": "ADR-0022#D6", "reason": "Local lifecycle contract reads this CLI surface." }
+    ],
+    "localLifecycleRequiredSnippets": [
+      { "value": "WriteCoordinator", "ref": "ADR-0022#D6", "reason": "Local lifecycle implementation must use the WriteCoordinator boundary." },
+      { "value": "makeJournaledWriteCoordinator", "ref": "ADR-0022#D6", "reason": "Local lifecycle implementation must use the journaled coordinator." },
+      { "value": "engine_owns_status", "ref": "ADR-0022#D6", "reason": "Local lifecycle implementation must preserve engine-owned status errors." },
+      { "value": "invalid transition", "ref": "ADR-0022#D6", "reason": "Local lifecycle implementation must preserve invalid transition evidence." },
+      { "value": "task_not_found", "ref": "ADR-0022#D6", "reason": "Local lifecycle implementation must preserve task-not-found errors." }
+    ],
+    "taskProjectionRequiredSnippets": [
+      { "value": "@effect/sql", "ref": "ADR-0022#D6", "reason": "Task projection must keep the governed Effect SQL dependency." },
+      { "value": "@effect/sql-sqlite-node", "ref": "ADR-0022#D6", "reason": "Task projection must keep the governed SQLite dependency." },
+      { "value": "rebuildTaskProjection", "ref": "ADR-0022#D6", "reason": "Task projection must expose rebuild behavior." },
+      { "value": "projection_tampered", "ref": "ADR-0022#D6", "reason": "Task projection must report tampering." },
+      { "value": "sourceHash", "ref": "ADR-0022#D8", "reason": "Task projection must keep source hash freshness evidence." },
+      { "value": "rowsHash", "ref": "ADR-0022#D8", "reason": "Task projection must keep row hash freshness evidence." },
+      { "value": "closeoutReadiness", "ref": "ADR-0022#D8", "reason": "Task projection must preserve closeout readiness projection." },
+      { "value": "coordinationStatus", "ref": "ADR-0022#D8", "reason": "Task projection must preserve coordination status projection." }
+    ],
+    "multicaRequiredSnippets": [
+      { "value": "makeMulticaLifecycleEngine", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep its lifecycle engine seam." },
+      { "value": "makeMulticaAdoptionService", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep its adoption service seam." },
+      { "value": "stableMulticaBindingFingerprint", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep stable binding fingerprints." },
+      { "value": "acquireAdoptClaims", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep adopt claim concurrency control." },
+      { "value": "publishNote: false", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must remain readonly for external publishing." },
+      { "value": "stale-but-usable", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep stale cache semantics." },
+      { "value": "unavailable-no-cache", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep no-cache semantics." },
+      { "value": "status_unmapped", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep unmapped status reporting." },
+      { "value": "findBindingByExternalRef", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep external binding lookup." },
+      { "value": "WriteCoordinator", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must keep WriteCoordinator integration." }
+    ],
+    "multicaForbiddenVerbs": [
+      { "value": "transition", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must not expose external write verbs." },
+      { "value": "assign", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must not expose external write verbs." },
+      { "value": "rerun", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must not expose external write verbs." },
+      { "value": "cancel", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must not expose external write verbs." },
+      { "value": "comment", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must not expose external write verbs." },
+      { "value": "externalWrite", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must not expose external write verbs." },
+      { "value": "writeExternal", "ref": "ADR-0022#D6", "reason": "Multica readonly adapter must not expose external write verbs." }
+    ],
+    "extensionRequiredSnippets": [
+      { "value": "validateTemplateCatalog", "ref": "ADR-0022#D6", "reason": "Extension model must keep template catalog validation." },
+      { "value": "validatePresetManifests", "ref": "ADR-0022#D6", "reason": "Extension model must keep preset manifest validation." },
+      { "value": "validateVerticalDefinition", "ref": "ADR-0022#D6", "reason": "Extension model must keep vertical definition validation." },
+      { "value": "planTemplateMaterialization", "ref": "ADR-0022#D6", "reason": "Extension model must keep template materialization planning." },
+      { "value": "preset_extends_cycle", "ref": "ADR-0022#D6", "reason": "Extension model must keep preset cycle rejection." },
+      { "value": "template_locale_structure_mismatch", "ref": "ADR-0022#D6", "reason": "Extension model must keep locale structure mismatch rejection." },
+      { "value": "status_mapping_forbidden", "ref": "ADR-0022#D6", "reason": "Extension model must keep forbidden status mapping rejection." },
+      { "value": "unknown_extension_field", "ref": "ADR-0022#D6", "reason": "Extension model must keep unknown extension field rejection." },
+      { "value": "incompatible_kernel", "ref": "ADR-0022#D6", "reason": "Extension model must keep kernel compatibility rejection." }
+    ],
+    "extensionSchemaPaths": [
+      { "value": "packages/kernel/schemas/json/template-catalog.schema.json", "ref": "ADR-0022#D6", "reason": "Extension JSON schema must reject unknown template catalog fields." },
+      { "value": "packages/kernel/schemas/json/preset-manifest.schema.json", "ref": "ADR-0022#D6", "reason": "Extension JSON schema must reject unknown preset manifest fields." },
+      { "value": "packages/kernel/schemas/json/vertical-definition.schema.json", "ref": "ADR-0022#D6", "reason": "Extension JSON schema must reject unknown vertical definition fields." }
+    ],
+    "browserWindowRequiredPatterns": [
+      { "pattern": "nodeIntegration\\s*:\\s*false", "ref": "ADR-0022#D6", "reason": "BrowserWindow options must keep Node integration disabled." },
+      { "pattern": "contextIsolation\\s*:\\s*true", "ref": "ADR-0022#D6", "reason": "BrowserWindow options must keep context isolation enabled." },
+      { "pattern": "sandbox\\s*:\\s*true", "ref": "ADR-0022#D6", "reason": "BrowserWindow options must keep sandboxing enabled." },
+      { "pattern": "webSecurity\\s*:\\s*true", "ref": "ADR-0022#D6", "reason": "BrowserWindow options must keep web security enabled." }
+    ]
+  }
+}
