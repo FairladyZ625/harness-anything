@@ -15,7 +15,7 @@ export function readDecisionProjectionRows(rootInput: HarnessLayoutInput): Reado
 }
 
 export function hashDecisionProjectionRows(rows: ReadonlyArray<DecisionProjectionRow>): string {
-  return `sha256:${sha256Text(JSON.stringify([...rows].sort(compareDecisionRows)))}`;
+  return `sha256:${sha256Text(JSON.stringify([...rows].sort(compareDecisionRows).map(canonicalDecisionProjectionRow)))}`;
 }
 
 export function compareDecisionRows(a: DecisionProjectionRow, b: DecisionProjectionRow): number {
@@ -224,4 +224,24 @@ function legacyNumber(value: string): number | undefined {
   if (!match) return undefined;
   const parsed = Number(match[1]);
   return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function canonicalDecisionProjectionRow(row: DecisionProjectionRow): DecisionProjectionRow {
+  return {
+    schema: row.schema,
+    decisionId: row.decisionId,
+    ...(row.legacyId ? { legacyId: row.legacyId } : {}),
+    state: row.state,
+    title: row.title,
+    question: row.question,
+    chosen: [...row.chosen],
+    rejected: row.rejected.map((entry) => ({
+      text: entry.text,
+      whyNot: entry.whyNot
+    })),
+    path: row.path,
+    moduleKeys: [...row.moduleKeys],
+    productLineKeys: [...row.productLineKeys],
+    ...(row.decidedAt ? { decidedAt: row.decidedAt } : {})
+  };
 }

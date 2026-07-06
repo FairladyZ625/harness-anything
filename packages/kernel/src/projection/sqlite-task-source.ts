@@ -209,11 +209,11 @@ export function sourcePath(rootDir: string, filePath: string): string {
 }
 
 export function hashExactRows(rows: ReadonlyArray<TaskProjectionRow>): string {
-  return hashText(JSON.stringify([...rows].sort(compareRows)));
+  return hashText(JSON.stringify([...rows].sort(compareRows).map(canonicalTaskProjectionRow)));
 }
 
 export function hashTaskProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): string {
-  return hashText(JSON.stringify([...rows].sort(compareRows).map((row) => ({
+  return hashText(JSON.stringify([...rows].sort(compareRows).map((row) => canonicalTaskProjectionRow({
     ...row,
     updatedAt: "<derived-from-source-mtime>"
   }))));
@@ -225,4 +225,33 @@ function hashText(text: string): string {
 
 export function compareRows(a: TaskProjectionRow, b: TaskProjectionRow): number {
   return a.taskId.localeCompare(b.taskId);
+}
+
+function canonicalTaskProjectionRow(row: TaskProjectionRow): TaskProjectionRow {
+  return {
+    schema: row.schema,
+    taskId: row.taskId,
+    title: row.title,
+    ...(row.parentTaskId ? { parentTaskId: row.parentTaskId } : {}),
+    canonicalStatus: row.canonicalStatus,
+    coordinationStatus: row.coordinationStatus,
+    rawStatus: row.rawStatus,
+    packageDisposition: row.packageDisposition,
+    closeoutReadiness: row.closeoutReadiness,
+    lifecycleEngine: row.lifecycleEngine,
+    freshness: row.freshness,
+    updatedAt: row.updatedAt,
+    source: row.source,
+    sourcePath: row.sourcePath,
+    ...(row.vertical ? { vertical: row.vertical } : {}),
+    ...(row.preset ? { preset: row.preset } : {}),
+    ...(row.profile ? { profile: row.profile } : {}),
+    ...(row.workKind ? { workKind: row.workKind } : {}),
+    ...(row.riskTier ? { riskTier: row.riskTier } : {}),
+    ...(row.urgency ? { urgency: row.urgency } : {}),
+    ...(row.moduleKey ? { moduleKey: row.moduleKey } : {}),
+    ...(row.moduleTitle ? { moduleTitle: row.moduleTitle } : {}),
+    ...(row.hasLessonCandidates === undefined ? {} : { hasLessonCandidates: row.hasLessonCandidates }),
+    ...(row.createdBy ? { createdBy: { name: row.createdBy.name, email: row.createdBy.email } } : {})
+  };
 }

@@ -107,6 +107,23 @@ test("SQLite task projection metadata comes only from task frontmatter", () => {
   });
 });
 
+test("SQLite task projection hash survives metadata row round-trip", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-1", "Task One", "active", "active", {
+      workKind: "docs",
+      riskTier: "high",
+      urgency: "medium"
+    });
+
+    rebuildTaskProjection({ rootDir });
+    const result = checkTaskProjection({ rootDir });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_tampered"), false);
+    assert.equal(result.rows[0]?.riskTier, "high");
+  });
+});
+
 test("SQLite task projection row hash is deterministic and content-addressed", () => {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-2", "Task Two", "done");
