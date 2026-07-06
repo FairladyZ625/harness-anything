@@ -5,10 +5,10 @@ import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts"
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
-import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/domain/index.ts";
-import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/index.ts";
+import { stablePayloadHash } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import { createTaskPackagePath, generateTaskId, resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { buildDerivedDocmapReadSet, renderDocmapReadSetMarkdown } from "./core/docmap-generate.ts";

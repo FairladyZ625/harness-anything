@@ -6,7 +6,7 @@ import {
   readDecisionDocument
 } from "../../../../application/src/index.ts";
 import { readDecisionFactCoverage, type WriteError } from "../../../../kernel/src/index.ts";
-import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
+import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 

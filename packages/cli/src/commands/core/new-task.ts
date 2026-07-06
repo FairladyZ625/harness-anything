@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Effect } from "effect";
-import { createTaskPackagePath, generateTaskId } from "../../../../kernel/src/layout/index.ts";
+import { createTaskPackagePath, generateTaskId } from "../../../../kernel/src/index.ts";
 import { runNewTaskFromLegacy } from "../legacy-rebuild.ts";
 import { runNewTaskWithPreset, shouldUsePresetAwareNewTask } from "../preset-task.ts";
 import { readProjectHarnessSettings, shouldUseSettingsPresetAwareNewTask } from "../settings.ts";

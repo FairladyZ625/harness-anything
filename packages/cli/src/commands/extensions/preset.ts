@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { validatePresetManifests } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {

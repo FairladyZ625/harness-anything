@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { rebuildTaskProjection } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { listTaskIndexPaths, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { listTaskIndexPaths, resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CliResult, GovernanceRebuildMode } from "../cli/types.ts";
 

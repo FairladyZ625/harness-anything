@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { moduleEntityId } from "../../../../kernel/src/index.ts";
-import type { WriteCoordinator } from "../../../../kernel/src/ports/index.ts";
+import type { WriteCoordinator } from "../../../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload } from "../../../../kernel/src/write-coordination/write-helpers.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {

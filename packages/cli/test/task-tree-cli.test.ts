@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, formatRelationFlowRecord, type EntityRelationRecord } from "../../kernel/src/domain/index.ts";
+import { deriveRelationId, formatRelationFlowRecord, type EntityRelationRecord } from "../../kernel/src/index.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");

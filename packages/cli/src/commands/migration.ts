@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
-import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
-import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
+import { stablePayloadHash } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { isGeneratedOrVendorPath, isPathInside, normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";

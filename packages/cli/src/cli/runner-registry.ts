@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService } from "../../../application/src/index.ts";
 import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
-import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/domain/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
-import { createHarnessRuntimeContext } from "../../../kernel/src/layout/index.ts";
-import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
-import { findConflictMarkerWarnings } from "../../../kernel/src/projection/post-merge-checks.ts";
+import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
+import type { WriteCoordinator } from "../../../kernel/src/index.ts";
+import { findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
 import { requiresConflictMarkerPreflight, runtimeEventPolicyForAction } from "./command-event-policy.ts";
 import type { CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";

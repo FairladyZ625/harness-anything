@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
-import type { DocmapDocument, DocmapManifest, DocmapReadSet } from "../../../../kernel/src/domain/docmap.ts";
-import { buildDocmapReadSet, docmapManifestPath } from "../../../../kernel/src/docmap/index.ts";
-import { assertUniqueDocmapIds } from "../../../../kernel/src/docmap/docmap-unique.ts";
-import { readFrontmatter, readScalar } from "../../../../kernel/src/markdown/frontmatter.ts";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
-import { DocmapManifestSchema } from "../../../../kernel/src/schemas/docmap.ts";
+import type { DocmapDocument, DocmapManifest, DocmapReadSet } from "../../../../kernel/src/index.ts";
+import { buildDocmapReadSet, docmapManifestPath } from "../../../../kernel/src/index.ts";
+import { assertUniqueDocmapIds } from "../../../../kernel/src/index.ts";
+import { readFrontmatter, readScalar } from "../../../../kernel/src/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { DocmapManifestSchema } from "../../../../kernel/src/index.ts";
 import { authoredRelativePath, commitAuthoredPaths, type AuthoredGitCommitResult } from "./authored-git.ts";
 
 export interface DerivedDocmapResult {

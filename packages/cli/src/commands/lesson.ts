@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout, taskDocumentPath } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
 import type { CliResult, LessonCommandMode } from "../cli/types.ts";

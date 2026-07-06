@@ -11,9 +11,9 @@ import {
   type WriteError,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
-import type { WriteCoordinator } from "../../../../kernel/src/ports/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import type { WriteCoordinator } from "../../../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload } from "../../../../kernel/src/write-coordination/write-helpers.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";

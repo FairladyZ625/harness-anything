@@ -6,7 +6,7 @@ import {
   type DecisionPackage,
   type WriteError
 } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 

@@ -1,4 +1,4 @@
-import { slugifyTaskTitle } from "../../../../kernel/src/layout/index.ts";
+import { slugifyTaskTitle } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";

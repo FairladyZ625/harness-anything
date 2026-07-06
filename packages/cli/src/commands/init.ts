@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { bundledVerticalDefinition } from "./extensions/bundled.ts";

@@ -4,11 +4,11 @@ import { Effect, Schema } from "effect";
 import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts";
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { indexPath, makeIndex, renderIndex } from "../../../adapters/local/src/task-index.ts";
-import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/domain/index.ts";
-import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
-import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../../kernel/src/layout/index.ts";
-import { LegacyIndexSchema, type LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
+import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/index.ts";
+import { stablePayloadHash } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../../kernel/src/index.ts";
+import { LegacyIndexSchema, type LegacyIndexEntry } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 

@@ -10,9 +10,9 @@ import type {
   RuntimeEventRuntime,
   RuntimeEventResultStatus,
   TaskWorkKind
-} from "../../../kernel/src/domain/index.ts";
-import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/entity/field-contracts.ts";
-import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
+} from "../../../kernel/src/index.ts";
+import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import type { CliError } from "./error-codes.ts";
 
 export type CheckProfile = "source-package" | "private-harness" | "target-project";

@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
-import type { EngineError, WriteError } from "../../../../kernel/src/domain/index.ts";
+import type { EngineError, WriteError } from "../../../../kernel/src/index.ts";
 import { resolveTaskSchema } from "../../../../kernel/src/index.ts";
-import { taskDocumentPath } from "../../../../kernel/src/layout/index.ts";
-import { readFrontmatter, readScalar } from "../../../../kernel/src/markdown/frontmatter.ts";
+import { taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { readFrontmatter, readScalar } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";

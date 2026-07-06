@@ -8,7 +8,7 @@ import {
   type EntityRelationRecord,
   type WriteError
 } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { nextDecisionAnchorId } from "./decision-anchor-id.ts";

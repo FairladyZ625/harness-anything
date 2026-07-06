@@ -1,6 +1,6 @@
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { bundledVerticalDefinitionEntry } from "./bundled.ts";

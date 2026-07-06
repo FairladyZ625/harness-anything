@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import path from "node:path";
 import { Effect } from "effect";
 import type { FactWriteRejected } from "../../../../application/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/layout/index.ts";
+import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import type { WriteError } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";

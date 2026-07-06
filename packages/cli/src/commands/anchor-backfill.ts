@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { TaskId, WriteError } from "../../../kernel/src/index.ts";
 import type { MaterializedTemplatePlan } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { listTaskIndexPaths, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { listTaskIndexPaths, normalizeRelativeDocumentPath, readFrontmatter, readScalar, resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedTaskDocuments } from "../../../kernel/src/write-coordination/write-helpers.ts";
 import type { CommandRunnerContext } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";

@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "../../../../kernel/src/domain/index.ts";
-import { createTaskPackagePath, generateTaskId, taskDocumentPath } from "../../../../kernel/src/layout/index.ts";
+import type { EngineError, WriteError } from "../../../../kernel/src/index.ts";
+import { createTaskPackagePath, generateTaskId, taskDocumentPath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";

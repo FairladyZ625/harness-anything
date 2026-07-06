@@ -3,9 +3,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import path from "node:path";
 import { Schema } from "effect";
 import { PresetManifestSchema } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/layout/index.ts";
-import { readFrontmatter, readNestedScalar, readScalar } from "../../../../kernel/src/markdown/frontmatter.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import { readFrontmatter, readNestedScalar, readScalar, resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";

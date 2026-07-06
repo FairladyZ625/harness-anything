@@ -1,4 +1,4 @@
-import type { ArtifactStoreError, EngineError, WriteError } from "../../../kernel/src/domain/index.ts";
+import type { ArtifactStoreError, EngineError, WriteError } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import type { CliResult } from "./types.ts";
 

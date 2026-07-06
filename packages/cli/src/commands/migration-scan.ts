@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { sha256Text } from "../../../kernel/src/integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
-import type { LegacyIndex, LegacyIndexEntry } from "../../../kernel/src/schemas/registry.ts";
+import { sha256Text } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import type { LegacyIndex, LegacyIndexEntry } from "../../../kernel/src/index.ts";
 import { isGeneratedOrVendorPath, isPathInside, isSamePath, normalizeSlashes } from "../cli/path.ts";
 
 export interface LegacyScanEntry extends LegacyIndexEntry {

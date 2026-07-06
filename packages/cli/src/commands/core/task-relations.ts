@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "../../../../kernel/src/domain/index.ts";
+import type { EngineError, WriteError } from "../../../../kernel/src/index.ts";
 import { deriveRelationId, formatRelationFlowRecord, readRelationGraphProjection, readTaskProjection } from "../../../../kernel/src/index.ts";
 import type { EntityRelationRecord } from "../../../../kernel/src/index.ts";
-import { readFrontmatter, taskDocumentPath } from "../../../../kernel/src/layout/index.ts";
-import { detectRelationGraphCycles } from "../../../../kernel/src/projection/relation-graph-projection.ts";
-import { parseRelationFlowRecords } from "../../../../kernel/src/projection/relation-flow-frontmatter.ts";
+import { readFrontmatter, taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { detectRelationGraphCycles } from "../../../../kernel/src/index.ts";
+import { parseRelationFlowRecords } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import type { CommandRunnerContext } from "../../cli/runner-registry.ts";

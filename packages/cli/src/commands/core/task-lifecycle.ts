@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { readTaskLifecyclePolicy } from "../../../../application/src/index.ts";
-import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/domain/index.ts";
+import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/index.ts";
 import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";

@@ -1,5 +1,5 @@
-import { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "../../../../kernel/src/domain/index.ts";
-import type { PriorityTier, TaskWorkKind } from "../../../../kernel/src/domain/index.ts";
+import { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "../../../../kernel/src/index.ts";
+import type { PriorityTier, TaskWorkKind } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import type { CliResult } from "../types.ts";
 

@@ -7,7 +7,7 @@ import { parserRegistry } from "../src/cli/parser-registry.ts";
 import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { extensionActionKinds, extensionExecutorGroups, isExtensionAction } from "../src/commands/extensions/index.ts";
-import { resolveHarnessLayout } from "../../kernel/src/layout/index.ts";
+import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 
 type ParsedAction = ParsedCommand["action"];
 

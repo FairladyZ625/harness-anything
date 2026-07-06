@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { resolveHarnessLayout } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { normalizeSlashes } from "../cli/path.ts";
 
 export function collectLegacyProvenanceWarnings(rootInput: HarnessLayoutInput): ReadonlyArray<Record<string, string>> {
