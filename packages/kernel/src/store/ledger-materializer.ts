@@ -3,6 +3,7 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { abortMerge, checkoutMaster, commitsNotInMaster, deleteBranch, ledgerGitTopLevel, mergeNoFf, refExists, sessionBranches } from "./write-journal-git.ts";
 import { withRepoLocks } from "./write-journal-locks.ts";
+import type { OwnedLock } from "./write-journal-types.ts";
 
 export interface LedgerMaterializerBranchReport {
   readonly branch: string;
@@ -21,7 +22,13 @@ export interface LedgerMaterializerReport {
   readonly projectionRebuilt: boolean;
 }
 
-export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean } = {}): LedgerMaterializerReport {
+export interface LedgerMaterializerOptions {
+  readonly dryRun?: boolean;
+  readonly maxBranches?: number;
+  readonly heldGlobalLock?: OwnedLock;
+}
+
+export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: LedgerMaterializerOptions = {}): LedgerMaterializerReport {
   const layout = resolveHarnessLayout(rootInput);
   const repoRoot = ledgerGitTopLevel(layout.authoredRoot) ?? ledgerGitTopLevel(layout.rootDir);
   if (!repoRoot) {
@@ -36,14 +43,15 @@ export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: { 
   }
 
   return withRepoLocks(layout.rootDir, rootInput, layout.journalPath, { kind: "system", id: "ledger-materializer" }, 60_000, [], () => {
-    return materializeBranches(repoRoot, rootInput, options.dryRun === true);
-  });
+    return materializeBranches(repoRoot, rootInput, options.dryRun === true, options.maxBranches);
+  }, { heldGlobalLock: options.heldGlobalLock });
 }
 
-function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dryRun: boolean): LedgerMaterializerReport {
+function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dryRun: boolean, maxBranches?: number): LedgerMaterializerReport {
   const reports: LedgerMaterializerBranchReport[] = [];
   const warnings: string[] = [];
   let merged = 0;
+  let processed = 0;
 
   if (!refExists(repoRoot, "master")) {
     return {
@@ -65,6 +73,8 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
     }
     if (dryRun) {
       reports.push({ branch, commitCount: commits.length, status: "would_merge", commits });
+      processed += 1;
+      if (reachedBranchLimit(processed, maxBranches)) break;
       continue;
     }
 
@@ -84,6 +94,8 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
       }
       reports.push({ branch, commitCount: commits.length, status: "conflict", commits, warning });
     }
+    processed += 1;
+    if (reachedBranchLimit(processed, maxBranches)) break;
   }
 
   if (merged > 0) {
@@ -102,4 +114,8 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
     warnings,
     projectionRebuilt: merged > 0
   };
+}
+
+function reachedBranchLimit(processed: number, maxBranches: number | undefined): boolean {
+  return typeof maxBranches === "number" && Number.isFinite(maxBranches) && maxBranches > 0 && processed >= maxBranches;
 }

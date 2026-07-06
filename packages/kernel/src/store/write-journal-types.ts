@@ -10,6 +10,7 @@ export interface JournaledWriteCoordinatorOptions {
   readonly actor?: JournalActor;
   readonly lockTtlMs?: number;
   readonly lockConflictRetry?: LockConflictRetryOptions;
+  readonly heldGlobalLock?: OwnedLock;
   readonly sessionId?: string;
   readonly autoMaterialize?: boolean;
 }
@@ -87,9 +88,11 @@ export interface LockRecord {
   readonly acquiredAt: string;
   readonly heartbeatAt: string;
   readonly ownerToken: string;
+  readonly ownerKind?: "daemon";
 }
 
 export interface OwnedLock {
   readonly path: string;
   readonly ownerToken: string;
+  readonly ownerKind?: "daemon";
 }
