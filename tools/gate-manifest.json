@@ -63,6 +63,7 @@
         "check-private-boundary",
         "check-docs-release-map",
         "check-docmap-fresh",
+        "check-gate-surface",
         "check-template-command-surface",
         "check-runtime-release-readiness",
         "check-package-policy",
@@ -95,6 +96,7 @@
         "check-private-boundary",
         "check-docs-release-map",
         "check-docmap-fresh",
+        "check-gate-surface",
         "check-template-command-surface",
         "check-runtime-release-readiness",
         "check-package-policy",
@@ -106,7 +108,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 24
+      "harnessLeafGateCount": 25
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -1580,6 +1582,78 @@
         "branchProtection": {
           "required": false,
           "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-gate-surface",
+      "command": "npm run harness:check-gate-surface",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d7--meta-gate-guards-cigate-itself",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
+        "tools/gate-manifest.json",
+        "package.json:scripts.check",
+        "package.json:scripts.check:pr",
+        ".github/workflows/rewrite-ci.yml",
+        ".github/branch-protection.md"
+      ],
+      "consumerScope": [
+        "gate manifest to package.json aggregate scripts",
+        "gate manifest to rewrite-ci pull-request and full-check surfaces",
+        "gate manifest to branch-protection documentation",
+        "manifest tier reasons and boundary gate metadata"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The checker validates .github/branch-protection.md, not GitHub API state. Hosted branch-protection reconciliation requires credentials and belongs in a future nightly/manual gate."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-gate-surface.mjs",
+          "tools/gate-manifest.json",
+          "package.json",
+          ".github/workflows/rewrite-ci.yml",
+          ".github/branch-protection.md"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-gate-surface"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
         }
       }
     },

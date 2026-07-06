@@ -111,19 +111,20 @@ Release-policy gate sample:
 }
 ```
 
-## First Reconciliation
+## Current Reconciliation
 
-The first registry records:
+The registry records:
 
-- 24 `harness:*` leaf gates from `package.json`.
-- 22 `harness:*` leaf gates in `check:pr`; the omitted gates are
+- 25 `harness:*` leaf gates from `package.json`.
+- 23 `harness:*` leaf gates in `check:pr`; the omitted gates are
   `smoke-legacy-intake` and `smoke-cli-package`.
-- 11 `harness:*` gates executed by pull-request `rewrite-ci` jobs:
+- 12 `harness:*` gates executed by pull-request `rewrite-ci` jobs:
   `check-file-complexity`, `check-import-boundaries`,
   `scan-forbidden-symbols`, `check-private-boundary`,
-  `check-runtime-release-readiness`, `check-implementation-contracts`,
-  `check-schema-contracts`, `check-legacy-intake-readiness`,
-  `check-package-policy`, `check-supply-chain`, and `smoke-cli-package`.
+  `check-gate-surface`, `check-runtime-release-readiness`,
+  `check-implementation-contracts`, `check-schema-contracts`,
+  `check-legacy-intake-readiness`, `check-package-policy`,
+  `check-supply-chain`, and `smoke-cli-package`.
 - 13 `harness:*` gates registered in package scripts but not executed by a
   pull-request `rewrite-ci` job:
   `check-cli-structure`, `check-cli-help-contract`,
