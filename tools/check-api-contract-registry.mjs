@@ -10,7 +10,9 @@ const defaults = {
   allowlistPath: "packages/gui/src/preload/allowlist.ts",
   bridgePath: "packages/gui/src/api/service-bridge.ts",
   applicationPath: "packages/application/src/index.ts",
-  terminalPath: "packages/gui/src/terminal/session-registry.ts"
+  terminalPath: "packages/gui/src/terminal/session-registry.ts",
+  daemonMethodRegistryPath: "packages/daemon/src/protocol/method-registry.ts",
+  daemonApiSchemaFixtureRoot: "packages/daemon/fixtures/api-schemas"
 };
 const supportedServices = new Set(["LocalControllerService", "TerminalSessionService"]);
 const requiredTerminalRoutes = [
@@ -68,7 +70,9 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
     violations
   });
   inspectSchemaContracts(schemaContracts, applicationDeclarations, guiDeclarations, paths.registryPath, violations);
+  inspectApiSchemaFixtures(root, schemaContracts, paths.daemonApiSchemaFixtureRoot, violations);
   inspectRegistryEntries(registry, schemaContracts, serviceMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
+  inspectDaemonMethodRegistry(root, paths.daemonMethodRegistryPath, registry, violations);
   inspectRequiredTerminalRoutes(registry, paths.registryPath, violations);
   inspectDeferredContracts(deferredContracts, registry, localControllerMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectBridgeHandlers(registry, bridgeHandlers, paths.bridgePath, violations);
@@ -87,6 +91,51 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   inspectDeferredMethodsExcludedFromBridgeHandlers(deferredContracts, bridgeHandlers, paths.bridgePath, violations);
 
   return violations;
+}
+
+function inspectApiSchemaFixtures(root, schemaContracts, fixtureRoot, violations) {
+  const absoluteFixtureRoot = path.join(root, fixtureRoot);
+  if (!existsSync(absoluteFixtureRoot)) return;
+  for (const entry of schemaContracts) {
+    if (!entry.id) continue;
+    const fixtureDir = path.join(fixtureRoot, schemaFixtureName(entry.id));
+    for (const fileName of ["valid.json", "invalid.json"]) {
+      const relativePath = path.join(fixtureDir, fileName).split(path.sep).join("/");
+      if (!existsSync(path.join(root, relativePath))) {
+        violations.push(`${fixtureRoot}: schema ${entry.id} missing fixture ${relativePath}`);
+      }
+    }
+  }
+}
+
+function inspectDaemonMethodRegistry(root, relativePath, routeContracts, violations) {
+  const source = readSource(root, relativePath, []);
+  if (!source) return;
+  if (!source.text.includes("apiRouteContracts")) {
+    violations.push(`${relativePath}: daemon method registry must import the API contract registry authority`);
+  }
+  if (!/contracts\.map\s*\(/u.test(source.text)) {
+    violations.push(`${relativePath}: daemon service method registry must be derived with contracts.map(...)`);
+  }
+  if (!/method:\s*`repo\.\$\{contract\.id\}`/u.test(source.text)) {
+    violations.push(`${relativePath}: daemon JSON-RPC service methods must derive method names from route contract ids`);
+  }
+  for (const contract of routeContracts) {
+    if (!contract.id) continue;
+    const manualMethodLiteral = `"repo.${contract.id}"`;
+    if (source.text.includes(manualMethodLiteral)) {
+      violations.push(`${relativePath}: repo.${contract.id} must not be hand-listed; derive it from apiRouteContracts`);
+    }
+  }
+  for (const requiredMethod of ["protocol.hello", "repo.notifications.subscribe", "repo.notifications.unsubscribe", "admin.people.list", "admin.rbac.roles.list"]) {
+    if (!source.text.includes(requiredMethod)) {
+      violations.push(`${relativePath}: missing daemon protocol method ${requiredMethod}`);
+    }
+  }
+}
+
+function schemaFixtureName(schemaId) {
+  return schemaId.replace(/[^A-Za-z0-9.-]+/gu, "__");
 }
 
 function inspectRequiredTerminalRoutes(entries, relativePath, violations) {

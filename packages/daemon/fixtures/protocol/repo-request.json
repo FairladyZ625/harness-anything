@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": "tasks-list-1",
+  "method": "repo.tasks.list",
+  "params": {
+    "repo": {
+      "repoId": "canonical"
+    },
+    "payload": {}
+  }
+}

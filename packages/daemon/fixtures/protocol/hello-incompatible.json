@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": "hello-bad",
+  "method": "protocol.hello",
+  "params": {
+    "protocolVersion": 999,
+    "clientName": "fixture-client"
+  }
+}

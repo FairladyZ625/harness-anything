@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "schema": "command-receipt/v2",
+  "command": "repo.tasks.list",
+  "action": "tasks.list",
+  "summary": "completed repo.tasks.list",
+  "items": [],
+  "details": {
+    "data": {
+      "ok": true,
+      "tasks": [],
+      "warnings": []
+    }
+  },
+  "meta": {
+    "generatedAt": "2026-07-07T00:00:00.000Z",
+    "compatibility": {
+      "legacyReceipt": "CommandReceipt/v1"
+    }
+  }
+}
