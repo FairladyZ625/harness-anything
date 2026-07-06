@@ -64,6 +64,7 @@ test("bundled software coding assets have consistent template and process-preset
   const processPresetIds = new Set([
     "doc-canon-sync",
     "dogfood-utilization-audit",
+    "gate-architecture-retrospective",
     "legacy-migration",
     "lesson-sedimentation",
     "milestone-closeout",
@@ -76,6 +77,7 @@ test("bundled software coding assets have consistent template and process-preset
   const implementedProcessPresetIds = new Set([
     "doc-canon-sync",
     "dogfood-utilization-audit",
+    "gate-architecture-retrospective",
     "legacy-migration",
     "milestone-closeout",
     "milestone-dossier",

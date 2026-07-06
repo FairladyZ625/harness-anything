@@ -244,6 +244,46 @@
       ]
     },
     {
+      "id": "gate-retro/analysis",
+      "version": "1",
+      "documentKind": "gate-architecture-retrospective-analysis",
+      "slot": "gate-retro-analysis",
+      "materializeAs": "artifacts/gate-retro.analysis.scaffold.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "<!-- gate-retro:ground-truth-warning -->",
+        "<!-- gate-retro:adr-checklist -->",
+        "<!-- gate-retro:defect-patterns -->",
+        "<!-- gate-retro:evidence-ledger -->",
+        "<!-- gate-retro:decision-projection -->"
+      ],
+      "fallbackLocale": "zh-CN",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "<!-- gate-retro:ground-truth-warning -->",
+            "<!-- gate-retro:adr-checklist -->",
+            "<!-- gate-retro:defect-patterns -->",
+            "<!-- gate-retro:evidence-ledger -->",
+            "<!-- gate-retro:decision-projection -->"
+          ],
+          "bodyPath": "templates/gate-retro.analysis/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "<!-- gate-retro:ground-truth-warning -->",
+            "<!-- gate-retro:adr-checklist -->",
+            "<!-- gate-retro:defect-patterns -->",
+            "<!-- gate-retro:evidence-ledger -->",
+            "<!-- gate-retro:decision-projection -->"
+          ],
+          "bodyPath": "templates/gate-retro.analysis/en-US.md"
+        }
+      ]
+    },
+    {
       "id": "planning/brief",
       "version": "1",
       "documentKind": "brief",
