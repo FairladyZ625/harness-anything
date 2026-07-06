@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkPrBodyBilingual, countBilingualSignals } from "./check-pr-body-bilingual.mjs";
+import { checkPrBodyBilingual, countBilingualSignals, shouldSkipPrBodyBilingualCheck } from "./check-pr-body-bilingual.mjs";
 
 const validEnglish = [
   "# English",
@@ -124,4 +124,43 @@ test("signal counter counts CJK characters and Latin words independently", () =>
     cjkChars: 4,
     latinWords: 3
   });
+});
+
+test("Mergify merge-queue verification PR can skip body template lint", () => {
+  const body = [
+    "<!---",
+    "DO NOT EDIT",
+    "-*- Mergify Payload -*-",
+    "{\"merge-queue-pr\": true}",
+    "-*- Mergify Payload End -*-",
+    "-->",
+    "",
+    "This pull request has been created by Mergify to check mergeability."
+  ].join("\n");
+
+  assert.equal(shouldSkipPrBodyBilingualCheck({
+    body,
+    headRefName: "mergify/merge-queue/e00b463e2d",
+    authorLogin: "mergify[bot]"
+  }), true);
+});
+
+test("Mergify skip requires bot author, queue branch, and payload marker", () => {
+  const body = "{\"merge-queue-pr\": true}";
+
+  assert.equal(shouldSkipPrBodyBilingualCheck({
+    body,
+    headRefName: "codex/not-a-queue",
+    authorLogin: "mergify[bot]"
+  }), false);
+  assert.equal(shouldSkipPrBodyBilingualCheck({
+    body,
+    headRefName: "mergify/merge-queue/e00b463e2d",
+    authorLogin: "FairladyZ625"
+  }), false);
+  assert.equal(shouldSkipPrBodyBilingualCheck({
+    body: "regular body",
+    headRefName: "mergify/merge-queue/e00b463e2d",
+    authorLogin: "mergify[bot]"
+  }), false);
 });
