@@ -1,4 +1,4 @@
-import type { TaskId } from "../../../kernel/src/domain/index.ts";
+import type { TaskId } from "../../../kernel/src/index.ts";
 
 export function renderSupersedesRelation(newTaskId: TaskId, oldTaskId: TaskId, reason: string): string {
   return [

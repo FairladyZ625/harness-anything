@@ -1,8 +1,8 @@
 import { Effect } from "effect";
-import { taskEntityId } from "../../../kernel/src/domain/index.ts";
-import type { TaskId, WriteError } from "../../../kernel/src/domain/index.ts";
-import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
-import type { WriteOpKind } from "../../../kernel/src/ports/write-coordinator.ts";
+import { taskEntityId } from "../../../kernel/src/index.ts";
+import type { TaskId, WriteError } from "../../../kernel/src/index.ts";
+import type { WriteCoordinator } from "../../../kernel/src/index.ts";
+import type { WriteOpKind } from "../../../kernel/src/index.ts";
 import { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "../../../kernel/src/write-coordination/write-helpers.ts";
 import type { HashPayload } from "./task-index.ts";
 

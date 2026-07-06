@@ -1,7 +1,7 @@
 import type { Effect } from "effect";
-import type { DomainStatus, EngineError, PackageDisposition, PriorityTier, TaskId, TaskWorkKind, WriteError } from "../../../kernel/src/domain/index.ts";
-import type { HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
-import type { ProvenancePayload, WriteCoordinator } from "../../../kernel/src/ports/index.ts";
+import type { DomainStatus, EngineError, PackageDisposition, PriorityTier, TaskId, TaskWorkKind, WriteError } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import type { ProvenancePayload, WriteCoordinator } from "../../../kernel/src/index.ts";
 import type { TaskCreatedBy } from "./created-by.ts";
 
 export interface LocalJournalActor {

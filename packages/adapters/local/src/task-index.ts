@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { Effect, Schema } from "effect";
-import type { DomainStatus, EngineError, PriorityTier, TaskId, TaskWorkKind } from "../../../kernel/src/domain/index.ts";
-import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind } from "../../../kernel/src/domain/index.ts";
-import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
-import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/layout/index.ts";
-import { readFrontmatter, readNestedScalar, readScalar } from "../../../kernel/src/markdown/frontmatter.ts";
-import type { ProvenancePayload } from "../../../kernel/src/ports/index.ts";
-import { ProvenanceEntrySchema } from "../../../kernel/src/schemas/common.ts";
+import type { DomainStatus, EngineError, PriorityTier, TaskId, TaskWorkKind } from "../../../kernel/src/index.ts";
+import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/index.ts";
+import { readFrontmatter, readNestedScalar, readScalar } from "../../../kernel/src/index.ts";
+import type { ProvenancePayload } from "../../../kernel/src/index.ts";
+import { ProvenanceEntrySchema } from "../../../kernel/src/index.ts";
 import type { TaskCreatedBy } from "./created-by.ts";
 import type { LocalTaskIndex } from "./types.ts";
 
