@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectSlowTests, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
 import { testTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 
 test("parseRunnerArgs accepts tier and slow summary options", () => {
@@ -22,6 +22,63 @@ test("parseRunnerArgs accepts a concurrency cap", () => {
 test("parseRunnerArgs rejects unknown tiers and options", () => {
   assert.throws(() => parseRunnerArgs(["--tier", "unit"], testTierNames), /unknown test tier/u);
   assert.throws(() => parseRunnerArgs(["--bogus"], testTierNames), /unknown run-node-tests option/u);
+});
+
+test("resolveTestConcurrency prefers the explicit flag over env and defaults", () => {
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: 3, envConcurrency: "8", isCi: false, availableParallelism: 16 }),
+    3
+  );
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: 12, envConcurrency: undefined, isCi: true, availableParallelism: 16 }),
+    12
+  );
+});
+
+test("resolveTestConcurrency honors HARNESS_TEST_CONCURRENCY when no flag is given", () => {
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "8", isCi: false, availableParallelism: 16 }),
+    8
+  );
+  // A blank or invalid env value falls through to the default path.
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "", isCi: true, availableParallelism: 16 }),
+    undefined
+  );
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "0", isCi: true, availableParallelism: 16 }),
+    undefined
+  );
+});
+
+test("resolveTestConcurrency keeps node's default in CI with no explicit signal", () => {
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: true, availableParallelism: 16 }),
+    undefined
+  );
+});
+
+test("resolveTestConcurrency caps the non-CI default to min(6, max(2, cores-2))", () => {
+  // 16 cores -> min(6, 14) = 6
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 16 }),
+    6
+  );
+  // 4 cores -> min(6, max(2, 2)) = 2
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 4 }),
+    2
+  );
+  // 8 cores -> min(6, max(2, 6)) = 6
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 8 }),
+    6
+  );
+  // 1 core -> floor at 2
+  assert.equal(
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 1 }),
+    2
+  );
 });
 
 test("selectTestFiles fails closed when a test file is unclassified", () => {
