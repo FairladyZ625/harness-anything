@@ -3,6 +3,7 @@
     "standard-task",
     "module",
     "legacy-migration",
+    "dogfood-utilization-audit",
     "doc-canon-sync",
     "milestone-closeout",
     "lesson-sedimentation",
