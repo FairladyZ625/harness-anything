@@ -10,11 +10,12 @@ on:
   schedule:
     - cron: "17 19 * * *"
 
-# Cancel superseded PR runs (e.g. after a force-push). Never cancel main/nightly
-# full-check runs — those must always complete.
+# Cancel superseded ordinary PR runs (e.g. after a force-push). Never cancel
+# main/nightly full-check runs or Mergify queue verification PR runs — Mergify
+# can otherwise observe the cancelled run before the replacement run finishes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'mergify/merge-queue/') }}
 
 jobs:
   pr-body-lint:
@@ -28,6 +29,8 @@ jobs:
       - name: Check bilingual PR body
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/check-pr-body-bilingual.mjs --env PR_BODY
 
   # Detect what a PR touched so heavy, package-scoped jobs can no-op their
