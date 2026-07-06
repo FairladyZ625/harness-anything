@@ -11,6 +11,7 @@ import {
   runMigrateStructure,
   runMigrateVerify
 } from "../migration.ts";
+import { runMigrateAnchors } from "../anchor-backfill.ts";
 import { runMigrateProvenance } from "./provenance-backfill.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 
@@ -22,6 +23,7 @@ type MigrationAction = Extract<
       | "snapshot-multica"
       | "migrate-plan"
       | "migrate-structure"
+      | "migrate-anchors"
       | "migrate-provenance"
       | "migrate-run"
       | "migrate-verify"
@@ -44,6 +46,8 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
       return Effect.sync(() => runMigratePlan(context.layoutInput, action));
     case "migrate-structure":
       return Effect.sync(() => runMigrateStructure(context.layoutInput, action));
+    case "migrate-anchors":
+      return runMigrateAnchors(context, context.layoutInput, action);
     case "migrate-provenance":
       return runMigrateProvenance(context, context.layoutInput, action);
     case "migrate-run":
