@@ -157,6 +157,7 @@ if (!existsSync(portablePathCollisionTestPath)) {
 }
 
 const hasGuiImplementation = files.some((file) => /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)));
+const hasDaemonImplementation = files.some((file) => relative(file).startsWith("packages/daemon/src/"));
 const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/store\//.test(relative(file)));
 const hasPublishImplementation = files.some((file) => /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)));
 const hasLocalLifecycleImplementation = files.some((file) => relative(file) === "packages/adapters/local/src/index.ts")
@@ -205,6 +206,11 @@ if (hasGuiImplementation) {
   for (const requiredEvidence of guiSecurityEvidence) {
     if (!guiSecurityTests.includes(requiredEvidence)) record(`GUI security tests must prove: ${requiredEvidence}`);
   }
+}
+
+if (hasDaemonImplementation) {
+  const daemonProtocolTestPath = "packages/daemon/test/json-rpc-protocol.test.ts";
+  if (!existsSync(path.join(root, daemonProtocolTestPath))) record(`daemon protocol implementation requires contract test: ${daemonProtocolTestPath}`);
 }
 
 if (hasStoreImplementation) {
@@ -448,6 +454,18 @@ for (const file of files) {
     }
     if (/terminal[\s\S]{0,120}(?:projection|mutate|ingest|parse output|appendProgress|saveEvidence|TaskService)/i.test(text)) {
       record(`${rel}: terminal output must not mutate projections or become implicit task state`);
+    }
+  }
+
+  if (rel.startsWith("packages/daemon/src/")) {
+    if (/from\s+["'][^"']*(?:packages\/kernel\/src\/store|packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
+      record(`${rel}: daemon protocol handlers must not import store or adapter implementations`);
+    }
+    if (/\bWriteCoordinator\.(?:enqueue|flush)\s*\(|\bcoordinator\.(?:enqueue|flush)\s*\(|\.(?:writeDocument|archivePackage)\s*\(/.test(text)) {
+      record(`${rel}: daemon protocol handlers must not perform write coordination or authored writes directly`);
+    }
+    if (/switch\s*\([^)]*status[^)]*\)|if\s*\([^)]*status[^)]*(?:===|!==|==|!=)/i.test(text)) {
+      record(`${rel}: daemon protocol handlers must not infer business state from status values`);
     }
   }
 

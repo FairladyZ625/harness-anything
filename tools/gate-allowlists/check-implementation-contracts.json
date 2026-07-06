@@ -47,6 +47,7 @@
       { "value": "packages/adapters/multica/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
       { "value": "packages/application/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
       { "value": "packages/cli/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
+      { "value": "packages/daemon/tsconfig.json", "ref": "task_01KWW57DZR16BD31BC84ETQV6E", "reason": "PLT-Daemon W2 adds the governed daemon protocol workspace." },
       { "value": "packages/gui/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." },
       { "value": "packages/kernel/tsconfig.json", "ref": "ADR-0023#D6", "reason": "Workspace TypeScript references are a governed package boundary list." }
     ],

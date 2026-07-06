@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "method": "repo.notifications.subscribe",
+  "params": {
+    "repo": {
+      "repoId": "canonical"
+    },
+    "payload": {
+      "events": [
+        "receipt.created"
+      ]
+    }
+  }
+}

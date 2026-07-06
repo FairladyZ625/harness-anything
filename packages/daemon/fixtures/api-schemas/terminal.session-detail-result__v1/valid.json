@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "session": {
+    "sessionId": "term-1",
+    "name": "Terminal",
+    "backend": "direct-pty",
+    "status": "active",
+    "hostLabel": "local",
+    "createdAt": "2026-07-07T00:00:00.000Z"
+  }
+}

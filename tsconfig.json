@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/kernel" },
     { "path": "./packages/application" },
+    { "path": "./packages/daemon" },
     { "path": "./packages/cli" },
     { "path": "./packages/gui" },
     { "path": "./packages/adapters/local" },
