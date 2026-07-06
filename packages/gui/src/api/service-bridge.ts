@@ -6,8 +6,8 @@ import {
   readTaskDocumentPayload,
   readTaskIdPayload
 } from "../../../application/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/layout/index.ts";
-import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, resolveHarnessRuntimeContext, taskDocumentPath } from "../../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, resolveHarnessRuntimeContext, taskDocumentPath } from "../../../kernel/src/index.ts";
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, deferredGuiBridgeContracts } from "./api-contract-registry.ts";
 import { validateProjectPath } from "./local-api.ts";
