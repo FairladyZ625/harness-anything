@@ -57,6 +57,9 @@
         "check-cli-error-codes",
         "check-error-classification",
         "check-import-boundaries",
+        "check-write-coordinator-boundary",
+        "check-kernel-dead-exports",
+        "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -90,6 +93,9 @@
         "check-cli-error-codes",
         "check-error-classification",
         "check-import-boundaries",
+        "check-write-coordinator-boundary",
+        "check-kernel-dead-exports",
+        "check-relation-cycle-substrate",
         "scan-forbidden-symbols",
         "check-duplicate-definitions",
         "check-integrity-single-source",
@@ -108,7 +114,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 25
+      "harnessLeafGateCount": 28
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -1400,6 +1406,263 @@
           "contexts": [
             "boundaries"
           ]
+        }
+      }
+    },
+    {
+      "id": "check-write-coordinator-boundary",
+      "command": "npm run harness:check-write-coordinator-boundary",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f6-write-coordinator",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
+        "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+      ],
+      "consumerScope": [
+        "packages/kernel/src/store/write-journal-coordinator.ts imports and local calls",
+        "metabolic write-admissibility policy modules named by ADR-0022 F6"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-write-coordinator-boundary.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Existing hard-delete disposition checks inside WriteCoordinator are explicit F6 debt. New metabolic policy imports or calls fail unless separately governed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-write-coordinator-boundary.mjs",
+          "tools/gate-allowlists/check-write-coordinator-boundary.json",
+          "package.json:scripts.harness:check-write-coordinator-boundary",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-write-coordinator-boundary"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-kernel-dead-exports",
+      "command": "npm run harness:check-kernel-dead-exports",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/index.ts",
+        "packages/kernel/tsconfig.json",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f8-d4-projection-zero-consumption-dead-code--two-cycle-detectors",
+        "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+      ],
+      "consumerScope": [
+        "non-test imports from packages/** and tools/** into packages/kernel/src/**",
+        "kernel public barrel export symbols from packages/kernel/src/index.ts"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-kernel-dead-exports.json",
+        "adrOrDecisionRequired": true,
+        "notes": "F8a first pass externalizes the existing zero-consumption kernel barrel export baseline; future zero-consumption exports fail unless explicitly governed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-kernel-dead-exports.mjs",
+          "tools/gate-allowlists/check-kernel-dead-exports.json",
+          "package.json:scripts.harness:check-kernel-dead-exports",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-kernel-dead-exports"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-relation-cycle-substrate",
+      "command": "npm run harness:check-relation-cycle-substrate",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/projection/relation-graph-projection.ts#detectRelationGraphCycles",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f8-d4-projection-zero-consumption-dead-code--two-cycle-detectors",
+        "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+      ],
+      "consumerScope": [
+        "entity relation graph cycle detection over RelationGraphEdgeRow / EntityRelationRecord surfaces",
+        "non-test packages/** and tools/** source files"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The canonical entity relation cycle substrate is packages/kernel/src/projection/relation-graph-projection.ts#detectRelationGraphCycles; wrappers must delegate to it."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-relation-cycle-substrate.mjs",
+          "package.json:scripts.harness:check-relation-cycle-substrate",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-relation-cycle-substrate"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-enforcement-debt-sunset",
+      "command": "npm run harness:check-enforcement-debt-sunset",
+      "category": "meta-governance",
+      "tier": "nightly-only",
+      "tierReason": "ADR-0022 D4 requires overdue enforcement debt visibility in nightly full-check without turning stale governance debt into a pull-request required merge blocker.",
+      "authoritySource": [
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d4--adr-has-text-must-have-code-enforcement-in-same-pr-accepted-but-unimplemented-enters-debt-table",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
+        "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+      ],
+      "consumerScope": [
+        "private harness/decisions decision-package relations derives -> task/*",
+        "private harness/tasks task-package lifecycle status projection from INDEX.md",
+        "scheduled rewrite-ci full-check only"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "This checker is read-only over authored private harness markdown. It skips public-only checkouts where harness/ is absent."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-enforcement-debt-sunset.mjs",
+          "package.json:scripts.harness:check-enforcement-debt-sunset",
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "harness:check-enforcement-debt-sunset"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
         }
       }
     },
