@@ -1,0 +1,2321 @@
+{
+  "governanceNotice": "Governance change: modifying this file changes the structured gate-policy authority. Ordinary implementation tasks must not change it without task/ADR/decision evidence.",
+  "schema": "harness-anything/gate-manifest/v1",
+  "schemaDocumentation": "tools/gate-manifest.schema.md",
+  "authorityBasis": [
+    "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d2--gate-manifest-is-the-single-structured-authority-for-gate-policy",
+    "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d4--boundary-and-local-consistency-gates-must-be-classified",
+    "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6--gate-binary-boundary-architecture-invariants-vs-local-consistency-formatlocal-coherence"
+  ],
+  "sourceSnapshot": {
+    "taskId": "task_01KWVTPHGN8VXED2MTNZJY0H5S",
+    "recordedAt": "2026-07-06",
+    "packageScripts": "package.json",
+    "workflow": ".github/workflows/rewrite-ci.yml",
+    "branchProtectionDocument": ".github/branch-protection.md",
+    "githubActualBranchProtection": {
+      "branch": "main",
+      "enforceAdmins": false,
+      "requiredPullRequestReviews": true,
+      "requiredStatusChecks": [
+        "boundaries",
+        "package-policy",
+        "typecheck (24)",
+        "typecheck (26)",
+        "fast-contract",
+        "integration",
+        "supply-chain",
+        "gui-build",
+        "node26-compatibility",
+        "pr-body-lint"
+      ]
+    }
+  },
+  "categoryDefinitions": {
+    "boundary": "Guards an architecture or package boundary invariant. Architecture review may cite this category as boundary evidence.",
+    "local-consistency": "Guards local formatting, mirrored declarations, generated/help text, or repository-local coherence. This category is useful but is not boundary evidence.",
+    "smoke": "Runs an end-to-end smoke or packaging/build smoke.",
+    "release-policy": "Guards release, package, supply-chain, runtime readiness, or publication policy.",
+    "meta-governance": "Guards governance surfaces such as PR body format, aggregate check composition, or CI gate topology."
+  },
+  "tierDefinitions": {
+    "pr-required": "Runs in a GitHub branch-protection required context for pull requests.",
+    "main-only": "Does not run in a PR required context; runs through full-check on main push, scheduled nightly, and manual workflow dispatch unless noted.",
+    "nightly-only": "Runs only on scheduled full-check.",
+    "manual-only": "Runs only by explicit local or workflow-dispatch invocation."
+  },
+  "surfaces": {
+    "packageJson": {
+      "check": [
+        "typecheck",
+        "lint",
+        "test-node-all",
+        "test-gui",
+        "check-file-complexity",
+        "check-cli-structure",
+        "check-cli-help-contract",
+        "check-cli-error-codes",
+        "check-error-classification",
+        "check-import-boundaries",
+        "scan-forbidden-symbols",
+        "check-duplicate-definitions",
+        "check-integrity-single-source",
+        "check-private-boundary",
+        "check-docs-release-map",
+        "check-docmap-fresh",
+        "check-template-command-surface",
+        "check-runtime-release-readiness",
+        "check-package-policy",
+        "check-implementation-contracts",
+        "check-service-mappability",
+        "check-api-contract-registry",
+        "check-schema-contracts",
+        "check-schema-field-coverage",
+        "check-legacy-intake-readiness",
+        "check-supply-chain",
+        "smoke-legacy-intake",
+        "smoke-cli-package"
+      ],
+      "checkPr": [
+        "typecheck",
+        "lint",
+        "test-fast",
+        "test-contract",
+        "test-integration",
+        "test-gui",
+        "check-file-complexity",
+        "check-cli-structure",
+        "check-cli-help-contract",
+        "check-cli-error-codes",
+        "check-error-classification",
+        "check-import-boundaries",
+        "scan-forbidden-symbols",
+        "check-duplicate-definitions",
+        "check-integrity-single-source",
+        "check-private-boundary",
+        "check-docs-release-map",
+        "check-docmap-fresh",
+        "check-template-command-surface",
+        "check-runtime-release-readiness",
+        "check-package-policy",
+        "check-implementation-contracts",
+        "check-service-mappability",
+        "check-api-contract-registry",
+        "check-schema-contracts",
+        "check-schema-field-coverage",
+        "check-legacy-intake-readiness",
+        "check-supply-chain"
+      ],
+      "harnessLeafGateCount": 24
+    },
+    "rewriteCi": {
+      "pullRequestGateJobs": [
+        "pr-body-lint",
+        "typecheck",
+        "fast-contract",
+        "integration",
+        "boundaries",
+        "package-policy",
+        "supply-chain",
+        "gui-build",
+        "node26-compatibility"
+      ],
+      "helperJobsNotRegisteredAsGates": [
+        "changes"
+      ],
+      "nonPullRequestGateJobs": [
+        "full-check"
+      ]
+    },
+    "branchProtection": {
+      "requiredContexts": [
+        "boundaries",
+        "package-policy",
+        "typecheck (24)",
+        "typecheck (26)",
+        "fast-contract",
+        "integration",
+        "supply-chain",
+        "gui-build",
+        "node26-compatibility",
+        "pr-body-lint"
+      ],
+      "enforceAdmins": false
+    }
+  },
+  "gates": [
+    {
+      "id": "aggregate-full-check",
+      "aggregate": true,
+      "command": "npm run check",
+      "category": "meta-governance",
+      "tier": "main-only",
+      "tierReason": "Full aggregate check is intentionally not a pull_request job; rewrite-ci runs it on main push, schedule, and workflow_dispatch.",
+      "authoritySource": [
+        "package.json:scripts.check",
+        ".github/workflows/rewrite-ci.yml:jobs.full-check"
+      ],
+      "consumerScope": [
+        "full local gate suite",
+        "non-PR rewrite-ci full-check matrix"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Aggregate composition is governed by this manifest and package.json until G3 derives/checks it."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "package.json",
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": false,
+          "script": "check"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "aggregate-check-pr",
+      "aggregate": true,
+      "command": "npm run check:pr",
+      "category": "meta-governance",
+      "tier": "manual-only",
+      "tierReason": "Local PR approximation script is not invoked by rewrite-ci; GitHub PRs use tiered jobs instead.",
+      "authoritySource": [
+        "package.json:scripts.check:pr",
+        "harness/governance/standards/ci-cd-standard.md#ci-lane"
+      ],
+      "consumerScope": [
+        "local PR approximation command"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [],
+        "nodeVersions": []
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Aggregate composition is governed by this manifest and package.json until G3 derives/checks it."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "package.json",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": true,
+          "script": "check:pr"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "pr-body-lint",
+      "command": "node tools/check-pr-body-bilingual.mjs --env PR_BODY",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        ".github/pull_request_template.md",
+        "harness/governance/standards/repo-governance-standard.md"
+      ],
+      "consumerScope": [
+        "GitHub pull request body"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "pr-body-lint"
+        ],
+        "workflowJobs": [
+          "pr-body-lint"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "No allowlist; PR body must satisfy the bilingual template contract."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          ".github/pull_request_template.md",
+          "tools/check-pr-body-bilingual.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "pr-body-lint"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "pr-body-lint"
+          ]
+        }
+      }
+    },
+    {
+      "id": "typecheck",
+      "command": "npm run typecheck",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tsconfig.json",
+        "tsconfig.build.json",
+        "package.json:scripts.typecheck"
+      ],
+      "consumerScope": [
+        "TypeScript project references"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "typecheck (24)",
+          "typecheck (26)",
+          "node26-compatibility"
+        ],
+        "workflowJobs": [
+          "typecheck",
+          "node26-compatibility"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "TypeScript diagnostics are fail-closed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tsconfig*.json",
+          "package.json:scripts.typecheck"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "typecheck"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "typecheck",
+            "node26-compatibility"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "typecheck (24)",
+            "typecheck (26)",
+            "node26-compatibility"
+          ]
+        }
+      }
+    },
+    {
+      "id": "lint",
+      "command": "npm run lint",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "eslint.config.js",
+        "package.json:scripts.lint"
+      ],
+      "consumerScope": [
+        "repository JavaScript and TypeScript lint surface"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "eslint.config.js",
+        "adrOrDecisionRequired": true,
+        "notes": "Lint ignores or rule exceptions on protected surfaces are governance changes."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "eslint.config.js",
+          "package.json:scripts.lint"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "lint"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "test-node-all",
+      "command": "npm test",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "PR workflow runs the node test tiers separately through fast-contract and integration; the aggregate npm test command only runs through full-check.",
+      "authoritySource": [
+        "tools/test-tier-manifest.mjs",
+        "tools/run-node-tests.mjs",
+        "package.json:scripts.test"
+      ],
+      "consumerScope": [
+        "all node:test suites registered by the node test runner"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/test-tier-manifest.mjs",
+        "adrOrDecisionRequired": false,
+        "notes": "Test tier registration is fail-closed by the runner."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/test-tier-manifest.mjs",
+          "package.json:scripts.test"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": false,
+          "script": "test"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "test-fast",
+      "command": "npm run test:fast",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/test-tier-manifest.mjs",
+        "tools/run-node-tests.mjs",
+        "package.json:scripts.test:fast"
+      ],
+      "consumerScope": [
+        "node:test suites classified as fast"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "fast-contract",
+          "node26-compatibility"
+        ],
+        "workflowJobs": [
+          "fast-contract",
+          "node26-compatibility"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/test-tier-manifest.mjs",
+        "adrOrDecisionRequired": false,
+        "notes": "Tier registration is explicit and fail-closed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/test-tier-manifest.mjs",
+          "package.json:scripts.test:fast"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": true,
+          "script": "test:fast"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "fast-contract",
+            "node26-compatibility"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "fast-contract",
+            "node26-compatibility"
+          ]
+        }
+      }
+    },
+    {
+      "id": "test-contract",
+      "command": "npm run test:contract",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/test-tier-manifest.mjs",
+        "tools/run-node-tests.mjs",
+        "package.json:scripts.test:contract"
+      ],
+      "consumerScope": [
+        "node:test suites classified as contract"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "fast-contract",
+          "node26-compatibility"
+        ],
+        "workflowJobs": [
+          "fast-contract",
+          "node26-compatibility"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/test-tier-manifest.mjs",
+        "adrOrDecisionRequired": false,
+        "notes": "Tier registration is explicit and fail-closed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/test-tier-manifest.mjs",
+          "package.json:scripts.test:contract"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": true,
+          "script": "test:contract"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "fast-contract",
+            "node26-compatibility"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "fast-contract",
+            "node26-compatibility"
+          ]
+        }
+      }
+    },
+    {
+      "id": "test-integration",
+      "command": "npm run test:integration",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/test-tier-manifest.mjs",
+        "tools/run-node-tests.mjs",
+        "package.json:scripts.test:integration"
+      ],
+      "consumerScope": [
+        "node:test suites classified as integration"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "integration"
+        ],
+        "workflowJobs": [
+          "integration"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/test-tier-manifest.mjs",
+        "adrOrDecisionRequired": false,
+        "notes": "Tier registration is explicit and fail-closed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/test-tier-manifest.mjs",
+          "package.json:scripts.test:integration"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": true,
+          "script": "test:integration"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "integration"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "integration"
+          ]
+        }
+      }
+    },
+    {
+      "id": "test-gui",
+      "command": "npm run test:gui",
+      "category": "smoke",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/gui-test-manifest.mjs",
+        "tools/run-gui-tests.mjs",
+        "package.json:scripts.test:gui"
+      ],
+      "consumerScope": [
+        "GUI tests registered by the GUI test runner"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "gui-build"
+        ],
+        "workflowJobs": [
+          "gui-build"
+        ],
+        "nodeVersions": [
+          24
+        ],
+        "pathFiltered": true
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gui-test-manifest.mjs",
+        "adrOrDecisionRequired": false,
+        "notes": "GUI lane no-ops expensive steps when path filtering reports no GUI/shared-root changes."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gui-test-manifest.mjs",
+          "package.json:scripts.test:gui"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "test:gui"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "gui-build"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ],
+          "pathFiltered": true
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "gui-build"
+          ]
+        }
+      }
+    },
+    {
+      "id": "gui-package-build",
+      "command": "npm run -w @harness-anything/gui build",
+      "category": "smoke",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/gui/package.json:scripts.build",
+        ".github/workflows/rewrite-ci.yml:jobs.gui-build"
+      ],
+      "consumerScope": [
+        "@harness-anything/gui build artifact"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "gui-build"
+        ],
+        "workflowJobs": [
+          "gui-build"
+        ],
+        "nodeVersions": [
+          24
+        ],
+        "pathFiltered": true
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Build smoke has no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "packages/gui/package.json:scripts.build",
+          ".github/workflows/rewrite-ci.yml"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "gui-build"
+          ],
+          "nonPullRequestJobs": [],
+          "pathFiltered": true
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "gui-build"
+          ]
+        }
+      }
+    },
+    {
+      "id": "node26-compatibility",
+      "aggregate": true,
+      "command": "npm run typecheck && npm run test:fast && npm run test:contract",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        ".github/workflows/rewrite-ci.yml:jobs.node26-compatibility",
+        "harness/governance/standards/ci-cd-standard.md#ci-lane"
+      ],
+      "consumerScope": [
+        "Node 26 compatibility for typecheck plus fast and contract tests"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "node26-compatibility"
+        ],
+        "workflowJobs": [
+          "node26-compatibility"
+        ],
+        "nodeVersions": [
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "No compatibility allowlist is declared."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "node26-compatibility"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "node26-compatibility"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-file-complexity",
+      "command": "npm run harness:check-file-complexity",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/governance/standards/file-complexity-structural-decomposition-standard.md",
+        "tools/check-file-complexity.mjs"
+      ],
+      "consumerScope": [
+        "repository source file size and structural thresholds"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-file-complexity.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Current exceptions live in the checker; ADR-0023 D6 requires governed treatment for allowlist growth."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-file-complexity.mjs",
+          "package.json:scripts.harness:check-file-complexity",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-file-complexity"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-cli-structure",
+      "command": "npm run harness:check-cli-structure",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/cli/src",
+        "tools/check-cli-structure.mjs"
+      ],
+      "consumerScope": [
+        "CLI source structure"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-cli-structure.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Any structural exception in the checker is a governance-controlled gate change."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-structure.mjs",
+          "package.json:scripts.harness:check-cli-structure",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-structure"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-cli-help-contract",
+      "command": "npm run harness:check-cli-help-contract",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/cli/src/cli/command-registry.ts",
+        "packages/cli/src/cli/help.ts",
+        "tools/check-cli-help-contract.mjs"
+      ],
+      "consumerScope": [
+        "CLI command registry and help output contract"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-cli-help-contract.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Current contract mirrors are local-consistency assets."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-help-contract.mjs",
+          "package.json:scripts.harness:check-cli-help-contract",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-help-contract"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-cli-error-codes",
+      "command": "npm run harness:check-cli-error-codes",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/cli/src/cli/error-codes.ts",
+        "tools/check-cli-error-codes.mjs"
+      ],
+      "consumerScope": [
+        "CLI error code registry and CLI source usage"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-cli-error-codes.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Excluded files are declared in the checker and should not grow without governance evidence."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-cli-error-codes.mjs",
+          "package.json:scripts.harness:check-cli-error-codes",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-cli-error-codes"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-error-classification",
+      "command": "npm run harness:check-error-classification",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/kernel/src/errors",
+        "packages/cli/src/cli/error-codes.ts",
+        "tools/check-error-classification.mjs"
+      ],
+      "consumerScope": [
+        "kernel and CLI error classification tables"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-error-classification.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Classification exceptions are local-consistency authority assets."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-error-classification.mjs",
+          "package.json:scripts.harness:check-error-classification",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-error-classification"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-import-boundaries",
+      "command": "npm run harness:check-import-boundaries",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
+        "package.json:workspaces",
+        "packages/*/package.json"
+      ],
+      "consumerScope": [
+        "cross-package import statements under packages/**"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-import-boundaries.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Current rule/allowlist source is checker-local; ADR-0022/0023 require future externalized authority."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-import-boundaries.mjs",
+          "package.json:scripts.harness:check-import-boundaries",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-import-boundaries"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "scan-forbidden-symbols",
+      "command": "npm run harness:scan-forbidden-symbols",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
+        "packages/** public contracts"
+      ],
+      "consumerScope": [
+        "forbidden deprecated architectural symbols under packages/**"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": true,
+        "notes": "Current forbidden symbol list is in the checker; adding/removing symbols is governance-controlled."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/scan-forbidden-symbols.mjs",
+          "package.json:scripts.harness:scan-forbidden-symbols",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:scan-forbidden-symbols"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-duplicate-definitions",
+      "command": "npm run harness:check-duplicate-definitions",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/** source definitions",
+        "tools/check-duplicate-definitions.mjs"
+      ],
+      "consumerScope": [
+        "duplicate source-level definitions scanned by the checker"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-duplicate-definitions.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Any duplicate-definition exception is a governance-controlled local-consistency change."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-duplicate-definitions.mjs",
+          "package.json:scripts.harness:check-duplicate-definitions",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-duplicate-definitions"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-integrity-single-source",
+      "command": "npm run harness:check-integrity-single-source",
+      "category": "boundary",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
+        "packages/kernel/src/** canonical substrate declarations"
+      ],
+      "consumerScope": [
+        "canonical substrate and integrity single-source declarations"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-integrity-single-source.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "ADR-0022 identifies the current symbol table as checker-local debt; growth requires governance evidence."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-integrity-single-source.mjs",
+          "package.json:scripts.harness:check-integrity-single-source",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-integrity-single-source"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-private-boundary",
+      "command": "npm run harness:check-private-boundary",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "AGENTS.md",
+        "harness/AGENTS.md",
+        "harness/governance/standards/repo-governance-standard.md"
+      ],
+      "consumerScope": [
+        "public repository tracked files and private harness boundary"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-private-boundary.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Private-boundary exclusions are governance-controlled because they define publishable scope."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-private-boundary.mjs",
+          "package.json:scripts.harness:check-private-boundary",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-private-boundary"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-docs-release-map",
+      "command": "npm run harness:check-docs-release-map",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "docs-release/",
+        "tools/check-docs-release-map.mjs"
+      ],
+      "consumerScope": [
+        "public docs-release map"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-docs-release-map.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Docs-release publication exceptions are controlled by the docs and release standards."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-docs-release-map.mjs",
+          "package.json:scripts.harness:check-docs-release-map",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-docs-release-map"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-docmap-fresh",
+      "command": "npm run harness:check-docmap-fresh",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "harness/docmap or generated docmap source declarations",
+        "tools/check-docmap-fresh.mjs"
+      ],
+      "consumerScope": [
+        "docmap generated freshness surface"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-docmap-fresh.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Freshness exclusions are local-consistency authority assets."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-docmap-fresh.mjs",
+          "package.json:scripts.harness:check-docmap-fresh",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-docmap-fresh"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-template-command-surface",
+      "command": "npm run harness:check-template-command-surface",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/cli/src/cli/command-registry.ts",
+        "packages/cli/src/commands/extensions/assets/software-coding/templates",
+        "tools/check-template-command-surface.mjs"
+      ],
+      "consumerScope": [
+        "seeded task templates and current CLI command registry"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Unknown/deprecated command references fail the gate."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-template-command-surface.mjs",
+          "package.json:scripts.harness:check-template-command-surface",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-template-command-surface"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-runtime-release-readiness",
+      "command": "npm run harness:check-runtime-release-readiness",
+      "category": "release-policy",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release",
+        "packages/gui/src/distribution/runtime-release-readiness.ts",
+        "docs-release/"
+      ],
+      "consumerScope": [
+        "runtime release readiness declarations"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-runtime-release-readiness.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Release-readiness exceptions are release policy changes."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-runtime-release-readiness.mjs",
+          "package.json:scripts.harness:check-runtime-release-readiness",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-runtime-release-readiness"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-package-policy",
+      "command": "npm run harness:check-package-policy",
+      "category": "release-policy",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release",
+        "package.json",
+        "packages/*/package.json"
+      ],
+      "consumerScope": [
+        "workspace package release policy"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "package-policy"
+        ],
+        "workflowJobs": [
+          "package-policy"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-package-policy.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Publishability exceptions are release-governance changes."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-package-policy.mjs",
+          "package.json:scripts.harness:check-package-policy",
+          "package.json",
+          "packages/*/package.json",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-package-policy"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "package-policy"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "package-policy"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-implementation-contracts",
+      "command": "npm run harness:check-implementation-contracts",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/governance/standards/implementation-contract-standard.md",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
+        "packages/** implementation contracts"
+      ],
+      "consumerScope": [
+        "effect layering, adapter composition, and implementation contract imports"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-implementation-contracts.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Current composition-root and known-debt lists live in the checker; ADR-0023 requires governed handling."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-implementation-contracts.mjs",
+          "package.json:scripts.harness:check-implementation-contracts",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-implementation-contracts"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-service-mappability",
+      "command": "npm run harness:check-service-mappability",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/application/src",
+        "packages/gui/src/api",
+        "tools/check-service-mappability.mjs"
+      ],
+      "consumerScope": [
+        "service declarations and mappability projections"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-service-mappability.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Mappability exceptions are local-consistency authority assets."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-service-mappability.mjs",
+          "package.json:scripts.harness:check-service-mappability",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-service-mappability"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-api-contract-registry",
+      "command": "npm run harness:check-api-contract-registry",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/gui/src/preload/allowlist.ts",
+        "packages/gui/src/api/service-bridge.ts",
+        "packages/application/src/index.ts"
+      ],
+      "consumerScope": [
+        "GUI API route registry, preload allowlist, bridge handlers, and service methods"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "packages/gui/src/preload/allowlist.ts",
+        "adrOrDecisionRequired": true,
+        "notes": "Preload allowlist changes affect exposed GUI API surface."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-api-contract-registry.mjs",
+          "packages/gui/src/api/api-contract-registry.ts",
+          "packages/gui/src/preload/allowlist.ts",
+          "package.json:scripts.harness:check-api-contract-registry",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-api-contract-registry"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-schema-contracts",
+      "command": "npm run harness:check-schema-contracts",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/kernel/src/schemas",
+        "packages/gui/src/api/api-contract-registry.ts",
+        "tools/check-schema-contracts.mjs"
+      ],
+      "consumerScope": [
+        "published schema contracts and schema references"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-schema-contracts.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Schema expected-list changes are governed local-consistency changes."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-schema-contracts.mjs",
+          "package.json:scripts.harness:check-schema-contracts",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-schema-contracts"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-schema-field-coverage",
+      "command": "npm run harness:check-schema-field-coverage",
+      "category": "local-consistency",
+      "tier": "main-only",
+      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/kernel/src/entity/field-contracts.ts",
+        "tools/check-schema-field-coverage.mjs"
+      ],
+      "consumerScope": [
+        "entity schema field contract coverage"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-schema-field-coverage.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "ADR-0022 D6 classifies the current default path as local-consistency, not boundary evidence."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-schema-field-coverage.mjs",
+          "package.json:scripts.harness:check-schema-field-coverage",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-schema-field-coverage"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-legacy-intake-readiness",
+      "command": "npm run harness:check-legacy-intake-readiness",
+      "category": "release-policy",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "docs-release/",
+        "packages/cli/src/commands/legacy",
+        "tools/check-legacy-intake-readiness.mjs"
+      ],
+      "consumerScope": [
+        "Legacy Intake readiness and retired full-cutover surface"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-legacy-intake-readiness.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Legacy Intake release/readiness exceptions are governed release-policy changes."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-legacy-intake-readiness.mjs",
+          "package.json:scripts.harness:check-legacy-intake-readiness",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-legacy-intake-readiness"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-supply-chain",
+      "command": "npm run harness:check-supply-chain",
+      "category": "release-policy",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "package-lock.json",
+        "docs-release/m2-5-runtime-release.md",
+        "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release"
+      ],
+      "consumerScope": [
+        "npm dependency lockfile, generated SBOM, license policy, and supply-chain CI presence"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "supply-chain"
+        ],
+        "workflowJobs": [
+          "supply-chain"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/check-supply-chain.mjs",
+        "adrOrDecisionRequired": true,
+        "notes": "Reviewed license choices and supply-chain exceptions are release-policy assets."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-supply-chain.mjs",
+          "package.json:scripts.harness:check-supply-chain",
+          "package-lock.json",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-supply-chain"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "supply-chain"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "supply-chain"
+          ]
+        }
+      }
+    },
+    {
+      "id": "smoke-legacy-intake",
+      "command": "npm run harness:smoke-legacy-intake",
+      "category": "smoke",
+      "tier": "main-only",
+      "tierReason": "Smoke gate is included in npm run check but intentionally omitted from check:pr and pull_request rewrite-ci; full-check runs it on main/schedule/manual.",
+      "authoritySource": [
+        "packages/cli/src/commands/legacy",
+        "tools/smoke-legacy-intake.mjs"
+      ],
+      "consumerScope": [
+        "Legacy Intake CLI smoke workflow"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Smoke path is fixed by the smoke script."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/smoke-legacy-intake.mjs",
+          "package.json:scripts.harness:smoke-legacy-intake",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": false,
+          "script": "harness:smoke-legacy-intake"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
+      "id": "smoke-cli-package",
+      "command": "npm run harness:smoke-cli-package",
+      "category": "smoke",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/cli/package.json",
+        "tools/smoke-cli-package.mjs"
+      ],
+      "consumerScope": [
+        "@harness-anything/cli pack/install smoke workflow"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "package-policy"
+        ],
+        "workflowJobs": [
+          "package-policy"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Smoke path is fixed by the smoke script."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/smoke-cli-package.mjs",
+          "package.json:scripts.harness:smoke-cli-package",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": false,
+          "script": "harness:smoke-cli-package"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "package-policy"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "package-policy"
+          ]
+        }
+      }
+    }
+  ]
+}

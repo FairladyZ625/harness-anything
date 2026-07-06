@@ -7,7 +7,7 @@ This repository accepts work through pull requests against `main`.
 1. Create a `codex/` branch from the latest `origin/main`.
 2. Keep public implementation and private planning evidence separated.
 3. Open a pull request with the full repository PR template.
-4. Wait for the fast `rewrite-ci` gate to pass.
+4. Wait for the required `rewrite-ci` pull request contexts to pass.
 5. Resolve or explicitly route open P0/P1/P2 findings before merge.
 6. Let Mergify merge through the queue, then delete the merged PR branch.
 
@@ -37,11 +37,25 @@ GitHub branch protection for `main` should require pull request review and the
 Mergify owns the up-to-date guarantee by testing queued pull requests against
 the predicted merge state.
 
+The current GitHub branch-protection configuration for `main` has administrator
+enforcement disabled and requires these status contexts:
+
+- boundaries
+- package-policy
+- typecheck (24)
+- typecheck (26)
+- fast-contract
+- integration
+- supply-chain
+- gui-build
+- node26-compatibility
+- pr-body-lint
+
 The Mergify GitHub App must be installed from
 https://github.com/marketplace/mergify before maintainers rely on the queue.
 The queue rules live in `.mergify.yml`.
 
-Mergify blocks queue merges on the fast gate:
+Mergify queue rules track the fast gate subset:
 
 - boundaries
 - package-policy
@@ -51,8 +65,8 @@ Mergify blocks queue merges on the fast gate:
 - pr-body-lint
 
 The slower `integration`, `supply-chain`, `gui-build`, and
-`node26-compatibility` checks still run for visibility, but they do not block
-the Mergify queue merge.
+`node26-compatibility` contexts remain GitHub branch-protection required
+contexts even though they are outside the Mergify fast-gate subset.
 
 This repository may leave administrator enforcement disabled so a single-owner
 repository can still merge after recorded local review evidence. Any admin
