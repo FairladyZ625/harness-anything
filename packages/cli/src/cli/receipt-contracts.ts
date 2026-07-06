@@ -4,7 +4,6 @@ import type { CommandReceiptContract } from "./command-spec/types.ts";
 export type { CommandReceiptContract } from "./command-spec/types.ts";
 export type { CommandKind } from "./command-spec/index.ts";
 
-export const commandReceiptContractsByKind = Object.assign(
-  {},
-  commandSpecMap((entry) => entry.receiptContract)
-) satisfies Record<CommandKind, CommandReceiptContract>;
+export const commandReceiptContractsByKind = {
+  ...commandSpecMap((entry) => entry.receiptContract)
+} satisfies Record<CommandKind, CommandReceiptContract>;
