@@ -1606,6 +1606,67 @@
       }
     },
     {
+      "id": "check-enforcement-debt-sunset",
+      "command": "npm run harness:check-enforcement-debt-sunset",
+      "category": "meta-governance",
+      "tier": "nightly-only",
+      "tierReason": "ADR-0022 D4 requires overdue enforcement debt visibility in nightly full-check without turning stale governance debt into a pull-request required merge blocker.",
+      "authoritySource": [
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d4--adr-has-text-must-have-code-enforcement-in-same-pr-accepted-but-unimplemented-enters-debt-table",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
+        "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+      ],
+      "consumerScope": [
+        "private harness/decisions decision-package relations derives -> task/*",
+        "private harness/tasks task-package lifecycle status projection from INDEX.md",
+        "scheduled rewrite-ci full-check only"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": [
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "This checker is read-only over authored private harness markdown. It skips public-only checkouts where harness/ is absent."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-enforcement-debt-sunset.mjs",
+          "package.json:scripts.harness:check-enforcement-debt-sunset",
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "harness:check-enforcement-debt-sunset"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        }
+      }
+    },
+    {
       "id": "scan-forbidden-symbols",
       "command": "npm run harness:scan-forbidden-symbols",
       "category": "boundary",

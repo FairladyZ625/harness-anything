@@ -94,6 +94,8 @@ jobs:
       - run: npm ci
       - run: git diff --check
       - run: npm run check
+      - if: github.event_name == 'schedule'
+        run: npm run harness:check-enforcement-debt-sunset
 
   typecheck:
     if: github.event_name == 'pull_request'
