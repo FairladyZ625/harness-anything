@@ -22,6 +22,10 @@ List the assumptions that must not be made and the boundaries that must not be c
 
 State when to stop and report or request a ruling: stop-on-hit conditions (out-of-scope changes, gate bypass, conflict with an existing ruling, blast radius beyond estimate) and planned report-back points (e.g. after breakdown, before opening a PR).
 
+## CI/Gate Authority Stop Condition
+
+If this task is not a CI/gate/governance task but requires modifying CI/gate authority surfaces to pass, stop implementation, record the blocker, and request or create a governance task. Explicit CI/gate/governance tasks and break-glass main recovery are the only exceptions; break-glass must record reason, scope, and a follow-up governance task.
+
 ## Implementation Plan
 
 - Inspect existing code, documents, and contracts.

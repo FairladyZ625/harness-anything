@@ -316,6 +316,81 @@
       }
     },
     {
+      "id": "pr-governance-lint",
+      "command": "node tools/check-pr-governance.mjs --body-env PR_BODY --base-env PR_BASE_SHA --head-env PR_HEAD_SHA",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d5--protected-surface-definition",
+        "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d8--agent-stop-condition-for-ci/gate-authority-changes",
+        "tools/gate-manifest.json",
+        ".github/pull_request_template.md",
+        "harness/governance/standards/repo-governance-standard.md",
+        "harness/governance/standards/ci-cd-standard.md"
+      ],
+      "consumerScope": [
+        "GitHub pull request changed-file paths",
+        "GitHub pull request governance declaration body section",
+        "manifest-derived protected governance surfaces"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "pr-body-lint"
+        ],
+        "workflowJobs": [
+          "pr-body-lint"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": ".github/pull_request_template.md#governance-declaration",
+        "adrOrDecisionRequired": true,
+        "notes": "Break-glass is declared in the PR body only for urgent main recovery and must record reason, scope, and a follow-up governance task. The checker verifies declaration shape and references, not semantic truth."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          ".github/**",
+          "package.json",
+          "package.json:scripts.check",
+          "package.json:scripts.check:pr",
+          "package.json:scripts.harness:*",
+          "tools/check-*.mjs",
+          "tools/check-pr-governance.mjs",
+          "tools/gate-allowlists/**",
+          "tools/gate-manifest.*",
+          "tools/test-tier-manifest.mjs",
+          "tools/check-pr-governance.test.mjs",
+          ".github/pull_request_template.md"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "pr-body-lint"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "pr-body-lint"
+          ]
+        }
+      }
+    },
+    {
       "id": "mergify-queue-metadata-edit-noop",
       "command": "echo \"Mergify queue metadata edit does not change the source under test.\"",
       "category": "meta-governance",

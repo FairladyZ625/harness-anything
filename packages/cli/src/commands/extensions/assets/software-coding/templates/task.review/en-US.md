@@ -11,6 +11,12 @@ E75: before review, the task must have a real fact; if missing, first run `ha fa
 - Agent: pending
 - Mode: read-only review before merge
 
+## D8 Stop Condition Checklist
+
+- [ ] If the task is not CI/gate/governance work, review confirms no CI/gate authority surface was modified to make the task pass.
+- [ ] If a CI/gate authority surface was modified, review confirms the task or PR body cites the authorizing ADR, decision, or task.
+- [ ] If break-glass was used, review confirms reason, scope, and follow-up governance task are recorded.
+
 ## Findings
 
 | ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |

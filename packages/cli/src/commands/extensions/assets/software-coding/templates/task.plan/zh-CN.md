@@ -22,6 +22,10 @@ Task Contract: harness-task v1
 
 写明什么时候必须停下来上报或求裁决：命中即停条件（越界、绕 gate、与既有裁决冲突、牵连面超出预估），以及计划性回报点（如拆解完成后、发 PR 前）。
 
+## CI/Gate Authority Stop Condition
+
+如果本任务不是 CI/gate/governance 任务，却需要修改 CI/gate 权威面才能通过，停止实现，记录 blocker，并请求或创建治理任务。唯一例外是任务明确授权 CI/gate/governance 改动，或紧急修复 main 的 break-glass；break-glass 必须记录原因、范围和后续治理任务。
+
 ## Implementation Plan
 
 - 确认现有代码、文档和契约。

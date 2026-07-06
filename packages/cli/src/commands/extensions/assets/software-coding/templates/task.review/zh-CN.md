@@ -11,6 +11,12 @@ E75：review 前必须已有真实 fact；缺 fact 时先运行 `ha fact record 
 - Agent: pending
 - Mode: read-only review before merge
 
+## D8 Stop Condition Checklist
+
+- [ ] 若本任务不是 CI/gate/governance 工作，review 确认没有为了让任务通过而修改 CI/gate 权威面。
+- [ ] 若修改了 CI/gate 权威面，review 确认 task 或 PR body 引用了授权 ADR、decision 或 task。
+- [ ] 若使用 break-glass，review 确认已记录原因、范围和后续治理任务。
+
 ## Findings
 
 | ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |
