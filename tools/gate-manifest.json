@@ -283,7 +283,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "No allowlist; PR body must satisfy the bilingual template contract."
+        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract. Mergify merge-queue verification PRs are narrowly skipped when authored by mergify[bot], using a mergify/merge-queue/* head ref, and carrying the Mergify queue payload marker."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -311,6 +311,102 @@
           "required": true,
           "contexts": [
             "pr-body-lint"
+          ]
+        }
+      }
+    },
+    {
+      "id": "mergify-queue-metadata-edit-noop",
+      "command": "echo \"Mergify queue metadata edit does not change the source under test.\"",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        ".github/workflows/rewrite-ci.yml",
+        ".github/branch-protection.md",
+        "tools/gate-manifest.json"
+      ],
+      "consumerScope": [
+        "Mergify synthetic merge-queue pull_request edited events for mergify/merge-queue/* branches"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "pr-body-lint",
+          "typecheck (24)",
+          "typecheck (26)",
+          "fast-contract",
+          "integration",
+          "boundaries",
+          "package-policy",
+          "supply-chain",
+          "gui-build",
+          "node26-compatibility"
+        ],
+        "workflowJobs": [
+          "pr-body-lint",
+          "typecheck",
+          "fast-contract",
+          "integration",
+          "boundaries",
+          "package-policy",
+          "supply-chain",
+          "gui-build",
+          "node26-compatibility"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": ".github/workflows/rewrite-ci.yml",
+        "adrOrDecisionRequired": false,
+        "notes": "This is not a human-authored PR bypass. It only lets required jobs complete quickly for Mergify synthetic queue PR body or metadata edits after source checks already ran for the queue head."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          ".github/workflows/rewrite-ci.yml",
+          ".github/branch-protection.md",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "pr-body-lint",
+            "typecheck",
+            "fast-contract",
+            "integration",
+            "boundaries",
+            "package-policy",
+            "supply-chain",
+            "gui-build",
+            "node26-compatibility"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "pr-body-lint",
+            "typecheck (24)",
+            "typecheck (26)",
+            "fast-contract",
+            "integration",
+            "boundaries",
+            "package-policy",
+            "supply-chain",
+            "gui-build",
+            "node26-compatibility"
           ]
         }
       }

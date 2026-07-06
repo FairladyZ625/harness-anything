@@ -10,24 +10,36 @@ on:
   schedule:
     - cron: "17 19 * * *"
 
-# Cancel superseded PR runs (e.g. after a force-push). Never cancel main/nightly
-# full-check runs — those must always complete.
+env:
+  MERGIFY_QUEUE_METADATA_EDIT: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && startsWith(github.event.pull_request.head.ref, 'mergify/merge-queue/') }}
+
+# Cancel superseded ordinary PR runs (e.g. after a force-push). Never cancel
+# main/nightly full-check runs or Mergify queue verification PR runs — Mergify
+# can otherwise observe the cancelled run before the replacement run finishes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'mergify/merge-queue/') }}
 
 jobs:
   pr-body-lint:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 24
       - name: Check bilingual PR body
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/check-pr-body-bilingual.mjs --env PR_BODY
 
   # Detect what a PR touched so heavy, package-scoped jobs can no-op their
@@ -39,8 +51,13 @@ jobs:
     outputs:
       gui: ${{ steps.filter.outputs.gui }}
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: dorny/paths-filter@v3
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         id: filter
         with:
           filters: |
@@ -75,113 +92,180 @@ jobs:
       matrix:
         node-version: [24, 26]
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run typecheck
 
   fast-contract:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run test:fast
-      - run: npm run test:contract
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run test:fast
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run test:contract
 
   integration:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run test:integration
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run test:integration
 
   boundaries:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run harness:check-import-boundaries
-      - run: npm run harness:check-file-complexity
-      - run: npm run harness:scan-forbidden-symbols
-      - run: npm run harness:check-private-boundary
-      - run: npm run harness:check-gate-surface
-      - run: npm run harness:check-runtime-release-readiness
-      - run: npm run harness:check-implementation-contracts
-      - run: npm run harness:check-schema-contracts
-      - run: npm run harness:check-legacy-intake-readiness
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run lint
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-import-boundaries
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-file-complexity
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:scan-forbidden-symbols
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-private-boundary
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-gate-surface
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-runtime-release-readiness
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-implementation-contracts
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-schema-contracts
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-legacy-intake-readiness
 
   package-policy:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run harness:check-package-policy
-      - run: npm run harness:smoke-cli-package
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-package-policy
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:smoke-cli-package
 
   supply-chain:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run harness:check-supply-chain
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run harness:check-supply-chain
 
   gui-build:
     if: github.event_name == 'pull_request'
     needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 24
           cache: npm
       # Skip the GUI build/test when a PR touches no GUI or shared-root files.
-      - if: needs.changes.outputs.gui == 'true'
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         run: npm ci
-      - if: needs.changes.outputs.gui == 'true'
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         run: npm run test:gui
-      - if: needs.changes.outputs.gui == 'true'
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         run: npm run -w @harness-anything/gui build
 
   node26-compatibility:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
       - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         with:
           node-version: 26
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run test:fast
-      - run: npm run test:contract
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run typecheck
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run test:fast
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        run: npm run test:contract
