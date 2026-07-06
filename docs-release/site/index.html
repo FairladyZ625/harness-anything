@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Harness Anything — turn agent decisions, tasks &amp; facts into structure on git</title>
+<title>Harness Anything — the accountability layer for AI agents</title>
 <!--
   Harness Anything — self-contained bilingual explainer (single file).
   No external dependencies: all CSS and JS are inline; no web fonts, no CDN,
@@ -633,12 +633,12 @@
       <div class="intro">
         <p class="kicker"><span lang="en">Try it · about 10 minutes</span><span lang="zh">上手 · 约 10 分钟</span></p>
         <h1 class="hero">
-          <span lang="en">Your agent did the work. Where did the <em>reasoning</em> go?</span>
-          <span lang="zh">代理把活干完了。可那些<em>推理</em>去哪了？</span>
+          <span lang="en">Your agent says it's done. Make it <em>prove</em> it.</span>
+          <span lang="zh">你的 agent 说做完了。让它<em>拿出证据</em>。</span>
         </h1>
         <p class="lede">
-          <span lang="en">An AI agent fixes a login bug at 2&nbsp;a.m. It weighs two approaches, picks one, notes what it observed — then the session ends and all of that lives in a chat transcript nobody will ever reopen. Harness Anything is a small command-line tool, <code>ha</code>, that captures that trail as durable records in your git repo instead: things you can review in a normal diff, query, and build on.</span>
-          <span lang="zh">凌晨两点，一个 AI 代理修好了一个登录 bug。它权衡了两种方案、选了一种、记下沿途的观察——然后会话一结束，这一切就躺进了一份没人会再打开的聊天记录里。Harness Anything 是一个小小的命令行工具 <code>ha</code>，它换一种做法：把这条轨迹变成你 git 仓库里可长期留存的记录——能在普通 diff 里审查、能查询、能在其上继续构建。</span>
+          <span lang="en">Harness Anything is the accountability layer for AI agents: every decision, task, and fact your agent produces becomes auditable structure on git — and "done" has to get past a gate, with evidence.</span>
+          <span lang="zh">Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产出的每一个决定、任务、事实，都变成 git 里可审计的结构——而"做完了"必须带着证据过门禁。</span>
         </p>
         <p class="sub">
           <span lang="en">Run one command and structure starts accumulating in your repo. Below is a real loop, captured from an actual run — no screenshots, just the tool.</span>
@@ -671,7 +671,7 @@
           <ul>
             <li><span lang="en">It solves the <em>"where did the reasoning go?"</em> problem — agent work stops evaporating into logs.</span><span lang="zh">它解决了<em>"推理去哪了？"</em>的问题——代理的工作不再蒸发进日志。</span></li>
             <li><span lang="en">Unlike note-taking, these are structured, linked records <em>with a lifecycle</em>: decisions can be overturned; facts are anchored to the task that observed them.</span><span lang="zh">和记笔记不同，这些是结构化、有链接、<em>带生命周期</em>的记录：决策可以被推翻，事实锚定到观察到它们的那个任务。</span></li>
-            <li><span lang="en">You need <strong>Node.js 24+</strong> and <strong>git</strong>. There's no public npm release yet — you install it globally from source (<code>npm install -g .</code>) so the <code>ha</code> command is on your PATH.</span><span lang="zh">你需要 <strong>Node.js 24+</strong> 和 <strong>git</strong>。目前还没有公开的 npm 发布——你从源码全局安装（<code>npm install -g .</code>），让 <code>ha</code> 命令进入你的 PATH。</span></li>
+            <li><span lang="en">You need <strong>Node.js 24+</strong> and <strong>git</strong>. There's no public npm release yet — you install it globally from source (<code>npm install -g ./packages/cli</code>) so the <code>ha</code> command is on your PATH.</span><span lang="zh">你需要 <strong>Node.js 24+</strong> 和 <strong>git</strong>。目前还没有公开的 npm 发布——你从源码全局安装（<code>npm install -g ./packages/cli</code>），让 <code>ha</code> 命令进入你的 PATH。</span></li>
           </ul>
         </section>
 

@@ -17,8 +17,8 @@ node --version   # must be >= 24
 
 ```bash
 npm ci
-npm run build
-npm install -g .    # installs the `ha` command (and its `harness-anything` alias)
+npm run build -w @harness-anything/cli
+npm install -g ./packages/cli    # installs the `ha` command (and its `harness-anything` alias)
 ```
 
 确认它在你的 PATH 上：

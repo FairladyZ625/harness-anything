@@ -17,8 +17,8 @@ There is no public npm release yet — the current distribution is a **local glo
 
 ```bash
 npm ci
-npm run build
-npm install -g .    # installs the `ha` command (and its `harness-anything` alias)
+npm run build -w @harness-anything/cli
+npm install -g ./packages/cli    # installs the `ha` command (and its `harness-anything` alias)
 ```
 
 Confirm it's on your PATH:
