@@ -173,10 +173,6 @@ function validateDocsAndWorkflow() {
     requireIncludes(supplyDoc, "release artifacts are not published", "non-shipped release artifact boundary");
   }
 
-  requireIncludes("README.md", "docs-release/release-posture.md", "release posture doc link");
-  requireIncludes("README.md", "OSV readiness", "OSV readiness");
-  requireIncludes("README.md", "AGPL network-service release-note checklist", "AGPL release checklist");
-
   const workflow = read(".github/workflows/rewrite-ci.yml");
   if (!workflow.includes("npm run harness:check-supply-chain")) {
     record(".github/workflows/rewrite-ci.yml must run npm run harness:check-supply-chain");

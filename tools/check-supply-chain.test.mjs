@@ -232,9 +232,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
 function validReadme() {
   return [
     "# Harness Anything",
-    "Read [Release posture](./docs-release/release-posture.md).",
-    "This covers OSV readiness.",
-    "This includes the AGPL network-service release-note checklist."
+    "The accountability layer for AI agents."
   ].join("\n");
 }
 

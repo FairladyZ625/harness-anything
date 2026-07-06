@@ -72,8 +72,7 @@ async function withFixtureRepo(fn) {
 function writeValidDocsMap(root, options = {}) {
   writeFile(root, "README.md", [
     "# Harness Anything",
-    "- [Release posture](./docs-release/release-posture.md)",
-    "M2.5 GUI/daemon foundation is foundation-only.",
+    "The accountability layer for AI agents.",
     "Private planning lives in `.harness-private/`.",
     "Do not add `.harness-private/` to public commits.",
     options.readmeSuffix ?? ""

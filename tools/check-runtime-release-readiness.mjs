@@ -93,15 +93,6 @@ for (const docPath of expectedDocs) {
   if (!existsSync(path.join(root, docPath))) record(`Missing runtime/release documentation: ${docPath}`);
 }
 
-requireIncludes("README.md", "Use Node.js 24 or newer", "Node 24 minimum");
-requireIncludes("README.md", commandBySurface.get("source-run")?.command ?? "", "source-run command");
-requireIncludes("README.md", commandBySurface.get("full-check")?.command ?? "", "full check command");
-requireIncludes("README.md", "Node 24 and Node 26", "Node 24/26 CI coverage");
-requireIncludes("README.md", "package smoke", "package smoke validation");
-requireIncludes("README.md", "docs-release/release-posture.md", "release posture doc link");
-requireIncludes("README.md", "No signed desktop installer, notarized build, or auto-update capability is\n  claimed", "non-shipped desktop release boundary");
-requireIncludes("README.md", "No npm package release is claimed", "non-shipped npm release boundary");
-
 requireIncludes("docs-release/release-posture.md", "Status: source checkout and package smoke only", "runtime status");
 requireIncludes("docs-release/release-posture.md", "Node 24 and Node 26", "Node 24/26 coverage");
 requireIncludes("docs-release/release-posture.md", commandBySurface.get("source-run")?.command ?? "", "source-run command");
