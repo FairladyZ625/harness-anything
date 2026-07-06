@@ -18,6 +18,7 @@ import type { CliError } from "./error-codes.ts";
 export type CheckProfile = "source-package" | "private-harness" | "target-project";
 export type GovernanceRebuildMode = "dry-run" | "archive" | "apply";
 export type LessonCommandMode = "dry-run" | "apply";
+export type AnchorBackfillMode = "dry-run" | "apply";
 export type ProvenanceBackfillMode = "dry-run" | "apply";
 export type TaskListLessonFilter = "present" | "missing";
 export type SessionExportRuntime = "claude-code" | "codex" | "zcode" | "antigravity";
@@ -196,6 +197,7 @@ export interface ParsedCommand {
     | { readonly kind: "snapshot-multica"; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
     | { readonly kind: "migrate-plan"; readonly limit: number }
     | { readonly kind: "migrate-structure"; readonly mode: "plan" | "apply"; readonly confirmPlan: boolean }
+    | { readonly kind: "migrate-anchors"; readonly mode: AnchorBackfillMode }
     | { readonly kind: "migrate-provenance"; readonly mode: ProvenanceBackfillMode }
     | { readonly kind: "migrate-run"; readonly planOnly: boolean; readonly outDir: string; readonly locale?: "zh-CN" | "en-US"; readonly assumeLocale?: "zh-CN" | "en-US"; readonly allowDirty: boolean; readonly sessionDir?: string }
     | { readonly kind: "migrate-verify"; readonly sessionPath?: string; readonly fullCutover: boolean }

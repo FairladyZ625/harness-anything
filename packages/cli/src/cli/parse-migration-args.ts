@@ -67,6 +67,23 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
     };
   }
 
+  if (migrateArgs[0] === "migrate-anchors") {
+    if (migrateArgs.includes("--dry-run") && migrateArgs.includes("--apply")) {
+      return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --dry-run or --apply.") };
+    }
+    return {
+      ok: true,
+      value: {
+        rootDir,
+        json,
+        action: {
+          kind: "migrate-anchors",
+          mode: migrateArgs.includes("--apply") ? "apply" : "dry-run"
+        }
+      }
+    };
+  }
+
   if (migrateArgs[0] === "migrate-provenance") {
     if (migrateArgs.includes("--dry-run") && migrateArgs.includes("--apply")) {
       return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --dry-run or --apply.") };
