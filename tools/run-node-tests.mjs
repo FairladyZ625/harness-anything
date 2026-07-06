@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { resolve } from "node:path";
-import { collectSlowTests, collectTestFiles, formatSlowTestSummary, parseRunnerArgs, selectTestFiles } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, collectTestFiles, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
 import { testTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -46,9 +47,14 @@ if (options.list) {
 }
 
 // Cap process fan-out so full runs don't exhaust memory on developer laptops.
-// --concurrency wins; else HARNESS_TEST_CONCURRENCY; else node's default (cores-1).
-const envConcurrency = process.env.HARNESS_TEST_CONCURRENCY;
-const concurrency = options.concurrency ?? (envConcurrency ? Number.parseInt(envConcurrency, 10) : undefined);
+// --concurrency wins; else HARNESS_TEST_CONCURRENCY; else, off CI, a
+// laptop-friendly default derived from cores; in CI, node's own default.
+const concurrency = resolveTestConcurrency({
+  flagConcurrency: options.concurrency,
+  envConcurrency: process.env.HARNESS_TEST_CONCURRENCY,
+  isCi: Boolean(process.env.CI),
+  availableParallelism: availableParallelism()
+});
 const concurrencyArgs =
   concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
 

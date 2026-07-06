@@ -153,6 +153,42 @@ export function validateManifest(testFiles, manifest) {
   return { errors };
 }
 
+/**
+ * Resolve the effective `--test-concurrency` value.
+ *
+ * Precedence: explicit `--concurrency` flag wins; then `HARNESS_TEST_CONCURRENCY`
+ * env; then, only in a non-CI environment, a laptop-friendly default derived from
+ * available cores. In CI (`env.CI` set) with no explicit signal, we return
+ * `undefined` so node --test keeps its own default (cores-1) — CI runners are
+ * sized for it and we must not change CI test semantics.
+ *
+ * @param {object} params
+ * @param {number|undefined} params.flagConcurrency parsed `--concurrency` value
+ * @param {string|undefined} params.envConcurrency raw `HARNESS_TEST_CONCURRENCY`
+ * @param {boolean} params.isCi whether this is a CI environment
+ * @param {number} params.availableParallelism available logical cores
+ * @returns {number|undefined} concurrency to pass, or undefined for node default
+ */
+export function resolveTestConcurrency({ flagConcurrency, envConcurrency, isCi, availableParallelism }) {
+  if (flagConcurrency !== undefined && Number.isInteger(flagConcurrency) && flagConcurrency > 0) {
+    return flagConcurrency;
+  }
+
+  if (envConcurrency !== undefined && envConcurrency !== "") {
+    const parsed = Number.parseInt(envConcurrency, 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  if (isCi) {
+    return undefined;
+  }
+
+  const cores = Number.isInteger(availableParallelism) && availableParallelism > 0 ? availableParallelism : 1;
+  return Math.min(6, Math.max(2, cores - 2));
+}
+
 export function parseCompletedTestLine(line) {
   const normalized = stripAnsi(line).trim();
   const match = normalized.match(/^✔ (.+) \((\d+(?:\.\d+)?)ms\)$/u);
