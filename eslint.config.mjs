@@ -95,5 +95,37 @@ export default tseslint.config(
     rules: {
       "no-undef": "off"
     }
+  },
+  {
+    files: ["packages/**/*.{ts,tsx,js,mjs}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/kernel/src/**/*", "!**/kernel/src/index.ts"],
+              message: "Import kernel through its public barrel instead of deep src paths."
+            }
+          ]
+        }
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ImportExpression[source.type='Literal'][source.value=/kernel\\/src\\/(?!index\\.ts$)/u]",
+          message: "Dynamic imports must not bypass the kernel public barrel."
+        }
+      ]
+    }
+  },
+  {
+    // tools/*.mjs are gate/tooling scripts and are intentionally exempted in the
+    // first boundary pass; this task only closes the packages/** consumer graph.
+    files: ["tools/**/*.mjs"],
+    rules: {
+      "no-restricted-imports": "off",
+      "no-restricted-syntax": "off"
+    }
   }
 );
