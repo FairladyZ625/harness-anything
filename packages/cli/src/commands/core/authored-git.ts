@@ -32,6 +32,8 @@ export function commitAuthoredPaths(
     .map((entry) => entry.trim())
     .filter(Boolean);
   if (staged.length === 0) return { attempted: true, committed: false, paths, reason: "no_changes" };
+  // materializer-exempt: authored metadata helpers commit directly because they
+  // are outside the WriteCoordinator journal stream.
   execFileSync("git", ["-C", layout.authoredRoot, "commit", "-m", message], { stdio: "ignore", env: authoredGitEnv() });
   return { attempted: true, committed: true, paths: staged.map((entry) => normalizeSlashes(entry)) };
 }

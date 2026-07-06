@@ -6,7 +6,7 @@ import { toCliError } from "./cli/error-mapper.ts";
 import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
 import { runRegisteredCommand } from "./cli/runner-registry.ts";
 import { Effect } from "effect";
-import { makeLocalLifecycleEngine, makeLocalWriteCoordinator } from "../../adapters/local/src/index.ts";
+import { makeLocalLifecycleEngine, makeLocalWriteCoordinator, runLedgerMaterializer } from "../../adapters/local/src/index.ts";
 import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter, makeRuntimeEventLedgerService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult } from "../../application/src/index.ts";
 import { commitAuthoredPaths } from "./commands/core/authored-git.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
@@ -27,6 +27,16 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   const getCurrentSessionProbe = () => {
     currentSessionProbe ??= makeEnvironmentCurrentSessionProbe();
     return currentSessionProbe;
+  };
+  let sessionBranchResolved = false;
+  let sessionBranchId: string | undefined;
+  const getSessionBranchId = () => {
+    if (!sessionBranchResolved) {
+      const session = Effect.runSync(getCurrentSessionProbe().currentSession);
+      sessionBranchId = session.source === "runtime" ? session.sessionId : undefined;
+      sessionBranchResolved = true;
+    }
+    return sessionBranchId;
   };
   const makeSessionExporter = () => makeProvenanceSessionExporter({
     rootInput: layoutInput,
@@ -51,6 +61,12 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides,
+    coordinator: makeLocalWriteCoordinator({
+      rootDir: parsed.value.rootDir,
+      layoutOverrides: parsed.value.layoutOverrides,
+      actor: { kind: "agent", id: "local-lifecycle" },
+      sessionId: getSessionBranchId()
+    }),
     bindCreateProvenance: (boundAt) => bindCreateProvenance({
       currentSessionProbe: getCurrentSessionProbe(),
       provenanceSessionExporter: makeSessionExporter(),
@@ -59,13 +75,15 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   }), getCurrentSessionProbe, makeSessionExporter, syncExportedSession, (actor) => makeLocalWriteCoordinator({
     rootDir: parsed.value.rootDir,
     layoutOverrides: parsed.value.layoutOverrides,
-    actor
+    actor,
+    sessionId: getSessionBranchId()
   }), () => makeDecisionWriteService({
     rootInput: layoutInput,
     coordinator: makeLocalWriteCoordinator({
       rootDir: parsed.value.rootDir,
       layoutOverrides: parsed.value.layoutOverrides,
-      actor: { kind: "agent", id: "decision-cli" }
+      actor: { kind: "agent", id: "decision-cli" },
+      sessionId: getSessionBranchId()
     }),
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
@@ -75,14 +93,15 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     coordinator: makeLocalWriteCoordinator({
       rootDir: parsed.value.rootDir,
       layoutOverrides: parsed.value.layoutOverrides,
-      actor: { kind: "agent", id: "fact-cli" }
+      actor: { kind: "agent", id: "fact-cli" },
+      sessionId: getSessionBranchId()
     }),
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
   }), () => makeRuntimeEventLedgerService({
     rootInput: layoutInput
-  })).pipe(
+  }), runLedgerMaterializer).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,

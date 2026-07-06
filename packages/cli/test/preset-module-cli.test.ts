@@ -450,7 +450,7 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
     assert.equal(registered.command, "module-register");
     assert.equal(registered.module.key, "billing");
     assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "-1"), /module\(registry\): billing register/);
+    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /module\(registry\): billing register/);
 
     const listed = runJson(rootDir, ["module", "list"]);
     assert.equal(listed.ok, true);
@@ -465,13 +465,13 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
     assert.equal(scaffolded.ok, true);
     assert.equal(scaffolded.path, "harness/modules/billing/module_plan.md");
     assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "-1"), /module\(scaffold\): billing scaffold/);
+    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /module\(scaffold\): billing scaffold/);
 
     const stepped = runJson(rootDir, ["module-step", "billing", "BILL-01", "--state", "done"]);
     assert.equal(stepped.ok, true);
     assert.equal(stepped.module.steps[0].state, "done");
     assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "-1"), /module\(registry\): billing step/);
+    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /module\(registry\): billing step/);
 
     const registry = readFileSync(path.join(rootDir, ".harness/generated/Module-Registry.md"), "utf8");
     assert.match(registry, /\| billing \| Billing \| active \|/);

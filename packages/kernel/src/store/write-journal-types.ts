@@ -10,6 +10,8 @@ export interface JournaledWriteCoordinatorOptions {
   readonly actor?: JournalActor;
   readonly lockTtlMs?: number;
   readonly lockConflictRetry?: LockConflictRetryOptions;
+  readonly sessionId?: string;
+  readonly autoMaterialize?: boolean;
 }
 
 export interface LockConflictRetryOptions {

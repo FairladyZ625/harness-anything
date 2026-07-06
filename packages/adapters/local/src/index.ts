@@ -8,7 +8,7 @@ import { stablePayloadHash } from "../../../kernel/src/integrity/stable-hash.ts"
 import type { HarnessLayoutInput } from "../../../kernel/src/layout/index.ts";
 import { createHarnessRuntimeContext, harnessRuntimeRoot } from "../../../kernel/src/layout/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/ports/index.ts";
-import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
+import { makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../../kernel/src/store/index.ts";
 import { resolveTaskCreatedBy } from "./created-by.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
 import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
@@ -33,6 +33,7 @@ import type {
 
 export { collectGitDiffEvidence } from "./git-diff-evidence.ts";
 export type { GitDiffEvidenceFile, GitDiffEvidenceOptions, GitDiffEvidenceReport } from "./git-diff-evidence.ts";
+export { runLedgerMaterializer };
 export type {
   AppendProgressInput,
   CreateLocalTaskInput,

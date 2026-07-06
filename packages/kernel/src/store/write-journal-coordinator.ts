@@ -29,6 +29,7 @@ import {
 import { hashTaskProjectionRows, rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
+import { runLedgerMaterializer } from "./ledger-materializer.ts";
 import { withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord, taskIdForWriteOp } from "./write-journal-entity.ts";
 import { decisionDocumentTargetPath, decisionWriteKinds } from "./write-journal-decision-documents.ts";
@@ -60,13 +61,15 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const actor = options.actor ?? defaultActor;
   const lockTtlMs = options.lockTtlMs ?? 60_000;
   const lockConflictRetry = options.lockConflictRetry;
+  const sessionId = cleanSessionId(options.sessionId);
+  const autoMaterialize = options.autoMaterialize ?? true;
   const pending: WriteOp[] = [];
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       pending.splice(0, pending.length);
       const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied);
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId);
     }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -88,12 +91,15 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       },
       catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
-    flush: (reason) => lockConflictRetry ? retryLockConflictFlush(() => flushOnce(reason), lockConflictRetry, Date.now(), 0) : flushOnce(reason),
+    flush: (reason) => {
+      const effect = lockConflictRetry ? retryLockConflictFlush(() => flushOnce(reason), lockConflictRetry, Date.now(), 0) : flushOnce(reason);
+      return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize);
+    },
     recover: Effect.try({
       try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied);
+        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId);
         return {
           replayedOps: report.opCount,
           recoveredWatermark: report.watermark
@@ -131,6 +137,31 @@ function isLockConflict(error: WriteError): boolean {
   return error._tag === "GlobalWriteConflict" || error._tag === "WriteConflict";
 }
 
+function cleanSessionId(sessionId: string | undefined): string | undefined {
+  const trimmed = sessionId?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function maybeAutoMaterialize(
+  effect: Effect.Effect<FlushReport, WriteError>,
+  rootInput: HarnessLayoutInput,
+  sessionId: string | undefined,
+  autoMaterialize: boolean
+): Effect.Effect<FlushReport, WriteError> {
+  if (!sessionId || !autoMaterialize) return effect;
+  return effect.pipe(
+    Effect.tap((report) => {
+      if (report.opCount === 0 || !report.committed) return Effect.void;
+      return Effect.try({
+        try: () => {
+          runLedgerMaterializer(rootInput);
+        },
+        catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
+      });
+    })
+  );
+}
+
 function flushRecords(
   reason: FlushReason,
   rootDir: string,
@@ -139,7 +170,8 @@ function flushRecords(
   watermarkPath: string,
   previousWatermark: WriteWatermark | null,
   records: ReadonlyArray<JournalRecord>,
-  fileApplied: ReadonlySet<string>
+  fileApplied: ReadonlySet<string>,
+  sessionId?: string
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
@@ -160,7 +192,7 @@ function flushRecords(
     committedOpIds.push(record.opId);
   }
 
-  const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds, rootInput, semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)));
+  const lastCommitSha = commitTouchedPaths(rootDir, touchedPaths, committedOpIds, rootInput, semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)), sessionId);
   const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir, rootInput) : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const recentCommitted = recentOpIds(allCommitted);
