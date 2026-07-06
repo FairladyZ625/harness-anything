@@ -1,8 +1,8 @@
 # Harness Anything
 
-> Turn the **decisions, tasks, and facts** your AI agents produce into first-class structure on git — auditable, reversible, and reusable — instead of leaving them buried in chat logs that vanish the moment the work is done.
+> **Your agent says it's done. Make it prove it.**
 
-When an agent finishes a task, where does the *reasoning* go? Why it chose approach A over B, what it tried, what it learned — normally that lives in a transcript nobody reads again. Harness Anything captures it as durable records you can query, challenge, and build on.
+Harness Anything is the accountability layer for AI agents: every decision, task, and fact your agent produces becomes auditable structure on git — and "done" has to get past a gate, with evidence.
 
 Three primitives, all versioned in your repo:
 
