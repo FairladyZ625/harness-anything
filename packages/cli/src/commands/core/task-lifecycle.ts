@@ -5,6 +5,7 @@ import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "../
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
+import { runTaskAmend } from "./task-amend.ts";
 import { lifecycleReason } from "./task-lifecycle-shared.ts";
 import { runTaskRelate } from "./task-relations.ts";
 import { runTaskSupersede } from "./task-supersede.ts";
@@ -13,7 +14,7 @@ export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
 type TaskLifecycleAction = Extract<
   Parameters<CommandRunner>[1]["action"],
-  { readonly kind: "status-set" | "progress-append" | "task-archive" | "task-supersede" | "task-delete" | "task-reopen" | "task-relate" }
+  { readonly kind: "status-set" | "progress-append" | "task-amend" | "task-archive" | "task-supersede" | "task-delete" | "task-reopen" | "task-relate" }
 >;
 
 export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
@@ -23,6 +24,8 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
       return runStatusSet(context, action.taskId, action.status, action.force, action.reason);
     case "progress-append":
       return runProgressAppend(context, action);
+    case "task-amend":
+      return runTaskAmend(context, action);
     case "task-archive":
       return context.engine.archiveTask({
         taskId: action.taskId,

@@ -16,6 +16,7 @@ export const commandReceiptContractsByKind = {
   "new-task": { data: ["taskId", "slug", "status", "preset", "module", "generated", "report"], paths: ["package"] },
   "status-set": { data: ["taskId", "status", "forced", "forceAudit"], paths: ["primary", "forceAudit"] },
   "progress-append": { data: ["taskId", "report"], paths: ["primary", "progress"] },
+  "task-amend": { data: ["taskId", "report"], paths: ["primary"] },
   "task-archive": { data: ["taskId", "status", "report"], paths: [] },
   "task-supersede": { data: ["taskId", "status", "report"], paths: ["primary", "package", "replacement"] },
   "task-delete": { data: ["taskId", "mode", "report"], paths: [] },

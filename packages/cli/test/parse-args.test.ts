@@ -50,6 +50,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
     fields: { taskId: "task_1", status: "done", force: true, reason: "verified" }
   },
   { name: "progress append", argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "log:artifacts/run.log:passed"], kind: "progress-append", fields: { taskId: "task_1", text: "hello", evidence: { type: "log", path: "artifacts/run.log", summary: "passed" } } },
+  { name: "task amend", argv: ["task", "amend", "task_1", "--set", "taskClass:milestone"], kind: "task-amend", fields: { taskId: "task_1", patches: [{ field: "taskClass", value: "milestone" }] } },
   { name: "task archive", argv: ["task", "archive", "task_1", "--reason", "done", "--archived-by", "alice", "--archive-field", "packageDisposition"], kind: "task-archive", fields: { taskId: "task_1", reason: "done", archivedBy: "alice", archiveField: "packageDisposition" } },
   { name: "task supersede", argv: ["task", "supersede", "task_old", "--title", "New Task", "--slug", "custom-slug", "--reason", "changed"], kind: "task-supersede", fields: { oldTaskId: "task_old", title: "New Task", slug: "custom-slug", reason: "changed", allowOpenFindings: false } },
   { name: "task supersede by existing", argv: ["task", "supersede", "task_old", "--by", "task_new", "--confirm", "task_old", "--allow-open-findings", "--deleted-by", "alice"], kind: "task-supersede", fields: { oldTaskId: "task_old", byTaskId: "task_new", confirm: "task_old", allowOpenFindings: true, deletedBy: "alice" } },

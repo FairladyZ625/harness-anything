@@ -20,6 +20,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "transition" && args[2] && args[3]) return parseStatusSet(["task", "status", "set", ...args.slice(2)], rootDir, json);
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "amend" && args[2]) return parseTaskAmend(args, rootDir, json);
   if (args[0] === "task" && args[1] === "archive" && args[2]) return parseTaskArchive(args, rootDir, json);
   if (args[0] === "task" && args[1] === "supersede" && args[2]) return parseTaskSupersede(args, rootDir, json);
   if (args[0] === "task" && args[1] === "delete") return parseTaskDelete(args, rootDir, json);
@@ -65,6 +66,27 @@ function parseProgressAppend(args: ReadonlyArray<string>, rootDir: string, json:
     text,
     evidence: evidence.value
   });
+}
+
+function parseTaskAmend(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
+  const patches = args.flatMap((token, index) => token === "--set" ? parseTaskAmendSet(args[index + 1]) : []);
+  if (patches.length === 0) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use task amend <id> --set <field>:<value>.") };
+  }
+  return ok(rootDir, json, {
+    kind: "task-amend",
+    taskId: args[2]!,
+    patches
+  });
+}
+
+function parseTaskAmendSet(raw: string | undefined): ReadonlyArray<{ readonly field: string; readonly value: string }> {
+  if (!raw || raw.startsWith("--")) return [];
+  const separator = raw.indexOf(":");
+  if (separator <= 0) return [];
+  const field = raw.slice(0, separator).trim();
+  const value = raw.slice(separator + 1).trim();
+  return field && value ? [{ field, value }] : [];
 }
 
 function parseTaskArchive(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {

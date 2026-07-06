@@ -136,6 +136,7 @@ const publicRuntimeSurface = [
   "relationTypes",
   "requiredSchemaIds",
   "reservePublishIdempotencyKey",
+  "resolveTaskSchema",
   "reviewArtifactStatuses",
   "runtimeEventApprovalDecisions",
   "runtimeEventInterruptActions",

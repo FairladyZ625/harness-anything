@@ -6,7 +6,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
-import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskProjectionRow } from "./types.ts";
+import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskFieldExtensionProjection, TaskProjectionRow } from "./types.ts";
 
 export function readMarkdownSource(rootInput: HarnessLayoutInput): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
@@ -66,7 +66,11 @@ export interface TaskSourceEntry {
   readonly frontmatter: string;
 }
 
-export function taskEntryToRow(rootInput: HarnessLayoutInput, entry: TaskSourceEntry): TaskProjectionRow {
+export function taskEntryToRow(
+  rootInput: HarnessLayoutInput,
+  entry: TaskSourceEntry,
+  fieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = []
+): TaskProjectionRow {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const rawStatus = readScalar(entry.frontmatter, "  status") || "unknown";
   const canonicalStatus = isDomainStatus(rawStatus) ? rawStatus : "unknown";
@@ -91,6 +95,7 @@ export function taskEntryToRow(rootInput: HarnessLayoutInput, entry: TaskSourceE
     source: lifecycleEngine === "local" ? "local-document" : "external-engine",
     sourcePath: source,
     ...readExtensionMetadata(entry.frontmatter),
+    ...readFieldExtensions(entry.frontmatter, fieldExtensions),
     ...readTaskMetadata(entry.frontmatter),
     ...readModuleMetadata(taskDir),
     hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
@@ -126,6 +131,21 @@ function readExtensionMetadata(frontmatter: string): { readonly vertical?: strin
     ...(preset ? { preset } : {}),
     ...(profile ? { profile } : {})
   };
+}
+
+function readFieldExtensions(
+  frontmatter: string,
+  extensions: ReadonlyArray<TaskFieldExtensionProjection>
+): { readonly fieldExtensions?: Readonly<Record<string, string | null>> } {
+  if (extensions.length === 0) return {};
+  const values = Object.fromEntries(extensions.map((extension) => {
+    const rawValue = readScalar(frontmatter, extension.field);
+    return [
+      extension.field,
+      extension.values.includes(rawValue) ? rawValue : extension.default
+    ];
+  }));
+  return Object.values(values).some((value) => value !== null) ? { fieldExtensions: values } : {};
 }
 
 function readTaskMetadata(frontmatter: string): Pick<TaskProjectionRow, "workKind" | "riskTier" | "urgency"> {
@@ -252,6 +272,11 @@ function canonicalTaskProjectionRow(row: TaskProjectionRow): TaskProjectionRow {
     ...(row.moduleKey ? { moduleKey: row.moduleKey } : {}),
     ...(row.moduleTitle ? { moduleTitle: row.moduleTitle } : {}),
     ...(row.hasLessonCandidates === undefined ? {} : { hasLessonCandidates: row.hasLessonCandidates }),
-    ...(row.createdBy ? { createdBy: { name: row.createdBy.name, email: row.createdBy.email } } : {})
+    ...(row.createdBy ? { createdBy: { name: row.createdBy.name, email: row.createdBy.email } } : {}),
+    ...(row.fieldExtensions ? { fieldExtensions: sortRecord(row.fieldExtensions) } : {})
   };
+}
+
+function sortRecord(record: Readonly<Record<string, string | null>>): Readonly<Record<string, string | null>> {
+  return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
 }

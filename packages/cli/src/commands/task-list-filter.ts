@@ -18,6 +18,7 @@ export function filterTaskProjectionRows(
     if (filters.lesson && !matchesLesson(row, filters.lesson)) return false;
     if (filters.missingMaterials && row.closeoutReadiness !== "missing") return false;
     if (filters.search && !matchesSearch(row, filters.search)) return false;
+    if (filters.fieldExtensions?.some((filter) => row.fieldExtensions?.[filter.field] !== filter.value)) return false;
     return true;
   });
 }

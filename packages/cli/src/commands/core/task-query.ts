@@ -1,10 +1,11 @@
 import path from "node:path";
 import { Effect } from "effect";
-import { checkTaskProjection, queryTaskProjection, queryTaskSubtree } from "../../../../kernel/src/index.ts";
+import { checkTaskProjection, queryTaskProjection, queryTaskSubtree, type TaskFieldExtensionProjection } from "../../../../kernel/src/index.ts";
 import { commandRegistry } from "../../cli/command-registry.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { bundledVerticalDefinition } from "../extensions/bundled.ts";
 
 type TaskQueryAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-list" | "task-tree" | "status" }>;
 
@@ -12,7 +13,12 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskQueryAction;
   if (action.kind === "task-list") {
     return Effect.sync(() => {
-      const result = queryTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides, filters: action.filters });
+      const result = queryTaskProjection({
+        rootDir: context.rootDir,
+        layoutOverrides: context.layoutOverrides,
+        filters: action.filters,
+        taskFieldExtensions: activeTaskFieldExtensions()
+      });
       return {
         ok: true,
         command: "task-list",
@@ -23,7 +29,12 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
   }
   if (action.kind === "task-tree") {
     return Effect.sync(() => {
-      const result = queryTaskSubtree({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides, rootTaskId: action.taskId });
+      const result = queryTaskSubtree({
+        rootDir: context.rootDir,
+        layoutOverrides: context.layoutOverrides,
+        rootTaskId: action.taskId,
+        taskFieldExtensions: activeTaskFieldExtensions()
+      });
       const rows = result.rows;
       if (!rows.some((row) => row.taskId === action.taskId)) {
         return {
@@ -44,7 +55,12 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
     });
   }
   return Effect.sync(() => {
-    const result = checkTaskProjection({ rootDir: context.rootDir, layoutOverrides: context.layoutOverrides, postMerge: true });
+    const result = checkTaskProjection({
+      rootDir: context.rootDir,
+      layoutOverrides: context.layoutOverrides,
+      postMerge: true,
+      taskFieldExtensions: activeTaskFieldExtensions()
+    });
     return {
       ok: result.ok,
       command: "status",
@@ -58,6 +74,10 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
     } satisfies CliResult;
   });
 };
+
+function activeTaskFieldExtensions(): ReadonlyArray<TaskFieldExtensionProjection> {
+  return bundledVerticalDefinition()?.entityFieldExtensions ?? [];
+}
 
 function summarizeStatus(
   rows: ReadonlyArray<{ readonly packageDisposition: string; readonly coordinationStatus: string }>

@@ -35,6 +35,22 @@ export interface TaskCreatedBy {
   readonly email: string;
 }
 
+export interface TaskFieldExtensionProjection {
+  readonly field: string;
+  readonly values: ReadonlyArray<string>;
+  readonly default: null;
+  readonly projection: {
+    readonly column: string;
+    readonly queryable: boolean;
+  };
+}
+
+export interface TaskFieldExtensionFilter {
+  readonly field: string;
+  readonly column: string;
+  readonly value: string;
+}
+
 export interface TaskProjectionRow {
   readonly schema: "sqlite-task-row/v1";
   readonly taskId: string;
@@ -60,6 +76,7 @@ export interface TaskProjectionRow {
   readonly moduleTitle?: string;
   readonly hasLessonCandidates?: boolean;
   readonly createdBy?: TaskCreatedBy;
+  readonly fieldExtensions?: Readonly<Record<string, string | null>>;
 }
 
 export interface TaskProjectionQueryFilters {
@@ -75,6 +92,7 @@ export interface TaskProjectionQueryFilters {
   readonly missingMaterials?: boolean;
   readonly includeArchived?: boolean;
   readonly search?: string;
+  readonly fieldExtensions?: ReadonlyArray<TaskFieldExtensionFilter>;
 }
 
 export interface DecisionProjectionRow {
@@ -147,6 +165,7 @@ export interface TaskProjectionOptions {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly projectionPath?: string;
   readonly postMerge?: boolean;
+  readonly taskFieldExtensions?: ReadonlyArray<TaskFieldExtensionProjection>;
 }
 
 export interface ProjectionMeta {

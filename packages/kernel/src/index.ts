@@ -7,3 +7,4 @@ export * from "./ports/index.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
+export * from "./schemas/task-schema-resolver.ts";

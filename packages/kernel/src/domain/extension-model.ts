@@ -376,8 +376,9 @@ function validatePresetEntrypointsShape(input: unknown, path: string, issues: Ex
 }
 
 function validateVerticalDefinitionShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  validateObjectKeys(input, path, ["schema", "id", "title", "version", "entityKinds", "contractEntityKinds", "packageScaffolds", "repositoryScaffold", "scripts", "templateSelections", "checkerProfile", "projectionSchemas"], issues);
+  validateObjectKeys(input, path, ["schema", "id", "title", "version", "entityFieldExtensions", "entityKinds", "contractEntityKinds", "packageScaffolds", "repositoryScaffold", "scripts", "templateSelections", "checkerProfile", "projectionSchemas"], issues);
   if (!isRecord(input)) return;
+  validateEntityFieldExtensionsShape(input.entityFieldExtensions, `${path}.entityFieldExtensions`, issues);
   if (Array.isArray(input.entityKinds)) {
     for (const [index, entity] of input.entityKinds.entries()) {
       validateObjectKeys(entity, `${path}.entityKinds[${index}]`, ["id", "entityType", "packageKind", "schemaRef", "contractEntity"], issues);
@@ -398,6 +399,17 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
   if (Array.isArray(input.projectionSchemas)) {
     for (const [index, projection] of input.projectionSchemas.entries()) {
       validateObjectKeys(projection, `${path}.projectionSchemas[${index}]`, ["id", "schemaRef"], issues);
+    }
+  }
+}
+
+function validateEntityFieldExtensionsShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
+  if (!Array.isArray(input)) return;
+  for (const [index, extension] of input.entries()) {
+    const extensionPath = `${path}[${index}]`;
+    validateObjectKeys(extension, extensionPath, ["extends", "field", "kind", "values", "default", "mutability", "projection", "reason"], issues);
+    if (isRecord(extension)) {
+      validateObjectKeys(extension.projection, `${extensionPath}.projection`, ["column", "queryable"], issues);
     }
   }
 }
