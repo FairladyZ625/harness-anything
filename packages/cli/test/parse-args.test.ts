@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { commandRegistry } from "../src/cli/command-registry.ts";
+import { commandDescriptors, commandRegistry } from "../src/cli/command-registry.ts";
+import { commandParserIds, commandRunnerIds } from "../src/cli/command-dispatch-ids.ts";
+import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { parseArgs } from "../src/cli/parse-args.ts";
 import { parserRegistry } from "../src/cli/parser-registry.ts";
 import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
@@ -228,6 +230,19 @@ test("parser registry and command registry stay consistent", () => {
   const parserKinds = new Set(parserKindList);
   const commandKinds = new Set(commandKindList);
   assert.deepEqual(parserKinds, commandKinds);
+});
+
+test("command descriptor projections are derived from the command spec", () => {
+  assert.deepEqual(commandDescriptors.map((entry) => entry.kind), commandSpecs.map((entry) => entry.kind));
+  for (const spec of commandSpecs) {
+    const descriptor = commandDescriptors.find((entry) => entry.kind === spec.kind);
+    assert.notEqual(descriptor, undefined, spec.kind);
+    assert.equal(descriptor?.usage, spec.usage, spec.kind);
+    assert.equal(descriptor?.summary, spec.summary, spec.kind);
+    assert.deepEqual(descriptor?.examples, spec.examples, spec.kind);
+    assert.equal(commandParserIds[spec.kind], spec.parserId, spec.kind);
+    assert.equal(commandRunnerIds[spec.kind], spec.runnerId, spec.kind);
+  }
 });
 
 test("conflict marker preflight classifies extension and migration write commands", () => {
