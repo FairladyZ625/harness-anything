@@ -22,3 +22,8 @@ Each scaffold folder owns the single source of truth for its own usage. This ent
 - PR / branch / merge / admin bypass → `harness/standards/repo-governance.md` and `.github/pull_request_template.md`
 - CI / required checks / release gates → `harness/standards/ci-cd-standard.md`
 - Testing tier / evidence depth / new test files → `harness/standards/testing-standard.md`
+
+## CI/Gate authority stop condition
+
+- If the current task is not a CI/gate/governance task but requires modifying CI/gate authority surfaces to pass, stop implementation, record the blocker, and request or create a governance task.
+- Authorized exceptions are explicit CI/gate/governance tasks and break-glass main recovery. Break-glass must record reason, scope, and the follow-up governance task in the PR body.

@@ -138,6 +138,9 @@ The registry records:
   `boundaries`, `package-policy`, `typecheck (24)`, `typecheck (26)`,
   `fast-contract`, `integration`, `supply-chain`, `gui-build`,
   `node26-compatibility`, and `pr-body-lint`.
+- 2 PR-body meta-governance commands under the `pr-body-lint` required
+  context: bilingual body structure and protected-surface governance
+  declaration shape.
 
 The workflow helper job `changes` is intentionally listed under
 `surfaces.rewriteCi.helperJobsNotRegisteredAsGates` and not registered as a

@@ -22,3 +22,8 @@
 - PR / 分支 / 合并 / admin bypass → `harness/standards/repo-governance.md` 与 `.github/pull_request_template.md`
 - CI / required checks / 发布门禁 → `harness/standards/ci-cd-standard.md`
 - 测试 tier / 证据深度 / 新测试文件 → `harness/standards/testing-standard.md`
+
+## CI/Gate authority stop condition
+
+- 如果当前任务不是 CI/gate/governance 任务，却需要修改 CI/gate 权威面才能通过，停止实现，记录 blocker，并请求或创建治理任务。
+- 允许的例外只有明确授权的 CI/gate/governance 任务，以及紧急修复 main 的 break-glass。break-glass 必须在 PR body 记录原因、范围和后续治理任务。
