@@ -17,6 +17,7 @@ export type CommandParserId =
   | "distill"
   | "record"
   | "runtime-event"
+  | "materializer"
   | "session"
   | "doc"
   | "status-check"
@@ -40,6 +41,7 @@ export type CommandRunnerId =
   | "distill"
   | "fact"
   | "runtime-event"
+  | "materializer"
   | "session"
   | "doc"
   | "task-lifecycle"
@@ -99,6 +101,7 @@ const commandUsages = [
   { kind: "distill-commit", usage: "distill promote --task <task-id> --candidate <path> --claim <text> [--id F-DEADBEEF] [--confidence low|medium|high] [--memory-class semantic|episodic|procedural] [--memory-tag <tag>] [--observed-at <iso>] [--json]", aliases: [deprecatedAlias("distill commit --task <task-id>", "distill promote")] },
   { kind: "runtime-event-append", usage: "event append --session <session-id> --kind session|turn|step|tool|approval|interrupt|result|cost [--from-file <path>|--json-input <json>] [--runtime <runtime>] [--id <event-id>] [--at <iso>] [--task <task-id>] [--turn <turn-id>] [--step <step-id>] [--tool <name>] [--approval approved|rejected|timeout|unknown] [--interrupt pause|cancel|resume|append|branch|unknown] [--result started|succeeded|failed|cancelled|unknown] [--summary <text>] [--total-tokens <n>] [--json]", aliases: [deprecatedAlias("runtime-event append", "event append")] },
   { kind: "runtime-event-list", usage: "event list --session <session-id> [--json]", aliases: [deprecatedAlias("runtime-event list", "event list")] },
+  { kind: "materializer-run", usage: "materializer run [--dry-run] [--json]" },
   { kind: "session-export", usage: "session export [--session <id> --runtime claude-code|codex|zcode|antigravity] [--source runtime|manual] [--detected-at <iso>] [--user <name>] [--json]" },
   { kind: "session-backfill", usage: "session backfill [--runtime claude-code|codex|zcode|antigravity] [--limit <n>] [--json]" },
   { kind: "session-sync", usage: "session sync [--json]" },
@@ -192,6 +195,7 @@ const commandSummaries = {
   "distill-commit": "Commit an explicit distill candidate claim through the fact write service.",
   "runtime-event-append": "Append one structured runtime event to the local JSONL event ledger.",
   "runtime-event-list": "Read structured runtime events for one session from the local JSONL ledger.",
+  "materializer-run": "Merge pending per-session ledger branches into master serially.",
   "session-export": "Export the current or specified runtime session into the managed harness sessions directory.",
   "session-backfill": "Backfill managed session documents from discovered local runtime logs.",
   "session-sync": "Commit existing managed session markdown files under harness/sessions.",
@@ -283,6 +287,7 @@ const commandExamples = {
   "distill-commit": [`${cliCommandName} distill promote --task task_01ABC --candidate .harness/generated/distill/task_01ABC/distill_123.json --claim "Distilled claim" --memory-class semantic`],
   "runtime-event-append": [`${cliCommandName} event append --session codex-session-1 --kind interrupt --runtime codex --interrupt append --summary "User appended task guidance"`],
   "runtime-event-list": [`${cliCommandName} event list --session codex-session-1 --json`],
+  "materializer-run": [`${cliCommandName} materializer run --dry-run --json`],
   "session-export": [`${cliCommandName} session export --json`],
   "session-backfill": [`${cliCommandName} session backfill --runtime codex --limit 20 --json`],
   "session-sync": [`${cliCommandName} session sync --json`],

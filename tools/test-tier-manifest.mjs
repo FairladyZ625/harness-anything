@@ -119,6 +119,7 @@ export const testTierManifest = {
     "packages/kernel/test/store/entity-disposition.test.ts",
     "packages/kernel/test/store/global-committer-lock.test.ts",
     "packages/kernel/test/store/journal-idempotency.test.ts",
+    "packages/kernel/test/store/ledger-materializer.test.ts",
     "packages/kernel/test/store/payload-hash.test.ts",
     "packages/kernel/test/store/portable-path-collision.test.ts",
     "packages/kernel/test/store/progress-append-delta.test.ts",

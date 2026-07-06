@@ -1,0 +1,105 @@
+import type { HarnessLayoutInput } from "../layout/index.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
+import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
+import { abortMerge, checkoutMaster, commitsNotInMaster, deleteBranch, ledgerGitTopLevel, mergeNoFf, refExists, sessionBranches } from "./write-journal-git.ts";
+import { withRepoLocks } from "./write-journal-locks.ts";
+
+export interface LedgerMaterializerBranchReport {
+  readonly branch: string;
+  readonly commitCount: number;
+  readonly status: "merged" | "would_merge" | "skipped" | "conflict";
+  readonly commits: ReadonlyArray<string>;
+  readonly warning?: string;
+}
+
+export interface LedgerMaterializerReport {
+  readonly dryRun: boolean;
+  readonly merged: number;
+  readonly considered: number;
+  readonly branches: ReadonlyArray<LedgerMaterializerBranchReport>;
+  readonly warnings: ReadonlyArray<string>;
+  readonly projectionRebuilt: boolean;
+}
+
+export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean } = {}): LedgerMaterializerReport {
+  const layout = resolveHarnessLayout(rootInput);
+  const repoRoot = ledgerGitTopLevel(layout.authoredRoot) ?? ledgerGitTopLevel(layout.rootDir);
+  if (!repoRoot) {
+    return {
+      dryRun: options.dryRun === true,
+      merged: 0,
+      considered: 0,
+      branches: [],
+      warnings: ["authored root is not a Git repository"],
+      projectionRebuilt: false
+    };
+  }
+
+  return withRepoLocks(layout.rootDir, rootInput, layout.journalPath, { kind: "system", id: "ledger-materializer" }, 60_000, [], () => {
+    return materializeBranches(repoRoot, rootInput, options.dryRun === true);
+  });
+}
+
+function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dryRun: boolean): LedgerMaterializerReport {
+  const reports: LedgerMaterializerBranchReport[] = [];
+  const warnings: string[] = [];
+  let merged = 0;
+
+  if (!refExists(repoRoot, "master")) {
+    return {
+      dryRun,
+      merged: 0,
+      considered: 0,
+      branches: [],
+      warnings: ["master branch does not exist"],
+      projectionRebuilt: false
+    };
+  }
+
+  const branches = sessionBranches(repoRoot);
+  for (const branch of branches) {
+    const commits = commitsNotInMaster(repoRoot, branch);
+    if (commits.length === 0) {
+      reports.push({ branch, commitCount: 0, status: "skipped", commits });
+      continue;
+    }
+    if (dryRun) {
+      reports.push({ branch, commitCount: commits.length, status: "would_merge", commits });
+      continue;
+    }
+
+    checkoutMaster(repoRoot);
+    try {
+      mergeNoFf(repoRoot, branch, `materializer: merge session ${branch.slice("sessions/".length)}`);
+      deleteBranch(repoRoot, branch);
+      merged += 1;
+      reports.push({ branch, commitCount: commits.length, status: "merged", commits });
+    } catch (error) {
+      const warning = `${branch}: ${error instanceof Error ? error.message : String(error)}`;
+      warnings.push(warning);
+      try {
+        abortMerge(repoRoot);
+      } catch {
+        // No merge was in progress or Git could not abort; keep the warning and continue.
+      }
+      reports.push({ branch, commitCount: commits.length, status: "conflict", commits, warning });
+    }
+  }
+
+  if (merged > 0) {
+    const layout = resolveHarnessLayout(rootInput);
+    rebuildTaskProjection({
+      rootDir: layout.rootDir,
+      ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {})
+    });
+  }
+
+  return {
+    dryRun,
+    merged,
+    considered: reports.filter((report) => report.commitCount > 0).length,
+    branches: reports,
+    warnings,
+    projectionRebuilt: merged > 0
+  };
+}

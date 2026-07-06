@@ -6,18 +6,24 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024;
 
-export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir, message?: string): string {
+export function commitTouchedPaths(rootDir: string, touchedPaths: ReadonlyArray<string>, opIds: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir, message?: string, sessionId?: string): string {
   if (touchedPaths.length === 0) return "no-git-change";
 
   const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput);
   if (!plan) return "no-git-change";
+  const sessionBranch = sessionBranchName(sessionId);
 
-  runGit(plan.repoRoot, "add", "-A", "-f", "--", ...plan.relativePaths);
-  const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
-  if (staged.length === 0) return currentGitHead(plan.repoRoot);
+  if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch);
+  try {
+    runGit(plan.repoRoot, "add", "-A", "-f", "--", ...plan.relativePaths);
+    const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
+    if (staged.length === 0) return currentGitHead(plan.repoRoot);
 
-  runGit(plan.repoRoot, "commit", "-m", message ?? `harness write ${opIds.join(",")}`);
-  return currentGitHead(plan.repoRoot);
+    runGit(plan.repoRoot, "commit", "-m", message ?? `harness write ${opIds.join(",")}`);
+    return currentGitHead(plan.repoRoot);
+  } finally {
+    if (sessionBranch) runGit(plan.repoRoot, "checkout", "master");
+  }
 }
 
 export function resolveCommitPlan(rootDir: string, touchedPaths: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
@@ -40,6 +46,49 @@ function resolveCommitTarget(rootDir: string, authoredRoot: string): { readonly 
   return { repoRoot: authoredRepo };
 }
 
+export function ledgerGitTopLevel(inputPath: string): string | null {
+  return gitTopLevel(inputPath);
+}
+
+export function checkoutMaster(repoRoot: string): void {
+  runGit(repoRoot, "checkout", "master");
+}
+
+export function mergeNoFf(repoRoot: string, branch: string, message: string): void {
+  runGit(repoRoot, "merge", "--no-ff", branch, "-m", message);
+}
+
+export function deleteBranch(repoRoot: string, branch: string): void {
+  runGit(repoRoot, "branch", "-d", branch);
+}
+
+export function abortMerge(repoRoot: string): void {
+  runGit(repoRoot, "merge", "--abort");
+}
+
+export function sessionBranches(repoRoot: string): ReadonlyArray<string> {
+  return runGit(repoRoot, "for-each-ref", "--sort=creatordate", "--format=%(refname:short)", "refs/heads/sessions")
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.startsWith("sessions/"));
+}
+
+export function commitsNotInMaster(repoRoot: string, branch: string): ReadonlyArray<string> {
+  return runGit(repoRoot, "log", `master..${branch}`, "--oneline")
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function refExists(repoRoot: string, ref: string): boolean {
+  try {
+    runGit(repoRoot, "rev-parse", "--verify", "--quiet", ref);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function gitTopLevel(inputPath: string): string | null {
   try {
     return normalizeExistingPath(execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], { encoding: "utf8", maxBuffer: gitMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }).trim());
@@ -51,7 +100,7 @@ function gitTopLevel(inputPath: string): string | null {
 function isIgnoredByRepo(repoRoot: string, candidatePath: string): boolean {
   const relativePath = repoRelativePath(repoRoot, candidatePath);
   try {
-    execFileSync("git", ["-C", repoRoot, "check-ignore", "-q", "--", relativePath], { stdio: "ignore" });
+    runGit(repoRoot, "check-ignore", "-q", "--", relativePath);
     return true;
   } catch {
     return false;
@@ -101,9 +150,35 @@ function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
   }
 }
 
+function checkoutSessionBranch(repoRoot: string, branchName: string): void {
+  runGit(repoRoot, "checkout", "master");
+  if (!branchExists(repoRoot, branchName)) {
+    runGit(repoRoot, "branch", branchName);
+  }
+  runGit(repoRoot, "checkout", branchName);
+}
+
+function branchExists(repoRoot: string, branchName: string): boolean {
+  try {
+    runGit(repoRoot, "rev-parse", "--verify", "--quiet", branchName);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sessionBranchName(sessionId: string | undefined): string | undefined {
+  const safeSessionId = sessionId?.trim();
+  if (!safeSessionId) return undefined;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(safeSessionId)) {
+    throw new Error(`invalid session id for git branch: ${safeSessionId}`);
+  }
+  return `sessions/${safeSessionId}`;
+}
+
 function currentGitHead(rootDir: string): string {
   try {
-    return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8", maxBuffer: gitMaxBuffer }).trim();
+    return runGit(rootDir, "rev-parse", "HEAD").trim();
   } catch {
     return "no-git-head";
   }

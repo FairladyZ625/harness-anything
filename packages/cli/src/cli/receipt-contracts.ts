@@ -45,6 +45,7 @@ export const commandReceiptContractsByKind = {
   "distill-commit": { data: ["taskId", "factId", "factRef", "report"], paths: ["primary"] },
   "runtime-event-append": { data: ["report"], paths: ["primary"] },
   "runtime-event-list": { data: ["rows", "report"], paths: ["primary"] },
+  "materializer-run": { data: ["rows", "warnings", "report"], paths: [] },
   "session-export": { data: ["rows", "report"], paths: ["primary"] },
   "session-backfill": { data: ["rows", "warnings", "report"], paths: ["primary"] },
   "session-sync": { data: ["rows", "report"], paths: ["primary"] },

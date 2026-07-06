@@ -14,6 +14,7 @@ import { parseScriptArgs } from "./parsers/extensions-script.ts";
 import { parseTemplateArgs } from "./parsers/extensions-template.ts";
 import { parseVerticalArgs } from "./parsers/extensions-vertical.ts";
 import { parseGuiArgs } from "./parsers/gui.ts";
+import { parseMaterializerArgs } from "./parsers/materializer.ts";
 import { parseNewTaskArgs } from "./parsers/new-task.ts";
 import { parseRecordArgs } from "./parsers/record.ts";
 import { parseRuntimeEventArgs } from "./parsers/runtime-event.ts";
@@ -80,6 +81,11 @@ export const parserRegistry = [
     id: "runtime-event",
     commandKinds: commandKindsForParser("runtime-event"),
     parse: parseRuntimeEventArgs
+  },
+  {
+    id: "materializer",
+    commandKinds: commandKindsForParser("materializer"),
+    parse: parseMaterializerArgs
   },
   {
     id: "session",

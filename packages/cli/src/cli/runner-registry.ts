@@ -11,7 +11,7 @@ import type { CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { actionTaskId } from "./parse-args.ts";
-import type { CliResult, ParsedCommand } from "./types.ts";
+import type { CliResult, MaterializerCommandReport, ParsedCommand } from "./types.ts";
 import {
   runDiagnosticsCommand,
   runCapabilitiesCommand,
@@ -24,6 +24,7 @@ import {
   runGuiCommand,
   runHelpCommand,
   runInitCommand,
+  runMaterializerCommand,
   runMigrationCommand,
   runNewTaskCommand,
   runRuntimeEventCommand,
@@ -46,6 +47,7 @@ export interface CommandRunnerContext {
   readonly makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
+  readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
 }
 
 export type CommandRunnerEffect = Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError>;
@@ -117,6 +119,7 @@ export const runnerRegistry = {
   distill: runDistillCommand,
   fact: runFactCommand,
   "runtime-event": runRuntimeEventCommand,
+  materializer: runMaterializerCommand,
   session: runSessionCommand,
   doc: runDocCommand,
   "task-lifecycle": runTaskLifecycleCommand,
@@ -138,7 +141,8 @@ export function runRegisteredCommand(
   makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator,
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService,
-  makeRuntimeEventLedgerService: () => RuntimeEventLedgerService
+  makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
+  runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport
 ): CommandRunnerEffect {
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
@@ -189,7 +193,8 @@ export function runRegisteredCommand(
     get runtimeEventLedgerService() {
       runtimeEventLedgerService ??= makeRuntimeEventLedgerService();
       return runtimeEventLedgerService;
-    }
+    },
+    runLedgerMaterializer: (options) => runLedgerMaterializer(layoutInput, options)
   };
   return runner(context, command).pipe(
     Effect.flatMap((result) => appendCommandRuntimeEvent(context, command, result))

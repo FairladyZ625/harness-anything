@@ -25,6 +25,8 @@ export interface LocalWriteCoordinatorOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly actor?: LocalJournalActor;
+  readonly sessionId?: string;
+  readonly autoMaterialize?: boolean;
 }
 
 export interface CreateLocalTaskInput {
