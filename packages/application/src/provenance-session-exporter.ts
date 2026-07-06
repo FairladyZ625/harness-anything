@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path";
 import { Effect } from "effect";
 import type { CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource } from "../../kernel/src/index.ts";
-import { readFrontmatter, readScalar, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
+import { readFrontmatter, readScalar, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
 
 export interface ProvenanceSessionExporterOptions {

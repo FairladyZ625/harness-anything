@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { Effect } from "effect";
 import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/index.ts";
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
-import { parseFactFlowRecords } from "../../kernel/src/domain/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/layout/index.ts";
-import { createHarnessRuntimeContext, readFrontmatter, readScalar, taskDocumentPath } from "../../kernel/src/layout/index.ts";
+import { parseFactFlowRecords } from "../../kernel/src/index.ts";
+import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/index.ts";
+import { createHarnessRuntimeContext, readFrontmatter, readScalar, taskDocumentPath } from "../../kernel/src/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 

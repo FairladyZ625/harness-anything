@@ -14,8 +14,8 @@ import {
   type WriteError,
   type WriteOpKind
 } from "../../kernel/src/index.ts";
-import type { DocumentWrite } from "../../kernel/src/ports/artifact-store-writer.ts";
-import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
+import type { DocumentWrite } from "../../kernel/src/index.ts";
+import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 import type { ProvenanceSessionExporterRejected } from "./provenance-session-exporter.ts";

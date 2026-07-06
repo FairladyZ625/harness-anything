@@ -6,8 +6,8 @@ import {
   type DecisionPackage,
   type DecisionState
 } from "../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
-import { readFrontmatter, readScalar, resolveHarnessLayout } from "../../kernel/src/layout/index.ts";
+import type { HarnessLayoutInput } from "../../kernel/src/index.ts";
+import { readFrontmatter, readScalar, resolveHarnessLayout } from "../../kernel/src/index.ts";
 
 export interface DecisionDocumentReadResult {
   readonly decision: DecisionPackage;

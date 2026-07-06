@@ -20,7 +20,7 @@ import {
   type WriteCoordinator,
   type WriteError
 } from "../../kernel/src/index.ts";
-import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
+import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 

@@ -11,7 +11,7 @@ import {
   type RuntimeEventRuntime,
   type RuntimeEventResultStatus
 } from "../../kernel/src/index.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/layout/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 
 export interface RuntimeEventLedgerServiceOptions {
   readonly rootInput: HarnessLayoutInput;
