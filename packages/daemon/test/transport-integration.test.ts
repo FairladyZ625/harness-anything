@@ -236,8 +236,8 @@ function localController(calls: string[]): LocalControllerService {
       calls.push("getTasks");
       return { ok: true, tasks: [{ id: "task-a" }], warnings: [] };
     },
-    getTaskDetail: () => ({ ok: true }),
-    getTaskDocument: () => ({ ok: true }),
+    getTaskDetail: async () => ({ ok: true }),
+    getTaskDocument: async () => ({ ok: true }),
     setTaskStatus: async () => ({ ok: true }),
     reviewTask: async () => ({ ok: true }),
     appendTaskProgress: async () => {

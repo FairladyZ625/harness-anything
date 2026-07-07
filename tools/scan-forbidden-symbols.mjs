@@ -40,9 +40,11 @@ function relative(file) {
 for (const sourceRoot of scannedRoots) {
   for (const file of await walk(sourceRoot)) {
     const text = await readFile(file, "utf8");
-    for (const { label, pattern } of forbidden) {
+    const filePath = relative(file);
+    for (const { label, pattern, includePathPattern } of forbidden) {
+      if (includePathPattern && !includePathPattern.test(filePath)) continue;
       if (pattern.test(text)) {
-        violations.push(`${relative(file)}: forbidden symbol ${label}`);
+        violations.push(`${filePath}: forbidden symbol ${label}`);
       }
     }
   }

@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource } from "../../kernel/src/index.ts";
 import { readFrontmatter, readScalar, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
+import { isNodeErrorCode } from "./node-errors.ts";
 import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
 
 export interface ProvenanceSessionExporterOptions {
@@ -85,19 +86,22 @@ function writeSessionDocument(
   options: ProvenanceSessionExporterOptions,
   session: ProvenanceSessionDocument
 ): Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected> {
-  return Effect.try({
-    try: () => {
-      const target = resolveSessionPath(rootInput, session.sessionId);
-      mkdirSync(path.dirname(target.absolutePath), { recursive: true });
-      const tmpPath = `${target.absolutePath}.${process.pid}.${Date.now()}.tmp`;
-      writeFileSync(tmpPath, renderSessionMarkdown(session, resolveRuntimeConversation(session, options)), "utf8");
-      renameSync(tmpPath, target.absolutePath);
-      return {
-        session,
-        path: target.relativePath
-      };
-    },
-    catch: (error) => sessionRejection(session.sessionId, error instanceof Error ? error.message : "session export failed")
+  return Effect.gen(function* () {
+    const target = resolveSessionPath(rootInput, session.sessionId);
+    const conversation = yield* resolveRuntimeConversation(session, options);
+    return yield* Effect.tryPromise({
+      try: async () => {
+        await fs.promises.mkdir(path.dirname(target.absolutePath), { recursive: true });
+        const tmpPath = `${target.absolutePath}.${process.pid}.${Date.now()}.tmp`;
+        await fs.promises.writeFile(tmpPath, renderSessionMarkdown(session, conversation), "utf8");
+        await fs.promises.rename(tmpPath, target.absolutePath);
+        return {
+          session,
+          path: target.relativePath
+        };
+      },
+      catch: (error) => sessionRejection(session.sessionId, error instanceof Error ? error.message : "session export failed")
+    });
   });
 }
 
@@ -105,13 +109,13 @@ function readSessionDocument(
   rootInput: HarnessLayoutInput,
   sessionId: string
 ): Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected> {
-  return Effect.try({
-    try: () => {
+  return Effect.tryPromise({
+    try: async () => {
       const target = resolveSessionPath(rootInput, sessionId);
-      if (!existsSync(target.absolutePath)) {
-        throw new Error(`session not found: ${sessionId}`);
-      }
-      const body = readFileSync(target.absolutePath, "utf8");
+      const body = await fs.promises.readFile(target.absolutePath, "utf8").catch((error: unknown) => {
+        if (isNodeErrorCode(error, "ENOENT")) throw new Error(`session not found: ${sessionId}`);
+        throw error;
+      });
       const session = parseSessionMarkdown(body, sessionId);
       return {
         session,
@@ -130,7 +134,7 @@ function backfillRuntimeSessions(
 ): Effect.Effect<ProvenanceSessionBackfillResult, ProvenanceSessionExporterRejected> {
   return Effect.gen(function* () {
     const detectedAt = timestamp();
-    const discovered = discoverRuntimeSessions(options, backfillOptions, detectedAt);
+    const discovered = yield* discoverRuntimeSessions(options, backfillOptions, detectedAt);
     const exported: ProvenanceSessionExportResult[] = [];
     for (const session of discovered.sessions) {
       const existing = yield* readSessionDocument(rootInput, session.sessionId).pipe(

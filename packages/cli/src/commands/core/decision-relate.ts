@@ -20,43 +20,36 @@ export function runDecisionRelate(
   action: DecisionRelateAction
 ): Effect.Effect<CliResult, WriteError> {
   const rootInput = context.layoutInput;
-  let current: DecisionPackage;
-  try {
-    current = readDecisionDocument(rootInput, action.decisionId).decision;
-  } catch {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-relate",
-      decisionId: action.decisionId,
-      error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
-    } satisfies CliResult);
-  }
-
-  const relation = decisionRelation(current, action);
-  if (!relation.ok) {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-relate",
-      decisionId: current.decision_id,
-      error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relation.reason)
-    } satisfies CliResult);
-  }
-  if (action.dryRun) return Effect.succeed(decisionRelateResult(rootInput, "decision-relate", current.decision_id, current.state, true));
-  const taskWrites = materializedTaskPriorityWrites(rootInput, current, relation.record);
-  if (!taskWrites.ok) {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-relate",
-      decisionId: current.decision_id,
-      error: taskWrites.error
-    } satisfies CliResult);
-  }
-  return service.relate({ current, relation: relation.record, taskWrites: taskWrites.writes, body: action.body }).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => decisionRelationFailure("decision-relate", current.decision_id, error),
-      onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relate", result.decisionId, result.state, false)
-    })
-  );
+  return Effect.gen(function* () {
+    const read = yield* readDecisionForCommand(rootInput, "decision-relate", action.decisionId);
+    if (!read.ok) return read.result;
+    const current = read.current;
+    const relation = decisionRelation(current, action);
+    if (!relation.ok) {
+      return {
+        ok: false,
+        command: "decision-relate",
+        decisionId: current.decision_id,
+        error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relation.reason)
+      } satisfies CliResult;
+    }
+    if (action.dryRun) return decisionRelateResult(rootInput, "decision-relate", current.decision_id, current.state, true);
+    const taskWrites = materializedTaskPriorityWrites(rootInput, current, relation.record);
+    if (!taskWrites.ok) {
+      return {
+        ok: false,
+        command: "decision-relate",
+        decisionId: current.decision_id,
+        error: taskWrites.error
+      } satisfies CliResult;
+    }
+    return yield* service.relate({ current, relation: relation.record, taskWrites: taskWrites.writes, body: action.body }).pipe(
+      Effect.match({
+        onFailure: (error): CliResult => decisionRelationFailure("decision-relate", current.decision_id, error),
+        onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relate", result.decisionId, result.state, false)
+      })
+    );
+  });
 }
 
 export function runDecisionRelationRetire(
@@ -64,25 +57,18 @@ export function runDecisionRelationRetire(
   service: DecisionWriteService,
   action: DecisionRelationRetireAction
 ): Effect.Effect<CliResult, WriteError> {
-  let current: DecisionPackage;
-  try {
-    current = readDecisionDocument(rootInput, action.decisionId).decision;
-  } catch {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-relation-retire",
-      decisionId: action.decisionId,
-      error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
-    } satisfies CliResult);
-  }
-
-  if (action.dryRun) return Effect.succeed(decisionRelateResult(rootInput, "decision-relation-retire", current.decision_id, current.state, true));
-  return service.retireRelation({ current, relationId: action.relationId, body: action.body }).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => decisionRelationFailure("decision-relation-retire", current.decision_id, error),
-      onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relation-retire", result.decisionId, result.state, false)
-    })
-  );
+  return Effect.gen(function* () {
+    const read = yield* readDecisionForCommand(rootInput, "decision-relation-retire", action.decisionId);
+    if (!read.ok) return read.result;
+    const current = read.current;
+    if (action.dryRun) return decisionRelateResult(rootInput, "decision-relation-retire", current.decision_id, current.state, true);
+    return yield* service.retireRelation({ current, relationId: action.relationId, body: action.body }).pipe(
+      Effect.match({
+        onFailure: (error): CliResult => decisionRelationFailure("decision-relation-retire", current.decision_id, error),
+        onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relation-retire", result.decisionId, result.state, false)
+      })
+    );
+  });
 }
 
 export function runDecisionRelationReplace(
@@ -91,41 +77,55 @@ export function runDecisionRelationReplace(
   action: DecisionRelationReplaceAction
 ): Effect.Effect<CliResult, WriteError> {
   const rootInput = context.layoutInput;
-  let current: DecisionPackage;
-  try {
-    current = readDecisionDocument(rootInput, action.decisionId).decision;
-  } catch {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-relation-replace",
-      decisionId: action.decisionId,
-      error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${action.decisionId}`)
-    } satisfies CliResult);
-  }
+  return Effect.gen(function* () {
+    const read = yield* readDecisionForCommand(rootInput, "decision-relation-replace", action.decisionId);
+    if (!read.ok) return read.result;
+    const current = read.current;
+    const relation = decisionRelation(current, action);
+    if (!relation.ok) {
+      return {
+        ok: false,
+        command: "decision-relation-replace",
+        decisionId: current.decision_id,
+        error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relation.reason)
+      } satisfies CliResult;
+    }
+    if (action.dryRun) return decisionRelateResult(rootInput, "decision-relation-replace", current.decision_id, current.state, true);
+    const taskWrites = materializedTaskPriorityWrites(rootInput, current, relation.record);
+    if (!taskWrites.ok) {
+      return {
+        ok: false,
+        command: "decision-relation-replace",
+        decisionId: current.decision_id,
+        error: taskWrites.error
+      } satisfies CliResult;
+    }
+    return yield* service.replaceRelation({ current, relationId: action.relationId, replacement: relation.record, taskWrites: taskWrites.writes, body: action.body }).pipe(
+      Effect.match({
+        onFailure: (error): CliResult => decisionRelationFailure("decision-relation-replace", current.decision_id, error),
+        onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relation-replace", result.decisionId, result.state, false)
+      })
+    );
+  });
+}
 
-  const relation = decisionRelation(current, action);
-  if (!relation.ok) {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-relation-replace",
-      decisionId: current.decision_id,
-      error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relation.reason)
-    } satisfies CliResult);
-  }
-  if (action.dryRun) return Effect.succeed(decisionRelateResult(rootInput, "decision-relation-replace", current.decision_id, current.state, true));
-  const taskWrites = materializedTaskPriorityWrites(rootInput, current, relation.record);
-  if (!taskWrites.ok) {
-    return Effect.succeed({
-      ok: false,
-      command: "decision-relation-replace",
-      decisionId: current.decision_id,
-      error: taskWrites.error
-    } satisfies CliResult);
-  }
-  return service.replaceRelation({ current, relationId: action.relationId, replacement: relation.record, taskWrites: taskWrites.writes, body: action.body }).pipe(
+function readDecisionForCommand(
+  rootInput: HarnessLayoutInput,
+  command: DecisionRelationCommand,
+  decisionId: string
+): Effect.Effect<{ readonly ok: true; readonly current: DecisionPackage } | { readonly ok: false; readonly result: CliResult }> {
+  return readDecisionDocument(rootInput, decisionId).pipe(
     Effect.match({
-      onFailure: (error): CliResult => decisionRelationFailure("decision-relation-replace", current.decision_id, error),
-      onSuccess: (result): CliResult => decisionRelateResult(rootInput, "decision-relation-replace", result.decisionId, result.state, false)
+      onFailure: (): { readonly ok: false; readonly result: CliResult } => ({
+        ok: false,
+        result: {
+          ok: false,
+          command,
+          decisionId,
+          error: cliError(CliErrorCode.DecisionReadFailed, `decision document could not be read: ${decisionId}`)
+        } satisfies CliResult
+      }),
+      onSuccess: (document): { readonly ok: true; readonly current: DecisionPackage } => ({ ok: true, current: document.decision })
     })
   );
 }

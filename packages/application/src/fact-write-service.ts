@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import * as fs from "node:fs";
 import { Effect, Schema } from "effect";
 import {
   FactRecordSchema,
@@ -22,6 +22,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { harnessRuntimeRoot, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
+import { isNodeErrorCode } from "./node-errors.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
 
 export interface FactWriteServiceOptions extends ProvenanceBindingOptions {
@@ -89,7 +90,7 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
     record: (request) => Effect.gen(function* () {
       const layout = resolveHarnessLayout(options.rootInput);
       const factsPath = layout.taskFactDocumentPath(request.ownerTaskId);
-      const existingBody = existsSync(factsPath) ? readFileSync(factsPath, "utf8") : "";
+      const existingBody = yield* readExistingFactsBody(factsPath, request.ownerTaskId);
       const existingFacts = parseFactFlowRecords(existingBody);
       const factId = request.factId ?? generateFactId();
       if (!isFactId(factId)) {
@@ -136,7 +137,7 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
     invalidate: (request) => Effect.gen(function* () {
       const layout = resolveHarnessLayout(options.rootInput);
       const factsPath = layout.taskFactDocumentPath(request.ownerTaskId);
-      const existingBody = existsSync(factsPath) ? readFileSync(factsPath, "utf8") : "";
+      const existingBody = yield* readExistingFactsBody(factsPath, request.ownerTaskId);
       const existingFacts = parseFactFlowRecords(existingBody);
       if (!isFactId(request.factId)) {
         return yield* Effect.fail(factRejection(request.ownerTaskId, `invalid fact id: ${request.factId}`));
@@ -192,6 +193,16 @@ export function makeFactWriteService(options: FactWriteServiceOptions): FactWrit
 
 function existingFactProvenance(): ReadonlyArray<ProvenancePayload> {
   return [];
+}
+
+function readExistingFactsBody(factsPath: string, taskId: TaskId): Effect.Effect<string, FactWriteRejected> {
+  return Effect.tryPromise({
+    try: () => fs.promises.readFile(factsPath, "utf8").catch((error: unknown) => {
+      if (isNodeErrorCode(error, "ENOENT")) return "";
+      throw error;
+    }),
+    catch: (error) => factRejection(taskId, error instanceof Error ? error.message : "facts document read failed")
+  });
 }
 
 function appendFactRecord(existingBody: string, record: FactRecord): string {

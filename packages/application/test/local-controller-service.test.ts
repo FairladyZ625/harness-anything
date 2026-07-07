@@ -32,21 +32,21 @@ test("local controller service reads projection and writes through injected task
     assert.equal(list.ok, true);
     assert.equal(list.tasks.length, 1);
 
-    const detail = service.getTaskDetail({ taskId: "task-1" });
+    const detail = await service.getTaskDetail({ taskId: "task-1" });
     assert.equal(detail.ok, true);
     assert.deepEqual(detail.documents, [{ path: "INDEX.md" }]);
 
-    const document = service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
+    const document = await service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Task One/);
-    assert.deepEqual(service.getTaskDocument({ taskId: "task-1", path: "C:\\Users\\name\\secret.md" }), {
+    assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "C:\\Users\\name\\secret.md" }), {
       ok: false,
       error: {
         code: "invalid_payload",
         hint: "portable document path is required."
       }
     });
-    assert.deepEqual(service.getTaskDocument({ taskId: "task-1", path: "notes/../INDEX.md" }), {
+    assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "notes/../INDEX.md" }), {
       ok: true,
       taskId: "task-1",
       path: "INDEX.md",
@@ -99,7 +99,7 @@ test("local controller service honors explicit authored root for reads and write
     const list = service.getTasks();
     assert.equal(list.ok, true);
     assert.equal(list.tasks.length, 1);
-    const document = service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
+    const document = await service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Custom Task/);
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "custom progress" }), { ok: true });

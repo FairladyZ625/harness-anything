@@ -6,6 +6,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { makeDecisionWriteService, readDecisionDocument, type DecisionWriteRejected } from "../src/index.ts";
 import { deriveRelationId, type DecisionPackage, type EntityRelationRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
+import { runEffect } from "./effect-test-helpers.ts";
 
 test("decision accept blocks zero-evidence decisions without judgment-only rationale", () => {
   const service = makeDecisionWriteService({
@@ -201,12 +202,12 @@ test("decision amend accepts schema-declared amendable field changes", () => {
   assert.equal(payload.decision?.chosen.length, 2);
 });
 
-test("decision document reader accepts block-list frontmatter and rejects unknown provenance runtime", () => {
+test("decision document reader accepts block-list frontmatter and rejects unknown provenance runtime", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-reader-"));
   try {
     writeDecisionMarkdown(rootDir, "dec_BLOCK", "codex");
 
-    const read = readDecisionDocument(rootDir, "dec_BLOCK");
+    const read = await runEffect(readDecisionDocument(rootDir, "dec_BLOCK"));
 
     assert.equal(read.decision.decision_id, "dec_BLOCK");
     assert.deepEqual(read.decision.provenance, [{
@@ -221,7 +222,7 @@ test("decision document reader accepts block-list frontmatter and rejects unknow
     }]);
 
     writeDecisionMarkdown(rootDir, "dec_BLOCK", "other-runtime");
-    assert.throws(() => readDecisionDocument(rootDir, "dec_BLOCK"));
+    await assert.rejects(() => runEffect(readDecisionDocument(rootDir, "dec_BLOCK")));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -44,6 +44,13 @@
         "pattern": "setHarnessLayoutOverrides",
         "ref": "ADR-0022#D6",
         "reason": "Global layout override hooks are not part of the governed runtime boundary."
+      },
+      {
+        "label": "application synchronous filesystem API",
+        "pattern": "\\b(?:readFileSync|writeFileSync|existsSync|mkdirSync|readdirSync|statSync|rmSync|appendFileSync|renameSync|copyFileSync|openSync|writeSync|fsyncSync|closeSync)\\b",
+        "includePathPattern": "^packages/application/src/",
+        "ref": "task_01KWGEEEFS13Z4HNVHZSYZ9Z3E",
+        "reason": "PRE-01 requires application-layer filesystem reads and writes to stay asynchronous for daemon consumers."
       }
     ]
   }

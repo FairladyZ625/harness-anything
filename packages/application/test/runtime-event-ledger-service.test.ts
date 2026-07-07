@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { Effect } from "effect";
 import { makeRuntimeEventLedgerService } from "../src/index.ts";
+import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
-test("runtime event ledger appends fsynced JSONL and reads schema-validated records", () => {
+test("runtime event ledger appends fsynced JSONL and reads schema-validated records", async () => {
   const rootDir = createHarnessRoot();
   try {
     const ledger = makeRuntimeEventLedgerService({
@@ -15,7 +15,7 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
       makeEventId: () => "evt_20260703_000001"
     });
 
-    const appended = Effect.runSync(ledger.append({
+    const appended = await runEffect(ledger.append({
       kind: "interrupt",
       session: {
         sessionId: "codex-session-1",
@@ -49,7 +49,7 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
     assert.equal(existsSync(ledgerPath), true);
     assert.equal(readFileSync(ledgerPath, "utf8").trim().split("\n").length, 1);
 
-    const readBack = Effect.runSync(ledger.readSession("codex-session-1"));
+    const readBack = await runEffect(ledger.readSession("codex-session-1"));
     assert.equal(readBack.events.length, 1);
     assert.deepEqual(readBack.events[0], appended.event);
     assert.equal(readBack.events[0]?.actor?.personId, "person_zeyu");
@@ -58,7 +58,7 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
   }
 });
 
-test("runtime event ledger reads legacy v1 rows without actor", () => {
+test("runtime event ledger reads legacy v1 rows without actor", async () => {
   const rootDir = createHarnessRoot();
   try {
     const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir });
@@ -79,7 +79,7 @@ test("runtime event ledger reads legacy v1 rows without actor", () => {
       cost: null
     })}\n`, "utf8");
 
-    const readBack = Effect.runSync(ledger.readSession("codex-session-1"));
+    const readBack = await runEffect(ledger.readSession("codex-session-1"));
 
     assert.equal(readBack.events.length, 1);
     assert.equal(readBack.events[0]?.actor, undefined);
@@ -88,7 +88,7 @@ test("runtime event ledger reads legacy v1 rows without actor", () => {
   }
 });
 
-test("runtime event ledger fails closed on invalid JSONL records", () => {
+test("runtime event ledger fails closed on invalid JSONL records", async () => {
   const rootDir = createHarnessRoot();
   try {
     const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir });
@@ -96,7 +96,7 @@ test("runtime event ledger fails closed on invalid JSONL records", () => {
     mkdirSync(ledgerDir, { recursive: true });
     writeFileSync(path.join(ledgerDir, "codex-session-1.jsonl"), "{\"schema\":\"runtime-event/v1\",\"eventId\":\"bad\"}\n", "utf8");
 
-    const exit = Effect.runSyncExit(ledger.readSession("codex-session-1"));
+    const exit = await runEffectExit(ledger.readSession("codex-session-1"));
     assert.equal(exit._tag, "Failure");
     assert.equal(String(exit.cause).includes("eventId"), true);
   } finally {

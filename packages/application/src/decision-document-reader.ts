@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import * as fs from "node:fs";
 import path from "node:path";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   DecisionPackageSchema,
   type DecisionPackage,
@@ -8,6 +8,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { readFrontmatter, readScalar, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { isNodeErrorCode } from "./node-errors.ts";
 
 export interface DecisionDocumentReadResult {
   readonly decision: DecisionPackage;
@@ -19,29 +20,36 @@ export interface DecisionDocumentListResult {
   readonly decisions: ReadonlyArray<DecisionDocumentReadResult>;
 }
 
-export function readDecisionDocument(rootInput: HarnessLayoutInput, decisionId: string): DecisionDocumentReadResult {
-  const layout = resolveHarnessLayout(rootInput);
-  const documentPath = layout.decisionDocumentPath(decisionId);
-  const documentBody = readFileSync(documentPath, "utf8");
-  const frontmatter = readFrontmatter(documentBody);
-  if (!frontmatter) throw new Error(`decision document missing frontmatter: ${decisionId}`);
-  const decision = Schema.decodeUnknownSync(DecisionPackageSchema)(parseDecisionFrontmatter(frontmatter));
-  return {
-    decision,
-    body: documentBody.replace(/^---\n[\s\S]*?\n---\n?/u, ""),
-    path: path.relative(layout.rootDir, documentPath).split(path.sep).join("/")
-  };
+export function readDecisionDocument(rootInput: HarnessLayoutInput, decisionId: string): Effect.Effect<DecisionDocumentReadResult, unknown> {
+  return Effect.tryPromise(async () => {
+    const layout = resolveHarnessLayout(rootInput);
+    const documentPath = layout.decisionDocumentPath(decisionId);
+    const documentBody = await fs.promises.readFile(documentPath, "utf8");
+    const frontmatter = readFrontmatter(documentBody);
+    if (!frontmatter) throw new Error(`decision document missing frontmatter: ${decisionId}`);
+    const decision = Schema.decodeUnknownSync(DecisionPackageSchema)(parseDecisionFrontmatter(frontmatter));
+    return {
+      decision,
+      body: documentBody.replace(/^---\n[\s\S]*?\n---\n?/u, ""),
+      path: path.relative(layout.rootDir, documentPath).split(path.sep).join("/")
+    };
+  });
 }
 
-export function listDecisionDocuments(rootInput: HarnessLayoutInput): DecisionDocumentListResult {
-  const layout = resolveHarnessLayout(rootInput);
-  if (!existsSync(layout.decisionsRoot)) return { decisions: [] };
-  const decisions = readdirSync(layout.decisionsRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith("decision-"))
-    .map((entry) => entry.name.slice("decision-".length))
-    .map((decisionId) => readDecisionDocument(rootInput, decisionId))
-    .sort((left, right) => compareDecisionIds(left.decision.decision_id, right.decision.decision_id));
-  return { decisions };
+export function listDecisionDocuments(rootInput: HarnessLayoutInput): Effect.Effect<DecisionDocumentListResult, unknown> {
+  return Effect.gen(function* () {
+    const layout = resolveHarnessLayout(rootInput);
+    const entries = yield* Effect.tryPromise(() => fs.promises.readdir(layout.decisionsRoot, { withFileTypes: true }).catch((error: unknown) => {
+      if (isNodeErrorCode(error, "ENOENT")) return [];
+      throw error;
+    }));
+    const decisions = yield* Effect.forEach(entries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith("decision-"))
+      .map((entry) => entry.name.slice("decision-".length)), (decisionId) => readDecisionDocument(rootInput, decisionId));
+    return {
+      decisions: decisions.toSorted((left, right) => compareDecisionIds(left.decision.decision_id, right.decision.decision_id))
+    };
+  });
 }
 
 function compareDecisionIds(left: string, right: string): number {

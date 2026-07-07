@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import * as fs from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
 import {
@@ -12,6 +12,7 @@ import {
   type RuntimeEventResultStatus
 } from "../../kernel/src/index.ts";
 import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, type EntityId, type HarnessLayoutInput, type WriteCoordinator, type WriteError, type WriteOpKind } from "../../kernel/src/index.ts";
+import { isNodeErrorCode } from "./node-errors.ts";
 
 export interface RuntimeEventLedgerServiceOptions {
   readonly rootInput: HarnessLayoutInput;
@@ -165,10 +166,10 @@ function appendRuntimeEvent(
         Effect.map(() => result),
         Effect.mapError((error) => runtimeEventRejection(decoded.session.sessionId, writeErrorMessage(error)))
       )
-        : Effect.try({
-        try: () => {
-          mkdirSync(path.dirname(target.absolutePath), { recursive: true });
-          appendJsonlWithFsync(target.absolutePath, decoded);
+        : Effect.tryPromise({
+        try: async () => {
+          await fs.promises.mkdir(path.dirname(target.absolutePath), { recursive: true });
+          await appendJsonlWithFsync(target.absolutePath, decoded);
           return result;
         },
         catch: (error) => runtimeEventRejection(decoded.session.sessionId, runtimeEventErrorMessage(error))
@@ -181,13 +182,14 @@ function readRuntimeEventSession(
   rootInput: HarnessLayoutInput,
   sessionId: string
 ): Effect.Effect<RuntimeEventLedgerReadResult, RuntimeEventLedgerRejected> {
-  return Effect.try({
-    try: () => {
+  return Effect.tryPromise({
+    try: async () => {
       const target = resolveRuntimeEventLedgerPath(rootInput, sessionId);
-      if (!existsSync(target.absolutePath)) {
-        return { sessionId, path: target.relativePath, events: [] };
-      }
-      const events = readFileSync(target.absolutePath, "utf8")
+      const body = await fs.promises.readFile(target.absolutePath, "utf8").catch((error: unknown) => {
+        if (isNodeErrorCode(error, "ENOENT")) return "";
+        throw error;
+      });
+      const events = body
         .split("\n")
         .filter((line) => line.trim().length > 0)
         .map((line, index) => decodeRuntimeEventLine(line, sessionId, index + 1));
@@ -220,13 +222,13 @@ function resolveRuntimeEventLedgerPath(rootInput: HarnessLayoutInput, sessionId:
   };
 }
 
-function appendJsonlWithFsync(filePath: string, event: RuntimeEventRecord): void {
-  const fd = openSync(filePath, "a");
+async function appendJsonlWithFsync(filePath: string, event: RuntimeEventRecord): Promise<void> {
+  const handle = await fs.promises.open(filePath, "a");
   try {
-    writeSync(fd, `${JSON.stringify(event)}\n`, undefined, "utf8");
-    fsyncSync(fd);
+    await handle.writeFile(`${JSON.stringify(event)}\n`, "utf8");
+    await handle.sync();
   } finally {
-    closeSync(fd);
+    await handle.close();
   }
 }
 

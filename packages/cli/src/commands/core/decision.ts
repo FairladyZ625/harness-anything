@@ -52,10 +52,8 @@ function runTransition(
   service: DecisionWriteService,
   action: TransitionAction
 ): Effect.Effect<CliResult, WriteError> {
-  return Effect.try({
-    try: () => readDecisionDocument(rootInput, action.decisionId).decision,
-    catch: (cause) => ({ _tag: "DecisionReadFailed" as const, cause })
-  }).pipe(
+  return readDecisionDocument(rootInput, action.decisionId).pipe(
+    Effect.map((document) => document.decision),
     Effect.flatMap((current) => {
       const arbiter = parseActor(action.arbiter) ?? current.arbiter;
       const request = { current, arbiter, decidedAt: action.decidedAt, judgmentOnlyRationale: action.judgmentOnlyRationale, body: action.body };
@@ -73,7 +71,7 @@ function runTransition(
           return service.retire(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
       }
     }),
-    Effect.catchTag("DecisionReadFailed", () => Effect.succeed({
+    Effect.catchAll(() => Effect.succeed({
       ok: false,
       command: action.kind,
       decisionId: action.decisionId,
@@ -87,10 +85,8 @@ function runAmend(
   service: DecisionWriteService,
   action: Extract<DecisionAction, { readonly kind: "decision-amend" }>
 ): Effect.Effect<CliResult, WriteError> {
-  return Effect.try({
-    try: () => readDecisionDocument(rootInput, action.decisionId).decision,
-    catch: (cause) => ({ _tag: "DecisionReadFailed" as const, cause })
-  }).pipe(
+  return readDecisionDocument(rootInput, action.decisionId).pipe(
+    Effect.map((document) => document.decision),
     Effect.flatMap((current) => {
       const patchResult = applyDecisionAmendPatches(current, [
         ...(action.title ? [{ field: "title", operation: "replace", value: action.title } satisfies DecisionAmendPatchInput] : []),
@@ -105,7 +101,7 @@ function runAmend(
         })
       );
     }),
-    Effect.catchTag("DecisionReadFailed", () => Effect.succeed({
+    Effect.catchAll(() => Effect.succeed({
       ok: false,
       command: "decision-amend",
       decisionId: action.decisionId,

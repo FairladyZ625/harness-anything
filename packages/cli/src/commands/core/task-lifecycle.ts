@@ -92,41 +92,42 @@ function runStatusSet(
     });
   }
 
-  const taskPolicy = readTaskLifecyclePolicy(context.layoutInput, taskId);
-  if (taskPolicy?.engine !== "local") {
-    return context.engine.setStatus({ taskId, status }).pipe(Effect.map((result): CliResult => ({
-      ok: true,
-      command: "status-set",
-      taskId: result.taskId,
-      status: result.status
-    })));
-  }
-  if (!force) {
-    return Effect.sync(() => ({
-      ok: false,
-      command: "status-set",
-      taskId,
-      status,
-      error: cliError(
-        CliErrorCode.TerminalStatusRequiresTaskComplete,
-        status === "done"
-          ? "Use task-complete after review, CI, and closeout gates pass. Use --force --reason only for recovery."
-          : "Terminal cancellation must be audited. Use --force --reason only for recovery."
-      )
-    } satisfies CliResult));
-  }
-  if (taskPolicy.status && !explainStatusTransition(taskPolicy.status, status).allowed) {
-    return Effect.sync(() => ({
-      ok: false,
-      command: "status-set",
-      taskId,
-      status,
-      error: cliError(CliErrorCode.InvalidTransition, `invalid transition: ${taskPolicy.status} -> ${status}`)
-    } satisfies CliResult));
-  }
-
-  const auditText = renderForceStatusAudit(status, reason ?? "unspecified");
   return Effect.gen(function* () {
+    const taskPolicy = yield* readTaskLifecyclePolicy(context.layoutInput, taskId);
+    if (taskPolicy?.engine !== "local") {
+      const result = yield* context.engine.setStatus({ taskId, status });
+      return {
+        ok: true,
+        command: "status-set",
+        taskId: result.taskId,
+        status: result.status
+      } satisfies CliResult;
+    }
+    if (!force) {
+      return {
+        ok: false,
+        command: "status-set",
+        taskId,
+        status,
+        error: cliError(
+          CliErrorCode.TerminalStatusRequiresTaskComplete,
+          status === "done"
+            ? "Use task-complete after review, CI, and closeout gates pass. Use --force --reason only for recovery."
+            : "Terminal cancellation must be audited. Use --force --reason only for recovery."
+        )
+      } satisfies CliResult;
+    }
+    if (taskPolicy.status && !explainStatusTransition(taskPolicy.status, status).allowed) {
+      return {
+        ok: false,
+        command: "status-set",
+        taskId,
+        status,
+        error: cliError(CliErrorCode.InvalidTransition, `invalid transition: ${taskPolicy.status} -> ${status}`)
+      } satisfies CliResult;
+    }
+
+    const auditText = renderForceStatusAudit(status, reason ?? "unspecified");
     const audit = yield* context.engine.appendProgress({ taskId, text: auditText });
     const result = yield* context.engine.setStatus({ taskId, status });
     return {

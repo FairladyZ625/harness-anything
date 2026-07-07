@@ -6,8 +6,9 @@ import test from "node:test";
 import { Effect } from "effect";
 import { makeDecisionWriteService, makeFactWriteService, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, type DecisionCreateInput } from "../src/index.ts";
 import type { DecisionPackage, WriteCoordinator, WriteOp } from "../../kernel/src/index.ts";
+import { runEffect } from "./effect-test-helpers.ts";
 
-test("decision create service binds provenance and exports the session by id", () => {
+test("decision create service binds provenance and exports the session by id", async () => {
   const rootDir = createHarnessRoot();
   try {
     const enqueued: WriteOp[] = [];
@@ -31,7 +32,7 @@ test("decision create service binds provenance and exports the session by id", (
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    Effect.runSync(service.propose({ decision: decisionCreateInput() }));
+    await runEffect(service.propose({ decision: decisionCreateInput() }));
 
     const decision = (enqueued[0]?.payload as { readonly decision?: DecisionPackage }).decision;
     assert.deepEqual(decision?.provenance, [{
@@ -39,7 +40,7 @@ test("decision create service binds provenance and exports the session by id", (
       sessionId: "human-cli-1783036800000",
       boundAt: "2026-07-03T00:01:00.000Z"
     }]);
-    const session = Effect.runSync(exporter.readById("human-cli-1783036800000"));
+    const session = await runEffect(exporter.readById("human-cli-1783036800000"));
     assert.equal(session.path, "sessions/human-cli-1783036800000.md");
     assert.equal(session.session.runtime, "human");
     assert.deepEqual(syncedPaths, ["sessions/human-cli-1783036800000.md"]);
@@ -48,7 +49,7 @@ test("decision create service binds provenance and exports the session by id", (
   }
 });
 
-test("fact create service binds provenance into the single-line record and exports the session by id", () => {
+test("fact create service binds provenance into the single-line record and exports the session by id", async () => {
   const rootDir = createHarnessRoot();
   try {
     const enqueued: WriteOp[] = [];
@@ -73,7 +74,7 @@ test("fact create service binds provenance into the single-line record and expor
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    Effect.runSync(service.record({
+    await runEffect(service.record({
       ownerTaskId: "task_OWNER",
       factId: "F-DEADBEEF",
       statement: "Fact create binds provenance.",
@@ -84,7 +85,7 @@ test("fact create service binds provenance into the single-line record and expor
     const body = (enqueued[0]?.payload as { readonly body?: string }).body ?? "";
     assert.match(body, /memoryClass: episodic, memoryTags: \[\]/u);
     assert.match(body, /provenance: \[\{runtime: "human", sessionId: "human-cli-1783036800000", boundAt: "2026-07-03T00:01:00\.000Z"\}\]/u);
-    const session = Effect.runSync(exporter.readById("human-cli-1783036800000"));
+    const session = await runEffect(exporter.readById("human-cli-1783036800000"));
     assert.equal(session.path, "sessions/human-cli-1783036800000.md");
     assert.equal(session.session.runtime, "human");
     assert.deepEqual(syncedPaths, ["sessions/human-cli-1783036800000.md"]);

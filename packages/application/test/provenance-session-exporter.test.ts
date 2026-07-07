@@ -6,8 +6,9 @@ import test from "node:test";
 import { Effect } from "effect";
 import { makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
 import type { CurrentSessionRef } from "../../kernel/src/index.ts";
+import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
-test("provenance session exporter writes human fallback markdown and reads it by id", () => {
+test("provenance session exporter writes human fallback markdown and reads it by id", async () => {
   const rootDir = createHarnessRoot();
   try {
     const exporter = makeProvenanceSessionExporter({
@@ -19,7 +20,7 @@ test("provenance session exporter writes human fallback markdown and reads it by
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const exported = await runEffect(exporter.exportCurrentSession());
     assert.equal(exported.path, "sessions/human-cli-1783036800000.md");
     assert.deepEqual(exported.session, {
       schema: "provenance-session/v1",
@@ -39,14 +40,14 @@ test("provenance session exporter writes human fallback markdown and reads it by
     assert.match(body, /^runtime: human$/m);
     assert.match(body, /^source: manual$/m);
 
-    const readBack = Effect.runSync(exporter.readById("human-cli-1783036800000"));
+    const readBack = await runEffect(exporter.readById("human-cli-1783036800000"));
     assert.deepEqual(readBack, exported);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("provenance session exporter renders Claude Code JSONL conversation text", () => {
+test("provenance session exporter renders Claude Code JSONL conversation text", async () => {
   const rootDir = createHarnessRoot();
   try {
     const logsRoot = path.join(rootDir, "runtime-logs", "claude", "project-a");
@@ -76,7 +77,7 @@ test("provenance session exporter renders Claude Code JSONL conversation text", 
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const exported = await runEffect(exporter.exportCurrentSession());
     const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
     assert.match(body, /## Conversation/u);
     assert.match(body, /Claude user original line/u);
@@ -86,7 +87,7 @@ test("provenance session exporter renders Claude Code JSONL conversation text", 
   }
 });
 
-test("provenance session exporter renders Codex JSONL conversation text", () => {
+test("provenance session exporter renders Codex JSONL conversation text", async () => {
   const rootDir = createHarnessRoot();
   try {
     const logsRoot = path.join(rootDir, "runtime-logs", "codex");
@@ -120,7 +121,7 @@ test("provenance session exporter renders Codex JSONL conversation text", () => 
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const exported = await runEffect(exporter.exportCurrentSession());
     const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
     assert.match(body, /## Conversation/u);
     assert.match(body, /Codex user original line/u);
@@ -130,7 +131,7 @@ test("provenance session exporter renders Codex JSONL conversation text", () => 
   }
 });
 
-test("provenance session exporter renders ZCode model I/O JSONL conversation text", () => {
+test("provenance session exporter renders ZCode model I/O JSONL conversation text", async () => {
   const rootDir = createHarnessRoot();
   try {
     const logsRoot = path.join(rootDir, "runtime-logs", "zcode");
@@ -185,7 +186,7 @@ test("provenance session exporter renders ZCode model I/O JSONL conversation tex
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const exported = await runEffect(exporter.exportCurrentSession());
     const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
     assert.match(body, /## Conversation/u);
     assert.match(body, /ZCode user original line/u);
@@ -197,7 +198,7 @@ test("provenance session exporter renders ZCode model I/O JSONL conversation tex
   }
 });
 
-test("provenance session exporter backfills Codex runtime logs by discovered session id", () => {
+test("provenance session exporter backfills Codex runtime logs by discovered session id", async () => {
   const rootDir = createHarnessRoot();
   try {
     const logsRoot = path.join(rootDir, "runtime-logs", "codex");
@@ -222,7 +223,7 @@ test("provenance session exporter backfills Codex runtime logs by discovered ses
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const result = Effect.runSync(exporter.backfillRuntimeSessions({ runtime: "codex" }));
+    const result = await runEffect(exporter.backfillRuntimeSessions({ runtime: "codex" }));
 
     assert.equal(result.schema, "provenance-session-backfill/v1");
     assert.deepEqual(result.exported.map((entry) => entry.session.sessionId), ["codex-thread-1"]);
@@ -233,7 +234,7 @@ test("provenance session exporter backfills Codex runtime logs by discovered ses
   }
 });
 
-test("provenance session exporter backfills ZCode runtime logs by discovered session id", () => {
+test("provenance session exporter backfills ZCode runtime logs by discovered session id", async () => {
   const rootDir = createHarnessRoot();
   try {
     const logsRoot = path.join(rootDir, "runtime-logs", "zcode");
@@ -260,7 +261,7 @@ test("provenance session exporter backfills ZCode runtime logs by discovered ses
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const result = Effect.runSync(exporter.backfillRuntimeSessions({ runtime: "zcode" }));
+    const result = await runEffect(exporter.backfillRuntimeSessions({ runtime: "zcode" }));
 
     assert.equal(result.schema, "provenance-session-backfill/v1");
     assert.deepEqual(result.exported.map((entry) => entry.session.sessionId), ["sess_zcode-thread-1"]);
@@ -272,7 +273,7 @@ test("provenance session exporter backfills ZCode runtime logs by discovered ses
   }
 });
 
-test("provenance session exporter writes visible warning when runtime log is missing", () => {
+test("provenance session exporter writes visible warning when runtime log is missing", async () => {
   const rootDir = createHarnessRoot();
   try {
     const exporter = makeProvenanceSessionExporter({
@@ -287,7 +288,7 @@ test("provenance session exporter writes visible warning when runtime log is mis
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const exported = Effect.runSync(exporter.exportCurrentSession());
+    const exported = await runEffect(exporter.exportCurrentSession());
     const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
     assert.match(body, /## Export Warnings/u);
     assert.match(body, /No runtime JSONL log found for codex session missing-codex-session/u);
@@ -297,7 +298,7 @@ test("provenance session exporter writes visible warning when runtime log is mis
   }
 });
 
-test("provenance session exporter fails visibly for missing or unsafe session ids", () => {
+test("provenance session exporter fails visibly for missing or unsafe session ids", async () => {
   const rootDir = createHarnessRoot();
   try {
     const exporter = makeProvenanceSessionExporter({
@@ -305,11 +306,11 @@ test("provenance session exporter fails visibly for missing or unsafe session id
       currentSessionProbe: makeHumanFallbackSessionProbe()
     });
 
-    const missing = Effect.runSyncExit(exporter.readById("missing-session"));
+    const missing = await runEffectExit(exporter.readById("missing-session"));
     assert.equal(missing._tag, "Failure");
     assert.equal(String(missing.cause).includes("session not found: missing-session"), true);
 
-    const unsafe = Effect.runSyncExit(exporter.readById("../escape"));
+    const unsafe = await runEffectExit(exporter.readById("../escape"));
     assert.equal(unsafe._tag, "Failure");
     assert.equal(String(unsafe.cause).includes("invalid session id: ../escape"), true);
   } finally {

@@ -199,8 +199,8 @@ export type OpenShellResult = OpenShellSuccess | LocalControllerFailure;
 
 export interface LocalControllerService {
   readonly getTasks: () => TaskListResult;
-  readonly getTaskDetail: (payload: TaskIdPayload) => TaskDetailResult;
-  readonly getTaskDocument: (payload: TaskDocumentPayload) => TaskDocumentResult;
+  readonly getTaskDetail: (payload: TaskIdPayload) => Promise<TaskDetailResult>;
+  readonly getTaskDocument: (payload: TaskDocumentPayload) => Promise<TaskDocumentResult>;
   readonly setTaskStatus: (payload: SetTaskStatusPayload) => Promise<LocalControllerResult>;
   readonly reviewTask: (payload: TaskIdPayload) => Promise<LocalControllerResult>;
   readonly appendTaskProgress: (payload: AppendTaskProgressPayload) => Promise<LocalControllerResult>;

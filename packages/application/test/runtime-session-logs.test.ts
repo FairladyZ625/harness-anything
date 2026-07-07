@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveRuntimeConversation } from "../src/runtime-session-logs.ts";
+import { runEffect } from "./effect-test-helpers.ts";
 
-test("runtime session log lookup uses exact or dash-suffix session id matches", () => {
+test("runtime session log lookup uses exact or dash-suffix session id matches", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-"));
   try {
     const logRoot = path.join(rootDir, "logs");
@@ -21,7 +22,7 @@ test("runtime session log lookup uses exact or dash-suffix session id matches", 
       payload: { type: "user_message", message: "substring false positive" }
     })}\n`);
 
-    const conversation = resolveRuntimeConversation({
+    const conversation = await runEffect(resolveRuntimeConversation({
       schema: "provenance-session/v1",
       sessionId: "abc",
       runtime: "codex",
@@ -30,7 +31,7 @@ test("runtime session log lookup uses exact or dash-suffix session id matches", 
       exportedAt: "2026-07-04T00:00:00.000Z"
     }, {
       runtimeLogRoots: { codex: [logRoot] }
-    });
+    }));
 
     assert.equal(conversation.logPath?.endsWith("prefix-abc.jsonl"), true);
     assert.equal(conversation.messages.some((message) => message.text.includes("suffix match")), true);

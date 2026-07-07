@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import * as fs from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import type { CurrentSessionRef, CurrentSessionRuntime } from "../../kernel/src/index.ts";
 import type { ProvenanceSessionBackfillOptions, ProvenanceSessionDocument } from "./provenance-session-exporter.ts";
 
@@ -28,14 +29,21 @@ const safeSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 export function resolveRuntimeConversation(
   session: ProvenanceSessionDocument,
   options: RuntimeLogOptions
-): RuntimeConversation {
+): Effect.Effect<RuntimeConversation> {
+  return Effect.promise(() => resolveRuntimeConversationAsync(session, options));
+}
+
+async function resolveRuntimeConversationAsync(
+  session: ProvenanceSessionDocument,
+  options: RuntimeLogOptions
+): Promise<RuntimeConversation> {
   const warnings: string[] = [];
   if (session.runtime === "human") {
     warnings.push("No runtime JSONL log is expected for human fallback sessions.");
     return { messages: [], warnings };
   }
 
-  const logPath = findRuntimeLogPath(session, options, warnings);
+  const logPath = await findRuntimeLogPath(session, options, warnings);
   if (!logPath) {
     warnings.push(`No runtime JSONL log found for ${session.runtime} session ${session.sessionId}.`);
     return { messages: [], warnings };
@@ -47,7 +55,7 @@ export function resolveRuntimeConversation(
   }
 
   try {
-    const body = readFileSync(logPath, "utf8");
+    const body = await fs.promises.readFile(logPath, "utf8");
     const messages = parseRuntimeJsonl(session.runtime, body, warnings);
     if (messages.length === 0) warnings.push(`No conversation text could be extracted from ${displayRuntimePath(logPath)}.`);
     return { logPath, messages, warnings };
@@ -61,7 +69,15 @@ export function discoverRuntimeSessions(
   options: RuntimeLogOptions,
   backfillOptions: ProvenanceSessionBackfillOptions,
   detectedAt: string
-): { readonly sessions: ReadonlyArray<CurrentSessionRef>; readonly warnings: ReadonlyArray<string> } {
+): Effect.Effect<{ readonly sessions: ReadonlyArray<CurrentSessionRef>; readonly warnings: ReadonlyArray<string> }> {
+  return Effect.promise(() => discoverRuntimeSessionsAsync(options, backfillOptions, detectedAt));
+}
+
+async function discoverRuntimeSessionsAsync(
+  options: RuntimeLogOptions,
+  backfillOptions: ProvenanceSessionBackfillOptions,
+  detectedAt: string
+): Promise<{ readonly sessions: ReadonlyArray<CurrentSessionRef>; readonly warnings: ReadonlyArray<string> }> {
   const warnings: string[] = [];
   const runtimes = backfillOptions.runtime ? [backfillOptions.runtime] : ["claude-code", "codex", "zcode", "antigravity"] as const;
   const sessions = new Map<string, CurrentSessionRef>();
@@ -72,7 +88,7 @@ export function discoverRuntimeSessions(
       continue;
     }
     for (const root of roots) {
-      for (const logPath of listRuntimeJsonlFiles(root, maxRuntimeLogSearchDepth, warnings)) {
+      for (const logPath of await listRuntimeJsonlFiles(root, maxRuntimeLogSearchDepth, warnings)) {
         const sessionId = sessionIdFromRuntimeLog(runtime, logPath);
         if (!sessionId || !safeSessionIdPattern.test(sessionId)) continue;
         const key = `${runtime}:${sessionId}`;
@@ -88,11 +104,11 @@ export function discoverRuntimeSessions(
   return { sessions: [...sessions.values()], warnings };
 }
 
-function findRuntimeLogPath(
+async function findRuntimeLogPath(
   session: ProvenanceSessionDocument,
   options: RuntimeLogOptions,
   warnings: string[]
-): string | undefined {
+): Promise<string | undefined> {
   const configuredRoots = options.runtimeLogRoots?.[session.runtime];
   const roots = configuredRoots ?? defaultRuntimeLogRoots(session.runtime, options.homeDir);
   if (roots.length === 0) {
@@ -100,8 +116,17 @@ function findRuntimeLogPath(
     return undefined;
   }
 
+  return findFirstRuntimeLog(roots, session.sessionId, configuredRoots !== undefined, warnings);
+}
+
+async function findFirstRuntimeLog(
+  roots: ReadonlyArray<string>,
+  sessionId: string,
+  allowExplicitFileRoot: boolean,
+  warnings: string[]
+): Promise<string | undefined> {
   for (const root of roots) {
-    const match = findMatchingJsonl(root, session.sessionId, configuredRoots !== undefined, warnings);
+    const match = await findMatchingJsonl(root, sessionId, allowExplicitFileRoot, warnings);
     if (match) return match;
   }
   return undefined;
@@ -125,15 +150,15 @@ function defaultRuntimeLogRoots(runtime: CurrentSessionRuntime, homeDir = proces
   return [];
 }
 
-function findMatchingJsonl(
+async function findMatchingJsonl(
   root: string,
   sessionId: string,
   allowExplicitFileRoot: boolean,
   warnings: string[]
-): string | undefined {
+): Promise<string | undefined> {
   let rootStat;
   try {
-    rootStat = statSync(root);
+    rootStat = await fs.promises.stat(root);
   } catch (error) {
     if (allowExplicitFileRoot) warnings.push(`Configured runtime log root is not readable: ${root} (${errorMessage(error)}).`);
     return undefined;
@@ -147,11 +172,11 @@ function findMatchingJsonl(
   return findMatchingJsonlInDirectory(root, sessionId, maxRuntimeLogSearchDepth);
 }
 
-function findMatchingJsonlInDirectory(root: string, sessionId: string, depth: number): string | undefined {
+async function findMatchingJsonlInDirectory(root: string, sessionId: string, depth: number): Promise<string | undefined> {
   if (depth < 0) return undefined;
   let entries;
   try {
-    entries = readdirSync(root, { withFileTypes: true });
+    entries = await fs.promises.readdir(root, { withFileTypes: true });
   } catch {
     return undefined;
   }
@@ -165,16 +190,16 @@ function findMatchingJsonlInDirectory(root: string, sessionId: string, depth: nu
   }
   for (const entry of sorted) {
     if (!entry.isDirectory()) continue;
-    const match = findMatchingJsonlInDirectory(path.join(root, entry.name), sessionId, depth - 1);
+    const match = await findMatchingJsonlInDirectory(path.join(root, entry.name), sessionId, depth - 1);
     if (match) return match;
   }
   return undefined;
 }
 
-function listRuntimeJsonlFiles(root: string, depth: number, warnings: string[]): ReadonlyArray<string> {
+async function listRuntimeJsonlFiles(root: string, depth: number, warnings: string[]): Promise<ReadonlyArray<string>> {
   let rootStat;
   try {
-    rootStat = statSync(root);
+    rootStat = await fs.promises.stat(root);
   } catch (error) {
     warnings.push(`Runtime log root is not readable: ${displayRuntimePath(root)} (${errorMessage(error)}).`);
     return [];
@@ -183,17 +208,18 @@ function listRuntimeJsonlFiles(root: string, depth: number, warnings: string[]):
   if (!rootStat.isDirectory() || depth < 0) return [];
   let entries;
   try {
-    entries = readdirSync(root, { withFileTypes: true });
+    entries = await fs.promises.readdir(root, { withFileTypes: true });
   } catch {
     return [];
   }
   const sorted = entries.toSorted((left, right) => left.name.localeCompare(right.name));
-  return sorted.flatMap((entry) => {
+  const files: string[] = [];
+  for (const entry of sorted) {
     const fullPath = path.join(root, entry.name);
-    if (entry.isFile()) return path.extname(entry.name) === ".jsonl" ? [fullPath] : [];
-    if (entry.isDirectory()) return listRuntimeJsonlFiles(fullPath, depth - 1, warnings);
-    return [];
-  });
+    if (entry.isFile() && path.extname(entry.name) === ".jsonl") files.push(fullPath);
+    if (entry.isDirectory()) files.push(...await listRuntimeJsonlFiles(fullPath, depth - 1, warnings));
+  }
+  return files;
 }
 
 function sessionIdFromRuntimeLog(runtime: Exclude<CurrentSessionRuntime, "human">, logPath: string): string | undefined {

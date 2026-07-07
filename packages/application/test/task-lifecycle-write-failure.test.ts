@@ -6,6 +6,7 @@ import test from "node:test";
 import { Effect } from "effect";
 import type { EngineError, WriteError } from "../../kernel/src/index.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
+import { runEffect } from "./effect-test-helpers.ts";
 
 // Regression: task-complete must surface the underlying kernel writer error code
 // rather than the misleading completion_gate_failed. A stub writer forces setStatus
@@ -41,8 +42,9 @@ const writeFailureCases: ReadonlyArray<{ readonly name: string; readonly error: 
 ];
 
 for (const { name, error, code } of writeFailureCases) {
-  test(`completeTask surfaces the real writer error code for ${name}`, () => {
-    withTempRoot((rootDir) => {
+  test(`completeTask surfaces the real writer error code for ${name}`, async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-write-failure-"));
+    try {
       writeTaskPackage(rootDir, "task-1", "Complete Task");
       writeFact(rootDir, "task-1");
       const orchestrator = makeTaskLifecycleOrchestrator({
@@ -51,14 +53,16 @@ for (const { name, error, code } of writeFailureCases) {
         now: () => "2026-06-13T00:00:00.000Z"
       });
 
-      const result = Effect.runSync(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed" }));
+      const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed" }));
 
       assert.equal(result.ok, false);
       if (result.ok) return;
       assert.equal(result.error.code, code);
       assert.notEqual(result.error.code, "completion_gate_failed");
       assert.match(result.error.hint, /Completion status update failed\./);
-    });
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 }
 
@@ -130,13 +134,4 @@ function writeFact(rootDir: string, directoryName: string): void {
     "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
     ""
   ].join("\n"), "utf8");
-}
-
-function withTempRoot<T>(fn: (rootDir: string) => T): T {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-write-failure-"));
-  try {
-    return fn(rootDir);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
 }

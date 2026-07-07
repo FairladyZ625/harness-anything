@@ -6,8 +6,9 @@ import path from "node:path";
 import { Effect } from "effect";
 import { makeFactWriteService, type FactWriteRejected } from "../src/index.ts";
 import { formatFactFlowRecord, parseEntityRef, type FactRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
+import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
-test("fact write service invalidates through a relation op without rewriting fact records", () => {
+test("fact write service invalidates through a relation op without rewriting fact records", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-write-"));
   const enqueued: WriteOp[] = [];
   try {
@@ -20,7 +21,7 @@ test("fact write service invalidates through a relation op without rewriting fac
       coordinator: fakeCoordinator(enqueued)
     });
 
-    const result = Effect.runSync(service.invalidate({
+    const result = await runEffect(service.invalidate({
       ownerTaskId: "task_fact_owner",
       factId: "F-DEADBEEF",
       invalidatedByFactId: "F-FEEDFACE",
@@ -42,7 +43,7 @@ test("fact write service invalidates through a relation op without rewriting fac
   }
 });
 
-test("fact write service rejects invalidation when the invalidating fact is missing", () => {
+test("fact write service rejects invalidation when the invalidating fact is missing", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-write-"));
   try {
     writeFacts(rootDir, "task_fact_owner", [fact("F-DEADBEEF", "Old observation.")]);
@@ -51,7 +52,7 @@ test("fact write service rejects invalidation when the invalidating fact is miss
       coordinator: fakeCoordinator([])
     });
 
-    const result = Effect.runSyncExit(service.invalidate({
+    const result = await runEffectExit(service.invalidate({
       ownerTaskId: "task_fact_owner",
       factId: "F-DEADBEEF",
       invalidatedByFactId: "F-FEEDFACE",

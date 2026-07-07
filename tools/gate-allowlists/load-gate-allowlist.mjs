@@ -68,7 +68,8 @@ export function entryPairs(entries, keyField = "key", valueField = "value") {
 export function patternEntries(entries) {
   return entries.map((entry) => ({
     label: entry.label,
-    pattern: new RegExp(entry.pattern, entry.flags ?? "u")
+    pattern: new RegExp(entry.pattern, entry.flags ?? "u"),
+    includePathPattern: typeof entry.includePathPattern === "string" ? new RegExp(entry.includePathPattern, "u") : null
   }));
 }
 

@@ -21,10 +21,8 @@ export function runReckon(
   factService: FactWriteService,
   action: ReckonAction
 ): Effect.Effect<CliResult, WriteError> {
-  return Effect.try({
-    try: () => readDecisionDocument(rootInput, action.decisionId).decision,
-    catch: (cause) => ({ _tag: "DecisionReadFailed" as const, cause })
-  }).pipe(
+  return readDecisionDocument(rootInput, action.decisionId).pipe(
+    Effect.map((document) => document.decision),
     Effect.flatMap((decision) => {
       const reckonedAt = new Date().toISOString();
       const coverage = readDecisionFactCoverage({
@@ -58,7 +56,7 @@ export function runReckon(
         })
       );
     }),
-    Effect.catchTag("DecisionReadFailed", () => Effect.succeed({
+    Effect.catchAll(() => Effect.succeed({
       ok: false,
       command: "decision-reckon",
       decisionId: action.decisionId,

@@ -325,8 +325,8 @@ function makeServer(overrides: Partial<Parameters<typeof createJsonRpcProtocolSe
 function emptyLocalController(): LocalControllerService {
   return {
     getTasks: () => ({ ok: true, tasks: [], warnings: [] }),
-    getTaskDetail: () => ({ ok: true }),
-    getTaskDocument: () => ({ ok: true }),
+    getTaskDetail: async () => ({ ok: true }),
+    getTaskDocument: async () => ({ ok: true }),
     setTaskStatus: async () => ({ ok: true }),
     reviewTask: async () => ({ ok: true }),
     appendTaskProgress: async () => ({ ok: true }),
