@@ -4,8 +4,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
+import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../src/layout/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
-import { createDaemonRuntime } from "../../src/store/daemon-runtime.ts";
+import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../src/store/daemon-runtime.ts";
+import { acquireDaemonGlobalLock } from "../../src/store/write-journal-locks.ts";
 import { docWrite, withTempStoreAsync } from "./helpers.ts";
 
 test("daemon runtime holds global.lock, rejects direct writes before journaling, and yields background batches to P0 writes", async () => {
@@ -27,12 +29,21 @@ test("daemon runtime holds global.lock, rejects direct writes before journaling,
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
 
     const order: string[] = [];
+    let backgroundStarted!: () => void;
+    let releaseBackground!: () => void;
+    const backgroundStartedPromise = new Promise<void>((resolve) => {
+      backgroundStarted = resolve;
+    });
+    const releaseBackgroundPromise = new Promise<void>((resolve) => {
+      releaseBackground = resolve;
+    });
     const firstBackground = runtime.enqueueBackgroundBatch({
       source: "test-background-1",
       priority: "background",
       run: async () => {
         order.push("background-1-start");
-        await delay(25);
+        backgroundStarted();
+        await releaseBackgroundPromise;
         order.push("background-1-end");
       }
     });
@@ -40,10 +51,11 @@ test("daemon runtime holds global.lock, rejects direct writes before journaling,
       source: "test-background-2",
       priority: "background",
       run: () => {
-        order.push("background-2");
+        const interactivePath = path.join(rootDir, "harness/tasks/task-1/interactive.md");
+        order.push(existsSync(interactivePath) ? "background-2-after-interactive" : "background-2-before-interactive");
       }
     });
-    await delay(5);
+    await backgroundStartedPromise;
     const interactive = runtime.enqueueInteractiveWrite({
       commandId: "cmd-interactive",
       ops: [docWrite("op-interactive", "task-1", "interactive.md", "interactive")]
@@ -51,6 +63,7 @@ test("daemon runtime holds global.lock, rejects direct writes before journaling,
       order.push("interactive");
       return receipt;
     });
+    releaseBackground();
 
     const receipt = await interactive;
     await firstBackground;
@@ -58,7 +71,7 @@ test("daemon runtime holds global.lock, rejects direct writes before journaling,
     assert.equal(receipt.durable, true);
     assert.equal(receipt.flush.watermark, "op-interactive");
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/interactive.md"), "utf8"), "interactive");
-    assert.ok(order.indexOf("interactive") < order.indexOf("background-2"), order.join(","));
+    assert.ok(order.includes("background-2-after-interactive"), order.join(","));
     await runtime.stop();
     assert.equal(existsSync(path.join(rootDir, ".harness/locks/global.lock")), false);
   });
@@ -151,9 +164,105 @@ test("daemon interactive queue does not mix different git authors in one commit"
   });
 });
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+test("multi-repo daemon isolates attach lock failures by repo", async () => {
+  await withTempStoreAsync(async (lockedRoot) => {
+    await withTempStoreAsync(async (availableRoot) => {
+      const lockedContext = createHarnessRuntimeContext(lockedRoot);
+      const lockedLayout = resolveHarnessLayout(lockedContext);
+      const externalLock = acquireDaemonGlobalLock(
+        lockedRoot,
+        lockedContext,
+        lockedLayout.journalPath,
+        { kind: "system", id: "other-daemon" },
+        60_000
+      );
+      const runtime = createMultiRepoDaemonRuntime({
+        materializerPollMs: false,
+        interactiveMicroBatchMs: 0,
+        repos: [
+          { repoId: "locked", rootDir: lockedRoot },
+          { repoId: "available", rootDir: availableRoot }
+        ]
+      });
+
+      try {
+        const status = await runtime.start();
+        assert.equal(status.repoCount, 2);
+        assert.equal(status.attachedCount, 1);
+        assert.equal(status.unavailableCount, 1);
+        assert.equal(status.repos.find((repo) => repo.repoId === "locked")?.state, "unavailable");
+        assert.equal(status.repos.find((repo) => repo.repoId === "available")?.state, "attached");
+
+        await runtime.enqueueInteractiveWrite("available", {
+          commandId: "cmd-available",
+          ops: [docWrite("op-available", "task-available", "note.md", "available")]
+        });
+        assert.equal(readFileSync(path.join(availableRoot, "harness/tasks/task-available/note.md"), "utf8"), "available");
+
+        assert.throws(
+          () => runtime.enqueueInteractiveWrite("locked", {
+            commandId: "cmd-locked",
+            ops: [docWrite("op-locked", "task-locked", "note.md", "locked")]
+          }),
+          (error: unknown) => {
+            assert.equal(typeof error, "object");
+            assert.notEqual(error, null);
+            assert.equal((error as { readonly _tag?: string })._tag, "JournalUnavailable");
+            assert.match(String((error as { readonly cause?: unknown }).cause), /daemon repo "locked" is not attached/u);
+            return true;
+          }
+        );
+      } finally {
+        await runtime.stop();
+        externalLock.release();
+      }
+    });
+  });
+});
+
+test("multi-repo daemon detaches one repo without releasing other repo locks", async () => {
+  await withTempStoreAsync(async (firstRoot) => {
+    await withTempStoreAsync(async (secondRoot) => {
+      const runtime = createMultiRepoDaemonRuntime({
+        materializerPollMs: false,
+        interactiveMicroBatchMs: 0,
+        repos: [
+          { repoId: "first", rootDir: firstRoot },
+          { repoId: "second", rootDir: secondRoot }
+        ]
+      });
+
+      await runtime.start();
+      assert.equal(existsSync(path.join(firstRoot, ".harness/locks/global.lock")), true);
+      assert.equal(existsSync(path.join(secondRoot, ".harness/locks/global.lock")), true);
+
+      const detached = await runtime.detachRepo("first");
+      assert.equal(detached.state, "detached");
+      assert.equal(existsSync(path.join(firstRoot, ".harness/locks/global.lock")), false);
+      assert.equal(existsSync(path.join(secondRoot, ".harness/locks/global.lock")), true);
+
+      const reattached = await runtime.attachRepo({ repoId: "first", rootDir: firstRoot, materializerPollMs: false });
+      assert.equal(reattached.state, "attached");
+      assert.equal(existsSync(path.join(firstRoot, ".harness/locks/global.lock")), true);
+
+      await runtime.enqueueInteractiveWrite("first", {
+        commandId: "cmd-first",
+        ops: [docWrite("op-first", "task-first", "note.md", "first")]
+      });
+      assert.equal(readFileSync(path.join(firstRoot, "harness/tasks/task-first/note.md"), "utf8"), "first");
+
+      await runtime.enqueueInteractiveWrite("second", {
+        commandId: "cmd-second",
+        ops: [docWrite("op-second", "task-second", "note.md", "second")]
+      });
+      assert.equal(readFileSync(path.join(secondRoot, "harness/tasks/task-second/note.md"), "utf8"), "second");
+
+      await runtime.stop();
+      assert.equal(existsSync(path.join(firstRoot, ".harness/locks/global.lock")), false);
+      assert.equal(existsSync(path.join(secondRoot, ".harness/locks/global.lock")), false);
+    });
+  });
+});
 
 async function spawnJournalOnlyDaemon(rootDir: string): Promise<void> {
   const childScript = `
