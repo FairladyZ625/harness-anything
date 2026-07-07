@@ -302,7 +302,7 @@ async function bootstrapServer(input: DaemonCommandInput): Promise<number> {
 
   ensureCanonicalRepo(canonicalRoot);
   initializeHarness({ rootDir: canonicalRoot }, false, path.basename(canonicalRoot));
-  const registryUserRoot = daemonUserRoot(input.args);
+  const registryUserRoot = readDaemonUserRootOption(input.args);
   const registry = registerDaemonRepo({
     ...(registryUserRoot ? { userRoot: registryUserRoot } : {}),
     canonicalRoot,
@@ -540,7 +540,7 @@ function daemonRepoIdOverride(args: ReadonlyArray<string>): string | undefined {
   return readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID;
 }
 
-function daemonUserRoot(args: ReadonlyArray<string>): string | undefined {
+function readDaemonUserRootOption(args: ReadonlyArray<string>): string | undefined {
   return readOption(args, "--user-root") ?? process.env.HARNESS_DAEMON_USER_ROOT;
 }
 

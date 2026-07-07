@@ -102,11 +102,11 @@ export function localUserDaemonSocketPath(userRoot = daemonUserRoot(), daemonId 
 }
 
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return path.resolve(nonEmptyEnv(env, "HARNESS_DAEMON_USER_ROOT") ?? path.join(os.homedir(), ".harness"));
+  return path.resolve(readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_USER_ROOT") ?? path.join(os.homedir(), ".harness"));
 }
 
 export function daemonIdFromEnv(env: NodeJS.ProcessEnv = process.env): string {
-  return nonEmptyEnv(env, "HARNESS_DAEMON_ID") ?? "default";
+  return readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_ID") ?? "default";
 }
 
 export function resolveLocalDaemonTarget(input: {
@@ -120,7 +120,7 @@ export function resolveLocalDaemonTarget(input: {
   const env = input.env ?? process.env;
   const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
   const daemonId = input.daemonId ?? daemonIdFromEnv(env);
-  const repoIdOverride = input.repoIdOverride ?? nonEmptyEnv(env, "HARNESS_DAEMON_REPO_ID");
+  const repoIdOverride = input.repoIdOverride ?? readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_REPO_ID");
   const registry = readDaemonRegistry({ userRoot });
   const legacySocketPath = localDaemonSocketPath(input.rootDir);
   const socketPath = localUserDaemonSocketPath(userRoot, daemonId);
@@ -385,7 +385,7 @@ function readMode(value: string | undefined): DaemonClientMode {
   return "direct";
 }
 
-function nonEmptyEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+function readNonEmptyDaemonEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }

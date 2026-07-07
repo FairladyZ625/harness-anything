@@ -501,6 +501,7 @@ function taskCreatePresetHelp(): ReadonlyArray<string> {
     "",
     "Recommended presets:",
     "  standard-task           General implementation or maintenance task; the default starting point.",
+    "  create-milestone        Create a milestone root task, then scaffold and check the milestone map files.",
     "  decision-conformance    Work that must prove alignment with recorded decisions.",
     "  milestone-closeout      Milestone wrap-up checks and evidence collection.",
     "  module                  Module-scoped task with registered module metadata.",
@@ -517,7 +518,8 @@ function taskCreatePresetHelp(): ReadonlyArray<string> {
     "  release-closeout        Release wrap-up and evidence checks.",
     "",
     "Start here:",
-    "  ha task create --title \"...\" --vertical software/coding --preset <id>"
+    "  ha task create --title \"...\" --vertical software/coding --preset <id>",
+    "  ha task create --title \"<name> milestone root\" --vertical software/coding --preset create-milestone --long-running"
   ];
 }
 

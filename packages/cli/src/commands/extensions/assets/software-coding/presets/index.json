@@ -1,6 +1,7 @@
 {
   "presets": [
     "standard-task",
+    "create-milestone",
     "module",
     "legacy-migration",
     "dogfood-utilization-audit",

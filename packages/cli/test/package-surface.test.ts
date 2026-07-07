@@ -62,6 +62,7 @@ test("bundled software coding assets have consistent template and process-preset
   const catalogIds = new Set(catalog.documents.map((document) => document.id));
   const selectedMaterializedPaths = new Set<string>();
   const processPresetIds = new Set([
+    "create-milestone",
     "doc-canon-sync",
     "dogfood-utilization-audit",
     "gate-architecture-retrospective",
@@ -75,6 +76,7 @@ test("bundled software coding assets have consistent template and process-preset
     "version-upgrade"
   ]);
   const implementedProcessPresetIds = new Set([
+    "create-milestone",
     "doc-canon-sync",
     "dogfood-utilization-audit",
     "gate-architecture-retrospective",

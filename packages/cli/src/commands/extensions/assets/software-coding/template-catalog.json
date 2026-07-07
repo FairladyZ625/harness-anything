@@ -12,6 +12,58 @@
   },
   "documents": [
     {
+      "id": "planning/milestone-task-plan",
+      "version": "1",
+      "documentKind": "milestone-task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Mission",
+        "## Usage Questions",
+        "## Wave Decomposition",
+        "## Exit Criteria",
+        "## Context",
+        "## Constraints",
+        "## Checkpoint",
+        "## Implementation Plan",
+        "## Verification"
+      ],
+      "fallbackLocale": "zh-CN",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Mission",
+            "## Usage Questions",
+            "## Wave Decomposition",
+            "## Exit Criteria",
+            "## Context",
+            "## Constraints",
+            "## Checkpoint",
+            "## Implementation Plan",
+            "## Verification"
+          ],
+          "bodyPath": "templates/task.milestone.plan/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Mission",
+            "## Usage Questions",
+            "## Wave Decomposition",
+            "## Exit Criteria",
+            "## Context",
+            "## Constraints",
+            "## Checkpoint",
+            "## Implementation Plan",
+            "## Verification"
+          ],
+          "bodyPath": "templates/task.milestone.plan/en-US.md"
+        }
+      ]
+    },
+    {
       "id": "planning/task-plan",
       "version": "1",
       "documentKind": "task-plan",
