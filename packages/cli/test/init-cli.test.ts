@@ -7,6 +7,15 @@ import path from "node:path";
 import test from "node:test";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
+const noAgentRuntimeEnv = {
+  CLAUDE_SESSION_ID: "",
+  CLAUDE_CODE_SESSION_ID: "",
+  CODEX_SESSION_ID: "",
+  CODEX_THREAD_ID: "",
+  ZCODE_SESSION_ID: "",
+  ANTIGRAVITY_SESSION_ID: ""
+};
 
 test("CLI init defaults harness project name from the target root basename", () => {
   withTempRoot((rootDir) => {
@@ -15,8 +24,14 @@ test("CLI init defaults harness project name from the target root basename", () 
 
     assert.equal(result.ok, true);
     assert.equal(result.path, "harness/harness.yaml");
+    assert.equal(result.report.schema, "init-configure-verify-report/v1");
+    assert.match(result.report.configureVerify.smokeTaskId, taskIdPattern);
+    assert.equal(result.report.configureVerify.smokeTaskFound, true);
+    assert.equal(result.report.configureVerify.smokeTaskCleanedUp, true);
+    assert.equal(result.report.configureVerify.projectionPath, ".harness/cache/projections.sqlite");
     assert.match(config, new RegExp(`^name: ${path.basename(rootDir)}$`, "m"));
     assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
+    assert.equal(existsSync(path.join(rootDir, result.report.configureVerify.smokeTaskPackagePath)), false);
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/repo-governance.md"), "utf8"), /Repository Governance/u);
     // AGENTS.md is deterministically composed from L1 base + L2 overlay with an
@@ -45,6 +60,18 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.match(readFileSync(path.join(rootDir, "harness/sessions/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/context/README.md"), "utf8"), /## 用途/u);
+  });
+});
+
+test("CLI init fails closed when Configure-Verify cannot write the projection", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { recursive: true });
+
+    const result = runJson(rootDir, ["init"], undefined, false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.command, "init");
+    assert.match(result.error?.hint ?? "", /projection|write|rename|directory|EISDIR|ENOTDIR/u);
   });
 });
 
@@ -144,10 +171,16 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv): Record<string, any> {
-  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-    encoding: "utf8",
-    env: env ? { ...process.env, ...env } : process.env
-  });
-  return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+function runJson(rootDir: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv, expectSuccess = true): Record<string, any> {
+  try {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+      encoding: "utf8",
+      env: { ...process.env, ...noAgentRuntimeEnv, ...(env ?? {}) }
+    });
+    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+  } catch (error) {
+    if (expectSuccess) throw error;
+    const failure = error as { readonly stdout?: string };
+    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
+  }
 }
