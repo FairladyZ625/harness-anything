@@ -48,6 +48,20 @@ const cliCommandContracts = [
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
+const daemonStatusContracts = [
+  {
+    method: "repo.daemon.status",
+    mode: "active",
+    namespace: "repo",
+    inputSchemaId: "daemon.status-request/v1",
+    outputSchemaId: "daemon.status-result/v1",
+    errorSchemaId: "daemon.protocol-error/v1",
+    auth: "local-session-token",
+    requiresRepo: true,
+    commandClass: "repo-read"
+  }
+] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
+
 const notificationStubContracts = [
   {
     method: "repo.notifications.subscribe",
@@ -130,6 +144,7 @@ export const jsonRpcServiceMethodContracts = deriveJsonRpcServiceMethodContracts
 export const jsonRpcMethodContracts = [
   ...protocolMethodContracts,
   ...cliCommandContracts,
+  ...daemonStatusContracts,
   ...jsonRpcServiceMethodContracts,
   ...notificationStubContracts,
   ...adminReservedContracts

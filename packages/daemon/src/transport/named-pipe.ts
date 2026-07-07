@@ -10,6 +10,7 @@ export interface NamedPipeTransportOptions {
   readonly platform?: NodeJS.Platform;
   readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
+  readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
 }
 
 export interface NamedPipeTransportServer {
@@ -56,6 +57,7 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
       createProtocolServer: options.createProtocolServer
     });
     options.onConnection?.(connection);
+    socket.once("close", () => options.onConnectionClosed?.(connection));
   });
 
   return {

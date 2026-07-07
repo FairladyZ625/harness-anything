@@ -1,0 +1,506 @@
+import { execFileSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync, chmodSync, cpSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  createHarnessRuntimeContext,
+  resolveHarnessLayout,
+} from "../../../../kernel/src/index.ts";
+import {
+  currentDaemonProtocolVersion,
+  loadPeopleRoster,
+  makeTransportDerivedIdentityProvider,
+  type JsonObject,
+  type JsonValue
+} from "../../../../daemon/src/index.ts";
+import { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../../../application/src/index.ts";
+import { initializeHarness } from "../init.ts";
+import { resolveCliVersion } from "../core/version.ts";
+import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { readOption } from "../../cli/parse-options.ts";
+import { localDaemonSocketPath, requestLocalDaemonJsonRpc } from "../../daemon/client.ts";
+
+export interface DaemonCommandInput {
+  readonly rootDir: string;
+  readonly layoutOverrides?: { readonly authoredRoot?: string };
+  readonly json: boolean;
+  readonly args: ReadonlyArray<string>;
+  readonly runServe: (
+    rootDir: string,
+    layoutOverrides: { readonly authoredRoot?: string } | undefined,
+    args: ReadonlyArray<string>,
+    hooks?: DaemonServeHooks
+  ) => Promise<void>;
+}
+
+export interface DaemonServeHooks {
+  readonly onStarted?: (status: Record<string, unknown>) => void;
+}
+
+export interface DaemonConnectionStats {
+  active: number;
+  total: number;
+}
+
+export async function runDaemonProductCommand(input: DaemonCommandInput): Promise<number> {
+  const action = input.args[1] ?? "status";
+  if (action === "--help" || action === "-h" || input.args.includes("--help") || input.args.includes("-h")) {
+    console.log(renderDaemonHelp());
+    return 0;
+  }
+  try {
+    if (action === "start") return await startDaemon(input);
+    if (action === "status") return await statusDaemon(input);
+    if (action === "stop") return await stopDaemon(input);
+    if (action === "bootstrap-server") return await bootstrapServer(input);
+    if (action === "install-templates") return installTemplates(input);
+    emitDaemonError(`unknown daemon command: ${action}`, input.json);
+    return 2;
+  } catch (error) {
+    emitDaemonError(error instanceof Error ? error.message : String(error), input.json);
+    return 1;
+  }
+}
+
+export function daemonStatusPayload(input: {
+  readonly daemonId: string;
+  readonly rootDir: string;
+  readonly repoId: string;
+  readonly endpoint: string;
+  readonly runtimeStatus: {
+    readonly started: boolean;
+    readonly lockPath?: string;
+    readonly lockOwnerToken?: string;
+    readonly queue: {
+      readonly interactive: number;
+      readonly normal: number;
+      readonly background: number;
+      readonly maintenance: number;
+      readonly running: boolean;
+    };
+    readonly lastRecovery?: unknown;
+  };
+  readonly connections: DaemonConnectionStats;
+}): JsonObject {
+  const queueDepth = input.runtimeStatus.queue.interactive
+    + input.runtimeStatus.queue.normal
+    + input.runtimeStatus.queue.background
+    + input.runtimeStatus.queue.maintenance;
+  return {
+    schema: "daemon-status/v1",
+    started: input.runtimeStatus.started,
+    daemonId: input.daemonId,
+    rootDir: input.rootDir,
+    repoId: input.repoId,
+    endpoint: input.endpoint,
+    version: resolveCliVersion(),
+    protocolVersion: currentDaemonProtocolVersion,
+    lock: {
+      path: input.runtimeStatus.lockPath ?? null,
+      ownerToken: input.runtimeStatus.lockOwnerToken ?? null
+    },
+    queue: input.runtimeStatus.queue,
+    queueDepth,
+    connections: {
+      active: input.connections.active,
+      total: input.connections.total
+    },
+    lastRecovery: toJsonValue(input.runtimeStatus.lastRecovery ?? null)
+  };
+}
+
+export function loadDaemonIdentity(rootDir: string, layoutOverrides: { readonly authoredRoot?: string } | undefined): {
+  readonly peopleRoster?: ReturnType<typeof loadPeopleRoster>;
+  readonly identityProvider?: ReturnType<typeof makeTransportDerivedIdentityProvider>;
+  readonly appendRuntimeEvent?: ReturnType<typeof makeRuntimeEventAppendPromise>;
+} {
+  const runtimeContext = createHarnessRuntimeContext(rootDir, layoutOverrides);
+  const layout = resolveHarnessLayout(runtimeContext);
+  const peoplePath = path.join(layout.authoredRoot, "people.yaml");
+  if (!existsSync(peoplePath)) return {};
+  const peopleRoster = loadPeopleRoster(runtimeContext);
+  return {
+    peopleRoster,
+    identityProvider: makeTransportDerivedIdentityProvider(peopleRoster, {
+      localUnixIssuer: `host:${os.hostname()}`,
+      sshExecIssuer: `host:${os.hostname()}`,
+      namedPipeIssuer: `host:${os.hostname()}:named-pipe`
+    }),
+    appendRuntimeEvent: makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({ rootInput: runtimeContext }))
+  };
+}
+
+async function startDaemon(input: DaemonCommandInput): Promise<number> {
+  const foreground = input.args.includes("--foreground");
+  const service = input.args.includes("--service") || !foreground;
+  const socketPath = readOption(input.args, "--socket") ?? localDaemonSocketPath(input.rootDir);
+  if (foreground) {
+    await input.runServe(input.rootDir, input.layoutOverrides, ["daemon", "serve", "--socket", socketPath, "--idle-ms", "0"], {
+      onStarted: (status) => emitDaemonResult("daemon-start", { ...status, mode: "foreground" }, input.json)
+    });
+    return 0;
+  }
+  if (service) {
+    const child = spawn(process.execPath, [
+      ...process.execArgv,
+      cliEntrypointPath(),
+      "--root",
+      input.rootDir,
+      ...(input.layoutOverrides?.authoredRoot ? ["--authored-root", input.layoutOverrides.authoredRoot] : []),
+      "daemon",
+      "serve",
+      "--socket",
+      socketPath,
+      "--idle-ms",
+      "0"
+    ], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, HARNESS_DAEMON_MODE: "direct" }
+    });
+    child.unref();
+    const status = await waitForReachableStatus(input.rootDir, 6_000);
+    emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath }, input.json);
+    return 0;
+  }
+  return 0;
+}
+
+async function statusDaemon(input: DaemonCommandInput): Promise<number> {
+  const layout = resolveHarnessLayout(createHarnessRuntimeContext(input.rootDir, input.layoutOverrides));
+  const lockStatus = readDaemonLock(path.join(layout.locksRoot, "global.lock"));
+  const rpcStatus = await readReachableDaemonStatus(input.rootDir);
+  emitDaemonResult("daemon-status", {
+    ...lockStatus,
+    reachable: Boolean(rpcStatus),
+    ...(rpcStatus ?? {
+      version: resolveCliVersion(),
+      protocolVersion: currentDaemonProtocolVersion,
+      queueDepth: 0,
+      queue: { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false },
+      connections: { active: 0, total: 0 }
+    })
+  }, input.json);
+  return 0;
+}
+
+async function stopDaemon(input: DaemonCommandInput): Promise<number> {
+  const timeoutMs = Number.parseInt(readOption(input.args, "--timeout-ms") ?? "5000", 10);
+  const layout = resolveHarnessLayout(createHarnessRuntimeContext(input.rootDir, input.layoutOverrides));
+  const lockPath = path.join(layout.locksRoot, "global.lock");
+  const before = readDaemonLock(lockPath);
+  if (before.started && typeof before.pid === "number") {
+    process.kill(before.pid, "SIGTERM");
+  }
+  const stopped = before.started ? await waitForStopped(lockPath, timeoutMs) : true;
+  emitDaemonResult("daemon-stop", {
+    ...before,
+    signaled: before.started,
+    drained: stopped,
+    stopped
+  }, input.json);
+  return stopped ? 0 : 1;
+}
+
+function installTemplates(input: DaemonCommandInput): number {
+  const outDir = readOption(input.args, "--out");
+  if (!outDir) throw new Error("Use ha daemon install-templates --out <directory>.");
+  mkdirSync(outDir, { recursive: true });
+  cpSync(daemonAssetPath("systemd/harness-anything-daemon.service"), path.join(outDir, "harness-anything-daemon.service"));
+  cpSync(daemonAssetPath("launchd/com.harness-anything.daemon.plist"), path.join(outDir, "com.harness-anything.daemon.plist"));
+  cpSync(daemonAssetPath("windows/install-harness-anything-daemon.ps1"), path.join(outDir, "install-harness-anything-daemon.ps1"));
+  emitDaemonResult("daemon-install-templates", {
+    outputDir: outDir,
+    files: [
+      "harness-anything-daemon.service",
+      "com.harness-anything.daemon.plist",
+      "install-harness-anything-daemon.ps1"
+    ]
+  }, input.json);
+  return 0;
+}
+
+async function bootstrapServer(input: DaemonCommandInput): Promise<number> {
+  const canonicalRoot = path.resolve(requiredOption(input.args, "--canonical-root"));
+  const sshHost = requiredOption(input.args, "--ssh-host");
+  const sshUser = readOption(input.args, "--ssh-user") ?? os.userInfo().username;
+  const personId = readOption(input.args, "--person-id") ?? `person_${safeId(sshUser)}`;
+  const displayName = readOption(input.args, "--display-name") ?? sshUser;
+  const primaryEmail = readOption(input.args, "--email");
+  const role = readOption(input.args, "--role") ?? "owner";
+  const readonlyMirror = readOption(input.args, "--readonly-mirror");
+  const reportPath = readOption(input.args, "--report") ?? path.join(canonicalRoot, ".harness", "generated", "daemon-bootstrap-report.json");
+  const skipSshCheck = input.args.includes("--skip-ssh-check");
+  const noStart = input.args.includes("--no-start");
+
+  ensureCanonicalRepo(canonicalRoot);
+  initializeHarness({ rootDir: canonicalRoot }, false, path.basename(canonicalRoot));
+  const layout = resolveHarnessLayout({ rootDir: canonicalRoot });
+  const peoplePath = path.join(layout.authoredRoot, "people.yaml");
+  ensurePeopleRoster(peoplePath, { personId, displayName, primaryEmail, role, sshUser, sshHost });
+  installCanonicalPreReceiveHook(canonicalRoot);
+  const mirrorReport = readonlyMirror ? ensureReadonlyMirror(canonicalRoot, path.resolve(readonlyMirror)) : undefined;
+  const daemon = noStart
+    ? { started: false, reason: "no-start" }
+    : await startBootstrapDaemon(canonicalRoot);
+  const ssh = skipSshCheck ? { checked: false, reason: "skip-ssh-check" } : await checkSshReachability(sshHost, sshUser, canonicalRoot);
+  const report = {
+    schema: "daemon-bootstrap-report/v1",
+    canonicalRoot,
+    peoplePath,
+    daemon,
+    ssh,
+    gitHook: {
+      path: path.join(canonicalRoot, ".git/hooks/pre-receive"),
+      policy: "reject non-daemon direct push"
+    },
+    readonlyMirror: mirrorReport ?? null
+  };
+  mkdirSync(path.dirname(reportPath), { recursive: true });
+  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  emitDaemonResult("daemon-bootstrap-server", { reportPath, ...report }, input.json);
+  return 0;
+}
+
+function ensureCanonicalRepo(rootDir: string): void {
+  mkdirSync(rootDir, { recursive: true });
+  if (!existsSync(path.join(rootDir, ".git"))) runGit(rootDir, ["init"]);
+}
+
+function ensurePeopleRoster(filePath: string, input: {
+  readonly personId: string;
+  readonly displayName: string;
+  readonly primaryEmail?: string;
+  readonly role: string;
+  readonly sshUser: string;
+  readonly sshHost: string;
+}): void {
+  if (existsSync(filePath)) return;
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const uid = process.getuid?.();
+  writeFileSync(filePath, [
+    "schema: harness-people/v1",
+    "people:",
+    `  - personId: ${input.personId}`,
+    `    displayName: ${input.displayName}`,
+    ...(input.primaryEmail ? [`    primaryEmail: ${input.primaryEmail}`] : []),
+    `    roles: [${input.role}]`,
+    "    credentials:",
+    "      - kind: ssh-username",
+    `        issuer: host:${input.sshHost}`,
+    `        subject: ${input.sshUser}`,
+    ...(typeof uid === "number" ? [
+      "      - kind: unix-uid",
+      `        issuer: host:${os.hostname()}`,
+      `        subject: ${uid}`
+    ] : []),
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    "  - roleId: maintainer",
+    "    commandClasses: [repo-write, repo-read]",
+    "  - roleId: observer",
+    "    commandClasses: [repo-read]",
+    "  - roleId: arbiter",
+    "    commandClasses: [arbiter, repo-write, repo-read]",
+    ""
+  ].join("\n"), "utf8");
+}
+
+function installCanonicalPreReceiveHook(rootDir: string): void {
+  const hookPath = path.join(rootDir, ".git/hooks/pre-receive");
+  mkdirSync(path.dirname(hookPath), { recursive: true });
+  const tokenDir = path.join(rootDir, ".harness/server");
+  const tokenPath = path.join(tokenDir, "daemon-push-token");
+  mkdirSync(tokenDir, { recursive: true, mode: 0o700 });
+  if (!existsSync(tokenPath)) {
+    writeFileSync(tokenPath, `${randomBytes(24).toString("hex")}\n`, { encoding: "utf8", mode: 0o600 });
+  }
+  writeFileSync(hookPath, readFileSync(daemonAssetPath("git-hooks/pre-receive-daemon-only.sh"), "utf8"), { encoding: "utf8", mode: 0o755 });
+  chmodSync(hookPath, 0o755);
+}
+
+function ensureReadonlyMirror(canonicalRoot: string, mirrorRoot: string): Record<string, unknown> {
+  mkdirSync(path.dirname(mirrorRoot), { recursive: true });
+  if (!existsSync(mirrorRoot)) {
+    runGit(path.dirname(mirrorRoot), ["clone", "--mirror", canonicalRoot, mirrorRoot]);
+  } else if (!existsSync(path.join(mirrorRoot, "HEAD"))) {
+    throw new Error(`readonly mirror path exists but is not a bare git repository: ${mirrorRoot}`);
+  } else {
+    runGit(mirrorRoot, ["fetch", "--prune", canonicalRoot, "+refs/heads/*:refs/heads/*"]);
+  }
+  const hookPath = path.join(mirrorRoot, "hooks/pre-receive");
+  writeFileSync(hookPath, readFileSync(daemonAssetPath("git-hooks/pre-receive-readonly-mirror.sh"), "utf8"), { encoding: "utf8", mode: 0o755 });
+  chmodSync(hookPath, 0o755);
+  return { path: mirrorRoot, sync: "git fetch", hookPath };
+}
+
+async function startBootstrapDaemon(rootDir: string): Promise<Record<string, unknown>> {
+  const child = spawn(process.execPath, [
+    ...process.execArgv,
+    cliEntrypointPath(),
+    "--root",
+    rootDir,
+    "daemon",
+    "serve",
+    "--socket",
+    localDaemonSocketPath(rootDir),
+    "--idle-ms",
+    "0"
+  ], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, HARNESS_DAEMON_MODE: "direct" }
+  });
+  child.unref();
+  return waitForReachableStatus(rootDir, 6_000);
+}
+
+async function checkSshReachability(host: string, user: string, canonicalRoot: string): Promise<Record<string, unknown>> {
+  const target = host.includes("@") ? host : `${user}@${host}`;
+  const child = spawn("ssh", [
+    "-o",
+    "BatchMode=yes",
+    target,
+    "test",
+    "-d",
+    canonicalRoot
+  ], { stdio: "ignore" });
+  const exitCode = await new Promise<number | null>((resolve) => child.once("exit", resolve));
+  return { checked: true, ok: exitCode === 0, target, exitCode };
+}
+
+function readDaemonLock(lockPath: string): Record<string, unknown> {
+  if (!existsSync(lockPath)) return { started: false, lockPath };
+  const lock = JSON.parse(readFileSync(lockPath, "utf8")) as {
+    readonly pid?: unknown;
+    readonly hostname?: unknown;
+    readonly heartbeatAt?: unknown;
+    readonly ownerKind?: unknown;
+    readonly ownerToken?: unknown;
+  };
+  return {
+    started: lock.ownerKind === "daemon",
+    lockPath,
+    pid: lock.pid,
+    hostname: lock.hostname,
+    heartbeatAt: lock.heartbeatAt,
+    ownerKind: lock.ownerKind,
+    ownerToken: lock.ownerToken
+  };
+}
+
+async function readReachableDaemonStatus(rootDir: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const receipt = await requestLocalDaemonJsonRpc(rootDir, "repo.daemon.status", { repo: { repoId: "canonical" } });
+    const details = isDaemonRecord(receipt.details) ? receipt.details : {};
+    const data = isDaemonRecord(details.data) ? details.data : undefined;
+    return receipt.ok === true && data ? data : { rpcError: receipt };
+  } catch {
+    return undefined;
+  }
+}
+
+async function waitForReachableStatus(rootDir: string, timeoutMs: number): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    const status = await readReachableDaemonStatus(rootDir);
+    if (status) return status;
+    await waitDaemonPollInterval(100);
+  }
+  throw new Error("daemon service did not become reachable before timeout");
+}
+
+async function waitForStopped(lockPath: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (!readDaemonLock(lockPath).started) return true;
+    await waitDaemonPollInterval(100);
+  }
+  return !readDaemonLock(lockPath).started;
+}
+
+function emitDaemonResult(command: string, result: Record<string, unknown>, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify({ ok: true, schema: "daemon-command/v1", command, ...result }));
+    return;
+  }
+  const parts = [`ok`, `command=${command}`];
+  for (const key of ["started", "reachable", "mode", "queueDepth", "version", "protocolVersion", "pid", "drained", "stopped", "reportPath", "outputDir"] as const) {
+    if (result[key] !== undefined) parts.push(`${key}=${JSON.stringify(result[key])}`);
+  }
+  if (typeof result.lockPath === "string") parts.push(`lock=${result.lockPath}`);
+  console.log(parts.join(" "));
+}
+
+function emitDaemonError(message: string, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify({ ok: false, schema: "daemon-command/v1", command: "daemon", error: cliError(CliErrorCode.JournalUnavailable, message) }));
+    return;
+  }
+  console.error(`error code=${CliErrorCode.JournalUnavailable} hint=${message}`);
+}
+
+function renderDaemonHelp(): string {
+  return [
+    "Usage: harness-anything daemon <start|status|stop|bootstrap-server|install-templates> [options]",
+    "Alias: ha daemon <subcommand> [options]",
+    "",
+    "Commands:",
+    "  start --service              Start a detached local daemon service (default).",
+    "  start --foreground           Run the daemon service in the foreground.",
+    "  status --json                Show lock holder, queue depth, connections, and version.",
+    "  stop [--timeout-ms <ms>]     Signal the daemon and wait for queue drain and lock release.",
+    "  bootstrap-server             Initialize a canonical team server repository.",
+    "  install-templates --out DIR  Copy systemd, launchd, and Windows Service templates."
+  ].join("\n");
+}
+
+function requiredOption(args: ReadonlyArray<string>, name: string): string {
+  const value = readOption(args, name);
+  if (!value || value.startsWith("--")) throw new Error(`Use ${name} <value>.`);
+  return value;
+}
+
+function runGit(cwd: string, args: ReadonlyArray<string>): void {
+  try {
+    execFileSync("git", [...args], { cwd, stdio: "ignore" });
+  } catch {
+    throw new Error(`git ${args.join(" ")} failed in ${cwd}`);
+  }
+}
+
+function cliEntrypointPath(): string {
+  return realpathSync(fileURLToPath(new URL("../../index.ts", import.meta.url)));
+}
+
+function daemonAssetPath(relativePath: string): string {
+  const candidates = [
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "assets", relativePath),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../daemon/assets", relativePath)
+  ];
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) throw new Error(`daemon asset not found: ${relativePath}`);
+  return found;
+}
+
+function safeId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/gu, "_").replace(/^_+|_+$/gu, "") || "user";
+}
+
+function waitDaemonPollInterval(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isDaemonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function toJsonValue(value: unknown): JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.map(toJsonValue);
+  if (!isDaemonRecord(value)) return String(value);
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toJsonValue(entry)])) as JsonObject;
+}
