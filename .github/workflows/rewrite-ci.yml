@@ -298,14 +298,35 @@ jobs:
               core.info(`Electron warmup attempt ${attempt}/3`);
               const installed = run("electron install", ["node_modules/electron/install.js"]);
               const verified = installed && run("electron verify", ["-e", "const electron = require('electron'); console.log(`Electron ready: ${electron}`);"]);
-              if (verified) return;
+              if (verified) break;
               if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 10_000));
+              if (attempt === 3) {
+                core.setFailed("Electron binary warmup failed before GUI E2E test execution.");
+                return;
+              }
             }
-            core.setFailed("Electron binary warmup failed before GUI E2E test execution.");
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const electronPath = require(path.join(process.env.GITHUB_WORKSPACE, "node_modules/electron"));
+            const realElectronPath = `${electronPath}.real`;
+            if (!fs.existsSync(realElectronPath)) {
+              fs.renameSync(electronPath, realElectronPath);
+              fs.writeFileSync(
+                electronPath,
+                `#!/usr/bin/env bash\nexec "${realElectronPath}" --no-sandbox --disable-gpu --disable-dev-shm-usage "$@"\n`
+              );
+              fs.chmodSync(electronPath, 0o755);
+            }
+            core.info(`Electron CI wrapper ready: ${electronPath}`);
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         run: mkdir -p artifacts/gui-e2e
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         shell: bash
+        env:
+          ELECTRON_ENABLE_LOGGING: "1"
+          ELECTRON_ENABLE_STACK_DUMPING: "1"
+          ELECTRON_OZONE_PLATFORM_HINT: x11
+          XDG_SESSION_TYPE: x11
         run: xvfb-run --auto-servernum node tools/run-manifest-gates.mjs --workflow-job gui-e2e --exclude mergify-queue-metadata-edit-noop 2>&1 | tee artifacts/gui-e2e/gui-e2e.log
       - name: Upload GUI E2E logs
         if: ${{ always() && env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
