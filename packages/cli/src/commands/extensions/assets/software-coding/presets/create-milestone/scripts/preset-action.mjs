@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { renderMilestoneDossierHtml } from "./dossier-html.mjs";
 
 const contextPath = process.env.HARNESS_PRESET_CONTEXT;
 if (!contextPath) throw new Error("HARNESS_PRESET_CONTEXT is required");
@@ -15,6 +16,8 @@ mkdirSync(artifactsDir, { recursive: true });
 
 if (entrypoint === "scaffold") {
   runScaffold();
+} else if (entrypoint === "render-html") {
+  runRenderHtml();
 } else if (entrypoint === "check") {
   runCheck();
 } else {
@@ -39,6 +42,7 @@ function runScaffold() {
   const switchWhen = optionalInput("switchWhen") || "TBD";
   const retireWhen = optionalInput("retireWhen") || "TBD";
   const dependencies = optionalInput("dependencies") || "TBD";
+  const waves = parseListInput("waves");
 
   const milestoneDir = path.join(paths.milestonesRoot, line, slug);
   const overviewPath = path.join(milestoneDir, "00-overview.md");
@@ -55,13 +59,15 @@ function runScaffold() {
     switchWhen,
     retireWhen,
     dependencies,
-    charterDecision
+    charterDecision,
+    waves
   }), "utf8");
 
   const roadmapPath = path.join(paths.milestonesRoot, "00-roadmap.md");
   const dossierPath = path.join(paths.milestonesRoot, "dossier-data.md");
   upsertRoadmapRow(roadmapPath, { line, slug, milestoneName, mission, status, dependencies, rootTaskId });
   upsertDossierRow(dossierPath, { line, milestoneName, mission, status, dependencies, rootTaskId });
+  const htmlResult = renderMilestoneDossierHtml({ paths, artifactsDir });
 
   const report = buildCheckReport({ line, slug, requireDecisionAnchor: true });
   writeResult({
@@ -72,13 +78,27 @@ function runScaffold() {
       rootTaskId,
       milestone: { line, slug, path: relative(overviewPath) },
       charterDecision,
-      generatedMilestoneFiles: [relative(overviewPath), relative(roadmapPath), relative(dossierPath)],
+      generatedMilestoneFiles: [relative(overviewPath), relative(roadmapPath), relative(dossierPath), htmlResult.path],
+      html: htmlResult,
       check: report
     },
     error: report.status === "passed" ? undefined : {
       code: "preset_script_result_failed",
       hint: "create-milestone scaffold produced an incomplete milestone surface."
     }
+  });
+}
+
+function runRenderHtml() {
+  const htmlResult = renderMilestoneDossierHtml({ paths, artifactsDir });
+  writeResult({
+    ok: true,
+    report: {
+      schema: "create-milestone-render-html-report/v1",
+      status: "passed",
+      html: htmlResult
+    },
+    produced: [htmlResult.path]
   });
 }
 
@@ -109,6 +129,11 @@ function buildCheckReport(options = {}) {
     path: item.path,
     missing: missingItem
   })));
+  const warnings = items.flatMap((item) => item.warnings.map((warning) => ({
+    milestone: item.milestone,
+    path: item.path,
+    warning
+  })));
   const report = {
     schema: "create-milestone-check-report/v1",
     status: missing.length === 0 ? "passed" : "blocked",
@@ -117,10 +142,12 @@ function buildCheckReport(options = {}) {
       milestones: items.length,
       green: items.filter((item) => item.status === "green").length,
       red: items.filter((item) => item.status === "red").length,
-      missing: missing.length
+      missing: missing.length,
+      warnings: warnings.length
     },
     items,
-    missing
+    missing,
+    warnings
   };
   writeFileSync(path.join(artifactsDir, "create-milestone-check.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return report;
@@ -137,6 +164,7 @@ function checkOverview(overviewPath, roadmap, dossier, options) {
   const mission = matchScalar(body, /-\s+\*\*Mission\*\*:\s*(.+)/u);
   const decisionAnchors = [...body.matchAll(/\bdec_[A-Za-z0-9_]+\b/gu)].map((match) => match[0]);
   const missing = [];
+  const warnings = [];
   if (!body.includes("milestone-map:v1") && !/(?:目标 \(North Star\)|North Star)/u.test(body)) missing.push("milestone-map:v1 marker");
   if (!status) missing.push("status field");
   if (!rootTask) missing.push("root task field");
@@ -154,6 +182,12 @@ function checkOverview(overviewPath, roadmap, dossier, options) {
 
   const normalizedRoot = stripMarkdown(rootTask);
   if (/^task_/u.test(normalizedRoot) && !findTask(normalizedRoot)) missing.push(`root task ${normalizedRoot} exists under tasks root`);
+  if (/^task_/u.test(normalizedRoot) && findChildTasks(normalizedRoot).length === 0) {
+    warnings.push("子任务未 fan-out: create child tasks with `ha task create --parent <root>` and update the task mapping table.");
+  }
+  if (/\bfan-out pending\b/u.test(body)) {
+    warnings.push("任务映射表仍包含 fan-out pending 占位行。");
+  }
   if (!roadmapHasMilestone(roadmap, { rootTask: normalizedRoot, slug, title: titleFromBody(body) })) missing.push("00-roadmap.md row");
   if (!dossierHasMilestone(dossier, { line, rootTask: normalizedRoot, title: titleFromBody(body) })) missing.push("dossier-data.md row");
 
@@ -163,12 +197,16 @@ function checkOverview(overviewPath, roadmap, dossier, options) {
     path: rel,
     rootTask: normalizedRoot || null,
     decisionAnchors: [...new Set(decisionAnchors)].sort(),
-    missing
+    missing,
+    warnings
   };
 }
 
 function renderOverview(input) {
-  return `# ${input.milestoneName}\n\n<!-- milestone-map:v1 -->\n\n## 新模型映射\n\n- **状态**: ${input.status}\n- **Root task**: \`${input.rootTaskId}\`\n- **Mission**: ${input.mission}\n- **Decision 锚**: ${input.charterDecision}\n\n### 使用侧三问\n\n| 问题 | 答案 |\n| --- | --- |\n| 谁第一个用 | ${input.firstUser} |\n| 何时强制切换 | ${input.switchWhen} |\n| 旧路径何时废止 | ${input.retireWhen} |\n\n### 任务映射\n\n| 层级 | Task | 状态 | 说明 |\n| --- | --- | --- | --- |\n| root | \`${input.rootTaskId}\` | planned | milestone root task。 |\n\n### 依赖与入口条件\n\n- ${input.dependencies}\n\n## 附录：执行记录\n\n- 子任务 fan out 后同步更新任务映射表。\n`;
+  const waveRows = input.waves.length > 0
+    ? input.waves.map((wave) => `| ${wave} | fan-out pending | planned | Run \`ha task create --title "${input.milestoneName} ${wave}" --vertical software/coding --preset standard-task --parent ${input.rootTaskId}\`, then replace this row with the child task id. |`).join("\n")
+    : "| child | fan-out pending | planned | Run `ha task create --title \"<child title>\" --vertical software/coding --preset standard-task --parent <root task>` and replace this row. |";
+  return `# ${input.milestoneName}\n\n<!-- milestone-map:v1 -->\n\n## 新模型映射\n\n- **状态**: ${input.status}\n- **Root task**: \`${input.rootTaskId}\`\n- **Mission**: ${input.mission}\n- **Decision 锚**: ${input.charterDecision}\n\n### 使用侧三问\n\n| 问题 | 答案 |\n| --- | --- |\n| 谁第一个用 | ${input.firstUser} |\n| 何时强制切换 | ${input.switchWhen} |\n| 旧路径何时废止 | ${input.retireWhen} |\n\n### 任务映射\n\n| 层级 | Task | 状态 | 说明 |\n| --- | --- | --- | --- |\n| root | \`${input.rootTaskId}\` | planned | milestone root task。 |\n${waveRows}\n\n### Fan-out 引导\n\n- 如果已知波次，创建时传入 \`--input waves=W0,W1,W2\` 会预填波次行。\n- 将每个 \`fan-out pending\` 行替换成真实子任务，例如 \`ha task create --title "${input.milestoneName} W0" --vertical software/coding --preset standard-task --parent ${input.rootTaskId}\`。\n- 子任务 fan out 后同步更新任务映射表。\n\n### 依赖与入口条件\n\n- ${input.dependencies}\n\n## 附录：执行记录\n\n- 子任务 fan out 后同步更新任务映射表。\n`;
 }
 
 function upsertRoadmapRow(filePath, input) {
@@ -236,6 +274,16 @@ function findTask(taskId) {
   return undefined;
 }
 
+function findChildTasks(parentTaskId) {
+  return walk(paths.tasksRoot).filter((filePath) => path.basename(filePath) === "INDEX.md").flatMap((indexPath) => {
+    const body = readOptional(indexPath);
+    const parent = matchScalar(body, /parent:\s*"?([^"\n]+)"?/u);
+    if (parent !== parentTaskId) return [];
+    const taskId = matchScalar(body, /task_id:\s*"?([^"\n]+)"?/u);
+    return taskId ? [taskId] : [];
+  });
+}
+
 function findDecision(decisionId) {
   return decisionDocuments().some((decision) => decision.decisionId === decisionId);
 }
@@ -267,6 +315,13 @@ function requiredDecisionInput(name) {
 function optionalInput(name) {
   const value = String(inputs[name] ?? "").trim();
   return value && !/^\{\{.+\}\}$/u.test(value) ? value : "";
+}
+
+function parseListInput(name) {
+  return optionalInput(name)
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function titleFromBody(body) {

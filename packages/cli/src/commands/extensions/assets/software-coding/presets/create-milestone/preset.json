@@ -8,7 +8,8 @@
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [
     { "id": "milestone-map-scaffold", "kind": "command", "version": "1", "required": true },
-    { "id": "milestone-map-checker", "kind": "checker", "version": "1", "required": true }
+    { "id": "milestone-map-checker", "kind": "checker", "version": "1", "required": true },
+    { "id": "milestone-dossier-html-renderer", "kind": "command", "version": "1", "required": true }
   ],
   "entrypoints": {
     "scaffold": {
@@ -34,7 +35,23 @@
         "switchWhen": "",
         "retireWhen": "",
         "dependencies": "",
-        "charterDecision": ""
+        "charterDecision": "",
+        "waves": ""
+      }
+    },
+    "render-html": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": [
+        "{{outputRoot}}/**",
+        "{{paths.milestonesRoot}}/**"
+      ],
+      "writes": [
+        "{{outputRoot}}/**",
+        "{{paths.milestonesRoot}}/**"
+      ],
+      "inputs": {
+        "source": "dossier-data.md"
       }
     },
     "check": {
