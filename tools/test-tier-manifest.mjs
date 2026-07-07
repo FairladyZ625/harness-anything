@@ -98,6 +98,7 @@ export const testTierManifest = {
     "packages/cli/test/attribution-diff-cli.test.ts",
     "packages/cli/test/check-governance-cli.test.ts",
     "packages/cli/test/conflict-preflight-cli.test.ts",
+    "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
     "packages/cli/test/daemon-thin-client-cli.test.ts",
     "packages/cli/test/decision-cli.test.ts",
     "packages/cli/test/decision-coverage-cli.test.ts",
