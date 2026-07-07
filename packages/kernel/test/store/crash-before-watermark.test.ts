@@ -3,7 +3,7 @@ import test from "node:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { checkTaskProjection } from "../../src/index.ts";
+import { checkTaskProjection, moduleEntityId } from "../../src/index.ts";
 import { decisionEntityId, type DecisionPackage } from "../../src/domain/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
@@ -66,6 +66,53 @@ test("WriteCoordinator recovers queued decision writes after crash before global
     const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_RECOVER/decision.md"), "utf8");
     assert.match(body, /^_coordinatorWatermark: op-decision-recover$/mu);
     assert.equal(checkTaskProjection({ rootDir, postMerge: true }).warnings.some((warning) => warning.code.startsWith("decision_watermark_")), false);
+  });
+});
+
+test("WriteCoordinator recovers queued provenance session writes without duplicating them", () => {
+  withTempStore((rootDir) => {
+    const firstCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(firstCoordinator.enqueue({
+      opId: "session-export-session-1-sha256:queued",
+      entityId: moduleEntityId("provenance-session"),
+      kind: "machine_artifact_write",
+      payload: {
+        boundary: "provenance-session",
+        path: "harness/sessions/session-1.md",
+        body: [
+          "schema: provenance-session/v1",
+          "sessionId: session-1",
+          "runtime: codex",
+          "source: runtime",
+          ""
+        ].join("\n")
+      }
+    }));
+
+    assert.equal(existsSync(path.join(rootDir, "harness/sessions/session-1.md")), false);
+
+    const recoveredCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const report = Effect.runSync(recoveredCoordinator.recover);
+
+    assert.equal(report.replayedOps, 1);
+    assert.equal(report.recoveredWatermark, "session-export-session-1-sha256:queued");
+    assert.equal(readFileSync(path.join(rootDir, "harness/sessions/session-1.md"), "utf8"), [
+      "schema: provenance-session/v1",
+      "sessionId: session-1",
+      "runtime: codex",
+      "source: runtime",
+      ""
+    ].join("\n"));
+
+    const secondReport = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
+    assert.equal(secondReport.replayedOps, 0);
+    assert.equal(readFileSync(path.join(rootDir, "harness/sessions/session-1.md"), "utf8"), [
+      "schema: provenance-session/v1",
+      "sessionId: session-1",
+      "runtime: codex",
+      "source: runtime",
+      ""
+    ].join("\n"));
   });
 });
 

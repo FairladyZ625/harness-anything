@@ -96,6 +96,7 @@ test("CLI task create commits automatically exported runtime session provenance"
     assert.match(index, new RegExp(`sessionId: "${sessionId}"`, "u"));
     assert.match(readFileSync(sessionPath, "utf8"), new RegExp(`sessionId: ${sessionId}`, "u"));
     execFileSync("git", ["-C", harnessRoot, "ls-files", "--error-unmatch", `sessions/${sessionId}.md`], { stdio: "ignore" });
+    assert.match(gitLog(harnessRoot), new RegExp(`session-export-${sessionId}-[a-f0-9]{16}`, "u"));
     assert.equal(gitStatus(harnessRoot), "");
   });
 });
@@ -161,4 +162,8 @@ function initHarnessGit(harnessRoot: string): void {
 
 function gitStatus(harnessRoot: string): string {
   return execFileSync("git", ["-C", harnessRoot, "status", "--short"], { encoding: "utf8" }).trim();
+}
+
+function gitLog(harnessRoot: string): string {
+  return execFileSync("git", ["-C", harnessRoot, "log", "--pretty=%B", "--all"], { encoding: "utf8" });
 }

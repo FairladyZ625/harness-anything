@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeDecisionWriteService, makeFactWriteService, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, type DecisionCreateInput } from "../src/index.ts";
-import type { DecisionPackage, WriteCoordinator, WriteOp } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type DecisionPackage, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
 test("decision create service binds provenance and exports the session by id", async () => {
@@ -19,6 +19,8 @@ test("decision create service binds provenance and exports the session by id", a
     const exporter = makeProvenanceSessionExporter({
       rootInput: rootDir,
       currentSessionProbe: probe,
+      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
       now: () => "2026-07-03T00:02:00.000Z"
     });
     const syncedPaths: string[] = [];
@@ -60,6 +62,8 @@ test("fact create service binds provenance into the single-line record and expor
     const exporter = makeProvenanceSessionExporter({
       rootInput: rootDir,
       currentSessionProbe: probe,
+      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
       now: () => "2026-07-03T00:02:00.000Z"
     });
     const syncedPaths: string[] = [];

@@ -1,8 +1,7 @@
-import * as fs from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, HarnessLayoutInput, WriteError } from "../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, readTaskProjection, taskDocumentPath as harnessTaskDocumentPath } from "../../kernel/src/index.ts";
+import type { ArtifactStore, EngineError, WriteError } from "../../kernel/src/index.ts";
+import { readTaskProjection } from "../../kernel/src/index.ts";
 import {
   readTaskDocumentPayload,
   validateLocalControllerTaskId
@@ -18,12 +17,12 @@ import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts"
 
 export function makeLocalControllerService(options: LocalControllerServiceOptions): LocalControllerService {
   const rootDir = path.resolve(options.rootDir);
-  const layoutInput = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const taskWriter = options.taskWriter;
   const lifecycleOrchestrator = makeTaskLifecycleOrchestrator({
     rootDir,
     layoutOverrides: options.layoutOverrides,
-    taskWriter
+    taskWriter,
+    artifactStore: options.artifactStore
   });
 
   return {
@@ -39,15 +38,14 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       return {
         ok: true,
         task,
-        documents: await Effect.runPromise(listKnownTaskDocuments(layoutInput, payload.taskId))
+        documents: await Effect.runPromise(listKnownTaskDocuments(options.artifactStore, payload.taskId))
       };
     },
     getTaskDocument: async (payload) => {
       validateLocalControllerTaskId(payload.taskId);
       const parsed = readTaskDocumentPayload(payload);
       if (!parsed.ok) return parsed;
-      const documentPath = taskDocumentPath(layoutInput, parsed.taskId, parsed.path);
-      return Effect.runPromise(readTaskDocument(documentPath, parsed.taskId, parsed.path));
+      return Effect.runPromise(readTaskDocument(options.artifactStore, parsed.taskId, parsed.path));
     },
     setTaskStatus: async (payload) => {
       validateLocalControllerTaskId(payload.taskId);
@@ -87,38 +85,29 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
   };
 }
 
-function listKnownTaskDocuments(rootInput: HarnessLayoutInput, taskId: string): Effect.Effect<ReadonlyArray<{ readonly path: string }>> {
-  return Effect.promise(async () => {
-    const documents: Array<{ readonly path: string }> = [];
-    for (const documentPath of ["INDEX.md", "progress.md", "review.md", "findings.md"] as const) {
-      const exists = await pathExists(taskDocumentPath(rootInput, taskId, documentPath));
-      if (exists) documents.push({ path: documentPath });
-    }
-    return documents;
-  });
-}
+const knownTaskDocuments = new Set(["INDEX.md", "progress.md", "review.md", "findings.md"]);
 
-function taskDocumentPath(rootInput: HarnessLayoutInput, taskId: string, documentPath: string): string {
-  validateLocalControllerTaskId(taskId);
-  return harnessTaskDocumentPath(rootInput, taskId, documentPath);
+function listKnownTaskDocuments(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<ReadonlyArray<{ readonly path: string }>> {
+  return artifactStore.readTaskPackage(taskId).pipe(
+    Effect.map((taskPackage) => taskPackage.documents
+      .filter((document) => knownTaskDocuments.has(document.path))
+      .map((document) => ({ path: document.path }))
+      .sort((left, right) => left.path.localeCompare(right.path))),
+    Effect.catchAll(() => Effect.succeed([]))
+  );
 }
 
 function taskNotFound(taskId: string): LocalControllerFailure {
   return { ok: false, error: { code: "task_not_found", hint: `task not found: ${taskId}` } };
 }
 
-function readTaskDocument(documentPath: string, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {
-  return Effect.promise(() => fs.promises.readFile(documentPath, "utf8").catch(() => null)).pipe(
+function readTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {
+  return artifactStore.readTaskPackage(taskId).pipe(
+    Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === portablePath)?.body ?? null),
+    Effect.catchAll(() => Effect.succeed(null)),
     Effect.map((body) => body === null
       ? ({ ok: false, error: { code: "document_not_found", hint: portablePath } } satisfies LocalControllerFailure)
       : ({ ok: true, taskId, path: portablePath, body }))
-  );
-}
-
-async function pathExists(filePath: string): Promise<boolean> {
-  return fs.promises.access(filePath).then(
-    () => true,
-    () => false
   );
 }
 

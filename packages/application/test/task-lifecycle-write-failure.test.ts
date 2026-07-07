@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "../../kernel/src/index.ts";
+import { makeMarkdownArtifactStore, type ArtifactStore, type EngineError, type TaskPackageRead, type WriteError } from "../../kernel/src/index.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
@@ -50,6 +50,7 @@ for (const { name, error, code } of writeFailureCases) {
       const orchestrator = makeTaskLifecycleOrchestrator({
         rootDir,
         taskWriter: failingWriter(error),
+        artifactStore: makeMarkdownArtifactStore({ rootDir }),
         now: () => "2026-06-13T00:00:00.000Z"
       });
 
@@ -66,6 +67,106 @@ for (const { name, error, code } of writeFailureCases) {
   });
 }
 
+test("reviewTask evaluates review and fact gates through ArtifactStore", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
+  try {
+    writeIndexOnly(rootDir, "task-1", "Review Task", "in_review");
+    const orchestrator = makeTaskLifecycleOrchestrator({
+      rootDir,
+      taskWriter: successfulWriter(),
+      artifactStore: inMemoryTaskPackageStore("task-1", {
+        "review.md": validReview(),
+        "facts.md": validFact()
+      }),
+      now: () => "2026-06-13T00:00:00.000Z"
+    });
+
+    const result = await runEffect(orchestrator.reviewTask({ taskId: "task-1", reviewerId: "reviewer-a" }));
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.reviewContract.schema, "verifier-backed-review/v1");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("completeTask evaluates closeout and review placeholders through ArtifactStore", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
+  try {
+    writeIndexOnly(rootDir, "task-1", "Complete Task", "in_review");
+    writeCloseout(rootDir, "task-1", [
+      "## Summary",
+      "",
+      "Summarize the completed behavior change."
+    ]);
+    const writer = successfulWriter();
+    const orchestrator = makeTaskLifecycleOrchestrator({
+      rootDir,
+      taskWriter: writer,
+      artifactStore: inMemoryTaskPackageStore("task-1", {
+        "review.md": validReview(),
+        "facts.md": validFact(),
+        "closeout.md": [
+          "# Closeout",
+          "",
+          "## Summary",
+          "",
+          "Implemented the task lifecycle ArtifactStore contract.",
+          ""
+        ].join("\n")
+      }),
+      documentPlaceholderPolicy: {
+        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
+      },
+      now: () => "2026-06-13T00:00:00.000Z"
+    });
+
+    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed" }));
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.status, "done");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("completeTask rejects ArtifactStore closeout placeholders", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
+  try {
+    writeIndexOnly(rootDir, "task-1", "Complete Task", "in_review");
+    const orchestrator = makeTaskLifecycleOrchestrator({
+      rootDir,
+      taskWriter: successfulWriter(),
+      artifactStore: inMemoryTaskPackageStore("task-1", {
+        "review.md": validReview(),
+        "facts.md": validFact(),
+        "closeout.md": [
+          "# Closeout",
+          "",
+          "## Summary",
+          "",
+          "Summarize the completed behavior change.",
+          ""
+        ].join("\n")
+      }),
+      documentPlaceholderPolicy: {
+        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
+      },
+      now: () => "2026-06-13T00:00:00.000Z"
+    });
+
+    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed" }));
+
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.error.code, "closeout_placeholder");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function failingWriter(error: EngineError | WriteError): TaskLifecycleWriter {
   return {
     setStatus: () => Effect.fail(error),
@@ -74,6 +175,84 @@ function failingWriter(error: EngineError | WriteError): TaskLifecycleWriter {
     stageTaskTree: () => Effect.succeed({ taskId: "task-1", path: "." }),
     taskTreeStatus: () => Effect.succeed({ taskId: "task-1", dirty: false, entries: [] })
   };
+}
+
+function successfulWriter(): TaskLifecycleWriter {
+  return {
+    setStatus: (input) => Effect.succeed({ taskId: input.taskId, status: input.status }),
+    appendProgress: (input) => Effect.succeed({ taskId: input.taskId, path: "progress.md", appended: input.text }),
+    stageDocument: (input) => Effect.succeed({ taskId: input.taskId, path: input.path }),
+    stageTaskTree: (input) => Effect.succeed({ taskId: input.taskId, path: "." }),
+    taskTreeStatus: (taskId) => Effect.succeed({ taskId, dirty: false, entries: [] })
+  };
+}
+
+function inMemoryTaskPackageStore(taskId: string, documents: Record<string, string>): Pick<ArtifactStore, "readTaskPackage"> {
+  const taskPackage = {
+    taskId,
+    disposition: "active",
+    documents: Object.entries(documents).map(([documentPath, body]) => ({
+      path: documentPath,
+      body,
+      sha256: `sha256:${documentPath}`
+    }))
+  } satisfies TaskPackageRead;
+  return {
+    readTaskPackage: (requestedTaskId) => requestedTaskId === taskId
+      ? Effect.succeed(taskPackage)
+      : Effect.fail({ _tag: "TaskPackageNotFound", taskId: requestedTaskId })
+  };
+}
+
+function validReview(): string {
+  return [
+    "# Review",
+    "",
+    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ""
+  ].join("\n");
+}
+
+function validFact(): string {
+  return [
+    "# Facts",
+    "",
+    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
+    ""
+  ].join("\n");
+}
+
+function writeIndexOnly(rootDir: string, directoryName: string, title: string, status: string): void {
+  mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    `task_id: ${directoryName}`,
+    `title: ${title}`,
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    "  engine: local",
+    `  status: ${status}`,
+    "  ref: ",
+    `  titleSnapshot: ${title}`,
+    "  url: ",
+    "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
+    "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
+    "packageDisposition: active",
+    "vertical: default",
+    "preset: default",
+    "provenance:",
+    "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}",
+    "---",
+    "",
+    `# ${title}`,
+    ""
+  ].join("\n"), "utf8");
+}
+
+function writeCloseout(rootDir: string, directoryName: string, lines: ReadonlyArray<string>): void {
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "closeout.md"), ["# Closeout", "", ...lines, ""].join("\n"), "utf8");
 }
 
 function writeTaskPackage(rootDir: string, directoryName: string, title: string): void {

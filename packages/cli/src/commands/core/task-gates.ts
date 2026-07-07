@@ -17,6 +17,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     rootDir: context.rootDir,
     layoutOverrides: context.layoutOverrides,
     taskWriter: context.engine,
+    artifactStore: context.artifactStore,
     documentPlaceholderPolicy: bundledTaskDocumentPlaceholderPolicy()
   });
   if (action.kind === "task-review") {
