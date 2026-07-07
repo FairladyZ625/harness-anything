@@ -39,7 +39,7 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
   const action = command.action as MigrationAction;
   switch (action.kind) {
     case "adopt-multica":
-      return runAdoptMultica(context.layoutInput, action);
+      return runAdoptMultica(context.layoutInput, action, context.makeWriteCoordinator);
     case "snapshot-multica":
       return runSnapshotMultica(action);
     case "migrate-plan":

@@ -3,18 +3,29 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { toCliError } from "./cli/error-mapper.ts";
-import { CliErrorCode } from "./cli/error-codes.ts";
-import { actionTaskId, parseArgs } from "./cli/parse-args.ts";
-import { stripGlobalOptions } from "./cli/parse-options.ts";
-import { runRegisteredCommand } from "./cli/runner-registry.ts";
-import { Effect } from "effect";
-import { createDaemonRuntime, makeLocalLifecycleEngine, makeLocalWriteCoordinator, runLedgerMaterializer } from "../../adapters/local/src/index.ts";
-import { bindCreateProvenance, makeDecisionWriteService, makeEnvironmentCurrentSessionProbe, makeFactWriteService, makeProvenanceSessionExporter, makeRuntimeEventLedgerService, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult } from "../../application/src/index.ts";
+import { cliError, CliErrorCode } from "./cli/error-codes.ts";
+import { parseArgs } from "./cli/parse-args.ts";
+import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
+import { makeLocalControllerService } from "../../application/src/index.ts";
+import {
+  createJsonRpcProtocolServer,
+  createUnixSocketTransportServer,
+  serveSshExecBridge,
+  type DaemonAuthenticationContext
+} from "../../daemon/src/index.ts";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../kernel/src/index.ts";
-import { commitAuthoredPaths } from "./commands/core/authored-git.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
-import type { CliResult, CommandRegistryEntry } from "./cli/types.ts";
+import type { CommandRegistryEntry } from "./cli/types.ts";
+import { parsePositiveIntegerOr } from "./cli/value-utils.ts";
+import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
+import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
+import { runCommandThroughDaemon } from "./daemon/client.ts";
+import { createCliCommandService } from "./daemon/command-service.ts";
+import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
+
+type HarnessDaemonRuntime = ReturnType<typeof createDaemonRuntime>;
+const runRegisteredCommand = runRegisteredCommandWithCliComposition;
+const createDaemonRuntime = selectCliAdapterProvider("daemon.runtime").createDaemonRuntime;
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
   const daemonExit = await maybeRunDaemonCommand(argv);
@@ -26,101 +37,9 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     return 2;
   }
 
-  const layoutInput = {
-    rootDir: parsed.value.rootDir,
-    layoutOverrides: parsed.value.layoutOverrides
-  };
-  let currentSessionProbe: ReturnType<typeof makeEnvironmentCurrentSessionProbe> | undefined;
-  const getCurrentSessionProbe = () => {
-    currentSessionProbe ??= makeEnvironmentCurrentSessionProbe();
-    return currentSessionProbe;
-  };
-  let sessionBranchResolved = false;
-  let sessionBranchId: string | undefined;
-  const getSessionBranchId = () => {
-    if (!sessionBranchResolved) {
-      const session = Effect.runSync(getCurrentSessionProbe().currentSession);
-      sessionBranchId = session.source === "runtime" ? session.sessionId : undefined;
-      sessionBranchResolved = true;
-    }
-    return sessionBranchId;
-  };
-  const makeSessionExporter = () => makeProvenanceSessionExporter({
-    rootInput: layoutInput,
-    currentSessionProbe: getCurrentSessionProbe()
-  });
-  const syncExportedSession = (result: ProvenanceSessionExportResult): Effect.Effect<void, ProvenanceSessionExporterRejected> => Effect.try({
-    try: () => {
-      try {
-        commitAuthoredPaths(layoutInput, [result.path], `session(export): ${result.session.sessionId}`);
-      } catch (error) {
-        if (error instanceof Error && error.message === "authored root is ignored by Git but is not a nested Git repository") return;
-        throw error;
-      }
-    },
-    catch: (error) => ({
-      _tag: "ProvenanceSessionExporterRejected" as const,
-      sessionId: result.session.sessionId,
-      reason: error instanceof Error ? error.message : "session git commit failed"
-    })
-  }).pipe(Effect.asVoid);
+  const daemonOutput = await runCommandThroughDaemon(parsed.value);
+  const output = daemonOutput ?? toCommandReceipt(await runRegisteredCommand(parsed.value));
 
-  const result = await Effect.runPromise(runRegisteredCommand(parsed.value, () => makeLocalLifecycleEngine({
-    rootDir: parsed.value.rootDir,
-    layoutOverrides: parsed.value.layoutOverrides,
-    coordinator: makeLocalWriteCoordinator({
-      rootDir: parsed.value.rootDir,
-      layoutOverrides: parsed.value.layoutOverrides,
-      actor: { kind: "agent", id: "local-lifecycle" },
-      sessionId: getSessionBranchId()
-    }),
-    bindCreateProvenance: (boundAt) => bindCreateProvenance({
-      currentSessionProbe: getCurrentSessionProbe(),
-      provenanceSessionExporter: makeSessionExporter(),
-      syncExportedSession
-    }, boundAt)
-  }), getCurrentSessionProbe, makeSessionExporter, syncExportedSession, (actor) => makeLocalWriteCoordinator({
-    rootDir: parsed.value.rootDir,
-    layoutOverrides: parsed.value.layoutOverrides,
-    actor,
-    sessionId: getSessionBranchId()
-  }), () => makeDecisionWriteService({
-    rootInput: layoutInput,
-    coordinator: makeLocalWriteCoordinator({
-      rootDir: parsed.value.rootDir,
-      layoutOverrides: parsed.value.layoutOverrides,
-      actor: { kind: "agent", id: "decision-cli" },
-      sessionId: getSessionBranchId()
-    }),
-    currentSessionProbe: getCurrentSessionProbe(),
-    provenanceSessionExporter: makeSessionExporter(),
-    syncExportedSession
-  }), () => makeFactWriteService({
-    rootInput: layoutInput,
-    coordinator: makeLocalWriteCoordinator({
-      rootDir: parsed.value.rootDir,
-      layoutOverrides: parsed.value.layoutOverrides,
-      actor: { kind: "agent", id: "fact-cli" },
-      sessionId: getSessionBranchId()
-    }),
-    currentSessionProbe: getCurrentSessionProbe(),
-    provenanceSessionExporter: makeSessionExporter(),
-    syncExportedSession
-  }), () => makeRuntimeEventLedgerService({
-    rootInput: layoutInput
-  }), runLedgerMaterializer).pipe(
-    Effect.match({
-      onFailure: (error): CliResult => ({
-        ok: false,
-        command: parsed.value.action.kind,
-        taskId: actionTaskId(parsed.value.action),
-        error: toCliError(error)
-      }),
-      onSuccess: (value) => value
-    })
-  ));
-
-  const output = toCommandReceipt(result);
   emit(output, parsed.value.json);
   return output.ok ? 0 : 1;
 }
@@ -134,6 +53,10 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
   const layout = resolveHarnessLayout(runtimeContext);
   const lockPath = path.join(layout.locksRoot, "global.lock");
   try {
+    if (action === "serve") {
+      await runDaemonServe(stripped.rootDir, layoutOverrides, stripped.args);
+      return 0;
+    }
     if (action === "start") {
       const foreground = stripped.args.includes("--foreground");
       const runtime = createDaemonRuntime({
@@ -173,6 +96,121 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
     emitDaemonError(error instanceof Error ? error.message : String(error), stripped.json, CliErrorCode.JournalUnavailable);
     return 1;
   }
+}
+
+async function runDaemonServe(
+  rootDir: string,
+  layoutOverrides: { readonly authoredRoot?: string } | undefined,
+  args: ReadonlyArray<string>
+): Promise<void> {
+  const runtime = createDaemonRuntime({
+    rootDir,
+    layoutOverrides,
+    materializerPollMs: false
+  });
+  await runtime.start();
+  const repoId = readOption(args, "--repo") ?? "canonical";
+  const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
+  const serviceHost = createDaemonServiceHost(runtime, rootDir, layoutOverrides, repoId, idleMs);
+  if (args.includes("--stdio")) {
+    serveSshExecBridge({
+      username: process.env.USER,
+      host: process.env.HOSTNAME,
+      createProtocolServer: serviceHost.createProtocolServer
+    });
+    await waitForInputEnd();
+    await serviceHost.stop();
+    return;
+  }
+
+  const socketPath = readOption(args, "--socket");
+  const transport = createUnixSocketTransportServer({
+    daemonId: serviceHost.daemonId,
+    ...(socketPath ? { socketPath } : {}),
+    createProtocolServer: serviceHost.createProtocolServer
+  });
+  await transport.start();
+  serviceHost.onStop(async () => {
+    await transport.stop();
+  });
+  serviceHost.scheduleIdleExit();
+  await Promise.race([waitForStopSignal(), serviceHost.waitForStopRequest()]);
+  await serviceHost.stop();
+}
+
+function createDaemonServiceHost(
+  runtime: HarnessDaemonRuntime,
+  rootDir: string,
+  layoutOverrides: { readonly authoredRoot?: string } | undefined,
+  repoId: string,
+  idleMs: number
+): {
+  readonly daemonId: string;
+  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => ReturnType<typeof createJsonRpcProtocolServer>;
+  readonly scheduleIdleExit: () => void;
+  readonly waitForStopRequest: () => Promise<void>;
+  readonly onStop: (handler: () => Promise<void>) => void;
+  readonly stop: () => Promise<void>;
+} {
+  const daemonId = `ha-${process.pid}`;
+  const stopHandlers: Array<() => Promise<void>> = [];
+  let requestStop: (() => void) | undefined;
+  const stopRequested = new Promise<void>((resolve) => {
+    requestStop = resolve;
+  });
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let stopping = false;
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    if (idleTimer) clearTimeout(idleTimer);
+    for (const handler of stopHandlers.splice(0, stopHandlers.length)) {
+      await handler();
+    }
+    await runtime.stop();
+  };
+  const scheduleIdleExit = () => {
+    if (idleMs <= 0 || stopping) return;
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      requestStop?.();
+    }, idleMs);
+    idleTimer.unref();
+  };
+  const taskWriter = selectCliAdapterProvider("task.lifecycle").createLifecycleEngine({
+    rootDir,
+    layoutOverrides,
+    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "local-controller")
+  });
+  const localController = makeLocalControllerService({
+    rootDir,
+    layoutOverrides,
+    taskWriter
+  });
+  const cliCommandService = createCliCommandService(runtime, {
+    onCommandStart: () => {
+      if (idleTimer) clearTimeout(idleTimer);
+    },
+    onCommandSettled: scheduleIdleExit
+  });
+  return {
+    daemonId,
+    createProtocolServer: (_authContext) => createJsonRpcProtocolServer({
+      daemonId,
+      repos: [{ repoId, canonicalRoot: rootDir }],
+      services: {
+        LocalControllerService: localController,
+        TerminalSessionService: makeUnavailableTerminalSessionService(),
+        CliCommandService: cliCommandService
+      }
+    }),
+    scheduleIdleExit,
+    waitForStopRequest: () => stopRequested,
+    onStop: (handler) => {
+      stopHandlers.push(handler);
+    },
+    stop
+  };
 }
 
 function readDaemonLock(lockPath: string): Record<string, unknown> {
@@ -226,6 +264,17 @@ async function waitForStopSignal(): Promise<void> {
     };
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
+  });
+}
+
+async function waitForInputEnd(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    if (process.stdin.destroyed) {
+      resolve();
+      return;
+    }
+    process.stdin.once("end", resolve);
+    process.stdin.once("close", resolve);
   });
 }
 
@@ -297,6 +346,21 @@ function helpReport(report: unknown): { readonly kind: "global" | "command" | "p
   if (candidate.schema !== "cli-help-report/v1") return undefined;
   if (candidate.kind !== "global" && candidate.kind !== "command" && candidate.kind !== "prefix") return undefined;
   return { kind: candidate.kind, prefix: candidate.prefix };
+}
+
+function makeUnavailableTerminalSessionService() {
+  const failure = {
+    ok: false as const,
+    error: cliError(CliErrorCode.TerminalServiceUnavailable, "Terminal sessions are not available from the CLI daemon command server.")
+  };
+  return {
+    createSession: () => failure,
+    listSessions: () => ({ ok: true as const, sessions: [] }),
+    getSession: () => failure,
+    attachSession: () => failure,
+    resizeSession: () => failure,
+    closeSession: () => failure
+  };
 }
 
 function isCliEntrypoint(): boolean {

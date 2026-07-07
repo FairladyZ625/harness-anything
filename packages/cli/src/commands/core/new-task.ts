@@ -9,7 +9,7 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 
 export const runNewTaskCommand: CommandRunner = (context, command) => {
   const action = command.action as Extract<typeof command.action, { readonly kind: "new-task" }>;
-  if (action.fromLegacyId) return runNewTaskFromLegacy(context.layoutInput, action);
+  if (action.fromLegacyId) return runNewTaskFromLegacy(context.layoutInput, action, context.makeWriteCoordinator);
 
   const settingsResult = readProjectHarnessSettings(context.layoutInput, "new-task");
   if (!settingsResult.ok) return Effect.succeed(settingsResult.result);
@@ -18,7 +18,7 @@ export const runNewTaskCommand: CommandRunner = (context, command) => {
       currentSessionProbe: context.currentSessionProbe,
       provenanceSessionExporter: context.provenanceSessionExporter,
       syncExportedSession: context.syncExportedSession
-    });
+    }, context.makeWriteCoordinator);
   }
 
   const taskId = action.taskId ?? generateTaskId();
