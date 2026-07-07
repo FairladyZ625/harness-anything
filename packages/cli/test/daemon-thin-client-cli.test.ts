@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -48,6 +48,105 @@ test("concurrent daemon client startup converges on one lock owner and both clie
     const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
     assert.equal(status.started, true);
     assert.equal(typeof status.pid, "number");
+  });
+});
+
+test("daemon start service status and stop expose productized status contract", () => {
+  withTempRoot((rootDir) => {
+    try {
+      const start = runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"]);
+      assert.equal(start.started, true);
+      assert.equal(start.mode, "service");
+      assert.equal(start.version, "0.0.0");
+      assert.equal(typeof start.queueDepth, "number");
+
+      const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+      assert.equal(status.started, true);
+      assert.equal(status.reachable, true);
+      assert.equal(typeof status.pid, "number");
+      assert.equal(status.version, "0.0.0");
+      assert.equal(status.protocolVersion, 1);
+      assert.equal(typeof status.queueDepth, "number");
+      assert.equal(isRecord(status.queue), true);
+      assert.equal(isRecord(status.connections), true);
+
+      const stop = runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "5000", "--json"]);
+      assert.equal(stop.signaled, true);
+      assert.equal(stop.drained, true);
+      assert.equal(stop.stopped, true);
+    } finally {
+      try {
+        runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "1000", "--json"]);
+      } catch {
+        // best-effort cleanup for failed assertions
+      }
+    }
+  });
+});
+
+test("daemon install-templates distributes three platform service templates", () => {
+  withTempRoot((rootDir) => {
+    const outDir = path.join(rootDir, "templates");
+    const result = runDaemonCommand(rootDir, ["daemon", "install-templates", "--out", outDir, "--json"]);
+    assert.equal(result.ok, true);
+    assert.equal(existsSync(path.join(outDir, "harness-anything-daemon.service")), true);
+    assert.equal(existsSync(path.join(outDir, "com.harness-anything.daemon.plist")), true);
+    assert.equal(existsSync(path.join(outDir, "install-harness-anything-daemon.ps1")), true);
+  });
+});
+
+test("daemon bootstrap-server is idempotent and installs roster hooks and read-only mirror", () => {
+  withTempRoot((rootDir) => {
+    const canonicalRoot = path.join(rootDir, "canonical");
+    const mirrorRoot = path.join(rootDir, "readonly.git");
+    const reportPath = path.join(rootDir, "bootstrap-report.json");
+    const args = [
+      "daemon",
+      "bootstrap-server",
+      "--canonical-root",
+      canonicalRoot,
+      "--ssh-host",
+      "team-host",
+      "--ssh-user",
+      "alice",
+      "--person-id",
+      "person_alice",
+      "--display-name",
+      "Alice Admin",
+      "--email",
+      "alice@example.com",
+      "--readonly-mirror",
+      mirrorRoot,
+      "--report",
+      reportPath,
+      "--skip-ssh-check",
+      "--no-start",
+      "--json"
+    ];
+    const first = runDaemonCommand(rootDir, args);
+    const second = runDaemonCommand(rootDir, args);
+
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.equal(existsSync(path.join(canonicalRoot, "harness/people.yaml")), true);
+    assert.match(readFileSync(path.join(canonicalRoot, "harness/people.yaml"), "utf8"), /person_alice/u);
+    assert.equal(existsSync(path.join(canonicalRoot, ".git/hooks/pre-receive")), true);
+    assert.equal(existsSync(path.join(mirrorRoot, "hooks/pre-receive")), true);
+    assert.equal(existsSync(reportPath), true);
+
+    const canonicalHook = spawnSync(path.join(canonicalRoot, ".git/hooks/pre-receive"), {
+      cwd: canonicalRoot,
+      encoding: "utf8"
+    });
+    assert.notEqual(canonicalHook.status, 0);
+    assert.match(canonicalHook.stderr, /rejected this direct push/u);
+
+    const mirrorHook = spawnSync(path.join(mirrorRoot, "hooks/pre-receive"), {
+      cwd: mirrorRoot,
+      encoding: "utf8"
+    });
+    assert.notEqual(mirrorHook.status, 0);
+    assert.match(mirrorHook.stderr, /read-only mirror/u);
   });
 });
 

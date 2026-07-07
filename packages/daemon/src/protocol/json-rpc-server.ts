@@ -17,6 +17,9 @@ export interface DaemonRepoNamespace {
 export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
+  readonly DaemonStatusService?: {
+    readonly getStatus: () => JsonObject | Promise<JsonObject>;
+  };
   readonly CliCommandService?: {
     readonly runCommand: (payload?: JsonObject) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
@@ -174,6 +177,12 @@ async function callServiceMethod(
   services: DaemonServiceHost
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
+  if (contract.method === "repo.daemon.status") {
+    if (!services.DaemonStatusService) {
+      return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
+    }
+    return successReceipt(contract.method, "read daemon status", await services.DaemonStatusService.getStatus());
+  }
   if (contract.method === "repo.command.run") {
     if (!services.CliCommandService) {
       return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
