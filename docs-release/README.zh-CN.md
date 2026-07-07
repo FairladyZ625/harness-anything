@@ -37,3 +37,9 @@ Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产
 读完 `learn/`，好奇*系统到底如何兑现那些主张*？这条路径讲机制：分层架构、三个实体如何落在磁盘上、单一写入路径、可重建的 SQLite 投影、守门人(gate)以及 vertical 引擎。
 
 → **[architecture/](architecture/zh/00-overview.md)**
+
+## 运行团队 daemon 服务器
+
+把 canonical 仓库放到常驻 daemon 后面，安装服务模板，拒绝直推，并暴露只读镜像用于批量 fetch。
+
+→ **[operations-server-daemon.zh-CN.md](operations-server-daemon.zh-CN.md)**
