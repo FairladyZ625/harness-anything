@@ -35,6 +35,14 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
         cause
       })
     }),
+    readAuthoredDocument: (documentPath) => Effect.try({
+      try: () => readAuthoredDocument(rootInput, documentPath),
+      catch: (cause): ArtifactStoreError => ({
+        _tag: "ArtifactReadFailed",
+        path: documentPath,
+        cause
+      })
+    }),
     findBindingByExternalRef: (engine, ref) => Effect.try({
       try: () => findBindingByExternalRef(rootInput, engine, ref),
       catch: (cause): ArtifactStoreError => ({
@@ -97,6 +105,20 @@ export function readTaskPackage(rootInput: HarnessLayoutInput, taskId: TaskId): 
     rootPath,
     disposition: readPackageDisposition(rootPath, taskId),
     documents: readDocuments(rootPath)
+  };
+}
+
+export function readAuthoredDocument(rootInput: HarnessLayoutInput, documentPath: string): ArtifactDocument {
+  const safePath = normalizeRelativeDocumentPath(documentPath);
+  const fullPath = path.join(resolveHarnessLayout(rootInput).authoredRoot, safePath);
+  if (!existsSync(fullPath)) {
+    throw new Error(`authored document not found: ${safePath}`);
+  }
+  const body = readFileSync(fullPath, "utf8");
+  return {
+    path: safePath,
+    body,
+    sha256: sha256Text(body)
   };
 }
 

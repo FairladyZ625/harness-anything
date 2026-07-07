@@ -1,10 +1,9 @@
-import * as fs from "node:fs";
 import { Effect } from "effect";
-import type { DomainStatus, EngineError, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactStore, DomainStatus, EngineError, TaskId, WriteError } from "../../kernel/src/index.ts";
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import { parseFactFlowRecords } from "../../kernel/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, readFrontmatter, readScalar, taskDocumentPath } from "../../kernel/src/index.ts";
+import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
+import { readFrontmatter, readScalar } from "../../kernel/src/index.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 
@@ -38,6 +37,7 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly taskWriter: TaskLifecycleWriter;
+  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
   readonly documentPlaceholderPolicy?: TaskDocumentPlaceholderPolicy;
   readonly now?: () => string;
 }
@@ -81,8 +81,6 @@ export interface TaskLifecyclePolicy {
 }
 
 export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestratorOptions): TaskLifecycleOrchestrator {
-  const layoutInput = createHarnessRuntimeContext(options.rootDir, options.layoutOverrides);
-
   return {
     setTaskStatus: (payload) => Effect.gen(function* () {
       if (isTerminalStatus(payload.status)) {
@@ -112,14 +110,14 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       return { ok: true, taskId: payload.taskId, status: "in_review" } satisfies TaskLifecycleResult;
     }),
     reviewTask: (payload) => Effect.gen(function* () {
-      const review = yield* reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now);
+      const review = yield* reviewTask(options.artifactStore, payload.taskId, payload.reviewerId, options.now);
       if (!review.ok) return review;
       const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Review artifact staging failed.");
       if (!staged.ok) return staged;
       return { ok: true, taskId: payload.taskId, path: staged.path, report: review.report, reviewContract: review.reviewContract };
     }),
     completeTask: (payload) => Effect.gen(function* () {
-      const review = yield* reviewTask(layoutInput, payload.taskId, payload.reviewerId, options.now);
+      const review = yield* reviewTask(options.artifactStore, payload.taskId, payload.reviewerId, options.now);
       if (!review.ok) {
         if (review.error.code === "task_fact_required") return review;
         return {
@@ -138,7 +136,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const row = projection.rows.find((item) => item.taskId === payload.taskId);
       if (!row) return taskFailure(payload.taskId, "task_not_found", `task not found: ${payload.taskId}`);
 
-      const documentPlaceholder = yield* validateCompletionDocumentPlaceholders(layoutInput, payload.taskId, options.documentPlaceholderPolicy);
+      const documentPlaceholder = yield* validateCompletionDocumentPlaceholders(options.artifactStore, payload.taskId, options.documentPlaceholderPolicy);
       if (documentPlaceholder) return documentPlaceholder;
 
       const completionGate = evaluateCompletionGate({
@@ -207,19 +205,17 @@ function stageTaskTree(
 }
 
 function validateCompletionDocumentPlaceholders(
-  rootInput: HarnessLayoutInput,
+  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
   taskId: string,
   policy: TaskDocumentPlaceholderPolicy | undefined
 ): Effect.Effect<TaskLifecycleFailure | null> {
   return Effect.gen(function* () {
-    const closeoutPath = taskDocumentPath(rootInput, taskId, "closeout.md");
-    const closeout = policy ? yield* readUtf8IfExists(closeoutPath) : null;
+    const closeout = policy ? yield* readTaskDocument(artifactStore, taskId, "closeout.md") : null;
     if (policy && closeout !== null && isCloseoutPlaceholderMarkdown(closeout, policy.closeoutPlaceholderFingerprints)) {
       return taskFailure(taskId, "closeout_placeholder", "Replace closeout.md template placeholders before completing the task.");
     }
 
-    const reviewPath = taskDocumentPath(rootInput, taskId, "review.md");
-    const review = yield* readUtf8IfExists(reviewPath);
+    const review = yield* readTaskDocument(artifactStore, taskId, "review.md");
     if (review !== null && isReviewPlaceholderMarkdown(review)) {
       return taskFailure(taskId, "review_placeholder", "Replace the initial review.md placeholder with an actual review result before completing the task.");
     }
@@ -228,10 +224,9 @@ function validateCompletionDocumentPlaceholders(
   });
 }
 
-export function readTaskLifecyclePolicy(rootInput: HarnessLayoutInput, taskId: string): Effect.Effect<TaskLifecyclePolicy | null> {
+export function readTaskLifecyclePolicy(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<TaskLifecyclePolicy | null> {
   return Effect.gen(function* () {
-    const indexPath = taskDocumentPath(rootInput, taskId, "INDEX.md");
-    const body = yield* readUtf8IfExists(indexPath);
+    const body = yield* readTaskDocument(artifactStore, taskId, "INDEX.md");
     if (body === null) return null;
     const frontmatter = readFrontmatter(body);
     if (!frontmatter) return null;
@@ -241,17 +236,16 @@ export function readTaskLifecyclePolicy(rootInput: HarnessLayoutInput, taskId: s
 }
 
 function reviewTask(
-  rootInput: HarnessLayoutInput,
+  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
   taskId: string,
   reviewerId: string,
   now: (() => string) | undefined
 ): Effect.Effect<TaskLifecycleResult> {
   return Effect.gen(function* () {
-    const factGate = yield* validateTaskFactGate(rootInput, taskId);
+    const factGate = yield* validateTaskFactGate(artifactStore, taskId);
     if (factGate) return factGate;
 
-    const reviewPath = taskDocumentPath(rootInput, taskId, "review.md");
-    const reviewBody = yield* readUtf8IfExists(reviewPath);
+    const reviewBody = yield* readTaskDocument(artifactStore, taskId, "review.md");
     if (reviewBody === null) {
       return taskFailure(taskId, "review_document_missing", "Task review requires review.md in the task package.");
     }
@@ -292,11 +286,10 @@ function reviewTask(
   });
 }
 
-function validateTaskFactGate(rootInput: HarnessLayoutInput, taskId: string): Effect.Effect<TaskLifecycleFailure | null> {
-  const factsPath = taskDocumentPath(rootInput, taskId, "facts.md");
+function validateTaskFactGate(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<TaskLifecycleFailure | null> {
   const remediation = `Task review and completion require at least one real F- fact record. Add one with: ha fact record --task ${taskId} --statement "<verified result>" --source "<evidence path or command>" --confidence high`;
   return Effect.gen(function* () {
-    const factsBody = yield* readUtf8IfExists(factsPath);
+    const factsBody = yield* readTaskDocument(artifactStore, taskId, "facts.md");
     if (factsBody === null) return taskFailure(taskId, "task_fact_required", remediation);
     const records = parseFactFlowRecords(factsBody);
     if (records.length === 0) return taskFailure(taskId, "task_fact_required", remediation);
@@ -304,8 +297,11 @@ function validateTaskFactGate(rootInput: HarnessLayoutInput, taskId: string): Ef
   });
 }
 
-function readUtf8IfExists(filePath: string): Effect.Effect<string | null> {
-  return Effect.promise(() => fs.promises.readFile(filePath, "utf8").catch(() => null));
+function readTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, documentPath: string): Effect.Effect<string | null> {
+  return artifactStore.readTaskPackage(taskId as TaskId).pipe(
+    Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === documentPath)?.body ?? null),
+    Effect.catchAll(() => Effect.succeed(null))
+  );
 }
 
 function terminalStatusFailure(taskId: string, status: DomainStatus): TaskLifecycleFailure {

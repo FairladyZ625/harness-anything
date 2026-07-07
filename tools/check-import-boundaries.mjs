@@ -9,10 +9,11 @@ const violations = [];
 const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
 const allowlist = loadGateAllowlist("check-import-boundaries", {
-  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "cliAdapterKnownDebt"]
+  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "cliAdapterKnownDebt"]
 });
 const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompositionRoots));
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
+const kernelStoreCompositionRoots = new Set(entryValues(allowlist.kernelStoreCompositionRoots));
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
 
 async function walk(dir) {
@@ -247,7 +248,8 @@ for (const file of packageSourceFiles) {
     }
 
     const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
-    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
+    const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
+    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
       for (const specifier of imports) {
         if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
           record(file, `store implementation is internal to WriteCoordinator and must not be imported via ${specifier}`);

@@ -1,14 +1,14 @@
-import * as fs from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource } from "../../kernel/src/index.ts";
-import { readFrontmatter, readScalar, resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
-import { isNodeErrorCode } from "./node-errors.ts";
+import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, WriteCoordinator, WriteError } from "../../kernel/src/index.ts";
+import { moduleEntityId, readFrontmatter, readScalar, resolveHarnessLayout, stablePayloadHash, writeCoordinatedPayload, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
 
 export interface ProvenanceSessionExporterOptions {
   readonly rootInput: HarnessLayoutInput;
   readonly currentSessionProbe: CurrentSessionProbePort;
+  readonly coordinator: WriteCoordinator;
+  readonly artifactStore: Pick<ArtifactStore, "readAuthoredDocument">;
   readonly now?: () => string;
   readonly homeDir?: string;
   readonly runtimeLogRoots?: Partial<Record<CurrentSessionRuntime, ReadonlyArray<string>>>;
@@ -65,7 +65,7 @@ export function makeProvenanceSessionExporter(options: ProvenanceSessionExporter
       Effect.flatMap(exportSession)
     ),
     backfillRuntimeSessions: (backfillOptions = {}) => backfillRuntimeSessions(options.rootInput, options, backfillOptions, timestamp),
-    readById: (sessionId) => readSessionDocument(options.rootInput, sessionId)
+    readById: (sessionId) => readSessionDocument(options.rootInput, options, sessionId)
   };
 }
 
@@ -89,40 +89,43 @@ function writeSessionDocument(
   return Effect.gen(function* () {
     const target = resolveSessionPath(rootInput, session.sessionId);
     const conversation = yield* resolveRuntimeConversation(session, options);
-    return yield* Effect.tryPromise({
-      try: async () => {
-        await fs.promises.mkdir(path.dirname(target.absolutePath), { recursive: true });
-        const tmpPath = `${target.absolutePath}.${process.pid}.${Date.now()}.tmp`;
-        await fs.promises.writeFile(tmpPath, renderSessionMarkdown(session, conversation), "utf8");
-        await fs.promises.rename(tmpPath, target.absolutePath);
-        return {
-          session,
-          path: target.relativePath
-        };
-      },
-      catch: (error) => sessionRejection(session.sessionId, error instanceof Error ? error.message : "session export failed")
-    });
+    return yield* writeCoordinatedPayload(options.coordinator, stablePayloadHash, {
+      entityId: moduleEntityId("provenance-session"),
+      kind: "machine_artifact_write",
+      opIdPrefix: `session-export-${session.sessionId}`,
+      payload: {
+        boundary: "provenance-session",
+        path: target.rootRelativePath,
+        body: renderSessionMarkdown(session, conversation)
+      }
+    }).pipe(
+      Effect.map(() => ({
+        session,
+        path: target.authoredRelativePath
+      })),
+      Effect.mapError((error) => sessionRejection(session.sessionId, writeErrorMessage(error)))
+    );
   });
 }
 
 function readSessionDocument(
   rootInput: HarnessLayoutInput,
+  options: Pick<ProvenanceSessionExporterOptions, "artifactStore">,
   sessionId: string
 ): Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected> {
-  return Effect.tryPromise({
-    try: async () => {
-      const target = resolveSessionPath(rootInput, sessionId);
-      const body = await fs.promises.readFile(target.absolutePath, "utf8").catch((error: unknown) => {
-        if (isNodeErrorCode(error, "ENOENT")) throw new Error(`session not found: ${sessionId}`);
-        throw error;
-      });
-      const session = parseSessionMarkdown(body, sessionId);
-      return {
-        session,
-        path: target.relativePath
-      };
-    },
-    catch: (error) => sessionRejection(sessionId, error instanceof Error ? error.message : "session read failed")
+  return Effect.gen(function* () {
+    const target = resolveSessionPath(rootInput, sessionId);
+    return yield* options.artifactStore.readAuthoredDocument(target.authoredRelativePath).pipe(
+      Effect.map((document) => {
+        const body = document.body;
+        const session = parseSessionMarkdown(body, sessionId);
+        return {
+          session,
+          path: target.authoredRelativePath
+        };
+      }),
+      Effect.mapError((error) => sessionRejection(sessionId, error._tag === "ArtifactReadFailed" ? `session not found: ${sessionId}` : "session read failed"))
+    );
   });
 }
 
@@ -137,7 +140,7 @@ function backfillRuntimeSessions(
     const discovered = yield* discoverRuntimeSessions(options, backfillOptions, detectedAt);
     const exported: ProvenanceSessionExportResult[] = [];
     for (const session of discovered.sessions) {
-      const existing = yield* readSessionDocument(rootInput, session.sessionId).pipe(
+      const existing = yield* readSessionDocument(rootInput, options, session.sessionId).pipe(
         Effect.catchAll(() => writeSessionDocument(rootInput, options, toSessionDocument(session, timestamp())))
       );
       exported.push(existing);
@@ -150,13 +153,14 @@ function backfillRuntimeSessions(
   });
 }
 
-function resolveSessionPath(rootInput: HarnessLayoutInput, sessionId: string): { readonly absolutePath: string; readonly relativePath: string } {
+function resolveSessionPath(rootInput: HarnessLayoutInput, sessionId: string): { readonly absolutePath: string; readonly authoredRelativePath: string; readonly rootRelativePath: string } {
   assertSafeSessionId(sessionId);
   const layout = resolveHarnessLayout(rootInput);
   const absolutePath = layout.sessionDocumentPath(sessionId);
   return {
     absolutePath,
-    relativePath: path.relative(layout.authoredRoot, absolutePath).split(path.sep).join("/")
+    authoredRelativePath: path.relative(layout.authoredRoot, absolutePath).split(path.sep).join("/"),
+    rootRelativePath: path.relative(layout.rootDir, absolutePath).split(path.sep).join("/")
   };
 }
 
@@ -262,4 +266,11 @@ function sessionRejection(sessionId: string, reason: string): ProvenanceSessionE
     sessionId,
     reason
   };
+}
+
+function writeErrorMessage(error: WriteError): string {
+  if (error._tag === "WriteRejected") return error.reason;
+  if (error._tag === "WriteConflict") return `write conflict for ${error.taskId}`;
+  if (error._tag === "GlobalWriteConflict") return "global write conflict";
+  return error.cause instanceof Error ? error.cause.message : "session export failed";
 }

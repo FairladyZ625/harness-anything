@@ -33,6 +33,7 @@ import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonSocketPath, runCommandThroughDaemon } from "./daemon/client.ts";
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
+import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
@@ -377,7 +378,8 @@ function createRepoServiceBinding(
   const localController = makeLocalControllerService({
     rootDir,
     layoutOverrides,
-    taskWriter
+    taskWriter,
+    artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
   });
   const cliCommandService = createCliCommandService(runtime, commandOptions);
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
