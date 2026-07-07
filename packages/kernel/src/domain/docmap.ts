@@ -12,11 +12,10 @@ export interface DocmapDocument {
   readonly path: string;
   readonly kind: DocmapDocumentKind;
   readonly scope: DocmapScope;
-  readonly owner: string;
-  readonly brief: string;
+  readonly updatedAt: string;
   readonly supersedes?: ReadonlyArray<string>;
   readonly supersededBy?: string;
-  readonly tags?: ReadonlyArray<string>;
+  readonly unused?: boolean;
 }
 
 export interface DocmapManifest {

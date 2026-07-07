@@ -63,8 +63,7 @@ function doc(id: string, docPath: string, modules: string[], productLines: strin
     path: docPath,
     kind: "adr",
     scope: { modules, productLines },
-    owner: "architecture",
-    brief: `${id} brief`
+    updatedAt: "2026-07-07T00:00:00.000Z"
   };
 }
 
