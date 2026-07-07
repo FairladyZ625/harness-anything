@@ -1,6 +1,6 @@
 queue_rules:
   - name: default
-    merge_method: squash
+    merge_method: merge
     queue_conditions:
       - base = main
       - label = merge-queue
