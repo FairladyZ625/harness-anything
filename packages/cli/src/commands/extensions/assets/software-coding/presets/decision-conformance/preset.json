@@ -1,0 +1,19 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "decision-conformance",
+  "title": "Decision Conformance",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "template-content",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "vertical:software-coding:decision-conformance", "kind": "checker", "version": "1", "required": true }
+  ],
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "software-coding-decision-conformance",
+    "templateSelections": []
+  }],
+  "defaultProfile": "baseline"
+}

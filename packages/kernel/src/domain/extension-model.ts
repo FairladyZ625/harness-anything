@@ -451,7 +451,7 @@ function validateVerticalScriptsShape(input: unknown, path: string, issues: Exte
     const scriptPath = `${path}[${index}]`;
     validateObjectKeys(script, scriptPath, ["id", "type", "command", "reads", "writes", "inputs", "metadata"], issues);
     if (isRecord(script)) {
-      validateObjectKeys(script.metadata, `${scriptPath}.metadata`, ["description", "purpose", "contractVersion", "produces"], issues);
+      validateObjectKeys(script.metadata, `${scriptPath}.metadata`, ["description", "purpose", "kind", "contractVersion", "produces"], issues);
     }
   }
 }

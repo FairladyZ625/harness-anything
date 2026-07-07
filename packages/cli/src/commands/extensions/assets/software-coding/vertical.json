@@ -299,6 +299,24 @@
           "{{paths.adrRoot}}/*.md"
         ]
       }
+    },
+    {
+      "id": "vertical:software-coding:decision-conformance",
+      "type": "script",
+      "command": "scripts/decision-conformance-check.mjs",
+      "reads": [
+        "{{paths.authoredRoot}}/**",
+        "{{paths.localRoot}}/**"
+      ],
+      "writes": [],
+      "inputs": {},
+      "metadata": {
+        "description": "Check decision conformance across task derivation, relation coverage, fact coverage, supersession, and proposed-decision drift.",
+        "purpose": "audit",
+        "kind": "check",
+        "contractVersion": "script-entry/v1",
+        "produces": []
+      }
     }
   ],
   "templateSelections": [],

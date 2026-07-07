@@ -237,7 +237,7 @@ export interface ParsedCommand {
     | { readonly kind: "preset-uninstall"; readonly presetId: string; readonly layer: "project" | "user" }
     | { readonly kind: "preset-run"; readonly presetId: string; readonly entrypoint: "plan" | "scaffold" | "check"; readonly taskId: string; readonly allowScripts: boolean }
     | { readonly kind: "preset-action"; readonly presetId: string; readonly actionName: string; readonly taskId: string; readonly allowScripts: boolean }
-    | { readonly kind: "script-list"; readonly source?: "user" | "vertical" | "preset"; readonly purpose?: "scaffold" | "generate" | "transform" | "audit" }
+    | { readonly kind: "script-list"; readonly source?: "user" | "vertical" | "preset"; readonly purpose?: "scaffold" | "generate" | "transform" | "audit"; readonly scriptKind?: "action" | "check" }
     | { readonly kind: "script-inspect"; readonly scriptId: string }
     | { readonly kind: "script-run"; readonly scriptId: string; readonly taskId?: string; readonly dryRun: boolean; readonly inputs: Record<string, string> }
     | { readonly kind: "module-list" }

@@ -6,7 +6,7 @@ import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { bundledVerticalDefinitionEntry } from "./bundled.ts";
 import { discoverPresets, publicPresetSummary } from "./state.ts";
 import { presetScriptEntry } from "./preset-script-runner.ts";
-import { runScriptHost, scriptHostCliResult, type ResolvedScriptEntry, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
+import { runScriptHost, scriptHostCliResult, type ResolvedScriptEntry, type ScriptKind, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
 
 type ScriptAction = Extract<ParsedCommand["action"], {
   readonly kind: "script-list" | "script-inspect" | "script-run";
@@ -27,6 +27,7 @@ function runScriptList(rootInput: HarnessLayoutInput, action: Extract<ScriptActi
   const scripts = discoverScriptEntries(rootInput)
     .filter((script) => !action.source || script.entry.source === action.source)
     .filter((script) => !action.purpose || script.entry.metadata.purpose === action.purpose)
+    .filter((script) => !action.scriptKind || (script.entry.metadata.kind ?? "action") === action.scriptKind)
     .map(publicScriptSummary);
   return {
     ok: true,
@@ -129,6 +130,7 @@ function publicScriptSummary(script: ResolvedScriptEntry): Record<string, unknow
     source: script.entry.source,
     description: script.entry.metadata.description,
     purpose: script.entry.metadata.purpose,
+    kind: script.entry.metadata.kind ?? "action",
     contractVersion: script.entry.metadata.contractVersion
   };
 }
@@ -159,4 +161,8 @@ export function isScriptSource(value: string): value is ScriptSource {
 
 export function isScriptPurpose(value: string): value is ScriptPurpose {
   return value === "scaffold" || value === "generate" || value === "transform" || value === "audit";
+}
+
+export function isScriptKind(value: string): value is ScriptKind {
+  return value === "action" || value === "check";
 }
