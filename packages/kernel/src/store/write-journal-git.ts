@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
+import type { GitCommitAuthor } from "./write-journal-types.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024;
 
@@ -13,7 +14,7 @@ export function commitTouchedPaths(
   layoutInput: HarnessLayoutInput = rootDir,
   message?: string,
   sessionId?: string,
-  options: { readonly respectGitignorePaths?: ReadonlyArray<string> } = {}
+  options: { readonly respectGitignorePaths?: ReadonlyArray<string>; readonly author?: GitCommitAuthor } = {}
 ): string {
   if (touchedPaths.length === 0) return "no-git-change";
 
@@ -32,7 +33,7 @@ export function commitTouchedPaths(
     const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
     if (staged.length === 0) return currentGitHead(plan.repoRoot);
 
-    runGit(plan.repoRoot, "commit", "-m", message ?? `harness write ${opIds.join(",")}`);
+    runGitAs(plan.repoRoot, options.author, "commit", "-m", message ?? `harness write ${opIds.join(",")}`);
     return currentGitHead(plan.repoRoot);
   } finally {
     if (sessionBranch) runGit(plan.repoRoot, "checkout", "master");
@@ -145,6 +146,10 @@ function normalizeExistingPath(inputPath: string): string {
 }
 
 function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
+  return runGitAs(repoRoot, undefined, ...args);
+}
+
+function runGitAs(repoRoot: string, author: GitCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
   try {
     return execFileSync("git", ["-C", repoRoot, ...args], {
       encoding: "utf8",
@@ -152,8 +157,8 @@ function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
-        GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
+        GIT_AUTHOR_NAME: author?.name ?? process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
+        GIT_AUTHOR_EMAIL: author?.email ?? process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
         GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
         GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness@example.invalid"
       }

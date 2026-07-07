@@ -1,9 +1,13 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
 import type { LocalControllerService } from "../../../application/src/index.ts";
+import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
 import { currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
+import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
+import { authorizeActorForMethod } from "../identity/authorization.ts";
+import { actorStamp, actorStampJson, type AuthenticatedActor, type IdentityProvider, type PeopleRoster } from "../identity/types.ts";
 
 export interface DaemonRepoNamespace {
   readonly repoId: string;
@@ -19,6 +23,10 @@ export interface JsonRpcServerOptions {
   readonly daemonId: string;
   readonly repos: ReadonlyArray<DaemonRepoNamespace>;
   readonly services: DaemonServiceHost;
+  readonly authContext?: DaemonAuthenticationContext;
+  readonly identityProvider?: IdentityProvider;
+  readonly peopleRoster?: PeopleRoster;
+  readonly appendRuntimeEvent?: (input: RuntimeEventAppendInput) => Promise<void>;
 }
 
 export interface JsonRpcProtocolServer {
@@ -30,7 +38,7 @@ interface ProtocolSession {
   handshaken: boolean;
 }
 
-const methodByName = new Map(jsonRpcMethodContracts.map((contract) => [contract.method, contract]));
+const methodByName: ReadonlyMap<string, JsonRpcMethodContract> = new Map(jsonRpcMethodContracts.map((contract) => [contract.method, contract]));
 
 export function createJsonRpcProtocolServer(options: JsonRpcServerOptions): JsonRpcProtocolServer {
   const session: ProtocolSession = { handshaken: false };
@@ -77,13 +85,44 @@ async function handleRequest(
   const repoFailure = validateRepoNamespace(contract, request.params ?? {}, repos);
   if (repoFailure) return response(failureReceipt(request.method, repoFailure.code, repoFailure.hint));
 
-  if (contract.mode === "notification-stub") {
-    return response(successReceipt(request.method, `registered no-op notification stub for ${request.method}`, {
-      subscription: "noop"
-    }));
+  const actorResult = await resolveActor(contract, options);
+  if (actorResult && !actorResult.ok) {
+    const receipt = failureReceipt(request.method, actorResult.code, actorResult.message, {
+      providerId: actorResult.providerId,
+      ...(actorResult.credential ? { credential: credentialJson(actorResult.credential) } : {})
+    });
+    await appendCommandEvent(options, request.params ?? {}, contract, "failed", actorResult.message, actorResult.code);
+    return response(receipt);
+  }
+  const actor = actorResult?.actor;
+  if (actor && options.peopleRoster) {
+    const authz = authorizeActorForMethod(actor, contract, options.peopleRoster);
+    if (!authz.ok) {
+      await appendCommandEvent(options, request.params ?? {}, contract, "failed", authz.message, authz.code, actor);
+      return response(stampReceipt(failureReceipt(request.method, authz.code, authz.message, {
+        actor: actorStampJson(actor),
+        commandClass: contract.commandClass ?? null
+      }), actor));
+    }
   }
 
-  return response(await callServiceMethod(contract, request.params ?? {}, options.services));
+  if (contract.mode === "notification-stub") {
+    return response(stampReceipt(successReceipt(request.method, `registered no-op notification stub for ${request.method}`, {
+      subscription: "noop"
+    }), actor));
+  }
+
+  if (contract.namespace === "admin") {
+    const result = handleAdminMethod(contract, options);
+    const receipt = stampReceipt(result, actor);
+    await appendWriteEventIfNeeded(options, request.params ?? {}, contract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
+    return response(receipt);
+  }
+
+  const result = await callServiceMethod(contract, request.params ?? {}, options.services);
+  const receipt = stampReceipt(result, actor);
+  await appendWriteEventIfNeeded(options, request.params ?? {}, contract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
+  return response(receipt);
 }
 
 function handleHello(
@@ -130,7 +169,7 @@ async function callServiceMethod(
   contract: JsonRpcMethodContract,
   params: JsonObject,
   services: DaemonServiceHost
-): Promise<unknown> {
+): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
@@ -138,6 +177,122 @@ async function callServiceMethod(
   return isJsonObject(result)
     ? serviceResultReceipt(contract.method, result)
     : successReceipt(contract.method, `completed ${contract.method}`, { value: toJsonValue(result) });
+}
+
+async function resolveActor(
+  contract: JsonRpcMethodContract,
+  options: JsonRpcServerOptions
+): Promise<{ readonly ok: true; readonly actor: AuthenticatedActor } | Awaited<ReturnType<IdentityProvider["resolveActor"]>> | undefined> {
+  if (!options.identityProvider) return undefined;
+  const authContext = options.authContext ?? { transportKind: "unix-socket" } satisfies DaemonAuthenticationContext;
+  return options.identityProvider.resolveActor({
+    authContext,
+    command: {
+      method: contract.method,
+      namespace: contract.namespace,
+      requiresRepo: contract.requiresRepo
+    }
+  });
+}
+
+function handleAdminMethod(
+  contract: JsonRpcMethodContract,
+  options: JsonRpcServerOptions
+): ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt> {
+  if (!options.peopleRoster) {
+    return failureReceipt(contract.method, "people_roster_unavailable", "Admin identity methods require a loaded people roster.");
+  }
+  if (contract.method === "admin.people.list") {
+    return successReceipt(contract.method, "listed people", {
+      items: options.peopleRoster.people.map((person) => ({
+        personId: person.personId,
+        displayName: person.displayName,
+        ...(person.primaryEmail ? { primaryEmail: person.primaryEmail } : {}),
+        roles: [...person.roles],
+        disabled: person.disabled ?? false,
+        credentials: person.credentials.map(credentialJson)
+      }))
+    });
+  }
+  if (contract.method === "admin.rbac.roles.list") {
+    return successReceipt(contract.method, "listed RBAC roles", {
+      items: options.peopleRoster.roles.map((role) => ({
+        roleId: role.roleId,
+        commandClasses: [...role.commandClasses]
+      }))
+    });
+  }
+  return failureReceipt(contract.method, "method_not_implemented", `Admin method is not implemented: ${contract.method}`);
+}
+
+function stampReceipt<T extends ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>>(receipt: T, actor?: AuthenticatedActor): T {
+  if (!actor) return receipt;
+  return {
+    ...receipt,
+    details: {
+      ...(receipt.details ?? {}),
+      actor: actorStampJson(actor)
+    }
+  };
+}
+
+async function appendWriteEventIfNeeded(
+  options: JsonRpcServerOptions,
+  params: JsonObject,
+  contract: JsonRpcMethodContract,
+  status: "succeeded" | "failed",
+  summary: string,
+  errorCode: string | undefined,
+  actor: AuthenticatedActor | undefined
+): Promise<void> {
+  if (contract.commandClass === "repo-read") return;
+  await appendCommandEvent(options, params, contract, status, summary, errorCode, actor);
+}
+
+async function appendCommandEvent(
+  options: JsonRpcServerOptions,
+  params: JsonObject,
+  contract: JsonRpcMethodContract,
+  status: "succeeded" | "failed",
+  summary: string,
+  errorCode?: string,
+  actor?: AuthenticatedActor
+): Promise<void> {
+  if (!options.appendRuntimeEvent) return;
+  const session = runtimeSession(params, options.daemonId);
+  await options.appendRuntimeEvent({
+    kind: "result",
+    session,
+    tool: {
+      toolName: contract.method,
+      ...(errorCode ? { errorCode } : {})
+    },
+    result: {
+      status,
+      summary,
+      ...(errorCode ? { errorCode } : {})
+    },
+    ...(actor ? { actor: actorStamp(actor) } : {})
+  }).catch(() => undefined);
+}
+
+function runtimeSession(params: JsonObject, daemonId: string): { readonly sessionId: string; readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown" } {
+  const session = isJsonObject(params.session) ? params.session : {};
+  const runtime = typeof session.runtime === "string" && ["human", "claude-code", "codex", "zcode", "antigravity"].includes(session.runtime)
+    ? session.runtime as "human" | "claude-code" | "codex" | "zcode" | "antigravity"
+    : "unknown";
+  return {
+    sessionId: typeof session.sessionId === "string" && session.sessionId.trim() ? session.sessionId : `daemon-${daemonId}`,
+    runtime
+  };
+}
+
+function credentialJson(credential: { readonly kind: string; readonly issuer: string; readonly subject: string }): JsonObject {
+  return {
+    kind: credential.kind,
+    issuer: credential.issuer,
+    subject: credential.subject
+  };
 }
 
 async function invokeServiceMethod(

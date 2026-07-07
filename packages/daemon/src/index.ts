@@ -1,8 +1,45 @@
 export {
+  actorGitCommitAuthor,
+  actorStamp,
+  actorStampJson,
+  credentialKey,
+  type ActorStamp,
+  type AuthenticatedActor,
+  type CredentialKind,
+  type CredentialRef,
+  type DaemonCommandClass,
+  type GitCommitAuthor,
+  type IdentityProvider,
+  type IdentityProviderFailure,
+  type IdentityProviderFailureCode,
+  type IdentityProviderResolveInput,
+  type IdentityProviderSuccess,
+  type PeopleRoster,
+  type PersonId,
+  type PersonProfile,
+  type RoleId,
+  type RolePolicy
+} from "./identity/types.ts";
+export {
+  loadPeopleRoster,
+  peopleRosterFromDocument
+} from "./identity/people-roster.ts";
+export {
+  makeTransportDerivedIdentityProvider,
+  type TransportDerivedIdentityProviderOptions
+} from "./identity/transport-derived-provider.ts";
+export {
+  authorizeActorForMethod,
+  type AuthorizationFailure,
+  type AuthorizationSuccess
+} from "./identity/authorization.ts";
+export {
   currentDaemonProtocolVersion,
+  commandClassForApiRoute,
   deriveJsonRpcServiceMethodContracts,
   jsonRpcMethodContracts,
   jsonRpcServiceMethodContracts,
+  type DaemonCommandClass as JsonRpcDaemonCommandClass,
   type JsonRpcMethodContract,
   type JsonRpcMethodMode
 } from "./protocol/method-registry.ts";
