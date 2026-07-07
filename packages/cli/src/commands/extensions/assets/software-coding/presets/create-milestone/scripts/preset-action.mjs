@@ -137,18 +137,20 @@ function checkOverview(overviewPath, roadmap, dossier, options) {
   const mission = matchScalar(body, /-\s+\*\*Mission\*\*:\s*(.+)/u);
   const decisionAnchors = [...body.matchAll(/\bdec_[A-Za-z0-9_]+\b/gu)].map((match) => match[0]);
   const missing = [];
-  if (!body.includes("milestone-map:v1")) missing.push("milestone-map:v1 marker");
+  if (!body.includes("milestone-map:v1") && !/(?:目标 \(North Star\)|North Star)/u.test(body)) missing.push("milestone-map:v1 marker");
   if (!status) missing.push("status field");
   if (!rootTask) missing.push("root task field");
-  if (!mission) missing.push("mission field");
+  if (!mission && !/(?:目标 \(North Star\)|North Star)/u.test(body)) missing.push("mission field");
   if (!/(?:使用侧三问|Usage Questions)/u.test(body)) missing.push("usage questions section");
   if (!/(?:谁第一个用|First user)/u.test(body)) missing.push("usage question: first user");
   if (!/(?:何时强制切换|Forced switch)/u.test(body)) missing.push("usage question: forced switch");
   if (!/(?:旧路径何时废止|Retired old path)/u.test(body)) missing.push("usage question: retired old path");
-  if (!/(?:任务映射|Task Mapping)/u.test(body)) missing.push("task mapping section");
+  if (!/(?:任务映射|Task Mapping|W 波次总表|Wave Decomposition)/u.test(body)) missing.push("task mapping section");
   if (!/(?:依赖与入口|Dependencies|入口条件)/u.test(body)) missing.push("dependencies and entry section");
   if (options.requireDecisionAnchor && decisionAnchors.length === 0) missing.push("decision anchor");
-  if (decisionAnchors.some((decisionId) => !findDecision(decisionId))) missing.push("decision anchor exists under decisions root");
+  if (options.requireDecisionAnchor && decisionAnchors.length > 0 && !decisionAnchors.some((decisionId) => findDecision(decisionId))) {
+    missing.push("decision anchor exists under decisions root");
+  }
 
   const normalizedRoot = stripMarkdown(rootTask);
   if (/^task_/u.test(normalizedRoot) && !findTask(normalizedRoot)) missing.push(`root task ${normalizedRoot} exists under tasks root`);
@@ -279,7 +281,7 @@ function matchScalar(body, regex) {
 }
 
 function stripMarkdown(value) {
-  return String(value ?? "").replace(/[`*_]/gu, "").trim();
+  return String(value ?? "").replace(/[`*]/gu, "").trim();
 }
 
 function walk(root) {
