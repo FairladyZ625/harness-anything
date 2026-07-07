@@ -27,7 +27,7 @@ export function runDaemonRepoCommand(input: DaemonRepoCommandInput): number {
   };
   try {
     if (action === "register") {
-      const canonicalRoot = readOption(input.args, "--canonical-root") ?? input.rootDir;
+      const canonicalRoot = readOption(input.args, "--canonical-root") ?? readOption(input.args, "--root") ?? input.rootDir;
       const result = registerDaemonRepo({
         ...options,
         canonicalRoot,

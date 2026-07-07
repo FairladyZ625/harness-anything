@@ -2,6 +2,10 @@
 
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+  readDaemonRegistry,
+  type DaemonRegistryRepo
+} from "../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
@@ -26,7 +30,7 @@ import {
 } from "./commands/daemon/productization.ts";
 import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
 import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
-import { localDaemonSocketPath, runCommandThroughDaemon } from "./daemon/client.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonSocketPath, runCommandThroughDaemon } from "./daemon/client.ts";
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
 
@@ -34,6 +38,8 @@ const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
 type HarnessDaemonRuntime = ReturnType<typeof daemonRuntimeProvider.createDaemonRuntime>;
 type MultiRepoHarnessDaemonRuntime = ReturnType<typeof daemonRuntimeProvider.createMultiRepoDaemonRuntime>;
+type RepoServiceBinding = ReturnType<typeof createRepoServiceBinding>;
+type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayName">;
 const createMultiRepoDaemonRuntime = daemonRuntimeProvider.createMultiRepoDaemonRuntime;
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
@@ -58,15 +64,16 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
   if (stripped.args[0] !== "daemon") return undefined;
   const action = stripped.args[1] ?? "status";
   const layoutOverrides = stripped.authoredRoot ? { authoredRoot: stripped.authoredRoot } : undefined;
+  const daemonArgs = stripped.daemonRepoId ? [...stripped.args, "--repo", stripped.daemonRepoId] : stripped.args;
   if (action === "serve") {
-    await runDaemonServe(stripped.rootDir, layoutOverrides, stripped.args);
+    await runDaemonServe(stripped.rootDir, layoutOverrides, daemonArgs);
     return 0;
   }
   return runDaemonProductCommand({
     rootDir: stripped.rootDir,
     layoutOverrides,
     json: stripped.json,
-    args: stripped.args,
+    args: daemonArgs,
     runServe: runDaemonServe
   });
 }
@@ -77,10 +84,18 @@ async function runDaemonServe(
   args: ReadonlyArray<string>,
   hooks: DaemonServeHooks = {}
 ): Promise<void> {
-  const repoId = readOption(args, "--repo") ?? "canonical";
+  const requestedRepoId = readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID ?? "canonical";
+  const userRoot = readOption(args, "--user-root") ?? daemonUserRoot();
+  const serveRepos = daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
+  const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
   const runtime = createMultiRepoDaemonRuntime({
     materializerPollMs: 5_000,
-    repos: [{ repoId, rootDir, ...(layoutOverrides ? { layoutOverrides } : {}) }]
+    repos: serveRepos.map((repo) => ({
+      repoId: repo.repoId,
+      rootDir: repo.canonicalRoot,
+      displayName: repo.displayName,
+      ...(layoutOverrides ? { layoutOverrides } : {})
+    }))
   });
   const startStatus = await runtime.start();
   if (startStatus.repoCount > 0 && startStatus.attachedCount === 0 && startStatus.unavailableCount > 0) {
@@ -88,10 +103,11 @@ async function runDaemonServe(
   }
   const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
   const stdio = args.includes("--stdio");
-  const socketPath = readOption(args, "--socket") ?? localDaemonSocketPath(rootDir);
+  const socketPath = readOption(args, "--socket") ?? localUserDaemonSocketPath(userRoot, daemonIdFromEnv());
   const endpoint = stdio ? "stdio" : socketPath;
   const connections: DaemonConnectionStats = { active: 0, total: 0 };
-  const serviceHost = createDaemonServiceHost(runtime, [{ repoId, canonicalRoot: rootDir }], repoId, layoutOverrides, idleMs, endpoint, connections);
+  const serviceHost = createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections);
+  serviceHost.startRegistryReconcile(userRoot);
   if (stdio) {
     connections.active += 1;
     connections.total += 1;
@@ -162,6 +178,37 @@ function repoAvailabilityFailure(
   };
 }
 
+function daemonServeRepos(
+  rootDir: string,
+  layoutOverrides: { readonly authoredRoot?: string } | undefined,
+  requestedRepoId: string,
+  userRoot: string
+): ReadonlyArray<DaemonServeRepo> {
+  const enabledRepos = readDaemonRegistry({ userRoot }).repos.filter((repo) => repo.state === "enabled");
+  if (enabledRepos.length > 0) {
+    return enabledRepos.map((repo) => ({
+      repoId: repo.repoId,
+      canonicalRoot: repo.canonicalRoot,
+      displayName: repo.displayName
+    }));
+  }
+  return [{
+    repoId: requestedRepoId,
+    canonicalRoot: rootDir,
+    displayName: layoutOverrides?.authoredRoot ?? requestedRepoId
+  }];
+}
+
+function defaultDaemonServeRepoId(repos: ReadonlyArray<DaemonServeRepo>, rootDir: string, requestedRepoId: string): string {
+  if (repos.some((repo) => repo.repoId === requestedRepoId)) return requestedRepoId;
+  const matchingRoot = repos.find((repo) => realpathOrResolve(repo.canonicalRoot) === realpathOrResolve(rootDir));
+  return matchingRoot?.repoId ?? repos[0]?.repoId ?? requestedRepoId;
+}
+
+function sortedDaemonRepos(repos: ReadonlyArray<DaemonRepoNamespace>): ReadonlyArray<DaemonRepoNamespace> {
+  return [...repos].sort((left, right) => left.repoId.localeCompare(right.repoId) || left.canonicalRoot.localeCompare(right.canonicalRoot));
+}
+
 function createDaemonServiceHost(
   runtime: MultiRepoHarnessDaemonRuntime,
   repos: ReadonlyArray<DaemonRepoNamespace>,
@@ -177,20 +224,25 @@ function createDaemonServiceHost(
   readonly scheduleIdleExit: () => void;
   readonly waitForStopRequest: () => Promise<void>;
   readonly onStop: (handler: () => Promise<void>) => void;
+  readonly startRegistryReconcile: (userRoot: string) => void;
   readonly stop: () => Promise<void>;
 } {
   const daemonId = `ha-${process.pid}`;
   const stopHandlers: Array<() => Promise<void>> = [];
+  const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
   let requestStop: (() => void) | undefined;
   const stopRequested = new Promise<void>((resolve) => {
     requestStop = resolve;
   });
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconcileTimer: ReturnType<typeof setInterval> | undefined;
+  let reconciling = false;
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
     if (idleTimer) clearTimeout(idleTimer);
+    if (reconcileTimer) clearInterval(reconcileTimer);
     for (const handler of stopHandlers.splice(0, stopHandlers.length)) {
       await handler();
     }
@@ -218,13 +270,13 @@ function createDaemonServiceHost(
     daemonId,
     createProtocolServer: (authContext) => createJsonRpcProtocolServer({
       daemonId,
-      repos,
-      services: repoBindings.get(defaultRepoId)!.services,
+      repos: sortedDaemonRepos([...reposById.values()]),
+      services: defaultRepoBinding().services,
       resolveRepoServices: (repo) => repoBindings.get(repo.repoId)?.services,
       resolveRepoAvailability: (repo) => repoAvailabilityFailure(runtime, repo),
       authContext,
-      ...(repoBindings.get(defaultRepoId)?.identity.identityProvider ? { identityProvider: repoBindings.get(defaultRepoId)!.identity.identityProvider } : {}),
-      ...(repoBindings.get(defaultRepoId)?.identity.peopleRoster ? { peopleRoster: repoBindings.get(defaultRepoId)!.identity.peopleRoster } : {}),
+      ...(defaultRepoBinding().identity.identityProvider ? { identityProvider: defaultRepoBinding().identity.identityProvider } : {}),
+      ...(defaultRepoBinding().identity.peopleRoster ? { peopleRoster: defaultRepoBinding().identity.peopleRoster } : {}),
       appendRuntimeEvent: (input, context) => {
         const targetRepoId = context?.repo.repoId ?? defaultRepoId;
         return repoBindings.get(targetRepoId)?.appendRuntimeEvent(input) ?? Promise.resolve();
@@ -232,8 +284,8 @@ function createDaemonServiceHost(
     }),
     status: () => daemonStatusPayload({
       daemonId,
-      rootDir: repoBindings.get(defaultRepoId)!.repo.canonicalRoot,
-      repoId: defaultRepoId,
+      rootDir: defaultRepoBinding().repo.canonicalRoot,
+      repoId: defaultRepoBinding().repo.repoId,
       endpoint,
       runtimeStatus: runtime.status(),
       connections
@@ -243,8 +295,63 @@ function createDaemonServiceHost(
     onStop: (handler) => {
       stopHandlers.push(handler);
     },
+    startRegistryReconcile: (userRoot) => {
+      if (reconcileTimer || stopping) return;
+      const reconcile = async () => {
+        if (reconciling || stopping) return;
+        reconciling = true;
+        try {
+          await reconcileDaemonRepos(userRoot);
+        } finally {
+          reconciling = false;
+        }
+      };
+      reconcileTimer = setInterval(() => {
+        void reconcile().catch(() => undefined);
+      }, 1_000);
+      reconcileTimer.unref();
+    },
     stop
   };
+
+  function defaultRepoBinding(): RepoServiceBinding {
+    const binding = repoBindings.get(defaultRepoId) ?? repoBindings.values().next().value;
+    if (!binding) throw new Error("daemon service host has no repo bindings");
+    return binding;
+  }
+
+  async function reconcileDaemonRepos(userRoot: string): Promise<void> {
+    const desiredRepos = readDaemonRegistry({ userRoot }).repos.filter((repo) => repo.state === "enabled");
+    if (desiredRepos.length === 0) return;
+    const desiredIds = new Set(desiredRepos.map((repo) => repo.repoId));
+    for (const repo of desiredRepos) {
+      if (!reposById.has(repo.repoId)) {
+        const namespace = { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot } satisfies DaemonRepoNamespace;
+        reposById.set(repo.repoId, namespace);
+      }
+      if (!runtime.getRepoRuntime(repo.repoId)) {
+        await runtime.attachRepo({ repoId: repo.repoId, rootDir: repo.canonicalRoot, displayName: repo.displayName, ...(layoutOverrides ? { layoutOverrides } : {}) });
+      }
+      if (!repoBindings.has(repo.repoId)) {
+        const repoRuntime = runtime.getRepoRuntime(repo.repoId);
+        if (repoRuntime) {
+          repoBindings.set(repo.repoId, createRepoServiceBinding(reposById.get(repo.repoId)!, repoRuntime, runtime, layoutOverrides, {
+            onCommandStart: () => {
+              if (idleTimer) clearTimeout(idleTimer);
+            },
+            onCommandSettled: scheduleIdleExit
+          }, { daemonId, endpoint, connections }));
+        }
+      }
+    }
+    for (const repoId of [...reposById.keys()]) {
+      if (desiredIds.has(repoId)) continue;
+      repoBindings.delete(repoId);
+      reposById.delete(repoId);
+      if (runtime.getRepoRuntime(repoId)) await runtime.detachRepo(repoId);
+    }
+    await runtime.retryUnavailableRepos();
+  }
 }
 
 function createRepoServiceBinding(
@@ -435,6 +542,14 @@ function makeUnavailableTerminalSessionService() {
     resizeSession: () => failure,
     closeSession: () => failure
   };
+}
+
+function realpathOrResolve(rootDir: string): string {
+  try {
+    return realpathSync(rootDir);
+  } catch {
+    return rootDir;
+  }
 }
 
 function isCliEntrypoint(): boolean {

@@ -7,17 +7,17 @@ import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
-  const { rootDir, authoredRoot, json, args: rawArgs } = stripGlobalOptions(argv);
+  const { rootDir, authoredRoot, daemonRepoId, json, args: rawArgs } = stripGlobalOptions(argv);
   const jsonInput = applyJsonInputLayer(rawArgs, process.cwd());
   if (!jsonInput.ok) return { ok: false, error: jsonInput.error };
   const args = jsonInput.args;
   const layoutOverrides = authoredRoot ? { authoredRoot } : undefined;
 
   const help = parseHelpRequest(args, rootDir, json, layoutOverrides);
-  if (help) return help;
+  if (help) return attachDaemonRepoId(help, daemonRepoId);
 
   const parsed = parseRegisteredCommand(args, rootDir, json);
-  if (parsed) return attachLayoutOverrides(parsed, layoutOverrides);
+  if (parsed) return attachDaemonRepoId(attachLayoutOverrides(parsed, layoutOverrides), daemonRepoId);
   return {
     ok: false,
     error: cliError(CliErrorCode.UnknownCommand, `Supported commands: ${commandRegistry.map((entry) => entry.primary).join("; ")}, template list, template render, preset validate, vertical validate.`)
@@ -64,6 +64,14 @@ function attachLayoutOverrides(
 ): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
   if (!parsed.ok) return parsed;
   return { ok: true, value: commandWithLayoutOverrides(parsed.value, layoutOverrides) };
+}
+
+function attachDaemonRepoId(
+  parsed: { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] },
+  daemonRepoId: string | undefined
+): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
+  if (!parsed.ok || !daemonRepoId) return parsed;
+  return { ok: true, value: { ...parsed.value, daemonRepoId } };
 }
 
 function commandWithLayoutOverrides(command: ParsedCommand, layoutOverrides?: HarnessLayoutOverrides): ParsedCommand {
