@@ -5,10 +5,10 @@ import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskW
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
-import { findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
 import { requiresConflictMarkerPreflight, runtimeEventPolicyForAction } from "./command-event-policy.ts";
 import type { CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";
+import { readConflictMarkerPreflight } from "./conflict-preflight.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { actionTaskId } from "./parse-args.ts";
 import type { CliResult, MaterializerCommandReport, ParsedCommand } from "./types.ts";
@@ -147,9 +147,9 @@ export function runRegisteredCommand(
   const runnerId = runnerIdForAction(command.action.kind);
   const runner = runnerRegistry[runnerId];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
-  const conflictMarkerWarning = requiresConflictMarkerPreflight(command.action)
-    ? findConflictMarkerWarnings(layoutInput)[0]
-    : undefined;
+  const conflictMarkerResult = requiresConflictMarkerPreflight(command.action) ? readConflictMarkerPreflight(command.action.kind, layoutInput) : undefined;
+  if (conflictMarkerResult?.ok === false) return Effect.succeed(conflictMarkerResult.result);
+  const conflictMarkerWarning = conflictMarkerResult?.warning;
   if (conflictMarkerWarning) {
     return Effect.succeed({
       ok: false,

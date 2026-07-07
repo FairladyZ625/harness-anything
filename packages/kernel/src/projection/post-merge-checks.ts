@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { findEntityRefs, parseFactFlowRecords } from "../domain/index.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
@@ -9,6 +9,7 @@ import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { buildRelationGraphProjection, detectRelationGraphCycles, validateRelationGraphRecords } from "./relation-graph-projection.ts";
 import type { ProjectionCheckAxisReport, ProjectionCheckReport, ProjectionWarning, ProjectionWarningCode, ProjectionWarningSource } from "./types.ts";
 import { readMarkdownSource, sourcePath, type TaskSourceEntry } from "./sqlite-task-source.ts";
+import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function runPostMergeChecks(rootInput: HarnessLayoutInput): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
@@ -134,7 +135,8 @@ export function findConflictMarkerWarnings(rootInput: HarnessLayoutInput): Reado
   const rootDir = layout.rootDir;
   const roots = [layout.authoredRoot, path.join(layout.rootDir, "AGENTS.md"), path.join(layout.rootDir, "CLAUDE.md")];
   for (const candidate of roots.flatMap((entry) => listTextFiles(entry))) {
-    const body = readFileSync(candidate, "utf8");
+    const body = readTextFileIfPresent(candidate);
+    if (body === null) continue;
     if (/^<<<<<<<[^\n]*\n[\s\S]*?^=======$[\s\S]*?^>>>>>>>[^\n]*$/mu.test(body)) {
       return [hardFail(
         "collaboration-gate",
@@ -153,7 +155,9 @@ function findDecisionWatermarkIssues(rootInput: HarnessLayoutInput): ReadonlyArr
   const warnings: ProjectionWarning[] = [];
   for (const filePath of listTextFiles(layout.decisionsRoot)) {
     if (path.basename(filePath) !== "decision.md") continue;
-    const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
+    const body = readTextFileIfPresent(filePath);
+    if (body === null) continue;
+    const frontmatter = readFrontmatter(body);
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
     const source = sourcePath(layout.rootDir, filePath);
     const decisionId = readScalar(frontmatter, "decision_id") || path.basename(path.dirname(filePath));
@@ -191,7 +195,8 @@ function findDanglingEntityRefs(rootInput: HarnessLayoutInput, entries: Readonly
     .filter((filePath) => !isInsideRoot(layout.sessionsRoot, filePath))
     .filter((filePath) => !isGeneratedArtifactCapture(layout.tasksRoot, filePath));
   for (const filePath of files) {
-    const body = readFileSync(filePath, "utf8");
+    const body = readTextFileIfPresent(filePath);
+    if (body === null) continue;
     for (const ref of findEntityRefs(body)) {
       if (ref.externalHarness) continue;
       if (ref.kind === "task" && !knownRefs.taskIds.has(ref.id)) {
@@ -260,7 +265,9 @@ function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArr
     const taskId = readScalar(entry.frontmatter, "task_id") || entry.taskId;
     const factsPath = path.join(path.dirname(entry.indexPath), layout.factDocumentName);
     if (!existsSync(factsPath)) continue;
-    for (const record of parseFactFlowRecords(readFileSync(factsPath, "utf8"))) {
+    const factsBody = readTextFileIfPresent(factsPath);
+    if (factsBody === null) continue;
+    for (const record of parseFactFlowRecords(factsBody)) {
       factRefs.add(`${taskId}/${record.fact_id}`);
     }
   }
@@ -269,7 +276,9 @@ function buildEntityRefIndex(rootInput: HarnessLayoutInput, entries: ReadonlyArr
   const decisionAnchors = new Set<string>();
   for (const filePath of listTextFiles(layout.decisionsRoot)) {
     if (path.basename(filePath) !== "decision.md") continue;
-    const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
+    const body = readTextFileIfPresent(filePath);
+    if (body === null) continue;
+    const frontmatter = readFrontmatter(body);
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
     const decisionId = readScalar(frontmatter, "decision_id");
     if (!decisionId) continue;
@@ -403,11 +412,14 @@ export function buildCheckReport(
 
 function listTextFiles(inputPath: string): ReadonlyArray<string> {
   if (!existsSync(inputPath)) return [];
-  const stat = statSync(inputPath);
+  const stat = statPathIfPresent(inputPath);
+  if (stat === null) return [];
   if (stat.isFile()) return isTextLikePath(inputPath) ? [inputPath] : [];
   if (!stat.isDirectory()) return [];
   const files: string[] = [];
-  for (const entry of readdirSync(inputPath, { withFileTypes: true })) {
+  const entries = readDirIfPresent(inputPath);
+  if (entries === null) return [];
+  for (const entry of entries) {
     if (entry.name === ".git" || entry.name === "node_modules") continue;
     files.push(...listTextFiles(path.join(inputPath, entry.name)));
   }
