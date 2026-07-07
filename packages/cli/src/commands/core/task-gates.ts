@@ -1,8 +1,11 @@
+import path from "node:path";
 import { Effect } from "effect";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleResult } from "../../../../application/src/index.ts";
+import { taskDocumentPath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
+import { runDistillCommand } from "./distill.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
 import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 
@@ -26,7 +29,8 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       const output = taskLifecycleResultToCliResult("task-complete", result);
       if (!output.ok) return output;
       return { ...output, warnings: taskTreeSoftGateWarnings(context, action.taskId) };
-    })
+    }),
+    Effect.flatMap((output) => output.ok ? queueCloseoutDistillCandidate(context, command, action, output) : Effect.succeed(output))
   );
 };
 
@@ -51,6 +55,72 @@ function taskLifecycleResultToCliResult(command: "task-review" | "task-complete"
     completionGate: result.completionGate,
     error: cliError(cliErrorCode(result.error.code), taskGateHint(result.error.code, result.error.hint, result.taskId))
   };
+}
+
+function queueCloseoutDistillCandidate(
+  context: Parameters<CommandRunner>[0],
+  command: Parameters<CommandRunner>[1],
+  action: Extract<TaskGateAction, { readonly kind: "task-complete" }>,
+  output: CliResult
+): ReturnType<CommandRunner> {
+  const inputPath = taskCloseoutInputPath(context, action.taskId);
+  return runDistillCommand(context, {
+    ...command,
+    action: {
+      kind: "distill-candidate",
+      taskId: action.taskId,
+      inputPath
+    }
+  }).pipe(
+    Effect.match({
+      onFailure: (error): CliResult => withDistillCandidateWarning(output, `distill candidate write failed: ${JSON.stringify(error)}`),
+      onSuccess: (candidate): CliResult => candidate.ok
+        ? withDistillCandidateReport(output, candidate)
+        : withDistillCandidateWarning(output, candidate.error?.hint ?? "distill candidate was not queued")
+    })
+  );
+}
+
+function taskCloseoutInputPath(context: Parameters<CommandRunner>[0], taskId: string): string {
+  return path.relative(context.rootDir, taskDocumentPath(context.layoutInput, taskId, "closeout.md")).split(path.sep).join("/");
+}
+
+function withDistillCandidateReport(output: CliResult, candidate: CliResult): CliResult {
+  return {
+    ...output,
+    report: {
+      ...(isCliReportRecord(output.report) ? output.report : { schema: "task-complete-report/v1" }),
+      distillCandidate: {
+        queued: true,
+        path: candidate.path,
+        report: candidate.report
+      }
+    }
+  };
+}
+
+function withDistillCandidateWarning(output: CliResult, reason: string): CliResult {
+  return {
+    ...output,
+    report: {
+      ...(isCliReportRecord(output.report) ? output.report : { schema: "task-complete-report/v1" }),
+      distillCandidate: {
+        queued: false,
+        reason
+      }
+    },
+    warnings: [
+      ...(output.warnings ?? []),
+      {
+        code: "distill_candidate_not_queued",
+        message: reason
+      }
+    ]
+  };
+}
+
+function isCliReportRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function taskGateHint(code: string, hint: string, taskId: string): string {
