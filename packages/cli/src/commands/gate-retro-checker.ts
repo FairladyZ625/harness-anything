@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { findEntityRefs, readFrontmatter, readScalar } from "../../../kernel/src/index.ts";
+import { findEntityRefs, readFrontmatter, readScalar, sha256Text } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { relativePath } from "../cli/path.ts";
@@ -38,7 +38,7 @@ function validateGateRetroSnapshot(taskDir: string, relativeTaskDir: string): Re
   }
   try {
     const parsed = JSON.parse(readFileSync(snapshotPath, "utf8")) as { readonly schema?: unknown };
-    if (parsed.schema === "gate-architecture-retro-snapshot/v1") return [];
+    if (parsed.schema === "gate-architecture-retro-snapshot/v1") return validateMachineEvidenceRegistry(taskDir, relativeTaskDir, "artifacts/gate-retro.snapshot.json", snapshotPath);
     return [profileIssue(
       "gate-retro-checker",
       "gate_retro_snapshot_schema_invalid",
@@ -55,6 +55,52 @@ function validateGateRetroSnapshot(taskDir: string, relativeTaskDir: string): Re
       "Restore a readable machine snapshot."
     )];
   }
+}
+
+function validateMachineEvidenceRegistry(
+  taskDir: string,
+  relativeTaskDir: string,
+  evidencePath: string,
+  absolutePath: string
+): ReadonlyArray<ProfileValidationIssue> {
+  const registryPath = path.join(taskDir, "artifacts", ".machine-evidence.registry.json");
+  if (!existsSync(registryPath)) {
+    return [profileIssue(
+      "gate-retro-checker",
+      "gate_retro_machine_evidence_registry_missing",
+      "hard-fail",
+      `${relativeTaskDir}/artifacts/.machine-evidence.registry.json must register ${evidencePath}.`,
+      "Regenerate the snapshot through the bundled script entrypoint so machine gate input has a fresh hash registry."
+    )];
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(registryPath, "utf8")) as { readonly schema?: unknown; readonly entries?: unknown };
+    if (parsed.schema !== "machine-evidence-registry/v1" || !Array.isArray(parsed.entries)) {
+      return [machineEvidenceRegistryIssue(relativeTaskDir, "gate_retro_machine_evidence_registry_invalid", "Machine evidence registry schema is invalid.")];
+    }
+    const entry = parsed.entries.find((candidate: unknown) =>
+      candidate &&
+      typeof candidate === "object" &&
+      (candidate as { readonly path?: unknown }).path === evidencePath
+    ) as { readonly sha256?: unknown } | undefined;
+    const actual = `sha256:${sha256Text(readFileSync(absolutePath, "utf8"))}`;
+    if (!entry || entry.sha256 !== actual) {
+      return [machineEvidenceRegistryIssue(relativeTaskDir, "gate_retro_machine_evidence_registry_stale", `${relativeTaskDir}/${evidencePath} does not match the registered machine evidence hash.`)];
+    }
+    return [];
+  } catch {
+    return [machineEvidenceRegistryIssue(relativeTaskDir, "gate_retro_machine_evidence_registry_invalid", "Machine evidence registry could not be parsed.")];
+  }
+}
+
+function machineEvidenceRegistryIssue(relativeTaskDir: string, code: string, message: string): ProfileValidationIssue {
+  return profileIssue(
+    "gate-retro-checker",
+    code,
+    "hard-fail",
+    message,
+    `Regenerate ${relativeTaskDir}/artifacts/gate-retro.snapshot.json through the bundled script entrypoint before running the gate.`
+  );
 }
 
 function validateGateRetroAnalysis(taskDir: string, relativeTaskDir: string, resolvableRefs: ReadonlySet<string>): ReadonlyArray<ProfileValidationIssue> {

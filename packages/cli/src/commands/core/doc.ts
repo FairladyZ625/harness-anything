@@ -7,12 +7,12 @@ import { deriveDocmapManifest, writeDerivedDocmapManifest } from "./docmap-gener
 
 type DocAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "doc-list" | "doc-map" | "doc-generate" }>;
 
-export const runDocCommand: CommandRunner = (context, command) => Effect.sync(() => {
+export const runDocCommand: CommandRunner = (context, command) => Effect.gen(function* () {
   const action = command.action as DocAction;
   try {
     if (action.kind === "doc-generate") {
       const result = action.write
-        ? writeDerivedDocmapManifest(context.layoutInput)
+        ? yield* writeDerivedDocmapManifest(context.layoutInput, context.makeWriteCoordinator({ kind: "agent", id: "docmap-generate" }))
         : deriveDocmapManifest(context.layoutInput);
       const docs = filterDocmapDocuments(result.manifest, action.filters);
       return {
@@ -26,7 +26,7 @@ export const runDocCommand: CommandRunner = (context, command) => Effect.sync(()
           write: action.write,
           filters: action.filters,
           documents: docs,
-          ...("git" in result ? { git: result.git } : {})
+          ...(action.write ? { git: { committed: true, coordinator: "write-journal" } } : {})
         }
       } satisfies CliResult;
     }

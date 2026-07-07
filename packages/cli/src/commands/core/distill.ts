@@ -1,13 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { FactWriteRejected } from "../../../../application/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import { moduleEntityId, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import type { WriteError } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { writeCoordinatedPayload } from "./coordinated-machine-write.ts";
 
 type DistillCandidateAction = Extract<ParsedCommand["action"], { readonly kind: "distill-candidate" }>;
 type DistillCommitAction = Extract<ParsedCommand["action"], { readonly kind: "distill-commit" }>;
@@ -25,15 +26,15 @@ interface DistillCandidateArtifact {
 }
 
 export const runDistillCommand: CommandRunner = (context, command) => {
-  if (command.action.kind === "distill-candidate") return Effect.succeed(runCandidate(context, command.action));
+  if (command.action.kind === "distill-candidate") return runCandidate(context, command.action);
   return runCommit(context, command.action as DistillCommitAction);
 };
 
-function runCandidate(context: Parameters<CommandRunner>[0], action: DistillCandidateAction): CliResult {
+function runCandidate(context: Parameters<CommandRunner>[0], action: DistillCandidateAction): Effect.Effect<CliResult, WriteError> {
   const layout = resolveHarnessLayout(context.layoutInput);
   const input = resolveRootRelativeFile(layout.rootDir, action.inputPath);
   if (!input.ok) {
-    return distillFailure("distill-candidate", action.taskId, CliErrorCode.ArtifactReadFailed, input.reason);
+    return Effect.succeed(distillFailure("distill-candidate", action.taskId, CliErrorCode.ArtifactReadFailed, input.reason));
   }
   const inputBytes = readFileSync(input.absolutePath);
   const candidateId = `distill_${Date.now()}_${randomBytes(4).toString("hex")}`;
@@ -49,25 +50,34 @@ function runCandidate(context: Parameters<CommandRunner>[0], action: DistillCand
     createdAt: new Date().toISOString()
   };
   const outputPath = path.join(layout.generatedRoot, "distill", action.taskId, `${candidateId}.json`);
-  mkdirSync(path.dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
   const relativeOutputPath = toPortablePath(path.relative(layout.rootDir, outputPath));
-  return {
-    ok: true,
-    command: "distill-candidate",
-    taskId: action.taskId,
-    path: relativeOutputPath,
-    report: {
-      schema: "distill-cli-report/v1",
-      candidateId,
-      candidatePath: relativeOutputPath,
-      inputPath: artifact.inputPath,
-      inputSha256: artifact.inputSha256,
-      factState: artifact.factState,
-      factWrite: false,
-      suggestedClaim: artifact.suggestedClaim
+  return writeCoordinatedPayload(context.makeWriteCoordinator({ kind: "agent", id: "distill-candidate" }), {
+    entityId: moduleEntityId("distill-candidate"),
+    kind: "machine_artifact_write",
+    opIdPrefix: `distill-candidate-${candidateId}`,
+    payload: {
+      boundary: "distill-candidate",
+      path: relativeOutputPath,
+      body: `${JSON.stringify(artifact, null, 2)}\n`
     }
-  };
+  }).pipe(
+    Effect.map(() => ({
+      ok: true,
+      command: "distill-candidate",
+      taskId: action.taskId,
+      path: relativeOutputPath,
+      report: {
+        schema: "distill-cli-report/v1",
+        candidateId,
+        candidatePath: relativeOutputPath,
+        inputPath: artifact.inputPath,
+        inputSha256: artifact.inputSha256,
+        factState: artifact.factState,
+        factWrite: false,
+        suggestedClaim: artifact.suggestedClaim
+      }
+    } satisfies CliResult))
+  );
 }
 
 function runCommit(context: Parameters<CommandRunner>[0], action: DistillCommitAction) {

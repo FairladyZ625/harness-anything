@@ -14,7 +14,7 @@ import {
 import { writeDocument } from "./markdown-artifact-store.ts";
 import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument } from "./write-journal-decision-documents.ts";
 import { taskIdForWriteOp } from "./write-journal-entity.ts";
-import { writeFileDurably } from "./write-journal-durable.ts";
+import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 
 export function applyWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): DocumentWrite | null {
@@ -30,6 +30,16 @@ export function applyWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): Docume
   }
   if (op.kind === "module_scaffold_write") {
     writeModuleScaffold(rootInput, op);
+    return null;
+  }
+  if (op.kind === "machine_artifact_write") {
+    const artifact = machineArtifactWrite(rootInput, op);
+    writeFileDurably(artifact.targetPath, artifact.body);
+    return null;
+  }
+  if (op.kind === "machine_artifact_append_jsonl") {
+    const artifact = machineArtifactJsonlAppend(rootInput, op);
+    appendJsonLineDurably(artifact.targetPath, artifact.value);
     return null;
   }
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
@@ -69,6 +79,13 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
   if (op.kind === "module_scaffold_write") {
     return moduleScaffoldWrites(rootInput, op).map((write) => write.targetPath);
   }
+  if (op.kind === "machine_artifact_write") {
+    return [machineArtifactWrite(rootInput, op).targetPath];
+  }
+  if (op.kind === "machine_artifact_append_jsonl") {
+    const artifact = machineArtifactJsonlAppend(rootInput, op);
+    return artifact.boundary === "runtime-event-ledger" ? [] : [artifact.targetPath];
+  }
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
     return op.payload.writes.map((write) => documentTargetPath(rootInput, write));
   }
@@ -95,6 +112,9 @@ export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWri
     return decisionPayloadTaskWrites(op.payload);
   }
   if (op.kind === "module_registry_write" || op.kind === "module_scaffold_write") {
+    return [];
+  }
+  if (op.kind === "machine_artifact_write" || op.kind === "machine_artifact_append_jsonl") {
     return [];
   }
   if ((op.kind === "package_create" || op.kind === "package_supersede") && isBatchDocumentWritePayload(op.payload)) {
@@ -143,6 +163,25 @@ interface ModuleRegistryWritePayload {
 interface ModuleScaffoldWritePayload {
   readonly writes: ReadonlyArray<{ readonly path: string; readonly body: string }>;
 }
+
+interface MachineArtifactWritePayload {
+  readonly boundary: MachineArtifactBoundary;
+  readonly path: string;
+  readonly body: string;
+}
+
+interface MachineArtifactAppendJsonlPayload {
+  readonly boundary: MachineArtifactBoundary;
+  readonly path: string;
+  readonly value: unknown;
+}
+
+type MachineArtifactBoundary =
+  | "runtime-event-ledger"
+  | "docmap-derived"
+  | "distill-candidate"
+  | "legacy-forward"
+  | "preset-evidence-registry";
 
 const documentWriteKinds = new Set<WriteOp["kind"]>([
   "package_create",
@@ -261,6 +300,114 @@ function writeModuleScaffold(rootInput: HarnessLayoutInput, op: WriteOp): void {
     mkdirSync(path.dirname(write.targetPath), { recursive: true });
     writeFileDurably(write.targetPath, write.body.endsWith("\n") ? write.body : `${write.body}\n`);
   }
+}
+
+function machineArtifactWrite(rootInput: HarnessLayoutInput, op: WriteOp): { readonly targetPath: string; readonly body: string } {
+  const payload = op.payload;
+  if (!isMachineArtifactWritePayload(payload)) {
+    rejectWrite(`${op.kind} op requires boundary, path, and body payload: ${op.opId}`, op.entityId);
+  }
+  return {
+    targetPath: resolveMachineArtifactPath(rootInput, payload.boundary, payload.path, op.entityId),
+    body: payload.body
+  };
+}
+
+function machineArtifactJsonlAppend(rootInput: HarnessLayoutInput, op: WriteOp): { readonly boundary: MachineArtifactBoundary; readonly targetPath: string; readonly value: Record<string, unknown> } {
+  const payload = op.payload;
+  if (!isMachineArtifactAppendJsonlPayload(payload)) {
+    rejectWrite(`${op.kind} op requires boundary, path, and JSON object value payload: ${op.opId}`, op.entityId);
+  }
+  return {
+    boundary: payload.boundary,
+    targetPath: resolveMachineArtifactPath(rootInput, payload.boundary, payload.path, op.entityId),
+    value: payload.value
+  };
+}
+
+function isMachineArtifactWritePayload(payload: unknown): payload is MachineArtifactWritePayload {
+  return Boolean(
+    payload &&
+    typeof payload === "object" &&
+    isMachineArtifactBoundary((payload as { readonly boundary?: unknown }).boundary) &&
+    typeof (payload as { readonly path?: unknown }).path === "string" &&
+    typeof (payload as { readonly body?: unknown }).body === "string"
+  );
+}
+
+function isMachineArtifactAppendJsonlPayload(payload: unknown): payload is MachineArtifactAppendJsonlPayload & { readonly value: Record<string, unknown> } {
+  return Boolean(
+    payload &&
+    typeof payload === "object" &&
+    isMachineArtifactBoundary((payload as { readonly boundary?: unknown }).boundary) &&
+    typeof (payload as { readonly path?: unknown }).path === "string" &&
+    isJsonRecord((payload as { readonly value?: unknown }).value)
+  );
+}
+
+function isMachineArtifactBoundary(value: unknown): value is MachineArtifactBoundary {
+  return value === "runtime-event-ledger" ||
+    value === "docmap-derived" ||
+    value === "distill-candidate" ||
+    value === "legacy-forward" ||
+    value === "preset-evidence-registry";
+}
+
+function resolveMachineArtifactPath(
+  rootInput: HarnessLayoutInput,
+  boundary: MachineArtifactBoundary,
+  relativePath: string,
+  entityId?: EntityId
+): string {
+  const layout = resolveHarnessLayout(rootInput);
+  const normalized = normalizePortableRootRelativePath(relativePath, entityId);
+  const targetPath = path.resolve(layout.rootDir, normalized);
+  if (!isInside(layout.rootDir, targetPath)) rejectWrite(`machine artifact path escapes root: ${relativePath}`, entityId);
+
+  const authoredRelative = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/");
+  const generatedRelative = path.relative(layout.rootDir, layout.generatedRoot).split(path.sep).join("/");
+  const tasksRelative = path.relative(layout.rootDir, layout.tasksRoot).split(path.sep).join("/");
+
+  const allowed = boundary === "runtime-event-ledger"
+    ? normalized.startsWith(`${generatedRelative}/runtime-events/`) && normalized.endsWith(".jsonl")
+    : boundary === "docmap-derived"
+      ? normalized === `${authoredRelative}/docmap.json`
+      : boundary === "distill-candidate"
+        ? normalized.startsWith(`${generatedRelative}/distill/`) && normalized.endsWith(".json")
+        : boundary === "preset-evidence-registry"
+          ? normalized.startsWith(`${tasksRelative}/`) && normalized.endsWith("/artifacts/.machine-evidence.registry.json")
+          : isLegacyForwardPath(layout, normalized, authoredRelative);
+
+  if (!allowed) rejectWrite(`machine artifact path is outside ${boundary} boundary: ${relativePath}`, entityId);
+  return targetPath;
+}
+
+function normalizePortableRootRelativePath(relativePath: string, entityId?: EntityId): string {
+  const normalized = path.posix.normalize(relativePath.replace(/\\/gu, "/"));
+  if (normalized.length === 0 || normalized === "." || normalized.startsWith("../") || normalized === ".." || path.posix.isAbsolute(normalized)) {
+    rejectWrite(`machine artifact path must be root-relative: ${relativePath}`, entityId);
+  }
+  return normalized;
+}
+
+function isLegacyForwardPath(layout: ReturnType<typeof resolveHarnessLayout>, normalized: string, authoredRelative: string): boolean {
+  if (!normalized.startsWith(`${authoredRelative}/`)) return false;
+  const blockedRoots = [
+    path.relative(layout.rootDir, layout.legacyRoot),
+    path.relative(layout.rootDir, layout.tasksRoot),
+    path.relative(layout.rootDir, layout.decisionsRoot),
+    path.relative(layout.rootDir, layout.sessionsRoot)
+  ].map((entry) => entry.split(path.sep).join("/"));
+  return !blockedRoots.some((blockedRoot) => normalized === blockedRoot || normalized.startsWith(`${blockedRoot}/`));
+}
+
+function isInside(rootPath: string, targetPath: string): boolean {
+  const relative = path.relative(rootPath, targetPath);
+  return relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function moduleScaffoldWrites(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<{ readonly targetPath: string; readonly body: string }> {

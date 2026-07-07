@@ -261,9 +261,9 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
   const op = recordToOp(rootDir, record);
   applyWriteOp(rootInput, op);
   // Delta appends are not idempotent: replaying one after a crash between apply and
-  // watermark would duplicate the text. Mark the file mutation durably so replay
-  // skips the write while still committing and watermarking the op (ADR-0016 D2).
-  if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
+  // watermark would duplicate the text/JSONL row. Mark the file mutation durably so
+  // replay skips the write while still committing and watermarking the op (ADR-0016 D2/D1).
+  if ((op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) || op.kind === "machine_artifact_append_jsonl") {
     appendJsonLineDurably(journalPath, {
       schema: "apply-marker/v1",
       opId: record.opId,
@@ -379,6 +379,7 @@ function writeKindVerb(kind: JournalRecordKind): string {
 function recordCommitDetail(kind: JournalRecordKind, payload: Record<string, unknown>): string {
   if (kind === "transition_local" && typeof payload.to === "string") return `-> ${payload.to}`;
   if (kind === "progress_append") return "progress.md";
+  if ((kind === "machine_artifact_write" || kind === "machine_artifact_append_jsonl") && typeof payload.path === "string") return payload.path;
   if ((kind === "doc_write" || kind === "doc_stage") && typeof payload.path === "string") return payload.path;
   if (kind === "task_tree_stage") return "task package";
   if (kind === "module_registry_write" && typeof payload.operation === "string") return payload.operation;

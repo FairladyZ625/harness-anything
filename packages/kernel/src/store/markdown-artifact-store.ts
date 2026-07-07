@@ -7,7 +7,6 @@ import type {
   TaskPackageRead
 } from "../ports/artifact-store.ts";
 import type {
-  ArtifactStoreWriter,
   ArtifactWriteReceipt,
   DocumentWrite
 } from "../ports/artifact-store-writer.ts";
@@ -42,30 +41,6 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
         _tag: "ArtifactReadFailed",
         path: resolveHarnessLayout(rootInput).tasksRoot,
         cause
-      })
-    })
-  };
-}
-
-export function makeMarkdownArtifactStoreWriter(options: MarkdownArtifactStoreOptions): ArtifactStoreWriter {
-  const rootDir = path.resolve(options.rootDir);
-  const rootInput = options.layoutOverrides ? { rootDir, layoutOverrides: options.layoutOverrides } : rootDir;
-
-  return {
-    writeDocument: (write) => Effect.try({
-      try: () => writeDocument(rootInput, write),
-      catch: (cause): ArtifactStoreError => ({
-        _tag: "ArtifactWriteRejected",
-        path: write.path,
-        reason: cause instanceof Error ? cause.message : "write failed"
-      })
-    }),
-    archivePackage: (taskId) => Effect.try({
-      try: () => archiveTaskPackage(rootInput, taskId),
-      catch: (cause): ArtifactStoreError => ({
-        _tag: "ArtifactWriteRejected",
-        path: packagePath(rootInput, taskId),
-        reason: cause instanceof Error ? cause.message : "archive failed"
       })
     })
   };
@@ -138,23 +113,6 @@ function readPackageDisposition(rootPath: string, taskId: TaskId): PackageDispos
     throw new Error(`invalid package disposition: ${taskId}`);
   }
   return disposition;
-}
-
-function archiveTaskPackage(rootInput: HarnessLayoutInput, taskId: TaskId): TaskPackageRead {
-  const sourcePath = packagePath(rootInput, taskId);
-  if (!existsSync(sourcePath)) throw new Error(`task package not found: ${taskId}`);
-
-  const archiveRoot = path.join(resolveHarnessLayout(rootInput).rootDir, ".archived");
-  const targetPath = path.join(archiveRoot, taskId);
-  mkdirSync(archiveRoot, { recursive: true });
-  renameSync(sourcePath, targetPath);
-
-  return {
-    taskId,
-    rootPath: targetPath,
-    disposition: "archived",
-    documents: readDocuments(targetPath)
-  };
 }
 
 function readDocuments(rootPath: string): ReadonlyArray<ArtifactDocument> {

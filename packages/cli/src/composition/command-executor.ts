@@ -103,7 +103,8 @@ export async function runRegisteredCommandWithCliComposition(
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
   }), () => makeRuntimeEventLedgerService({
-    rootInput: layoutInput
+    rootInput: layoutInput,
+    coordinator: makeWriteCoordinator({ kind: "agent", id: "runtime-event-cli" })
   }), provider.runLedgerMaterializer).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({

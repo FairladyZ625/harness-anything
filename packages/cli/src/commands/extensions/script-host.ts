@@ -6,6 +6,7 @@ import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
+import { writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
 import {
   isPathInside,
   listGeneratedFiles,
@@ -186,6 +187,7 @@ export function runScriptHost(options: {
   if (!matchesDeclaredProduces(generated, options.script.entry.metadata.produces, layout, outputRoot)) {
     return scriptFailure(options.commandName, CliErrorCode.ScriptDeclaredProduceMismatch, "Script produced files outside metadata.produces.", runDir, layout.rootDir);
   }
+  writeMachineEvidenceRegistry(outputRoot, generated);
 
   return {
     ok: true,
