@@ -145,6 +145,7 @@ const repoReadCliActionKinds = new Set<string>([
   "check",
   "decision-list",
   "decision-show",
+  "diagnostics-command-usage",
   "doc-list",
   "doc-map",
   "doctor",
@@ -173,7 +174,8 @@ const repoReadCliActionKinds = new Set<string>([
   "template-list",
   "template-render",
   "vertical-validate",
-  "version"
+  "version",
+  "worktree-status"
 ]);
 
 const repoWriteCliActionKinds = new Set<string>([
@@ -225,7 +227,8 @@ const repoWriteCliActionKinds = new Set<string>([
   "task-delete",
   "task-relate",
   "task-reopen",
-  "task-supersede"
+  "task-supersede",
+  "worktree-create"
 ]);
 
 const arbiterCliActionKinds = new Set<string>([

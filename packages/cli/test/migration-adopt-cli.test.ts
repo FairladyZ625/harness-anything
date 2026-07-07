@@ -399,6 +399,8 @@ test("CLI migrate-provenance backfills pre-R2 task indexes through the write jou
     const locked = runJson(rootDir, ["task", "status", "set", "task-pre-r2", "active"], false);
     assert.equal(locked.ok, false);
     assert.equal(locked.error.code, "malformed_snapshot");
+    const watermarkPath = path.join(rootDir, ".harness/write-journal/watermark.json");
+    const watermarkBeforeDryRun = existsSync(watermarkPath) ? readFileSync(watermarkPath, "utf8") : null;
 
     const dryRun = runJson(rootDir, ["migrate-provenance"], true, probeEnv);
     assert.equal(dryRun.command, "migrate-provenance");
@@ -409,7 +411,10 @@ test("CLI migrate-provenance backfills pre-R2 task indexes through the write jou
     assert.equal(dryRun.report.summary.needsBackfill, 1);
     assert.equal(dryRun.report.summary.applied, 0);
     assert.equal(dryRun.report.entries[0].taskId, "task-pre-r2");
-    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
+    assert.equal(existsSync(watermarkPath), watermarkBeforeDryRun !== null);
+    if (watermarkBeforeDryRun !== null) {
+      assert.equal(readFileSync(watermarkPath, "utf8"), watermarkBeforeDryRun);
+    }
 
     const applied = runJson(rootDir, ["migrate-provenance", "--apply"], true, probeEnv);
     assert.equal(applied.migrationMode, "apply");

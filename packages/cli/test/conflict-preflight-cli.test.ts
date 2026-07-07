@@ -100,7 +100,8 @@ const expectedAutoRuntimeEventKinds = [
   "task-relate",
   "task-reopen",
   "task-review",
-  "task-supersede"
+  "task-supersede",
+  "worktree-create"
 ].sort();
 
 const expectedDeferredRuntimeEventKinds = [

@@ -343,7 +343,7 @@ async function bootstrapServer(input: DaemonCommandInput): Promise<number> {
 
 function ensureCanonicalRepo(rootDir: string): void {
   mkdirSync(rootDir, { recursive: true });
-  if (!existsSync(path.join(rootDir, ".git"))) runGit(rootDir, ["init"]);
+  if (!existsSync(path.join(rootDir, ".git"))) runDaemonGit(rootDir, ["init"]);
 }
 
 function ensurePeopleRoster(filePath: string, input: {
@@ -402,11 +402,11 @@ function installCanonicalPreReceiveHook(rootDir: string): void {
 function ensureReadonlyMirror(canonicalRoot: string, mirrorRoot: string): Record<string, unknown> {
   mkdirSync(path.dirname(mirrorRoot), { recursive: true });
   if (!existsSync(mirrorRoot)) {
-    runGit(path.dirname(mirrorRoot), ["clone", "--mirror", canonicalRoot, mirrorRoot]);
+    runDaemonGit(path.dirname(mirrorRoot), ["clone", "--mirror", canonicalRoot, mirrorRoot]);
   } else if (!existsSync(path.join(mirrorRoot, "HEAD"))) {
     throw new Error(`readonly mirror path exists but is not a bare git repository: ${mirrorRoot}`);
   } else {
-    runGit(mirrorRoot, ["fetch", "--prune", canonicalRoot, "+refs/heads/*:refs/heads/*"]);
+    runDaemonGit(mirrorRoot, ["fetch", "--prune", canonicalRoot, "+refs/heads/*:refs/heads/*"]);
   }
   const hookPath = path.join(mirrorRoot, "hooks/pre-receive");
   writeFileSync(hookPath, readFileSync(daemonAssetPath("git-hooks/pre-receive-readonly-mirror.sh"), "utf8"), { encoding: "utf8", mode: 0o755 });
@@ -550,7 +550,7 @@ function requiredOption(args: ReadonlyArray<string>, name: string): string {
   return value;
 }
 
-function runGit(cwd: string, args: ReadonlyArray<string>): void {
+function runDaemonGit(cwd: string, args: ReadonlyArray<string>): void {
   try {
     execFileSync("git", [...args], { cwd, stdio: "ignore" });
   } catch {

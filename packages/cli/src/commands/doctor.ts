@@ -53,8 +53,8 @@ export function runDoctor(rootInput: HarnessLayoutInput): CliResult {
 function collectDoctorReport(rootInput: HarnessLayoutInput): DoctorReport {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
-  const gitInsideWorkTree = isInsideGitWorkTree(rootDir);
-  const harnessIsolation = inspectHarnessIsolation(rootDir, relativeLayoutPath(rootDir, layout.authoredRoot), gitInsideWorkTree);
+  const gitInsideWorkTree = isInsideDoctorGitWorkTree(rootDir);
+  const harnessIsolation = inspectHarnessIsolation(rootDir, doctorRelativeLayoutPath(rootDir, layout.authoredRoot), gitInsideWorkTree);
   return {
     schema: "harness-doctor/v1",
     readOnly: true,
@@ -67,10 +67,10 @@ function collectDoctorReport(rootInput: HarnessLayoutInput): DoctorReport {
       insideWorkTree: gitInsideWorkTree
     },
     harness: {
-      authoredRoot: relativeLayoutPath(rootDir, layout.authoredRoot),
+      authoredRoot: doctorRelativeLayoutPath(rootDir, layout.authoredRoot),
       authoredRootExists: existsSync(layout.authoredRoot),
       authoredRootGitExists: existsSync(path.join(layout.authoredRoot, ".git")),
-      localRoot: relativeLayoutPath(rootDir, layout.localRoot),
+      localRoot: doctorRelativeLayoutPath(rootDir, layout.localRoot),
       localRootExists: existsSync(layout.localRoot),
       projectionCacheExists: existsSync(path.join(layout.cacheRoot, "projections.sqlite")),
       isolation: harnessIsolation
@@ -133,11 +133,11 @@ function gitignoreContainsHarness(rootDir: string, authoredRoot: string): boolea
   return entries.some((entry) => entry === `${authoredRoot}/` || entry === `/${authoredRoot}/`);
 }
 
-function relativeLayoutPath(rootDir: string, filePath: string): string {
+function doctorRelativeLayoutPath(rootDir: string, filePath: string): string {
   return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 
-function isInsideGitWorkTree(rootDir: string): boolean {
+function isInsideDoctorGitWorkTree(rootDir: string): boolean {
   try {
     const output = execFileSync("git", ["-C", rootDir, "rev-parse", "--is-inside-work-tree"], {
       encoding: "utf8",

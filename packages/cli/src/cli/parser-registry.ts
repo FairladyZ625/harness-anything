@@ -5,6 +5,7 @@ import { parseMigrationArgs } from "./parse-migration-args.ts";
 import { parseCoreTaskArgs } from "./parsers/core-task.ts";
 import { parseCapabilitiesArgs } from "./parsers/capabilities.ts";
 import { parseDecisionArgs } from "./parsers/decision.ts";
+import { parseDiagnosticsArgs } from "./parsers/diagnostics.ts";
 import { parseDistillArgs } from "./parsers/distill.ts";
 import { parseDocArgs } from "./parsers/doc.ts";
 import { parseGraphArgs } from "./parsers/graph.ts";
@@ -14,6 +15,7 @@ import { parseScriptArgs } from "./parsers/extensions-script.ts";
 import { parseTemplateArgs } from "./parsers/extensions-template.ts";
 import { parseVerticalArgs } from "./parsers/extensions-vertical.ts";
 import { parseGuiArgs } from "./parsers/gui.ts";
+import { parseWorktreeArgs } from "./parsers/worktree.ts";
 import { parseMaterializerArgs } from "./parsers/materializer.ts";
 import { parseNewTaskArgs } from "./parsers/new-task.ts";
 import { parseRecordArgs } from "./parsers/record.ts";
@@ -122,6 +124,16 @@ export const parserRegistry = [
       const parsed = parseDoctorArgs(args, rootDir, json);
       return parsed ? { ok: true, value: parsed } : null;
     }
+  },
+  {
+    id: "diagnostics",
+    commandKinds: commandKindsForParser("diagnostics"),
+    parse: parseDiagnosticsArgs
+  },
+  {
+    id: "worktree",
+    commandKinds: commandKindsForParser("worktree"),
+    parse: parseWorktreeArgs
   },
   {
     id: "graph",

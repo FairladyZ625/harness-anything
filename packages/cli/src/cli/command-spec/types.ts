@@ -16,6 +16,8 @@ export type CommandParserId =
   | "migration"
   | "git-diff"
   | "doctor"
+  | "diagnostics"
+  | "worktree"
   | "graph"
   | "capabilities"
   | "gui"
@@ -43,6 +45,7 @@ export type CommandRunnerId =
   | "governance"
   | "migration"
   | "diagnostics"
+  | "worktree"
   | "extension"
   | "capabilities"
   | "gui";
