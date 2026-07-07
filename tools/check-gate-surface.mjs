@@ -20,6 +20,7 @@ const MANIFEST_GATE_RUNNER = "node tools/run-manifest-gates.mjs";
 const INFRASTRUCTURE_RUN_COMMANDS = new Set([
   "npm ci",
   "git diff --check",
+  "mkdir -p artifacts/gui-e2e",
   "sudo apt-get update && sudo apt-get install -y xvfb"
 ]);
 
@@ -466,10 +467,16 @@ function splitShellAndList(script) {
 }
 
 function parseManifestRunnerCommand(command) {
-  if (!command.startsWith(MANIFEST_GATE_RUNNER)) {
+  let normalized = command
+    .replace(/\s+2>&1\s+\|\s+tee\s+artifacts\/gui-e2e\/gui-e2e\.log\s*$/u, "")
+    .trim();
+  if (normalized.startsWith("xvfb-run --auto-servernum ")) {
+    normalized = normalized.slice("xvfb-run --auto-servernum ".length).trim();
+  }
+  if (!normalized.startsWith(MANIFEST_GATE_RUNNER)) {
     return null;
   }
-  const args = command.slice(MANIFEST_GATE_RUNNER.length).trim().split(/\s+/).filter(Boolean);
+  const args = normalized.slice(MANIFEST_GATE_RUNNER.length).trim().split(/\s+/).filter(Boolean);
   const invocation = {
     packageSurface: null,
     workflowJob: null,
