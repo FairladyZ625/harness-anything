@@ -8,7 +8,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test:gui": "vitest run --config vitest.config.ts"
+    "test:gui": "vitest run --config vitest.config.ts",
+    "test:e2e": "node --test e2e/*.e2e.mjs"
   },
   "exports": {
     ".": "./src/index.ts"
@@ -22,6 +23,7 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "electron": "42.5.1",
+    "playwright-core": "1.61.1",
     "vite": "8.0.16",
     "vitest": "4.1.9"
   }

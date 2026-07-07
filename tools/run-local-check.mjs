@@ -16,8 +16,8 @@
  *     fall back to `nice -n 10`; if neither is available, run bare.
  *   - Tiers: default "fast" (typecheck, lint, test:fast, test:contract,
  *     boundaries checkers, package-policy). `--full` appends test:integration
- *     and test:gui. First failing step stops the run with a non-zero exit and a
- *     clear report of which step failed.
+ *     test:gui, and test:gui:e2e. First failing step stops the run with a
+ *     non-zero exit and a clear report of which step failed.
  *
  * This file is deliberately named `run-local-check.mjs` (not `check-*.mjs`): the
  * `check-*` prefix is the governed gate command surface reconciled by
@@ -57,7 +57,8 @@ const FAST_STEPS = [
 
 const FULL_EXTRA_STEPS = [
   ["test:integration", "test:integration"],
-  ["test:gui", "test:gui"]
+  ["test:gui", "test:gui"],
+  ["test:gui:e2e", "test:gui:e2e"]
 ];
 
 export function parseLocalCheckArgs(args) {

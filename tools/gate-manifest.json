@@ -26,6 +26,7 @@
         "integration",
         "supply-chain",
         "gui-build",
+        "gui-e2e",
         "node26-compatibility",
         "pr-body-lint"
       ]
@@ -51,6 +52,7 @@
         "lint",
         "test-node-all",
         "test-gui",
+        "test-gui-e2e",
         "check-file-complexity",
         "check-cli-structure",
         "check-cli-help-contract",
@@ -88,6 +90,7 @@
         "test-contract",
         "test-integration",
         "test-gui",
+        "test-gui-e2e",
         "check-file-complexity",
         "check-cli-structure",
         "check-cli-help-contract",
@@ -128,6 +131,7 @@
         "package-policy",
         "supply-chain",
         "gui-build",
+        "gui-e2e",
         "node26-compatibility"
       ],
       "helperJobsNotRegisteredAsGates": [
@@ -147,6 +151,7 @@
         "integration",
         "supply-chain",
         "gui-build",
+        "gui-e2e",
         "node26-compatibility",
         "pr-body-lint"
       ],
@@ -992,6 +997,74 @@
           "required": true,
           "contexts": [
             "gui-build"
+          ]
+        }
+      }
+    },
+    {
+      "id": "test-gui-e2e",
+      "command": "npm run test:gui:e2e",
+      "category": "smoke",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "task_01KWGEEG8DB00Z6A5BDXR22702 PRE-03",
+        "decision/dec_mra5ylto",
+        "packages/gui/e2e/electron-smoke.e2e.mjs",
+        "tools/run-gui-e2e-tests.mjs",
+        "package.json:scripts.test:gui:e2e"
+      ],
+      "consumerScope": [
+        "Electron shell smoke through Playwright for Electron"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "gui-e2e"
+        ],
+        "workflowJobs": [
+          "gui-e2e"
+        ],
+        "nodeVersions": [
+          24
+        ],
+        "pathFiltered": true
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "The E2E lane owns explicit smoke files; it does not use a bypass allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "packages/gui/e2e",
+          "tools/run-gui-e2e-tests.mjs",
+          "package.json:scripts.test:gui:e2e",
+          ".github/workflows/rewrite-ci.yml"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "test:gui:e2e"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "gui-e2e"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ],
+          "pathFiltered": true
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "gui-e2e"
           ]
         }
       }

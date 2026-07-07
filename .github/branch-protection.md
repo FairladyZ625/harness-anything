@@ -27,6 +27,7 @@ Required pull request checks must cover:
 - architecture boundaries
 - package policy
 - GUI build smoke
+- GUI Electron E2E smoke
 - Node 26 compatibility for typecheck plus fast and contract tests
 
 The full aggregate `npm run check` matrix runs on `main`, scheduled nightly, and
@@ -53,6 +54,7 @@ enforcement disabled and requires these status contexts:
 - integration
 - supply-chain
 - gui-build
+- gui-e2e
 - node26-compatibility
 - pr-body-lint
 
@@ -87,7 +89,7 @@ fast no-op success. That keeps queue bookkeeping edits from launching another
 full CI pass while preserving normal `edited` body validation for
 human-authored pull requests.
 
-The slower `integration`, `supply-chain`, `gui-build`, and
+The slower `integration`, `supply-chain`, `gui-build`, `gui-e2e`, and
 `node26-compatibility` contexts remain GitHub branch-protection required
 contexts even though they are outside the Mergify fast-gate subset.
 

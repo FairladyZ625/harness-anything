@@ -93,6 +93,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: git diff --check
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
       - run: npm run check
       - if: github.event_name == 'schedule'
         run: npm run harness:check-enforcement-debt-sunset
@@ -267,6 +268,29 @@ jobs:
         run: npm run test:gui
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         run: npm run -w @harness-anything/gui build
+
+  gui-e2e:
+    if: github.event_name == 'pull_request'
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Accept Mergify queue metadata edit
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
+        run: echo "Mergify queue metadata edit does not change the source under test."
+      - uses: actions/checkout@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+      - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        with:
+          node-version: 24
+          cache: npm
+      # Skip the Electron E2E smoke when a PR touches no GUI or shared-root files.
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+        run: npm ci
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+        run: npm run test:gui:e2e
 
   node26-compatibility:
     if: github.event_name == 'pull_request'

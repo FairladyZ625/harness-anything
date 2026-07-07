@@ -18,15 +18,17 @@ test("parseLocalCheckArgs rejects unknown options", () => {
   assert.throws(() => parseLocalCheckArgs(["--bogus"]), /unknown run-local-check option/u);
 });
 
-test("buildSteps appends integration and gui only in the full tier", () => {
+test("buildSteps appends integration and gui lanes only in the full tier", () => {
   const fastScripts = buildSteps(false).map(([, script]) => script);
   const fullScripts = buildSteps(true).map(([, script]) => script);
 
   assert.ok(!fastScripts.includes("test:integration"));
   assert.ok(!fastScripts.includes("test:gui"));
+  assert.ok(!fastScripts.includes("test:gui:e2e"));
   assert.ok(fullScripts.includes("test:integration"));
   assert.ok(fullScripts.includes("test:gui"));
-  assert.equal(fullScripts.length, fastScripts.length + 2);
+  assert.ok(fullScripts.includes("test:gui:e2e"));
+  assert.equal(fullScripts.length, fastScripts.length + 3);
 
   // Fast tier mirrors the CI boundaries + package-policy surface.
   assert.ok(fastScripts.includes("harness:check-import-boundaries"));
