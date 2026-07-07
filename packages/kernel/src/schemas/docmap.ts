@@ -13,11 +13,10 @@ export const DocmapDocumentSchema = Schema.Struct({
     modules: StringArray,
     productLines: StringArray
   }),
-  owner: Schema.String,
-  brief: Schema.String,
+  updatedAt: Schema.String,
   supersedes: Schema.optional(Schema.Array(IdentifierSchema)),
   supersededBy: Schema.optional(IdentifierSchema),
-  tags: Schema.optional(StringArray)
+  unused: Schema.optional(Schema.Boolean)
 });
 
 export const DocmapManifestSchema = Schema.Struct({
