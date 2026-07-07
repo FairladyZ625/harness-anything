@@ -17,7 +17,7 @@
 
 - 通过 `ha <command>` 或 `npx harness-anything <command>` 调用。
 - 用 `ha task create --title "<title>" --vertical software/coding --preset <id>` 创建任务包；不要手写 tasks 目录。
-- 创建任务前先选 preset。拿不准就运行 `ha preset list`。
+- 创建任务前先选 preset。创建 milestone root 用 `create-milestone`；拿不准就运行 `ha preset list`。
 - 组装写入前先看 `ha <command> --help`、preset manifest 和 capabilities。
 - 用 `ha fact record --task <id> --statement "<可复核观察>" --source "<来源>" --confidence high` 记录承重观察。
 - 通过投影查询：`ha decision list --state active --module <key> --compact`、`ha decision show <id|E<n>>`、`ha task list --module <key>`。

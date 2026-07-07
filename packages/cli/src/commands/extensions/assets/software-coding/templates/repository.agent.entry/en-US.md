@@ -17,7 +17,7 @@ This standalone entry is kept for compatibility. Current milestone context and t
 
 - Invoke via `ha <command>` or `npx harness-anything <command>`.
 - Create task packages with `ha task create --title "<title>" --vertical software/coding --preset <id>`; never hand-scaffold directories under the tasks root.
-- Choose the preset before creating a task. If unsure, run `ha preset list`.
+- Choose the preset before creating a task. Use `create-milestone` for milestone root creation; if unsure, run `ha preset list`.
 - Prefer `ha <command> --help`, preset manifests, and capabilities metadata before composing writes.
 - Record load-bearing observations with `ha fact record --task <id> --statement "<verifiable observation>" --source "<source>" --confidence high`.
 - Query through projections with `ha decision list --state active --module <key> --compact`, `ha decision show <id|E<n>>`, and `ha task list --module <key>`.

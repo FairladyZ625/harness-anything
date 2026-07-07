@@ -476,11 +476,11 @@ function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): Readonl
       }
       materializedPaths.add(selection.materializeAs);
       const requiredSlot = requiredBySlot.get(selection.slot);
-      if (requiredSlot && (requiredSlot.templateRef !== selection.templateRef || requiredSlot.materializeAs !== selection.materializeAs)) {
+      if (requiredSlot && requiredSlot.materializeAs !== selection.materializeAs) {
         issues.push(extensionIssue("preset_required_template_conflict", `Preset ${manifest.id} cannot replace vertical-required slot ${selection.slot}.`, path));
       }
       const requiredPath = requiredByPath.get(selection.materializeAs);
-      if (requiredPath && (requiredPath.slot !== selection.slot || requiredPath.templateRef !== selection.templateRef)) {
+      if (requiredPath && requiredPath.slot !== selection.slot) {
         issues.push(extensionIssue("preset_required_template_conflict", `Preset ${manifest.id} cannot replace vertical-required document ${selection.materializeAs}.`, path));
       }
     }
