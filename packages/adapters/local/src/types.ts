@@ -29,6 +29,14 @@ export interface LocalWriteCoordinatorOptions {
   readonly autoMaterialize?: boolean;
 }
 
+export interface AdapterProviderMetadata {
+  readonly id: string;
+  readonly capabilities: ReadonlyArray<string>;
+  readonly readonly: boolean;
+  readonly writable: boolean;
+  readonly defaultProvider?: boolean;
+}
+
 export interface CreateLocalTaskInput {
   readonly taskId: TaskId;
   readonly title: string;

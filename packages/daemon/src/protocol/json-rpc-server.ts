@@ -1,5 +1,5 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
-import type { LocalControllerService } from "../../../application/src/index.ts";
+import type { CommandFailureReceipt, CommandReceipt, LocalControllerService } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
 import { currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
@@ -17,6 +17,9 @@ export interface DaemonRepoNamespace {
 export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
+  readonly CliCommandService?: {
+    readonly runCommand: (payload?: JsonObject) => Promise<CommandReceipt | CommandFailureReceipt>;
+  };
 }
 
 export interface JsonRpcServerOptions {
@@ -171,6 +174,12 @@ async function callServiceMethod(
   services: DaemonServiceHost
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
+  if (contract.method === "repo.command.run") {
+    if (!services.CliCommandService) {
+      return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
+    }
+    return services.CliCommandService.runCommand(payload);
+  }
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
     : await invokeServiceMethod(services.LocalControllerService, String(contract.serviceMethod), payload);

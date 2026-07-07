@@ -24,6 +24,12 @@
       "path": "../application"
     },
     {
+      "path": "../daemon"
+    },
+    {
+      "path": "../gui"
+    },
+    {
       "path": "../adapters/local"
     },
     {
