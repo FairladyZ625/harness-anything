@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { FlushReport, RecoveryReport, WriteOp } from "../ports/write-coordinator.ts";
+import type { RecoveryReport } from "../ports/write-coordinator.ts";
 import type { WriteError } from "../domain/index.ts";
 import {
   createHarnessRuntimeContext,
@@ -8,9 +8,17 @@ import {
   resolveHarnessLayout
 } from "../layout/index.ts";
 import { runLedgerMaterializer, type LedgerMaterializerReport } from "./ledger-materializer.ts";
+import { DaemonWriteQueue } from "./daemon-runtime-queue.ts";
+import {
+  type BackgroundBatchRequest,
+  type DaemonQueueSnapshot,
+  type DaemonWritePriority,
+  type InteractiveWriteReceipt,
+  type InteractiveWriteRequest
+} from "./daemon-runtime-queue.ts";
 import { acquireDaemonGlobalLock, type DaemonGlobalLock } from "./write-journal-locks.ts";
 import { makeJournaledWriteCoordinator } from "./write-journal-coordinator.ts";
-import type { GitCommitAuthor, JournalActor } from "./write-journal-types.ts";
+import type { JournalActor } from "./write-journal-types.ts";
 
 const defaultDaemonActor: JournalActor = { kind: "system", id: "daemon-runtime" };
 const defaultLockTtlMs = 60_000;
@@ -18,7 +26,13 @@ const defaultInteractiveMicroBatchMs = 10;
 const defaultMaxInteractiveOpsPerCommit = 32;
 const defaultMaterializerMaxBranchesPerBatch = 1;
 
-export type DaemonWritePriority = "interactive" | "normal" | "background" | "maintenance";
+export type {
+  BackgroundBatchRequest,
+  DaemonQueueSnapshot,
+  DaemonWritePriority,
+  InteractiveWriteReceipt,
+  InteractiveWriteRequest
+};
 
 export interface DaemonRuntimeOptions {
   readonly rootDir: string;
@@ -29,35 +43,6 @@ export interface DaemonRuntimeOptions {
   readonly maxInteractiveOpsPerCommit?: number;
   readonly materializerPollMs?: number | false;
   readonly materializerMaxBranchesPerBatch?: number;
-}
-
-export interface InteractiveWriteRequest {
-  readonly commandId: string;
-  readonly ops: ReadonlyArray<WriteOp>;
-  readonly deadlineMs?: number;
-  readonly actor?: JournalActor;
-  readonly commitAuthor?: GitCommitAuthor;
-}
-
-export interface InteractiveWriteReceipt {
-  readonly commandId: string;
-  readonly opIds: ReadonlyArray<string>;
-  readonly durable: true;
-  readonly flush: FlushReport;
-}
-
-export interface BackgroundBatchRequest<Result = unknown> {
-  readonly source: string;
-  readonly priority?: Exclude<DaemonWritePriority, "interactive">;
-  readonly run: () => Result | Promise<Result>;
-}
-
-export interface DaemonQueueSnapshot {
-  readonly interactive: number;
-  readonly normal: number;
-  readonly background: number;
-  readonly maintenance: number;
-  readonly running: boolean;
 }
 
 export interface DaemonRuntimeStatus {
@@ -78,354 +63,361 @@ export interface HarnessDaemonRuntime {
   readonly enqueueMaterializerBatch: () => Promise<LedgerMaterializerReport>;
 }
 
-interface InteractiveQueueItem {
-  readonly kind: "interactive";
-  readonly commandId: string;
-  readonly ops: ReadonlyArray<WriteOp>;
-  readonly actor?: JournalActor;
-  readonly commitAuthor?: GitCommitAuthor;
-  readonly enqueuedAt: number;
-  started: boolean;
-  timeout?: ReturnType<typeof setTimeout>;
-  readonly resolve: (receipt: InteractiveWriteReceipt) => void;
-  readonly reject: (error: WriteError) => void;
+export type DaemonRepoRuntimeState = "attached" | "unavailable" | "detaching" | "detached";
+
+export interface DaemonRepoRuntimeOptions extends DaemonRuntimeOptions {
+  readonly repoId: string;
+  readonly displayName?: string;
 }
 
-interface BackgroundQueueItem<Result> {
-  readonly kind: "background";
-  readonly source: string;
-  readonly priority: Exclude<DaemonWritePriority, "interactive">;
-  readonly run: () => Result | Promise<Result>;
-  readonly resolve: (result: Result) => void;
-  readonly reject: (error: unknown) => void;
+export interface DaemonRepoRuntimeStatus extends DaemonRuntimeStatus {
+  readonly repoId: string;
+  readonly canonicalRoot: string;
+  readonly displayName?: string;
+  readonly state: DaemonRepoRuntimeState;
+  readonly lastError?: string;
+  readonly lastMaterializerError?: string;
+}
+
+export interface MultiRepoDaemonRuntimeOptions extends Omit<DaemonRuntimeOptions, "rootDir" | "layoutOverrides"> {
+  readonly repos: ReadonlyArray<DaemonRepoRuntimeOptions>;
+}
+
+export interface MultiRepoDaemonRuntimeStatus {
+  readonly started: boolean;
+  readonly repoCount: number;
+  readonly attachedCount: number;
+  readonly unavailableCount: number;
+  readonly repos: ReadonlyArray<DaemonRepoRuntimeStatus>;
+}
+
+export interface MultiRepoHarnessDaemonRuntime {
+  readonly start: () => Promise<MultiRepoDaemonRuntimeStatus>;
+  readonly stop: () => Promise<void>;
+  readonly status: () => MultiRepoDaemonRuntimeStatus;
+  readonly attachRepo: (repo: DaemonRepoRuntimeOptions) => Promise<DaemonRepoRuntimeStatus>;
+  readonly detachRepo: (repoId: string) => Promise<DaemonRepoRuntimeStatus>;
+  readonly retryUnavailableRepos: () => Promise<ReadonlyArray<DaemonRepoRuntimeStatus>>;
+  readonly getRepoRuntime: (repoId: string) => HarnessDaemonRuntime | undefined;
+  readonly enqueueInteractiveWrite: (repoId: string, request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
+  readonly enqueueBackgroundBatch: <Result>(repoId: string, request: BackgroundBatchRequest<Result>) => Promise<Result>;
+  readonly enqueueMaterializerBatch: (repoId: string) => Promise<LedgerMaterializerReport>;
 }
 
 export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemonRuntime {
-  const rootDir = path.resolve(options.rootDir);
-  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
-  const layout = resolveHarnessLayout(runtimeContext);
-  const actor = options.actor ?? defaultDaemonActor;
-  const lockTtlMs = options.lockTtlMs ?? defaultLockTtlMs;
-  const maxInteractiveOpsPerCommit = options.maxInteractiveOpsPerCommit ?? defaultMaxInteractiveOpsPerCommit;
-  const interactiveMicroBatchMs = options.interactiveMicroBatchMs ?? defaultInteractiveMicroBatchMs;
-  const materializerMaxBranchesPerBatch = options.materializerMaxBranchesPerBatch ?? defaultMaterializerMaxBranchesPerBatch;
-  const queue = new DaemonWriteQueue(maxInteractiveOpsPerCommit, interactiveMicroBatchMs);
-  let lock: DaemonGlobalLock | undefined;
-  let coordinator: ReturnType<typeof makeJournaledWriteCoordinator> | undefined;
-  let lastRecovery: RecoveryReport | undefined;
-  let materializerTimer: ReturnType<typeof setInterval> | undefined;
-
-  const requireStarted = () => {
-    if (!lock || !coordinator) {
-      throw { _tag: "JournalUnavailable", cause: new Error("daemon runtime is not started") } satisfies WriteError;
-    }
-    return { lock, coordinator };
-  };
-
-  const enqueueMaterializerBatch = () => enqueueBackgroundBatch({
-    source: "ledger-materializer",
-    priority: "background",
-    run: () => {
-      const started = requireStarted();
-      return runLedgerMaterializer(runtimeContext, {
-        heldGlobalLock: started.lock,
-        maxBranches: materializerMaxBranchesPerBatch
-      });
-    }
-  });
-
-  const enqueueBackgroundBatch = <Result>(request: BackgroundBatchRequest<Result>): Promise<Result> => {
-    requireStarted();
-    return queue.enqueueBackground(request);
-  };
-
-  const makeStartedCoordinator = (
-    started: ReturnType<typeof requireStarted>,
-    request?: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }
-  ) => makeJournaledWriteCoordinator({
-    rootDir,
-    layoutOverrides: options.layoutOverrides,
-    actor: request?.actor ?? actor,
-    lockTtlMs,
-    heldGlobalLock: started.lock,
-    autoMaterialize: false,
-    ...(request?.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
-  });
-
+  const context = new DaemonRepoRuntimeContext({ ...options, repoId: "canonical" });
   return {
+    start: async () => toDaemonRuntimeStatus(await context.attach({ failOnError: true })),
+    stop: () => context.stop(),
+    status: () => toDaemonRuntimeStatus(context.status()),
+    enqueueInteractiveWrite: (request) => context.enqueueInteractiveWrite(request),
+    enqueueBackgroundBatch: (request) => context.enqueueBackgroundBatch(request),
+    enqueueMaterializerBatch: () => context.enqueueMaterializerBatch()
+  };
+}
+
+export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOptions): MultiRepoHarnessDaemonRuntime {
+  const contexts = new Map<string, DaemonRepoRuntimeContext>();
+  let started = false;
+
+  for (const repo of sortedRepoOptions(options.repos)) {
+    addContext(mergeRepoDefaults(repo, options));
+  }
+
+  const runtime: MultiRepoHarnessDaemonRuntime = {
     start: async () => {
-      if (lock && coordinator) return status();
-      lock = acquireDaemonGlobalLock(rootDir, runtimeContext, layout.journalPath, actor, lockTtlMs);
-      coordinator = makeJournaledWriteCoordinator({
-        rootDir,
-        layoutOverrides: options.layoutOverrides,
-        actor,
-        lockTtlMs,
-        heldGlobalLock: lock,
-        autoMaterialize: false
-      });
-      lastRecovery = Effect.runSync(coordinator.recover);
-      if (options.materializerPollMs !== false && typeof options.materializerPollMs === "number" && options.materializerPollMs > 0) {
-        materializerTimer = setInterval(() => {
-          void enqueueMaterializerBatch().catch(() => undefined);
-        }, options.materializerPollMs);
-        materializerTimer.unref();
+      started = true;
+      for (const context of sortedContexts(contexts)) {
+        await context.attach({ failOnError: false });
       }
       return status();
     },
     stop: async () => {
-      if (materializerTimer) clearInterval(materializerTimer);
-      materializerTimer = undefined;
-      queue.close();
-      await queue.idle();
-      lock?.release();
-      lock = undefined;
-      coordinator = undefined;
+      const errors: unknown[] = [];
+      for (const context of sortedContexts(contexts)) {
+        try {
+          await context.stop();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      started = false;
+      if (errors.length > 0) throw new AggregateError(errors, "failed to stop one or more repo runtimes");
     },
     status,
-    enqueueInteractiveWrite: (request) => {
-      const started = requireStarted();
-      return queue.enqueueInteractive(request, (batch) => makeStartedCoordinator(started, batch));
+    attachRepo: async (repo) => {
+      const context = contexts.get(repo.repoId) ?? addContext(mergeRepoDefaults(repo, options));
+      started = true;
+      return context.attach({ failOnError: false });
     },
-    enqueueBackgroundBatch,
-    enqueueMaterializerBatch
+    detachRepo: async (repoId) => {
+      const context = requireContext(contexts, repoId);
+      await context.stop();
+      return context.status();
+    },
+    retryUnavailableRepos: async () => {
+      const retried: DaemonRepoRuntimeStatus[] = [];
+      for (const context of sortedContexts(contexts)) {
+        if (context.state !== "unavailable") continue;
+        retried.push(await context.attach({ failOnError: false }));
+      }
+      return retried;
+    },
+    getRepoRuntime: (repoId) => contexts.get(repoId),
+    enqueueInteractiveWrite: (repoId, request) => requireContext(contexts, repoId).enqueueInteractiveWrite(request),
+    enqueueBackgroundBatch: (repoId, request) => requireContext(contexts, repoId).enqueueBackgroundBatch(request),
+    enqueueMaterializerBatch: (repoId) => requireContext(contexts, repoId).enqueueMaterializerBatch()
   };
+  return runtime;
 
-  function status(): DaemonRuntimeStatus {
+  function status(): MultiRepoDaemonRuntimeStatus {
+    const repos = sortedContexts(contexts).map((context) => context.status());
     return {
-      started: Boolean(lock && coordinator),
-      rootDir,
-      ...(lock ? { lockPath: path.relative(rootDir, lock.path).split(path.sep).join("/"), lockOwnerToken: lock.ownerToken } : {}),
-      queue: queue.snapshot(),
-      ...(lastRecovery ? { lastRecovery } : {})
+      started,
+      repoCount: repos.length,
+      attachedCount: repos.filter((repo) => repo.state === "attached").length,
+      unavailableCount: repos.filter((repo) => repo.state === "unavailable").length,
+      repos
     };
+  }
+
+  function addContext(repo: DaemonRepoRuntimeOptions): DaemonRepoRuntimeContext {
+    if (contexts.has(repo.repoId)) throw new Error(`duplicate daemon repoId: ${repo.repoId}`);
+    const rootDir = path.resolve(repo.rootDir);
+    for (const existing of contexts.values()) {
+      if (existing.rootDir === rootDir) throw new Error(`duplicate daemon repo root: ${rootDir}`);
+    }
+    const context = new DaemonRepoRuntimeContext({ ...repo, rootDir });
+    contexts.set(repo.repoId, context);
+    return context;
   }
 }
 
-class DaemonWriteQueue {
-  private readonly interactive: InteractiveQueueItem[] = [];
-  private readonly normal: BackgroundQueueItem<unknown>[] = [];
-  private readonly background: BackgroundQueueItem<unknown>[] = [];
-  private readonly maintenance: BackgroundQueueItem<unknown>[] = [];
-  private running = false;
-  private closed = false;
-  private idleWaiters: Array<() => void> = [];
-  private coordinatorFor: ((batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => ReturnType<typeof makeJournaledWriteCoordinator>) | undefined;
-  private readonly maxInteractiveOpsPerCommit: number;
-  private readonly interactiveMicroBatchMs: number;
+class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
+  readonly repoId: string;
+  readonly rootDir: string;
+  readonly displayName: string | undefined;
+  state: DaemonRepoRuntimeState = "detached";
 
-  constructor(
-    maxInteractiveOpsPerCommit: number,
-    interactiveMicroBatchMs: number
-  ) {
-    this.maxInteractiveOpsPerCommit = maxInteractiveOpsPerCommit;
-    this.interactiveMicroBatchMs = interactiveMicroBatchMs;
+  private readonly runtimeContext: ReturnType<typeof createHarnessRuntimeContext>;
+  private readonly layout: ReturnType<typeof resolveHarnessLayout>;
+  private readonly actor: JournalActor;
+  private readonly lockTtlMs: number;
+  private readonly materializerMaxBranchesPerBatch: number;
+  private readonly queue: DaemonWriteQueue;
+  private readonly options: DaemonRepoRuntimeOptions;
+  private lock: DaemonGlobalLock | undefined;
+  private coordinator: ReturnType<typeof makeJournaledWriteCoordinator> | undefined;
+  private lastRecovery: RecoveryReport | undefined;
+  private lastError: string | undefined;
+  private lastMaterializerError: string | undefined;
+  private materializerTimer: ReturnType<typeof setInterval> | undefined;
+
+  constructor(options: DaemonRepoRuntimeOptions) {
+    this.options = options;
+    this.repoId = options.repoId;
+    this.rootDir = path.resolve(options.rootDir);
+    this.displayName = options.displayName;
+    this.runtimeContext = createHarnessRuntimeContext(this.rootDir, options.layoutOverrides);
+    this.layout = resolveHarnessLayout(this.runtimeContext);
+    this.actor = options.actor ?? defaultDaemonActor;
+    this.lockTtlMs = options.lockTtlMs ?? defaultLockTtlMs;
+    this.materializerMaxBranchesPerBatch = options.materializerMaxBranchesPerBatch ?? defaultMaterializerMaxBranchesPerBatch;
+    this.queue = new DaemonWriteQueue(
+      options.maxInteractiveOpsPerCommit ?? defaultMaxInteractiveOpsPerCommit,
+      options.interactiveMicroBatchMs ?? defaultInteractiveMicroBatchMs
+    );
   }
 
-  enqueueInteractive(
-    request: InteractiveWriteRequest,
-    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => ReturnType<typeof makeJournaledWriteCoordinator>
-  ): Promise<InteractiveWriteReceipt> {
-    if (this.closed) return Promise.reject({ _tag: "JournalUnavailable", cause: new Error("daemon write queue is closed") } satisfies WriteError);
-    this.coordinatorFor = coordinatorFor;
-    return new Promise((resolve, reject) => {
-      const item: InteractiveQueueItem = {
-        kind: "interactive",
-        commandId: request.commandId,
-        ops: request.ops,
-        ...(request.actor ? { actor: request.actor } : {}),
-        ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {}),
-        enqueuedAt: Date.now(),
-        started: false,
-        resolve,
-        reject
-      };
-      if (request.deadlineMs !== undefined) {
-        item.timeout = setTimeout(() => {
-          if (item.started) return;
-          this.removeInteractive(item);
-          reject({ _tag: "JournalUnavailable", cause: new Error(`daemon queue wait timeout after ${request.deadlineMs}ms`) } satisfies WriteError);
-          this.resolveIdleIfNeeded();
-        }, request.deadlineMs);
-      }
-      this.interactive.push(item);
-      this.schedule();
-    });
+  start(): Promise<DaemonRuntimeStatus> {
+    return this.attach({ failOnError: true });
   }
 
-  enqueueBackground<Result>(request: BackgroundBatchRequest<Result>): Promise<Result> {
-    if (this.closed) return Promise.reject(new Error("daemon write queue is closed"));
-    return new Promise((resolve, reject) => {
-      const item: BackgroundQueueItem<Result> = {
-        kind: "background",
-        source: request.source,
-        priority: request.priority ?? "background",
-        run: request.run,
-        resolve,
-        reject
-      };
-      this.queueFor(item.priority).push(item as BackgroundQueueItem<unknown>);
-      this.schedule();
-    });
+  async attach(input: { readonly failOnError: boolean }): Promise<DaemonRepoRuntimeStatus> {
+    if (this.lock && this.coordinator && this.state === "attached") return this.status();
+    try {
+      this.lock = acquireDaemonGlobalLock(this.rootDir, this.runtimeContext, this.layout.journalPath, this.actor, this.lockTtlMs);
+      this.coordinator = makeJournaledWriteCoordinator({
+        rootDir: this.rootDir,
+        layoutOverrides: this.options.layoutOverrides,
+        actor: this.actor,
+        lockTtlMs: this.lockTtlMs,
+        heldGlobalLock: this.lock,
+        autoMaterialize: false
+      });
+      this.lastRecovery = Effect.runSync(this.coordinator.recover);
+      this.lastError = undefined;
+      this.lastMaterializerError = undefined;
+      this.state = "attached";
+      this.startMaterializerTimer();
+      return this.status();
+    } catch (error) {
+      this.releaseStartedParts();
+      this.state = "unavailable";
+      this.lastError = describeError(error);
+      if (input.failOnError) throw error;
+      return this.status();
+    }
   }
 
-  close(): void {
-    this.closed = true;
+  async stop(): Promise<void> {
+    this.state = "detaching";
+    this.stopMaterializerTimer();
+    await this.queue.idle();
+    try {
+      this.lock?.release();
+      this.lastError = undefined;
+    } catch (error) {
+      this.lastError = describeError(error);
+      throw error;
+    } finally {
+      this.lock = undefined;
+      this.coordinator = undefined;
+      this.state = "detached";
+    }
   }
 
-  async idle(): Promise<void> {
-    if (this.isIdle()) return;
-    await new Promise<void>((resolve) => this.idleWaiters.push(resolve));
-  }
-
-  snapshot(): DaemonQueueSnapshot {
+  status(): DaemonRepoRuntimeStatus {
     return {
-      interactive: this.interactive.length,
-      normal: this.normal.length,
-      background: this.background.length,
-      maintenance: this.maintenance.length,
-      running: this.running
+      started: Boolean(this.lock && this.coordinator && this.state === "attached"),
+      rootDir: this.rootDir,
+      repoId: this.repoId,
+      canonicalRoot: this.rootDir,
+      ...(this.displayName ? { displayName: this.displayName } : {}),
+      state: this.state,
+      ...(this.lock ? { lockPath: path.relative(this.rootDir, this.lock.path).split(path.sep).join("/"), lockOwnerToken: this.lock.ownerToken } : {}),
+      queue: this.queue.snapshot(),
+      ...(this.lastRecovery ? { lastRecovery: this.lastRecovery } : {}),
+      ...(this.lastError ? { lastError: this.lastError } : {}),
+      ...(this.lastMaterializerError ? { lastMaterializerError: this.lastMaterializerError } : {})
     };
   }
 
-  private schedule(): void {
-    if (this.running) return;
-    this.running = true;
-    queueMicrotask(() => {
-      void this.drain().finally(() => {
-        this.running = false;
-        this.resolveIdleIfNeeded();
-        if (!this.isIdle()) this.schedule();
+  enqueueInteractiveWrite(request: InteractiveWriteRequest): Promise<InteractiveWriteReceipt> {
+    const started = this.requireAttached();
+    return this.queue.enqueueInteractive(request, (batch) => this.makeStartedCoordinator(started, batch))
+      .catch((error: unknown) => {
+        this.lastError = describeError(error);
+        throw error;
       });
-    });
   }
 
-  private async drain(): Promise<void> {
-    while (!this.isIdle()) {
-      if (this.interactive.length > 0) {
-        if (!this.coordinatorFor) return;
-        await this.drainInteractive(this.coordinatorFor);
-        continue;
-      }
-      const backgroundItem = this.normal.shift() ?? this.background.shift() ?? this.maintenance.shift();
-      if (!backgroundItem) return;
-      await this.runBackground(backgroundItem);
-    }
+  enqueueBackgroundBatch<Result>(request: BackgroundBatchRequest<Result>): Promise<Result> {
+    this.requireAttached();
+    return this.queue.enqueueBackground(request)
+      .catch((error: unknown) => {
+        this.lastError = describeError(error);
+        throw error;
+      });
   }
 
-  private async drainInteractive(
-    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => ReturnType<typeof makeJournaledWriteCoordinator>
-  ): Promise<void> {
-    if (this.interactiveMicroBatchMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, this.interactiveMicroBatchMs));
-    }
-    const batch: InteractiveQueueItem[] = [];
-    let opCount = 0;
-    while (this.interactive.length > 0 && opCount < this.maxInteractiveOpsPerCommit) {
-      const next = this.interactive[0]!;
-      if (batch.length > 0 && !sameAttribution(batch[0]!, next)) break;
-      const item = this.interactive.shift()!;
-      item.started = true;
-      if (item.timeout) clearTimeout(item.timeout);
-      batch.push(item);
-      opCount += item.ops.length;
-    }
-    const accepted: InteractiveQueueItem[] = [];
-    const coordinator = coordinatorFor(attributionFor(batch[0]));
-    for (const item of batch) {
-      try {
-        for (const op of item.ops) {
-          Effect.runSync(coordinator.enqueue(op));
-        }
-        accepted.push(item);
-      } catch (error) {
-        item.reject(toWriteError(error));
-      }
-    }
-    if (accepted.length === 0) return;
-    try {
-      const report = Effect.runSync(coordinator.flush("explicit"));
-      for (const item of accepted) {
-        item.resolve({
-          commandId: item.commandId,
-          opIds: item.ops.map((op) => op.opId),
-          durable: true,
-          flush: report
+  enqueueMaterializerBatch(): Promise<LedgerMaterializerReport> {
+    return this.enqueueBackgroundBatch({
+      source: "ledger-materializer",
+      priority: "background",
+      run: () => {
+        const started = this.requireAttached();
+        return runLedgerMaterializer(this.runtimeContext, {
+          heldGlobalLock: started.lock,
+          maxBranches: this.materializerMaxBranchesPerBatch
         });
       }
-    } catch (error) {
-      const writeError = toWriteError(error);
-      for (const item of accepted) item.reject(writeError);
-    }
+    }).catch((error: unknown) => {
+      this.lastMaterializerError = describeError(error);
+      throw error;
+    });
   }
 
-  private async runBackground(item: BackgroundQueueItem<unknown>): Promise<void> {
+  private requireAttached(): { readonly lock: DaemonGlobalLock; readonly coordinator: ReturnType<typeof makeJournaledWriteCoordinator> } {
+    if (!this.lock || !this.coordinator || this.state !== "attached") {
+      throw { _tag: "JournalUnavailable", cause: new Error(`daemon repo "${this.repoId}" is not attached`) } satisfies WriteError;
+    }
+    return { lock: this.lock, coordinator: this.coordinator };
+  }
+
+  private makeStartedCoordinator(
+    started: ReturnType<DaemonRepoRuntimeContext["requireAttached"]>,
+    request?: { readonly actor?: JournalActor; readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"] }
+  ) {
+    return makeJournaledWriteCoordinator({
+      rootDir: this.rootDir,
+      layoutOverrides: this.options.layoutOverrides,
+      actor: request?.actor ?? this.actor,
+      lockTtlMs: this.lockTtlMs,
+      heldGlobalLock: started.lock,
+      autoMaterialize: false,
+      ...(request?.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
+    });
+  }
+
+  private startMaterializerTimer(): void {
+    this.stopMaterializerTimer();
+    if (this.options.materializerPollMs === false || typeof this.options.materializerPollMs !== "number" || this.options.materializerPollMs <= 0) {
+      return;
+    }
+    this.materializerTimer = setInterval(() => {
+      void this.enqueueMaterializerBatch().catch(() => undefined);
+    }, this.options.materializerPollMs);
+    this.materializerTimer.unref();
+  }
+
+  private stopMaterializerTimer(): void {
+    if (this.materializerTimer) clearInterval(this.materializerTimer);
+    this.materializerTimer = undefined;
+  }
+
+  private releaseStartedParts(): void {
+    this.stopMaterializerTimer();
     try {
-      item.resolve(await item.run());
-    } catch (error) {
-      item.reject(error);
+      this.lock?.release();
+    } catch {
+      // Attach failure reporting should keep the original attach error.
     }
-  }
-
-  private queueFor(priority: Exclude<DaemonWritePriority, "interactive">): BackgroundQueueItem<unknown>[] {
-    if (priority === "normal") return this.normal;
-    if (priority === "maintenance") return this.maintenance;
-    return this.background;
-  }
-
-  private removeInteractive(item: InteractiveQueueItem): void {
-    const index = this.interactive.indexOf(item);
-    if (index >= 0) this.interactive.splice(index, 1);
-  }
-
-  private isIdle(): boolean {
-    return this.interactive.length === 0
-      && this.normal.length === 0
-      && this.background.length === 0
-      && this.maintenance.length === 0
-      && !this.running;
-  }
-
-  private resolveIdleIfNeeded(): void {
-    if (!this.isIdle()) return;
-    const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
-    for (const resolve of waiters) resolve();
+    this.lock = undefined;
+    this.coordinator = undefined;
   }
 }
 
-function attributionFor(item: InteractiveQueueItem | undefined): { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor } {
+function toDaemonRuntimeStatus(status: DaemonRepoRuntimeStatus): DaemonRuntimeStatus {
   return {
-    ...(item?.actor ? { actor: item.actor } : {}),
-    ...(item?.commitAuthor ? { commitAuthor: item.commitAuthor } : {})
+    started: status.started,
+    rootDir: status.rootDir,
+    ...(status.lockPath ? { lockPath: status.lockPath, lockOwnerToken: status.lockOwnerToken } : {}),
+    queue: status.queue,
+    ...(status.lastRecovery ? { lastRecovery: status.lastRecovery } : {})
   };
 }
 
-function sameAttribution(left: InteractiveQueueItem, right: InteractiveQueueItem): boolean {
-  return actorKey(left.actor) === actorKey(right.actor)
-    && authorKey(left.commitAuthor) === authorKey(right.commitAuthor);
+function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDaemonRuntimeOptions): DaemonRepoRuntimeOptions {
+  return {
+    ...repo,
+    ...(repo.actor ? {} : options.actor ? { actor: options.actor } : {}),
+    ...(repo.lockTtlMs !== undefined ? {} : options.lockTtlMs !== undefined ? { lockTtlMs: options.lockTtlMs } : {}),
+    ...(repo.interactiveMicroBatchMs !== undefined ? {} : options.interactiveMicroBatchMs !== undefined ? { interactiveMicroBatchMs: options.interactiveMicroBatchMs } : {}),
+    ...(repo.maxInteractiveOpsPerCommit !== undefined ? {} : options.maxInteractiveOpsPerCommit !== undefined ? { maxInteractiveOpsPerCommit: options.maxInteractiveOpsPerCommit } : {}),
+    ...(repo.materializerPollMs !== undefined ? {} : options.materializerPollMs !== undefined ? { materializerPollMs: options.materializerPollMs } : {}),
+    ...(repo.materializerMaxBranchesPerBatch !== undefined ? {} : options.materializerMaxBranchesPerBatch !== undefined ? { materializerMaxBranchesPerBatch: options.materializerMaxBranchesPerBatch } : {})
+  };
 }
 
-function actorKey(actor: JournalActor | undefined): string {
-  return actor ? `${actor.kind}\0${actor.id}` : "";
+function sortedRepoOptions(repos: ReadonlyArray<DaemonRepoRuntimeOptions>): ReadonlyArray<DaemonRepoRuntimeOptions> {
+  return [...repos].sort((left, right) => left.repoId.localeCompare(right.repoId) || path.resolve(left.rootDir).localeCompare(path.resolve(right.rootDir)));
 }
 
-function authorKey(author: GitCommitAuthor | undefined): string {
-  return author ? `${author.name}\0${author.email}` : "";
+function sortedContexts(contexts: Map<string, DaemonRepoRuntimeContext>): ReadonlyArray<DaemonRepoRuntimeContext> {
+  return [...contexts.values()].sort((left, right) => left.repoId.localeCompare(right.repoId) || left.rootDir.localeCompare(right.rootDir));
 }
 
-function toWriteError(error: unknown): WriteError {
-  if (isWriteError(error)) return error;
-  return { _tag: "JournalUnavailable", cause: error };
+function requireContext(contexts: Map<string, DaemonRepoRuntimeContext>, repoId: string): DaemonRepoRuntimeContext {
+  const context = contexts.get(repoId);
+  if (!context) throw { _tag: "JournalUnavailable", cause: new Error(`unknown daemon repo "${repoId}"`) } satisfies WriteError;
+  return context;
 }
 
-function isWriteError(error: unknown): error is WriteError {
-  return typeof error === "object"
-    && error !== null
-    && "_tag" in error
-    && (
-      error._tag === "WriteRejected"
-      || error._tag === "WriteConflict"
-      || error._tag === "GlobalWriteConflict"
-      || error._tag === "JournalUnavailable"
-    );
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "cause" in error) {
+    return describeError((error as { readonly cause?: unknown }).cause);
+  }
+  return String(error);
 }
