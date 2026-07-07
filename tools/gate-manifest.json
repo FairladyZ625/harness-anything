@@ -71,6 +71,7 @@
         "check-docmap-fresh",
         "check-gate-surface",
         "check-template-command-surface",
+        "check-locale-content",
         "check-runtime-release-readiness",
         "check-package-policy",
         "check-implementation-contracts",
@@ -109,6 +110,7 @@
         "check-docmap-fresh",
         "check-gate-surface",
         "check-template-command-surface",
+        "check-locale-content",
         "check-runtime-release-readiness",
         "check-package-policy",
         "check-implementation-contracts",
@@ -119,7 +121,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 29
+      "harnessLeafGateCount": 30
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2287,6 +2289,69 @@
         "branchProtection": {
           "required": false,
           "contexts": []
+        }
+      }
+    },
+    {
+      "id": "check-locale-content",
+      "command": "npm run harness:check-locale-content",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/cli/src/commands/extensions/assets/software-coding/templates",
+        "tools/check-locale-content.mjs"
+      ],
+      "consumerScope": [
+        "seeded zh-CN task templates"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "zh-CN markdown level 1 to 3 headings must contain at least one CJK character."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-locale-content.mjs",
+          "package.json:scripts.harness:check-locale-content",
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-locale-content"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
         }
       }
     },

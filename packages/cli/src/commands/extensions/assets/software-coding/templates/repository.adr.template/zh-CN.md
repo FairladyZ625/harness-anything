@@ -1,17 +1,21 @@
-# ADR-0000 Title
+# ADR-0000 标题
 
-## Status
+<!-- required-anchor: ## Status -->
+## 状态
 
-Proposed
+提议中
 
-## Context
+<!-- required-anchor: ## Context -->
+## 背景
 
-Describe the forces, constraints, and alternatives.
+描述影响因素、约束和备选方案。
 
-## Decision
+<!-- required-anchor: ## Decision -->
+## 决策
 
-Describe the chosen direction.
+描述已选择的方向。
 
-## Consequences
+<!-- required-anchor: ## Consequences -->
+## 后果
 
-Describe expected tradeoffs, follow-up work, and validation evidence.
+描述预期权衡、后续工作和验证证据。
