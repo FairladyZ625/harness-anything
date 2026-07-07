@@ -68,6 +68,13 @@ test("import boundary check fails closed on allowlist entries without refs", () 
             reason: "fixture includes ref"
           }
         ],
+        kernelStoreCompositionRoots: [
+          {
+            value: "packages/kernel/src/composition/index.ts",
+            ref: "dec_mra9ag8o",
+            reason: "fixture includes ref"
+          }
+        ],
         cliAdapterKnownDebt: [
           {
             value: "packages/cli/src/commands/lifecycle.ts",
@@ -102,6 +109,43 @@ test("import boundary check allows application imports from kernel public contra
     const result = runChecker(root);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Import boundary check passed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check confines kernel store imports to the kernel composition root", () => {
+  const root = makeFixtureRoot();
+  try {
+    mkdirSync(path.join(root, "packages/kernel/src/composition"), { recursive: true });
+    mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
+    mkdirSync(path.join(root, "packages/kernel/src/application"), { recursive: true });
+    writeFileSync(path.join(root, "packages/kernel/src/index.ts"), [
+      "export { makeStore } from './composition/index.ts';"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/composition/index.ts"), [
+      "import { makeStore } from '../store/index.ts';",
+      "export { makeStore };"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/application/service.ts"), [
+      "import { makeStore } from '../store/index.ts';",
+      "export const service = makeStore;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/application/src/index.ts"), [
+      "import { makeStore } from '../../kernel/src/index.ts';",
+      "export const appStore = makeStore;"
+    ].join("\n"), "utf8");
+    writeFileSync(path.join(root, "packages/kernel/src/store/index.ts"), [
+      "export function makeStore() {",
+      "  return {};",
+      "}"
+    ].join("\n"), "utf8");
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/kernel\/src\/application\/service\.ts/);
+    assert.doesNotMatch(result.stderr, /packages\/kernel\/src\/composition\/index\.ts/);
+    assert.doesNotMatch(result.stderr, /packages\/application\/src\/index\.ts/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

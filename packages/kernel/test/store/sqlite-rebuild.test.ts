@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { checkTaskProjection, hashTaskProjectionRows, readTaskProjection, rebuildTaskProjection } from "../../src/index.ts";
 import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
@@ -40,6 +40,25 @@ test("markdown artifact store reads package disposition from INDEX frontmatter",
     assert.equal(Effect.runSync(store.readTaskPackage("task-tombstoned")).disposition, "tombstoned");
   });
 });
+
+test("markdown artifact store resolves lifecycle bindings by external ref", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-bound", "Task Bound", "active", "active", {
+      engine: "linear",
+      ref: "LIN-123"
+    });
+    writeIndex(rootDir, "task-other", "Task Other", "active", "active", {
+      engine: "linear",
+      ref: "LIN-999"
+    });
+
+    const store = makeMarkdownArtifactStore({ rootDir });
+
+    assert.equal(Option.getOrNull(Effect.runSync(store.findBindingByExternalRef("linear", "LIN-123"))), "task-bound");
+    assert.equal(Option.isNone(Effect.runSync(store.findBindingByExternalRef("linear", "LIN-missing"))), true);
+  });
+});
+
 
 test("markdown artifact store rejects invalid package disposition", () => {
   withTempStore((rootDir) => {
@@ -253,7 +272,7 @@ function writeIndex(
   title: string,
   status: string,
   packageDisposition: string | null = "active",
-  metadata: { readonly workKind?: string; readonly riskTier?: string; readonly urgency?: string } = {}
+  metadata: { readonly workKind?: string; readonly riskTier?: string; readonly urgency?: string; readonly engine?: string; readonly ref?: string } = {}
 ): void {
   const dispositionLines = packageDisposition === null ? [] : [`packageDisposition: ${packageDisposition}`];
   mkdirSync(path.join(rootDir, "harness/tasks", taskId), { recursive: true });
@@ -264,9 +283,9 @@ function writeIndex(
     `title: ${title}`,
     "lifecycle:",
     "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
+    `  engine: ${metadata.engine ?? "local"}`,
     `  status: ${status}`,
-    "  ref: ",
+    `  ref: ${metadata.ref ?? ""}`,
     `  titleSnapshot: ${title}`,
     "  url: ",
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
