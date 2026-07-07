@@ -1,33 +1,25 @@
 import type { TaskDocumentPlaceholderPolicy } from "../../../../application/src/index.ts";
 import { bundledTemplateCatalog } from "../extensions/bundled.ts";
-
-interface TemplateCatalogDocument {
-  readonly id: string;
-  readonly requiredAnchors?: ReadonlyArray<string>;
-  readonly locales?: ReadonlyArray<{
-    readonly body?: string;
-  }>;
-}
-
-interface TemplateCatalogLike {
-  readonly documents?: ReadonlyArray<TemplateCatalogDocument>;
-}
+import { resolveTemplateCatalogBody, type TemplateCatalog } from "../extensions/template-catalog-loader.ts";
 
 export function bundledTaskDocumentPlaceholderPolicy(): TaskDocumentPlaceholderPolicy {
-  const catalog = bundledTemplateCatalog() as TemplateCatalogLike | undefined;
+  const catalog = bundledTemplateCatalog();
   return {
     closeoutPlaceholderFingerprints: closeoutPlaceholderFingerprints(catalog)
   };
 }
 
-function closeoutPlaceholderFingerprints(catalog: TemplateCatalogLike | undefined): ReadonlyArray<string> {
+function closeoutPlaceholderFingerprints(catalog: TemplateCatalog | undefined): ReadonlyArray<string> {
   const closeout = catalog?.documents?.find((document) => document.id === "planning/closeout");
-  if (!closeout) return [];
+  if (!catalog || !closeout) return [];
   const anchors = closeout.requiredAnchors ?? [];
   const fingerprints = new Set<string>();
-  for (const locale of closeout.locales ?? []) {
+  const resolveBody = resolveTemplateCatalogBody(catalog);
+  const documentIndex = catalog.documents.indexOf(closeout);
+  for (const [localeIndex, locale] of closeout.locales.entries()) {
+    const body = resolveBody({ document: closeout, locale, documentIndex, localeIndex }) ?? "";
     for (const anchor of anchors) {
-      const section = extractSection(locale.body ?? "", anchor);
+      const section = extractSection(body, anchor);
       if (section.length > 0) fingerprints.add(section);
     }
   }

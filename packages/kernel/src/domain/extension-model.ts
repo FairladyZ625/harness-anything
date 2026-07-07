@@ -24,6 +24,7 @@ export interface ExtensionValidationIssue {
     | "preset_extends_cycle"
     | "status_mapping_forbidden"
     | "template_locale_structure_mismatch"
+    | "template_body_unavailable"
     | "unknown_extension_field"
     | "vertical_contract_entity_disabled"
     | "vertical_contract_entity_missing"
@@ -49,6 +50,7 @@ export interface MaterializationRequest {
   readonly catalog: TemplateCatalog;
   readonly selections: ReadonlyArray<TemplateSelection>;
   readonly locale: "zh-CN" | "en-US";
+  readonly resolveBody?: TemplateBodyResolver;
 }
 
 export interface MaterializedTemplatePlan {
@@ -70,6 +72,17 @@ export interface MaterializationResult {
 
 export type ExtensionInputKind = "template-catalog" | "preset-manifest" | "vertical-definition";
 
+export type TemplateBodyResolver = (input: {
+  readonly document: TemplateCatalog["documents"][number];
+  readonly locale: TemplateCatalog["documents"][number]["locales"][number];
+  readonly documentIndex: number;
+  readonly localeIndex: number;
+}) => string | undefined;
+
+export interface TemplateCatalogValidationOptions {
+  readonly resolveBody?: TemplateBodyResolver;
+}
+
 export function validateExtensionInputShape(kind: ExtensionInputKind, input: unknown): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
   scanForbiddenKeys(input, "$", issues);
@@ -85,7 +98,7 @@ export function validateExtensionInputShape(kind: ExtensionInputKind, input: unk
   return { ok: issues.length === 0, issues };
 }
 
-export function validateTemplateCatalog(catalog: TemplateCatalog): ExtensionValidationResult {
+export function validateTemplateCatalog(catalog: TemplateCatalog, options: TemplateCatalogValidationOptions = {}): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
   const seenDocuments = new Set<string>();
 
@@ -107,9 +120,12 @@ export function validateTemplateCatalog(catalog: TemplateCatalog): ExtensionVali
       if (!sameStringSet(variant.anchors, document.requiredAnchors)) {
         issues.push(issue("template_locale_structure_mismatch", `Locale ${variant.locale} anchors must match required anchors for ${documentKey}.`, `${variantPath}.anchors`));
       }
-      for (const anchor of document.requiredAnchors) {
-        if (!variant.body.includes(anchor)) {
-          issues.push(issue("missing_required_anchor", `Locale ${variant.locale} body is missing anchor ${anchor}.`, `${variantPath}.body`));
+      const body = options.resolveBody?.({ document, locale: variant, documentIndex, localeIndex: variantIndex });
+      if (body !== undefined) {
+        for (const anchor of document.requiredAnchors) {
+          if (!body.includes(anchor)) {
+            issues.push(issue("missing_required_anchor", `Locale ${variant.locale} body is missing anchor ${anchor}.`, `${variantPath}.bodyPath`));
+          }
         }
       }
     }
@@ -222,7 +238,7 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
 }
 
 export function planTemplateMaterialization(request: MaterializationRequest): MaterializationResult {
-  const catalogValidation = validateTemplateCatalog(request.catalog);
+  const catalogValidation = validateTemplateCatalog(request.catalog, { resolveBody: request.resolveBody });
   const issues: ExtensionValidationIssue[] = [...catalogValidation.issues];
   const documents: MaterializedTemplatePlan[] = [];
 
@@ -243,6 +259,13 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
       issues.push(issue("missing_fallback_locale", `No usable locale for ${selection.templateRef}.`, `selections[${selectionIndex}].localePolicy`));
       continue;
     }
+    const documentIndex = request.catalog.documents.indexOf(document);
+    const localeIndex = document.locales.indexOf(selected);
+    const body = request.resolveBody?.({ document, locale: selected, documentIndex, localeIndex });
+    if (body === undefined) {
+      issues.push(issue("template_body_unavailable", `Template body is unavailable for ${selection.templateRef} ${selected.locale}.`, `documents[${documentIndex}].locales[${localeIndex}].bodyPath`));
+      continue;
+    }
 
     documents.push({
       slot: selection.slot,
@@ -252,7 +275,7 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
       locale: selected.locale,
       fallbackUsed: selected.locale !== request.locale,
       requiredAnchors: document.requiredAnchors,
-      body: selected.body
+      body
     });
   }
 
@@ -332,7 +355,7 @@ function validateTemplateCatalogShape(input: unknown, path: string, issues: Exte
       validateObjectKeys(document, documentPath, ["id", "version", "documentKind", "slot", "materializeAs", "frontmatterSchema", "requiredAnchors", "fallbackLocale", "locales"], issues);
       if (isRecord(document) && Array.isArray(document.locales)) {
         for (const [localeIndex, locale] of document.locales.entries()) {
-          validateObjectKeys(locale, `${documentPath}.locales[${localeIndex}]`, ["locale", "anchors", "body"], issues);
+          validateObjectKeys(locale, `${documentPath}.locales[${localeIndex}]`, ["locale", "anchors", "bodyPath"], issues);
         }
       }
     }

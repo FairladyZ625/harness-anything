@@ -46,6 +46,17 @@ test("CLI template render hydrates template-catalog v2 bodyPath assets", () => {
   });
 });
 
+test("CLI template render rejects template-catalog v1 inputs explicitly", () => {
+  withTempCatalogV1((catalogPath) => {
+    const result = runJson(["template", "render", "template://planning/task-flow@1", "--catalog", catalogPath, "--locale", "zh-CN"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.command, "template-render");
+    assert.equal(result.error?.code, "template_catalog_invalid");
+    assert.equal(result.issues.some((issue) => issue.code === "template_catalog_v1_unsupported"), true);
+  });
+});
+
 test("CLI template commands use bundled software coding catalog by default", () => {
   const listed = runJson(["template", "list"]);
   const rendered = runJson(["template", "render", "template://planning/task-plan@1", "--locale", "en-US"]);
@@ -223,19 +234,40 @@ function withTempCatalogV2(fn: (catalogPath: string) => void): void {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-template-catalog-v2-"));
   try {
     const catalog = JSON.parse(readFileSync(catalogFixture, "utf8")) as Record<string, any>;
-    const assetDir = path.join(rootDir, "templates/task.flow");
-    mkdirSync(assetDir, { recursive: true });
-    for (const locale of catalog.documents[0].locales) {
-      const bodyPath = `templates/task.flow/${locale.locale}.md`;
-      writeFileSync(path.join(rootDir, bodyPath), locale.body, "utf8");
-      delete locale.body;
-      locale.bodyPath = bodyPath;
-    }
-    catalog.schema = "template-catalog/v2";
+    copyCatalogBodies(catalog, rootDir);
     const catalogPath = path.join(rootDir, "template-catalog.json");
     writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
     fn(catalogPath);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function withTempCatalogV1(fn: (catalogPath: string) => void): void {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-template-catalog-v1-"));
+  try {
+    const catalog = JSON.parse(readFileSync(catalogFixture, "utf8")) as Record<string, any>;
+    for (const document of catalog.documents) {
+      for (const locale of document.locales) {
+        locale.body = readFileSync(path.join(path.dirname(catalogFixture), locale.bodyPath), "utf8");
+        delete locale.bodyPath;
+      }
+    }
+    catalog.schema = "template-catalog/v1";
+    const catalogPath = path.join(rootDir, "template-catalog.json");
+    writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+    fn(catalogPath);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function copyCatalogBodies(catalog: Record<string, any>, rootDir: string): void {
+  for (const document of catalog.documents) {
+    for (const locale of document.locales) {
+      const targetPath = path.join(rootDir, locale.bodyPath);
+      mkdirSync(path.dirname(targetPath), { recursive: true });
+      writeFileSync(targetPath, readFileSync(path.join(path.dirname(catalogFixture), locale.bodyPath), "utf8"));
+    }
   }
 }
