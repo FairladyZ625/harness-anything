@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -189,6 +189,8 @@ test("daemon bootstrap-server is idempotent and installs roster hooks and read-o
     assert.equal(existsSync(path.join(canonicalRoot, ".git/hooks/pre-receive")), true);
     assert.equal(existsSync(path.join(mirrorRoot, "hooks/pre-receive")), true);
     assert.equal(existsSync(reportPath), true);
+    assert.equal(first.registry && typeof first.registry === "object" && (first.registry as { repoId?: string }).repoId, "canonical");
+    assert.equal(existsSync(path.join(defaultDaemonUserRoot(rootDir), "registry.json")), true);
 
     const canonicalHook = spawnSync(path.join(canonicalRoot, ".git/hooks/pre-receive"), {
       cwd: canonicalRoot,
@@ -203,6 +205,141 @@ test("daemon bootstrap-server is idempotent and installs roster hooks and read-o
     });
     assert.notEqual(mirrorHook.status, 0);
     assert.match(mirrorHook.stderr, /read-only mirror/u);
+  });
+});
+
+test("daemon client auto-registers initialized single repo on first local command", () => {
+  withTempRoot((rootDir) => {
+    const userRoot = path.join(rootDir, "user-daemon");
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+
+    const listed = runRawJson(rootDir, ["task", "list"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
+      HARNESS_DAEMON_IDLE_MS: "1500"
+    });
+
+    assert.equal(listed.ok, true);
+    const registry = JSON.parse(readFileSync(path.join(userRoot, "registry.json"), "utf8")) as { repos: Array<{ repoId: string; canonicalRoot: string; state: string }> };
+    assert.deepEqual(registry.repos.map((repo) => [repo.repoId, repo.canonicalRoot, repo.state]), [["canonical", realpathSync.native(rootDir), "enabled"]]);
+
+    const status = runDaemonCommand(rootDir, ["daemon", "status", "--user-root", userRoot, "--json"], { HARNESS_DAEMON_USER_ROOT: userRoot });
+    assert.equal(status.started, true);
+    assert.equal(status.repoId, "canonical");
+    assert.equal(status.rootDir, realpathSync.native(rootDir));
+  });
+});
+
+test("daemon client resolves an existing single-repo registry without requiring repo input", () => {
+  withTempRoot((rootDir) => {
+    const userRoot = path.join(rootDir, "user-daemon");
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    const registered = runDaemonCommand(rootDir, ["daemon", "repo", "register", "--repo-id", "canonical", "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    assert.equal(registered.ok, true);
+
+    const created = runRawJson(rootDir, ["new-task", "--title", "Registered Single Repo"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
+      HARNESS_DAEMON_IDLE_MS: "250"
+    });
+
+    assert.equal(created.ok, true);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
+  });
+});
+
+test("daemon client fails unregistered cwd in multi-repo registry with register hint", () => {
+  withTempRoot((workspaceRoot) => {
+    const userRoot = path.join(workspaceRoot, "user-daemon");
+    const alphaRoot = path.join(workspaceRoot, "alpha");
+    const betaRoot = path.join(workspaceRoot, "beta");
+    const outsiderRoot = path.join(workspaceRoot, "outsider");
+    for (const rootDir of [alphaRoot, betaRoot, outsiderRoot]) {
+      mkdirSync(rootDir, { recursive: true });
+      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    }
+    runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    runDaemonCommand(betaRoot, ["daemon", "repo", "register", "--repo-id", "beta", "--root", betaRoot, "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+
+    const failed = runRawJsonMaybeFail(outsiderRoot, ["task", "list"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+
+    assert.notEqual(failed.status, 0);
+    assert.equal(failed.receipt.ok, false);
+    assert.match(((failed.receipt.error as Record<string, unknown>).hint as string), /ha daemon repo register --repo-id <id> --root/u);
+  });
+});
+
+test("daemon client --repo override targets a registered repo from a different cwd", () => {
+  withTempRoot((workspaceRoot) => {
+    const userRoot = path.join(workspaceRoot, "user-daemon");
+    const alphaRoot = path.join(workspaceRoot, "alpha");
+    const betaRoot = path.join(workspaceRoot, "beta");
+    for (const rootDir of [alphaRoot, betaRoot]) {
+      mkdirSync(rootDir, { recursive: true });
+      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    }
+    runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    runDaemonCommand(betaRoot, ["daemon", "repo", "register", "--repo-id", "beta", "--root", betaRoot, "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+
+    const listed = runRawJson(betaRoot, ["--repo", "alpha", "task", "list"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
+      HARNESS_DAEMON_IDLE_MS: "250"
+    });
+    assert.equal(listed.ok, true);
+
+    const status = runDaemonCommand(betaRoot, ["--repo", "alpha", "daemon", "status", "--user-root", userRoot, "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    assert.equal(status.repoId, "alpha");
+    assert.equal(status.rootDir, realpathSync.native(alphaRoot));
+    assert.deepEqual((status.repos as Array<{ repoId: string }>).map((repo) => repo.repoId), ["alpha", "beta"]);
+  });
+});
+
+test("daemon service reconciles registry register and unregister changes", async () => {
+  await withTempRootAsync(async (workspaceRoot) => {
+    const userRoot = path.join(workspaceRoot, "user-daemon");
+    const alphaRoot = path.join(workspaceRoot, "alpha");
+    const betaRoot = path.join(workspaceRoot, "beta");
+    for (const rootDir of [alphaRoot, betaRoot]) {
+      mkdirSync(rootDir, { recursive: true });
+      runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    }
+    runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+
+    const listed = runRawJson(alphaRoot, ["task", "list"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
+      HARNESS_DAEMON_IDLE_MS: "15000"
+    });
+    assert.equal(listed.ok, true);
+    assert.deepEqual(daemonStatusRepoIds(alphaRoot, userRoot, "alpha"), ["alpha"]);
+
+    runDaemonCommand(betaRoot, ["daemon", "repo", "register", "--repo-id", "beta", "--root", betaRoot, "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    await waitForCondition(() => daemonStatusRepoIds(alphaRoot, userRoot, "alpha").includes("beta"));
+
+    runDaemonCommand(betaRoot, ["daemon", "repo", "unregister", "--repo-id", "beta", "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    await waitForCondition(() => daemonStatusRepos(alphaRoot, userRoot, "alpha").find((repo) => repo.repoId === "beta")?.state === "detached");
   });
 });
 
@@ -261,7 +398,7 @@ async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>): Promis
 function runRawJson(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...env }
+    env: daemonTestEnv(rootDir, env)
   });
   return JSON.parse(stdout) as Record<string, unknown>;
 }
@@ -273,7 +410,7 @@ function runRawJsonMaybeFail(
 ): { readonly status: number | null; readonly receipt: Record<string, unknown> } {
   const result = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...env }
+    env: daemonTestEnv(rootDir, env)
   });
   assert.equal(result.stderr, "");
   return {
@@ -285,17 +422,29 @@ function runRawJsonMaybeFail(
 async function runRawJsonAsync(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Promise<Record<string, unknown>> {
   const { stdout } = await execFileAsync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...env }
+    env: daemonTestEnv(rootDir, env)
   });
   return JSON.parse(stdout) as Record<string, unknown>;
 }
 
-function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>): Record<string, unknown> {
+function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
     encoding: "utf8",
-    env: { ...process.env, HARNESS_DAEMON_MODE: "direct" }
+    env: daemonTestEnv(rootDir, { HARNESS_DAEMON_MODE: "direct", ...env })
   });
   return JSON.parse(stdout) as Record<string, unknown>;
+}
+
+function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir),
+    ...env
+  };
+}
+
+function defaultDaemonUserRoot(rootDir: string): string {
+  return path.join(rootDir, ".daemon-user");
 }
 
 function normalizeVolatileReceipt(receipt: Record<string, unknown>): Record<string, unknown> {
@@ -309,6 +458,26 @@ function normalizeVolatileReceipt(receipt: Record<string, unknown>): Record<stri
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+async function waitForCondition(check: () => boolean, timeoutMs = 4_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(check(), true);
+}
+
+function daemonStatusRepoIds(rootDir: string, userRoot: string, repoId: string): ReadonlyArray<string> {
+  return daemonStatusRepos(rootDir, userRoot, repoId).map((repo) => repo.repoId);
+}
+
+function daemonStatusRepos(rootDir: string, userRoot: string, repoId: string): ReadonlyArray<{ readonly repoId: string; readonly state?: string }> {
+  const status = runDaemonCommand(rootDir, ["--repo", repoId, "daemon", "status", "--user-root", userRoot, "--json"], {
+    HARNESS_DAEMON_USER_ROOT: userRoot
+  });
+  return Array.isArray(status.repos) ? status.repos as Array<{ repoId: string; state?: string }> : [];
 }
 
 function initGitRepo(rootDir: string): void {

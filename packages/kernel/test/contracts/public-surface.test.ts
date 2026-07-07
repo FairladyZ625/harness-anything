@@ -164,6 +164,7 @@ const publicRuntimeSurface = [
   "relationTypes",
   "requiredSchemaIds",
   "reservePublishIdempotencyKey",
+  "resolveDaemonRepoByRoot",
   "resolveEntityRoot",
   "resolveHarnessLayout",
   "resolveHarnessRuntimeContext",
