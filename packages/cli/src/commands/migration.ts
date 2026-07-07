@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { Schema } from "effect";
-import { stablePayloadHash } from "../../../kernel/src/index.ts";
+import { Effect, Schema } from "effect";
+import { moduleEntityId, stablePayloadHash, type WriteCoordinator, type WriteError } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { LegacyIndexSchema, type LegacyIndex, type LegacyIndexEntry } from "../../../kernel/src/index.ts";
@@ -12,6 +12,7 @@ import { applyCollisionReport, buildLegacyCopyPlan, readCollisionReport, writeCo
 import { collectLegacyProvenanceWarnings } from "./legacy-provenance-verify.ts";
 import { buildScanReport, copyForwardDocs, copySource, renderIntakePlan, stripScanOnlyFields, summarize, type LegacyScanReport } from "./migration-scan.ts";
 import type { LegacyCopySafeDocsAction, LegacyIndexAction, LegacyIntakePlanAction, LegacyScanAction, LegacyVerifyAction, MigratePlanAction, MigrateRunAction, MigrateStructureAction, MigrateVerifyAction } from "./migration-types.ts";
+import { writeCoordinatedPayload } from "./core/coordinated-machine-write.ts";
 
 interface LegacyIntakeSession {
   readonly schema: "legacy-intake-session/v1";
@@ -68,6 +69,24 @@ export function runMigrateStructure(rootInput: HarnessLayoutInput, action: Migra
   });
 }
 
+export function runMigrateStructureEffect(rootInput: HarnessLayoutInput, action: MigrateStructureAction, coordinator: WriteCoordinator): Effect.Effect<CliResult, WriteError> {
+  const report = buildScanReport(rootInput, ".");
+  if (action.mode === "plan") return Effect.succeed(runMigrateStructure(rootInput, action));
+  if (!action.confirmPlan) return Effect.succeed(runMigrateStructure(rootInput, action));
+  return applyLegacyCopyEffect(rootInput, report, coordinator).pipe(
+    Effect.map((copied) => {
+      if (!copied.ok) return aliasFailure("migrate-structure", copied);
+      const indexResult = applyLegacyIndex(rootInput, report);
+      if (!indexResult.ok) return aliasFailure("migrate-structure", indexResult);
+      return aliasResult("migrate-structure", report, {
+        aliasOf: "legacy copy-safe-docs + legacy index",
+        migrationMode: "apply",
+        hint: "Legacy sources were copied under harness/legacy only; active authored forward docs were serialized through the daemon write queue."
+      });
+    })
+  );
+}
+
 export function runMigrateRun(rootInput: HarnessLayoutInput, action: MigrateRunAction): CliResult {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const report = buildScanReport(rootInput, ".");
@@ -77,6 +96,10 @@ export function runMigrateRun(rootInput: HarnessLayoutInput, action: MigrateRunA
     const indexed = applyLegacyIndex(rootInput, report);
     if (!indexed.ok) return aliasFailure("migrate-run", indexed);
   }
+  return migrateRunSessionResult(rootDir, report, action);
+}
+
+function migrateRunSessionResult(rootDir: string, report: LegacyScanReport, action: MigrateRunAction): CliResult {
   const session: LegacyIntakeSession = {
     schema: "legacy-intake-session/v1",
     strategy: "legacy-intake",
@@ -99,6 +122,22 @@ export function runMigrateRun(rootInput: HarnessLayoutInput, action: MigrateRunA
     warnings: [retiredMigrationWarning("migrate-run", "legacy scan/copy/index")],
     report: session
   };
+}
+
+export function runMigrateRunEffect(rootInput: HarnessLayoutInput, action: MigrateRunAction, coordinator: WriteCoordinator): Effect.Effect<CliResult, WriteError> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const report = buildScanReport(rootInput, ".");
+  if (!action.planOnly) {
+    return applyLegacyCopyEffect(rootInput, report, coordinator).pipe(
+      Effect.map((copied) => {
+        if (!copied.ok) return aliasFailure("migrate-run", copied);
+        const indexed = applyLegacyIndex(rootInput, report);
+        if (!indexed.ok) return aliasFailure("migrate-run", indexed);
+        return migrateRunSessionResult(rootDir, report, action);
+      })
+    );
+  }
+  return Effect.succeed(migrateRunSessionResult(rootDir, report, action));
 }
 
 export function runMigrateVerify(rootInput: HarnessLayoutInput, action: MigrateVerifyAction): CliResult {
@@ -157,6 +196,12 @@ export function runLegacyCopySafeDocs(rootInput: HarnessLayoutInput, action: Leg
     };
   }
   return applyLegacyCopy(rootInput, report);
+}
+
+export function runLegacyCopySafeDocsEffect(rootInput: HarnessLayoutInput, action: LegacyCopySafeDocsAction, coordinator: WriteCoordinator): Effect.Effect<CliResult, WriteError> {
+  const report = buildScanReport(rootInput, action.sourcePath);
+  if (!action.apply) return Effect.succeed(runLegacyCopySafeDocs(rootInput, action));
+  return applyLegacyCopyEffect(rootInput, report, coordinator);
 }
 
 export function runLegacyIndex(rootInput: HarnessLayoutInput, action: LegacyIndexAction): CliResult {
@@ -235,6 +280,19 @@ export function runLegacyVerify(rootInput: HarnessLayoutInput, _action: LegacyVe
 }
 
 function applyLegacyCopy(rootInput: HarnessLayoutInput, report: LegacyScanReport): CliResult {
+  const archived = applyLegacyCopyArchive(rootInput, report);
+  if (!archived.ok) return archived;
+  copyForwardDocs(resolveHarnessLayout(rootInput).rootDir, report);
+  return archived;
+}
+
+function applyLegacyCopyEffect(rootInput: HarnessLayoutInput, report: LegacyScanReport, coordinator: WriteCoordinator): Effect.Effect<CliResult, WriteError> {
+  const archived = applyLegacyCopyArchive(rootInput, report);
+  if (!archived.ok) return Effect.succeed(archived);
+  return writeForwardDocsCoordinated(rootInput, report, coordinator).pipe(Effect.map(() => archived));
+}
+
+function applyLegacyCopyArchive(rootInput: HarnessLayoutInput, report: LegacyScanReport): CliResult {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const validation = validateLegacyIndex(rootDir, report);
   if (!validation.ok) return validation.result;
@@ -263,7 +321,6 @@ function applyLegacyCopy(rootInput: HarnessLayoutInput, report: LegacyScanReport
   for (const target of copyPlan.targets) {
     copySource(target.sourcePath, path.join(rootDir, target.chosenPath));
   }
-  copyForwardDocs(rootDir, report);
   return {
     ok: true,
     command: "legacy-copy-safe-docs",
@@ -275,6 +332,36 @@ function applyLegacyCopy(rootInput: HarnessLayoutInput, report: LegacyScanReport
       collisionReport: copyPlan.collisionReport
     }
   };
+}
+
+function writeForwardDocsCoordinated(rootInput: HarnessLayoutInput, report: LegacyScanReport, coordinator: WriteCoordinator): Effect.Effect<void, WriteError> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const sourceRoot = path.resolve(rootDir, report.sourceRoot);
+  return Effect.gen(function* () {
+    for (const entry of report.entries) {
+      if (!entry.forwardPath) continue;
+      if (!isSafeForwardPath(rootDir, entry.forwardPath)) continue;
+      const source = path.join(sourceRoot, entry.sourcePath);
+      const target = path.resolve(rootDir, entry.forwardPath);
+      if (!isPathInside(rootDir, target) || existsSync(target)) continue;
+      yield* writeCoordinatedPayload(coordinator, {
+        entityId: moduleEntityId("legacy-forward"),
+        kind: "machine_artifact_write",
+        opIdPrefix: `legacy-forward-${entry.id}`,
+        payload: {
+          boundary: "legacy-forward",
+          path: normalizeSlashes(path.relative(rootDir, target)),
+          body: readFileSync(source, "utf8")
+        }
+      });
+    }
+  });
+}
+
+function isSafeForwardPath(rootDir: string, forwardPath: string): boolean {
+  const target = path.resolve(rootDir, forwardPath);
+  const relativePath = path.relative(rootDir, target);
+  return relativePath.length > 0 && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
 }
 
 function applyLegacyIndex(rootInput: HarnessLayoutInput, report: LegacyScanReport): CliResult {

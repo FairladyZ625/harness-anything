@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
-import { makeLocalControllerService } from "../../application/src/index.ts";
+import { makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
 import {
   createJsonRpcProtocolServer,
   createUnixSocketTransportServer,
@@ -182,6 +182,10 @@ function createDaemonServiceHost(
     },
     onCommandSettled: scheduleIdleExit
   });
+  const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
+    rootInput: { rootDir, layoutOverrides },
+    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "runtime-event-protocol")
+  }));
   return {
     daemonId,
     createProtocolServer: (authContext) => createJsonRpcProtocolServer({
@@ -205,7 +209,7 @@ function createDaemonServiceHost(
       authContext,
       ...(identity.identityProvider ? { identityProvider: identity.identityProvider } : {}),
       ...(identity.peopleRoster ? { peopleRoster: identity.peopleRoster } : {}),
-      ...(identity.appendRuntimeEvent ? { appendRuntimeEvent: identity.appendRuntimeEvent } : {})
+      appendRuntimeEvent
     }),
     status: () => daemonStatusPayload({
       daemonId,

@@ -1,22 +1,18 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import type { DocmapDocument, DocmapManifest, DocmapReadSet } from "../../../../kernel/src/index.ts";
-import { buildDocmapReadSet, docmapManifestPath } from "../../../../kernel/src/index.ts";
+import { buildDocmapReadSet, docmapManifestPath, moduleEntityId, type WriteCoordinator, type WriteError } from "../../../../kernel/src/index.ts";
 import { assertUniqueDocmapIds } from "../../../../kernel/src/index.ts";
 import { readFrontmatter, readScalar } from "../../../../kernel/src/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { DocmapManifestSchema } from "../../../../kernel/src/index.ts";
-import { authoredRelativePath, commitAuthoredPaths, type AuthoredGitCommitResult } from "./authored-git.ts";
+import { writeCoordinatedPayload } from "./coordinated-machine-write.ts";
 
 export interface DerivedDocmapResult {
   readonly manifest: DocmapManifest;
   readonly path: string;
   readonly relativePath: string;
-}
-
-export interface WrittenDocmapResult extends DerivedDocmapResult {
-  readonly git: AuthoredGitCommitResult;
 }
 
 export function deriveDocmapManifest(rootInput: HarnessLayoutInput): DerivedDocmapResult {
@@ -38,14 +34,18 @@ export function deriveDocmapManifest(rootInput: HarnessLayoutInput): DerivedDocm
   };
 }
 
-export function writeDerivedDocmapManifest(rootInput: HarnessLayoutInput): WrittenDocmapResult {
+export function writeDerivedDocmapManifest(rootInput: HarnessLayoutInput, coordinator: WriteCoordinator): Effect.Effect<DerivedDocmapResult, WriteError> {
   const derived = deriveDocmapManifest(rootInput);
-  mkdirSync(path.dirname(derived.path), { recursive: true });
-  const tmpPath = `${derived.path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmpPath, `${JSON.stringify(derived.manifest, null, 2)}\n`, "utf8");
-  renameSync(tmpPath, derived.path);
-  const git = commitAuthoredPaths(rootInput, [authoredRelativePath(rootInput, derived.path)], "doc(generate): docmap.json");
-  return { ...derived, git };
+  return writeCoordinatedPayload(coordinator, {
+    entityId: moduleEntityId("docmap"),
+    kind: "machine_artifact_write",
+    opIdPrefix: "docmap-derived",
+    payload: {
+      boundary: "docmap-derived",
+      path: derived.relativePath,
+      body: `${JSON.stringify(derived.manifest, null, 2)}\n`
+    }
+  }).pipe(Effect.map(() => derived));
 }
 
 export function buildDerivedDocmapReadSet(rootInput: HarnessLayoutInput, moduleKey?: string, productLine?: string): {

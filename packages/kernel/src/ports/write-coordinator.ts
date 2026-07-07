@@ -36,7 +36,11 @@ export type ModuleWriteOpKind =
   | "module_registry_write"
   | "module_scaffold_write";
 
-export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind;
+export type MachineArtifactWriteOpKind =
+  | "machine_artifact_write"
+  | "machine_artifact_append_jsonl";
+
+export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind | MachineArtifactWriteOpKind;
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 

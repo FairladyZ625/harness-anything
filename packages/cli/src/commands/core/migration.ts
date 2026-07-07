@@ -1,14 +1,14 @@
 import { Effect } from "effect";
 import { runAdoptMultica, runSnapshotMultica } from "../adopt.ts";
 import {
-  runLegacyCopySafeDocs,
+  runLegacyCopySafeDocsEffect,
   runLegacyIndex,
   runLegacyIntakePlan,
   runLegacyScan,
   runLegacyVerify,
   runMigratePlan,
-  runMigrateRun,
-  runMigrateStructure,
+  runMigrateRunEffect,
+  runMigrateStructureEffect,
   runMigrateVerify
 } from "../migration.ts";
 import { runMigrateAnchors } from "../anchor-backfill.ts";
@@ -45,13 +45,13 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
     case "migrate-plan":
       return Effect.sync(() => runMigratePlan(context.layoutInput, action));
     case "migrate-structure":
-      return Effect.sync(() => runMigrateStructure(context.layoutInput, action));
+      return runMigrateStructureEffect(context.layoutInput, action, context.makeWriteCoordinator({ kind: "agent", id: "legacy-migration" }));
     case "migrate-anchors":
       return runMigrateAnchors(context, context.layoutInput, action);
     case "migrate-provenance":
       return runMigrateProvenance(context, context.layoutInput, action);
     case "migrate-run":
-      return Effect.sync(() => runMigrateRun(context.layoutInput, action));
+      return runMigrateRunEffect(context.layoutInput, action, context.makeWriteCoordinator({ kind: "agent", id: "legacy-migration" }));
     case "migrate-verify":
       return Effect.sync(() => runMigrateVerify(context.layoutInput, action));
     case "legacy-scan":
@@ -59,7 +59,7 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
     case "legacy-intake-plan":
       return Effect.sync(() => runLegacyIntakePlan(context.layoutInput, action));
     case "legacy-copy-safe-docs":
-      return Effect.sync(() => runLegacyCopySafeDocs(context.layoutInput, action));
+      return runLegacyCopySafeDocsEffect(context.layoutInput, action, context.makeWriteCoordinator({ kind: "agent", id: "legacy-migration" }));
     case "legacy-index":
       return Effect.sync(() => runLegacyIndex(context.layoutInput, action));
     case "legacy-verify":

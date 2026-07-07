@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,7 +46,17 @@ test("CLI metadata check enforces gate retrospective snapshot and final analysis
     assert.equal(missing.warnings.some((warning: Record<string, unknown>) => warning.source === "gate-retro-checker" && warning.code === "gate_retro_analysis_missing"), true);
 
     const artifactsDir = path.join(rootDir, created.packagePath, "artifacts");
-    writeFileSync(path.join(artifactsDir, "gate-retro.snapshot.json"), JSON.stringify({ schema: "gate-architecture-retro-snapshot/v1" }, null, 2), "utf8");
+    const snapshotBody = JSON.stringify({ schema: "gate-architecture-retro-snapshot/v1" }, null, 2);
+    writeFileSync(path.join(artifactsDir, "gate-retro.snapshot.json"), snapshotBody, "utf8");
+    writeFileSync(path.join(artifactsDir, ".machine-evidence.registry.json"), JSON.stringify({
+      schema: "machine-evidence-registry/v1",
+      boundary: "preset-machine-evidence",
+      entries: [{
+        path: "artifacts/gate-retro.snapshot.json",
+        sha256: `sha256:${createHash("sha256").update(snapshotBody).digest("hex")}`,
+        recordedAt: new Date(0).toISOString()
+      }]
+    }, null, 2), "utf8");
     writeFileSync(path.join(artifactsDir, "gate-retro.analysis.md"), validGateRetroAnalysis(), "utf8");
 
     const passed = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
