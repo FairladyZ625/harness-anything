@@ -141,6 +141,7 @@ export const testTierManifest = {
     "packages/kernel/test/store/progress-append-delta.test.ts",
     "packages/kernel/test/store/relation-cascade-direction.test.ts",
     "packages/kernel/test/store/relation-graph-projection.test.ts",
+    "packages/kernel/test/store/relation-graph-toctou.test.ts",
     "packages/kernel/test/store/same-task-fifo.test.ts",
     "packages/kernel/test/store/sqlite-incremental-projection.test.ts",
     "packages/kernel/test/store/sqlite-rebuild.test.ts",

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { CloseoutReadiness } from "../domain/index.ts";
 import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind, isTerminalStatus } from "../domain/index.ts";
@@ -7,6 +7,7 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
 import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskFieldExtensionProjection, TaskProjectionRow } from "./types.ts";
+import { readDirIfPresent, readDirNamesIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function readMarkdownSource(rootInput: HarnessLayoutInput): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
@@ -39,10 +40,13 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
 
   const warnings: ProjectionWarning[] = [];
   const entries: TaskSourceEntry[] = [];
-  for (const name of readdirSync(tasksDir).sort()) {
+  const taskEntries = readDirNamesIfPresent(tasksDir);
+  if (taskEntries === null) return { entries: [], sourceInputs: [], warnings: [] };
+  for (const name of taskEntries.sort()) {
     const indexPath = path.join(tasksDir, name, "INDEX.md");
     if (!existsSync(indexPath)) continue;
-    const body = readFileSync(indexPath, "utf8");
+    const body = readTextFileIfPresent(indexPath);
+    if (body === null) continue;
     try {
       entries.push({
         taskId: name,
@@ -114,7 +118,7 @@ export function taskEntryToRow(
     closeoutReadiness: closeoutReadiness(rootInput, entry.taskId, canonicalStatus),
     lifecycleEngine,
     freshness: canonicalStatus === "unknown" || !isPackageDisposition(rawDisposition) ? "stale-but-usable" : "fresh",
-    updatedAt: statSync(entry.indexPath).mtime.toISOString(),
+    updatedAt: (statPathIfPresent(entry.indexPath)?.mtime ?? new Date(0)).toISOString(),
     source: lifecycleEngine === "local" ? "local-document" : "external-engine",
     sourcePath: source,
     ...readExtensionMetadata(entry.frontmatter),
@@ -185,7 +189,8 @@ function readTaskMetadata(frontmatter: string): Pick<TaskProjectionRow, "workKin
 function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; readonly moduleTitle?: string } {
   const modulePath = path.join(taskDir, "module.md");
   if (!existsSync(modulePath)) return {};
-  const body = readFileSync(modulePath, "utf8");
+  const body = readTextFileIfPresent(modulePath);
+  if (body === null) return {};
   const moduleKey = body.match(/^Module key:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
   const moduleTitle = body.match(/^Module title:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
   return {
@@ -207,26 +212,39 @@ function readRelationGraphSourceInputs(
       { kind: "task-closeout", path: path.join(path.dirname(entry.indexPath), "closeout.md") }
     ])
     .filter((input) => existsSync(input.path))
-    .map((input) => ({
-      kind: input.kind,
-      sourcePath: sourcePath(rootDir, input.path),
-      body: readFileSync(input.path, "utf8")
-    }));
+    .flatMap((input) => {
+      const body = readTextFileIfPresent(input.path);
+      return body === null
+        ? []
+        : [{
+          kind: input.kind,
+          sourcePath: sourcePath(rootDir, input.path),
+          body
+        }];
+    });
   const decisionInputs = listDecisionDocuments(layout.decisionsRoot)
-    .map((decisionPath) => ({
-      kind: "decision-document",
-      sourcePath: sourcePath(rootDir, decisionPath),
-      body: readFileSync(decisionPath, "utf8")
-    }));
+    .flatMap((decisionPath) => {
+      const body = readTextFileIfPresent(decisionPath);
+      return body === null
+        ? []
+        : [{
+          kind: "decision-document",
+          sourcePath: sourcePath(rootDir, decisionPath),
+          body
+        }];
+    });
   return [...taskDocumentInputs, ...decisionInputs].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
 }
 
 function listDecisionDocuments(decisionsRoot: string): ReadonlyArray<string> {
   if (!existsSync(decisionsRoot)) return [];
-  const stat = statSync(decisionsRoot);
+  const stat = statPathIfPresent(decisionsRoot);
+  if (stat === null) return [];
   if (stat.isFile()) return path.basename(decisionsRoot) === "decision.md" ? [decisionsRoot] : [];
   if (!stat.isDirectory()) return [];
-  return readdirSync(decisionsRoot, { withFileTypes: true })
+  const entries = readDirIfPresent(decisionsRoot);
+  if (entries === null) return [];
+  return entries
     .filter((entry) => entry.name !== ".git" && entry.name !== "node_modules")
     .flatMap((entry) => listDecisionDocuments(path.join(decisionsRoot, entry.name)))
     .sort();

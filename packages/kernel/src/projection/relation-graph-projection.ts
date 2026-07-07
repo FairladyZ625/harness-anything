@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { formatRelationFlowRecord, parseFactFlowRecords, parseEntityRef, validateRelationRecordsForHost } from "../domain/index.ts";
 import type { EntityRelationRecord, EntityRelationValidationIssue } from "../domain/index.ts";
@@ -7,6 +7,7 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { parseRelationFlowRecords } from "./relation-flow-frontmatter.ts";
 import { sourcePath } from "./sqlite-task-source.ts";
+import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export interface RelationGraphEdgeRow {
   readonly relationId: string;
@@ -161,7 +162,8 @@ function collectRelationRecordEntries(
     const taskId = readTaskPackageId(taskDir);
     const indexPath = path.join(taskDir, "INDEX.md");
     if (existsSync(indexPath)) {
-      const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+      const indexBody = readTextFileIfPresent(indexPath);
+      const frontmatter = indexBody === null ? null : readFrontmatter(indexBody);
       if (frontmatter) {
         entries.push(...recordsToEntries({
           hostRef: `task/${taskId}`,
@@ -176,7 +178,8 @@ function collectRelationRecordEntries(
 
     const factsPath = path.join(taskDir, layout.factDocumentName);
     if (existsSync(factsPath)) {
-      const factsBody = readFileSync(factsPath, "utf8");
+      const factsBody = readTextFileIfPresent(factsPath);
+      if (factsBody === null) continue;
       entries.push(...recordsToEntries({
         hostRefForRecord: (record) => factRelationHostRef(taskId, record),
         ownerRef: `task/${taskId}`,
@@ -395,7 +398,9 @@ function readDecisionSources(rootInput: HarnessLayoutInput): ReadonlyArray<Decis
   const watermarkCounts = new Map<string, number>();
   for (const filePath of listTextFiles(layout.decisionsRoot)) {
     if (path.basename(filePath) !== "decision.md") continue;
-    const frontmatter = readFrontmatter(readFileSync(filePath, "utf8"));
+    const body = readTextFileIfPresent(filePath);
+    if (body === null) continue;
+    const frontmatter = readFrontmatter(body);
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
     const decisionId = readScalar(frontmatter, "decision_id") || path.basename(path.dirname(filePath));
     const watermark = readScalar(frontmatter, "_coordinatorWatermark");
@@ -427,7 +432,9 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
     taskIds.add(taskId);
     const factsPath = path.join(taskDir, layout.factDocumentName);
     if (!existsSync(factsPath)) continue;
-    for (const record of parseFactFlowRecords(readFileSync(factsPath, "utf8"))) {
+    const factsBody = readTextFileIfPresent(factsPath);
+    if (factsBody === null) continue;
+    for (const record of parseFactFlowRecords(factsBody)) {
       const factKey = `${taskId}/${record.fact_id}`;
       factRefs.add(factKey);
       factAnchors.push({
@@ -496,13 +503,16 @@ function readFlowObjectBlock(frontmatter: string, key: string): string {
 function readTaskPackageId(taskDir: string): string {
   const indexPath = path.join(taskDir, "INDEX.md");
   if (!existsSync(indexPath)) return path.basename(taskDir);
-  const frontmatter = readFrontmatter(readFileSync(indexPath, "utf8"));
+  const body = readTextFileIfPresent(indexPath);
+  const frontmatter = body === null ? null : readFrontmatter(body);
   return (frontmatter ? readScalar(frontmatter, "task_id") : "") || path.basename(taskDir);
 }
 
 function listTaskDirs(tasksRoot: string): ReadonlyArray<string> {
   if (!existsSync(tasksRoot)) return [];
-  return readdirSync(tasksRoot, { withFileTypes: true })
+  const entries = readDirIfPresent(tasksRoot);
+  if (entries === null) return [];
+  return entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(tasksRoot, entry.name))
     .sort();
@@ -510,10 +520,13 @@ function listTaskDirs(tasksRoot: string): ReadonlyArray<string> {
 
 function listTextFiles(inputPath: string): ReadonlyArray<string> {
   if (!existsSync(inputPath)) return [];
-  const stat = statSync(inputPath);
+  const stat = statPathIfPresent(inputPath);
+  if (stat === null) return [];
   if (stat.isFile()) return isRelationGraphTextLikePath(inputPath) ? [inputPath] : [];
   if (!stat.isDirectory()) return [];
-  return readdirSync(inputPath, { withFileTypes: true })
+  const entries = readDirIfPresent(inputPath);
+  if (entries === null) return [];
+  return entries
     .filter((entry) => entry.name !== ".git" && entry.name !== "node_modules")
     .flatMap((entry) => listTextFiles(path.join(inputPath, entry.name)))
     .sort();
