@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -46,6 +46,29 @@ test("daemon registry register realpaths canonical roots and writes registry-onl
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).registryPath), true);
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).reposRoot), false);
     assert.equal(resolveDaemonRepoByRoot(aliasRoot, { userRoot })?.repoId, "brain");
+  });
+});
+
+test("daemon registry keeps the manifest authoritative when Windows convenience links are unavailable", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+    mkdirSync(userRoot, { recursive: true });
+    writeFileSync(path.join(userRoot, "repos"), "not a directory\n", "utf8");
+
+    const result = registerDaemonRepo({
+      userRoot,
+      canonicalRoot,
+      repoId: "canonical",
+      platform: "win32",
+      now: () => new Date("2026-07-07T00:00:00.000Z")
+    });
+
+    assert.equal(result.changed, true);
+    assert.match(result.warnings.join("\n"), /could not create repo convenience link/u);
+    assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.canonicalRoot, canonicalRoot);
+    assert.equal(resolveDaemonRepoByRoot(canonicalRoot, { userRoot })?.repoId, "canonical");
+    assert.equal(lstatSync(path.join(userRoot, "repos")).isFile(), true);
   });
 });
 
