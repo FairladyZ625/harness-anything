@@ -10,6 +10,10 @@ const {
   readRelationGraphProjection
 } = await importKernelProjectionApi();
 
+// conformance 规则非追溯 (dec_mra501ny): 规则前 accept 的决策豁免 task-derivation/claim-coverage。
+// cutoff = dec_GOV_MILESTONE_SCOPE_TASK_DERIVATION.decidedAt (规则确立时刻)。
+const RULE_ADOPTED_AT = Date.parse("2026-07-06T23:21:56.224Z");
+
 const contextPath = process.env.HARNESS_SCRIPT_CONTEXT;
 const resultPath = process.env.HARNESS_SCRIPT_RESULT;
 if (!contextPath || !resultPath) {
@@ -42,7 +46,7 @@ for (const decision of decisions) {
     );
   }
 
-  if (decision.state === "active" && !hasTaskOrDeferEdge(decisionRef)) {
+  if (decision.state === "active" && !isPreRuleLegacyDecision(decision) && !hasTaskOrDeferEdge(decisionRef)) {
     finding(
       "accepted-decision-missing-task-or-defer",
       decisionRef,
@@ -51,7 +55,7 @@ for (const decision of decisions) {
     );
   }
 
-  if (decision.state === "active") {
+  if (decision.state === "active" && !isPreRuleLegacyDecision(decision)) {
     const coverage = readDecisionFactCoverage({ rootDir, decisionId: decision.decisionId });
     for (const row of coverage.rows) {
       if (row.status === "covered") continue;
@@ -185,6 +189,17 @@ function checkEndpoint(ref, relationId, sourcePath) {
 
 function finding(type, ref, message, hint) {
   findings.push({ type, ref, message, hint });
+}
+
+function isPreRuleLegacyDecision(decision) {
+  // decidedAt 早于规则确立 → 规则前, 豁免 (含全部 dec_LEDGER_E* 导入历史, 其 decidedAt 均 < cutoff)。
+  if (decision.decidedAt) {
+    const t = Date.parse(decision.decidedAt);
+    if (Number.isFinite(t) && t < RULE_ADOPTED_AT) return true;
+  }
+  // 兜底: 无 decidedAt 但带 legacyId 的导入历史决策同样豁免。
+  if (!decision.decidedAt && decision.legacyId) return true;
+  return false;
 }
 
 function isStaleDecisionDocument(relativeDecisionPath, maxAgeDays) {
