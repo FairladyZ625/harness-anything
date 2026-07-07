@@ -1,4 +1,4 @@
-import type { TaskProjectionRow } from "../../../kernel/src/index.ts";
+import type { TaskProjectionRow } from "../api/renderer-dto.ts";
 import type { EngineId, Project, TaskRow } from "./model/types.ts";
 
 /**

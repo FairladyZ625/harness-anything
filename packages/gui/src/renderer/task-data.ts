@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { DomainStatus, TaskProjectionRow } from "../../../kernel/src/index.ts";
+import type { DomainStatus, TaskProjectionRow } from "../api/renderer-dto.ts";
 import { harnessClient, type CommandResult } from "./api-client.ts";
 
 export const taskQueryKeys = {

@@ -22,7 +22,8 @@
   },
   "include": [
     "src/renderer/**/*.ts",
-    "src/renderer/**/*.tsx"
+    "src/renderer/**/*.tsx",
+    "src/api/renderer-dto.ts"
   ],
   "exclude": [
     "src/renderer/app-model.ts",

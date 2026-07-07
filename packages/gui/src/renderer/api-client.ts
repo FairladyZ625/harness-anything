@@ -6,9 +6,10 @@ import type {
   TaskDocumentPayload,
   TaskDocumentResult,
   TaskIdPayload,
-  TaskListResult
-} from "../../../application/src/index.ts";
-import type { ProjectionWarning, TaskProjectionRow } from "../../../kernel/src/index.ts";
+  TaskListResult,
+  ProjectionWarning,
+  TaskProjectionRow
+} from "../api/renderer-dto.ts";
 
 type HarnessBridgeMethod =
   | "getTasks"

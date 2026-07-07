@@ -28,7 +28,8 @@
     "src/renderer/views",
     "src/renderer/components",
     "src/renderer/graph",
-    "src/renderer/model"
+    "src/renderer/model",
+    "src/api/renderer-dto.ts"
   ],
   "references": [
     {
