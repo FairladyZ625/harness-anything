@@ -231,7 +231,14 @@ jobs:
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build --exclude mergify-queue-metadata-edit-noop
 
   gui-e2e:
-    if: github.event_name == 'pull_request'
+    # Skip on Mergify merge-queue speculative draft branches. gui-e2e is a
+    # non-required, non-merge-condition check whose Electron smoke launch still
+    # hangs headless (PRE03-R1). On merge-queue drafts the changes path-filter
+    # mis-fires gui=true even for non-gui PRs, so gui-e2e would run, hang 15m,
+    # blow past Mergify's checks timeout, and dequeue the PR — self-heal then
+    # re-queues it, spawning a new draft each cycle (a runner-saturating death
+    # spiral that stalls the whole queue). Regular PR runs still exercise it.
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'mergify/merge-queue/')
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
