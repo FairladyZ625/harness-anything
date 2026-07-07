@@ -36,6 +36,13 @@ Task Contract: harness-task v1
 - 结构化表：`harness/milestones/dossier-data.md`
 - Charter decision：`dec_*`，由 CEO 裁决后填写；本 preset 只校验存在，不代创建。
 
+## PR/merge 运维
+
+- 全局 merge-health 运维台账：`task_01KWYKCPG5FZA3AFVX9R8XX3B7`（Authority: `decision/dec_mrat6152`）。
+- 治理文档：`harness/governance/standards/merge-queue-troubleshooting-standard.md`。
+- CEO / orchestrator 对 worktree 清理负责：每合并一个 PR 即清理对应远端分支、本地分支和 worktree，并定期 sweep；worker 结构性不会替全局清理。
+- 同一 PR 两次入队仍合不进，视为系统信号：先读全局台账 facts，再跑 `npm run pr:doctor`，处置后把事件、尝试和结论作为 fact/progress 落回全局台账。
+
 ## Constraints
 
 - milestone = root task 任务树（执行面）+ 映射文档（理解面）。
