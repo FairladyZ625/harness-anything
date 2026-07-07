@@ -38,6 +38,11 @@ test("Electron shell opens its first BrowserWindow", { timeout: 45_000 }, async 
 
   const windowCount = await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
   assert.equal(windowCount, 1);
+
+  // The window opening is not enough: the sandboxed preload must have loaded
+  // and exposed the IPC bridge, otherwise the shell is a hollow window.
+  const bridgeType = await page.evaluate(() => typeof globalThis.harness);
+  assert.equal(bridgeType, "object", "preload bridge (window.harness) failed to load");
 });
 
 function startRendererServer() {

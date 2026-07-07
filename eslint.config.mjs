@@ -129,6 +129,7 @@ export default tseslint.config(
       "harness/",
       "node_modules/",
       "packages/**/dist/",
+      "packages/**/dist-electron/",
       "tmp/"
     ]
   },
