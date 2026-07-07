@@ -1,6 +1,12 @@
 queue_rules:
   - name: default
     merge_method: squash
+    queue_conditions:
+      - base = main
+      - label = merge-queue
+      - "-draft"
+      - "-conflict"
+      - check-success = pr-body-lint
     merge_conditions:
       - check-success = boundaries
       - check-success = package-policy
@@ -10,6 +16,24 @@ queue_rules:
       - check-success = pr-body-lint
 
 pull_request_rules:
+  - name: self-heal dequeued pull requests
+    conditions:
+      - base = main
+      - label = merge-queue
+      - label = dequeued
+      - check-success = boundaries
+      - check-success = package-policy
+      - check-success = "typecheck (24)"
+      - check-success = "typecheck (26)"
+      - check-success = fast-contract
+      - check-success = pr-body-lint
+    actions:
+      label:
+        remove:
+          - dequeued
+      queue:
+        name: default
+
   - name: merge via queue when CI passes
     conditions:
       - base = main
