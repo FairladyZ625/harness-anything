@@ -12,8 +12,8 @@ test("repository decision skills are discoverable with agent metadata", () => {
     .map((entry) => entry.name)
     .sort();
 
-  assert.deepEqual(skillNames, ["decision", "decisions", "graph-panorama", "preset-creator", "vertical-creator"]);
-  for (const skillName of ["decision", "decisions", "graph-panorama"]) {
+  assert.deepEqual(skillNames, ["decision", "decisions", "graph-panorama", "preset-creator", "preset-trigger", "vertical-creator"]);
+  for (const skillName of ["decision", "decisions", "graph-panorama", "preset-trigger"]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
   }
@@ -44,4 +44,17 @@ test("graph panorama skill reads SQLite projection and writes only generated HTM
   assert.match(body, /Do not edit authored markdown/u);
   assert.match(body, /Do not generate DOT or Mermaid output/u);
   assert.doesNotMatch(body, /\bwriteFileSync\b|\bfs\.write|\bapply_patch\b|cat\s*>\s*.+\.md|tee\s+.+\.md/u);
+});
+
+test("preset trigger skill routes task creation through preset selection", () => {
+  const body = readFileSync(path.join(skillsRoot, "preset-trigger", "SKILL.md"), "utf8");
+
+  assert.match(body, /name: preset-trigger/u);
+  assert.match(body, /choose the preset before creating the task package/u);
+  assert.match(body, /ha task create --title "<title>" --vertical software\/coding --preset <id>/u);
+  assert.match(body, /standard-task/u);
+  assert.match(body, /decision-conformance/u);
+  assert.match(body, /milestone-closeout/u);
+  assert.match(body, /ha capabilities preset/u);
+  assert.match(body, /Do not hand-create task package directories/u);
 });
