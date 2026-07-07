@@ -1,16 +1,12 @@
 import { Effect } from "effect";
 import { entityRegistry, entityRegistryKinds } from "../../../../kernel/src/index.ts";
-import { cliCommandAlias, commandDescriptors, commandRegistry, type CommandKind } from "../../cli/command-registry.ts";
+import { capabilityEntityKinds, capabilityExcludedCommandKinds } from "../../cli/capability-entity-kinds.ts";
+import { cliCommandAlias, commandDescriptors, commandRegistry } from "../../cli/command-registry.ts";
 import { actionForCommand, commandInputDescriptorFor, entityForCommand } from "../../cli/command-input-descriptors.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 
-export const capabilityExcludedCommandKinds = new Set<CommandKind>([
-  "help",
-  "version",
-  "capabilities",
-  "entity-list"
-] as const);
+export { capabilityExcludedCommandKinds };
 
 export const runCapabilitiesCommand: CommandRunner = (_context, command) => {
   const action = command.action as Extract<ParsedCommand["action"], { readonly kind: "entity-list" | "capabilities" }>;
@@ -77,7 +73,7 @@ function entities(): Map<string, { readonly kind: string; readonly ops: Readonly
     };
     byEntity.set(entity, [...(byEntity.get(entity) ?? []), op]);
   }
-  for (const kind of entityRegistryKinds) {
+  for (const kind of capabilityEntityKinds) {
     if (!byEntity.has(kind)) byEntity.set(kind, []);
   }
   return new Map([...byEntity.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([kind, ops]) => [kind, { kind, ops }]));

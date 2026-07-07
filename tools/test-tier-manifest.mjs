@@ -67,6 +67,7 @@ export const testTierManifest = {
     "packages/kernel/test/publish/schema-lockdown.test.ts",
     "tools/check-api-contract-registry.test.mjs",
     "tools/check-bypass-write-boundary.test.mjs",
+    "tools/check-capabilities-kind-source.test.mjs",
     "tools/check-cli-error-codes.test.mjs",
     "tools/check-cli-help-contract.test.mjs",
     "tools/check-cli-structure.test.mjs",
