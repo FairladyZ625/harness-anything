@@ -167,7 +167,7 @@ export interface ParsedCommand {
     | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: EvidenceAppendInput }
     | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }
-    | { readonly kind: "task-archive"; readonly taskId: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }
+    | { readonly kind: "task-archive"; readonly taskId?: string; readonly ids?: ReadonlyArray<string>; readonly filter?: string; readonly before?: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }
     | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title?: string; readonly slug?: string; readonly reason: string; readonly byTaskId?: string; readonly confirm?: string; readonly allowOpenFindings: boolean; readonly deletedBy?: string }
     | { readonly kind: "task-delete"; readonly taskId: string; readonly mode: "soft" | "hard"; readonly reason: string; readonly confirm?: string; readonly deletedBy?: string }
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }

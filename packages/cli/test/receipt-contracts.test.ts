@@ -157,6 +157,22 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     field: "data.report",
     reason: "Only emitted when --evidence is supplied and the receipt includes the appended evidence payload."
   }, {
+    command: "task-archive",
+    field: "data.taskId",
+    reason: "Present for single-task archive receipts."
+  }, {
+    command: "task-archive",
+    field: "data.status",
+    reason: "Present for single-task archive receipts."
+  }, {
+    command: "task-archive",
+    field: "data.rows",
+    reason: "Present for batch archive receipts."
+  }, {
+    command: "task-archive",
+    field: "data.tasks",
+    reason: "Present for batch archive receipts."
+  }, {
     command: "task-supersede",
     field: "data.report",
     reason: "Only emitted when superseding by an existing replacement task via --by."
