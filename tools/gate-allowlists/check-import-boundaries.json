@@ -21,6 +21,13 @@
         "reason": "W5/F5 moves CLI adapter selection into an explicit registry composition root so commands request capabilities instead of importing concrete adapters."
       }
     ],
+    "kernelStoreCompositionRoots": [
+      {
+        "value": "packages/kernel/src/composition/index.ts",
+        "ref": "dec_mra9ag8o; harness/contracts/41-port-discipline-contracts.md#1",
+        "reason": "PLT-Bedrock W1 needs one public composition seam for local ArtifactStore and WriteCoordinator factories without exposing the internal store barrel."
+      }
+    ],
     "cliAdapterKnownDebt": [
       {
         "value": "packages/cli/src/commands/adopt.ts",
