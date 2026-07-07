@@ -1,4 +1,5 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
+import path from "node:path";
 import type { CommandFailureReceipt, CommandReceipt, LocalControllerService } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
@@ -14,14 +15,39 @@ export interface DaemonRepoNamespace {
   readonly canonicalRoot: string;
 }
 
+export interface DaemonRepoRuntimeSnapshot {
+  readonly repoId: string;
+  readonly canonicalRoot: string;
+  readonly state: "attached" | "unavailable" | "detaching" | "detached";
+  readonly lockPath?: string;
+  readonly lockOwnerToken?: string;
+  readonly lastError?: string;
+}
+
+export interface DaemonRepoAvailabilityFailure {
+  readonly code: "repo_lock_held" | "repo_unavailable";
+  readonly repo: {
+    readonly repoId: string;
+    readonly canonicalRoot: string;
+    readonly state: string;
+    readonly lockPath: string | null;
+    readonly lockOwnerToken: string | null;
+    readonly lastError: string | null;
+  };
+}
+
+export interface DaemonRepoServiceContext {
+  readonly repo: DaemonRepoNamespace;
+}
+
 export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
   readonly DaemonStatusService?: {
-    readonly getStatus: () => JsonObject | Promise<JsonObject>;
+    readonly getStatus: (context?: DaemonRepoServiceContext) => JsonObject | Promise<JsonObject>;
   };
   readonly CliCommandService?: {
-    readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor }) => Promise<CommandReceipt | CommandFailureReceipt>;
+    readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly repo?: DaemonRepoNamespace }) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
 }
 
@@ -29,10 +55,12 @@ export interface JsonRpcServerOptions {
   readonly daemonId: string;
   readonly repos: ReadonlyArray<DaemonRepoNamespace>;
   readonly services: DaemonServiceHost;
+  readonly resolveRepoServices?: (repo: DaemonRepoNamespace) => DaemonServiceHost | undefined;
+  readonly resolveRepoAvailability?: (repo: DaemonRepoNamespace) => DaemonRepoAvailabilityFailure | undefined;
   readonly authContext?: DaemonAuthenticationContext;
   readonly identityProvider?: IdentityProvider;
   readonly peopleRoster?: PeopleRoster;
-  readonly appendRuntimeEvent?: (input: RuntimeEventAppendInput) => Promise<void>;
+  readonly appendRuntimeEvent?: (input: RuntimeEventAppendInput, context?: DaemonRepoServiceContext) => Promise<void>;
 }
 
 export interface JsonRpcProtocolServer {
@@ -91,7 +119,10 @@ async function handleRequest(
   const params = request.params ?? {};
   const repoFailure = validateRepoNamespace(contract, params, repos);
   if (repoFailure) return response(failureReceipt(request.method, repoFailure.code, repoFailure.hint));
+  const repo = repoForContract(contract, params, repos);
   const effectiveContract = withEffectiveCommandClass(contract, params);
+  const repoRuntimeFailure = validateRepoRuntime(effectiveContract, repo, options);
+  if (repoRuntimeFailure) return response(repoRuntimeFailure);
 
   const actorResult = await resolveActor(effectiveContract, options);
   if (actorResult && !actorResult.ok) {
@@ -99,14 +130,14 @@ async function handleRequest(
       providerId: actorResult.providerId,
       ...(actorResult.credential ? { credential: credentialJson(actorResult.credential) } : {})
     });
-    await appendCommandEvent(options, params, effectiveContract, "failed", actorResult.message, actorResult.code);
+    await appendCommandEvent(options, params, effectiveContract, "failed", actorResult.message, actorResult.code, undefined, repo);
     return response(receipt);
   }
   const actor = actorResult?.actor;
   if (actor && options.peopleRoster) {
     const authz = authorizeActorForMethod(actor, effectiveContract, options.peopleRoster);
     if (!authz.ok) {
-      await appendCommandEvent(options, params, effectiveContract, "failed", authz.message, authz.code, actor);
+      await appendCommandEvent(options, params, effectiveContract, "failed", authz.message, authz.code, actor, repo);
       return response(stampReceipt(failureReceipt(request.method, authz.code, authz.message, {
         actor: actorStampJson(actor),
         commandClass: effectiveContract.commandClass ?? null
@@ -123,13 +154,13 @@ async function handleRequest(
   if (contract.namespace === "admin") {
     const result = handleAdminMethod(contract, options);
     const receipt = stampReceipt(result, actor);
-    await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
+    await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
     return response(receipt);
   }
 
-  const result = await callServiceMethod(effectiveContract, params, options.services, actor);
+  const result = await callServiceMethod(effectiveContract, params, options, actor, repo);
   const receipt = stampReceipt(result, actor);
-  await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
+  await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
   return response(receipt);
 }
 
@@ -173,24 +204,54 @@ function validateRepoNamespace(
   return undefined;
 }
 
+function repoForContract(
+  contract: JsonRpcMethodContract,
+  params: JsonObject,
+  repos: ReadonlyMap<string, DaemonRepoNamespace>
+): DaemonRepoNamespace | undefined {
+  if (!contract.requiresRepo) return undefined;
+  const repo = isJsonObject(params.repo) && typeof params.repo.repoId === "string" ? repos.get(params.repo.repoId) : undefined;
+  return repo;
+}
+
+function validateRepoRuntime(
+  contract: JsonRpcMethodContract,
+  repo: DaemonRepoNamespace | undefined,
+  options: JsonRpcServerOptions
+): ReturnType<typeof failureReceipt> | undefined {
+  if (!repo || !contract.requiresRepo || !options.resolveRepoAvailability || doesNotRequireAttachedRepo(contract)) return undefined;
+  const failure = options.resolveRepoAvailability(repo);
+  if (!failure) return undefined;
+  return failureReceipt(contract.method, failure.code, `Repo ${repo.repoId} is not attached to this daemon.`, { repo: failure.repo });
+}
+
+function doesNotRequireAttachedRepo(contract: JsonRpcMethodContract): boolean {
+  return contract.method === "repo.daemon.status" || contract.mode === "notification-stub";
+}
+
 async function callServiceMethod(
   contract: JsonRpcMethodContract,
   params: JsonObject,
-  services: DaemonServiceHost,
-  actor: AuthenticatedActor | undefined
+  options: JsonRpcServerOptions,
+  actor: AuthenticatedActor | undefined,
+  repo: DaemonRepoNamespace | undefined
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
+  const services = repo ? resolveServicesForRepo(contract.method, repo, options) : options.services;
+  if (!services) return failureReceipt(contract.method, "repo_service_unavailable", `Repo service host is not configured for ${repo?.repoId ?? "unknown"}.`);
   if (contract.method === "repo.daemon.status") {
     if (!services.DaemonStatusService) {
       return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
     }
-    return successReceipt(contract.method, "read daemon status", await services.DaemonStatusService.getStatus());
+    return successReceipt(contract.method, "read daemon status", await services.DaemonStatusService.getStatus(repo ? { repo } : undefined));
   }
   if (contract.method === "repo.command.run") {
     if (!services.CliCommandService) {
       return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
     }
-    return services.CliCommandService.runCommand(payload, { actor });
+    const rootMismatch = repo ? commandRootMismatch(payload, repo) : undefined;
+    if (rootMismatch) return rootMismatch;
+    return services.CliCommandService.runCommand(payload, { actor, repo });
   }
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
@@ -198,6 +259,26 @@ async function callServiceMethod(
   return isJsonObject(result)
     ? serviceResultReceipt(contract.method, result)
     : successReceipt(contract.method, `completed ${contract.method}`, { value: toJsonValue(result) });
+}
+
+function resolveServicesForRepo(
+  method: string,
+  repo: DaemonRepoNamespace,
+  options: JsonRpcServerOptions
+): DaemonServiceHost | undefined {
+  if (!options.resolveRepoServices) return options.services;
+  return options.resolveRepoServices(repo) ?? (method === "repo.daemon.status" ? options.services : undefined);
+}
+
+function commandRootMismatch(payload: JsonObject | undefined, repo: DaemonRepoNamespace): ReturnType<typeof failureReceipt> | undefined {
+  const command = isJsonObject(payload?.command) ? payload.command : undefined;
+  const rootDir = typeof command?.rootDir === "string" ? command.rootDir : undefined;
+  if (!rootDir) return undefined;
+  if (path.resolve(rootDir) === path.resolve(repo.canonicalRoot)) return undefined;
+  return failureReceipt("repo.command.run", "repo_command_root_mismatch", "payload.command.rootDir does not match params.repo.repoId.", {
+    repo: { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot },
+    command: { rootDir }
+  });
 }
 
 function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: JsonObject): JsonRpcMethodContract {
@@ -270,10 +351,11 @@ async function appendWriteEventIfNeeded(
   status: "succeeded" | "failed",
   summary: string,
   errorCode: string | undefined,
-  actor: AuthenticatedActor | undefined
+  actor: AuthenticatedActor | undefined,
+  repo: DaemonRepoNamespace | undefined
 ): Promise<void> {
   if (contract.commandClass === "repo-read") return;
-  await appendCommandEvent(options, params, contract, status, summary, errorCode, actor);
+  await appendCommandEvent(options, params, contract, status, summary, errorCode, actor, repo);
 }
 
 async function appendCommandEvent(
@@ -283,7 +365,8 @@ async function appendCommandEvent(
   status: "succeeded" | "failed",
   summary: string,
   errorCode?: string,
-  actor?: AuthenticatedActor
+  actor?: AuthenticatedActor,
+  repo?: DaemonRepoNamespace
 ): Promise<void> {
   if (!options.appendRuntimeEvent) return;
   const session = runtimeSession(params, options.daemonId);
@@ -300,7 +383,7 @@ async function appendCommandEvent(
       ...(errorCode ? { errorCode } : {})
     },
     ...(actor ? { actor: actorStamp(actor) } : {})
-  }).catch(() => undefined);
+  }, repo ? { repo } : undefined).catch(() => undefined);
 }
 
 function runtimeSession(params: JsonObject, daemonId: string): { readonly sessionId: string; readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown" } {

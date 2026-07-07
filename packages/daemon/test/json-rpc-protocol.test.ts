@@ -132,6 +132,168 @@ test("repo namespace rejects unknown canonical repositories", async () => {
   assert.equal(receipt.error.code, "repo_namespace_unknown");
 });
 
+test("repo methods fail closed when the repo runtime is unavailable", async () => {
+  let serviceCalls = 0;
+  const server = makeServer({
+    repos: [
+      { repoId: "canonical", canonicalRoot: "/tmp/canonical" },
+      { repoId: "locked", canonicalRoot: "/tmp/locked" }
+    ],
+    resolveRepoAvailability: (repo) => repo.repoId === "locked"
+      ? {
+          code: "repo_lock_held",
+          repo: {
+            repoId: repo.repoId,
+            canonicalRoot: repo.canonicalRoot,
+            state: "unavailable",
+            lockPath: ".harness/locks/global.lock",
+            lockOwnerToken: null,
+            lastError: "lock already held: daemon owner"
+          }
+        }
+      : undefined,
+    services: {
+      LocalControllerService: {
+        ...emptyLocalController(),
+        getTasks: () => {
+          serviceCalls += 1;
+          return { ok: true, tasks: [], warnings: [] };
+        }
+      },
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" })
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const response = await server.handle({
+    ...readFixture("repo-request.json"),
+    params: { repo: { repoId: "locked" }, payload: {} }
+  });
+  const receipt = resultReceipt(response);
+
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "repo_lock_held");
+  assert.equal((receipt.details.repo as { state?: string }).state, "unavailable");
+  assert.equal(serviceCalls, 0);
+});
+
+test("repo methods fail closed when the repo runtime context is missing", async () => {
+  let serviceCalls = 0;
+  const server = makeServer({
+    resolveRepoAvailability: (repo) => ({
+      code: "repo_unavailable",
+      repo: {
+        repoId: repo.repoId,
+        canonicalRoot: repo.canonicalRoot,
+        state: "unavailable",
+        lockPath: null,
+        lockOwnerToken: null,
+        lastError: "runtime context not found"
+      }
+    }),
+    services: {
+      LocalControllerService: {
+        ...emptyLocalController(),
+        getTasks: () => {
+          serviceCalls += 1;
+          return { ok: true, tasks: [], warnings: [] };
+        }
+      },
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" })
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const response = await server.handle(readFixture("repo-request.json"));
+  const receipt = resultReceipt(response);
+
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "repo_unavailable");
+  assert.equal((receipt.details.repo as { lastError?: string }).lastError, "runtime context not found");
+  assert.equal(serviceCalls, 0);
+});
+
+test("repo.daemon.status remains available for unavailable repos", async () => {
+  const server = makeServer({
+    repos: [
+      { repoId: "canonical", canonicalRoot: "/tmp/canonical" },
+      { repoId: "locked", canonicalRoot: "/tmp/locked" }
+    ],
+    resolveRepoAvailability: (repo) => repo.repoId === "locked"
+      ? {
+          code: "repo_unavailable",
+          repo: {
+            repoId: repo.repoId,
+            canonicalRoot: repo.canonicalRoot,
+            state: "unavailable",
+            lockPath: null,
+            lockOwnerToken: null,
+            lastError: "recovery failed"
+          }
+        }
+      : undefined,
+    services: {
+      LocalControllerService: emptyLocalController(),
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" }),
+      DaemonStatusService: {
+        getStatus: (context) => ({
+          schema: "daemon-status/v1",
+          requestedRepoId: context?.repo.repoId ?? null,
+          repos: [
+            { repoId: "canonical", canonicalRoot: "/tmp/canonical", state: "attached" },
+            { repoId: "locked", canonicalRoot: "/tmp/locked", state: "unavailable", lastError: "recovery failed" }
+          ]
+        })
+      }
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const response = await server.handle({
+    jsonrpc: "2.0",
+    id: "status-locked",
+    method: "repo.daemon.status",
+    params: { repo: { repoId: "locked" } }
+  });
+  const receipt = resultReceipt(response);
+
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.details.data.requestedRepoId, "locked");
+  assert.equal((receipt.details.data.repos as ReadonlyArray<{ state: string }>)[1]?.state, "unavailable");
+});
+
+test("repo.command.run rejects payload rootDir that does not match the repo namespace", async () => {
+  const calls: string[] = [];
+  const server = makeServer({
+    services: {
+      LocalControllerService: emptyLocalController(),
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" }),
+      CliCommandService: {
+        runCommand: async () => {
+          calls.push("called");
+          return {
+            ok: true,
+            schema: "command-receipt/v2",
+            command: "version",
+            action: "version",
+            summary: "version",
+            details: {},
+            meta: { generatedAt: "2026-07-07T00:00:00.000Z", compatibility: { legacyReceipt: "CommandReceipt/v1" } }
+          };
+        }
+      }
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const response = await server.handle(commandRunRequest("version", "root-mismatch", "/tmp/other"));
+  const receipt = resultReceipt(response);
+
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "repo_command_root_mismatch");
+  assert.deepEqual(calls, []);
+});
+
 test("notification subscribe is a no-op socket and respects JSON-RPC notification semantics", async () => {
   const server = makeServer();
   await server.handle(readFixture("hello-compatible.json"));
@@ -263,6 +425,37 @@ test("RBAC rejects non-arbiter methods and records a runtime event with actor", 
   }
 });
 
+test("runtime event append receives the validated repo namespace", async () => {
+  const eventRepos: string[] = [];
+  const server = makeServer({
+    appendRuntimeEvent: async (_input, context) => {
+      eventRepos.push(context?.repo.repoId ?? "none");
+    },
+    services: {
+      LocalControllerService: emptyLocalController(),
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" }),
+      CliCommandService: {
+        runCommand: async (_payload, context) => ({
+          ok: true,
+          schema: "command-receipt/v2",
+          command: context?.repo?.repoId ?? "missing",
+          action: "new-task",
+          summary: "created task",
+          details: {},
+          meta: { generatedAt: "2026-07-07T00:00:00.000Z", compatibility: { legacyReceipt: "CommandReceipt/v1" } }
+        })
+      }
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const response = await server.handle(commandRunRequest("new-task", "repo-event"));
+  const receipt = resultReceipt(response);
+
+  assert.equal(receipt.ok, true);
+  assert.deepEqual(eventRepos, ["canonical"]);
+});
+
 test("repo.command.run derives RBAC from the inner CLI command", async () => {
   const roster = sampleRoster();
   const calls: string[] = [];
@@ -336,7 +529,7 @@ function emptyLocalController(): LocalControllerService {
   };
 }
 
-function commandRunRequest(actionKind: string, id: string): JsonRpcRequest {
+function commandRunRequest(actionKind: string, id: string, rootDir = "/tmp/canonical"): JsonRpcRequest {
   return {
     jsonrpc: "2.0",
     id,
@@ -345,7 +538,7 @@ function commandRunRequest(actionKind: string, id: string): JsonRpcRequest {
       repo: { repoId: "canonical" },
       payload: {
         command: {
-          rootDir: "/tmp/canonical",
+          rootDir,
           json: true,
           action: { kind: actionKind }
         }

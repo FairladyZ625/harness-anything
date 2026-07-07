@@ -9,7 +9,7 @@ import { stablePayloadHash } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext, harnessRuntimeRoot, taskPackagePath } from "../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
-import { createDaemonRuntime, makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../../kernel/src/store/index.ts";
+import { createDaemonRuntime, createMultiRepoDaemonRuntime, makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../../kernel/src/store/index.ts";
 import { resolveTaskCreatedBy } from "./created-by.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
 import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
@@ -38,7 +38,7 @@ import type { AdapterProviderMetadata } from "./types.ts";
 export { collectGitDiffEvidence } from "./git-diff-evidence.ts";
 export type { GitDiffEvidenceFile, GitDiffEvidenceOptions, GitDiffEvidenceReport } from "./git-diff-evidence.ts";
 export { runLedgerMaterializer };
-export { createDaemonRuntime };
+export { createDaemonRuntime, createMultiRepoDaemonRuntime };
 export type {
   AdapterProviderMetadata,
   AppendProgressInput,
