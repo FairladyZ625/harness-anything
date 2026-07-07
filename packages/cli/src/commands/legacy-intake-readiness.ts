@@ -6,8 +6,9 @@ export interface LegacyIntakeReadinessEvidence {
   readonly ok: boolean;
   readonly packageReleaseDecision: {
     readonly publishState: "not-published";
-    readonly packagePrivate: true;
-    readonly versionPolicy: "0.0.0";
+    readonly packageBoundary: "cli-dry-run-only";
+    readonly privatePackageVersionPolicy: "0.0.0";
+    readonly cliDryRunVersion: "0.1.0";
   };
   readonly behaviorCorpus: {
     readonly dataPath: string;
@@ -30,8 +31,9 @@ export function evaluateLegacyIntakeReadinessEvidence(rootDir: string): LegacyIn
     ok: violations.length === 0,
     packageReleaseDecision: {
       publishState: "not-published",
-      packagePrivate: true,
-      versionPolicy: "0.0.0"
+      packageBoundary: "cli-dry-run-only",
+      privatePackageVersionPolicy: "0.0.0",
+      cliDryRunVersion: "0.1.0"
     },
     behaviorCorpus,
     violations
@@ -43,6 +45,7 @@ function checkPackageDecision(rootDir: string, violations: string[]): void {
     "package.json",
     "packages/kernel/package.json",
     "packages/application/package.json",
+    "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
@@ -53,21 +56,27 @@ function checkPackageDecision(rootDir: string, violations: string[]): void {
 
   for (const packagePath of packages) {
     const json = readJsonObject(rootDir, packagePath, violations);
-    if (json.private !== true) violations.push(`${packagePath}: package must remain private for M2 Legacy Intake readiness`);
-    if (packagePath !== "package.json" && json.version !== "0.0.0") {
-      violations.push(`${packagePath}: version must remain 0.0.0 before publish planning`);
+    if (packagePath === "packages/cli/package.json") {
+      if (json.private === true) violations.push(`${packagePath}: CLI package must be public-ready for npm publish dry-run preflight`);
+      if (json.version !== "0.1.0") violations.push(`${packagePath}: version must be 0.1.0 for npm publish dry-run preflight`);
+      if (asObject(json.publishConfig).access !== "public") violations.push(`${packagePath}: publishConfig.access must be public for npm publish dry-run preflight`);
+    } else {
+      if (json.private !== true) violations.push(`${packagePath}: package must remain private for M2 Legacy Intake readiness`);
+      if (packagePath !== "package.json" && json.version !== "0.0.0") {
+        violations.push(`${packagePath}: version must remain 0.0.0 before publish planning`);
+      }
+      if (json.publishConfig) violations.push(`${packagePath}: publishConfig is not allowed before publish planning`);
     }
-    if (json.publishConfig) violations.push(`${packagePath}: publishConfig is not allowed before publish planning`);
   }
 
   const cliPackage = readJsonObject(rootDir, "packages/cli/package.json", violations);
   const cliBin = asObject(cliPackage.bin);
   const cliExports = asObject(cliPackage.exports);
-  if (cliBin["harness-anything"] !== "./dist/cli/src/index.js") {
-    violations.push("packages/cli/package.json: bin.harness-anything must point at ./dist/cli/src/index.js");
+  if (cliBin["harness-anything"] !== "dist/cli/src/index.js") {
+    violations.push("packages/cli/package.json: bin.harness-anything must point at dist/cli/src/index.js");
   }
-  if (cliBin.ha !== "./dist/cli/src/index.js") {
-    violations.push("packages/cli/package.json: bin.ha must point at ./dist/cli/src/index.js");
+  if (cliBin.ha !== "dist/cli/src/index.js") {
+    violations.push("packages/cli/package.json: bin.ha must point at dist/cli/src/index.js");
   }
   if (cliExports["."] !== "./dist/cli/src/index.js") {
     violations.push("packages/cli/package.json: exports['.'] must point at ./dist/cli/src/index.js");

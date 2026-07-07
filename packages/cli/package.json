@@ -1,16 +1,31 @@
 {
   "name": "@harness-anything/cli",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "CLI for the Harness Anything accountability layer for AI agents.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": {
+    "url": "https://github.com/FairladyZ625/harness-anything/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "prepack": "npm run build"
   },
   "bin": {
-    "harness-anything": "./dist/cli/src/index.js",
-    "ha": "./dist/cli/src/index.js"
+    "harness-anything": "dist/cli/src/index.js",
+    "ha": "dist/cli/src/index.js"
   },
   "exports": {
     ".": "./dist/cli/src/index.js"

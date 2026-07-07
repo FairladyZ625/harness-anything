@@ -76,11 +76,11 @@ function checkPackageSurface(root, violations) {
   if (!isAllowedCliPackageBuildScript(cliPackage.scripts?.build)) {
     violations.push("packages/cli/package.json: build script must compile the package artifact");
   }
-  if (cliPackage.bin?.["harness-anything"] !== "./dist/cli/src/index.js") {
-    violations.push("packages/cli/package.json: bin.harness-anything must point at ./dist/cli/src/index.js");
+  if (cliPackage.bin?.["harness-anything"] !== "dist/cli/src/index.js") {
+    violations.push("packages/cli/package.json: bin.harness-anything must point at dist/cli/src/index.js");
   }
-  if (cliPackage.bin?.ha !== "./dist/cli/src/index.js") {
-    violations.push("packages/cli/package.json: bin.ha must point at ./dist/cli/src/index.js");
+  if (cliPackage.bin?.ha !== "dist/cli/src/index.js") {
+    violations.push("packages/cli/package.json: bin.ha must point at dist/cli/src/index.js");
   }
   if (cliPackage.exports?.["."] !== "./dist/cli/src/index.js") {
     violations.push("packages/cli/package.json: exports['.'] must point at ./dist/cli/src/index.js");
@@ -91,8 +91,14 @@ function checkPackageSurface(root, violations) {
   if (cliPackage.dependencies?.effect !== rootPackage.dependencies?.effect) {
     violations.push("packages/cli/package.json: effect dependency must match the root package dependency");
   }
-  if (cliPackage.publishConfig) {
-    violations.push("packages/cli/package.json: publishConfig is not allowed before explicit publish approval");
+  if (cliPackage.private === true) {
+    violations.push("packages/cli/package.json: CLI package must be public-ready for npm publish dry-run preflight");
+  }
+  if (cliPackage.version !== "0.1.0") {
+    violations.push("packages/cli/package.json: version must be 0.1.0 for npm publish dry-run preflight");
+  }
+  if (cliPackage.publishConfig?.access !== "public") {
+    violations.push("packages/cli/package.json: publishConfig.access must be public for npm publish dry-run preflight");
   }
 }
 

@@ -125,7 +125,10 @@ test("Legacy Intake readiness requires the harness-anything CLI package artifact
   await withFixtureRepo(async (root) => {
     writeFileSync(path.join(root, "packages/cli/package.json"), JSON.stringify({
       name: "@harness-anything/cli",
-      private: true,
+      version: "0.1.0",
+      publishConfig: {
+        access: "public"
+      },
       type: "module"
     }));
 
@@ -363,14 +366,17 @@ async function withFixtureRepo(fn) {
     }));
     writeFileSync(path.join(root, "packages/cli/package.json"), JSON.stringify({
       name: "@harness-anything/cli",
-      private: true,
+      version: "0.1.0",
       type: "module",
+      publishConfig: {
+        access: "public"
+      },
       scripts: {
         build: "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs"
       },
       bin: {
-        "harness-anything": "./dist/cli/src/index.js",
-        ha: "./dist/cli/src/index.js"
+        "harness-anything": "dist/cli/src/index.js",
+        ha: "dist/cli/src/index.js"
       },
       exports: {
         ".": "./dist/cli/src/index.js"

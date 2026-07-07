@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const execFileAsync = promisify(execFile);
+const expectedCliVersion = readCliPackageVersion();
 
 test("daemon client mode preserves command receipt output shape against direct mode", () => {
   withTempRoot((rootDir) => {
@@ -110,14 +111,14 @@ test("daemon start service status and stop expose productized status contract", 
       const start = runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"]);
       assert.equal(start.started, true);
       assert.equal(start.mode, "service");
-      assert.equal(start.version, "0.0.0");
+      assert.equal(start.version, expectedCliVersion);
       assert.equal(typeof start.queueDepth, "number");
 
       const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
       assert.equal(status.started, true);
       assert.equal(status.reachable, true);
       assert.equal(typeof status.pid, "number");
-      assert.equal(status.version, "0.0.0");
+      assert.equal(status.version, expectedCliVersion);
       assert.equal(status.protocolVersion, 1);
       assert.equal(typeof status.queueDepth, "number");
       assert.equal(isRecord(status.queue), true);
@@ -447,6 +448,12 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
 
 function defaultDaemonUserRoot(rootDir: string): string {
   return path.join(rootDir, ".daemon-user");
+}
+
+function readCliPackageVersion(): string {
+  const pkg = JSON.parse(readFileSync(path.resolve("packages/cli/package.json"), "utf8")) as { readonly version?: unknown };
+  assert.equal(typeof pkg.version, "string");
+  return pkg.version;
 }
 
 function normalizeVolatileReceipt(receipt: Record<string, unknown>): Record<string, unknown> {

@@ -19,6 +19,36 @@ test("supply-chain check accepts the expected release gate contract", async () =
   });
 });
 
+test("supply-chain check rejects non-CLI publishable packages", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      packageMutator: (packages) => {
+        packages["packages/daemon/package.json"].private = false;
+      }
+    });
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/daemon\/package\.json must remain private/u);
+  });
+});
+
+test("supply-chain check rejects CLI dry-run metadata drift", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      packageMutator: (packages) => {
+        packages["packages/cli/package.json"].publishConfig = undefined;
+      }
+    });
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /publishConfig\.access public/u);
+  });
+});
+
 test("supply-chain check rejects missing OSV documentation", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
@@ -181,9 +211,11 @@ function writeValidSupplyChainFixture(root, options = {}) {
   };
   writeJson(root, "package.json", packageJson);
 
+  const workspacePackages = {};
   for (const packagePath of [
     "packages/kernel/package.json",
     "packages/application/package.json",
+    "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
@@ -191,7 +223,22 @@ function writeValidSupplyChainFixture(root, options = {}) {
     "packages/adapters/github-issues/package.json",
     "packages/adapters/linear/package.json"
   ]) {
-    writeJson(root, packagePath, { name: packagePath, version: "0.0.0", private: true, license: "AGPL-3.0-or-later" });
+    workspacePackages[packagePath] = { name: packagePath, version: "0.0.0", private: true, license: "AGPL-3.0-or-later" };
+  }
+  workspacePackages["packages/cli/package.json"] = {
+    ...workspacePackages["packages/cli/package.json"],
+    name: "@harness-anything/cli",
+    version: "0.1.0",
+    private: false,
+    publishConfig: { access: "public" },
+    repository: { type: "git", url: "git+https://github.com/FairladyZ625/harness-anything.git", directory: "packages/cli" },
+    engines: { node: ">=24" },
+    bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
+    files: ["dist", "README.md", "package.json"]
+  };
+  options.packageMutator?.(workspacePackages);
+  for (const [packagePath, packageJson] of Object.entries(workspacePackages)) {
+    writeJson(root, packagePath, packageJson);
   }
 
   const lock = {

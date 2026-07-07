@@ -60,8 +60,8 @@ for (const error of policyValidation.errors) {
 const rootPackage = readJson("package.json");
 if (rootPackage.engines?.node !== ">=24") record("package.json engines.node must remain >=24");
 if (rootPackage.private !== true) record("root package must remain private before an explicit release task");
-if (rootPackage.version !== harnessRuntimeReleaseReadiness.releaseBoundary.workspaceVersion) {
-  record(`root package version must remain ${harnessRuntimeReleaseReadiness.releaseBoundary.workspaceVersion} before first release planning`);
+if (rootPackage.version !== harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion) {
+  record(`root package version must remain ${harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion} before first release planning`);
 }
 requireScript(rootPackage, "test", "node tools/run-node-tests.mjs");
 requireScript(rootPackage, "harness:check-runtime-release-readiness", "node tools/check-runtime-release-readiness.mjs");
@@ -79,6 +79,7 @@ for (const [scriptName, requiredCommand] of [
 for (const workspace of [
   "packages/kernel/package.json",
   "packages/application/package.json",
+  "packages/daemon/package.json",
   "packages/cli/package.json",
   "packages/gui/package.json",
   "packages/adapters/local/package.json",
@@ -87,9 +88,17 @@ for (const workspace of [
   "packages/adapters/linear/package.json"
 ]) {
   const packageJson = readJson(workspace);
-  if (packageJson.private !== true) record(`${workspace} must remain private before an explicit release task`);
-  if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.workspaceVersion) {
-    record(`${workspace} must remain ${harnessRuntimeReleaseReadiness.releaseBoundary.workspaceVersion} before first release planning`);
+  if (workspace === "packages/cli/package.json") {
+    if (packageJson.private === true) record(`${workspace} must be public-ready for npm publish --dry-run preflight`);
+    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.cliPublishDryRunVersion) {
+      record(`${workspace} must be ${harnessRuntimeReleaseReadiness.releaseBoundary.cliPublishDryRunVersion} for npm publish --dry-run preflight`);
+    }
+    if (packageJson.publishConfig?.access !== "public") record(`${workspace} must define publishConfig.access public for scoped npm dry-run preflight`);
+  } else {
+    if (packageJson.private !== true) record(`${workspace} must remain private before an explicit release task`);
+    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion) {
+      record(`${workspace} must remain ${harnessRuntimeReleaseReadiness.releaseBoundary.privateWorkspaceVersion} before first release planning`);
+    }
   }
 }
 

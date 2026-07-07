@@ -114,8 +114,9 @@ security tests. Unsigned artifacts are development-only.
 
 Current release boundaries are intentionally conservative:
 
-- Packages remain private and at version `0.0.0`.
-- No npm package release is claimed.
+- Only `@harness-anything/cli` is public-ready for npm publish dry-run preflight at version `0.1.0`.
+- All non-CLI workspace packages remain private and at version `0.0.0`.
+- No real npm package release is claimed.
 - signed installers, notarized builds, auto-update, release feeds, and published
   artifacts are not shipped.
 - Desktop and daemon distribution policy is governed by this page.
@@ -151,6 +152,17 @@ npm sbom --sbom-format=cyclonedx --sbom-type=application
 
 The SBOM check requires package URLs, hashes, and license metadata for dependency
 components.
+
+### npm publish dry-run
+
+The only npm publish preflight command allowed in this phase is:
+
+```bash
+npm publish --dry-run --workspace @harness-anything/cli --access public
+```
+
+This command is dry-run only. It may build and inspect the CLI package artifact,
+but it must not be replaced by a real `npm publish` command in this task phase.
 
 ### OSV readiness
 

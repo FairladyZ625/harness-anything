@@ -5,22 +5,30 @@ import test from "node:test";
 
 const cliPackage = JSON.parse(readFileSync("packages/cli/package.json", "utf8")) as {
   readonly name: string;
-  readonly private: boolean;
+  readonly private?: boolean;
+  readonly version: string;
+  readonly description?: string;
+  readonly repository?: { readonly directory?: string };
   readonly scripts?: Record<string, string>;
   readonly bin?: Record<string, string>;
   readonly exports?: Record<string, string>;
   readonly files?: readonly string[];
   readonly dependencies?: Record<string, string>;
-  readonly publishConfig?: unknown;
+  readonly publishConfig?: { readonly access?: string };
+  readonly engines?: { readonly node?: string };
 };
 
-test("CLI package exposes the harness-anything package artifact surface without publish config", () => {
+test("CLI package exposes the CLI-only npm dry-run artifact surface", () => {
   assert.equal(cliPackage.name, "@harness-anything/cli");
-  assert.equal(cliPackage.private, true);
-  assert.equal(cliPackage.publishConfig, undefined);
+  assert.equal(cliPackage.private, undefined);
+  assert.equal(cliPackage.version, "0.1.0");
+  assert.equal(cliPackage.description?.length > 0, true);
+  assert.equal(cliPackage.publishConfig?.access, "public");
+  assert.equal(cliPackage.repository?.directory, "packages/cli");
+  assert.equal(cliPackage.engines?.node, ">=24");
   assert.equal(cliPackage.scripts?.build, "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs");
-  assert.equal(cliPackage.bin?.["harness-anything"], "./dist/cli/src/index.js");
-  assert.equal(cliPackage.bin?.ha, "./dist/cli/src/index.js");
+  assert.equal(cliPackage.bin?.["harness-anything"], "dist/cli/src/index.js");
+  assert.equal(cliPackage.bin?.ha, "dist/cli/src/index.js");
   assert.equal(cliPackage.exports?.["."], "./dist/cli/src/index.js");
   assert.equal(cliPackage.files?.includes("dist"), true);
   assert.equal(cliPackage.dependencies?.["@effect/platform"], "0.96.2");

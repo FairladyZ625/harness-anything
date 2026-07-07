@@ -259,12 +259,13 @@ cache. The markdown is the truth, the SQLite projection is derived from it, and
 <br>
 
 One git monorepo. Packages under `packages/` are npm workspace packages (not
-nested repos), all `private: true` — nothing is published to npm yet.
+nested repos). Only the CLI workspace is public-ready for dry-run preflight;
+nothing is published to npm yet.
 
 | Package | Purpose |
 | --- | --- |
 | `@harness-anything/kernel` | Domain model, three primitives, lifecycle, schemas, projections, storage ports. |
-| `@harness-anything/cli` | Local command surface for project, task, decision, fact, preset, module, migration, evidence, and checks. |
+| `@harness-anything/cli` | Local command surface for project, task, decision, fact, preset, module, migration, evidence, and checks. The only workspace prepared for npm publish dry-run preflight. |
 | `@harness-anything/application` | Shared controller/service layer used by CLI and GUI. |
 | `@harness-anything/gui` | Electron GUI foundation, daemon/API contracts, renderer boundary. |
 | `@harness-anything/adapter-local` | Local adapter surface. |
@@ -286,8 +287,9 @@ gates any future release must pass.
 
 The short version: the kernel, CLI, and governance checks are real and in
 daily use — this repository is developed under its own harness.
-No npm package release is claimed — packages stay `private: true`, and a
-release must ship OSV, license, and SBOM evidence first. The M2.5 GUI/daemon foundation ships
+No npm package release is claimed. Only the CLI package is public-ready for
+`npm publish --dry-run`; all other workspace packages stay `private: true`, and
+a real release must ship OSV, license, and SBOM evidence first. The M2.5 GUI/daemon foundation ships
 contracts and policies only.
 No signed desktop installer, notarized build, or auto-update capability is
   claimed.

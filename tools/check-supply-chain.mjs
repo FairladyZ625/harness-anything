@@ -83,11 +83,18 @@ function validatePackageMetadata() {
     if (packageJson.license !== policy.licensePolicy.projectLicense) {
       record(`${packagePath} must declare license ${policy.licensePolicy.projectLicense}`);
     }
-    if (packageJson.private !== policy.releaseBoundary.packagesPrivate) {
-      record(`${packagePath} must remain private before an explicit release task`);
-    }
-    if (packageJson.version !== policy.releaseBoundary.workspaceVersion) {
-      record(`${packagePath} must remain version ${policy.releaseBoundary.workspaceVersion} before an explicit release task`);
+    if (packagePath === policy.npmPublishDryRun.packagePath) {
+      validateCliPublishPreflightMetadata(packagePath, packageJson);
+    } else {
+      if (packageJson.private !== true) {
+        record(`${packagePath} must remain private; only ${policy.npmPublishDryRun.packageName} is allowed into npm dry-run preflight`);
+      }
+      if (packageJson.version !== policy.releaseBoundary.privateWorkspaceVersion) {
+        record(`${packagePath} must remain version ${policy.releaseBoundary.privateWorkspaceVersion} before explicit package release planning`);
+      }
+      if (packageJson.publishConfig) {
+        record(`${packagePath} must not define publishConfig before explicit package release planning`);
+      }
     }
   }
 
@@ -99,6 +106,33 @@ function validatePackageMetadata() {
     if (!packageScriptRunsCommand(rootPackage, scriptName, "npm run harness:check-supply-chain")) {
       record(`package.json script ${scriptName} must run npm run harness:check-supply-chain`);
     }
+  }
+}
+
+function validateCliPublishPreflightMetadata(packagePath, packageJson) {
+  if (packageJson.name !== policy.npmPublishDryRun.packageName) {
+    record(`${packagePath} must be the CLI-only dry-run package ${policy.npmPublishDryRun.packageName}`);
+  }
+  if (packageJson.private === true) {
+    record(`${packagePath} must not be private for npm publish --dry-run preflight`);
+  }
+  if (packageJson.version !== policy.npmPublishDryRun.version) {
+    record(`${packagePath} must use version ${policy.npmPublishDryRun.version} for npm publish --dry-run preflight`);
+  }
+  if (packageJson.publishConfig?.access !== "public") {
+    record(`${packagePath} must define publishConfig.access public for the scoped CLI package`);
+  }
+  if (packageJson.repository?.directory !== "packages/cli") {
+    record(`${packagePath} must declare repository.directory packages/cli`);
+  }
+  if (packageJson.engines?.node !== ">=24") {
+    record(`${packagePath} must declare Node >=24 runtime support`);
+  }
+  if (packageJson.bin?.["harness-anything"] !== "dist/cli/src/index.js" || packageJson.bin?.ha !== "dist/cli/src/index.js") {
+    record(`${packagePath} must expose harness-anything and ha bins from dist/cli/src/index.js`);
+  }
+  if (!Array.isArray(packageJson.files) || !packageJson.files.includes("dist") || !packageJson.files.includes("README.md") || !packageJson.files.includes("package.json")) {
+    record(`${packagePath} files must publish dist, README.md, and package.json only`);
   }
 }
 

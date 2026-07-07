@@ -53,7 +53,7 @@ Dependency, package, and release-adjacent changes have a higher review burden.
 They must preserve the current package policy unless the PR is explicitly a
 release-boundary task:
 
-- workspace packages remain private before an explicit publish task;
+- non-CLI workspace packages remain private before an explicit publish task;
 - version and publish impact must be stated in the PR;
 - package smoke and supply-chain checks may be required even when the code diff
   looks small.

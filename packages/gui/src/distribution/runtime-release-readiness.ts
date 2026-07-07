@@ -9,8 +9,9 @@ export interface RuntimeCommandContract {
 }
 
 export interface ReleaseBoundaryContract {
-  readonly packagesPrivate: true;
-  readonly workspaceVersion: "0.0.0";
+  readonly packagesPrivateExceptCli: true;
+  readonly privateWorkspaceVersion: "0.0.0";
+  readonly cliPublishDryRunVersion: "0.1.0";
   readonly npmReleaseClaimed: false;
   readonly signedInstallersShipped: false;
   readonly notarizedBuildsShipped: false;
@@ -85,8 +86,9 @@ export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
     }
   ],
   releaseBoundary: {
-    packagesPrivate: true,
-    workspaceVersion: "0.0.0",
+    packagesPrivateExceptCli: true,
+    privateWorkspaceVersion: "0.0.0",
+    cliPublishDryRunVersion: "0.1.0",
     npmReleaseClaimed: false,
     signedInstallersShipped: false,
     notarizedBuildsShipped: false,
@@ -115,8 +117,9 @@ export function validateRuntimeReleaseReadiness(
 
   const boundary = policy.releaseBoundary;
   if (
-    boundary.packagesPrivate !== true ||
-    boundary.workspaceVersion !== "0.0.0" ||
+    boundary.packagesPrivateExceptCli !== true ||
+    boundary.privateWorkspaceVersion !== "0.0.0" ||
+    boundary.cliPublishDryRunVersion !== "0.1.0" ||
     boundary.npmReleaseClaimed !== false ||
     boundary.signedInstallersShipped !== false ||
     boundary.notarizedBuildsShipped !== false ||
@@ -126,7 +129,7 @@ export function validateRuntimeReleaseReadiness(
   ) {
     errors.push({
       code: "invalid_release_boundary",
-      message: "P10 runtime readiness cannot claim package release, signed installers, notarized builds, auto-update, release feeds, or release artifacts."
+      message: "P10 runtime readiness cannot claim real package release, signed installers, notarized builds, auto-update, release feeds, or release artifacts."
     });
   }
 

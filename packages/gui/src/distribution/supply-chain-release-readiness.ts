@@ -25,6 +25,16 @@ export interface OsvContract {
   readonly deterministicDefaultGate: "package-lock-present-and-command-documented";
 }
 
+export interface NpmPublishDryRunContract {
+  readonly packageName: "@harness-anything/cli";
+  readonly packagePath: "packages/cli/package.json";
+  readonly version: "0.1.0";
+  readonly command: "npm publish --dry-run --workspace @harness-anything/cli --access public";
+  readonly publishablePackages: readonly ["@harness-anything/cli"];
+  readonly actualPublishPermitted: false;
+  readonly requiredBeforePublication: true;
+}
+
 export interface LicensePolicyContract {
   readonly projectLicense: "AGPL-3.0-or-later";
   readonly allowedDependencyLicenses: readonly ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"];
@@ -61,8 +71,9 @@ export interface ElectronUpgradeContract {
 }
 
 export interface SupplyChainReleaseBoundaryContract {
-  readonly packagesPrivate: true;
-  readonly workspaceVersion: "0.0.0";
+  readonly packagesPrivateExceptCli: true;
+  readonly privateWorkspaceVersion: "0.0.0";
+  readonly cliPublishDryRunVersion: "0.1.0";
   readonly npmReleaseClaimed: false;
   readonly releaseArtifactsPublished: false;
   readonly signedInstallersShipped: false;
@@ -76,6 +87,7 @@ export interface SupplyChainReleaseReadinessPolicy {
     "package.json",
     "packages/kernel/package.json",
     "packages/application/package.json",
+    "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
@@ -86,6 +98,7 @@ export interface SupplyChainReleaseReadinessPolicy {
   readonly auditCommands: readonly [AuditCommandContract, AuditCommandContract];
   readonly sbom: SbomContract;
   readonly osv: OsvContract;
+  readonly npmPublishDryRun: NpmPublishDryRunContract;
   readonly licensePolicy: LicensePolicyContract;
   readonly dependabot: DependabotCoverageContract;
   readonly electronUpgrade: ElectronUpgradeContract;
@@ -97,6 +110,7 @@ export type SupplyChainReleaseReadinessErrorCode =
   | "invalid_audit_contract"
   | "invalid_sbom_contract"
   | "invalid_osv_contract"
+  | "invalid_npm_publish_dry_run_contract"
   | "invalid_license_policy"
   | "invalid_dependabot_contract"
   | "invalid_electron_upgrade_contract"
@@ -119,6 +133,7 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     "package.json",
     "packages/kernel/package.json",
     "packages/application/package.json",
+    "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
@@ -155,6 +170,15 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     requiredInDefaultCheck: false,
     releaseEvidenceRequiredBeforePublication: true,
     deterministicDefaultGate: "package-lock-present-and-command-documented"
+  },
+  npmPublishDryRun: {
+    packageName: "@harness-anything/cli",
+    packagePath: "packages/cli/package.json",
+    version: "0.1.0",
+    command: "npm publish --dry-run --workspace @harness-anything/cli --access public",
+    publishablePackages: ["@harness-anything/cli"],
+    actualPublishPermitted: false,
+    requiredBeforePublication: true
   },
   licensePolicy: {
     projectLicense: "AGPL-3.0-or-later",
@@ -196,8 +220,9 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     reviewDoc: "docs-release/release-posture.md"
   },
   releaseBoundary: {
-    packagesPrivate: true,
-    workspaceVersion: "0.0.0",
+    packagesPrivateExceptCli: true,
+    privateWorkspaceVersion: "0.0.0",
+    cliPublishDryRunVersion: "0.1.0",
     npmReleaseClaimed: false,
     releaseArtifactsPublished: false,
     signedInstallersShipped: false,
@@ -210,8 +235,13 @@ export function validateSupplyChainReleaseReadiness(
 ): SupplyChainReleaseReadinessValidationResult {
   const errors: SupplyChainReleaseReadinessValidationError[] = [];
 
-  if (!policy.workspacePackagePaths.includes("package.json") || !policy.workspacePackagePaths.includes("packages/gui/package.json")) {
-    errors.push({ code: "missing_workspace_package", message: "Supply-chain readiness must cover the root and GUI workspace packages." });
+  if (
+    !policy.workspacePackagePaths.includes("package.json") ||
+    !policy.workspacePackagePaths.includes("packages/cli/package.json") ||
+    !policy.workspacePackagePaths.includes("packages/daemon/package.json") ||
+    !policy.workspacePackagePaths.includes("packages/gui/package.json")
+  ) {
+    errors.push({ code: "missing_workspace_package", message: "Supply-chain readiness must cover the root, CLI, daemon, and GUI workspace packages." });
   }
 
   if (
@@ -241,6 +271,22 @@ export function validateSupplyChainReleaseReadiness(
   }
 
   if (
+    policy.npmPublishDryRun.packageName !== "@harness-anything/cli" ||
+    policy.npmPublishDryRun.packagePath !== "packages/cli/package.json" ||
+    policy.npmPublishDryRun.version !== "0.1.0" ||
+    policy.npmPublishDryRun.command !== "npm publish --dry-run --workspace @harness-anything/cli --access public" ||
+    policy.npmPublishDryRun.publishablePackages.length !== 1 ||
+    !policy.npmPublishDryRun.publishablePackages.includes("@harness-anything/cli") ||
+    policy.npmPublishDryRun.actualPublishPermitted !== false ||
+    policy.npmPublishDryRun.requiredBeforePublication !== true
+  ) {
+    errors.push({
+      code: "invalid_npm_publish_dry_run_contract",
+      message: "NPM publish readiness must stay limited to a CLI-only dry-run command with no real publish permission."
+    });
+  }
+
+  if (
     policy.licensePolicy.projectLicense !== "AGPL-3.0-or-later" ||
     !policy.licensePolicy.allowedDependencyLicenses.includes("BlueOak-1.0.0") ||
     !policy.licensePolicy.allowedDependencyLicenses.includes("MIT") ||
@@ -266,8 +312,9 @@ export function validateSupplyChainReleaseReadiness(
 
   const boundary = policy.releaseBoundary;
   if (
-    boundary.packagesPrivate !== true ||
-    boundary.workspaceVersion !== "0.0.0" ||
+    boundary.packagesPrivateExceptCli !== true ||
+    boundary.privateWorkspaceVersion !== "0.0.0" ||
+    boundary.cliPublishDryRunVersion !== "0.1.0" ||
     boundary.npmReleaseClaimed !== false ||
     boundary.releaseArtifactsPublished !== false ||
     boundary.signedInstallersShipped !== false ||
@@ -275,7 +322,7 @@ export function validateSupplyChainReleaseReadiness(
   ) {
     errors.push({
       code: "invalid_release_boundary",
-      message: "P11 supply-chain readiness cannot claim npm release, release artifacts, signed installers, or auto-update."
+      message: "P11 supply-chain readiness cannot claim real npm release, release artifacts, signed installers, or auto-update."
     });
   }
 

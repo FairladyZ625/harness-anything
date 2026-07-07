@@ -110,6 +110,7 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
   for (const packagePath of [
     "packages/kernel/package.json",
     "packages/application/package.json",
+    "packages/daemon/package.json",
     "packages/cli/package.json",
     "packages/gui/package.json",
     "packages/adapters/local/package.json",
@@ -117,7 +118,10 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
     "packages/adapters/github-issues/package.json",
     "packages/adapters/linear/package.json"
   ]) {
-    writeJson(root, packagePath, { name: packagePath, version: "0.0.0", private: true });
+    const packageJson = packagePath === "packages/cli/package.json"
+      ? { name: "@harness-anything/cli", version: "0.1.0", publishConfig: { access: "public" } }
+      : { name: packagePath, version: "0.0.0", private: true };
+    writeJson(root, packagePath, packageJson);
   }
 
   writeFile(root, "README.md", [
