@@ -27,7 +27,7 @@ export interface OsvContract {
 
 export interface LicensePolicyContract {
   readonly projectLicense: "AGPL-3.0-or-later";
-  readonly allowedDependencyLicenses: readonly ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"];
+  readonly allowedDependencyLicenses: readonly ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"];
   readonly reviewedDependencyLicenseChoices: readonly ReviewedDependencyLicenseChoice[];
   readonly networkServiceReleaseNotesRequired: true;
   readonly networkServiceReleaseChecklist: readonly [
@@ -158,7 +158,7 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   },
   licensePolicy: {
     projectLicense: "AGPL-3.0-or-later",
-    allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0"],
+    allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"],
     reviewedDependencyLicenseChoices: [
       {
         packageName: "expand-template",
