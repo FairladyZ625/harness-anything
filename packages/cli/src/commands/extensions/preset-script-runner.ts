@@ -9,6 +9,7 @@ import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts
 import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";
 import type { ScriptEntry } from "./script-host.ts";
+import { toSlash, writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
 import {
   isPathInside,
   listGeneratedFiles,
@@ -186,11 +187,11 @@ export function runScriptEntrypoint(
       }
     };
   }
+  const generated = generatedFiles.filter((filePath) => !beforeFiles.has(filePath));
+  writeMachineEvidenceRegistry(outputRoot, generated);
   return {
     ok: true,
-    generated: generatedFiles
-      .filter((filePath) => !beforeFiles.has(filePath))
-      .map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
+    generated: generated.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
     scriptedResult: readScriptedResult(outputRoot)
   };
 }
@@ -460,10 +461,6 @@ function readOptionalFile(filename: string): string {
 
 function relativeContextPath(rootDir: string, targetPath: string): string {
   return toSlash(path.relative(rootDir, targetPath));
-}
-
-function toSlash(value: string): string {
-  return value.split(path.sep).join("/");
 }
 
 function scriptRelativeImportPermissions(scriptPath: string, presetRoot: string): ReadonlyArray<string> {

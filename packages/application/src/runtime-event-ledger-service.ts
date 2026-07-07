@@ -11,10 +11,11 @@ import {
   type RuntimeEventRuntime,
   type RuntimeEventResultStatus
 } from "../../kernel/src/index.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "../../kernel/src/index.ts";
+import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, type EntityId, type HarnessLayoutInput, type WriteCoordinator, type WriteError, type WriteOpKind } from "../../kernel/src/index.ts";
 
 export interface RuntimeEventLedgerServiceOptions {
   readonly rootInput: HarnessLayoutInput;
+  readonly coordinator?: WriteCoordinator;
   readonly now?: () => string;
   readonly makeEventId?: () => string;
 }
@@ -90,7 +91,7 @@ export function makeRuntimeEventLedgerService(options: RuntimeEventLedgerService
   const timestamp = () => options.now?.() ?? new Date().toISOString();
   const eventId = () => options.makeEventId?.() ?? makeRuntimeEventId(timestamp());
   return {
-    append: (input) => appendRuntimeEvent(options.rootInput, toRuntimeEventRecord(input, timestamp, eventId)),
+    append: (input) => appendRuntimeEvent(options.rootInput, toRuntimeEventRecord(input, timestamp, eventId), options.coordinator),
     readSession: (sessionId) => readRuntimeEventSession(options.rootInput, sessionId)
   };
 }
@@ -130,21 +131,50 @@ function toRuntimeEventRecord(
 
 function appendRuntimeEvent(
   rootInput: HarnessLayoutInput,
-  event: RuntimeEventRecord
+  event: RuntimeEventRecord,
+  coordinator?: WriteCoordinator
 ): Effect.Effect<RuntimeEventLedgerAppendResult, RuntimeEventLedgerRejected> {
   return Effect.try({
     try: () => {
       const decoded = Schema.decodeUnknownSync(RuntimeEventRecordSchema)(event);
       const target = resolveRuntimeEventLedgerPath(rootInput, decoded.session.sessionId);
-      mkdirSync(path.dirname(target.absolutePath), { recursive: true });
-      appendJsonlWithFsync(target.absolutePath, decoded);
       return {
-        event: decoded,
-        path: target.relativePath
+        decoded,
+        target,
+        result: {
+          event: decoded,
+          path: target.relativePath
+        }
       };
     },
     catch: (error) => runtimeEventRejection(event.session.sessionId, runtimeEventErrorMessage(error))
-  });
+  }).pipe(
+    Effect.flatMap(({ decoded, target, result }) => {
+      const payload = {
+          boundary: "runtime-event-ledger",
+          path: path.relative(resolveHarnessLayout(rootInput).rootDir, target.absolutePath).split(path.sep).join("/"),
+          value: decoded
+        };
+      return coordinator
+        ? writeCoordinatedPayloadLocal(coordinator, {
+          entityId: moduleEntityId("runtime-event-ledger"),
+          kind: "machine_artifact_append_jsonl",
+          opIdPrefix: `runtime-event-${decoded.eventId}`,
+          payload
+        }).pipe(
+        Effect.map(() => result),
+        Effect.mapError((error) => runtimeEventRejection(decoded.session.sessionId, writeErrorMessage(error)))
+      )
+        : Effect.try({
+        try: () => {
+          mkdirSync(path.dirname(target.absolutePath), { recursive: true });
+          appendJsonlWithFsync(target.absolutePath, decoded);
+          return result;
+        },
+        catch: (error) => runtimeEventRejection(decoded.session.sessionId, runtimeEventErrorMessage(error))
+      });
+    })
+  );
 }
 
 function readRuntimeEventSession(
@@ -210,4 +240,36 @@ function runtimeEventRejection(sessionId: string, reason: string): RuntimeEventL
 
 function runtimeEventErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function writeErrorMessage(error: WriteError): string {
+  if (error._tag === "WriteRejected") return error.reason;
+  if (error._tag === "WriteConflict") return `write conflict for ${error.taskId}`;
+  if (error._tag === "GlobalWriteConflict") return "global write conflict";
+  return runtimeEventErrorMessage(error.cause);
+}
+
+function writeCoordinatedPayloadLocal(
+  coordinator: WriteCoordinator,
+  input: {
+    readonly entityId: EntityId;
+    readonly kind: WriteOpKind;
+    readonly payload: Record<string, unknown>;
+    readonly opIdPrefix: string;
+  }
+): Effect.Effect<void, WriteError> {
+  const opId = `${input.opIdPrefix}-${stablePayloadHash({
+    entityId: input.entityId,
+    kind: input.kind,
+    payload: input.payload
+  }).slice(0, 16)}`;
+  return Effect.gen(function* () {
+    yield* coordinator.enqueue({
+      opId,
+      entityId: input.entityId,
+      kind: input.kind,
+      payload: input.payload
+    });
+    yield* coordinator.flush("explicit");
+  });
 }
