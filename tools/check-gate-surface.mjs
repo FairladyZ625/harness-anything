@@ -18,7 +18,8 @@ import { pathToFileURL } from "node:url";
 const DEFAULT_ROOT = process.cwd();
 const INFRASTRUCTURE_RUN_COMMANDS = new Set([
   "npm ci",
-  "git diff --check"
+  "git diff --check",
+  "sudo apt-get update && sudo apt-get install -y xvfb"
 ]);
 
 export function checkGateSurface(root = DEFAULT_ROOT) {

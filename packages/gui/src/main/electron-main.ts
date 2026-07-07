@@ -98,6 +98,6 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-if (process.argv[1]?.endsWith("electron-main.js")) {
+if (process.argv.some((arg) => /electron-main\.(?:js|ts)$/u.test(arg))) {
   void startGuiApp();
 }
