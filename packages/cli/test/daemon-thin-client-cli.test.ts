@@ -297,7 +297,9 @@ test("daemon client --repo override targets a registered repo from a different c
     const listed = runRawJson(betaRoot, ["--repo", "alpha", "task", "list"], {
       HARNESS_DAEMON_MODE: "local",
       HARNESS_DAEMON_USER_ROOT: userRoot,
-      HARNESS_DAEMON_IDLE_MS: "250"
+      // Long idle keeps the daemon alive for the status probe below; a short
+      // idle races daemon exit now that reconcile no longer delays it.
+      HARNESS_DAEMON_IDLE_MS: "5000"
     });
     assert.equal(listed.ok, true);
 

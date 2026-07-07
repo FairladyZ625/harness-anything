@@ -350,6 +350,7 @@ function createDaemonServiceHost(
       reposById.delete(repoId);
       if (runtime.getRepoRuntime(repoId)) await runtime.detachRepo(repoId);
     }
+    await runtime.retryUnavailableRepos();
   }
 }
 
