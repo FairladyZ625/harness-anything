@@ -50,10 +50,6 @@ export async function runRegisteredCommandWithCliComposition(
     }
     return sessionBranchId;
   };
-  const makeSessionExporter = () => makeProvenanceSessionExporter({
-    rootInput: layoutInput,
-    currentSessionProbe: getCurrentSessionProbe()
-  });
   const syncExportedSession = (result: ProvenanceSessionExportResult): Effect.Effect<void, ProvenanceSessionExporterRejected> => Effect.try({
     try: () => {
       try {
@@ -80,6 +76,26 @@ export async function runRegisteredCommandWithCliComposition(
   const makeWriteCoordinator = requiresConflictMarkerPreflight(command.action)
     ? (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => withConflictMarkerFlushRecheck(rawMakeWriteCoordinator(actor), layoutInput)
     : rawMakeWriteCoordinator;
+  const rawMakeSessionWriteCoordinator = options.makeWriteCoordinator ?? ((actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) =>
+    provider.createWriteCoordinator({
+      rootDir: command.rootDir,
+      layoutOverrides: command.layoutOverrides,
+      actor
+    }));
+  const makeSessionWriteCoordinator = requiresConflictMarkerPreflight(command.action)
+    ? (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => withConflictMarkerFlushRecheck(rawMakeSessionWriteCoordinator(actor), layoutInput)
+    : rawMakeSessionWriteCoordinator;
+
+  const makeArtifactStore = () => provider.createArtifactStore({
+    rootDir: command.rootDir,
+    layoutOverrides: command.layoutOverrides
+  });
+  const makeSessionExporter = () => makeProvenanceSessionExporter({
+    rootInput: layoutInput,
+    currentSessionProbe: getCurrentSessionProbe(),
+    coordinator: makeSessionWriteCoordinator({ kind: "agent", id: "session-export" }),
+    artifactStore: makeArtifactStore()
+  });
 
   return Effect.runPromise(runRegisteredCommand(command, () => provider.createLifecycleEngine({
     rootDir: command.rootDir,
@@ -90,7 +106,7 @@ export async function runRegisteredCommandWithCliComposition(
       provenanceSessionExporter: makeSessionExporter(),
       syncExportedSession
     }, boundAt)
-  }), getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, () => makeDecisionWriteService({
+  }), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, () => makeDecisionWriteService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "decision-cli" }),
     currentSessionProbe: getCurrentSessionProbe(),

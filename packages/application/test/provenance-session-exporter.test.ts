@@ -5,14 +5,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
-import type { CurrentSessionRef } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type CurrentSessionRef } from "../../kernel/src/index.ts";
+import type { ProvenanceSessionExporterOptions } from "../src/index.ts";
 import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
 test("provenance session exporter writes human fallback markdown and reads it by id", async () => {
   const rootDir = createHarnessRoot();
   try {
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: makeHumanFallbackSessionProbe({
         now: () => "2026-07-03T00:00:00.000Z",
         user: () => "zeyu"
@@ -65,8 +65,7 @@ test("provenance session exporter renders Claude Code JSONL conversation text", 
       })
     ].join("\n"), "utf8");
 
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: fixedSessionProbe({
         runtime: "claude-code",
         sessionId: "claude-session-1",
@@ -109,8 +108,7 @@ test("provenance session exporter renders Codex JSONL conversation text", async 
       })
     ].join("\n"), "utf8");
 
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: fixedSessionProbe({
         runtime: "codex",
         sessionId: "codex-session-1",
@@ -174,8 +172,7 @@ test("provenance session exporter renders ZCode model I/O JSONL conversation tex
       })
     ].join("\n"), "utf8");
 
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: fixedSessionProbe({
         runtime: "zcode",
         sessionId: "sess_zcode-session-1",
@@ -211,8 +208,7 @@ test("provenance session exporter backfills Codex runtime logs by discovered ses
       })
     ].join("\n"), "utf8");
 
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: fixedSessionProbe({
         runtime: "codex",
         sessionId: "current-codex-thread",
@@ -249,8 +245,7 @@ test("provenance session exporter backfills ZCode runtime logs by discovered ses
       })
     ].join("\n"), "utf8");
 
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: fixedSessionProbe({
         runtime: "zcode",
         sessionId: "current-zcode-thread",
@@ -276,8 +271,7 @@ test("provenance session exporter backfills ZCode runtime logs by discovered ses
 test("provenance session exporter writes visible warning when runtime log is missing", async () => {
   const rootDir = createHarnessRoot();
   try {
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: fixedSessionProbe({
         runtime: "codex",
         sessionId: "missing-codex-session",
@@ -301,8 +295,7 @@ test("provenance session exporter writes visible warning when runtime log is mis
 test("provenance session exporter fails visibly for missing or unsafe session ids", async () => {
   const rootDir = createHarnessRoot();
   try {
-    const exporter = makeProvenanceSessionExporter({
-      rootInput: rootDir,
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
       currentSessionProbe: makeHumanFallbackSessionProbe()
     });
 
@@ -322,6 +315,18 @@ function fixedSessionProbe(session: CurrentSessionRef) {
   return {
     currentSession: Effect.succeed(session)
   };
+}
+
+function makeTestProvenanceSessionExporter(
+  rootDir: string,
+  options: Omit<ProvenanceSessionExporterOptions, "rootInput" | "coordinator" | "artifactStore">
+) {
+  return makeProvenanceSessionExporter({
+    rootInput: rootDir,
+    coordinator: makeJournaledWriteCoordinator({ rootDir }),
+    artifactStore: makeMarkdownArtifactStore({ rootDir }),
+    ...options
+  });
 }
 
 function createHarnessRoot(): string {
