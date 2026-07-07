@@ -113,6 +113,44 @@ test("daemon materializer producer runs bounded batches under the lifetime globa
   });
 });
 
+test("daemon interactive queue does not mix different git authors in one commit", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initAuthoredGit(rootDir);
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      interactiveMicroBatchMs: 20
+    });
+    await runtime.start();
+
+    const alice = runtime.enqueueInteractiveWrite({
+      commandId: "cmd-alice",
+      actor: { kind: "human", id: "person_alice" },
+      commitAuthor: { name: "Alice Owner", email: "alice@example.test" },
+      ops: [docWrite("op-author-alice", "task-author-a", "note.md", "alice\n")]
+    });
+    const bob = runtime.enqueueInteractiveWrite({
+      commandId: "cmd-bob",
+      actor: { kind: "human", id: "person_bob" },
+      commitAuthor: { name: "Bob Owner", email: "bob@example.test" },
+      ops: [docWrite("op-author-bob", "task-author-b", "note.md", "bob\n")]
+    });
+
+    const [aliceReceipt, bobReceipt] = await Promise.all([alice, bob]);
+    assert.equal(aliceReceipt.flush.opCount, 1);
+    assert.equal(bobReceipt.flush.opCount, 1);
+    assert.deepEqual(
+      git(rootDir, "log", "-2", "--format=%an <%ae>|%s").split(/\r?\n/u),
+      [
+        "Bob Owner <bob@example.test>|task(doc): task-author-b note.md [op-author-bob]",
+        "Alice Owner <alice@example.test>|task(doc): task-author-a note.md [op-author-alice]"
+      ]
+    );
+
+    await runtime.stop();
+  });
+});
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

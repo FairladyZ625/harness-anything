@@ -19,6 +19,7 @@ export interface JsonRpcMethodContract {
   readonly auth: ApiRouteContract["auth"];
   readonly requiresRepo: boolean;
   readonly commandClass?: DaemonCommandClass;
+  readonly commandClassDerivation?: "repo-command-run-action";
 }
 
 const protocolMethodContracts = [
@@ -44,7 +45,7 @@ const cliCommandContracts = [
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
     requiresRepo: true,
-    commandClass: "arbiter"
+    commandClassDerivation: "repo-command-run-action"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
@@ -137,6 +138,137 @@ export function commandClassForApiRoute(contract: ApiRouteContract): DaemonComma
   if (arbiterApiRouteIds.has(contract.id)) return "arbiter";
   if (contract.method === "GET" || contract.method === "WS") return "repo-read";
   return "repo-write";
+}
+
+const repoReadCliActionKinds = new Set<string>([
+  "capabilities",
+  "check",
+  "decision-list",
+  "decision-show",
+  "doc-list",
+  "doc-map",
+  "doctor",
+  "entity-list",
+  "fact-list",
+  "fact-show",
+  "help",
+  "legacy-scan",
+  "legacy-verify",
+  "migrate-plan",
+  "migrate-verify",
+  "module-inspect",
+  "module-list",
+  "preset-audit",
+  "preset-check",
+  "preset-inspect",
+  "preset-list",
+  "preset-validate",
+  "runtime-event-list",
+  "script-inspect",
+  "script-list",
+  "snapshot-multica",
+  "status",
+  "task-list",
+  "task-tree",
+  "template-list",
+  "template-render",
+  "vertical-validate",
+  "version"
+]);
+
+const repoWriteCliActionKinds = new Set<string>([
+  "adopt-multica",
+  "decision-amend",
+  "decision-propose",
+  "decision-reckon",
+  "decision-relate",
+  "decision-relation-replace",
+  "decision-relation-retire",
+  "distill-candidate",
+  "distill-commit",
+  "doc-generate",
+  "fact-invalidate",
+  "git-diff",
+  "governance-rebuild",
+  "graph",
+  "gui",
+  "init",
+  "legacy-copy-safe-docs",
+  "legacy-index",
+  "legacy-intake-plan",
+  "lesson-promote",
+  "lesson-sediment",
+  "materializer-run",
+  "migrate-anchors",
+  "migrate-provenance",
+  "migrate-run",
+  "migrate-structure",
+  "module-register",
+  "module-scaffold",
+  "module-step",
+  "module-unregister",
+  "new-task",
+  "preset-action",
+  "preset-install",
+  "preset-run",
+  "preset-seed",
+  "preset-uninstall",
+  "progress-append",
+  "record-fact",
+  "runtime-event-append",
+  "script-run",
+  "session-backfill",
+  "session-export",
+  "session-sync",
+  "task-amend",
+  "task-archive",
+  "task-delete",
+  "task-relate",
+  "task-reopen",
+  "task-supersede"
+]);
+
+const arbiterCliActionKinds = new Set<string>([
+  "decision-accept",
+  "decision-defer",
+  "decision-reject",
+  "decision-retire",
+  "decision-supersede",
+  "status-set",
+  "task-complete",
+  "task-review"
+]);
+
+export const repoCommandRunClassifiedActionKinds = [
+  ...repoReadCliActionKinds,
+  ...repoWriteCliActionKinds,
+  ...arbiterCliActionKinds
+].sort();
+
+export function commandClassForJsonRpcRequest(
+  contract: JsonRpcMethodContract,
+  params: unknown
+): DaemonCommandClass | undefined {
+  if (contract.commandClassDerivation === "repo-command-run-action") {
+    return commandClassForCliCommandPayload(params);
+  }
+  return contract.commandClass;
+}
+
+export function commandClassForCliCommandPayload(params: unknown): DaemonCommandClass | undefined {
+  const payload = isRecord(params) ? params.payload : undefined;
+  const command = isRecord(payload) ? payload.command : undefined;
+  const action = isRecord(command) ? command.action : undefined;
+  const kind = isRecord(action) && typeof action.kind === "string" ? action.kind : undefined;
+  if (!kind) return undefined;
+  if (repoReadCliActionKinds.has(kind)) return "repo-read";
+  if (repoWriteCliActionKinds.has(kind)) return "repo-write";
+  if (arbiterCliActionKinds.has(kind)) return "arbiter";
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export const jsonRpcServiceMethodContracts = deriveJsonRpcServiceMethodContracts();

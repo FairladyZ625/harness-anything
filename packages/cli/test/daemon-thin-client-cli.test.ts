@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -31,6 +31,59 @@ test("daemon client auto-starts, durably writes, and exits after idle", () => {
     sleep(700);
     const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
     assert.equal(status.started, false);
+  });
+});
+
+test("daemon client applies command-level RBAC to inner CLI commands", () => {
+  withTempRoot((rootDir) => {
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    writePeopleRoster(rootDir, {
+      personId: "person_maint",
+      displayName: "Maintainer User",
+      email: "maintainer@example.test",
+      role: "maintainer"
+    });
+
+    const read = runRawJson(rootDir, ["version"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "250" });
+    assert.equal(read.ok, true);
+
+    const write = runRawJson(rootDir, ["new-task", "--title", "Maintainer Daemon Write"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "250"
+    });
+    assert.equal(write.ok, true);
+
+    const arbiter = runRawJsonMaybeFail(rootDir, ["decision", "accept", "dec_missing", "--judgment-only", "manual arbiter probe"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "250"
+    });
+    assert.notEqual(arbiter.status, 0);
+    assert.equal(arbiter.receipt.ok, false);
+    assert.deepEqual((arbiter.receipt.error as { code?: string }).code, "rbac_forbidden");
+    assert.equal(((arbiter.receipt.details as Record<string, unknown>).actor as { personId?: string }).personId, "person_maint");
+    assert.equal((arbiter.receipt.details as Record<string, unknown>).commandClass, "arbiter");
+  });
+});
+
+test("daemon client writes git commits with the resolved actor author", () => {
+  withTempRoot((rootDir) => {
+    initGitRepo(rootDir);
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    writePeopleRoster(rootDir, {
+      personId: "person_owner",
+      displayName: "Owner User",
+      email: "owner@example.test",
+      role: "owner"
+    });
+
+    const receipt = runRawJson(rootDir, ["new-task", "--title", "Owner Author Attribution"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "250"
+    });
+
+    assert.equal(receipt.ok, true);
+    assert.equal(((receipt.details as Record<string, unknown>).actor as { personId?: string }).personId, "person_owner");
+    assert.equal(git(rootDir, "log", "-1", "--pretty=format:%an <%ae>"), "Owner User <owner@example.test>");
   });
 });
 
@@ -176,6 +229,22 @@ function runRawJson(rootDir: string, args: ReadonlyArray<string>, env: Readonly<
   return JSON.parse(stdout) as Record<string, unknown>;
 }
 
+function runRawJsonMaybeFail(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  env: Readonly<Record<string, string>> = {}
+): { readonly status: number | null; readonly receipt: Record<string, unknown> } {
+  const result = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: { ...process.env, ...env }
+  });
+  assert.equal(result.stderr, "");
+  return {
+    status: result.status,
+    receipt: JSON.parse(result.stdout) as Record<string, unknown>
+  };
+}
+
 async function runRawJsonAsync(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Promise<Record<string, unknown>> {
   const { stdout } = await execFileAsync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
@@ -203,6 +272,47 @@ function normalizeVolatileReceipt(receipt: Record<string, unknown>): Record<stri
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function initGitRepo(rootDir: string): void {
+  execFileSync("git", ["-C", rootDir, "init", "-b", "master"], { stdio: "ignore" });
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Harness Test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
+}
+
+function git(rootDir: string, ...args: ReadonlyArray<string>): string {
+  return execFileSync("git", ["-C", rootDir, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  }).trim();
+}
+
+function writePeopleRoster(rootDir: string, person: {
+  readonly personId: string;
+  readonly displayName: string;
+  readonly email: string;
+  readonly role: "owner" | "maintainer";
+}): void {
+  const harnessRoot = path.join(rootDir, "harness");
+  mkdirSync(harnessRoot, { recursive: true });
+  writeFileSync(path.join(harnessRoot, "people.yaml"), [
+    "schema: harness-people/v1",
+    "people:",
+    `  - personId: ${person.personId}`,
+    `    displayName: ${person.displayName}`,
+    `    primaryEmail: ${person.email}`,
+    `    roles: [${person.role}]`,
+    "    credentials:",
+    "      - kind: unix-uid",
+    `        issuer: host:${hostname()}`,
+    `        subject: ${process.getuid?.() ?? 0}`,
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    "  - roleId: maintainer",
+    "    commandClasses: [repo-write, repo-read]",
+    ""
+  ].join("\n"), "utf8");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

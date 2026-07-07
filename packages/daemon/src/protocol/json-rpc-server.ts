@@ -2,7 +2,7 @@
 import type { CommandFailureReceipt, CommandReceipt, LocalControllerService } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
-import { currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
+import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
@@ -21,7 +21,7 @@ export interface DaemonServiceHost {
     readonly getStatus: () => JsonObject | Promise<JsonObject>;
   };
   readonly CliCommandService?: {
-    readonly runCommand: (payload?: JsonObject) => Promise<CommandReceipt | CommandFailureReceipt>;
+    readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor }) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
 }
 
@@ -88,26 +88,28 @@ async function handleRequest(
     return response(failureReceipt(request.method, "method_reserved", `Method namespace is reserved for future admin API: ${request.method}.`));
   }
 
-  const repoFailure = validateRepoNamespace(contract, request.params ?? {}, repos);
+  const params = request.params ?? {};
+  const repoFailure = validateRepoNamespace(contract, params, repos);
   if (repoFailure) return response(failureReceipt(request.method, repoFailure.code, repoFailure.hint));
+  const effectiveContract = withEffectiveCommandClass(contract, params);
 
-  const actorResult = await resolveActor(contract, options);
+  const actorResult = await resolveActor(effectiveContract, options);
   if (actorResult && !actorResult.ok) {
     const receipt = failureReceipt(request.method, actorResult.code, actorResult.message, {
       providerId: actorResult.providerId,
       ...(actorResult.credential ? { credential: credentialJson(actorResult.credential) } : {})
     });
-    await appendCommandEvent(options, request.params ?? {}, contract, "failed", actorResult.message, actorResult.code);
+    await appendCommandEvent(options, params, effectiveContract, "failed", actorResult.message, actorResult.code);
     return response(receipt);
   }
   const actor = actorResult?.actor;
   if (actor && options.peopleRoster) {
-    const authz = authorizeActorForMethod(actor, contract, options.peopleRoster);
+    const authz = authorizeActorForMethod(actor, effectiveContract, options.peopleRoster);
     if (!authz.ok) {
-      await appendCommandEvent(options, request.params ?? {}, contract, "failed", authz.message, authz.code, actor);
+      await appendCommandEvent(options, params, effectiveContract, "failed", authz.message, authz.code, actor);
       return response(stampReceipt(failureReceipt(request.method, authz.code, authz.message, {
         actor: actorStampJson(actor),
-        commandClass: contract.commandClass ?? null
+        commandClass: effectiveContract.commandClass ?? null
       }), actor));
     }
   }
@@ -121,13 +123,13 @@ async function handleRequest(
   if (contract.namespace === "admin") {
     const result = handleAdminMethod(contract, options);
     const receipt = stampReceipt(result, actor);
-    await appendWriteEventIfNeeded(options, request.params ?? {}, contract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
+    await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
     return response(receipt);
   }
 
-  const result = await callServiceMethod(contract, request.params ?? {}, options.services);
+  const result = await callServiceMethod(effectiveContract, params, options.services, actor);
   const receipt = stampReceipt(result, actor);
-  await appendWriteEventIfNeeded(options, request.params ?? {}, contract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
+  await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor);
   return response(receipt);
 }
 
@@ -174,7 +176,8 @@ function validateRepoNamespace(
 async function callServiceMethod(
   contract: JsonRpcMethodContract,
   params: JsonObject,
-  services: DaemonServiceHost
+  services: DaemonServiceHost,
+  actor: AuthenticatedActor | undefined
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
   if (contract.method === "repo.daemon.status") {
@@ -187,7 +190,7 @@ async function callServiceMethod(
     if (!services.CliCommandService) {
       return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
     }
-    return services.CliCommandService.runCommand(payload);
+    return services.CliCommandService.runCommand(payload, { actor });
   }
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
@@ -195,6 +198,12 @@ async function callServiceMethod(
   return isJsonObject(result)
     ? serviceResultReceipt(contract.method, result)
     : successReceipt(contract.method, `completed ${contract.method}`, { value: toJsonValue(result) });
+}
+
+function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: JsonObject): JsonRpcMethodContract {
+  const commandClass = commandClassForJsonRpcRequest(contract, params);
+  if (commandClass === contract.commandClass) return contract;
+  return commandClass ? { ...contract, commandClass } : { ...contract };
 }
 
 async function resolveActor(

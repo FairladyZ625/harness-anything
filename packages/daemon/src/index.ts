@@ -36,9 +36,12 @@ export {
 export {
   currentDaemonProtocolVersion,
   commandClassForApiRoute,
+  commandClassForCliCommandPayload,
+  commandClassForJsonRpcRequest,
   deriveJsonRpcServiceMethodContracts,
   jsonRpcMethodContracts,
   jsonRpcServiceMethodContracts,
+  repoCommandRunClassifiedActionKinds,
   type DaemonCommandClass as JsonRpcDaemonCommandClass,
   type JsonRpcMethodContract,
   type JsonRpcMethodMode

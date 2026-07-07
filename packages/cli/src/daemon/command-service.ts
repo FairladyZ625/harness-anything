@@ -1,4 +1,4 @@
-import type { JsonObject } from "../../../daemon/src/index.ts";
+import { actorGitCommitAuthor, type AuthenticatedActor, type JsonObject } from "../../../daemon/src/index.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
@@ -6,7 +6,7 @@ import { runRegisteredCommandWithCliComposition } from "../composition/command-e
 import { makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
 export interface CliCommandService {
-  readonly runCommand: (payload?: JsonObject) => Promise<CommandReceipt | CommandFailureReceipt>;
+  readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor }) => Promise<CommandReceipt | CommandFailureReceipt>;
 }
 
 export interface CliCommandServiceOptions {
@@ -16,14 +16,21 @@ export interface CliCommandServiceOptions {
 
 export function createCliCommandService(runtime: CliDaemonRuntime, options: CliCommandServiceOptions = {}): CliCommandService {
   return {
-    runCommand: async (payload) => {
+    runCommand: async (payload, context) => {
       options.onCommandStart?.();
       const command = readParsedCommandPayload(payload);
+      const daemonActor = context?.actor;
       try {
         const result = await runRegisteredCommandWithCliComposition(command, {
           makeWriteCoordinator: (actor) => makeDaemonQueuedWriteCoordinator(
             runtime,
-            `${command.action.kind}:${actor.kind}:${actor.id}`
+            `${command.action.kind}:${actor.kind}:${actor.id}`,
+            daemonActor
+              ? {
+                actor: { kind: "human", id: daemonActor.personId },
+                commitAuthor: actorGitCommitAuthor(daemonActor, "harness@example.invalid")
+              }
+              : undefined
           )
         });
         return toCommandReceipt(result);
