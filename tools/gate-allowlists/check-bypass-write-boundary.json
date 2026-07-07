@@ -231,9 +231,9 @@
     ],
     "exemptHumanOrBootstrap": [
       {
-        "value": "packages/cli/src/commands/core/init.ts#mkdirSync@95:3",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/core/init.ts#mkdirSync@97:3",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init Configure-Verify smoke package bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
         "value": "packages/cli/src/commands/core/init.ts#rmSync@31:7",
@@ -246,9 +246,9 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/core/init.ts#writeFileSync@96:3",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/core/init.ts#writeFileSync@98:3",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init Configure-Verify smoke package bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
         "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@275:3",
@@ -456,34 +456,34 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#mkdirSync@28:5",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/init.ts#mkdirSync@30:5",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init local directory bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#mkdirSync@82:5",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/init.ts#mkdirSync@286:5",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init harness.yaml bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@49:5",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@52:5",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init optional package.json script bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@83:5",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@287:5",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init harness.yaml bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@92:3",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@296:3",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init harness.yaml name update write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@99:3",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@303:3",
+        "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
+        "reason": "Init outer .gitignore bootstrap isolation write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
         "value": "packages/cli/src/commands/lesson.ts#mkdirSync@17:5",
