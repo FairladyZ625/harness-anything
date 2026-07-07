@@ -179,6 +179,39 @@ test("CLI conflict preflight blocks representative write commands before output"
   });
 });
 
+test("CLI conflict preflight treats list-then-vanished files as transient", () => {
+  withTempRoot((rootDir) => {
+    const vanishedPath = path.join(rootDir, "harness/vanished.md");
+    mkdirSync(path.dirname(vanishedPath), { recursive: true });
+    writeFileSync(vanishedPath, "transient source\n", "utf8");
+    const preloadPath = writeVanishedReadPreload(rootDir, vanishedPath);
+
+    const result = runJson(rootDir, ["task", "create", "--title", "TOCTOU Safe"], {
+      NODE_OPTIONS: `--require ${preloadPath}`
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "new-task");
+  });
+});
+
+test("CLI write coordinator flush rechecks conflict markers after early preflight", () => {
+  withTempRoot((rootDir) => {
+    writeConflictMarker(rootDir);
+    const markerPath = path.join(rootDir, "AGENTS.md");
+    const preloadPath = writeFirstReadCleanPreload(rootDir, markerPath);
+
+    const result = runJson(rootDir, ["task", "create", "--title", "Blocked At Flush"], {
+      NODE_OPTIONS: `--require ${preloadPath}`
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "write_rejected");
+    assert.match(result.error?.hint ?? "", /Git conflict marker found/u);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks")), false);
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-conflict-preflight-"));
   try {
@@ -200,10 +233,54 @@ function writeConflictMarker(rootDir: string): void {
   ].join("\n"), "utf8");
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+function writeFirstReadCleanPreload(rootDir: string, filePath: string): string {
+  const preloadPath = path.join(rootDir, "first-read-clean-preload.cjs");
+  writeFileSync(preloadPath, [
+    "const fs = require('node:fs');",
+    "const { syncBuiltinESMExports } = require('node:module');",
+    `const filePath = ${JSON.stringify(filePath)};`,
+    "const originalReadFileSync = fs.readFileSync;",
+    "let cleanReadsRemaining = 1;",
+    "fs.readFileSync = function patchedReadFileSync(candidate, ...args) {",
+    "  if (String(candidate) === filePath && cleanReadsRemaining > 0) {",
+    "    cleanReadsRemaining -= 1;",
+    "    return 'clean source\\n';",
+    "  }",
+    "  return originalReadFileSync.call(this, candidate, ...args);",
+    "};",
+    "syncBuiltinESMExports();",
+    ""
+  ].join("\n"), "utf8");
+  return preloadPath;
+}
+
+function writeVanishedReadPreload(rootDir: string, vanishedPath: string): string {
+  const preloadPath = path.join(rootDir, "vanished-preload.cjs");
+  writeFileSync(preloadPath, [
+    "const fs = require('node:fs');",
+    "const { syncBuiltinESMExports } = require('node:module');",
+    `const vanishedPath = ${JSON.stringify(vanishedPath)};`,
+    "const originalReadFileSync = fs.readFileSync;",
+    "fs.readFileSync = function patchedReadFileSync(filePath, ...args) {",
+    "  if (String(filePath) === vanishedPath) {",
+    "    const error = new Error(`ENOENT: no such file or directory, open '${vanishedPath}'`);",
+    "    error.code = 'ENOENT';",
+    "    error.path = vanishedPath;",
+    "    throw error;",
+    "  }",
+    "  return originalReadFileSync.call(this, filePath, ...args);",
+    "};",
+    "syncBuiltinESMExports();",
+    ""
+  ].join("\n"), "utf8");
+  return preloadPath;
+}
+
+function runJson(rootDir: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: { ...process.env, ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

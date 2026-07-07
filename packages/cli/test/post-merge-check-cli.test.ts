@@ -128,6 +128,22 @@ test("CLI check --post-merge excludes generated artifact captures from dangling 
   });
 });
 
+test("CLI check --post-merge tolerates facts.md that vanishes after source enumeration", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-a", "A", "planned");
+    const factsPath = path.join(rootDir, "harness/tasks/task-a/facts.md");
+    writeFileSync(factsPath, "- {fact_id: F-DEADBEEF, statement: \"Transient fact.\", source: \"test\", observedAt: \"2026-07-07T00:00:00.000Z\", confidence: high}\n", "utf8");
+    const preloadPath = writeVanishedReadPreload(rootDir, factsPath);
+
+    const result = runJson(rootDir, ["check", "--post-merge"], true, {
+      NODE_OPTIONS: `--require ${preloadPath}`
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.warnings.some((warning: any) => warning.code === "dangling_entity_ref"), false);
+  });
+});
+
 test("CLI check --post-merge reports done task document placeholders as hard-fails", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-a", "A", "done");
@@ -274,11 +290,33 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function writeVanishedReadPreload(rootDir: string, vanishedPath: string): string {
+  const preloadPath = path.join(rootDir, "vanished-preload.cjs");
+  writeFileSync(preloadPath, [
+    "const fs = require('node:fs');",
+    "const { syncBuiltinESMExports } = require('node:module');",
+    `const vanishedPath = ${JSON.stringify(vanishedPath)};`,
+    "const originalReadFileSync = fs.readFileSync;",
+    "fs.readFileSync = function patchedReadFileSync(filePath, ...args) {",
+    "  if (String(filePath) === vanishedPath) {",
+    "    const error = new Error(`ENOENT: no such file or directory, open '${vanishedPath}'`);",
+    "    error.code = 'ENOENT';",
+    "    error.path = vanishedPath;",
+    "    throw error;",
+    "  }",
+    "  return originalReadFileSync.call(this, filePath, ...args);",
+    "};",
+    "syncBuiltinESMExports();",
+    ""
+  ].join("\n"), "utf8");
+  return preloadPath;
+}
+
+function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: NodeJS.ProcessEnv = {}): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_SKIP_NPM_INSTALL: "1" },
+      env: { ...process.env, HARNESS_SKIP_NPM_INSTALL: "1", ...env },
       stdio: ["ignore", "pipe", "pipe"]
     });
     const result = JSON.parse(stdout) as Record<string, any>;
