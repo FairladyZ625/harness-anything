@@ -64,10 +64,17 @@ Use the current CLI command names:
 
 ```bash
 ha <command>
+```
+
+After the 0.1 package publication to npm, the public npm command surface will also be:
+
+```bash
 npx harness-anything <command>
 ```
 
-Do not use the stale `harness` / `npx harness` command surface for this checkout.
+Until that release exists, treat `npx harness-anything` as forward-looking and
+use the source checkout / local `ha` path. Do not use the stale `harness` /
+`npx harness` command surface for this checkout.
 
 If you edit `packages/cli/src`, rebuild the workspace CLI before relying on the
 workspace bin:
