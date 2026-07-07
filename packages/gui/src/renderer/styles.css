@@ -1,210 +1,206 @@
-:root {
-  color: #14171a;
-  background: #f6f7f8;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/*
+ * Harness GUI 暗色 token（OKLch）
+ * 三轴视觉通道分配：
+ *   coordinationStatus → 颜色徽章（六色等亮度系）
+ *   closeoutReadiness  → 图标 + 中性底；仅 ready 点亮 accent
+ *   packageDisposition → 整卡透明度 + 角标，不占色彩通道
+ *   freshness          → 边框/时间戳通道，不占色块
+ */
+@theme {
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+
+  --color-bg: oklch(0.205 0.006 285);
+  --color-surface: oklch(0.235 0.007 285);
+  --color-surface-raised: oklch(0.275 0.008 285);
+  --color-border: oklch(0.35 0.01 285);
+  --color-border-strong: oklch(0.45 0.012 285);
+  --color-text: oklch(0.94 0.004 285);
+  --color-text-muted: oklch(0.74 0.01 285);
+  --color-text-faint: oklch(0.62 0.012 285);
+
+  /* coordinationStatus 六色 + unknown，等亮度 OKLch */
+  --color-status-planned: oklch(0.72 0.03 285);
+  --color-status-active: oklch(0.72 0.14 250);
+  --color-status-blocked: oklch(0.75 0.14 75);
+  --color-status-in-review: oklch(0.72 0.14 305);
+  --color-status-done: oklch(0.74 0.14 150);
+  --color-status-cancelled: oklch(0.55 0.01 285);
+  --color-status-unknown: oklch(0.70 0.12 25);
+
+  /* 唯一行动强调色：closeoutReadiness=ready 与主操作 */
+  --color-accent: oklch(0.80 0.13 195);
+  --color-accent-fg: oklch(0.18 0.02 195);
+
+  /* freshness 通道 */
+  --color-stale: oklch(0.75 0.12 75);
+  --color-danger: oklch(0.65 0.18 25);
 }
 
+/*
+ * 亮色主题：六态状态色保持色相不变，仅调 lightness/chroma，
+ * 保证两主题下三轴可辨识度等价（31 §3.9）。
+ */
+html[data-theme="light"] {
+  --color-bg: oklch(0.965 0.003 285);
+  --color-surface: oklch(0.99 0.002 285);
+  --color-surface-raised: oklch(1 0 0);
+  --color-border: oklch(0.9 0.004 285);
+  --color-border-strong: oklch(0.81 0.006 285);
+  --color-text: oklch(0.23 0.006 285);
+  --color-text-muted: oklch(0.46 0.008 285);
+  --color-text-faint: oklch(0.61 0.008 285);
+
+  --color-status-planned: oklch(0.52 0.03 285);
+  --color-status-active: oklch(0.54 0.16 250);
+  --color-status-blocked: oklch(0.57 0.13 75);
+  --color-status-in-review: oklch(0.54 0.16 305);
+  --color-status-done: oklch(0.56 0.14 150);
+  --color-status-cancelled: oklch(0.6 0.01 285);
+  --color-status-unknown: oklch(0.55 0.15 25);
+
+  --color-accent: oklch(0.58 0.12 195);
+  --color-accent-fg: oklch(0.99 0.005 195);
+
+  --color-stale: oklch(0.57 0.12 75);
+  --color-danger: oklch(0.54 0.19 25);
+}
+
+html,
 body {
-  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body);
 }
 
-button {
-  font: inherit;
+html {
+  --ui-font-meta: 13px;
+  --ui-font-body: 15px;
+  --ui-font-title: 18px;
+  --ui-font-heading: 20px;
 }
 
-.ha-shell {
-  display: grid;
-  min-height: 100vh;
-  grid-template-columns: 248px 1fr;
+html[data-ui-scale="compact"] {
+  --ui-font-meta: 12px;
+  --ui-font-body: 14px;
+  --ui-font-title: 17px;
+  --ui-font-heading: 18px;
 }
 
-.ha-sidebar {
-  border-right: 1px solid #d8dde3;
-  background: #ffffff;
-  padding: 20px;
+html[data-ui-scale="comfortable"] {
+  --ui-font-meta: 14px;
+  --ui-font-body: 16px;
+  --ui-font-title: 20px;
+  --ui-font-heading: 22px;
 }
 
-.ha-brand {
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 24px;
+.ui-meta {
+  font-size: var(--ui-font-meta);
 }
 
-.ha-nav-item {
-  display: block;
+.ui-body {
+  font-size: var(--ui-font-body);
+}
+
+.ui-title {
+  font-size: var(--ui-font-title);
+}
+
+.ui-heading {
+  font-size: var(--ui-font-heading);
+}
+
+::selection {
+  background: oklch(0.45 0.08 250);
+}
+
+html[data-theme="light"] ::selection {
+  background: oklch(0.85 0.06 250);
+}
+
+/* 文档阅读区排版（react-markdown 输出） */
+.prose-harness {
+  font-size: var(--ui-font-body);
+  line-height: 1.7;
+  color: var(--color-text);
+}
+.prose-harness h1 {
+  font-size: var(--ui-font-heading);
+  font-weight: 650;
+  margin-bottom: 1rem;
+}
+.prose-harness h2 {
+  font-size: var(--ui-font-title);
+  font-weight: 600;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+.prose-harness p {
+  margin: 0.6rem 0;
+  color: var(--color-text-muted);
+}
+.prose-harness ul {
+  padding-left: 1.25rem;
+  list-style: disc;
+  color: var(--color-text-muted);
+}
+.prose-harness li {
+  margin: 0.25rem 0;
+}
+.prose-harness code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.prose-harness pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.prose-harness pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.prose-harness table {
   width: 100%;
-  padding: 10px 12px;
-  border: 0;
-  background: transparent;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: var(--ui-font-meta);
+}
+.prose-harness th {
   text-align: left;
-  color: #30363d;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border-strong);
+  padding: 0.4rem 0.6rem;
 }
-
-.ha-workspace {
-  padding: 28px;
-  display: grid;
-  gap: 18px;
+.prose-harness td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.4rem 0.6rem;
+  color: var(--color-text-muted);
 }
-
-.ha-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+.prose-harness td code,
+.prose-harness th code {
+  white-space: nowrap;
 }
-
-.ha-header h1 {
-  margin: 0;
-  font-size: 28px;
+.prose-harness blockquote {
+  border-left: 2px solid var(--color-border-strong);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--color-text-faint);
 }
-
-.ha-header p {
-  margin: 6px 0 24px;
-  color: #68717d;
-}
-
-.ha-header-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.ha-header-actions button {
-  min-height: 34px;
-  border: 1px solid #b8c0ca;
-  background: #ffffff;
-  color: #1f2933;
-}
-
-.ha-workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  min-height: 440px;
-  gap: 12px;
-}
-
-.ha-pane-zone {
-  border: 1px solid #d8dde3;
-  background: #ffffff;
-  padding: 12px;
-}
-
-.ha-pane-zone-primary {
-  min-width: 0;
-}
-
-.ha-pane-zone-dock {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-}
-
-.ha-zone-title {
-  margin-bottom: 10px;
-  color: #68717d;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.ha-pane-row {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr);
-  gap: 10px;
-}
-
-.ha-pane {
-  min-height: 132px;
-  border: 1px solid #c9d0d8;
-  background: #fdfefe;
-  padding: 12px;
-}
-
-.ha-pane header {
-  display: grid;
-  gap: 6px;
-}
-
-.ha-pane span {
-  color: #52606d;
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
-.ha-pane strong {
-  color: #111827;
-  font-size: 15px;
-}
-
-.ha-pane p {
-  margin: 18px 0 0;
-  color: #52606d;
-  font-size: 13px;
-}
-
-.ha-pane-terminal {
-  border-color: #7c93a8;
-}
-
-.ha-pane-logs {
-  border-color: #95a3b3;
-}
-
-.ha-session-strip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.ha-session-item {
-  border: 1px solid #d8dde3;
-  background: #ffffff;
-  padding: 10px;
-  min-width: 0;
-}
-
-.ha-session-item h2 {
-  margin: 0;
-  font-size: 13px;
-}
-
-.ha-session-item p {
-  margin: 6px 0 0;
-  color: #68717d;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 760px) {
-  .ha-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .ha-sidebar {
-    border-right: 0;
-    border-bottom: 1px solid #d8dde3;
-    padding: 14px;
-  }
-
-  .ha-nav-item {
-    display: inline-block;
-    width: auto;
-  }
-
-  .ha-workspace {
-    padding: 16px;
-  }
-
-  .ha-header {
-    display: grid;
-  }
-
-  .ha-header-actions {
-    flex-wrap: wrap;
-  }
-
-  .ha-workspace-grid,
-  .ha-pane-row,
-  .ha-session-strip {
-    grid-template-columns: 1fr;
-  }
+.prose-harness input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  margin-right: 0.4rem;
 }
