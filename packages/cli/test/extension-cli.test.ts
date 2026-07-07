@@ -63,7 +63,7 @@ test("CLI template commands use bundled software coding catalog by default", () 
 
   assert.equal(listed.ok, true);
   assert.equal(listed.command, "template-list");
-  assert.equal(listed.templates.length, 30);
+  assert.equal(listed.templates.length, 31);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/task-plan@1" && template.materializeAs === "task_plan.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/brief@1" && template.materializeAs === "brief.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/module-plan@1" && template.materializeAs === "module_plan.md"), true);
