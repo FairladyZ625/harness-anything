@@ -45,6 +45,26 @@ export interface DaemonConnectionStats {
   total: number;
 }
 
+export interface DaemonStatusRuntimeRepo {
+  readonly repoId: string;
+  readonly canonicalRoot: string;
+  readonly state: string;
+  readonly lockPath?: string;
+  readonly lockOwnerToken?: string;
+  readonly queue: {
+    readonly interactive: number;
+    readonly normal: number;
+    readonly background: number;
+    readonly maintenance: number;
+    readonly running: boolean;
+  };
+  readonly lastRecovery?: unknown;
+  readonly lastError?: string;
+  readonly lastMaterializerError?: string;
+}
+
+const emptyDaemonQueue = { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false } as const;
+
 export async function runDaemonProductCommand(input: DaemonCommandInput): Promise<number> {
   const action = input.args[1] ?? "status";
   if (action === "--help" || action === "-h" || input.args.includes("--help") || input.args.includes("-h")) {
@@ -75,7 +95,7 @@ export function daemonStatusPayload(input: {
     readonly started: boolean;
     readonly lockPath?: string;
     readonly lockOwnerToken?: string;
-    readonly queue: {
+    readonly queue?: {
       readonly interactive: number;
       readonly normal: number;
       readonly background: number;
@@ -83,33 +103,54 @@ export function daemonStatusPayload(input: {
       readonly running: boolean;
     };
     readonly lastRecovery?: unknown;
+    readonly repos?: ReadonlyArray<DaemonStatusRuntimeRepo>;
   };
   readonly connections: DaemonConnectionStats;
 }): JsonObject {
-  const queueDepth = input.runtimeStatus.queue.interactive
-    + input.runtimeStatus.queue.normal
-    + input.runtimeStatus.queue.background
-    + input.runtimeStatus.queue.maintenance;
+  const selectedRepo = input.runtimeStatus.repos?.find((repo) => repo.repoId === input.repoId) ?? input.runtimeStatus.repos?.[0];
+  const queue = selectedRepo?.queue ?? input.runtimeStatus.queue ?? emptyDaemonQueue;
+  const lockPath = selectedRepo?.lockPath ?? input.runtimeStatus.lockPath;
+  const lockOwnerToken = selectedRepo?.lockOwnerToken ?? input.runtimeStatus.lockOwnerToken;
+  const lastRecovery = selectedRepo?.lastRecovery ?? input.runtimeStatus.lastRecovery ?? null;
+  const rootDir = selectedRepo?.canonicalRoot ?? input.rootDir;
+  const repoId = selectedRepo?.repoId ?? input.repoId;
+  const queueDepth = queue.interactive
+    + queue.normal
+    + queue.background
+    + queue.maintenance;
   return {
     schema: "daemon-status/v1",
     started: input.runtimeStatus.started,
     daemonId: input.daemonId,
-    rootDir: input.rootDir,
-    repoId: input.repoId,
+    rootDir,
+    repoId,
     endpoint: input.endpoint,
     version: resolveCliVersion(),
     protocolVersion: currentDaemonProtocolVersion,
     lock: {
-      path: input.runtimeStatus.lockPath ?? null,
-      ownerToken: input.runtimeStatus.lockOwnerToken ?? null
+      path: lockPath ?? null,
+      ownerToken: lockOwnerToken ?? null
     },
-    queue: input.runtimeStatus.queue,
+    queue,
     queueDepth,
     connections: {
       active: input.connections.active,
       total: input.connections.total
     },
-    lastRecovery: toJsonValue(input.runtimeStatus.lastRecovery ?? null)
+    lastRecovery: toJsonValue(lastRecovery),
+    ...(input.runtimeStatus.repos ? {
+      repos: input.runtimeStatus.repos.map((repo) => ({
+        repoId: repo.repoId,
+        canonicalRoot: repo.canonicalRoot,
+        state: repo.state,
+        lockPath: repo.lockPath ?? null,
+        lockOwnerToken: repo.lockOwnerToken ?? null,
+        queue: repo.queue,
+        lastRecovery: toJsonValue(repo.lastRecovery ?? null),
+        lastError: repo.lastError ?? null,
+        lastMaterializerError: repo.lastMaterializerError ?? null
+      }))
+    } : {})
   };
 }
 

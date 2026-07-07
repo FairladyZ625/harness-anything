@@ -48,6 +48,7 @@ export {
 } from "./protocol/method-registry.ts";
 export {
   createJsonRpcProtocolServer,
+  type DaemonRepoAvailabilityFailure,
   type DaemonRepoNamespace,
   type DaemonServiceHost,
   type JsonRpcProtocolServer,

@@ -1,6 +1,7 @@
 import {
   localAdapterProviderMetadata,
   createDaemonRuntime,
+  createMultiRepoDaemonRuntime,
   makeLocalLifecycleEngine,
   makeLocalWriteCoordinator,
   runLedgerMaterializer
@@ -37,6 +38,7 @@ export interface CliCompositionAdapterProvider {
   readonly createLifecycleEngine: typeof makeLocalLifecycleEngine;
   readonly createWriteCoordinator: typeof makeLocalWriteCoordinator;
   readonly createDaemonRuntime: typeof createDaemonRuntime;
+  readonly createMultiRepoDaemonRuntime: typeof createMultiRepoDaemonRuntime;
   readonly runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
 }
 
@@ -45,6 +47,7 @@ const localProvider = {
   createLifecycleEngine: (options: LocalLifecycleOptions) => makeLocalLifecycleEngine(options),
   createWriteCoordinator: (options: LocalWriteCoordinatorOptions) => makeLocalWriteCoordinator(options),
   createDaemonRuntime: (options) => createDaemonRuntime(options),
+  createMultiRepoDaemonRuntime: (options) => createMultiRepoDaemonRuntime(options),
   runLedgerMaterializer
 } satisfies CliCompositionAdapterProvider;
 

@@ -10,6 +10,8 @@ import {
   createJsonRpcProtocolServer,
   createUnixSocketTransportServer,
   serveSshExecBridge,
+  type DaemonRepoAvailabilityFailure,
+  type DaemonRepoNamespace,
   type DaemonAuthenticationContext
 } from "../../daemon/src/index.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
@@ -28,9 +30,11 @@ import { localDaemonSocketPath, runCommandThroughDaemon } from "./daemon/client.
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
 
-type HarnessDaemonRuntime = ReturnType<typeof createDaemonRuntime>;
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
-const createDaemonRuntime = selectCliAdapterProvider("daemon.runtime").createDaemonRuntime;
+const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
+type HarnessDaemonRuntime = ReturnType<typeof daemonRuntimeProvider.createDaemonRuntime>;
+type MultiRepoHarnessDaemonRuntime = ReturnType<typeof daemonRuntimeProvider.createMultiRepoDaemonRuntime>;
+const createMultiRepoDaemonRuntime = daemonRuntimeProvider.createMultiRepoDaemonRuntime;
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
   const daemonExit = await maybeRunDaemonCommand(argv);
@@ -73,19 +77,21 @@ async function runDaemonServe(
   args: ReadonlyArray<string>,
   hooks: DaemonServeHooks = {}
 ): Promise<void> {
-  const runtime = createDaemonRuntime({
-    rootDir,
-    layoutOverrides,
-    materializerPollMs: 5_000
-  });
-  await runtime.start();
   const repoId = readOption(args, "--repo") ?? "canonical";
+  const runtime = createMultiRepoDaemonRuntime({
+    materializerPollMs: 5_000,
+    repos: [{ repoId, rootDir, ...(layoutOverrides ? { layoutOverrides } : {}) }]
+  });
+  const startStatus = await runtime.start();
+  if (startStatus.repoCount > 0 && startStatus.attachedCount === 0 && startStatus.unavailableCount > 0) {
+    throw new Error(`daemon did not attach any registered repo: ${startStatus.repos.map((repo) => `${repo.repoId}:${repo.lastError ?? repo.state}`).join("; ")}`);
+  }
   const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
   const stdio = args.includes("--stdio");
   const socketPath = readOption(args, "--socket") ?? localDaemonSocketPath(rootDir);
   const endpoint = stdio ? "stdio" : socketPath;
   const connections: DaemonConnectionStats = { active: 0, total: 0 };
-  const serviceHost = createDaemonServiceHost(runtime, rootDir, layoutOverrides, repoId, idleMs, endpoint, connections);
+  const serviceHost = createDaemonServiceHost(runtime, [{ repoId, canonicalRoot: rootDir }], repoId, layoutOverrides, idleMs, endpoint, connections);
   if (stdio) {
     connections.active += 1;
     connections.total += 1;
@@ -123,11 +129,44 @@ async function runDaemonServe(
   await serviceHost.stop();
 }
 
+function repoAvailabilityFailure(
+  runtime: MultiRepoHarnessDaemonRuntime,
+  repo: DaemonRepoNamespace
+): DaemonRepoAvailabilityFailure | undefined {
+  const status = runtime.status().repos.find((candidate) => candidate.repoId === repo.repoId);
+  if (!status) {
+    return {
+      code: "repo_unavailable",
+      repo: {
+        repoId: repo.repoId,
+        canonicalRoot: repo.canonicalRoot,
+        state: "unavailable",
+        lockPath: null,
+        lockOwnerToken: null,
+        lastError: "runtime context not found"
+      }
+    };
+  }
+  if (status.state === "attached") return undefined;
+  const lockHeld = typeof status.lastError === "string" && /lock already held|global\.lock/u.test(status.lastError);
+  return {
+    code: lockHeld ? "repo_lock_held" : "repo_unavailable",
+    repo: {
+      repoId: repo.repoId,
+      canonicalRoot: repo.canonicalRoot,
+      state: status.state,
+      lockPath: status.lockPath ?? null,
+      lockOwnerToken: status.lockOwnerToken ?? null,
+      lastError: status.lastError ?? null
+    }
+  };
+}
+
 function createDaemonServiceHost(
-  runtime: HarnessDaemonRuntime,
-  rootDir: string,
+  runtime: MultiRepoHarnessDaemonRuntime,
+  repos: ReadonlyArray<DaemonRepoNamespace>,
+  defaultRepoId: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
-  repoId: string,
   idleMs: number,
   endpoint: string,
   connections: DaemonConnectionStats
@@ -141,7 +180,6 @@ function createDaemonServiceHost(
   readonly stop: () => Promise<void>;
 } {
   const daemonId = `ha-${process.pid}`;
-  const identity = loadDaemonIdentity(rootDir, layoutOverrides);
   const stopHandlers: Array<() => Promise<void>> = [];
   let requestStop: (() => void) | undefined;
   const stopRequested = new Promise<void>((resolve) => {
@@ -166,55 +204,36 @@ function createDaemonServiceHost(
     }, idleMs);
     idleTimer.unref();
   };
-  const taskWriter = selectCliAdapterProvider("task.lifecycle").createLifecycleEngine({
-    rootDir,
-    layoutOverrides,
-    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "local-controller")
-  });
-  const localController = makeLocalControllerService({
-    rootDir,
-    layoutOverrides,
-    taskWriter
-  });
-  const cliCommandService = createCliCommandService(runtime, {
-    onCommandStart: () => {
-      if (idleTimer) clearTimeout(idleTimer);
-    },
-    onCommandSettled: scheduleIdleExit
-  });
-  const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
-    rootInput: { rootDir, layoutOverrides },
-    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "runtime-event-protocol")
+  const repoBindings = new Map(repos.map((repo) => {
+    const repoRuntime = runtime.getRepoRuntime(repo.repoId);
+    if (!repoRuntime) throw new Error(`daemon runtime missing repo context: ${repo.repoId}`);
+    return [repo.repoId, createRepoServiceBinding(repo, repoRuntime, runtime, layoutOverrides, {
+      onCommandStart: () => {
+        if (idleTimer) clearTimeout(idleTimer);
+      },
+      onCommandSettled: scheduleIdleExit
+    }, { daemonId, endpoint, connections })] as const;
   }));
   return {
     daemonId,
     createProtocolServer: (authContext) => createJsonRpcProtocolServer({
       daemonId,
-      repos: [{ repoId, canonicalRoot: rootDir }],
-      services: {
-        LocalControllerService: localController,
-        TerminalSessionService: makeUnavailableTerminalSessionService(),
-        DaemonStatusService: {
-          getStatus: () => daemonStatusPayload({
-            daemonId,
-            rootDir,
-            repoId,
-            endpoint,
-            runtimeStatus: runtime.status(),
-            connections
-          })
-        },
-        CliCommandService: cliCommandService
-      },
+      repos,
+      services: repoBindings.get(defaultRepoId)!.services,
+      resolveRepoServices: (repo) => repoBindings.get(repo.repoId)?.services,
+      resolveRepoAvailability: (repo) => repoAvailabilityFailure(runtime, repo),
       authContext,
-      ...(identity.identityProvider ? { identityProvider: identity.identityProvider } : {}),
-      ...(identity.peopleRoster ? { peopleRoster: identity.peopleRoster } : {}),
-      appendRuntimeEvent
+      ...(repoBindings.get(defaultRepoId)?.identity.identityProvider ? { identityProvider: repoBindings.get(defaultRepoId)!.identity.identityProvider } : {}),
+      ...(repoBindings.get(defaultRepoId)?.identity.peopleRoster ? { peopleRoster: repoBindings.get(defaultRepoId)!.identity.peopleRoster } : {}),
+      appendRuntimeEvent: (input, context) => {
+        const targetRepoId = context?.repo.repoId ?? defaultRepoId;
+        return repoBindings.get(targetRepoId)?.appendRuntimeEvent(input) ?? Promise.resolve();
+      }
     }),
     status: () => daemonStatusPayload({
       daemonId,
-      rootDir,
-      repoId,
+      rootDir: repoBindings.get(defaultRepoId)!.repo.canonicalRoot,
+      repoId: defaultRepoId,
       endpoint,
       runtimeStatus: runtime.status(),
       connections
@@ -225,6 +244,61 @@ function createDaemonServiceHost(
       stopHandlers.push(handler);
     },
     stop
+  };
+}
+
+function createRepoServiceBinding(
+  repo: DaemonRepoNamespace,
+  runtime: HarnessDaemonRuntime,
+  managerRuntime: MultiRepoHarnessDaemonRuntime,
+  layoutOverrides: { readonly authoredRoot?: string } | undefined,
+  commandOptions: { readonly onCommandStart: () => void; readonly onCommandSettled: () => void },
+  statusOptions?: { readonly daemonId?: string; readonly endpoint?: string; readonly connections?: DaemonConnectionStats }
+): {
+  readonly repo: DaemonRepoNamespace;
+  readonly identity: ReturnType<typeof loadDaemonIdentity>;
+  readonly services: Parameters<typeof createJsonRpcProtocolServer>[0]["services"];
+  readonly appendRuntimeEvent: ReturnType<typeof makeRuntimeEventAppendPromise>;
+} {
+  const rootDir = repo.canonicalRoot;
+  const identity = loadDaemonIdentity(rootDir, layoutOverrides);
+  const taskWriter = selectCliAdapterProvider("task.lifecycle").createLifecycleEngine({
+    rootDir,
+    layoutOverrides,
+    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "local-controller")
+  });
+  const localController = makeLocalControllerService({
+    rootDir,
+    layoutOverrides,
+    taskWriter
+  });
+  const cliCommandService = createCliCommandService(runtime, commandOptions);
+  const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
+    rootInput: { rootDir, layoutOverrides },
+    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "runtime-event-protocol")
+  }));
+  return {
+    repo,
+    identity,
+    services: {
+      LocalControllerService: localController,
+      TerminalSessionService: makeUnavailableTerminalSessionService(),
+      DaemonStatusService: {
+        getStatus: (context) => {
+          const targetRepo = context?.repo ?? repo;
+          return daemonStatusPayload({
+            daemonId: statusOptions?.daemonId ?? `ha-${process.pid}`,
+            rootDir: targetRepo.canonicalRoot,
+            repoId: targetRepo.repoId,
+            endpoint: statusOptions?.endpoint ?? "repo-router",
+            runtimeStatus: managerRuntime.status(),
+            connections: statusOptions?.connections ?? { active: 0, total: 0 }
+          });
+        }
+      },
+      CliCommandService: cliCommandService
+    },
+    appendRuntimeEvent
   };
 }
 

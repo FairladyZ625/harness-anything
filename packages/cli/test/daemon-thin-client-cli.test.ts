@@ -122,6 +122,9 @@ test("daemon start service status and stop expose productized status contract", 
       assert.equal(typeof status.queueDepth, "number");
       assert.equal(isRecord(status.queue), true);
       assert.equal(isRecord(status.connections), true);
+      assert.equal(Array.isArray(status.repos), true);
+      assert.equal((status.repos as Array<{ repoId?: string; state?: string }>)[0]?.repoId, "canonical");
+      assert.equal((status.repos as Array<{ repoId?: string; state?: string }>)[0]?.state, "attached");
 
       const stop = runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "5000", "--json"]);
       assert.equal(stop.signaled, true);
