@@ -1,3 +1,4 @@
+/** @slice-activation GUI workspace shell contract: exported for renderer model tests and package-level shell consumers. */
 export interface RendererCapabilityModel {
   readonly nodeGlobalsAvailable: false;
   readonly privilegedModulesAvailable: false;
