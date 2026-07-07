@@ -1,0 +1,4 @@
+interface:
+  display_name: "Preset Trigger"
+  short_description: "Choose a Harness task preset before task creation"
+  default_prompt: "Choose an appropriate Harness Anything software/coding preset before creating a task package. Prefer `ha task create --vertical software/coding --preset <id>`."

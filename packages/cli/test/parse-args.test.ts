@@ -146,6 +146,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "capabilities by kind", argv: ["decision", "capabilities"], kind: "capabilities", fields: { entityKind: "decision" } },
   { name: "graph capabilities", argv: ["graph", "capabilities"], kind: "capabilities", fields: { entityKind: "graph" } },
   { name: "capabilities kind option", argv: ["capabilities", "--kind", "task"], kind: "capabilities", fields: { entityKind: "task" } },
+  { name: "capabilities positional kind", argv: ["capabilities", "preset"], kind: "capabilities", fields: { entityKind: "preset" } },
   { name: "gui", argv: ["gui"], kind: "gui" },
   { name: "template list", argv: ["template", "list", "--catalog", "catalog.json"], kind: "template-list", fields: { catalogPath: "catalog.json" } },
   { name: "template render", argv: ["template", "render", "template://planning/task@1", "--catalog", "catalog.json", "--locale", "en-US"], kind: "template-render", fields: { templateRef: "template://planning/task@1", catalogPath: "catalog.json", locale: "en-US" } },

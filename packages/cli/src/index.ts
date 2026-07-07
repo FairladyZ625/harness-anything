@@ -302,6 +302,7 @@ function renderHelp(result: Record<string, unknown>): string {
 function renderCommandHelp(command: CommandRegistryEntry): string {
   const aliases = command.aliases.length > 0 ? ["", "Aliases:", ...command.aliases.map((alias) => `  ${alias}`)] : [];
   const options = command.options.length > 0 ? ["", "Options:", ...command.options.map((option) => `  ${option.flag.padEnd(18)} ${option.description}`)] : [];
+  const additional = command.kind === "new-task" ? taskCreatePresetHelp() : [];
   const examples = command.examples.length > 0 ? ["", "Example:", ...command.examples.map((example) => `  ${example}`)] : [];
   return [
     `Usage: ${command.primary}`,
@@ -309,8 +310,34 @@ function renderCommandHelp(command: CommandRegistryEntry): string {
     command.summary,
     ...aliases,
     ...options,
+    ...additional,
     ...examples
   ].join("\n");
+}
+
+function taskCreatePresetHelp(): ReadonlyArray<string> {
+  return [
+    "",
+    "Recommended presets:",
+    "  standard-task           General implementation or maintenance task; the default starting point.",
+    "  decision-conformance    Work that must prove alignment with recorded decisions.",
+    "  milestone-closeout      Milestone wrap-up checks and evidence collection.",
+    "  module                  Module-scoped task with registered module metadata.",
+    "  subtask-expansion       Plan and fan out a parent task into concrete subtasks.",
+    "  long-running-task       Extended task that needs explicit long-running coordination.",
+    "  legacy-migration        Legacy task intake or migration planning.",
+    "  dogfood-utilization-audit  Audit whether Harness presets and artifacts are being used.",
+    "  doc-canon-sync          Documentation canon synchronization work.",
+    "  lesson-sedimentation    Promote useful lessons from task evidence.",
+    "  gate-architecture-retrospective  Review gate architecture and enforcement posture.",
+    "  milestone-dossier       Generate a milestone dossier from project evidence.",
+    "  version-upgrade         Version upgrade planning and execution support.",
+    "  publish-standard        Publish readiness and capability smoke workflow.",
+    "  release-closeout        Release wrap-up and evidence checks.",
+    "",
+    "Start here:",
+    "  ha task create --title \"...\" --vertical software/coding --preset <id>"
+  ];
 }
 
 function helpReport(report: unknown): { readonly kind: "global" | "command" | "prefix"; readonly prefix?: unknown } | undefined {

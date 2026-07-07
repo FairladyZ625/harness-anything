@@ -9,7 +9,8 @@ const knownEntityKinds = new Set(capabilityEntityKinds);
 export function parseCapabilitiesArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] === "entity" && args[1] === "list") return { ok: true, value: { rootDir, json, action: { kind: "entity-list" } } };
   if (args[0] === "capabilities") {
-    return { ok: true, value: { rootDir, json, action: { kind: "capabilities", entityKind: readOption(args, "--kind") } } };
+    const entityKind = readOption(args, "--kind") ?? (args[1] && knownEntityKinds.has(args[1]) ? args[1] : undefined);
+    return { ok: true, value: { rootDir, json, action: { kind: "capabilities", entityKind } } };
   }
   if (args[1] === "capabilities" && args[0] && knownEntityKinds.has(args[0])) {
     return { ok: true, value: { rootDir, json, action: { kind: "capabilities", entityKind: args[0] } } };
