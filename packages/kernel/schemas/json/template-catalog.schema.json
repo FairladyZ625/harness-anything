@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schema", "package", "documents"],
   "properties": {
-    "schema": { "const": "template-catalog/v1" },
+    "schema": { "const": "template-catalog/v2" },
     "package": {
       "type": "object",
       "additionalProperties": false,
@@ -48,14 +48,14 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["locale", "anchors", "body"],
+              "required": ["locale", "anchors", "bodyPath"],
               "properties": {
                 "locale": { "enum": ["zh-CN", "en-US"] },
                 "anchors": {
                   "type": "array",
                   "items": { "type": "string" }
                 },
-                "body": { "type": "string" }
+                "bodyPath": { "type": "string" }
               }
             }
           }

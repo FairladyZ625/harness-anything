@@ -72,6 +72,7 @@
         "check-gate-surface",
         "check-template-command-surface",
         "check-locale-content",
+        "check-catalog-schema",
         "check-runtime-release-readiness",
         "check-package-policy",
         "check-implementation-contracts",
@@ -111,6 +112,7 @@
         "check-gate-surface",
         "check-template-command-surface",
         "check-locale-content",
+        "check-catalog-schema",
         "check-runtime-release-readiness",
         "check-package-policy",
         "check-implementation-contracts",
@@ -2338,6 +2340,69 @@
           "check": true,
           "checkPr": true,
           "script": "harness:check-locale-content"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-catalog-schema",
+      "command": "npm run harness:check-catalog-schema",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "packages/cli/src/commands/extensions/assets/software-coding/template-catalog.json",
+        "packages/cli/src/commands/extensions/assets/software-coding/templates",
+        "tools/check-catalog-schema.mjs"
+      ],
+      "consumerScope": [
+        "bundled software/coding template catalog schema and bodyPath assets"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Catalog schema version and bodyPath-only locale entries fail closed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-catalog-schema.mjs",
+          "package.json:scripts.harness:check-catalog-schema",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-catalog-schema"
         },
         "rewriteCi": {
           "pullRequestJobs": [

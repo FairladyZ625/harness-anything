@@ -5,6 +5,7 @@ import {
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { decodeTemplateCatalog, invalidExtensionResult } from "./shared.ts";
+import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
 
 type TemplateAction = Extract<ParsedCommand["action"], { readonly kind: "template-list" | "template-render" }>;
 
@@ -15,7 +16,7 @@ export function runTemplateCommand(action: TemplateAction): CliResult {
       return invalidExtensionResult("template-list", CliErrorCode.TemplateCatalogInvalid, "Template catalog failed validation.", decoded.issues);
     }
     const catalog = decoded.value;
-    const validation = validateTemplateCatalog(catalog);
+    const validation = validateTemplateCatalog(catalog, { resolveBody: resolveTemplateCatalogBody(catalog) });
     return {
       ok: validation.ok,
       command: "template-list",
@@ -39,6 +40,7 @@ export function runTemplateCommand(action: TemplateAction): CliResult {
   const materialized = planTemplateMaterialization({
     catalog,
     locale: action.locale,
+    resolveBody: resolveTemplateCatalogBody(catalog),
     selections: [{
       slot: "cli.render",
       templateRef: action.templateRef,

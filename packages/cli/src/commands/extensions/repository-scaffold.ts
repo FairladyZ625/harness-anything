@@ -6,6 +6,7 @@ import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { isPathInside } from "../../cli/path.ts";
 import { readProjectHarnessSettings } from "../settings.ts";
 import { bundledTemplateCatalog } from "./bundled.ts";
+import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
 
 type ResolvedLayout = ReturnType<typeof resolveHarnessLayout>;
 type AgentsEntry = NonNullable<VerticalDefinition["repositoryScaffold"]["agentsEntry"]>;
@@ -34,6 +35,7 @@ export function materializeRepositoryScaffold(rootInput: HarnessLayoutInput, ver
   const materialized = planTemplateMaterialization({
     catalog,
     locale,
+    resolveBody: resolveTemplateCatalogBody(catalog),
     selections: vertical.repositoryScaffold.seededDocs
   });
   if (!materialized.ok) {
@@ -69,6 +71,7 @@ function composeAgentsEntry(
   const layers = planTemplateMaterialization({
     catalog,
     locale,
+    resolveBody: resolveTemplateCatalogBody(catalog),
     selections: [
       { slot: "repository.agent.base", templateRef: agentsEntry.baseRef, materializeAs: agentsEntry.materializeAs, localePolicy: agentsEntry.localePolicy },
       { slot: "repository.agent.overlay", templateRef: agentsEntry.overlayRef, materializeAs: agentsEntry.materializeAs, localePolicy: agentsEntry.localePolicy }

@@ -217,7 +217,7 @@ export const PublishableProjectionSchema = Schema.Struct({
 });
 
 export const TemplateCatalogSchema = Schema.Struct({
-  schema: Schema.Literal("template-catalog/v1"),
+  schema: Schema.Literal("template-catalog/v2"),
   package: Schema.Struct({
     id: Schema.String,
     title: Schema.String,
@@ -237,7 +237,7 @@ export const TemplateCatalogSchema = Schema.Struct({
     locales: Schema.Array(Schema.Struct({
       locale: LocaleSchema,
       anchors: StringArray,
-      body: Schema.String
+      bodyPath: Schema.String
     })).pipe(Schema.minItems(1))
   }))
 });

@@ -25,6 +25,7 @@ import {
 import { writeModuleRegistryView } from "./module-registry-view.ts";
 import { presetScriptAuthorizationRequiredResult } from "./preset-evidence.ts";
 import { runScriptEntrypoint, scriptCliResult } from "./preset-script-runner.ts";
+import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 
@@ -210,9 +211,11 @@ export function materializePresetTaskDocuments(
   if (!validation.ok) {
     return { ok: false, profile, documents: [], issues: validation.issues };
   }
+  const catalog = requireBundledTemplateCatalog();
   const materialized = planTemplateMaterialization({
-    catalog: requireBundledTemplateCatalog(),
+    catalog,
     locale: options.locale,
+    resolveBody: resolveTemplateCatalogBody(catalog),
     selections: combineVerticalAndPresetSelections(profile.templateSelections)
   });
   return {
@@ -453,6 +456,7 @@ function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): Readonl
     const materialized = planTemplateMaterialization({
       catalog,
       locale: "zh-CN",
+      resolveBody: resolveTemplateCatalogBody(catalog),
       selections: profile.templateSelections
     });
     issues.push(...materialized.issues);

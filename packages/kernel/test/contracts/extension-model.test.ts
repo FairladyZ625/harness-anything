@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Schema } from "effect";
@@ -20,6 +21,7 @@ import {
 } from "../../src/domain/extension-model.ts";
 
 const templateCatalogUrl = new URL("../../fixtures/schemas/template-catalog/valid.json", import.meta.url);
+const templateCatalogRootUrl = new URL("../../fixtures/schemas/template-catalog/", import.meta.url);
 const presetManifestUrl = new URL("../../fixtures/schemas/preset-manifest/valid.json", import.meta.url);
 const verticalDefinitionUrl = new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url);
 
@@ -28,7 +30,7 @@ test("vertical, preset, and template schemas decode clean-room extension fixture
   const preset = Schema.decodeUnknownSync(PresetManifestSchema)(await readFixture(presetManifestUrl));
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
 
-  assert.equal(validateTemplateCatalog(catalog).ok, true);
+  assert.equal(validateTemplateCatalog(catalog, { resolveBody: resolveFixtureTemplateBody }).ok, true);
   assert.equal(validatePresetManifests([preset], { kernelVersion: "1.0.0" }).ok, true);
   assert.equal(validateVerticalDefinition(vertical).ok, true);
 });
@@ -78,12 +80,16 @@ test("template catalog validation fails closed on locale structure drift", async
     documents: [{
       ...catalog.documents[0],
       locales: catalog.documents[0].locales.map((variant) => variant.locale === "zh-CN"
-        ? { ...variant, anchors: ["## Goal", "## Steps"], body: "## Goal\n\n## Steps\n" }
+        ? { ...variant, anchors: ["## Goal", "## Steps"] }
         : variant)
     }]
   };
 
-  const result = validateTemplateCatalog(drifted);
+  const result = validateTemplateCatalog(drifted, {
+    resolveBody: ({ locale }) => locale.locale === "zh-CN"
+      ? "## Goal\n\n## Steps\n"
+      : resolveFixtureTemplateBody({ locale })
+  });
 
   assert.equal(result.ok, false);
   assert.equal(result.issues.some((issue) => issue.code === "template_locale_structure_mismatch"), true);
@@ -102,6 +108,7 @@ test("template materialization plans locale fallback without writing documents",
   const result = planTemplateMaterialization({
     catalog: enOnlyCatalog,
     locale: "zh-CN",
+    resolveBody: resolveFixtureTemplateBody,
     selections: [{
       slot: "task.flow",
       templateRef: "template://planning/task-flow@1",
@@ -274,4 +281,8 @@ test("vertical validation rejects contract entity declarations that are not cont
 
 async function readFixture(url: URL): Promise<unknown> {
   return JSON.parse(await readFile(url, "utf8")) as unknown;
+}
+
+function resolveFixtureTemplateBody(input: { readonly locale: { readonly bodyPath: string } }): string {
+  return readFileSync(new URL(input.locale.bodyPath, templateCatalogRootUrl), "utf8");
 }
