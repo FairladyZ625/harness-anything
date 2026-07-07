@@ -128,6 +128,8 @@ const publicRuntimeSurface = [
   "isTaskWorkKind",
   "isTerminalStatus",
   "listTaskIndexPaths",
+  "makeJournaledWriteCoordinator",
+  "makeMarkdownArtifactStore",
   "moduleEntityId",
   "moduleKeyFromEntityId",
   "needsReviewArtifacts",
@@ -197,7 +199,9 @@ const publicRuntimeSurface = [
   "validateTaskIdSyntax",
   "validateTemplateCatalog",
   "validateVerticalDefinition",
-  "warning"
+  "warning",
+  "writeCoordinatedPayload",
+  "writeCoordinatedTaskDocuments"
 ];
 
 test("kernel public runtime surface matches the golden snapshot", () => {
