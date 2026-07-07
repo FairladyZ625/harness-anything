@@ -11,7 +11,7 @@ import { capabilityExcludedCommandKinds } from "../src/commands/core/capabilitie
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 
-test("CLI init creates shared authored harness and ignored local state root", () => {
+test("CLI init creates authored harness and skips outer gitignore outside git repos", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["init"]);
 
@@ -24,7 +24,8 @@ test("CLI init creates shared authored harness and ignored local state root", ()
     assert.match(config, /defaultProfile: baseline/);
     assert.match(config, /locale: zh-CN/);
     assert.match(readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /harness\/harness.yaml/);
-    assert.match(readFileSync(path.join(rootDir, ".gitignore"), "utf8"), /^\.harness\/$/m);
+    assert.equal(existsSync(path.join(rootDir, ".gitignore")), false);
+    assert.equal(result.report.isolation.outerGitignore.action, "skipped-not-git");
     assert.equal(existsSync(path.join(rootDir, "harness/legacy")), false);
   });
 });

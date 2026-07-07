@@ -51,12 +51,14 @@ function verifySmokeProjection(context: Parameters<CommandRunner>[0], result: Cl
   });
   const smokeRow = projection.rows.find((row) => row.taskId === smokeTaskId);
   const hardFailures = projection.warnings.filter((warning) => warning.severity === "hard-fail");
+  const initializationReport = initInitializationReport(result);
   const report = {
     schema: "init-configure-verify-report/v1",
     scaffold: {
       configPath: result.path,
       agentsPath: "AGENTS.md"
     },
+    ...(initializationReport ? { isolation: initializationReport.isolation } : {}),
     configureVerify: {
       smokeTaskId,
       smokeTaskTitle: initSmokeTitle,
@@ -142,15 +144,18 @@ function markSmokeCleanedUp(result: CliResult, postCleanupTaskRows: number): Cli
 function smokeFailure(context: Parameters<CommandRunner>[0], result: CliResult, smokeTaskId: string, error: unknown): CliResult {
   const layout = resolveHarnessLayout(context.layoutInput);
   const message = error instanceof Error ? error.message : String(error);
+  const initializationReport = initInitializationReport(result);
   return {
     ok: false,
     command: "init",
+    warnings: result.warnings,
     report: {
       schema: "init-configure-verify-report/v1",
       scaffold: {
         configPath: result.path,
         agentsPath: "AGENTS.md"
       },
+      ...(initializationReport ? { isolation: initializationReport.isolation } : {}),
       configureVerify: {
         smokeTaskId,
         smokeTaskTitle: initSmokeTitle,
@@ -170,4 +175,11 @@ function smokeFailure(context: Parameters<CommandRunner>[0], result: CliResult, 
 
 function initRelativePath(rootDir: string, filePath: string): string {
   return path.relative(rootDir, filePath).split(path.sep).join("/");
+}
+
+function initInitializationReport(result: CliResult): { readonly isolation?: unknown } | undefined {
+  const report = result.report;
+  return report && typeof report === "object" && !Array.isArray(report)
+    ? report as { readonly isolation?: unknown }
+    : undefined;
 }

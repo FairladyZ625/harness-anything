@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,8 @@ test("doctor reports read-only environment and harness diagnostics without writi
     assert.equal(typeof result.report.node.ok, "boolean");
     assert.equal(result.report.harness.authoredRoot, "harness");
     assert.equal(result.report.harness.authoredRootExists, false);
+    assert.equal(result.report.harness.authoredRootGitExists, false);
+    assert.equal(result.report.harness.isolation.ok, true);
     assert.equal(result.report.harness.localRootExists, false);
     assert.equal(result.report.recommendedCommands.includes("harness-anything check --post-merge --json"), true);
     assert.equal(JSON.stringify(result).includes(rootDir), false);
@@ -35,8 +37,35 @@ test("doctor sees initialized authored and generated harness roots without repai
 
     assert.equal(result.ok, true);
     assert.equal(result.report.harness.authoredRootExists, true);
+    assert.equal(result.report.harness.authoredRootGitExists, true);
+    assert.equal(result.report.harness.isolation.ok, true);
     assert.equal(result.report.harness.localRootExists, true);
     assert.equal(result.report.cli.command, "harness-anything doctor");
+  });
+});
+
+test("doctor reports existing harness that is not isolated from the outer git repository", () => {
+  withTempRoot((rootDir) => {
+    runGit(rootDir, "init", "--initial-branch=main");
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+      "schema: harness-anything/v1",
+      "name: unisolated",
+      "layout:",
+      "  authoredRoot: harness",
+      "  localRoot: .harness",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = runJson(rootDir, ["doctor"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.harness.authoredRootExists, true);
+    assert.equal(result.report.harness.authoredRootGitExists, false);
+    assert.equal(result.report.harness.isolation.ok, false);
+    assert.equal(result.report.harness.isolation.findings.some((finding: Record<string, unknown>) => finding.code === "harness_git_missing"), true);
+    assert.equal(result.report.harness.isolation.findings.some((finding: Record<string, unknown>) => finding.code === "outer_gitignore_missing"), true);
+    assert.equal(result.report.harness.isolation.nextSteps.includes("harness-anything init"), true);
   });
 });
 
@@ -93,6 +122,19 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function runGit(rootDir: string, ...args: string[]): void {
+  execFileSync("git", ["-C", rootDir, ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Harness Test",
+      GIT_AUTHOR_EMAIL: "harness-test@example.invalid",
+      GIT_COMMITTER_NAME: "Harness Test",
+      GIT_COMMITTER_EMAIL: "harness-test@example.invalid"
+    }
+  });
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
