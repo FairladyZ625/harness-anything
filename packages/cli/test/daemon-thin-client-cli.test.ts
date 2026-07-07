@@ -83,7 +83,7 @@ test("daemon client writes git commits with the resolved actor author", () => {
 
     assert.equal(receipt.ok, true);
     assert.equal(((receipt.details as Record<string, unknown>).actor as { personId?: string }).personId, "person_owner");
-    assert.equal(git(rootDir, "log", "-1", "--pretty=format:%an <%ae>"), "Owner User <owner@example.test>");
+    assert.equal(git(path.join(rootDir, "harness"), "log", "-1", "--pretty=format:%an <%ae>"), "Owner User <owner@example.test>");
   });
 });
 

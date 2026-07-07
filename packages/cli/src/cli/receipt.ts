@@ -210,12 +210,24 @@ function summarizeResult(raw: Record<string, unknown>): string {
   if (command === "new-task" && taskId && packagePath) return `created task ${taskId} at ${packagePath}`;
   if (command === "status-set" && taskId && status) return `set task ${taskId} to ${status}`;
   if (command === "progress-append" && taskId) return `appended progress for ${taskId}`;
-  if (command === "init" && path) return `initialized harness at ${path}`;
+  if (command === "init" && path) return initSummary(path, raw.report);
   if (command === "version" && version) return `resolved CLI version ${version}`;
   if (command === "help") return "rendered CLI help";
   if (rows !== undefined) return `completed ${displayCommand(command).command} with ${rows} row${rows === 1 ? "" : "s"}`;
   if (taskId) return `completed ${displayCommand(command).command} for ${taskId}`;
   return `completed ${displayCommand(command).command}`;
+}
+
+function initSummary(path: string, report: unknown): string {
+  const isolation = report && typeof report === "object" && !Array.isArray(report)
+    ? (report as { readonly isolation?: unknown }).isolation
+    : undefined;
+  const boundary = isolation && typeof isolation === "object" && !Array.isArray(isolation)
+    ? (isolation as { readonly boundary?: unknown }).boundary
+    : undefined;
+  return typeof boundary === "string"
+    ? `initialized harness at ${path}; ${boundary}`
+    : `initialized harness at ${path}`;
 }
 
 function displayCommand(command: string): { readonly command: string; readonly entity?: string; readonly action: string } {
