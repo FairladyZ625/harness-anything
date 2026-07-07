@@ -168,13 +168,19 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-archive",
-    "usage": "task archive <id> --reason <reason> [--archived-by <actor>] [--archive-field <field>]",
-    "summary": "Archive a task package while preserving its audit trail.",
-    "examples": ["harness-anything task archive task_01ABC --reason \"merged\""],
+    "usage": "task archive (<id> | --ids <id,id> | --filter state:<state> [--before <date>]) --reason <reason> [--archived-by <actor>] [--archive-field <field>]",
+    "summary": "Archive task packages while preserving audit trails and queuing distill candidates from closeout or facts evidence.",
+    "examples": ["harness-anything task archive task_01ABC --reason \"merged\"", "harness-anything task archive --filter state:done --before 2026-07-01 --reason \"stage contained\""],
     "parserId": "core-task",
     "runnerId": "task-lifecycle",
     "receiptContract": {
-      "data": ["taskId", "status", "report"],
+      "data": ["report"],
+      "optionalData": {
+        "taskId": "Present for single-task archive receipts.",
+        "status": "Present for single-task archive receipts.",
+        "rows": "Present for batch archive receipts.",
+        "tasks": "Present for batch archive receipts."
+      },
       "paths": []
     },
     "eventPolicy": {

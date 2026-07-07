@@ -21,7 +21,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
   if (args[0] === "task" && args[1] === "amend" && args[2]) return parseTaskAmend(args, rootDir, json);
-  if (args[0] === "task" && args[1] === "archive" && args[2]) return parseTaskArchive(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "archive") return parseTaskArchive(args, rootDir, json);
   if (args[0] === "task" && args[1] === "supersede" && args[2]) return parseTaskSupersede(args, rootDir, json);
   if (args[0] === "task" && args[1] === "delete") return parseTaskDelete(args, rootDir, json);
   if (args[0] === "task" && args[1] === "reopen" && args[2]) return parseTaskReopen(args, rootDir, json);
@@ -94,9 +94,38 @@ function parseTaskArchive(args: ReadonlyArray<string>, rootDir: string, json: bo
   if (!reason) {
     return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use --reason for task archive.") };
   }
+  const taskId = args.find((arg, index) => index > 1 && !arg.startsWith("--") && !optionValueFlags.has(args[index - 1]));
+  const ids = readOption(args, "--ids")?.split(",").map((id) => id.trim()).filter(Boolean);
+  const filter = readOption(args, "--filter");
+  const before = readOption(args, "--before");
+  const selectorCount = [taskId, ids && ids.length > 0 ? ids : undefined, filter].filter(Boolean).length;
+  if (selectorCount === 0) {
+    return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use task archive <id>, --ids <id,id>, or --filter state:<state>.") };
+  }
+  if (selectorCount > 1) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use exactly one archive selector: positional id, --ids, or --filter.") };
+  }
+  if (taskId && (ids || filter || before)) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use either a positional task id or batch archive selectors, not both.") };
+  }
+  if (before && !filter) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --before together with --filter state:<state>.") };
+  }
+  if (ids && ids.length === 0) {
+    return { ok: false, error: cliError(CliErrorCode.MissingTaskId, "Use --ids <id,id> with at least one task id.") };
+  }
+  if (filter && !/^state:[A-Za-z0-9_-]+$/u.test(filter)) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --filter state:<state> for task archive.") };
+  }
+  if (before && Number.isNaN(Date.parse(before))) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --before <date> with an ISO-compatible date.") };
+  }
   return ok(rootDir, json, {
     kind: "task-archive",
-    taskId: args[2],
+    ...(taskId ? { taskId } : {}),
+    ...(ids ? { ids } : {}),
+    ...(filter ? { filter } : {}),
+    ...(before ? { before } : {}),
     reason,
     archivedBy: readOption(args, "--archived-by"),
     archiveField: readOption(args, "--archive-field")
@@ -226,4 +255,4 @@ function ok(rootDir: string, json: boolean, action: ParsedCommand["action"]): Pa
   };
 }
 
-const optionValueFlags = new Set(["--reason", "--confirm", "--deleted-by", "--rationale"]);
+const optionValueFlags = new Set(["--reason", "--confirm", "--deleted-by", "--rationale", "--ids", "--filter", "--before", "--archived-by", "--archive-field"]);

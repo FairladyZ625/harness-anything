@@ -129,6 +129,7 @@ export const testTierManifest = {
     "packages/cli/test/session-cli.test.ts",
     "packages/cli/test/settings-cli.test.ts",
     "packages/cli/test/self-host-git-boundary-cli.test.ts",
+    "packages/cli/test/task-archive-distill-cli.test.ts",
     "packages/cli/test/task-delete-disposition-cli.test.ts",
     "packages/cli/test/task-document-gates-cli.test.ts",
     "packages/cli/test/task-list-cli.test.ts",
