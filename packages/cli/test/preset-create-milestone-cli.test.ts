@@ -43,7 +43,11 @@ test("CLI create-milestone preset wins over --long-running and scaffolds milesto
     assert.equal(created.report.preset, "create-milestone");
     assert.equal(created.generated.includes("task_plan.md"), true);
     assert.equal(created.generated.includes("long-running-task-contract.md"), true);
-    assert.match(readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8"), /## Wave Decomposition/u);
+    const taskPlan = readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8");
+    assert.match(taskPlan, /## Wave Decomposition/u);
+    assert.match(taskPlan, /## PR\/merge 运维/u);
+    assert.match(taskPlan, /task_01KWYKCPG5FZA3AFVX9R8XX3B7/u);
+    assert.match(taskPlan, /merge-queue-troubleshooting-standard\.md/u);
     assert.match(readFileSync(path.join(rootDir, created.packagePath, "long-running-task-contract.md"), "utf8"), /## Goal Boundary/u);
 
     const scaffold = runJson(rootDir, [
@@ -77,9 +81,12 @@ test("CLI create-milestone preset wins over --long-running and scaffolds milesto
     assert.equal(scaffold.ok, true);
     assert.equal(scaffold.report.status, "passed");
     assert.equal(existsSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md")), true);
-    assert.match(readFileSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md"), "utf8"), /<!-- milestone-map:v1 -->/u);
-    assert.match(readFileSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md"), "utf8"), /fan-out pending/u);
-    assert.match(readFileSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md"), "utf8"), /\| W0 \| fan-out pending/u);
+    const overview = readFileSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md"), "utf8");
+    assert.match(overview, /<!-- milestone-map:v1 -->/u);
+    assert.match(overview, /### PR\/merge 运维/u);
+    assert.match(overview, /npm run pr:doctor/u);
+    assert.match(overview, /fan-out pending/u);
+    assert.match(overview, /\| W0 \| fan-out pending/u);
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/00-roadmap.md"), "utf8"), new RegExp(created.taskId, "u"));
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/dossier-data.md"), "utf8"), new RegExp(created.taskId, "u"));
     assert.equal(existsSync(path.join(rootDir, "harness/milestones/milestones-dossier.html")), true);
