@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type CurrentSessionRef } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type CurrentSessionRef, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
 import type { ProvenanceSessionExporterOptions } from "../src/index.ts";
 import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
@@ -124,6 +124,37 @@ test("provenance session exporter renders Codex JSONL conversation text", async 
     assert.match(body, /## Conversation/u);
     assert.match(body, /Codex user original line/u);
     assert.match(body, /Codex assistant original line/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter preserves daemon lock owner guidance", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const owner = ".harness/locks/global.lock (held by daemon pid 123; write through daemon via the daemon-backed ha client/API instead of direct WriteCoordinator writes)";
+    const error = { _tag: "GlobalWriteConflict", owner } satisfies WriteError;
+    const coordinator = failingCoordinator(error);
+    const exporter = makeProvenanceSessionExporter({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "codex-session-locked",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const result = await runEffect(Effect.either(exporter.exportCurrentSession()));
+
+    assert.equal(result._tag, "Left");
+    if (result._tag !== "Left") return;
+    assert.equal(result.left.sessionId, "codex-session-locked");
+    assert.match(result.left.reason, /global write conflict/u);
+    assert.match(result.left.reason, /write through daemon/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -327,6 +358,14 @@ function makeTestProvenanceSessionExporter(
     artifactStore: makeMarkdownArtifactStore({ rootDir }),
     ...options
   });
+}
+
+function failingCoordinator(error: WriteError): WriteCoordinator {
+  return {
+    enqueue: () => Effect.fail(error),
+    flush: () => Effect.fail(error),
+    recover: Effect.fail(error)
+  };
 }
 
 function createHarnessRoot(): string {

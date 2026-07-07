@@ -270,7 +270,7 @@ function sessionRejection(sessionId: string, reason: string): ProvenanceSessionE
 
 function writeErrorMessage(error: WriteError): string {
   if (error._tag === "WriteRejected") return error.reason;
-  if (error._tag === "WriteConflict") return `write conflict for ${error.taskId}`;
-  if (error._tag === "GlobalWriteConflict") return "global write conflict";
+  if (error._tag === "WriteConflict") return error.owner ? `write conflict for ${error.taskId}: ${error.owner}` : `write conflict for ${error.taskId}`;
+  if (error._tag === "GlobalWriteConflict") return error.owner ? `global write conflict: ${error.owner}` : "global write conflict";
   return error.cause instanceof Error ? error.cause.message : "session export failed";
 }
