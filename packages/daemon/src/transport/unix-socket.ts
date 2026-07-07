@@ -13,6 +13,7 @@ export interface UnixSocketTransportOptions {
   readonly socketPath?: string;
   readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
+  readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
 }
 
 export interface UnixSocketTransportServer {
@@ -42,6 +43,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       createProtocolServer: options.createProtocolServer
     });
     options.onConnection?.(connection);
+    socket.once("close", () => options.onConnectionClosed?.(connection));
   });
 
   return {

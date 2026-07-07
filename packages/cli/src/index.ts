@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import path from "node:path";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
@@ -13,13 +12,19 @@ import {
   serveSshExecBridge,
   type DaemonAuthenticationContext
 } from "../../daemon/src/index.ts";
-import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
 import { parsePositiveIntegerOr } from "./cli/value-utils.ts";
+import {
+  daemonStatusPayload,
+  loadDaemonIdentity,
+  runDaemonProductCommand,
+  type DaemonConnectionStats,
+  type DaemonServeHooks
+} from "./commands/daemon/productization.ts";
 import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
 import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
-import { runCommandThroughDaemon } from "./daemon/client.ts";
+import { localDaemonSocketPath, runCommandThroughDaemon } from "./daemon/client.ts";
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
 
@@ -49,87 +54,67 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
   if (stripped.args[0] !== "daemon") return undefined;
   const action = stripped.args[1] ?? "status";
   const layoutOverrides = stripped.authoredRoot ? { authoredRoot: stripped.authoredRoot } : undefined;
-  const runtimeContext = createHarnessRuntimeContext(stripped.rootDir, layoutOverrides);
-  const layout = resolveHarnessLayout(runtimeContext);
-  const lockPath = path.join(layout.locksRoot, "global.lock");
-  try {
-    if (action === "serve") {
-      await runDaemonServe(stripped.rootDir, layoutOverrides, stripped.args);
-      return 0;
-    }
-    if (action === "start") {
-      const foreground = stripped.args.includes("--foreground");
-      const runtime = createDaemonRuntime({
-        rootDir: stripped.rootDir,
-        layoutOverrides,
-        materializerPollMs: foreground ? 5_000 : false
-      });
-      const status = await runtime.start();
-      emitDaemonResult("daemon-start", {
-        ...status,
-        mode: foreground ? "foreground" : "oneshot",
-        guidance: "submit writes through the daemon-backed ha client/API; legacy direct WriteCoordinator writes fail closed while this lock is held"
-      }, stripped.json);
-      if (!foreground) {
-        await runtime.stop();
-        return 0;
-      }
-      await waitForStopSignal();
-      await runtime.stop();
-      return 0;
-    }
-    if (action === "status") {
-      emitDaemonResult("daemon-status", readDaemonLock(lockPath), stripped.json);
-      return 0;
-    }
-    if (action === "stop") {
-      const status = readDaemonLock(lockPath);
-      if (status.started && typeof status.pid === "number") {
-        process.kill(status.pid, "SIGTERM");
-      }
-      emitDaemonResult("daemon-stop", { ...status, signaled: status.started }, stripped.json);
-      return 0;
-    }
-    emitDaemonError(`unknown daemon command: ${action}`, stripped.json, CliErrorCode.UnknownCommand);
-    return 2;
-  } catch (error) {
-    emitDaemonError(error instanceof Error ? error.message : String(error), stripped.json, CliErrorCode.JournalUnavailable);
-    return 1;
+  if (action === "serve") {
+    await runDaemonServe(stripped.rootDir, layoutOverrides, stripped.args);
+    return 0;
   }
+  return runDaemonProductCommand({
+    rootDir: stripped.rootDir,
+    layoutOverrides,
+    json: stripped.json,
+    args: stripped.args,
+    runServe: runDaemonServe
+  });
 }
 
 async function runDaemonServe(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
-  args: ReadonlyArray<string>
+  args: ReadonlyArray<string>,
+  hooks: DaemonServeHooks = {}
 ): Promise<void> {
   const runtime = createDaemonRuntime({
     rootDir,
     layoutOverrides,
-    materializerPollMs: false
+    materializerPollMs: 5_000
   });
   await runtime.start();
   const repoId = readOption(args, "--repo") ?? "canonical";
   const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
-  const serviceHost = createDaemonServiceHost(runtime, rootDir, layoutOverrides, repoId, idleMs);
-  if (args.includes("--stdio")) {
+  const stdio = args.includes("--stdio");
+  const socketPath = readOption(args, "--socket") ?? localDaemonSocketPath(rootDir);
+  const endpoint = stdio ? "stdio" : socketPath;
+  const connections: DaemonConnectionStats = { active: 0, total: 0 };
+  const serviceHost = createDaemonServiceHost(runtime, rootDir, layoutOverrides, repoId, idleMs, endpoint, connections);
+  if (stdio) {
+    connections.active += 1;
+    connections.total += 1;
+    hooks.onStarted?.(serviceHost.status());
     serveSshExecBridge({
       username: process.env.USER,
       host: process.env.HOSTNAME,
       createProtocolServer: serviceHost.createProtocolServer
     });
     await waitForInputEnd();
+    connections.active = Math.max(0, connections.active - 1);
     await serviceHost.stop();
     return;
   }
 
-  const socketPath = readOption(args, "--socket");
   const transport = createUnixSocketTransportServer({
     daemonId: serviceHost.daemonId,
-    ...(socketPath ? { socketPath } : {}),
-    createProtocolServer: serviceHost.createProtocolServer
+    socketPath,
+    createProtocolServer: serviceHost.createProtocolServer,
+    onConnection: () => {
+      connections.active += 1;
+      connections.total += 1;
+    },
+    onConnectionClosed: () => {
+      connections.active = Math.max(0, connections.active - 1);
+    }
   });
   await transport.start();
+  hooks.onStarted?.(serviceHost.status());
   serviceHost.onStop(async () => {
     await transport.stop();
   });
@@ -143,16 +128,20 @@ function createDaemonServiceHost(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   repoId: string,
-  idleMs: number
+  idleMs: number,
+  endpoint: string,
+  connections: DaemonConnectionStats
 ): {
   readonly daemonId: string;
   readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => ReturnType<typeof createJsonRpcProtocolServer>;
+  readonly status: () => Record<string, unknown>;
   readonly scheduleIdleExit: () => void;
   readonly waitForStopRequest: () => Promise<void>;
   readonly onStop: (handler: () => Promise<void>) => void;
   readonly stop: () => Promise<void>;
 } {
   const daemonId = `ha-${process.pid}`;
+  const identity = loadDaemonIdentity(rootDir, layoutOverrides);
   const stopHandlers: Array<() => Promise<void>> = [];
   let requestStop: (() => void) | undefined;
   const stopRequested = new Promise<void>((resolve) => {
@@ -195,14 +184,36 @@ function createDaemonServiceHost(
   });
   return {
     daemonId,
-    createProtocolServer: (_authContext) => createJsonRpcProtocolServer({
+    createProtocolServer: (authContext) => createJsonRpcProtocolServer({
       daemonId,
       repos: [{ repoId, canonicalRoot: rootDir }],
       services: {
         LocalControllerService: localController,
         TerminalSessionService: makeUnavailableTerminalSessionService(),
+        DaemonStatusService: {
+          getStatus: () => daemonStatusPayload({
+            daemonId,
+            rootDir,
+            repoId,
+            endpoint,
+            runtimeStatus: runtime.status(),
+            connections
+          })
+        },
         CliCommandService: cliCommandService
-      }
+      },
+      authContext,
+      ...(identity.identityProvider ? { identityProvider: identity.identityProvider } : {}),
+      ...(identity.peopleRoster ? { peopleRoster: identity.peopleRoster } : {}),
+      ...(identity.appendRuntimeEvent ? { appendRuntimeEvent: identity.appendRuntimeEvent } : {})
+    }),
+    status: () => daemonStatusPayload({
+      daemonId,
+      rootDir,
+      repoId,
+      endpoint,
+      runtimeStatus: runtime.status(),
+      connections
     }),
     scheduleIdleExit,
     waitForStopRequest: () => stopRequested,
@@ -211,48 +222,6 @@ function createDaemonServiceHost(
     },
     stop
   };
-}
-
-function readDaemonLock(lockPath: string): Record<string, unknown> {
-  if (!existsSync(lockPath)) {
-    return { started: false, lockPath };
-  }
-  const lock = JSON.parse(readFileSync(lockPath, "utf8")) as {
-    readonly pid?: unknown;
-    readonly hostname?: unknown;
-    readonly heartbeatAt?: unknown;
-    readonly ownerKind?: unknown;
-  };
-  return {
-    started: lock.ownerKind === "daemon",
-    lockPath,
-    pid: lock.pid,
-    hostname: lock.hostname,
-    heartbeatAt: lock.heartbeatAt,
-    ownerKind: lock.ownerKind
-  };
-}
-
-function emitDaemonResult(command: string, result: Record<string, unknown>, json: boolean): void {
-  if (json) {
-    console.log(JSON.stringify({ ok: true, schema: "daemon-command/v1", command, ...result }));
-    return;
-  }
-  const parts = [`ok`, `command=${command}`];
-  if (typeof result.started === "boolean") parts.push(`started=${String(result.started)}`);
-  if (typeof result.mode === "string") parts.push(`mode=${result.mode}`);
-  if (typeof result.lockPath === "string") parts.push(`lock=${result.lockPath}`);
-  if (typeof result.pid === "number") parts.push(`pid=${String(result.pid)}`);
-  if (typeof result.guidance === "string") parts.push(`guidance=${JSON.stringify(result.guidance)}`);
-  console.log(parts.join(" "));
-}
-
-function emitDaemonError(message: string, json: boolean, code: CliErrorCode): void {
-  if (json) {
-    console.log(JSON.stringify({ ok: false, schema: "daemon-command/v1", command: "daemon", error: { code, hint: message } }));
-    return;
-  }
-  console.error(`error code=${code} hint=${message}`);
 }
 
 async function waitForStopSignal(): Promise<void> {
