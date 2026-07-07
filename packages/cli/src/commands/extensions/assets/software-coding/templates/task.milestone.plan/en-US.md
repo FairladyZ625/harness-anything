@@ -36,6 +36,13 @@ State in one sentence who gets which verifiable capability from this milestone.
 - Structured table: `harness/milestones/dossier-data.md`
 - Charter decision: `dec_*`, decided by the CEO; this preset validates the anchor but does not create the decision.
 
+## PR/merge Operations
+
+- Global merge-health operations ledger: `task_01KWYKCPG5FZA3AFVX9R8XX3B7` (Authority: `decision/dec_mrat6152`).
+- Governance document: `harness/governance/standards/merge-queue-troubleshooting-standard.md`.
+- The CEO / orchestrator owns worktree cleanup: clean the remote branch, local branch, and worktree after every merged PR, then run periodic sweeps; workers do not structurally clean global worktrees.
+- If the same PR enters the queue twice and still cannot merge, treat it as a system signal: read the global ledger facts, run `npm run pr:doctor`, then record the event, attempts, and conclusion back to the global ledger as fact/progress.
+
 ## Constraints
 
 - milestone = root task tree as execution surface + map document as understanding surface.
