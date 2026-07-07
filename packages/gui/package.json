@@ -17,6 +17,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.2",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
