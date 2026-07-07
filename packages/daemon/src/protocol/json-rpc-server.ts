@@ -13,6 +13,9 @@ export interface DaemonRepoNamespace {
 export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
+  readonly CliCommandService?: {
+    readonly runCommand: (payload?: JsonObject) => Promise<JsonObject>;
+  };
 }
 
 export interface JsonRpcServerOptions {
@@ -132,6 +135,12 @@ async function callServiceMethod(
   services: DaemonServiceHost
 ): Promise<unknown> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
+  if (contract.method === "repo.command.run") {
+    if (!services.CliCommandService) {
+      return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
+    }
+    return services.CliCommandService.runCommand(payload);
+  }
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
     : await invokeServiceMethod(services.LocalControllerService, String(contract.serviceMethod), payload);

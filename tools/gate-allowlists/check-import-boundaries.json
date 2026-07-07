@@ -14,6 +14,11 @@
         "value": "packages/cli/src/index.ts",
         "ref": "ADR-0022#D3",
         "reason": "CLI adapter imports are confined to the CLI composition root until the boundary is derived from the consumer graph."
+      },
+      {
+        "value": "packages/cli/src/composition/adapter-registry.ts",
+        "ref": "task_01KWW57XE9AVY7ETNDBRDKZ1F7",
+        "reason": "W5/F5 moves CLI adapter selection into an explicit registry composition root so commands request capabilities instead of importing concrete adapters."
       }
     ],
     "cliAdapterKnownDebt": [

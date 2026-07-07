@@ -16,6 +16,7 @@ export {
 export type {
   JsonRpcErrorObject,
   JsonRpcId,
+  JsonObject,
   JsonRpcRequest,
   JsonRpcResponse,
   JsonRpcSuccessResponse
