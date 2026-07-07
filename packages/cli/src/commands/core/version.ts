@@ -7,7 +7,7 @@ import type { CommandRunner } from "../../cli/runner-registry.ts";
 export const runVersionCommand: CommandRunner = () =>
   Effect.sync(() => ({ ok: true, command: "version", version: resolveCliVersion() }));
 
-function resolveCliVersion(): string {
+export function resolveCliVersion(): string {
   // Walk up from this module to the @harness-anything/cli package.json. Robust
   // across layouts: src, built dist, and installed package layouts.
   let dir = path.dirname(fileURLToPath(import.meta.url));

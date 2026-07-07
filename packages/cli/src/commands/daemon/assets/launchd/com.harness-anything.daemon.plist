@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.harness-anything.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{HA_BIN}}</string>
+    <string>--root</string>
+    <string>{{CANONICAL_ROOT}}</string>
+    <string>daemon</string>
+    <string>start</string>
+    <string>--foreground</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HARNESS_DAEMON_MODE</key>
+    <string>direct</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>{{CANONICAL_ROOT}}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>{{LOG_DIR}}/harness-anything-daemon.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{LOG_DIR}}/harness-anything-daemon.err.log</string>
+</dict>
+</plist>

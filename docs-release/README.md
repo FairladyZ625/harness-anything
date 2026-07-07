@@ -39,3 +39,10 @@ The design is deliberate, and every choice has a reason. This path walks through
 Finished `learn/` and wondering *how the system delivers on those claims*? This path is the mechanism: the layered architecture, how the three entities live on disk, the single write path, the rebuildable SQLite projection, the gates, and the vertical engine.
 
 → **[architecture/](architecture/en/00-overview.md)**
+
+## Run a team daemon server
+
+Deploy a canonical repository behind a long-lived daemon, install service
+templates, reject direct pushes, and expose a read-only mirror for bulk fetches.
+
+→ **[operations-server-daemon.md](operations-server-daemon.md)**
