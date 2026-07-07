@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { readDocmapManifest } from "../packages/kernel/src/docmap/index.ts";
 import { deriveDocmapManifest } from "../packages/cli/src/commands/core/docmap-generate.ts";
+
+const freshnessWindowMs = 7 * 24 * 60 * 60 * 1000;
 
 export function checkDocmapFresh(rootDir = process.cwd()) {
   const authoredRoot = path.join(rootDir, "harness");
@@ -17,13 +19,17 @@ export function checkDocmapFresh(rootDir = process.cwd()) {
 
   const persisted = readDocmapManifest(rootDir).manifest;
   const derived = deriveDocmapManifest(rootDir).manifest;
-  const persistedText = stableJson(persisted);
-  const derivedText = stableJson(derived);
+  const persistedText = stableJson(routingManifest(persisted));
+  const derivedText = stableJson(routingManifest(derived));
+  const warnings = freshnessWarnings(authoredRoot, persisted.documents);
   if (persistedText === derivedText) {
     return {
       ok: true,
       skipped: false,
-      message: `Docmap freshness check passed: ${persisted.documents.length} document(s).`
+      message: warnings.length > 0
+        ? `Docmap freshness check passed with ${warnings.length} warning(s): ${persisted.documents.length} document(s).`
+        : `Docmap freshness check passed: ${persisted.documents.length} document(s).`,
+      warnings
     };
   }
   return {
@@ -36,12 +42,42 @@ export function checkDocmapFresh(rootDir = process.cwd()) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const result = checkDocmapFresh(process.cwd());
+  for (const line of result.warnings ?? []) console.warn(`warning: ${line}`);
   if (!result.ok) {
     console.error(result.message);
     for (const line of result.diff ?? []) console.error(`- ${line}`);
     process.exit(1);
   }
   console.log(result.message);
+}
+
+function routingManifest(manifest) {
+  return {
+    schema: manifest.schema,
+    documents: manifest.documents.map((document) => {
+      const { updatedAt: _updatedAt, unused: _unused, ...routing } = document;
+      return routing;
+    })
+  };
+}
+
+function freshnessWarnings(authoredRoot, documents) {
+  const warnings = [];
+  for (const document of documents) {
+    const documentPath = path.join(authoredRoot, document.path);
+    if (!existsSync(documentPath)) continue;
+    const updatedAtMs = Date.parse(document.updatedAt);
+    if (!Number.isFinite(updatedAtMs)) {
+      warnings.push(`${document.id}: invalid updatedAt '${document.updatedAt}'`);
+      continue;
+    }
+    const sourceMtimeMs = statSync(documentPath).mtime.getTime();
+    const staleByMs = sourceMtimeMs - updatedAtMs;
+    if (staleByMs > freshnessWindowMs) {
+      warnings.push(`${document.id}: updatedAt lags source document mtime by ${Math.floor(staleByMs / freshnessWindowMs)} freshness window(s)`);
+    }
+  }
+  return warnings;
 }
 
 function stableJson(value) {
