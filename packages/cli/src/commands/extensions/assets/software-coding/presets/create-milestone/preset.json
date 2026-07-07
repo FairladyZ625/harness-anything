@@ -1,0 +1,79 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "create-milestone",
+  "title": "Create Milestone",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "milestone-map-scaffold", "kind": "command", "version": "1", "required": true },
+    { "id": "milestone-map-checker", "kind": "checker", "version": "1", "required": true }
+  ],
+  "entrypoints": {
+    "scaffold": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": [
+        "{{outputRoot}}/**",
+        "{{paths.tasksRoot}}/*/**",
+        "{{paths.milestonesRoot}}/**",
+        "{{paths.decisionsRoot}}/**"
+      ],
+      "writes": [
+        "{{outputRoot}}/**",
+        "{{paths.milestonesRoot}}/**"
+      ],
+      "inputs": {
+        "line": "",
+        "slug": "",
+        "milestoneName": "",
+        "mission": "",
+        "status": "planned",
+        "firstUser": "",
+        "switchWhen": "",
+        "retireWhen": "",
+        "dependencies": "",
+        "charterDecision": ""
+      }
+    },
+    "check": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": [
+        "{{outputRoot}}/**",
+        "{{paths.tasksRoot}}/*/**",
+        "{{paths.milestonesRoot}}/**",
+        "{{paths.decisionsRoot}}/**"
+      ],
+      "writes": [
+        "{{outputRoot}}/**"
+      ],
+      "inputs": {
+        "line": "",
+        "slug": "",
+        "requireDecisionAnchor": "false"
+      }
+    }
+  },
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "software-coding-milestone",
+    "templateSelections": [
+      {
+        "slot": "task.plan",
+        "templateRef": "template://planning/milestone-task-plan@1",
+        "materializeAs": "task_plan.md",
+        "localePolicy": { "prefer": "project", "fallback": "zh-CN" }
+      },
+      {
+        "slot": "task.long.running.contract",
+        "templateRef": "template://planning/long-running-task-contract@1",
+        "materializeAs": "long-running-task-contract.md",
+        "localePolicy": { "prefer": "project", "fallback": "zh-CN" }
+      }
+    ]
+  }],
+  "defaultProfile": "baseline"
+}

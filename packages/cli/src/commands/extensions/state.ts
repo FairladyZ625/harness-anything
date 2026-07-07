@@ -476,17 +476,27 @@ function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): Readonl
       }
       materializedPaths.add(selection.materializeAs);
       const requiredSlot = requiredBySlot.get(selection.slot);
-      if (requiredSlot && (requiredSlot.templateRef !== selection.templateRef || requiredSlot.materializeAs !== selection.materializeAs)) {
+      if (requiredSlot && (requiredSlot.materializeAs !== selection.materializeAs || (requiredSlot.templateRef !== selection.templateRef && !allowsRequiredTemplateOverride(manifest, selection)))) {
         issues.push(extensionIssue("preset_required_template_conflict", `Preset ${manifest.id} cannot replace vertical-required slot ${selection.slot}.`, path));
       }
       const requiredPath = requiredByPath.get(selection.materializeAs);
-      if (requiredPath && (requiredPath.slot !== selection.slot || requiredPath.templateRef !== selection.templateRef)) {
+      if (requiredPath && (requiredPath.slot !== selection.slot || (requiredPath.templateRef !== selection.templateRef && !allowsRequiredTemplateOverride(manifest, selection)))) {
         issues.push(extensionIssue("preset_required_template_conflict", `Preset ${manifest.id} cannot replace vertical-required document ${selection.materializeAs}.`, path));
       }
     }
   }
 
   return issues;
+}
+
+function allowsRequiredTemplateOverride(
+  manifest: PresetManifest,
+  selection: PresetManifest["profiles"][number]["templateSelections"][number]
+): boolean {
+  return manifest.id === "create-milestone" &&
+    selection.slot === "task.plan" &&
+    selection.materializeAs === "task_plan.md" &&
+    selection.templateRef === "template://planning/milestone-task-plan@1";
 }
 
 function combineVerticalAndPresetSelections(

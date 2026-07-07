@@ -116,6 +116,7 @@ export const testTierManifest = {
     "packages/cli/test/p16-command-parity-cli.test.ts",
     "packages/cli/test/post-merge-check-cli.test.ts",
     "packages/cli/test/projection-freshness-cli.test.ts",
+    "packages/cli/test/preset-create-milestone-cli.test.ts",
     "packages/cli/test/preset-dogfood-utilization-cli.test.ts",
     "packages/cli/test/preset-milestone-closeout-cli.test.ts",
     "packages/cli/test/preset-module-cli.test.ts",

@@ -59,8 +59,7 @@ export function runNewTaskWithPreset(
     const rootDir = resolveHarnessLayout(rootInput).rootDir;
     const vertical = action.vertical ?? settings?.defaultVertical ?? "software/coding";
 
-    let presetId = action.preset ?? settings?.defaultPreset ?? "standard-task";
-    if (action.longRunning) presetId = "long-running-task";
+    const presetId = action.preset ?? (action.longRunning ? "long-running-task" : settings?.defaultPreset ?? "standard-task");
     if (presetId === "module" && !action.moduleKey) {
       return {
         ok: false,

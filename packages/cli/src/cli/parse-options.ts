@@ -11,8 +11,8 @@ export interface GlobalParseOptions {
 
 export function stripGlobalOptions(argv: ReadonlyArray<string>, cwd = process.cwd()): GlobalParseOptions {
   const rootDir = readOption(argv, "--root") ?? cwd;
-  const authoredRoot = readOption(argv, "--authored-root") ?? nonEmptyEnv("HARNESS_AUTHORED_ROOT");
-  const daemonRepoId = readOption(argv, "--repo") ?? nonEmptyEnv("HARNESS_DAEMON_REPO_ID");
+  const authoredRoot = readOption(argv, "--authored-root") ?? readNonEmptyProcessEnv("HARNESS_AUTHORED_ROOT");
+  const daemonRepoId = readOption(argv, "--repo") ?? readNonEmptyProcessEnv("HARNESS_DAEMON_REPO_ID");
   const json = argv.includes("--json");
   const args = argv.filter((arg, index) => {
     const previous = argv[index - 1];
@@ -27,7 +27,7 @@ export function stripGlobalOptions(argv: ReadonlyArray<string>, cwd = process.cw
   return { rootDir, authoredRoot, daemonRepoId, json, args };
 }
 
-function nonEmptyEnv(name: string): string | undefined {
+function readNonEmptyProcessEnv(name: string): string | undefined {
   const value = process.env[name];
   return value && value.length > 0 ? value : undefined;
 }
