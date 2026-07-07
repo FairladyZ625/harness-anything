@@ -631,7 +631,7 @@
   <section class="panel is-active" id="panel-try" role="tabpanel" aria-labelledby="tab-try" tabindex="0">
     <div class="wrap">
       <div class="intro">
-        <p class="kicker"><span lang="en">Try it · about 10 minutes</span><span lang="zh">上手 · 约 10 分钟</span></p>
+        <p class="kicker"><span lang="en">Try it · 30-second source smoke</span><span lang="zh">上手 · 30 秒源码 smoke</span></p>
         <h1 class="hero">
           <span lang="en">Your agent says it's done. Make it <em>prove</em> it.</span>
           <span lang="zh">你的 agent 说做完了。让它<em>拿出证据</em>。</span>
@@ -641,8 +641,8 @@
           <span lang="zh">Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产出的每一个决定、任务、事实，都变成 git 里可审计的结构——而"做完了"必须带着证据过门禁。</span>
         </p>
         <p class="sub">
-          <span lang="en">Run one command and structure starts accumulating in your repo. Below is a real loop, captured from an actual run — no screenshots, just the tool.</span>
-          <span lang="zh">运行一条命令，结构就开始在你的仓库里积累。下面是一个真实的循环，取自一次实际运行——没有截图，就是这个工具本身。</span>
+          <span lang="en">There is no public npm package yet. Clone the repo, run <code>npm run quickstart:demo</code>, and watch the accountability loop create evidence instead of trusting a claim.</span>
+          <span lang="zh">目前还没有公开 npm package。先 clone 仓库，运行 <code>npm run quickstart:demo</code>，亲眼看问责循环产出证据，而不是相信一句 claim。</span>
         </p>
       </div>
 
@@ -650,37 +650,45 @@
 
         <section class="block" id="what-is">
           <span class="sec-no">01</span>
-          <h2><span lang="en">What it is, in one screen</span><span lang="zh">一屏说清它是什么</span></h2>
+          <h2><span lang="en">The proof, in one screen</span><span lang="zh">一屏看到证明</span></h2>
           <p class="lead">
-            <span lang="en">Harness Anything turns the <strong>decisions, tasks, and facts</strong> your agents produce into first-class records on git — queryable, reversible, and reusable — instead of losing them inside a transcript. Every one lands as plain Markdown you can read in a git diff.</span>
-            <span lang="zh">Harness Anything 把你的代理产生的<strong>决策（decision）、任务（task）和事实（fact）</strong>变成 git 上的一等公民记录——可查询、可回滚、可重用——而不是把它们丢失在聊天记录里。每一条都落地为纯 Markdown，你可以在 git diff 里读它。</span>
+            <span lang="en">The current public path is source checkout first. This smoke builds the CLI, initializes a throwaway git workspace, creates a task, records a queryable fact, and renders the relation graph.</span>
+            <span lang="zh">当前公开路径仍然是源码 checkout。这条 smoke 会构建 CLI、初始化一个临时 git workspace、创建 task、记录可查询的 fact，并渲染 relation graph。</span>
           </p>
           <figure class="code">
-            <figcaption><span lang="en">one command, structure appears</span><span lang="zh">一条命令，结构出现</span></figcaption>
-<pre><span class="c">$</span> ha task create <span class="k">--title</span> "Fix login redirect bug"
-<span class="ok">ok</span> command="task create" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=planned
-   path=harness/tasks/task_01KWPP52D...-fix-login-redirect-bug
-
-<span class="c">$</span> ha status
-<span class="ok">ok</span> command=status path=.harness/cache/projections.sqlite rows=1</pre>
+            <figcaption><span lang="en">run the source smoke today</span><span lang="zh">今天可跑的源码 smoke</span></figcaption>
+<pre><span class="c">$</span> git clone https://github.com/FairladyZ625/harness-anything
+<span class="c">$</span> cd harness-anything
+<span class="c">$</span> npm ci
+<span class="c">$</span> npm run quickstart:demo
+<span class="ok">{</span>
+  "ok": true,
+  "schema": "quickstart-demo/v1",
+  "taskId": "task_...",
+  "factRef": "fact/task_.../F-ABCDEF12"
+<span class="ok">}</span></pre>
           </figure>
           <p>
             <span lang="en">Three things to take away:</span>
             <span lang="zh">三件要点：</span>
           </p>
           <ul>
-            <li><span lang="en">It solves the <em>"where did the reasoning go?"</em> problem — agent work stops evaporating into logs.</span><span lang="zh">它解决了<em>"推理去哪了？"</em>的问题——代理的工作不再蒸发进日志。</span></li>
-            <li><span lang="en">Unlike note-taking, these are structured, linked records <em>with a lifecycle</em>: decisions can be overturned; facts are anchored to the task that observed them.</span><span lang="zh">和记笔记不同，这些是结构化、有链接、<em>带生命周期</em>的记录：决策可以被推翻，事实锚定到观察到它们的那个任务。</span></li>
-            <li><span lang="en">You need <strong>Node.js 24+</strong> and <strong>git</strong>. There's no public npm release yet — you install it globally from source (<code>npm install -g ./packages/cli</code>) so the <code>ha</code> command is on your PATH.</span><span lang="zh">你需要 <strong>Node.js 24+</strong> 和 <strong>git</strong>。目前还没有公开的 npm 发布——你从源码全局安装（<code>npm install -g ./packages/cli</code>），让 <code>ha</code> 命令进入你的 PATH。</span></li>
+            <li><span lang="en">It solves the <em>"where did the reasoning go?"</em> problem by putting agent work into records you can diff.</span><span lang="zh">它把 agent 工作放进可 diff 的记录里，解决<em>"推理去哪了？"</em>的问题。</span></li>
+            <li><span lang="en">Unlike note-taking, these are structured records <em>with gates</em>: decisions can be overturned, tasks have lifecycle exits, and facts are anchored to the task that observed them.</span><span lang="zh">和记笔记不同，这些是<em>带 gate</em>的结构化记录：决策可以被推翻，task 有生命周期出口，fact 锚定到观察到它们的任务。</span></li>
+            <li><span lang="en">After the 0.1 package publication to npm, first contact becomes <code>npx harness-anything init</code>. Today, use the source smoke or install <code>ha</code> locally from the checkout.</span><span lang="zh">等 0.1 package 发布到 npm 后，初见入口会变成 <code>npx harness-anything init</code>。今天请用源码 smoke，或从 checkout 本地安装 <code>ha</code>。</span></li>
           </ul>
+          <p>
+            <span lang="en">Full path: <a href="start/en/01-install.md">install and quickstart</a>.</span>
+            <span lang="zh">完整路径：<a href="start/zh/01-install.md">安装与 quickstart</a>。</span>
+          </p>
         </section>
 
         <section class="block" id="one-loop">
           <span class="sec-no">02</span>
           <h2><span lang="en">Run one real loop</span><span lang="zh">跑一个真实的循环</span></h2>
           <p>
-            <span lang="en">Do this end to end in a scratch git repo. In a few minutes you'll have a real task, a fact, and an adjudicated decision — all as Markdown in your repo. First, <code>ha init</code> lays down the authored <code>harness/</code> directory (this goes into git; the generated <code>.harness/</code> cache stays out of it).</span>
-            <span lang="zh">在一个临时 git 仓库里端到端做一遍。几分钟内，你就有了一个真实的任务、一个事实、一个被裁决的决策——全部是仓库里的 Markdown。先用 <code>ha init</code> 铺好已撰写的 <code>harness/</code> 目录（它进 git；生成的 <code>.harness/</code> 缓存留在 git 之外）。</span>
+            <span lang="en">After the local source install, do this end to end in a scratch git repo. In a few minutes you'll have a real task, a fact, and an adjudicated decision — all as Markdown in your repo. First, <code>ha init</code> lays down the authored <code>harness/</code> directory (this goes into git; the generated <code>.harness/</code> cache stays out of it).</span>
+            <span lang="zh">完成本地源码安装后，在一个临时 git 仓库里端到端做一遍。几分钟内，你就有了一个真实的任务、一个事实、一个被裁决的决策——全部是仓库里的 Markdown。先用 <code>ha init</code> 铺好已撰写的 <code>harness/</code> 目录（它进 git；生成的 <code>.harness/</code> 缓存留在 git 之外）。</span>
           </p>
           <figure class="code">
             <figcaption><span lang="en">move a task through its lifecycle</span><span lang="zh">让任务走过它的生命周期</span></figcaption>
