@@ -1,9 +1,10 @@
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
+import { capabilityEntityKinds } from "../capability-entity-kinds.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
-const knownEntityKinds = new Set(["task", "decision", "fact", "event", "session", "doc", "template", "preset", "script", "module", "legacy", "migrate", "governance", "status", "git", "doctor", "graph", "vertical", "gui"]);
+const knownEntityKinds = new Set(capabilityEntityKinds);
 
 export function parseCapabilitiesArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   if (args[0] === "entity" && args[1] === "list") return { ok: true, value: { rootDir, json, action: { kind: "entity-list" } } };
