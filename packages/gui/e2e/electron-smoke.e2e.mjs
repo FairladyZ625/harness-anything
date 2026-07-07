@@ -59,8 +59,11 @@ test("Electron shell opens its first BrowserWindow", { timeout: 45_000 }, async 
     "renderer did not show real task projection data or the real task empty state"
   );
 
-  await page.getByRole("button", { name: /Graph/u }).click();
-  await page.getByRole("heading", { name: "Relation graph evidence path" }).waitFor({ timeout: 10_000 });
+  // Ported operator IA: the relation graph nav is labeled 关系图 and the graph
+  // canvas is a React Flow surface. Decision/fact data is still mock, so the
+  // view carries a visible MOCK banner.
+  await page.getByRole("button", { name: /关系图/u }).click();
+  await page.locator(".react-flow").waitFor({ timeout: 10_000 });
   assert.equal(await page.getByText("MOCK").count() > 0, true, "mock-backed triadic views must be visibly labeled");
   assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
 });
