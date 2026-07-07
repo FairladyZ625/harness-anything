@@ -246,7 +246,7 @@ function runStatusSet(
   }
 
   return Effect.gen(function* () {
-    const taskPolicy = yield* readTaskLifecyclePolicy(context.layoutInput, taskId);
+    const taskPolicy = yield* readTaskLifecyclePolicy(context.artifactStore, taskId);
     if (taskPolicy?.engine !== "local") {
       const result = yield* context.engine.setStatus({ taskId, status });
       return {

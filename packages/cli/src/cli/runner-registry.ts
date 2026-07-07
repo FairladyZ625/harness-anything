@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService } from "../../../application/src/index.ts";
-import type { CurrentSessionProbePort } from "../../../kernel/src/index.ts";
+import type { ArtifactStore, CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
@@ -40,6 +40,7 @@ export interface CommandRunnerContext {
   readonly layoutInput: HarnessLayoutInput;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly engine: CommandRunnerEngine;
+  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage" | "readAuthoredDocument">;
   readonly currentSessionProbe: CurrentSessionProbePort;
   readonly provenanceSessionExporter: ProvenanceSessionExporter;
   readonly syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
@@ -135,6 +136,7 @@ export const runnerRegistry = {
 export function runRegisteredCommand(
   command: ParsedCommand,
   makeEngine: () => CommandRunnerEngine,
+  makeArtifactStore: () => Pick<ArtifactStore, "readTaskPackage" | "readAuthoredDocument">,
   makeCurrentSessionProbe: () => CurrentSessionProbePort,
   makeProvenanceSessionExporter: () => ProvenanceSessionExporter,
   syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>,
@@ -159,6 +161,7 @@ export function runRegisteredCommand(
     } satisfies CliResult);
   }
   let engine: CommandRunnerEngine | undefined;
+  let artifactStore: Pick<ArtifactStore, "readTaskPackage" | "readAuthoredDocument"> | undefined;
   let currentSessionProbe: CurrentSessionProbePort | undefined;
   let provenanceSessionExporter: ProvenanceSessionExporter | undefined;
   let decisionWriteService: DecisionWriteService | undefined;
@@ -171,6 +174,10 @@ export function runRegisteredCommand(
     get engine() {
       engine ??= makeEngine();
       return engine;
+    },
+    get artifactStore() {
+      artifactStore ??= makeArtifactStore();
+      return artifactStore;
     },
     get currentSessionProbe() {
       currentSessionProbe ??= makeCurrentSessionProbe();
