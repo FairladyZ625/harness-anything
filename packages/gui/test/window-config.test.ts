@@ -16,6 +16,14 @@ test("production CSP does not allow wildcard localhost connections", () => {
   assert.doesNotMatch(createGuiContentSecurityPolicy({ allowDevRenderer: true }), /127\.0\.0\.1:\*/);
 });
 
+test("inline script/style relaxation is dev-only; production CSP stays strict", () => {
+  assert.doesNotMatch(guiContentSecurityPolicy, /unsafe-inline/);
+  assert.doesNotMatch(createGuiContentSecurityPolicy(), /unsafe-inline/);
+  const devCsp = createGuiContentSecurityPolicy({ allowDevRenderer: true });
+  assert.match(devCsp, /script-src 'self' 'unsafe-inline'/);
+  assert.match(devCsp, /style-src 'self' 'unsafe-inline'/);
+});
+
 test("trusted renderer URL accepts only explicit dev server or packaged renderer file", () => {
   const packagedRendererUrl = "file:///app/renderer/index.html";
 

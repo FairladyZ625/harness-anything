@@ -6,10 +6,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:electron": "node scripts/dev-electron.mjs",
     "build": "vite build",
+    "build:preload": "vite build --config vite.preload.config.ts",
     "preview": "vite preview --host 127.0.0.1",
     "test:gui": "vitest run --config vitest.config.ts",
-    "test:e2e": "node --test e2e/*.e2e.mjs"
+    "test:e2e": "npm run build:preload && node --test e2e/*.e2e.mjs"
   },
   "exports": {
     ".": "./src/index.ts"

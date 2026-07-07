@@ -29,10 +29,14 @@ export function createGuiContentSecurityPolicy(options: GuiContentSecurityPolicy
   const connectSrc = options.allowDevRenderer
     ? "connect-src 'self' http://127.0.0.1:5173 ws://127.0.0.1:5173"
     : "connect-src 'self'";
+  // Dev only: the Vite dev server injects the react-refresh preamble as an
+  // inline script and styles as inline <style> tags. Production stays strict.
+  const scriptSrc = options.allowDevRenderer ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
+  const styleSrc = options.allowDevRenderer ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'";
   return [
     "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self'",
+    scriptSrc,
+    styleSrc,
     "img-src 'self' data:",
     "font-src 'self'",
     connectSrc,

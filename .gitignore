@@ -25,3 +25,6 @@ tmp/
 # release tarballs (npm pack output)
 *.tgz
 .gstack/
+
+# Electron preload bundle (built by packages/gui build:preload)
+packages/gui/dist-electron/

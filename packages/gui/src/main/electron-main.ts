@@ -10,7 +10,7 @@ import { assertDevRendererUrl, createGuiContentSecurityPolicy, createPackagedRen
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createMainWindow(): BrowserWindow {
-  const preloadPath = path.join(dirname, "../preload/electron-preload.mjs");
+  const preloadPath = path.join(dirname, "../../dist-electron/electron-preload.cjs");
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   const allowDevRenderer = Boolean(rendererUrl);
   const mainWindow = new BrowserWindow({
@@ -80,8 +80,11 @@ export async function startGuiApp(): Promise<void> {
 
 function createTrustedMainWindow(trustedWebContentsIds: Set<number>): BrowserWindow {
   const mainWindow = createMainWindow();
-  trustedWebContentsIds.add(mainWindow.webContents.id);
-  mainWindow.once("closed", () => trustedWebContentsIds.delete(mainWindow.webContents.id));
+  // Capture the id now: by the time "closed" fires the native window is
+  // destroyed and reading mainWindow.webContents throws "Object has been destroyed".
+  const webContentsId = mainWindow.webContents.id;
+  trustedWebContentsIds.add(webContentsId);
+  mainWindow.once("closed", () => trustedWebContentsIds.delete(webContentsId));
   return mainWindow;
 }
 
