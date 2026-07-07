@@ -96,6 +96,68 @@ test("CLI script command lists, inspects, and runs vertical script entries throu
   });
 });
 
+test("CLI script command lists decision conformance as a vertical check script", () => {
+  withTempRoot((rootDir) => {
+    const listed = runJson(rootDir, ["script", "list", "--source", "vertical", "--kind", "check"]);
+    assert.equal(listed.ok, true);
+    assert.equal(listed.command, "script-list");
+    assert.equal(listed.scripts.some((script: Record<string, unknown>) => script.id === "vertical:software-coding:decision-conformance" && script.kind === "check" && script.purpose === "audit"), true);
+  });
+});
+
+test("CLI check runs decision conformance scripts and fails closed on accepted decisions without task edges", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const task = runJson(rootDir, ["task", "create", "--title", "Conformance Implementation"]);
+    runJson(rootDir, [
+      "fact", "record",
+      "--task", task.taskId,
+      "--id", "F-C123ABCD",
+      "--statement", "The conformance fixture covers the accepted decision claim.",
+      "--source", "test",
+      "--confidence", "high"
+    ]);
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_CONFORMANCE_EDGE",
+      "--title", "Conformance Edge",
+      "--question", "Should accepted decisions derive work?",
+      "--chosen", "Accepted decisions derive work",
+      "--rejected", "Leave accepted decisions unbound",
+      "--why-not", "The milestone loop needs task or defer closure",
+      "--evidence-relation", `C1:evidenced-by:fact/${task.taskId}/F-C123ABCD:Fact covers the accepted conformance claim`
+    ]);
+    runJson(rootDir, ["decision", "accept", "dec_CONFORMANCE_EDGE", "--arbiter", "human:ZeyuLi"]);
+    const failed = runJson(rootDir, ["check", "--profile", "source-package"], false);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error.code, "check_profile_failed");
+    assert.equal(failed.warnings.some((warning: Record<string, unknown>) => (
+      warning.source === "vertical-check:vertical:software-coding:decision-conformance" &&
+      warning.code === "accepted-decision-missing-task-or-defer" &&
+      String(warning.message).includes("decision/dec_CONFORMANCE_EDGE")
+    )), true);
+    assert.equal(failed.report.scriptChecks.some((entry: Record<string, any>) => (
+      entry.scriptId === "vertical:software-coding:decision-conformance" &&
+      entry.report?.summary?.findingCount > 0
+    )), true);
+
+    runJson(rootDir, [
+      "decision", "relate", "dec_CONFORMANCE_EDGE",
+      "--anchor", "CH1",
+      "--type", "derives",
+      "--target", `task/${task.taskId}`,
+      "--rationale", "Accepted conformance decision derives implementation work"
+    ]);
+
+    const passed = runJson(rootDir, ["check", "--profile", "source-package"]);
+    assert.equal(passed.ok, true);
+    assert.equal(passed.report.scriptChecks.some((entry: Record<string, any>) => (
+      entry.scriptId === "vertical:software-coding:decision-conformance" &&
+      entry.report?.summary?.findingCount === 0
+    )), true);
+  });
+});
+
 test("CLI script command discovers and runs the vertical ADR seed scaffold", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);

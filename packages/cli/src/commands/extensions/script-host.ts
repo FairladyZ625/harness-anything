@@ -17,6 +17,7 @@ import {
 
 export type ScriptSource = "user" | "vertical" | "preset";
 export type ScriptPurpose = "scaffold" | "generate" | "transform" | "audit";
+export type ScriptKind = "action" | "check";
 
 export interface ScriptEntry {
   readonly id: string;
@@ -29,6 +30,7 @@ export interface ScriptEntry {
   readonly metadata: {
     readonly description: string;
     readonly purpose: ScriptPurpose;
+    readonly kind?: ScriptKind;
     readonly contractVersion: "script-entry/v1";
     readonly produces: ReadonlyArray<string>;
   };
@@ -58,6 +60,7 @@ export function runScriptHost(options: {
   readonly inputs?: Record<string, string>;
   readonly outputRoot?: string;
   readonly dryRun?: boolean;
+  readonly allowFailedScriptResult?: boolean;
 }): ScriptHostRunResult {
   const layout = resolveHarnessLayout(options.rootInput);
   const validation = validateResolvedScript(options.script);
@@ -125,15 +128,18 @@ export function runScriptHost(options: {
   const beforeFiles = snapshotFiles(writeScope.roots);
   const result = spawnSync(process.execPath, [
     "--permission",
+    ...checkScriptNodePermissionFlags(options.script.entry.metadata.kind),
     ...uniquePermissionPaths([
       ...ancestorDirectories(scriptPath),
       ...permissionPathsForScope(options.script.manifestRoot, true),
       contextPath,
+      ...checkScriptPackageReadPermissions(options.script.entry.metadata.kind, options.script.manifestRoot, scriptPath, layout),
       ...readScope.permissions
     ]).map((allowedPath) => `--allow-fs-read=${allowedPath}`),
     ...uniquePermissionPaths([
       resultPath,
-      ...writeScope.permissions
+      ...writeScope.permissions,
+      ...checkScriptLocalWritePermissions(options.script.entry.metadata.kind, layout)
     ]).map((allowedPath) => `--allow-fs-write=${allowedPath}`),
     scriptPath
   ], {
@@ -172,7 +178,9 @@ export function runScriptHost(options: {
     scriptId: options.script.entry.id
   });
   if (!scriptedResult.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptResultInvalid, scriptedResult.hint, runDir, layout.rootDir);
-  if (scriptedResult.value.ok !== true) return scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir);
+  if (scriptedResult.value.ok !== true && options.allowFailedScriptResult !== true) {
+    return scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir);
+  }
 
   const generated = producedFilesSince(beforeFiles, snapshotFiles(writeScope.roots));
   if (!matchesDeclaredProduces(generated, options.script.entry.metadata.produces, layout, outputRoot)) {
@@ -215,6 +223,9 @@ function validateResolvedScript(script: ResolvedScriptEntry): { readonly ok: tru
   if (entry.metadata.contractVersion !== "script-entry/v1") return { ok: false, hint: "Script metadata contractVersion must be script-entry/v1." };
   if (!entry.metadata.description || !entry.metadata.purpose || !Array.isArray(entry.metadata.produces)) {
     return { ok: false, hint: "Script metadata description, purpose, and produces are required." };
+  }
+  if (entry.metadata.kind !== undefined && !["action", "check"].includes(entry.metadata.kind)) {
+    return { ok: false, hint: "Script metadata kind must be action or check." };
   }
   return { ok: true };
 }
@@ -337,4 +348,48 @@ function ancestorDirectories(filePath: string): ReadonlyArray<string> {
   }
   ancestors.push(current);
   return ancestors;
+}
+
+function checkScriptPackageReadPermissions(
+  kind: ScriptKind | undefined,
+  manifestRoot: string,
+  scriptPath: string,
+  layout: ReturnType<typeof resolveHarnessLayout>
+): ReadonlyArray<string> {
+  if (kind !== "check") return [];
+  const kernelRoot = path.resolve(manifestRoot, "../../../../../../kernel");
+  return [
+    path.join(layout.rootDir, "package.json"),
+    kernelRoot,
+    `${kernelRoot}/**`,
+    ...nodeModuleReadPermissions([path.dirname(scriptPath), manifestRoot, layout.rootDir])
+  ];
+}
+
+function nodeModuleReadPermissions(startDirs: ReadonlyArray<string>): ReadonlyArray<string> {
+  const roots = new Set<string>();
+  for (const startDir of startDirs) {
+    let current = path.resolve(startDir);
+    while (current !== path.dirname(current)) {
+      if (path.basename(current) === "node_modules" && existsSync(current)) roots.add(current);
+      const nested = path.join(current, "node_modules");
+      if (existsSync(nested)) roots.add(nested);
+      current = path.dirname(current);
+    }
+    const rootNested = path.join(current, "node_modules");
+    if (existsSync(rootNested)) roots.add(rootNested);
+  }
+  return [...roots].flatMap((root) => [root, `${root}/**`]);
+}
+
+function checkScriptLocalWritePermissions(kind: ScriptKind | undefined, layout: ReturnType<typeof resolveHarnessLayout>): ReadonlyArray<string> {
+  if (kind !== "check") return [];
+  return [
+    layout.cacheRoot,
+    `${layout.cacheRoot}/**`
+  ];
+}
+
+function checkScriptNodePermissionFlags(kind: ScriptKind | undefined): ReadonlyArray<string> {
+  return kind === "check" ? ["--allow-addons"] : [];
 }

@@ -167,7 +167,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "script-list",
-    "usage": "script list [--source user|vertical|preset] [--purpose scaffold|generate|transform|audit] [--json]",
+    "usage": "script list [--source user|vertical|preset] [--purpose scaffold|generate|transform|audit] [--kind action|check] [--json]",
     "summary": "List script-entry/v1 entries exposed by installed extensions.",
     "examples": ["harness-anything script list --source preset"],
     "parserId": "script",

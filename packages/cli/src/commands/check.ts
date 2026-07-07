@@ -16,6 +16,8 @@ import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } f
 import { validateGateArchitectureRetrospectiveGate } from "./gate-retro-checker.ts";
 import { readProjectHarnessSettings, settingsIssue, type ProjectHarnessSettings } from "./settings.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-placeholders.ts";
+import { discoverScriptEntries } from "./extensions/script.ts";
+import { runScriptHost } from "./extensions/script-host.ts";
 
 const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
@@ -27,12 +29,13 @@ export function runCheckProfile(
   const rootDir = layout.rootDir;
   const profilePostMerge = action.postMerge || action.profile === "private-harness" || action.profile === "target-project" || action.strict;
   const projection = checkTaskProjection({ rootDir, layoutOverrides: layoutOverridesFromInput(rootInput), postMerge: profilePostMerge });
+  const scriptChecks = runCheckScripts(rootInput);
   const validatorIssues = [
     ...validateCheckProfile(rootInput, action.profile, action.strict),
-    ...(action.postMerge ? validateDoneTaskDocumentPlaceholders(rootInput) : [])
+    ...(action.postMerge ? validateDoneTaskDocumentPlaceholders(rootInput) : []),
+    ...scriptChecks.issues
   ];
   const warnings = [...projection.warnings, ...validatorIssues];
-  const validatorHardFailCount = validatorIssues.filter((issue) => issue.severity === "hard-fail").length;
   const hardFailCount = warnings.filter((issue) => issue.severity === "hard-fail").length;
   const ok = hardFailCount === 0;
   const validatorSummary = summarizeValidatorIssues(validatorIssues);
@@ -43,8 +46,20 @@ export function runCheckProfile(
     postMerge: profilePostMerge,
     projection: projection.report,
     validators: validatorSummary,
+    scriptChecks: scriptChecks.reports,
     summary: {
       rowCount: projection.rows.length,
+      warningCount: warnings.length,
+      hardFailCount
+    }
+  };
+  const sourcePackageReport = {
+    ...projection.report,
+    ok,
+    validators: validatorSummary,
+    scriptChecks: scriptChecks.reports,
+    summary: {
+      ...projection.report.summary,
       warningCount: warnings.length,
       hardFailCount
     }
@@ -56,12 +71,88 @@ export function runCheckProfile(
     rows: projection.rows.length,
     warnings,
     commands: commandRegistry,
-    report: action.profile === "source-package" ? projection.report : profileReport,
+    report: action.profile === "source-package" ? sourcePackageReport : profileReport,
     error: ok ? undefined : cliError(
-      projection.report.summary.hardFailCount > 0 && validatorHardFailCount === 0 ? CliErrorCode.ProjectionCheckFailed : CliErrorCode.CheckProfileFailed,
+      projection.report.summary.hardFailCount > 0 ? CliErrorCode.ProjectionCheckFailed : CliErrorCode.CheckProfileFailed,
       `Harness check profile ${action.profile} found hard-fail issues.`
     )
   };
+}
+
+function runCheckScripts(rootInput: HarnessLayoutInput): {
+  readonly issues: ReadonlyArray<ProfileValidationIssue>;
+  readonly reports: ReadonlyArray<Record<string, unknown>>;
+} {
+  const layout = resolveHarnessLayout(rootInput);
+  const issues: ProfileValidationIssue[] = [];
+  const reports: Record<string, unknown>[] = [];
+  const checkScripts = discoverScriptEntries(rootInput).filter((script) => script.entry.metadata.kind === "check");
+  for (const script of checkScripts) {
+    const run = runScriptHost({
+      rootInput,
+      commandName: "check",
+      script,
+      allowFailedScriptResult: true
+    });
+    if (!run.ok) {
+      issues.push(profileIssue(
+        "vertical-check",
+        "check_script_failed",
+        "hard-fail",
+        `${script.entry.id} failed before producing a conformance report.`,
+        run.result.error?.hint ?? "Inspect the script evidence bundle and fix the check script failure."
+      ));
+      reports.push({
+        scriptId: script.entry.id,
+        ok: false,
+        evidenceBundle: run.result.evidenceBundle,
+        error: run.result.error
+      });
+      continue;
+    }
+
+    const report = recordValue(run.scriptedResult.report) ?? run.scriptedResult;
+    reports.push({
+      scriptId: script.entry.id,
+      ok: run.scriptedResult.ok,
+      evidenceBundle: relativePath(layout.rootDir, run.runDir),
+      report
+    });
+
+    for (const finding of findingsFromReport(report)) {
+      issues.push(profileIssue(
+        `vertical-check:${script.entry.id}`,
+        finding.type,
+        "hard-fail",
+        `${finding.ref}: ${finding.message}`,
+        finding.hint
+      ));
+    }
+  }
+  return { issues, reports };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function findingsFromReport(report: Record<string, unknown>): ReadonlyArray<{
+  readonly type: string;
+  readonly ref: string;
+  readonly message: string;
+  readonly hint: string;
+}> {
+  const findings = Array.isArray(report.findings) ? report.findings : [];
+  return findings.flatMap((item) => {
+    const finding = recordValue(item);
+    if (!finding) return [];
+    const type = typeof finding.type === "string" && finding.type ? finding.type : "check_finding";
+    const ref = typeof finding.ref === "string" && finding.ref ? finding.ref : "unknown";
+    const message = typeof finding.message === "string" && finding.message ? finding.message : "Check script reported a finding.";
+    const hint = typeof finding.hint === "string" && finding.hint ? finding.hint : "Resolve or explicitly defer the conformance finding.";
+    return [{ type, ref, message, hint }];
+  });
 }
 
 function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
