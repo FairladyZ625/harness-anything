@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const contextPath = process.env.HARNESS_PRESET_CONTEXT;
 if (!contextPath) throw new Error("HARNESS_PRESET_CONTEXT is required");
 
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const context = JSON.parse(readFileSync(contextPath, "utf8"));
 const entrypoint = String(context.entrypoint ?? String(context.scriptId ?? "").split(":").pop() ?? "");
 const paths = context.paths ?? {};
@@ -15,6 +17,8 @@ mkdirSync(artifactsDir, { recursive: true });
 
 if (entrypoint === "scaffold") {
   runScaffold();
+} else if (entrypoint === "render-html") {
+  runRenderHtml();
 } else if (entrypoint === "check") {
   runCheck();
 } else {
@@ -39,6 +43,7 @@ function runScaffold() {
   const switchWhen = optionalInput("switchWhen") || "TBD";
   const retireWhen = optionalInput("retireWhen") || "TBD";
   const dependencies = optionalInput("dependencies") || "TBD";
+  const waves = parseListInput("waves");
 
   const milestoneDir = path.join(paths.milestonesRoot, line, slug);
   const overviewPath = path.join(milestoneDir, "00-overview.md");
@@ -55,13 +60,15 @@ function runScaffold() {
     switchWhen,
     retireWhen,
     dependencies,
-    charterDecision
+    charterDecision,
+    waves
   }), "utf8");
 
   const roadmapPath = path.join(paths.milestonesRoot, "00-roadmap.md");
   const dossierPath = path.join(paths.milestonesRoot, "dossier-data.md");
   upsertRoadmapRow(roadmapPath, { line, slug, milestoneName, mission, status, dependencies, rootTaskId });
   upsertDossierRow(dossierPath, { line, milestoneName, mission, status, dependencies, rootTaskId });
+  const htmlResult = renderMilestoneDossierHtml();
 
   const report = buildCheckReport({ line, slug, requireDecisionAnchor: true });
   writeResult({
@@ -72,13 +79,27 @@ function runScaffold() {
       rootTaskId,
       milestone: { line, slug, path: relative(overviewPath) },
       charterDecision,
-      generatedMilestoneFiles: [relative(overviewPath), relative(roadmapPath), relative(dossierPath)],
+      generatedMilestoneFiles: [relative(overviewPath), relative(roadmapPath), relative(dossierPath), htmlResult.path],
+      html: htmlResult,
       check: report
     },
     error: report.status === "passed" ? undefined : {
       code: "preset_script_result_failed",
       hint: "create-milestone scaffold produced an incomplete milestone surface."
     }
+  });
+}
+
+function runRenderHtml() {
+  const htmlResult = renderMilestoneDossierHtml();
+  writeResult({
+    ok: true,
+    report: {
+      schema: "create-milestone-render-html-report/v1",
+      status: "passed",
+      html: htmlResult
+    },
+    produced: [htmlResult.path]
   });
 }
 
@@ -109,6 +130,11 @@ function buildCheckReport(options = {}) {
     path: item.path,
     missing: missingItem
   })));
+  const warnings = items.flatMap((item) => item.warnings.map((warning) => ({
+    milestone: item.milestone,
+    path: item.path,
+    warning
+  })));
   const report = {
     schema: "create-milestone-check-report/v1",
     status: missing.length === 0 ? "passed" : "blocked",
@@ -117,10 +143,12 @@ function buildCheckReport(options = {}) {
       milestones: items.length,
       green: items.filter((item) => item.status === "green").length,
       red: items.filter((item) => item.status === "red").length,
-      missing: missing.length
+      missing: missing.length,
+      warnings: warnings.length
     },
     items,
-    missing
+    missing,
+    warnings
   };
   writeFileSync(path.join(artifactsDir, "create-milestone-check.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return report;
@@ -137,6 +165,7 @@ function checkOverview(overviewPath, roadmap, dossier, options) {
   const mission = matchScalar(body, /-\s+\*\*Mission\*\*:\s*(.+)/u);
   const decisionAnchors = [...body.matchAll(/\bdec_[A-Za-z0-9_]+\b/gu)].map((match) => match[0]);
   const missing = [];
+  const warnings = [];
   if (!body.includes("milestone-map:v1") && !/(?:目标 \(North Star\)|North Star)/u.test(body)) missing.push("milestone-map:v1 marker");
   if (!status) missing.push("status field");
   if (!rootTask) missing.push("root task field");
@@ -154,6 +183,12 @@ function checkOverview(overviewPath, roadmap, dossier, options) {
 
   const normalizedRoot = stripMarkdown(rootTask);
   if (/^task_/u.test(normalizedRoot) && !findTask(normalizedRoot)) missing.push(`root task ${normalizedRoot} exists under tasks root`);
+  if (/^task_/u.test(normalizedRoot) && findChildTasks(normalizedRoot).length === 0) {
+    warnings.push("子任务未 fan-out: create child tasks with `ha task create --parent <root>` and update the task mapping table.");
+  }
+  if (/\bfan-out pending\b/u.test(body)) {
+    warnings.push("任务映射表仍包含 fan-out pending 占位行。");
+  }
   if (!roadmapHasMilestone(roadmap, { rootTask: normalizedRoot, slug, title: titleFromBody(body) })) missing.push("00-roadmap.md row");
   if (!dossierHasMilestone(dossier, { line, rootTask: normalizedRoot, title: titleFromBody(body) })) missing.push("dossier-data.md row");
 
@@ -163,12 +198,200 @@ function checkOverview(overviewPath, roadmap, dossier, options) {
     path: rel,
     rootTask: normalizedRoot || null,
     decisionAnchors: [...new Set(decisionAnchors)].sort(),
-    missing
+    missing,
+    warnings
   };
 }
 
 function renderOverview(input) {
-  return `# ${input.milestoneName}\n\n<!-- milestone-map:v1 -->\n\n## 新模型映射\n\n- **状态**: ${input.status}\n- **Root task**: \`${input.rootTaskId}\`\n- **Mission**: ${input.mission}\n- **Decision 锚**: ${input.charterDecision}\n\n### 使用侧三问\n\n| 问题 | 答案 |\n| --- | --- |\n| 谁第一个用 | ${input.firstUser} |\n| 何时强制切换 | ${input.switchWhen} |\n| 旧路径何时废止 | ${input.retireWhen} |\n\n### 任务映射\n\n| 层级 | Task | 状态 | 说明 |\n| --- | --- | --- | --- |\n| root | \`${input.rootTaskId}\` | planned | milestone root task。 |\n\n### 依赖与入口条件\n\n- ${input.dependencies}\n\n## 附录：执行记录\n\n- 子任务 fan out 后同步更新任务映射表。\n`;
+  const waveRows = input.waves.length > 0
+    ? input.waves.map((wave) => `| ${wave} | fan-out pending | planned | Run \`ha task create --title "${input.milestoneName} ${wave}" --vertical software/coding --preset standard-task --parent ${input.rootTaskId}\`, then replace this row with the child task id. |`).join("\n")
+    : "| child | fan-out pending | planned | Run `ha task create --title \"<child title>\" --vertical software/coding --preset standard-task --parent <root task>` and replace this row. |";
+  return `# ${input.milestoneName}\n\n<!-- milestone-map:v1 -->\n\n## 新模型映射\n\n- **状态**: ${input.status}\n- **Root task**: \`${input.rootTaskId}\`\n- **Mission**: ${input.mission}\n- **Decision 锚**: ${input.charterDecision}\n\n### 使用侧三问\n\n| 问题 | 答案 |\n| --- | --- |\n| 谁第一个用 | ${input.firstUser} |\n| 何时强制切换 | ${input.switchWhen} |\n| 旧路径何时废止 | ${input.retireWhen} |\n\n### 任务映射\n\n| 层级 | Task | 状态 | 说明 |\n| --- | --- | --- | --- |\n| root | \`${input.rootTaskId}\` | planned | milestone root task。 |\n${waveRows}\n\n### Fan-out 引导\n\n- 如果已知波次，创建时传入 \`--input waves=W0,W1,W2\` 会预填波次行。\n- 将每个 \`fan-out pending\` 行替换成真实子任务，例如 \`ha task create --title "${input.milestoneName} W0" --vertical software/coding --preset standard-task --parent ${input.rootTaskId}\`。\n- 子任务 fan out 后同步更新任务映射表。\n\n### 依赖与入口条件\n\n- ${input.dependencies}\n\n## 附录：执行记录\n\n- 子任务 fan out 后同步更新任务映射表。\n`;
+}
+
+function renderMilestoneDossierHtml() {
+  const dossierPath = path.join(paths.milestonesRoot, "dossier-data.md");
+  const htmlPath = path.join(paths.milestonesRoot, "milestones-dossier.html");
+  const dossier = readOptional(dossierPath);
+  const milestones = parseDossierMilestones(dossier);
+  const html = buildDossierHtml({ milestones, sourcePath: relative(dossierPath) });
+  writeFileSync(htmlPath, html, "utf8");
+  writeFileSync(path.join(artifactsDir, "milestones-dossier-render.json"), `${JSON.stringify({
+    schema: "create-milestone-dossier-html-render/v1",
+    status: "passed",
+    source: relative(dossierPath),
+    path: relative(htmlPath),
+    milestones: milestones.length,
+    lines: [...new Set(milestones.map((item) => item.line).filter(Boolean))].sort()
+  }, null, 2)}\n`, "utf8");
+  return {
+    schema: "create-milestone-dossier-html-render/v1",
+    status: "passed",
+    source: relative(dossierPath),
+    path: relative(htmlPath),
+    milestones: milestones.length
+  };
+}
+
+function parseDossierMilestones(body) {
+  const rows = body.split(/\r?\n/u).filter((line) => /^\s*\|/u.test(line));
+  if (rows.length < 2) return [];
+  const headerIndex = rows.findIndex((line) => /Milestone/u.test(line) && /Status/u.test(line));
+  if (headerIndex < 0) return [];
+  const headers = splitMarkdownRow(rows[headerIndex]).map((header) => stripMarkdown(header).toLowerCase());
+  const dataRows = rows.slice(headerIndex + 1).filter((line) => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/u.test(line));
+  return dataRows.map((line) => {
+    const cells = splitMarkdownRow(line);
+    return {
+      line: cellByHeader(headers, cells, "line"),
+      milestone: cellByHeader(headers, cells, "milestone"),
+      status: cellByHeader(headers, cells, "status"),
+      goal: cellByHeader(headers, cells, "one-line goal"),
+      rootTaskId: stripMarkdown(cellByHeader(headers, cells, "root task id")),
+      childCount: stripMarkdown(cellByHeader(headers, cells, "child count")),
+      dependencies: cellByHeader(headers, cells, "dependencies / entry"),
+      batch: cellByHeader(headers, cells, "batch")
+    };
+  }).filter((row) => row.line || row.milestone || row.status || row.goal || row.rootTaskId || row.dependencies || row.batch);
+}
+
+function buildDossierHtml(input) {
+  const lines = [...new Set(input.milestones.map((item) => item.line).filter(Boolean))].sort();
+  const statuses = [...new Set(input.milestones.map((item) => item.status).filter(Boolean))].sort();
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Milestone Dossier</title>
+<style>
+${editorialShellCss()}
+.summary-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.pill { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink-dim); padding: 4px 9px; font-family: var(--mono); font-size: 11px; }
+.line-group { display: grid; gap: 14px; }
+.milestone-row { display: grid; grid-template-columns: minmax(120px, .72fr) minmax(180px, 1fr) minmax(90px, .42fr) minmax(130px, .54fr); gap: 14px; align-items: start; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 16px; }
+.milestone-row h3 { font-family: var(--serif); font-size: 18px; font-weight: 400; line-height: 1.3; margin-bottom: 8px; color: var(--ink); }
+.milestone-row p { color: var(--ink-dim); font-size: 13px; line-height: 1.6; }
+.status { color: var(--accent); }
+.status.done, .status.shipped, .status.complete, .status.completed { color: var(--done); }
+.status.planned, .status.active, .status.in-progress { color: var(--defer); }
+.status.rejected, .status.blocked { color: var(--reject); }
+.small-label { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 5px; }
+@media (max-width: 860px) {
+  .milestone-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem('ha-dossier-theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', saved || (prefersDark ? 'dark' : 'light'));
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+})();
+</script>
+<header class="topbar">
+  <div class="wrap row">
+    <div class="brand"><span class="dot"></span><span>milestone dossier</span></div>
+    <nav>
+      <a href="#overview">overview</a>
+      <a href="#milestones">milestones</a>
+      <a href="#source">source</a>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换日 / 夜主题" title="切换日 / 夜主题">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.5" y1="4.5" x2="6" y2="6"/><line x1="18" y1="18" x2="19.5" y2="19.5"/><line x1="4.5" y1="19.5" x2="6" y2="18"/><line x1="18" y1="6" x2="19.5" y2="4.5"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+<main>
+  <div class="hero" id="overview">
+    <div class="wrap">
+      <div class="eyebrow">mechanical dossier</div>
+      <h1>Milestone Dossier</h1>
+      <p class="lede">This page is mechanically derived from <code>${escapeHtml(input.sourcePath)}</code>.</p>
+      <div class="meta-grid">
+        <div class="meta-cell"><div class="k">milestones</div><div class="v">${input.milestones.length}</div></div>
+        <div class="meta-cell"><div class="k">lines</div><div class="v">${lines.length}</div></div>
+        <div class="meta-cell"><div class="k">statuses</div><div class="v">${statuses.length}</div></div>
+        <div class="meta-cell"><div class="k">source</div><div class="v">dossier-data.md</div></div>
+      </div>
+      <div class="summary-list">
+        ${lines.map((line) => `<span class="pill">${escapeHtml(line)}</span>`).join("\n        ")}
+      </div>
+    </div>
+  </div>
+  <section id="milestones">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-num">01 / derived table</div>
+        <h2>Milestones</h2>
+      </div>
+      <div class="line-group">
+        ${input.milestones.map(renderMilestoneRow).join("\n        ")}
+      </div>
+    </div>
+  </section>
+  <section id="source">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-num">02 / provenance</div>
+        <h2>Source</h2>
+      </div>
+      <div class="card">
+        <p><code>${escapeHtml(input.sourcePath)}</code></p>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>
+  <div class="wrap">
+    <div class="src">Generated by create-milestone preset render-html from dossier-data.md.</div>
+  </div>
+</footer>
+<script>
+document.getElementById('themeToggle').addEventListener('click', function () {
+  var cur = document.documentElement.getAttribute('data-theme') || 'light';
+  var next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('ha-dossier-theme', next); } catch (e) {}
+});
+</script>
+</body>
+</html>
+`;
+}
+
+function renderMilestoneRow(item) {
+  const statusClass = classToken(item.status);
+  const childCount = item.childCount ? `<p><span class="small-label">children</span>${escapeHtml(item.childCount)}</p>` : "";
+  const rootTask = item.rootTaskId ? `<p><span class="small-label">root task</span><code>${escapeHtml(item.rootTaskId)}</code></p>` : "";
+  const dependencies = item.dependencies ? `<p><span class="small-label">dependencies / entry</span>${escapeHtml(item.dependencies)}</p>` : "";
+  const batch = item.batch ? `<p><span class="small-label">batch</span>${escapeHtml(item.batch)}</p>` : "";
+  const goal = item.goal ? `<p>${escapeHtml(item.goal)}</p>` : "";
+  return `<article class="milestone-row">
+  <div>
+    ${item.line ? `<div class="small-label">${escapeHtml(item.line)}</div>` : ""}
+    ${item.milestone ? `<h3>${escapeHtml(item.milestone)}</h3>` : ""}
+    ${goal}
+  </div>
+  <div>${rootTask}${dependencies}</div>
+  <div>${item.status ? `<p class="status ${statusClass}"><span class="small-label">status</span>${escapeHtml(item.status)}</p>` : ""}${childCount}</div>
+  <div>${batch}</div>
+</article>`;
+}
+
+function editorialShellCss() {
+  const templatePath = path.resolve(scriptDir, "..", "..", "..", "templates", "dossier.editorial.shell", "zh-CN.md");
+  const template = readOptional(templatePath);
+  const match = /<style>([\s\S]*?)<\/style>/u.exec(template);
+  if (!match) fail("missing_editorial_shell", `Could not read editorial shell CSS at ${templatePath}`);
+  return match[1].trim();
 }
 
 function upsertRoadmapRow(filePath, input) {
@@ -236,6 +459,16 @@ function findTask(taskId) {
   return undefined;
 }
 
+function findChildTasks(parentTaskId) {
+  return walk(paths.tasksRoot).filter((filePath) => path.basename(filePath) === "INDEX.md").flatMap((indexPath) => {
+    const body = readOptional(indexPath);
+    const parent = matchScalar(body, /parent:\s*"?([^"\n]+)"?/u);
+    if (parent !== parentTaskId) return [];
+    const taskId = matchScalar(body, /task_id:\s*"?([^"\n]+)"?/u);
+    return taskId ? [taskId] : [];
+  });
+}
+
 function findDecision(decisionId) {
   return decisionDocuments().some((decision) => decision.decisionId === decisionId);
 }
@@ -269,6 +502,13 @@ function optionalInput(name) {
   return value && !/^\{\{.+\}\}$/u.test(value) ? value : "";
 }
 
+function parseListInput(name) {
+  return optionalInput(name)
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 function titleFromBody(body) {
   const match = /^#\s+(.+)$/mu.exec(body);
   return match ? match[1].replace(/\s*[·-].*$/u, "").trim() : "";
@@ -282,6 +522,32 @@ function matchScalar(body, regex) {
 
 function stripMarkdown(value) {
   return String(value ?? "").replace(/[`*]/gu, "").trim();
+}
+
+function splitMarkdownRow(line) {
+  return String(line ?? "")
+    .trim()
+    .replace(/^\|/u, "")
+    .replace(/\|$/u, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function cellByHeader(headers, cells, header) {
+  const index = headers.indexOf(header);
+  return index >= 0 ? String(cells[index] ?? "").trim() : "";
+}
+
+function classToken(value) {
+  return stripMarkdown(value).toLowerCase().replace(/[^a-z0-9_-]+/gu, "-").replace(/^-|-$/gu, "");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function walk(root) {
