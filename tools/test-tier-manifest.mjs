@@ -147,6 +147,7 @@ export const testTierManifest = {
     "tools/check-docs-release-map.test.mjs",
     "tools/check-import-boundaries.test.mjs",
     "tools/check-kernel-dead-exports.test.mjs",
+    "tools/quickstart-demo.test.mjs",
     "tools/check-runtime-release-readiness.test.mjs",
     "tools/check-supply-chain.test.mjs",
     "tools/graph-panorama.test.mjs",

@@ -282,6 +282,7 @@ test("CLI metadata check rejects unsupported non-default verticals", () => {
 test("CLI governance rebuild supports dry-run, apply, and archive modes", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
+    rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });
     writeTaskPackage(rootDir, "task-1", {
       taskPlan: validTaskPlan(),
       review: validReview(),

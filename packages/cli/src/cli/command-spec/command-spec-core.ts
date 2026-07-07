@@ -75,7 +75,7 @@ export const coreCommandSpecs = defineCommandSpecs([
     "parserId": "core-task",
     "runnerId": "init",
     "receiptContract": {
-      "data": ["generated"],
+      "data": ["generated", "report"],
       "paths": ["primary", "config"]
     },
     "eventPolicy": {
