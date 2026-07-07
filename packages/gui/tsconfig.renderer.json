@@ -1,0 +1,40 @@
+{
+  // Renderer is browser code that Vite bundles. It uses the modern React
+  // ecosystem (Phosphor icons, xyflow, react-markdown) whose packages ship
+  // extensionless internal re-exports — those only resolve under the "Bundler"
+  // module resolution Vite itself uses, not "NodeNext". The Node-side package
+  // code (main/preload/api/terminal, consumed by daemon/cli) stays on NodeNext
+  // in tsconfig.json; this project type-checks only the renderer UI surface.
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "types": [],
+    "outDir": "./dist/renderer-types"
+  },
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/api/renderer-dto.ts"
+  ],
+  "exclude": [
+    "src/renderer/app-model.ts",
+    "src/renderer/workspace-shell.ts"
+  ],
+  "references": [
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../application"
+    }
+  ]
+}
