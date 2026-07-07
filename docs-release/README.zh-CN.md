@@ -2,39 +2,89 @@
 
 > **你的 agent 说做完了。让它拿出证据。**
 
-Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产出的每一个决定、任务、事实，都变成 git 里可审计的结构——而"做完了"必须带着证据过门禁。
+Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产出的每
+一个决定、任务、事实，都变成 git 里可审计的结构——而 `done` 必须带着证据
+过门禁。
 
-三个原语，全部在你的仓库里版本化：
+你没法靠一句更好的 prompt 阻止 agent 在当下抄近路。真正有用的是人类一直
+在用的老办法：**摄像头和后果。**把每个 claim 放进永久记录，给出口加门禁，
+让虚假的“完成”无法维持。我们在 dogfood 里看到的是：没有门禁的路径会被
+100% 旁路。没有 gate，就等于一定被绕过。
 
-- **decision** ——为什么。一个选择、它的替代方案和证据。可回滚。
-- **task** ——做什么。一个单位工作跨越六态生命周期。
-- **fact** ——是什么。一个只增不改的观察，锚定到产生它的任务。
+## 先跑 30 秒证明
 
-`ha` CLI 是你今天用的工具。它把纯 Markdown 写入你的 git 仓库，并维护可重建的 SQLite 投影以快速查询。
+当前公开路径仍然是源码 checkout。现在还没有公开 npm package，所以不要把
+`npx harness-anything init` 当成今天可用的公开入口。
+
+```bash
+git clone https://github.com/FairladyZ625/harness-anything
+cd harness-anything
+npm ci
+npm run quickstart:demo
+```
+
+这条 smoke 会构建 CLI、初始化一个临时 git workspace、创建 task、记录可查询
+的 fact，并渲染 relation graph。如果承重步骤拿不出证据，流程会 fail closed，
+而不是假装已经完成。
+
+生命周期 gate 是真实存在的。在本地源码构建里，一个 task 不能靠宣告被硬塞进
+`done`：
+
+```console
+$ ha task transition task_01KWX5RBJQMEZ2T7AR6GFB8Q6K done
+error code=terminal_status_requires_task_complete
+
+$ ha task complete task_01KWX5RBJQMEZ2T7AR6GFB8Q6K --ci passed
+error code=task_fact_required
+```
+
+Current boundary.
+
+等 0.1 package 发布到 npm 之后，初见入口会变成：
+
+```bash
+npx harness-anything init
+```
+
+在发布真正存在之前，请使用上面的源码路径，或构建后用
+`npm install -g ./packages/cli` 安装本地 `ha`。
+
+## 三个原语
+
+- **decision** ——为什么。一个选择、替代方案、理由和明确 arbiter。决策可以
+  被推翻，但不能被抹掉。
+- **task** ——做什么。一个单位工作跨越六态生命周期，`done` 被 completion
+  gate 锁住。
+- **fact** ——证据。只增不改的观察，锚定到产生它的 task。
+
+`ha` CLI 把纯 Markdown 写入你的 git 仓库，并维护可重建的 SQLite 投影以快速
+查询。可以 grep，可以 diff，也可以在 PR 里 review。
 
 ---
 
-## 快速上手
+## 从这里开始
 
-装好它，运行一个真实循环，看结构增长，自己体验它的价值——大约 10 分钟。
+先跑 smoke demo，再走第一个真实循环。
 
 → **[start/](start/zh/00-what-is-this.md)**
 
 ## 贡献时不要绕过门禁
 
-想帮忙构建 Harness Anything，或把 agent 指向这个仓库？先读贡献路径：本地准备、改动流程、CI 证据、PR 审查、合入权限，以及 agent 专用规则。
+想帮忙构建 Harness Anything，或把 agent 指向这个仓库？先读贡献路径：本地
+准备、改动流程、CI 证据、PR 审查、合入权限，以及 agent 专用规则。
 
 → **[contributing/](contributing/zh/00-overview.md)**
 
 ## 理解为什么这样设计
 
-设计是深思熟虑的，每个选择都有理由。这条路径讲解原语内核、决策和裁决机制、守门人(gate)、扩展模型和方法论。
+设计是有意为之。这条路径讲解原语内核、决策裁决、gate、扩展模型和采用律。
 
 → **[learn/](learn/zh/00-overview.md)**
 
 ## 看它到底是怎么建的
 
-读完 `learn/`，好奇*系统到底如何兑现那些主张*？这条路径讲机制：分层架构、三个实体如何落在磁盘上、单一写入路径、可重建的 SQLite 投影、守门人(gate)以及 vertical 引擎。
+读完 `learn/`，好奇系统到底如何兑现那些主张？这条路径讲机制：存储、写入
+路径、投影、gate、来源追踪以及 vertical 引擎。
 
 → **[architecture/](architecture/zh/00-overview.md)**
 
