@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { DomainStatus, EngineError, ProjectionWarning, TaskProjectionRow, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactStore, DomainStatus, EngineError, ProjectionWarning, TaskProjectionRow, WriteError } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 export { commandReceiptEnvelope } from "./command-receipt.ts";
 export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
@@ -102,6 +102,7 @@ export interface LocalControllerServiceOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly taskWriter: LocalControllerTaskWriter;
+  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
 }
 
 export interface LocalControllerSuccess {

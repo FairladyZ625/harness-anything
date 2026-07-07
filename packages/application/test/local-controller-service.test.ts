@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeLocalControllerService } from "../src/index.ts";
+import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
 test("local controller service reads projection and writes through injected task writer", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
@@ -13,6 +14,7 @@ test("local controller service reads projection and writes through injected task
     const writes: string[] = [];
     const service = makeLocalControllerService({
       rootDir,
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
       taskWriter: {
         setStatus: (payload) => Effect.sync(() => {
           writes.push(`status:${payload.taskId}:${payload.status}`);
@@ -86,6 +88,7 @@ test("local controller service honors explicit authored root for reads and write
     const service = makeLocalControllerService({
       rootDir,
       layoutOverrides,
+      artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides }),
       taskWriter: {
         setStatus: (payload) => Effect.sync(() => ({ taskId: payload.taskId, status: payload.status })),
         appendProgress: (payload) => Effect.sync(() => {

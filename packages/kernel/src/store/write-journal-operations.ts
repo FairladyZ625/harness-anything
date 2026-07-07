@@ -178,6 +178,7 @@ interface MachineArtifactAppendJsonlPayload {
 
 type MachineArtifactBoundary =
   | "runtime-event-ledger"
+  | "provenance-session"
   | "docmap-derived"
   | "distill-candidate"
   | "legacy-forward"
@@ -347,6 +348,7 @@ function isMachineArtifactAppendJsonlPayload(payload: unknown): payload is Machi
 
 function isMachineArtifactBoundary(value: unknown): value is MachineArtifactBoundary {
   return value === "runtime-event-ledger" ||
+    value === "provenance-session" ||
     value === "docmap-derived" ||
     value === "distill-candidate" ||
     value === "legacy-forward" ||
@@ -370,6 +372,8 @@ function resolveMachineArtifactPath(
 
   const allowed = boundary === "runtime-event-ledger"
     ? normalized.startsWith(`${generatedRelative}/runtime-events/`) && normalized.endsWith(".jsonl")
+    : boundary === "provenance-session"
+      ? normalized.startsWith(`${authoredRelative}/sessions/`) && normalized.endsWith(".md")
     : boundary === "docmap-derived"
       ? normalized === `${authoredRelative}/docmap.json`
       : boundary === "distill-candidate"
