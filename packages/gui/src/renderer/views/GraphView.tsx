@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
 import { collectClosure } from "../graph/endpoint";
 import { GraphDrawer } from "../graph/GraphDrawer";
-import { computeElkLayout } from "../graph/elkLayout";
+import { computeGraphLayout } from "../graph/graphLayout";
 
 import { TaskNode } from "../graph/nodes/TaskNode";
 import { DecisionNode } from "../graph/nodes/DecisionNode";
@@ -76,7 +76,7 @@ function GraphViewInner({
     const loopEdges = new Set<string>();
     if (!focusId || focusId.startsWith('e_')) return { loopNodes, loopEdges };
     
-    // Normalize focusId for BFS matching: Task nodes are purely KER-xxx or STO-xxx in ELK, but edges use task/KER-xxx
+    // Normalize focusId for BFS matching: Task nodes are purely KER-xxx or STO-xxx in the layout, but edges use task/KER-xxx
     let rootId = focusId;
     if (!rootId.includes('/')) {
       rootId = `task/${rootId}`;
@@ -127,7 +127,7 @@ function GraphViewInner({
 
   useEffect(() => {
     const focusNodes = chain ? chain.nodeSet : new Set<string>();
-    computeElkLayout(tasks, relations, decisions ?? [], facts ?? [], focusNodes, loopData.loopNodes, loopData.loopEdges, filters)
+    computeGraphLayout(tasks, relations, decisions ?? [], facts ?? [], focusNodes, loopData.loopNodes, loopData.loopEdges, filters)
       .then(({ nodes: rfNodes, edges: rfEdges, cycleWarning: warning }) => {
         setError(null);
         setNodes(rfNodes);
@@ -135,7 +135,7 @@ function GraphViewInner({
         setCycleWarning(warning);
       })
       .catch(err => {
-        console.error("Failed to compute ELK layout", err);
+        console.error("Failed to compute graph layout", err);
         setError(err instanceof Error ? err.stack || err.message : String(err));
       });
   }, [tasks, relations, decisions, facts, chain, loopData, filters]);
@@ -218,7 +218,7 @@ function GraphViewInner({
           </span>
         )}
         <span className="ml-auto text-text-faint">
-          {focusId ? "Esc / 点击空白处退出聚焦" : "点击节点聚焦其完整链路 (Powered by React Flow + ELK)"}
+          {focusId ? "Esc / 点击空白处退出聚焦" : "点击节点聚焦其完整链路 (Powered by React Flow + dagre)"}
         </span>
       </header>
 
