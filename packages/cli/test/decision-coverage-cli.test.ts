@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -241,6 +241,108 @@ test("CLI decision amend updates only load_bearing metadata for an existing clai
   });
 });
 
+test("CLI decision conformance exempts pre-rule legacy task and claim findings", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeConformanceDecisionFixture(rootDir, "dec_PRE_RULE_CUTOFF", "2026-07-06T23:21:56.223Z");
+    writeConformanceDecisionFixture(rootDir, "dec_LEDGER_E123_CUTOFF");
+
+    const result = runJson(rootDir, ["check", "--profile", "source-package"]);
+    const findings = decisionConformanceFindings(result);
+
+    assert.equal(findings.length, 0);
+  });
+});
+
+test("CLI decision conformance still reports post-rule task and claim findings", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeConformanceDecisionFixture(rootDir, "dec_POST_RULE_CUTOFF", "2026-07-06T23:21:56.225Z");
+
+    const result = runJson(rootDir, ["check", "--profile", "source-package"], false);
+
+    assert.equal(hasDecisionConformanceFinding(
+      result,
+      "accepted-decision-missing-task-or-defer",
+      "decision/dec_POST_RULE_CUTOFF"
+    ), true);
+    assert.equal(hasDecisionConformanceFinding(
+      result,
+      "decision-claim-uncovered",
+      "decision/dec_POST_RULE_CUTOFF/C1"
+    ), true);
+  });
+});
+
+test("CLI decision conformance applies task and claim findings at the cutoff boundary", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeConformanceDecisionFixture(rootDir, "dec_RULE_BOUNDARY", "2026-07-06T23:21:56.224Z");
+
+    const result = runJson(rootDir, ["check", "--profile", "source-package"], false);
+
+    assert.equal(hasDecisionConformanceFinding(
+      result,
+      "accepted-decision-missing-task-or-defer",
+      "decision/dec_RULE_BOUNDARY"
+    ), true);
+    assert.equal(hasDecisionConformanceFinding(
+      result,
+      "decision-claim-uncovered",
+      "decision/dec_RULE_BOUNDARY/C1"
+    ), true);
+  });
+});
+
+function decisionConformanceFindings(result: Record<string, any>): ReadonlyArray<Record<string, any>> {
+  const entry = result.report.scriptChecks.find((scriptCheck: Record<string, any>) => (
+    scriptCheck.scriptId === "vertical:software-coding:decision-conformance"
+  ));
+  assert.ok(entry);
+  return entry.report.findings;
+}
+
+function hasDecisionConformanceFinding(result: Record<string, any>, type: string, ref: string): boolean {
+  return decisionConformanceFindings(result).some((finding: Record<string, any>) => (
+    finding.type === type && finding.ref === ref
+  ));
+}
+
+function writeConformanceDecisionFixture(rootDir: string, decisionId: string, decidedAt?: string): void {
+  writeFile(rootDir, `harness/decisions/decision-${decisionId}/decision.md`, [
+    "---",
+    "schema: decision-package/v1",
+    `decision_id: ${decisionId}`,
+    `_coordinatorWatermark: wm-${decisionId}`,
+    `title: "${decisionId} conformance fixture"`,
+    "state: active",
+    "riskTier: medium",
+    "urgency: medium",
+    "vertical: \"software/coding\"",
+    "preset: \"architecture-decision\"",
+    "applies_to:",
+    "  modules: []",
+    "  productLines: []",
+    "proposedBy: { kind: \"agent\", id: \"test\" }",
+    "proposedAt: \"2026-07-06T23:21:56.000Z\"",
+    "arbiter: { kind: \"human\", id: \"zeyuli\" }",
+    ...(decidedAt ? [`decidedAt: "${decidedAt}"`] : []),
+    "provenance:",
+    "  - { runtime: \"test\", sessionId: \"session-fixture\", boundAt: \"2026-07-06T23:21:56.000Z\" }",
+    "question: \"Should conformance fixture decisions derive work?\"",
+    "chosen:",
+    "  - { id: \"CH1\", text: \"Require work derivation\" }",
+    "rejected:",
+    "  - { id: \"RJ1\", text: \"Leave decision open\", why_not: \"The checker needs a deterministic fixture\" }",
+    "claims:",
+    "  - { id: \"C1\", text: \"The fixture claim needs live fact coverage\" }",
+    "relations: []",
+    "---",
+    `# ${decisionId} conformance fixture`,
+    ""
+  ].join("\n"));
+}
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-coverage-cli-"));
   try {
@@ -263,4 +365,10 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function writeFile(rootDir: string, relativePath: string, body: string): void {
+  const target = path.join(rootDir, relativePath);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, body, "utf8");
 }
