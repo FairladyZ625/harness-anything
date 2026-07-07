@@ -18,9 +18,25 @@
     "src/**/*.ts",
     "src/**/*.tsx"
   ],
+  "exclude": [
+    "src/renderer/App.tsx",
+    "src/renderer/main.tsx",
+    "src/renderer/theme.tsx",
+    "src/renderer/api-client.ts",
+    "src/renderer/task-data.ts",
+    "src/renderer/task-adapter.ts",
+    "src/renderer/views",
+    "src/renderer/components",
+    "src/renderer/graph",
+    "src/renderer/model",
+    "src/api/renderer-dto.ts"
+  ],
   "references": [
     {
       "path": "../application"
+    },
+    {
+      "path": "./tsconfig.renderer.json"
     }
   ]
 }
