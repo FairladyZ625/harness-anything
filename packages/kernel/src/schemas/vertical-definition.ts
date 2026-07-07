@@ -79,6 +79,7 @@ const VerticalScriptSchema = Schema.Struct({
   metadata: Schema.Struct({
     description: Schema.String,
     purpose: Schema.Literal("scaffold", "generate", "transform", "audit"),
+    kind: Schema.optional(Schema.Literal("action", "check")),
     contractVersion: Schema.Literal("script-entry/v1"),
     produces: StringArray
   })

@@ -162,6 +162,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "preset action", argv: ["preset", "action", "standard-task", "scaffold", "--task", "task_1"], kind: "preset-action", fields: { presetId: "standard-task", actionName: "scaffold", taskId: "task_1", allowScripts: false } },
   { name: "preset action allow scripts", argv: ["preset", "action", "publish-standard", "scaffold", "--task", "task_1", "--allow-scripts"], kind: "preset-action", fields: { presetId: "publish-standard", actionName: "scaffold", taskId: "task_1", allowScripts: true } },
   { name: "script list", argv: ["script", "list", "--source", "preset", "--purpose", "scaffold"], kind: "script-list", fields: { source: "preset", purpose: "scaffold" } },
+  { name: "script list kind", argv: ["script", "list", "--source", "vertical", "--kind", "check"], kind: "script-list", fields: { source: "vertical", scriptKind: "check" } },
   { name: "script inspect", argv: ["script", "inspect", "preset:publish-standard:scaffold"], kind: "script-inspect", fields: { scriptId: "preset:publish-standard:scaffold" } },
   { name: "script run", argv: ["script", "run", "preset:publish-standard:scaffold", "--task", "task_1", "--input", "mode=smoke", "--dry-run"], kind: "script-run", fields: { scriptId: "preset:publish-standard:scaffold", taskId: "task_1", inputs: { mode: "smoke" }, dryRun: true } },
   { name: "module list", argv: ["module", "list"], kind: "module-list" },

@@ -35,7 +35,7 @@ const descriptions: Record<string, string> = {
   "--approval": "Record a runtime event approval decision.",
   "--at": "Set the runtime event timestamp.",
   "--interrupt": "Record a task-level interrupt or steering action.",
-  "--kind": "Set kind where supported: runtime event kind, or task work kind feat, fix, refactor, docs, test, or chore.",
+  "--kind": "Set or filter kind where supported: runtime event kind, script kind action/check, or task work kind feat, fix, refactor, docs, test, or chore.",
   "--result": "Record a runtime event result status.",
   "--runtime": "Set the observed runtime kind.",
   "--session": "Set the runtime session id.",
