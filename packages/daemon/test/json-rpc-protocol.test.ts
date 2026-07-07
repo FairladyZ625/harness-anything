@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { LocalControllerService } from "../../application/src/index.ts";
+import { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
 import { apiRouteContracts } from "../../gui/src/api/api-contract-registry.ts";
 import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
 import {
   createJsonRpcProtocolServer,
   currentDaemonProtocolVersion,
   jsonRpcServiceMethodContracts,
+  jsonRpcMethodContracts,
+  makeTransportDerivedIdentityProvider,
+  peopleRosterFromDocument,
+  type IdentityProvider,
+  type PeopleRoster,
   type JsonRpcRequest,
   type JsonRpcResponse
 } from "../src/index.ts";
@@ -33,6 +40,16 @@ test("daemon JSON-RPC service method registry is derived from the API contract r
       outputSchemaId: contract.outputSchemaId
     }))
   );
+});
+
+test("daemon method registry classifies every non-hello method exactly once", () => {
+  for (const contract of jsonRpcMethodContracts) {
+    if (contract.method === "protocol.hello") {
+      assert.equal(contract.commandClass, undefined);
+      continue;
+    }
+    assert.match(contract.commandClass ?? "", /^(admin|repo-write|repo-read|arbiter)$/u, contract.method);
+  }
 });
 
 test("protocol.hello accepts the current daemon protocol version", async () => {
@@ -112,8 +129,16 @@ test("notification subscribe is a no-op socket and respects JSON-RPC notificatio
   assert.equal(response, undefined);
 });
 
-test("admin namespace is reserved and explicitly rejected until W4 owns it", async () => {
-  const server = makeServer();
+test("admin people list returns roster data and stamps receipt actor", async () => {
+  const roster = sampleRoster();
+  const server = makeServer({
+    peopleRoster: roster,
+    identityProvider: makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" }),
+    authContext: {
+      transportKind: "ssh-exec",
+      sshExecUser: { username: "alice", host: "team-host", source: "ssh-authenticated-exec" }
+    }
+  });
   await server.handle(readFixture("hello-compatible.json"));
 
   const response = await server.handle({
@@ -124,11 +149,109 @@ test("admin namespace is reserved and explicitly rejected until W4 owns it", asy
   });
   const receipt = resultReceipt(response);
 
-  assert.equal(receipt.ok, false);
-  assert.equal(receipt.error.code, "method_reserved");
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.items?.length, 3);
+  assert.equal((receipt.details.actor as { readonly personId?: string }).personId, "person_alice");
 });
 
-function makeServer() {
+test("transport-derived provider rejects unknown credentials without anonymous fallback", async () => {
+  const roster = sampleRoster();
+  const provider = makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" });
+  const resolved = await provider.resolveActor({
+    authContext: {
+      transportKind: "ssh-exec",
+      sshExecUser: { username: "mallory", host: "team-host", source: "ssh-authenticated-exec" }
+    },
+    command: { method: "repo.tasks.list", namespace: "repo", requiresRepo: true }
+  });
+
+  assert.equal(resolved.ok, false);
+  if (!resolved.ok) assert.equal(resolved.code, "credential_unknown");
+});
+
+test("mock email provider proves provider extension without daemon call-site changes", async () => {
+  const roster = sampleRoster();
+  const emailProvider: IdentityProvider = {
+    providerId: "email-session/v1",
+    resolveActor: async ({ authContext }) => {
+      const claims = authContext.sshTunnelToken?.subject.claims;
+      const email = claims && typeof claims.email === "string" ? claims.email.toLowerCase() : "";
+      return roster.resolveCredential({ kind: "email-address", issuer: "email:primary", subject: email }, "email-session/v1");
+    }
+  };
+
+  const resolved = await emailProvider.resolveActor({
+    authContext: {
+      transportKind: "ssh-tunnel",
+      sshTunnelToken: {
+        tokenId: "token-1",
+        tunnelNonce: "nonce-1",
+        subject: {
+          userId: "session-user",
+          hostProfileId: "host-profile",
+          daemonInstanceId: "daemon-test",
+          claims: { email: "ALICE@EXAMPLE.COM" }
+        }
+      }
+    },
+    command: { method: "repo.tasks.list", namespace: "repo", requiresRepo: true }
+  });
+
+  assert.equal(resolved.ok, true);
+  if (resolved.ok) {
+    assert.equal(resolved.actor.personId, "person_alice");
+    assert.equal(resolved.actor.providerId, "email-session/v1");
+  }
+});
+
+test("RBAC rejects non-arbiter methods and records a runtime event with actor", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const roster = sampleRoster();
+    const server = makeServer({
+      peopleRoster: roster,
+      identityProvider: makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" }),
+      authContext: {
+        transportKind: "ssh-exec",
+        sshExecUser: { username: "viewer", host: "team-host", source: "ssh-authenticated-exec" }
+      },
+      appendRuntimeEvent: makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
+        rootInput: rootDir,
+        now: () => "2026-07-07T00:00:00.000Z",
+        makeEventId: () => "evt_20260707_rbacdeny"
+      }))
+    });
+    await server.handle(readFixture("hello-compatible.json"));
+
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: "rbac-1",
+      method: "repo.tasks.review",
+      params: {
+        repo: { repoId: "canonical" },
+        session: { sessionId: "codex-session-rbac", runtime: "codex" },
+        payload: { taskId: "task-1" }
+      }
+    });
+    const receipt = resultReceipt(response);
+
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.error?.code, "rbac_forbidden");
+    assert.equal((receipt.details.actor as { readonly personId?: string }).personId, "person_viewer");
+    const event = JSON.parse(readFileSync(path.join(rootDir, ".harness/generated/runtime-events/codex-session-rbac.jsonl"), "utf8")) as {
+      readonly actor?: { readonly personId?: string };
+      readonly result?: { readonly errorCode?: string };
+      readonly tool?: { readonly toolName?: string };
+    };
+    assert.equal(event.actor?.personId, "person_viewer");
+    assert.equal(event.result?.errorCode, "rbac_forbidden");
+    assert.equal(event.tool?.toolName, "repo.tasks.review");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+function makeServer(overrides: Partial<Parameters<typeof createJsonRpcProtocolServer>[0]> = {}) {
   const localController: LocalControllerService = {
     getTasks: () => ({ ok: true, tasks: [], warnings: [] }),
     getTaskDetail: () => ({ ok: true }),
@@ -147,7 +270,8 @@ function makeServer() {
     services: {
       LocalControllerService: localController,
       TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" })
-    }
+    },
+    ...overrides
   });
 }
 
@@ -166,7 +290,7 @@ function resultReceipt(response: JsonRpcResponse | ReadonlyArray<JsonRpcResponse
   readonly action?: string;
   readonly error?: { readonly code?: string };
   readonly items?: ReadonlyArray<unknown>;
-  readonly details: Record<string, Record<string, unknown>>;
+  readonly details: Record<string, any>;
 } {
   assert.ok(response && !Array.isArray(response));
   assert.equal("result" in response, true);
@@ -177,6 +301,54 @@ function resultReceipt(response: JsonRpcResponse | ReadonlyArray<JsonRpcResponse
     readonly action?: string;
     readonly error?: { readonly code?: string };
     readonly items?: ReadonlyArray<unknown>;
-    readonly details: Record<string, Record<string, unknown>>;
+    readonly details: Record<string, any>;
   };
+}
+
+function sampleRoster(): PeopleRoster {
+  return peopleRosterFromDocument([
+    "schema: harness-people/v1",
+    "people:",
+    "  - personId: person_alice",
+    "    displayName: Alice Admin",
+    "    primaryEmail: alice@example.com",
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: ssh-username",
+    "        issuer: host:team-host",
+    "        subject: alice",
+    "      - kind: email-address",
+    "        issuer: email:primary",
+    "        subject: alice@example.com",
+    "  - personId: person_viewer",
+    "    displayName: Victor Viewer",
+    "    roles: [observer]",
+    "    credentials:",
+    "      - kind: ssh-username",
+    "        issuer: host:team-host",
+    "        subject: viewer",
+    "  - personId: person_arbiter",
+    "    displayName: Ari Arbiter",
+    "    primaryEmail: ari@example.com",
+    "    roles: [arbiter]",
+    "    credentials:",
+    "      - kind: ssh-username",
+    "        issuer: host:team-host",
+    "        subject: ari",
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    "  - roleId: observer",
+    "    commandClasses: [repo-read]",
+    "  - roleId: arbiter",
+    "    commandClasses: [arbiter, repo-write, repo-read]",
+    ""
+  ].join("\n"));
+}
+
+function createHarnessRoot(): string {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-rbac-"));
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
+  return rootDir;
 }

@@ -22,6 +22,17 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
         runtime: "codex",
         taskId: "task_01KWK8Z8V1YF1N0V0H2F6R1AYW"
       },
+      actor: {
+        personId: "person_zeyu",
+        displayName: "ZeYu Li",
+        primaryEmail: "zeyu@example.com",
+        providerId: "transport-derived/v1",
+        credential: {
+          kind: "ssh-username",
+          issuer: "host:team-daemon-01",
+          subject: "zeyu"
+        }
+      },
       interrupt: {
         action: "append",
         reason: "task-level steering"
@@ -41,6 +52,37 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
     const readBack = Effect.runSync(ledger.readSession("codex-session-1"));
     assert.equal(readBack.events.length, 1);
     assert.deepEqual(readBack.events[0], appended.event);
+    assert.equal(readBack.events[0]?.actor?.personId, "person_zeyu");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime event ledger reads legacy v1 rows without actor", () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const ledger = makeRuntimeEventLedgerService({ rootInput: rootDir });
+    const ledgerDir = path.join(rootDir, ".harness/generated/runtime-events");
+    mkdirSync(ledgerDir, { recursive: true });
+    writeFileSync(path.join(ledgerDir, "codex-session-1.jsonl"), `${JSON.stringify({
+      schema: "runtime-event/v1",
+      eventId: "evt_20260703_000001",
+      recordedAt: "2026-07-03T00:00:00.000Z",
+      kind: "result",
+      session: { sessionId: "codex-session-1", runtime: "codex" },
+      turn: null,
+      step: null,
+      tool: null,
+      approval: null,
+      interrupt: null,
+      result: { status: "succeeded" },
+      cost: null
+    })}\n`, "utf8");
+
+    const readBack = Effect.runSync(ledger.readSession("codex-session-1"));
+
+    assert.equal(readBack.events.length, 1);
+    assert.equal(readBack.events[0]?.actor, undefined);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

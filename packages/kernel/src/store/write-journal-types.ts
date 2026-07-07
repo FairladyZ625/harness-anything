@@ -13,6 +13,7 @@ export interface JournaledWriteCoordinatorOptions {
   readonly heldGlobalLock?: OwnedLock;
   readonly sessionId?: string;
   readonly autoMaterialize?: boolean;
+  readonly commitAuthor?: GitCommitAuthor;
 }
 
 export interface LockConflictRetryOptions {
@@ -24,6 +25,11 @@ export interface LockConflictRetryOptions {
 export interface JournalActor {
   readonly kind: "agent" | "human" | "system";
   readonly id: string;
+}
+
+export interface GitCommitAuthor {
+  readonly name: string;
+  readonly email: string;
 }
 
 export interface PayloadRef {

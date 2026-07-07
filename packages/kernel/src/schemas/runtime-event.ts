@@ -10,11 +10,24 @@ import {
 const OptionalString = Schema.optional(Schema.String);
 const OptionalNumber = Schema.optional(Schema.Number);
 
+const RuntimeEventActorSchema = Schema.Struct({
+  personId: Schema.String,
+  displayName: Schema.String,
+  primaryEmail: OptionalString,
+  providerId: Schema.String,
+  credential: Schema.Struct({
+    kind: Schema.String,
+    issuer: Schema.String,
+    subject: Schema.String
+  })
+});
+
 export const RuntimeEventRecordSchema = Schema.Struct({
   schema: Schema.Literal("runtime-event/v1"),
   eventId: Schema.String.pipe(Schema.pattern(/^evt_[A-Za-z0-9._-]{8,96}$/u)),
   recordedAt: Schema.String,
   kind: Schema.Literal(...runtimeEventKinds),
+  actor: Schema.optional(RuntimeEventActorSchema),
   session: Schema.Struct({
     sessionId: Schema.String,
     runtime: Schema.Union(CurrentSessionRuntimeSchema, Schema.Literal("unknown")),

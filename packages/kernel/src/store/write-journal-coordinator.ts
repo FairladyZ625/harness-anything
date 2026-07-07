@@ -42,8 +42,8 @@ import {
   isProgressAppendDeltaPayload,
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
-export type { JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
+export type { GitCommitAuthor, JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
 
 const defaultActor: JournalActor = { kind: "agent", id: "local" };
 // Flush writes the full op-id set before compaction for recovery safety, then
@@ -64,6 +64,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const lockTtlMs = options.lockTtlMs ?? 60_000;
   const lockConflictRetry = options.lockConflictRetry;
   const heldGlobalLock = options.heldGlobalLock;
+  const commitAuthor = options.commitAuthor;
   const sessionId = cleanSessionId(options.sessionId);
   const autoMaterialize = options.autoMaterialize ?? true;
   const pending: WriteOp[] = [];
@@ -72,7 +73,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       pending.splice(0, pending.length);
       const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId);
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor);
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -103,7 +104,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId);
+        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor);
         return {
           replayedOps: report.opCount,
           recoveredWatermark: report.watermark
@@ -175,7 +176,8 @@ function flushRecords(
   previousWatermark: WriteWatermark | null,
   records: ReadonlyArray<JournalRecord>,
   fileApplied: ReadonlySet<string>,
-  sessionId?: string
+  sessionId?: string,
+  commitAuthor?: GitCommitAuthor
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
@@ -204,7 +206,7 @@ function flushRecords(
     rootInput,
     semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)),
     sessionId,
-    { respectGitignorePaths: plannedRecords.filter((entry) => entry.record.kind === "task_tree_stage").flatMap((entry) => entry.touchedPaths) }
+    { respectGitignorePaths: plannedRecords.filter((entry) => entry.record.kind === "task_tree_stage").flatMap((entry) => entry.touchedPaths), author: commitAuthor }
   );
   const projectionHash = committedOpIds.length > 0
     ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceHash)
