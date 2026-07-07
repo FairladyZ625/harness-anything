@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertUniqueHarnessIpcChannels, preloadApiCapabilities, preloadAllowlist, registerHarnessIpcHandlers, type GuiServiceBridge } from "../src/index.ts";
+import {
+  apiRouteContracts,
+  assertUniqueHarnessIpcChannels,
+  deferredGuiBridgeContracts,
+  preloadAllowlist,
+  registerHarnessIpcHandlers,
+  shippedPreloadMethods,
+  type GuiServiceBridge
+} from "../src/index.ts";
 
 const trustedEvent = {
   sender: {
@@ -11,6 +19,32 @@ const trustedEvent = {
   }
 };
 const trustedRendererUrl = trustedEvent.senderFrame.url;
+
+test("preload and IPC channel surfaces are derived from the API registry", () => {
+  const shippedRegistryBridgeMethods = apiRouteContracts
+    .map((contract) => contract.guiBridgeMethod)
+    .filter((method): method is string => method !== undefined);
+  const deferredRegistryBridgeMethods = deferredGuiBridgeContracts.map((contract) => contract.guiBridgeMethod);
+  const registryBackedPreloadMethods = [
+    ...shippedRegistryBridgeMethods,
+    ...deferredRegistryBridgeMethods
+  ];
+  const channels: string[] = [];
+
+  registerHarnessIpcHandlers(
+    {
+      handle: (channel) => {
+        channels.push(channel);
+      }
+    },
+    { invoke: async () => ({ ok: true }) },
+    { isTrustedWebContentsId: () => true, rendererUrl: { packagedRendererUrl: trustedRendererUrl } }
+  );
+
+  assert.deepEqual(shippedPreloadMethods, shippedRegistryBridgeMethods);
+  assert.deepEqual(preloadAllowlist, registryBackedPreloadMethods);
+  assert.deepEqual(channels, registryBackedPreloadMethods.map((method) => `harness:${method}`));
+});
 
 test("main process registers one IPC handler for each preload allowlist method", async () => {
   const channels: string[] = [];
@@ -46,7 +80,6 @@ test("main process registers one IPC handler for each preload allowlist method",
     /untrusted_web_contents/i
   );
   assert.equal(handlers.has("harness:capabilities"), false);
-  assert.equal(preloadApiCapabilities.archiveTask.status, "deferred");
 });
 
 test("main process rejects duplicate IPC handler channels before registration", () => {

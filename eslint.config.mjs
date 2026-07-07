@@ -101,6 +101,54 @@ function kernelDeepImportSyntaxRestrictions(allowedTargets = []) {
   ];
 }
 
+const guiBridgeOnlyMessage = "GUI renderer must consume window.harness bridge only.";
+const guiRendererRestrictedImportPaths = [
+  "electron",
+  "@harness-anything/application",
+  "@harness-anything/kernel"
+].map((name) => ({
+  name,
+  message: guiBridgeOnlyMessage
+}));
+const guiRendererRestrictedImportPatterns = [
+  "@harness-anything/application/*",
+  "@harness-anything/kernel/*",
+  "@harness-anything/adapter-*",
+  "@harness-anything/adapter-*/*",
+  "packages/application/**",
+  "packages/kernel/**",
+  "packages/adapters/**",
+  "**/packages/application/**",
+  "**/packages/kernel/**",
+  "**/packages/adapters/**",
+  "**/application/**",
+  "**/kernel/**",
+  "**/adapters/**",
+  "../main/**",
+  "../preload/**",
+  "**/main/**",
+  "**/preload/**"
+];
+const guiRendererRestrictedImportSourcePattern = String.raw`(?:^electron$|@harness-anything\/(?:application|kernel|adapter-[^/]+)(?:\/|$)|(?:^|\/)(?:packages\/)?(?:application|kernel|adapters)(?:\/|$)|(?:^|\/)(?:main|preload)(?:\/|$))`;
+const guiIpcRestrictedSyntax = [
+  {
+    selector: "MemberExpression[object.name='ipcMain'][property.name='handle']",
+    message: "Register Harness IPC handlers only in packages/gui/src/main/ipc-handlers.ts."
+  },
+  {
+    selector: "Identifier[name='ipcRenderer']",
+    message: "Use ipcRenderer only in packages/gui/src/preload/electron-preload.ts."
+  }
+];
+const guiIpcSyntaxWithoutIpcRenderer = guiIpcRestrictedSyntax.filter((entry) => !entry.selector.includes("ipcRenderer"));
+const guiIpcSyntaxWithoutIpcMainHandle = guiIpcRestrictedSyntax.filter((entry) => !entry.selector.includes("ipcMain"));
+const packageSyntaxRestrictions = [
+  {
+    selector: "ImportExpression[source.type='Literal'][source.value=/kernel\\/src\\/(?!index\\.ts$)/u]",
+    message: "Dynamic imports must not bypass the kernel public barrel."
+  }
+];
+
 const kernelImportKnownDebtOverrides = Object.values(Object.groupBy(
   kernelImportBoundaryKnownDebt,
   (entry) => entry.file
@@ -172,10 +220,70 @@ export default tseslint.config(
       ],
       "no-restricted-syntax": [
         "error",
+        ...packageSyntaxRestrictions
+      ]
+    }
+  },
+  {
+    files: ["packages/gui/src/renderer/**/*.{ts,tsx,js,mjs}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
         {
-          selector: "ImportExpression[source.type='Literal'][source.value=/kernel\\/src\\/(?!index\\.ts$)/u]",
-          message: "Dynamic imports must not bypass the kernel public barrel."
+          paths: guiRendererRestrictedImportPaths,
+          patterns: [
+            {
+              group: guiRendererRestrictedImportPatterns,
+              message: guiBridgeOnlyMessage
+            }
+          ]
         }
+      ],
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        {
+          selector: `ImportExpression[source.type='Literal'][source.value=/${guiRendererRestrictedImportSourcePattern}/u]`,
+          message: guiBridgeOnlyMessage
+        },
+        {
+          selector: `CallExpression[callee.name='require'][arguments.0.value=/${guiRendererRestrictedImportSourcePattern}/u]`,
+          message: guiBridgeOnlyMessage
+        }
+      ]
+    }
+  },
+  {
+    files: ["packages/gui/src/**/*.{ts,tsx,js,mjs}"],
+    ignores: [
+      "packages/gui/src/main/ipc-handlers.ts",
+      "packages/gui/src/preload/electron-preload.ts"
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        ...guiIpcRestrictedSyntax
+      ]
+    }
+  },
+  {
+    files: ["packages/gui/src/main/ipc-handlers.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        ...guiIpcSyntaxWithoutIpcMainHandle
+      ]
+    }
+  },
+  {
+    files: ["packages/gui/src/preload/electron-preload.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        ...guiIpcSyntaxWithoutIpcRenderer
       ]
     }
   },
