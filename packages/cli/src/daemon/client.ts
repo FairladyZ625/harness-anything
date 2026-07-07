@@ -69,6 +69,22 @@ export function localDaemonSocketPath(rootDir: string): string {
   return defaultUnixSocketPath(daemonIdForRoot(rootDir));
 }
 
+export async function requestLocalDaemonJsonRpc(
+  rootDir: string,
+  method: string,
+  params: JsonObject,
+  timeoutMs = 1_000
+): Promise<JsonObject> {
+  const socket = await connectUnixSocket(localDaemonSocketPath(rootDir), timeoutMs);
+  const client = new JsonRpcLineClient(socket, socket);
+  try {
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+    return await client.request(method, params);
+  } finally {
+    client.close();
+  }
+}
+
 async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfig): Promise<CommandReceipt | CommandFailureReceipt> {
   const endpoint = localDaemonSocketPath(command.rootDir);
   const deadline = Date.now() + config.autostartTimeoutMs;
