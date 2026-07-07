@@ -128,5 +128,7 @@ export type {
   MaterializationRequest,
   MaterializedTemplatePlan,
   MaterializationResult,
-  ExtensionInputKind
+  ExtensionInputKind,
+  TemplateBodyResolver,
+  TemplateCatalogValidationOptions
 } from "./extension-model.ts";

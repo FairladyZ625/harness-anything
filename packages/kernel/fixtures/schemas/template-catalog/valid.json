@@ -1,5 +1,5 @@
 {
-  "schema": "template-catalog/v1",
+  "schema": "template-catalog/v2",
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
@@ -21,12 +21,12 @@
         {
           "locale": "zh-CN",
           "anchors": ["## Goal", "## Steps", "## Gates"],
-          "body": "## Goal\n说明目标。\n\n## Steps\n列出步骤。\n\n## Gates\n列出门禁。\n"
+          "bodyPath": "templates/task.flow/zh-CN.md"
         },
         {
           "locale": "en-US",
           "anchors": ["## Goal", "## Steps", "## Gates"],
-          "body": "## Goal\nDescribe the goal.\n\n## Steps\nList the steps.\n\n## Gates\nList the gates.\n"
+          "bodyPath": "templates/task.flow/en-US.md"
         }
       ]
     }

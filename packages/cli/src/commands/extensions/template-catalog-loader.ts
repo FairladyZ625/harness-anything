@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import {
+  type TemplateBodyResolver,
   TemplateCatalogSchema,
   validateExtensionInputShape
 } from "../../../../kernel/src/index.ts";
@@ -9,14 +10,18 @@ import { isPathInside } from "../../cli/path.ts";
 
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 
+const templateCatalogBodies = new WeakMap<TemplateCatalog, ReadonlyMap<string, string>>();
+
 export function decodeTemplateCatalogFile(filePath: string): { readonly ok: true; readonly value: TemplateCatalog } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {
   const inputPath = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
   const raw = JSON.parse(readFileSync(inputPath, "utf8")) as unknown;
-  const hydrated = hydrateTemplateCatalog(raw, inputPath);
-  if (!hydrated.ok) return hydrated;
-  const shape = validateExtensionInputShape("template-catalog", hydrated.value);
+  const bodyAssets = readTemplateCatalogBodyAssets(raw, inputPath);
+  if (!bodyAssets.ok) return bodyAssets;
+  const shape = validateExtensionInputShape("template-catalog", raw);
   if (!shape.ok) return { ok: false, issues: shape.issues };
-  return { ok: true, value: Schema.decodeUnknownSync(TemplateCatalogSchema)(hydrated.value) };
+  const value = Schema.decodeUnknownSync(TemplateCatalogSchema)(raw);
+  templateCatalogBodies.set(value, bodyAssets.value);
+  return { ok: true, value };
 }
 
 export function readTemplateCatalogFile(filePath: string): TemplateCatalog {
@@ -25,64 +30,65 @@ export function readTemplateCatalogFile(filePath: string): TemplateCatalog {
   throw new Error(`template catalog failed validation: ${decoded.issues.map(renderIssue).join(", ")}`);
 }
 
-function hydrateTemplateCatalog(input: unknown, inputPath: string): { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {
+export function resolveTemplateCatalogBody(catalog: TemplateCatalog): TemplateBodyResolver {
+  return ({ locale }) => templateCatalogBodies.get(catalog)?.get(locale.bodyPath);
+}
+
+function readTemplateCatalogBodyAssets(input: unknown, inputPath: string): { readonly ok: true; readonly value: ReadonlyMap<string, string> } | { readonly ok: false; readonly issues: ReadonlyArray<unknown> } {
+  if (isTemplateCatalogRecord(input) && input.schema === "template-catalog/v1") {
+    return {
+      ok: false,
+      issues: [issue("template_catalog_v1_unsupported", "template-catalog/v1 is no longer supported; upgrade locales from inline body to bodyPath.", "$.schema")]
+    };
+  }
   if (!isTemplateCatalogRecord(input) || input.schema !== "template-catalog/v2") {
-    return { ok: true, value: input };
+    return { ok: true, value: new Map() };
   }
 
   const catalogDir = path.dirname(inputPath);
   const issues: unknown[] = [];
-  const documents = Array.isArray(input.documents)
-    ? input.documents.map((document, documentIndex) => hydrateDocument(document, documentIndex, catalogDir, issues))
-    : input.documents;
+  const bodies = new Map<string, string>();
+  if (Array.isArray(input.documents)) {
+    for (const [documentIndex, document] of input.documents.entries()) {
+      readDocumentBodyAssets(document, documentIndex, catalogDir, bodies, issues);
+    }
+  }
 
   if (issues.length > 0) return { ok: false, issues };
-  return {
-    ok: true,
-    value: {
-      ...input,
-      schema: "template-catalog/v1",
-      documents
-    }
-  };
+  return { ok: true, value: bodies };
 }
 
-function hydrateDocument(document: unknown, documentIndex: number, catalogDir: string, issues: unknown[]): unknown {
-  if (!isTemplateCatalogRecord(document) || !Array.isArray(document.locales)) return document;
-  return {
-    ...document,
-    locales: document.locales.map((locale, localeIndex) => hydrateLocale(locale, documentIndex, localeIndex, catalogDir, issues))
-  };
+function readDocumentBodyAssets(document: unknown, documentIndex: number, catalogDir: string, bodies: Map<string, string>, issues: unknown[]): void {
+  if (!isTemplateCatalogRecord(document) || !Array.isArray(document.locales)) return;
+  for (const [localeIndex, locale] of document.locales.entries()) {
+    readLocaleBodyAsset(locale, documentIndex, localeIndex, catalogDir, bodies, issues);
+  }
 }
 
-function hydrateLocale(locale: unknown, documentIndex: number, localeIndex: number, catalogDir: string, issues: unknown[]): unknown {
-  if (!isTemplateCatalogRecord(locale)) return locale;
+function readLocaleBodyAsset(locale: unknown, documentIndex: number, localeIndex: number, catalogDir: string, bodies: Map<string, string>, issues: unknown[]): void {
+  if (!isTemplateCatalogRecord(locale)) return;
   const issuePath = `documents[${documentIndex}].locales[${localeIndex}].bodyPath`;
   if ("body" in locale) {
     issues.push(issue("template_body_inline_forbidden", "template-catalog/v2 locales must use bodyPath, not inline body.", `documents[${documentIndex}].locales[${localeIndex}].body`));
   }
   if (typeof locale.bodyPath !== "string") {
     issues.push(issue("template_body_path_missing", "template-catalog/v2 locale is missing bodyPath.", issuePath));
-    return locale;
+    return;
   }
   if (!isSafeBodyPath(locale.bodyPath)) {
     issues.push(issue("template_body_path_invalid", "Template bodyPath must be a safe relative .md path.", issuePath));
-    return locale;
+    return;
   }
   const resolved = path.resolve(catalogDir, locale.bodyPath);
   if (!isPathInside(catalogDir, resolved)) {
     issues.push(issue("template_body_path_invalid", "Template bodyPath must stay inside the catalog directory.", issuePath));
-    return locale;
+    return;
   }
   if (!existsSync(resolved)) {
     issues.push(issue("template_body_asset_missing", "Template bodyPath does not exist.", issuePath));
-    return locale;
+    return;
   }
-  const { bodyPath: _bodyPath, ...rest } = locale;
-  return {
-    ...rest,
-    body: readFileSync(resolved, "utf8")
-  };
+  bodies.set(locale.bodyPath, readFileSync(resolved, "utf8"));
 }
 
 function isSafeBodyPath(value: string): boolean {
