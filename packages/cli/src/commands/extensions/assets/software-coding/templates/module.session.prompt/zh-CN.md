@@ -1,9 +1,11 @@
-# Module Session Prompt
+# 模块会话提示
 
-## Session Prompt
+<!-- required-anchor: ## Session Prompt -->
+## 会话提示
 
-给执行 agent 的任务提示。
+给执行代理的任务提示。
 
-## Required Context
+<!-- required-anchor: ## Required Context -->
+## 必读上下文
 
-列出 agent 必须先读的上下文。
+列出执行代理必须先读的上下文。
