@@ -13,12 +13,8 @@
           "kernel"
         ]
       },
-      "owner": "architecture",
-      "brief": "Context retrieval and non-omission decision record.",
-      "tags": [
-        "docmap",
-        "read-set"
-      ]
+      "updatedAt": "2026-07-07T00:00:00.000Z",
+      "unused": true
     }
   ]
 }

@@ -113,16 +113,17 @@ function collectMarkdownDocuments(authoredRoot: string, absolutePath: string, do
   }
   if (!absolutePath.endsWith(".md")) return;
   const relativePath = normalizeRelativeDocumentPath(path.relative(authoredRoot, absolutePath).split(path.sep).join("/"));
-  docs.push(documentFromMarkdown(absolutePath, relativePath));
+  docs.push(documentFromMarkdown(absolutePath, relativePath, stat.mtime));
 }
 
-function documentFromMarkdown(absolutePath: string, relativePath: string): DocmapDocument {
+function documentFromMarkdown(absolutePath: string, relativePath: string, updatedAt: Date): DocmapDocument {
   const body = readFileSync(absolutePath, "utf8");
   const frontmatter = readFrontmatter(body);
   const pathParts = relativePath.split("/");
-  const inferred = inferDocument(relativePath, pathParts, body);
+  const inferred = inferDocument(relativePath, pathParts);
   const modules = frontmatter ? readList(frontmatter, "modules", "docmap.modules") : [];
   const productLines = frontmatter ? readList(frontmatter, "productLines", "docmap.productLines") : [];
+  const unused = frontmatter ? readBoolean(frontmatter, "unused", "docmap.unused") : false;
   return {
     id: firstNonEmpty(
       frontmatter ? readScalar(frontmatter, "docmap.id") : "",
@@ -135,29 +136,25 @@ function documentFromMarkdown(absolutePath: string, relativePath: string): Docma
       modules: modules.length > 0 ? modules : inferred.modules,
       productLines: productLines.length > 0 ? productLines : inferred.productLines
     },
-    owner: firstNonEmpty(frontmatter ? readScalar(frontmatter, "owner") : "", inferred.owner),
-    brief: firstNonEmpty(frontmatter ? readScalar(frontmatter, "brief") : "", firstHeading(body), inferred.brief),
-    tags: ["derived", ...inferred.tags]
+    updatedAt: updatedAt.toISOString(),
+    ...(unused ? { unused } : {})
   };
 }
 
-function inferDocument(relativePath: string, pathParts: ReadonlyArray<string>, body: string): {
+function inferDocument(relativePath: string, pathParts: ReadonlyArray<string>): {
   readonly id: string;
   readonly kind: DocmapDocument["kind"];
   readonly modules: ReadonlyArray<string>;
   readonly productLines: ReadonlyArray<string>;
-  readonly owner: string;
-  readonly brief: string;
-  readonly tags: ReadonlyArray<string>;
 } {
   if (relativePath === "AGENTS.md") {
-    return { id: "operating:AGENTS", kind: "standard", modules: [], productLines: [], owner: "operations", brief: "Local operating entrypoint", tags: ["operating"] };
+    return { id: "operating:AGENTS", kind: "standard", modules: [], productLines: [] };
   }
   if (pathParts[0] === "governance" && pathParts[1] === "standards") {
-    return { id: `standard:${basenameId(relativePath)}`, kind: "standard", modules: [], productLines: [], owner: "governance", brief: titleFromPath(relativePath, body), tags: ["governance"] };
+    return { id: `standard:${basenameId(relativePath)}`, kind: "standard", modules: [], productLines: [] };
   }
   if (pathParts[0] === "adr") {
-    return { id: `adr:${basenameId(relativePath)}`, kind: "adr", modules: [], productLines: [], owner: "architecture", brief: titleFromPath(relativePath, body), tags: ["adr"] };
+    return { id: `adr:${basenameId(relativePath)}`, kind: "adr", modules: [], productLines: [] };
   }
   if (pathParts[0] === "milestones") {
     const productLine = pathParts.length > 2 ? pathParts[1] ?? "" : "root";
@@ -167,20 +164,14 @@ function inferDocument(relativePath: string, pathParts: ReadonlyArray<string>, b
       id: `milestone:${context}`,
       kind: "roadmap",
       modules: moduleKey ? [moduleKey] : [],
-      productLines: productLine === "root" ? [] : [productLine],
-      owner: "architecture",
-      brief: titleFromPath(relativePath, body),
-      tags: ["milestone"]
+      productLines: productLine === "root" ? [] : [productLine]
     };
   }
   return {
     id: `architecture:${basenameId(relativePath)}`,
     kind: "architecture",
     modules: inferModuleFromPath(pathParts),
-    productLines: [],
-    owner: "architecture",
-    brief: titleFromPath(relativePath, body),
-    tags: ["architecture"]
+    productLines: []
   };
 }
 
@@ -203,17 +194,17 @@ function readList(frontmatter: string, ...keys: ReadonlyArray<string>): Readonly
   return [];
 }
 
+function readBoolean(frontmatter: string, ...keys: ReadonlyArray<string>): boolean {
+  for (const key of keys) {
+    const value = readScalar(frontmatter, key).trim().toLowerCase();
+    if (value === "true") return true;
+  }
+  return false;
+}
+
 function renderReadSetRows(documents: ReadonlyArray<DocmapDocument>): ReadonlyArray<string> {
   if (documents.length === 0) return ["- None."];
-  return documents.map((document) => `- [${document.id}] ${document.path} - ${document.brief}`);
-}
-
-function firstHeading(body: string): string {
-  return body.match(/^#\s+(.+)$/mu)?.[1]?.trim() ?? "";
-}
-
-function titleFromPath(relativePath: string, body: string): string {
-  return firstHeading(body) || basenameId(relativePath).replace(/[-_]+/gu, " ");
+  return documents.map((document) => `- [${document.id}] ${document.path}`);
 }
 
 function basenameId(relativePath: string): string {

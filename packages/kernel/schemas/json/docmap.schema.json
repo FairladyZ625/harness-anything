@@ -21,8 +21,7 @@
           "path",
           "kind",
           "scope",
-          "owner",
-          "brief"
+          "updatedAt"
         ],
         "properties": {
           "id": {
@@ -66,10 +65,7 @@
               }
             }
           },
-          "owner": {
-            "type": "string"
-          },
-          "brief": {
+          "updatedAt": {
             "type": "string"
           },
           "supersedes": {
@@ -83,11 +79,8 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$"
           },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "unused": {
+            "type": "boolean"
           }
         }
       }

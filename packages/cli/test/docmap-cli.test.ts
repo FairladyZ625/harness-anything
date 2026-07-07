@@ -66,6 +66,7 @@ test("CLI doc generate derives and persists manifest from authored canonical doc
     assert.equal(existsSync(path.join(harnessRoot, "docmap.json")), true);
     assert.equal(gitStatus(harnessRoot), "");
     assert.equal(generated.report.documents[0].id, "milestone:foundation:m5-circulation:01-feature-breakdown");
+    assert.match(generated.report.documents[0].updatedAt, /^\d{4}-\d{2}-\d{2}T/u);
     assert.deepEqual(
       generated.report.documents.map((entry: { readonly path: string }) => entry.path),
       ["milestones/foundation/m5-circulation/01-feature-breakdown.md"]
@@ -149,8 +150,7 @@ function doc(id: string, docPath: string, modules: string[], productLines: strin
     path: docPath,
     kind: "adr",
     scope: { modules, productLines },
-    owner: "architecture",
-    brief: `${id} brief`
+    updatedAt: "2026-07-07T00:00:00.000Z"
   };
 }
 
