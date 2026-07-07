@@ -28,7 +28,7 @@
 4. PR Number And Rebase Base SHA
 
 - Rebase base SHA: `3b6aec4fa06c8ae2ba150bd31f59b8f89f99c928`.
-- PR: pending.
+- PR: #308, `https://github.com/FairladyZ625/harness-anything/pull/308`.
 
 5. Residual Risk / Known Not Done
 
