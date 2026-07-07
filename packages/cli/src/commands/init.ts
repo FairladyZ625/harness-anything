@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
@@ -10,6 +11,7 @@ import { materializeRepositoryScaffold } from "./extensions/repository-scaffold.
 export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
+  const warnings: unknown[] = [];
   const resolvedProjectName = projectName ?? path.basename(rootDir);
   const vertical = bundledVerticalDefinition();
   if (!vertical) throw new Error("bundled software/coding vertical definition missing");
@@ -31,7 +33,8 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
   const harnessConfigPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   writeHarnessYaml(harnessConfigPath, resolvedProjectName, projectName !== undefined);
   materializeRepositoryScaffold(rootInput, vertical);
-  ensureGitignoreEntry(path.join(layout.rootDir, ".gitignore"), ".harness/");
+  const isolation = ensureHarnessRepositoryIsolation(rootDir, layout.authoredRoot);
+  warnings.push(...isolation.warnings);
   const packagePath = path.join(layout.rootDir, "package.json");
   if (addNpmScripts) {
     const packageJson = existsSync(packagePath)
@@ -53,8 +56,209 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
     ok: true,
     command: "init",
     path: normalizeSlashes(path.relative(rootDir, harnessConfigPath)),
-    generated: addNpmScripts ? ["package.json"] : []
+    generated: addNpmScripts ? ["package.json"] : [],
+    report: {
+      isolation: isolation.report
+    },
+    warnings
   };
+}
+
+interface HarnessIsolationResult {
+  readonly report: HarnessIsolationReport;
+  readonly warnings: ReadonlyArray<unknown>;
+}
+
+interface HarnessIsolationReport {
+  readonly schema: "harness-isolation/v1";
+  readonly authoredRoot: string;
+  readonly innerGitDir: string;
+  readonly outerGit: {
+    readonly insideWorkTree: boolean;
+  };
+  readonly innerRepository: {
+    readonly gitDirExists: boolean;
+    readonly action: "initialized" | "skipped-existing" | "failed";
+    readonly branch: string | null;
+    readonly initialCommitCreated: boolean;
+    readonly commitCount: number | null;
+  };
+  readonly outerGitignore: {
+    readonly path: ".gitignore";
+    readonly action: "updated" | "already-present" | "skipped-not-git" | "failed";
+    readonly entries: readonly string[];
+  };
+  readonly boundary: string;
+  readonly nextSteps: readonly string[];
+}
+
+function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string): HarnessIsolationResult {
+  const warnings: unknown[] = [];
+  const authoredRootRelative = relativeLayoutPath(rootDir, authoredRoot);
+  const innerGitDir = path.join(authoredRoot, ".git");
+  const outerGit = isInsideGitWorkTree(rootDir);
+  const gitignore = ensureOuterGitignoreIsolation(rootDir, outerGit, authoredRootRelative);
+  warnings.push(...gitignore.warnings);
+  const innerRepository = ensureInnerGitRepository(authoredRoot, innerGitDir);
+  warnings.push(...innerRepository.warnings);
+
+  return {
+    warnings,
+    report: {
+      schema: "harness-isolation/v1",
+      authoredRoot: authoredRootRelative,
+      innerGitDir: `${authoredRootRelative}/.git`,
+      outerGit: {
+        insideWorkTree: outerGit
+      },
+      innerRepository: innerRepository.report,
+      outerGitignore: gitignore.report,
+      boundary: "Code PRs must not include harness/ changes; commit ledger changes inside harness/ as its own private git repository.",
+      nextSteps: [
+        `git -C ${authoredRootRelative} status`,
+        `git -C ${authoredRootRelative} add . && git -C ${authoredRootRelative} commit`
+      ]
+    }
+  };
+}
+
+function ensureOuterGitignoreIsolation(rootDir: string, outerGit: boolean, authoredRootRelative: string): {
+  readonly report: HarnessIsolationReport["outerGitignore"];
+  readonly warnings: ReadonlyArray<unknown>;
+} {
+  const entries = [".harness/", `${authoredRootRelative}/`];
+  if (!outerGit) {
+    return {
+      warnings: [],
+      report: {
+        path: ".gitignore",
+        action: "skipped-not-git",
+        entries
+      }
+    };
+  }
+
+  const gitignorePath = path.join(rootDir, ".gitignore");
+  try {
+    const before = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
+    for (const entry of entries) ensureGitignoreEntry(gitignorePath, entry);
+    const after = readFileSync(gitignorePath, "utf8");
+    return {
+      warnings: [],
+      report: {
+        path: ".gitignore",
+        action: before === after ? "already-present" : "updated",
+        entries
+      }
+    };
+  } catch (error) {
+    return {
+      warnings: [isolationWarning("outer_gitignore_update_failed", error)],
+      report: {
+        path: ".gitignore",
+        action: "failed",
+        entries
+      }
+    };
+  }
+}
+
+function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string): {
+  readonly report: HarnessIsolationReport["innerRepository"];
+  readonly warnings: ReadonlyArray<unknown>;
+} {
+  if (existsSync(innerGitDir)) {
+    return {
+      warnings: [],
+      report: {
+        gitDirExists: true,
+        action: "skipped-existing",
+        branch: readGitText(authoredRoot, ["branch", "--show-current"]) || null,
+        initialCommitCreated: false,
+        commitCount: readCommitCount(authoredRoot)
+      }
+    };
+  }
+
+  try {
+    try {
+      runGit(authoredRoot, ["init", "--initial-branch=master"]);
+    } catch {
+      runGit(authoredRoot, ["init"]);
+      runGit(authoredRoot, ["symbolic-ref", "HEAD", "refs/heads/master"]);
+    }
+    runGit(authoredRoot, ["add", "."]);
+    runGit(authoredRoot, ["commit", "-m", "chore: initialize harness ledger"]);
+    return {
+      warnings: [],
+      report: {
+        gitDirExists: existsSync(innerGitDir),
+        action: "initialized",
+        branch: readGitText(authoredRoot, ["branch", "--show-current"]) || "master",
+        initialCommitCreated: true,
+        commitCount: readCommitCount(authoredRoot)
+      }
+    };
+  } catch (error) {
+    return {
+      warnings: [isolationWarning("inner_git_init_failed", error)],
+      report: {
+        gitDirExists: existsSync(innerGitDir),
+        action: "failed",
+        branch: readGitText(authoredRoot, ["branch", "--show-current"]) || null,
+        initialCommitCreated: false,
+        commitCount: readCommitCount(authoredRoot)
+      }
+    };
+  }
+}
+
+function isInsideGitWorkTree(rootDir: string): boolean {
+  return readGitText(rootDir, ["rev-parse", "--is-inside-work-tree"]) === "true";
+}
+
+function readCommitCount(rootDir: string): number | null {
+  const output = readGitText(rootDir, ["rev-list", "--count", "HEAD"]);
+  return output ? Number.parseInt(output, 10) : null;
+}
+
+function readGitText(rootDir: string, args: ReadonlyArray<string>): string | undefined {
+  try {
+    return execFileSync("git", ["-C", rootDir, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function runGit(rootDir: string, args: ReadonlyArray<string>): void {
+  execFileSync("git", ["-C", rootDir, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
+      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "harness-anything@example.invalid",
+      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
+      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness-anything@example.invalid"
+    }
+  });
+}
+
+function isolationWarning(code: string, error: unknown): Record<string, string> {
+  return {
+    source: "harness-isolation",
+    severity: "warning",
+    code,
+    message: error instanceof Error ? error.message : String(error),
+    repairHint: "Run harness-anything doctor --json, then rerun harness-anything init after fixing the reported git or filesystem issue."
+  };
+}
+
+function relativeLayoutPath(rootDir: string, filePath: string): string {
+  return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 
 function writeHarnessYaml(filePath: string, projectName: string, forceNameUpdate: boolean): void {
