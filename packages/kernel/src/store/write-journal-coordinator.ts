@@ -26,7 +26,9 @@ import {
   resolveHarnessLayout,
   taskPackagePath
 } from "../layout/index.ts";
-import { hashTaskProjectionRows, rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
+import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
+import { hashTaskProjectionRows } from "../projection/sqlite-task-projection.ts";
+import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
 import { runLedgerMaterializer } from "./ledger-materializer.ts";
@@ -183,6 +185,7 @@ function flushRecords(
   }));
 
   resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput);
+  const previousProjectionSourceHash = records.length > 0 ? readMarkdownSource(rootInput).hash : undefined;
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
     // Ops with a durable apply marker already mutated their file before a crash;
@@ -203,7 +206,9 @@ function flushRecords(
     sessionId,
     { respectGitignorePaths: plannedRecords.filter((entry) => entry.record.kind === "task_tree_stage").flatMap((entry) => entry.touchedPaths) }
   );
-  const projectionHash = committedOpIds.length > 0 ? rebuildProjectionHash(rootDir, rootInput) : previousWatermark?.projectionHash ?? "no-projection-change";
+  const projectionHash = committedOpIds.length > 0
+    ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceHash)
+    : previousWatermark?.projectionHash ?? "no-projection-change";
   const allCommitted = [...(previousWatermark?.lastCommittedOpIds ?? []), ...committedOpIds];
   const recentCommitted = recentOpIds(allCommitted);
   const watermark = committedOpIds.at(-1);
@@ -427,9 +432,19 @@ function assertHardDeleteAllowed(
   }
 }
 
-function rebuildProjectionHash(rootDir: string, rootInput: HarnessLayoutInput): string {
+function rebuildProjectionHash(
+  rootDir: string,
+  rootInput: HarnessLayoutInput,
+  touchedPaths: ReadonlyArray<string>,
+  previousSourceHash: string | undefined
+): string {
   const layoutOverrides = typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
-  return hashTaskProjectionRows(rebuildTaskProjection({ rootDir, layoutOverrides }).rows);
+  return hashTaskProjectionRows(updateTaskProjectionIncrementally({
+    rootDir,
+    layoutOverrides,
+    touchedPaths,
+    previousSourceHash
+  }).rows);
 }
 
 function recentOpIds(opIds: ReadonlyArray<string>): ReadonlyArray<string> {

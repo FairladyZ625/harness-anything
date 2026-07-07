@@ -14,6 +14,17 @@ export function readDecisionProjectionRows(rootInput: HarnessLayoutInput): Reado
     .sort(compareDecisionRows);
 }
 
+export function readDecisionProjectionRowsForPaths(
+  rootInput: HarnessLayoutInput,
+  documentPaths: ReadonlyArray<string>
+): ReadonlyArray<DecisionProjectionRow> {
+  const layout = resolveHarnessLayout(rootInput);
+  return uniqueDecisionDocumentPaths(documentPaths.map((documentPath) => path.resolve(documentPath)))
+    .filter((documentPath) => existsSync(documentPath) && path.basename(documentPath) === "decision.md")
+    .map((documentPath) => decisionDocumentToProjectionRow(layout.rootDir, documentPath))
+    .sort(compareDecisionRows);
+}
+
 export function hashDecisionProjectionRows(rows: ReadonlyArray<DecisionProjectionRow>): string {
   return `sha256:${sha256Text(JSON.stringify([...rows].sort(compareDecisionRows).map(canonicalDecisionProjectionRow)))}`;
 }
@@ -224,6 +235,10 @@ function legacyNumber(value: string): number | undefined {
   if (!match) return undefined;
   const parsed = Number(match[1]);
   return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function uniqueDecisionDocumentPaths(values: ReadonlyArray<string>): ReadonlyArray<string> {
+  return [...new Set(values)];
 }
 
 function canonicalDecisionProjectionRow(row: DecisionProjectionRow): DecisionProjectionRow {

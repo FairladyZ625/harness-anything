@@ -93,6 +93,22 @@ export function commitsNotInMaster(repoRoot: string, branch: string): ReadonlyAr
     .filter(Boolean);
 }
 
+export function currentGitHead(repoRoot: string): string {
+  try {
+    return runGit(repoRoot, "rev-parse", "HEAD").trim();
+  } catch {
+    return "no-git-head";
+  }
+}
+
+export function changedFilesBetween(repoRoot: string, before: string, after: string): ReadonlyArray<string> {
+  if (before === after) return [];
+  return runGit(repoRoot, "diff", "--name-only", before, after)
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function refExists(repoRoot: string, ref: string): boolean {
   try {
     runGit(repoRoot, "rev-parse", "--verify", "--quiet", ref);
@@ -200,14 +216,6 @@ function sessionBranchName(sessionId: string | undefined): string | undefined {
     throw new Error(`invalid session id for git branch: ${safeSessionId}`);
   }
   return `sessions/${safeSessionId}`;
-}
-
-function currentGitHead(rootDir: string): string {
-  try {
-    return runGit(rootDir, "rev-parse", "HEAD").trim();
-  } catch {
-    return "no-git-head";
-  }
 }
 
 function unique(values: ReadonlyArray<string>): ReadonlyArray<string> {
