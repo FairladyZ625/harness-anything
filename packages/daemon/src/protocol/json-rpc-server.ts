@@ -1,5 +1,5 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
-import type { LocalControllerService } from "../../../application/src/index.ts";
+import type { CommandFailureReceipt, CommandReceipt, LocalControllerService } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
 import { currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
@@ -18,7 +18,7 @@ export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
   readonly CliCommandService?: {
-    readonly runCommand: (payload?: JsonObject) => Promise<JsonObject>;
+    readonly runCommand: (payload?: JsonObject) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
 }
 

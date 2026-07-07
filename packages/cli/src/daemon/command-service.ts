@@ -6,7 +6,7 @@ import { runRegisteredCommandWithCliComposition } from "../composition/command-e
 import { makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
 export interface CliCommandService {
-  readonly runCommand: (payload?: JsonObject) => Promise<JsonObject>;
+  readonly runCommand: (payload?: JsonObject) => Promise<CommandReceipt | CommandFailureReceipt>;
 }
 
 export interface CliCommandServiceOptions {
@@ -26,7 +26,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
             `${command.action.kind}:${actor.kind}:${actor.id}`
           )
         });
-        return toJsonObject(toCommandReceipt(result));
+        return toCommandReceipt(result);
       } finally {
         options.onCommandSettled?.();
       }
@@ -40,8 +40,4 @@ function readParsedCommandPayload(payload: JsonObject | undefined): ParsedComman
     throw new Error("command.run requires payload.command parsed by the CLI parser.");
   }
   return command as unknown as ParsedCommand;
-}
-
-function toJsonObject(receipt: CommandReceipt | CommandFailureReceipt): JsonObject {
-  return receipt as unknown as JsonObject;
 }

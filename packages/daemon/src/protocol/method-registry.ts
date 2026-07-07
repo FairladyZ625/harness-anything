@@ -43,7 +43,8 @@ const cliCommandContracts = [
     outputSchemaId: "application.command-receipt/v2",
     errorSchemaId: "daemon.protocol-error/v1",
     auth: "local-session-token",
-    requiresRepo: true
+    requiresRepo: true,
+    commandClass: "arbiter"
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
