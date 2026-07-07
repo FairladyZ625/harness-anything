@@ -11,7 +11,32 @@
 node --version   # must be >= 24
 ```
 
-## 安装 CLI
+## 最快路径：运行 smoke demo
+
+目前还没有公开 npm package。今天最快、诚实的路径是 clone 源码 checkout 并运行
+quickstart smoke：
+
+```bash
+git clone https://github.com/FairladyZ625/harness-anything
+cd harness-anything
+npm ci
+npm run quickstart:demo
+```
+
+这条 demo 会构建 CLI、创建一个临时 git workspace、运行 `ha init`、创建 task、
+记录 fact、再把 fact 查回来，并渲染 relation graph。这就是 30 秒证明：问责
+循环是真能跑的。
+
+如果想看 fail-closed 路径，可以运行刻意破坏的变体：
+
+```bash
+npm run quickstart:demo:fail-closed
+```
+
+当 fact-recording 步骤无法产生有效证据时，这条命令会以非零状态退出。产品含义
+也一样：没有证据，就没有静默成功。
+
+## 本地安装 CLI
 
 目前还没有公开的 npm 发布——当前分发是从源代码检出的**本地全局安装**。从仓库根目录：
 
@@ -29,6 +54,18 @@ harness-anything 0.0.0
 ```
 
 `ha` 和 `harness-anything` 是同一条命令；`ha` 是这些文档里用的短别名。
+
+## 未来 npm 路径
+
+等 0.1 package 发布到 npm 之后，初见入口会变成：
+
+```bash
+npx harness-anything init
+```
+
+这条命令今天仍是前瞻说明。在 package 真正发布之前，用
+`npm run quickstart:demo` 做最快证明；需要把 `ha` 放进 PATH 时，再用
+`npm install -g ./packages/cli`。
 
 ## 检查你的环境
 
