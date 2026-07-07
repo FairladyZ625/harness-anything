@@ -203,6 +203,40 @@ test("daemon bootstrap-server is idempotent and installs roster hooks and read-o
   });
 });
 
+test("daemon repo commands register list and unregister the user-level registry", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\n", "utf8");
+    const userRoot = path.join(rootDir, "user-harness");
+
+    const register = runDaemonCommand(rootDir, [
+      "daemon",
+      "repo",
+      "register",
+      "--repo-id",
+      "canonical",
+      "--display-name",
+      "Canonical",
+      "--user-root",
+      userRoot,
+      "--no-link",
+      "--json"
+    ]);
+    assert.equal(register.ok, true);
+    assert.equal((register.repo as { repoId?: string }).repoId, "canonical");
+    assert.equal((register.repo as { state?: string }).state, "enabled");
+
+    const list = runDaemonCommand(rootDir, ["daemon", "repo", "list", "--user-root", userRoot, "--json"]);
+    assert.equal(list.ok, true);
+    assert.equal(list.count, 1);
+    assert.deepEqual((list.repos as Array<{ repoId: string; state: string }>).map((repo) => [repo.repoId, repo.state]), [["canonical", "enabled"]]);
+
+    const unregister = runDaemonCommand(rootDir, ["daemon", "repo", "unregister", "--repo-id", "canonical", "--user-root", userRoot, "--no-link", "--json"]);
+    assert.equal(unregister.ok, true);
+    assert.equal((unregister.repo as { state?: string }).state, "disabled");
+  });
+});
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-daemon-"));
   try {

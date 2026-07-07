@@ -251,12 +251,12 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@211:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@214:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@212:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@215:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
@@ -266,62 +266,62 @@
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@210:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@212:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@261:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@263:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@268:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@270:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@281:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@283:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@314:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@316:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@317:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@319:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@326:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@328:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@262:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@264:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@283:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@285:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@319:5",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@321:5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@321:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@323:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@335:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@337:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },

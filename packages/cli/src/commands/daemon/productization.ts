@@ -21,6 +21,7 @@ import { resolveCliVersion } from "../core/version.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 import { localDaemonSocketPath, requestLocalDaemonJsonRpc } from "../../daemon/client.ts";
+import { runDaemonRepoCommand } from "./repo-registry.ts";
 
 export interface DaemonCommandInput {
   readonly rootDir: string;
@@ -56,6 +57,7 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
     if (action === "stop") return await stopDaemon(input);
     if (action === "bootstrap-server") return await bootstrapServer(input);
     if (action === "install-templates") return installTemplates(input);
+    if (action === "repo") return runDaemonRepoCommand({ rootDir: input.rootDir, args: input.args, json: input.json });
     emitDaemonError(`unknown daemon command: ${action}`, input.json);
     return 2;
   } catch (error) {
@@ -453,6 +455,7 @@ function renderDaemonHelp(): string {
     "  start --foreground           Run the daemon service in the foreground.",
     "  status --json                Show lock holder, queue depth, connections, and version.",
     "  stop [--timeout-ms <ms>]     Signal the daemon and wait for queue drain and lock release.",
+    "  repo <subcommand>            Register, list, or unregister daemon repositories.",
     "  bootstrap-server             Initialize a canonical team server repository.",
     "  install-templates --out DIR  Copy systemd, launchd, and Windows Service templates."
   ].join("\n");
