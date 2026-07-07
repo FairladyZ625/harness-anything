@@ -10,7 +10,7 @@ import { MagnifyingGlass } from "@phosphor-icons/react";
 // (style-src 'self'; script-src 'self') blocks, and the bundle is heavy.
 // mermaid code fences fall back to a readable source block.
 const components: Components = {
-  pre({ node: _node, children, ...rest }) {
+  pre({ node: _node, children }) {
     if (isValidElement(children)) {
       const childProps = children.props as {
         className?: string;
@@ -24,7 +24,7 @@ const components: Components = {
         );
       }
     }
-    return <pre {...rest}>{children}</pre>;
+    return <pre>{children}</pre>;
   },
 };
 

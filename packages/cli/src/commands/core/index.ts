@@ -18,3 +18,4 @@ export { runTaskGatesCommand } from "./task-gates.ts";
 export { FORCE_STATUS_AUDIT_MARKER, runTaskLifecycleCommand } from "./task-lifecycle.ts";
 export { runTaskQueryCommand } from "./task-query.ts";
 export { runVersionCommand } from "./version.ts";
+export { runWorktreeCommand } from "./worktree.ts";

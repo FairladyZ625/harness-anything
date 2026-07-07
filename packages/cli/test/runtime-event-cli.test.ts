@@ -51,6 +51,48 @@ test("CLI dry-run authored commands do not append command events", () => {
   });
 });
 
+test("CLI failed command results append failed command events", () => {
+  withTempRoot((rootDir) => {
+    initGitRoot(rootDir);
+    const sessionId = "codex-w2-command-failure";
+    const taskId = "task_01KWY3Z4VEVP6FNT28ZFA809GW";
+    const result = runJson(rootDir, ["task", "transition", taskId, "done"], false, {
+      CODEX_SESSION_ID: sessionId,
+      CODEX_THREAD_ID: ""
+    });
+    const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
+    const events = readJsonl(ledgerPath);
+
+    assert.equal(result.ok, false);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "result");
+    assert.equal(events[0].tool.toolName, "status-set");
+    assert.equal(events[0].result.status, "failed");
+    assert.equal(events[0].result.summary, "CLI command failed: status-set");
+    assert.equal(typeof events[0].result.errorCode, "string");
+  });
+});
+
+test("CLI parse failures append safe failed command events", () => {
+  withTempRoot((rootDir) => {
+    const sessionId = "codex-w2-parse-failure";
+    const result = runJson(rootDir, ["definitely-not-a-command", "--secret", "do-not-store"], false, {
+      CODEX_SESSION_ID: sessionId,
+      CODEX_THREAD_ID: ""
+    });
+    const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
+    const body = readFileSync(ledgerPath, "utf8");
+    const events = readJsonl(ledgerPath);
+
+    assert.equal(result.ok, false);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].tool.toolName, "parse");
+    assert.equal(events[0].result.status, "failed");
+    assert.equal(events[0].result.errorCode, "unknown_command");
+    assert.equal(body.includes("do-not-store"), false);
+  });
+});
+
 test("CLI event append and list write local JSONL without task lifecycle mutation", () => {
   withTempRoot((rootDir) => {
     const appended = runJson(rootDir, [
@@ -146,6 +188,12 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function initGitRoot(rootDir: string): void {
+  execFileSync("git", ["init"], { cwd: rootDir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: rootDir, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Test User"], { cwd: rootDir, stdio: "ignore" });
 }
 
 function readJsonl(filePath: string): ReadonlyArray<Record<string, any>> {

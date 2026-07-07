@@ -570,6 +570,16 @@
     ],
     "freshGateRegistry": [
       {
+        "value": "packages/cli/src/commands/core/worktree.ts#mkdirSync@185:3",
+        "ref": "task_01KWY3Z4VEVP6FNT28ZFA809GW",
+        "reason": "C11 generated worktree binding registry write; stores rebuildable local .harness/generated binding state, not authored task truth."
+      },
+      {
+        "value": "packages/cli/src/commands/core/worktree.ts#writeFileSync@186:3",
+        "ref": "task_01KWY3Z4VEVP6FNT28ZFA809GW",
+        "reason": "C11 generated worktree binding registry write; stores rebuildable local .harness/generated binding state, not authored task truth."
+      },
+      {
         "value": "packages/cli/src/commands/extensions/machine-evidence-registry.ts#writeFileSync@23:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
