@@ -76,6 +76,11 @@ test("command-level help exits without creating task state", () => {
     assert.match(stdout, /new-task --title <title> \(deprecated, use task create; retires at E77\/F6 acceptance\)/u);
     assert.match(stdout, /Options:/u);
     assert.match(stdout, /--title/u);
+    assert.match(stdout, /Recommended presets:/u);
+    assert.match(stdout, /standard-task\s+General implementation or maintenance task; the default starting point\./u);
+    assert.match(stdout, /decision-conformance\s+Work that must prove alignment with recorded decisions\./u);
+    assert.match(stdout, /milestone-closeout\s+Milestone wrap-up checks and evidence collection\./u);
+    assert.match(stdout, /ha task create --title "\.\.\." --vertical software\/coding --preset <id>/u);
     assert.equal(existsSync(path.join(rootDir, "harness")), false);
     assert.equal(existsSync(path.join(rootDir, ".harness")), false);
   });
