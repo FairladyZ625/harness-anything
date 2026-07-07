@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,6 +30,12 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.equal(result.report.configureVerify.smokeTaskFound, true);
     assert.equal(result.report.configureVerify.smokeTaskCleanedUp, true);
     assert.equal(result.report.configureVerify.projectionPath, ".harness/cache/projections.sqlite");
+    assert.equal(result.report.isolation.innerRepository.gitDirExists, true);
+    assert.equal(result.report.isolation.innerRepository.branch, "master");
+    assert.equal(result.report.isolation.innerRepository.commitCount, 1);
+    assert.equal(result.report.isolation.outerGitignore.action, "skipped-not-git");
+    assert.equal(resolveHarnessLayout(path.join(rootDir, "harness")).rootDir, rootDir);
+    assert.match(result.receiptSummary, /Code PRs must not include harness\/ changes/u);
     assert.match(config, new RegExp(`^name: ${path.basename(rootDir)}$`, "m"));
     assert.equal(existsSync(path.join(rootDir, "harness/tasks")), true);
     assert.equal(existsSync(path.join(rootDir, result.report.configureVerify.smokeTaskPackagePath)), false);
@@ -60,6 +67,51 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.match(readFileSync(path.join(rootDir, "harness/sessions/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/context/README.md"), "utf8"), /## 用途/u);
+  });
+});
+
+test("CLI init isolates harness in an outer git repository", () => {
+  withTempGitRoot((rootDir) => {
+    const result = runJson(rootDir, ["init"]);
+    const gitignore = readFileSync(path.join(rootDir, ".gitignore"), "utf8");
+
+    assert.equal(result.ok, true);
+    assert.equal(existsSync(path.join(rootDir, "harness/.git")), true);
+    assert.equal(runGitText(path.join(rootDir, "harness"), "branch", "--show-current"), "master");
+    assert.equal(runGitText(path.join(rootDir, "harness"), "rev-list", "--count", "HEAD"), "1");
+    assert.match(runGitText(path.join(rootDir, "harness"), "show", "--name-only", "--format=", "HEAD"), /harness\.yaml/u);
+    assert.match(gitignore, /^\.harness\/$/m);
+    assert.match(gitignore, /^harness\/$/m);
+    assert.equal(result.report.isolation.outerGit.insideWorkTree, true);
+    assert.equal(result.report.isolation.outerGitignore.action, "updated");
+    assert.equal(result.report.isolation.innerRepository.action, "initialized");
+  });
+});
+
+test("CLI init skips existing inner harness git repository and keeps gitignore idempotent", () => {
+  withTempGitRoot((rootDir) => {
+    const first = runJson(rootDir, ["init"]);
+    const second = runJson(rootDir, ["init"]);
+    const gitignoreLines = readFileSync(path.join(rootDir, ".gitignore"), "utf8").split(/\r?\n/u);
+
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.equal(second.report.isolation.innerRepository.action, "skipped-existing");
+    assert.equal(second.report.isolation.innerRepository.commitCount, 1);
+    assert.equal(gitignoreLines.filter((line) => line === "harness/").length, 1);
+    assert.equal(gitignoreLines.filter((line) => line === ".harness/").length, 1);
+  });
+});
+
+test("CLI init creates an inner harness repo without an outer git repository", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, ["init"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(existsSync(path.join(rootDir, "harness/.git")), true);
+    assert.equal(existsSync(path.join(rootDir, ".gitignore")), false);
+    assert.equal(result.report.isolation.outerGit.insideWorkTree, false);
+    assert.equal(result.report.isolation.outerGitignore.action, "skipped-not-git");
   });
 });
 
@@ -169,6 +221,37 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function withTempGitRoot<T>(fn: (rootDir: string) => T): T {
+  return withTempRoot((rootDir) => {
+    runGit(rootDir, "init", "--initial-branch=main");
+    return fn(rootDir);
+  });
+}
+
+function runGitText(rootDir: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], {
+    encoding: "utf8",
+    env: gitEnv()
+  }).trim();
+}
+
+function runGit(rootDir: string, ...args: string[]): void {
+  execFileSync("git", ["-C", rootDir, ...args], {
+    encoding: "utf8",
+    env: gitEnv()
+  });
+}
+
+function gitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: "Harness Test",
+    GIT_AUTHOR_EMAIL: "harness-test@example.invalid",
+    GIT_COMMITTER_NAME: "Harness Test",
+    GIT_COMMITTER_EMAIL: "harness-test@example.invalid"
+  };
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv, expectSuccess = true): Record<string, any> {
