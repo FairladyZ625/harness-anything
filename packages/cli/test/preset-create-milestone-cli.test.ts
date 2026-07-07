@@ -69,7 +69,9 @@ test("CLI create-milestone preset wins over --long-running and scaffolds milesto
       "--input",
       "retireWhen=Manual scaffolding stops",
       "--input",
-      "dependencies=dec_TEST_CHARTER"
+      "dependencies=dec_TEST_CHARTER",
+      "--input",
+      "waves=W0,W1"
     ]);
 
     assert.equal(scaffold.ok, true);
@@ -77,6 +79,7 @@ test("CLI create-milestone preset wins over --long-running and scaffolds milesto
     assert.equal(existsSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md")), true);
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md"), "utf8"), /<!-- milestone-map:v1 -->/u);
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md"), "utf8"), /fan-out pending/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md"), "utf8"), /\| W0 \| fan-out pending/u);
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/00-roadmap.md"), "utf8"), new RegExp(created.taskId, "u"));
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/dossier-data.md"), "utf8"), new RegExp(created.taskId, "u"));
     assert.equal(existsSync(path.join(rootDir, "harness/milestones/milestones-dossier.html")), true);
