@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -62,6 +62,27 @@ test("CLI task archive creates a distill candidate from closeout content before 
   });
 });
 
+test("CLI task archive writes runtime distill artifacts through the canonical repo when harness is a nested repo", () => {
+  withTempRoot((rootDir) => {
+    initNestedHarnessRepo(rootDir);
+    const created = runJson(rootDir, ["new-task", "--title", "Nested Repo Archive"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    writeFileSync(path.join(rootDir, String(created.packagePath), "closeout.md"), [
+      "# Closeout",
+      "",
+      "Nested repo archive preserves a distill candidate outside the authored harness repo.",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = runJson(rootDir, ["task", "archive", taskId, "--reason", "nested repo containment"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "task-archive");
+    assert.match(result.report.candidatePath, new RegExp(`^\\.harness/generated/distill/${taskId}/distill_[^/]+\\.json$`, "u"));
+    assert.match(readFileSync(path.join(rootDir, String(created.packagePath), "INDEX.md"), "utf8"), /packageDisposition: archived/);
+  });
+});
+
 test("CLI task archive fails closed when a task-owned relation endpoint is unresolved", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Unresolved Fact Archive"]);
@@ -78,6 +99,32 @@ test("CLI task archive fails closed when a task-owned relation endpoint is unres
     assert.equal(result.error?.code, "archive_reference_unresolved");
     assert.match(result.error?.hint ?? "", /unresolved relation endpoint/u);
     assert.match(readFileSync(indexPath, "utf8"), /packageDisposition: active/);
+  });
+});
+
+test("CLI task archive preflights all batch ids before mutating any package", () => {
+  withTempRoot((rootDir) => {
+    const first = runJson(rootDir, ["new-task", "--title", "First Batch Archive"]);
+    const second = runJson(rootDir, ["new-task", "--title", "Second Batch Archive"]);
+    const firstTaskId = assertGeneratedTaskId(first.taskId);
+    const secondTaskId = assertGeneratedTaskId(second.taskId);
+    for (const taskId of [firstTaskId, secondTaskId]) {
+      runJson(rootDir, ["task", "status", "set", taskId, "active"]);
+      runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "batch fixture"]);
+    }
+    const firstIndexPath = path.join(rootDir, String(first.packagePath), "INDEX.md");
+    const secondIndexPath = path.join(rootDir, String(second.packagePath), "INDEX.md");
+    const secondBefore = readFileSync(secondIndexPath, "utf8");
+    writeFileSync(secondIndexPath, appendIndexRelation(secondBefore, relationRecord(`task/${secondTaskId}`, `fact/${secondTaskId}/F-MISSING1`)), "utf8");
+
+    const result = runJson(rootDir, ["task", "archive", "--ids", `${firstTaskId},${secondTaskId}`, "--reason", "batch containment"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.command, "task-archive");
+    assert.equal(result.taskId, secondTaskId);
+    assert.equal(result.error?.code, "archive_reference_unresolved");
+    assert.match(readFileSync(firstIndexPath, "utf8"), /packageDisposition: active/);
+    assert.match(readFileSync(secondIndexPath, "utf8"), /packageDisposition: active/);
   });
 });
 
@@ -117,6 +164,19 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function initNestedHarnessRepo(rootDir: string): void {
+  const harnessRoot = path.join(rootDir, "harness");
+  mkdirSync(harnessRoot, { recursive: true });
+  writeFileSync(path.join(harnessRoot, "harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
+  initGitRepo(rootDir);
+  initGitRepo(harnessRoot);
+}
+
+function initGitRepo(repoRoot: string): void {
+  execFileSync("git", ["-C", repoRoot, "init", "-b", "main"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repoRoot, "-c", "user.name=Harness Test", "-c", "user.email=harness-test@example.invalid", "commit", "--allow-empty", "-m", "initial"], { stdio: "ignore" });
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {

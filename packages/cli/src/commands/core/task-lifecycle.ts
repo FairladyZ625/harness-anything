@@ -56,10 +56,10 @@ function runTaskArchive(
   if (!taskIds.ok) return Effect.succeed(taskIds.result);
 
   return Effect.gen(function* () {
+    const preflightFailure = yield* preflightArchiveBatch(context, taskIds.value);
+    if (preflightFailure) return preflightFailure;
     const archived: Array<{ readonly taskId: string; readonly status: DomainStatus; readonly candidatePath?: string }> = [];
     for (const taskId of taskIds.value) {
-      const referenceGuard = archiveReferenceGuard(context, taskId);
-      if (!referenceGuard.ok) return referenceGuard.result;
       const candidatePath = yield* ensureArchiveDistillCandidate(context, taskId);
       const result = yield* context.engine.archiveTask({
         taskId,
@@ -98,6 +98,28 @@ function runTaskArchive(
         candidateCount: archived.filter((entry) => entry.candidatePath).length
       }
     } satisfies CliResult;
+  });
+}
+
+function preflightArchiveBatch(
+  context: CommandRunnerContext,
+  taskIds: ReadonlyArray<string>
+): Effect.Effect<CliResult | null> {
+  return Effect.gen(function* () {
+    for (const taskId of taskIds) {
+      const referenceGuard = archiveReferenceGuard(context, taskId);
+      if (!referenceGuard.ok) return referenceGuard.result;
+      const taskPolicy = yield* readTaskLifecyclePolicy(context.artifactStore, taskId);
+      if (!taskPolicy) {
+        return {
+          ok: false,
+          command: "task-archive",
+          taskId,
+          error: cliError(CliErrorCode.TaskNotFound, `task not found: ${taskId}`)
+        } satisfies CliResult;
+      }
+    }
+    return null;
   });
 }
 
