@@ -1,4 +1,5 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { CommandFailureReceipt, CommandReceipt, LocalControllerService } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
@@ -274,11 +275,19 @@ function commandRootMismatch(payload: JsonObject | undefined, repo: DaemonRepoNa
   const command = isJsonObject(payload?.command) ? payload.command : undefined;
   const rootDir = typeof command?.rootDir === "string" ? command.rootDir : undefined;
   if (!rootDir) return undefined;
-  if (path.resolve(rootDir) === path.resolve(repo.canonicalRoot)) return undefined;
+  if (realpathOrResolve(rootDir) === realpathOrResolve(repo.canonicalRoot)) return undefined;
   return failureReceipt("repo.command.run", "repo_command_root_mismatch", "payload.command.rootDir does not match params.repo.repoId.", {
     repo: { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot },
     command: { rootDir }
   });
+}
+
+function realpathOrResolve(rootDir: string): string {
+  try {
+    return realpathSync.native(rootDir);
+  } catch {
+    return path.resolve(rootDir);
+  }
 }
 
 function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: JsonObject): JsonRpcMethodContract {

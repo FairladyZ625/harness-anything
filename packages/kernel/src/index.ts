@@ -20,7 +20,8 @@ export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
   readDaemonRegistry,
+  resolveDaemonRepoByRoot,
   registerDaemonRepo,
   unregisterDaemonRepo
 } from "./daemon/registry.ts";
-export type { DaemonRegistryRepo } from "./daemon/registry.ts";
+export type { DaemonRegistry, DaemonRegistryRepo } from "./daemon/registry.ts";

@@ -1,9 +1,18 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import {
+  readDaemonRegistry,
+  registerDaemonRepo,
+  resolveDaemonRepoByRoot,
+  type DaemonRegistry,
+  type DaemonRegistryRepo
+} from "../../../kernel/src/index.ts";
 import {
   currentDaemonProtocolVersion,
   defaultUnixSocketPath,
@@ -27,6 +36,8 @@ export interface DaemonClientConfig {
   readonly mode: DaemonClientMode;
   readonly idleExitMs: number;
   readonly autostartTimeoutMs: number;
+  readonly userRoot: string;
+  readonly daemonId: string;
   readonly remote?: RemoteDaemonConfig;
 }
 
@@ -37,12 +48,25 @@ export interface RemoteDaemonConfig {
   readonly repoId: string;
 }
 
+export interface LocalDaemonTarget {
+  readonly repoId: string;
+  readonly canonicalRoot: string;
+  readonly userRoot: string;
+  readonly daemonId: string;
+  readonly socketPath: string;
+  readonly legacySocketPath: string;
+  readonly registered: boolean;
+}
+
 export function readDaemonClientConfig(env: NodeJS.ProcessEnv = process.env): DaemonClientConfig {
   const mode = readMode(env.HARNESS_DAEMON_MODE);
+  const userRoot = daemonUserRoot(env);
   return {
     mode,
     idleExitMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_IDLE_MS, defaultIdleExitMs),
     autostartTimeoutMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS, defaultAutostartTimeoutMs),
+    userRoot,
+    daemonId: daemonIdFromEnv(env),
     ...(mode === "remote" ? { remote: readRemoteConfig(env) } : {})
   };
 }
@@ -65,17 +89,113 @@ export function daemonIdForRoot(rootDir: string): string {
   return `repo-${createHash("sha256").update(rootDir).digest("hex").slice(0, 16)}`;
 }
 
+export function daemonIdForUserRoot(userRoot: string, daemonId = "default"): string {
+  return `u-${createHash("sha256").update(`${path.resolve(userRoot)}\0${daemonId}`).digest("hex").slice(0, 16)}`;
+}
+
 export function localDaemonSocketPath(rootDir: string): string {
   return defaultUnixSocketPath(daemonIdForRoot(rootDir));
+}
+
+export function localUserDaemonSocketPath(userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv()): string {
+  return defaultUnixSocketPath(daemonIdForUserRoot(userRoot, daemonId));
+}
+
+export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return path.resolve(nonEmptyEnv(env, "HARNESS_DAEMON_USER_ROOT") ?? path.join(os.homedir(), ".harness"));
+}
+
+export function daemonIdFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+  return nonEmptyEnv(env, "HARNESS_DAEMON_ID") ?? "default";
+}
+
+export function resolveLocalDaemonTarget(input: {
+  readonly rootDir: string;
+  readonly repoIdOverride?: string;
+  readonly userRoot?: string;
+  readonly daemonId?: string;
+  readonly autoRegisterSingleRepo?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
+}): LocalDaemonTarget {
+  const env = input.env ?? process.env;
+  const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
+  const daemonId = input.daemonId ?? daemonIdFromEnv(env);
+  const repoIdOverride = input.repoIdOverride ?? nonEmptyEnv(env, "HARNESS_DAEMON_REPO_ID");
+  const registry = readDaemonRegistry({ userRoot });
+  const legacySocketPath = localDaemonSocketPath(input.rootDir);
+  const socketPath = localUserDaemonSocketPath(userRoot, daemonId);
+
+  if (repoIdOverride) {
+    const registered = registry.repos.find((repo) => repo.repoId === repoIdOverride && repo.state === "enabled");
+    return daemonTarget({
+      repoId: repoIdOverride,
+      canonicalRoot: registered?.canonicalRoot ?? path.resolve(input.rootDir),
+      userRoot,
+      daemonId,
+      socketPath,
+      legacySocketPath,
+      registered: Boolean(registered)
+    });
+  }
+
+  const matchingRepo = resolveRegistryRepoByRoot(input.rootDir, registry, userRoot);
+  if (matchingRepo?.state === "enabled") {
+    return daemonTarget({
+      repoId: matchingRepo.repoId,
+      canonicalRoot: matchingRepo.canonicalRoot,
+      userRoot,
+      daemonId,
+      socketPath,
+      legacySocketPath,
+      registered: true
+    });
+  }
+
+  const enabledRepos = registry.repos.filter((repo) => repo.state === "enabled");
+  if (enabledRepos.length === 0) {
+    if (input.autoRegisterSingleRepo) {
+      const registered = tryRegisterCanonicalRepo(input.rootDir, userRoot);
+      if (registered) {
+        return daemonTarget({
+          repoId: registered.repoId,
+          canonicalRoot: registered.canonicalRoot,
+          userRoot,
+          daemonId,
+          socketPath,
+          legacySocketPath,
+          registered: true
+        });
+      }
+    }
+    return daemonTarget({
+      repoId: "canonical",
+      canonicalRoot: path.resolve(input.rootDir),
+      userRoot,
+      daemonId,
+      socketPath,
+      legacySocketPath,
+      registered: false
+    });
+  }
+
+  throw new Error(`current root is not registered with the user daemon registry. Run: ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`);
 }
 
 export async function requestLocalDaemonJsonRpc(
   rootDir: string,
   method: string,
   params: JsonObject,
-  timeoutMs = 1_000
+  timeoutMs = 1_000,
+  options: {
+    readonly userRoot?: string;
+    readonly daemonId?: string;
+    readonly socketPath?: string;
+    readonly allowLegacySocket?: boolean;
+  } = {}
 ): Promise<JsonObject> {
-  const socket = await connectUnixSocket(localDaemonSocketPath(rootDir), timeoutMs);
+  const userRoot = path.resolve(options.userRoot ?? daemonUserRoot());
+  const socketPath = options.socketPath ?? localUserDaemonSocketPath(userRoot, options.daemonId ?? daemonIdFromEnv());
+  const socket = await connectUnixSocketWithLegacyFallback(socketPath, options.allowLegacySocket === false ? undefined : localDaemonSocketPath(rootDir), timeoutMs);
   const client = new JsonRpcLineClient(socket, socket);
   try {
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
@@ -86,18 +206,25 @@ export async function requestLocalDaemonJsonRpc(
 }
 
 async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfig): Promise<CommandReceipt | CommandFailureReceipt> {
-  const endpoint = localDaemonSocketPath(command.rootDir);
+  const target = resolveLocalDaemonTarget({
+    rootDir: command.rootDir,
+    repoIdOverride: command.daemonRepoId,
+    userRoot: config.userRoot,
+    daemonId: config.daemonId,
+    autoRegisterSingleRepo: true
+  });
+  const endpoint = target.socketPath;
   const deadline = Date.now() + config.autostartTimeoutMs;
   let nextSpawnAt = 0;
   let lastError: unknown;
   while (Date.now() <= deadline) {
     try {
       const socket = await connectUnixSocket(endpoint, 200);
-      return await runWithLineClient(new JsonRpcLineClient(socket, socket), command, "canonical");
+      return await runWithLineClient(new JsonRpcLineClient(socket, socket), commandForTarget(command, target), target.repoId);
     } catch (error) {
       lastError = error;
       if (Date.now() >= nextSpawnAt) {
-        spawnLocalDaemon(command, endpoint, config.idleExitMs);
+        spawnLocalDaemon(commandForTarget(command, target), target, config.idleExitMs);
         nextSpawnAt = Date.now() + 500;
       }
       await delay(100);
@@ -145,17 +272,19 @@ async function runWithLineClient(
   }
 }
 
-function spawnLocalDaemon(command: ParsedCommand, socketPath: string, idleExitMs: number): void {
+function spawnLocalDaemon(command: ParsedCommand, target: LocalDaemonTarget, idleExitMs: number): void {
   const child = spawn(process.execPath, [
     ...process.execArgv,
     fileURLToPath(import.meta.url).replace(/\/daemon\/client\.(ts|js)$/u, "/index.$1"),
     "--root",
-    command.rootDir,
+    target.canonicalRoot,
     ...(command.layoutOverrides?.authoredRoot ? ["--authored-root", command.layoutOverrides.authoredRoot] : []),
     "daemon",
     "serve",
+    "--repo",
+    target.repoId,
     "--socket",
-    socketPath,
+    target.socketPath,
     "--idle-ms",
     String(idleExitMs)
   ], {
@@ -163,7 +292,9 @@ function spawnLocalDaemon(command: ParsedCommand, socketPath: string, idleExitMs
     stdio: "ignore",
     env: {
       ...process.env,
-      HARNESS_DAEMON_MODE: "direct"
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_USER_ROOT: target.userRoot,
+      HARNESS_DAEMON_ID: target.daemonId
     }
   });
   child.unref();
@@ -185,6 +316,15 @@ function connectUnixSocket(socketPath: string, timeoutMs: number): Promise<net.S
       reject(error);
     });
   });
+}
+
+async function connectUnixSocketWithLegacyFallback(socketPath: string, legacySocketPath: string | undefined, timeoutMs: number): Promise<net.Socket> {
+  try {
+    return await connectUnixSocket(socketPath, timeoutMs);
+  } catch (error) {
+    if (!legacySocketPath || legacySocketPath === socketPath) throw error;
+    return connectUnixSocket(legacySocketPath, timeoutMs);
+  }
 }
 
 class JsonRpcLineClient {
@@ -243,6 +383,42 @@ function daemonUnavailableReceipt(command: ParsedCommand, error: unknown): Comma
 function readMode(value: string | undefined): DaemonClientMode {
   if (value === "direct" || value === "local" || value === "remote") return value;
   return "direct";
+}
+
+function nonEmptyEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = env[name];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function resolveRegistryRepoByRoot(rootDir: string, registry: DaemonRegistry, userRoot: string): DaemonRegistryRepo | undefined {
+  try {
+    return resolveDaemonRepoByRoot(rootDir, { userRoot });
+  } catch {
+    const resolvedRoot = path.resolve(rootDir);
+    return registry.repos.find((repo) => path.resolve(repo.canonicalRoot) === resolvedRoot);
+  }
+}
+
+function tryRegisterCanonicalRepo(rootDir: string, userRoot: string): DaemonRegistryRepo | undefined {
+  try {
+    return registerDaemonRepo({
+      userRoot,
+      canonicalRoot: rootDir,
+      repoId: "canonical"
+    }).repo;
+  } catch {
+    return undefined;
+  }
+}
+
+function commandForTarget(command: ParsedCommand, target: LocalDaemonTarget): ParsedCommand {
+  return path.resolve(command.rootDir) === path.resolve(target.canonicalRoot)
+    ? command
+    : { ...command, rootDir: target.canonicalRoot };
+}
+
+function daemonTarget(input: LocalDaemonTarget): LocalDaemonTarget {
+  return input;
 }
 
 function readRemoteConfig(env: NodeJS.ProcessEnv): RemoteDaemonConfig {

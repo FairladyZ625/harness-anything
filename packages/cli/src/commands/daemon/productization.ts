@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createHarnessRuntimeContext,
+  registerDaemonRepo,
   resolveHarnessLayout,
 } from "../../../../kernel/src/index.ts";
 import {
@@ -20,7 +21,8 @@ import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
-import { localDaemonSocketPath, requestLocalDaemonJsonRpc } from "../../daemon/client.ts";
+import { resolveLocalDaemonTarget, requestLocalDaemonJsonRpc, type LocalDaemonTarget } from "../../daemon/client.ts";
+import { renderDaemonHelp } from "./help.ts";
 import { runDaemonRepoCommand } from "./repo-registry.ts";
 
 export interface DaemonCommandInput {
@@ -178,9 +180,14 @@ export function loadDaemonIdentity(rootDir: string, layoutOverrides: { readonly 
 async function startDaemon(input: DaemonCommandInput): Promise<number> {
   const foreground = input.args.includes("--foreground");
   const service = input.args.includes("--service") || !foreground;
-  const socketPath = readOption(input.args, "--socket") ?? localDaemonSocketPath(input.rootDir);
+  const target = resolveLocalDaemonTarget({
+    rootDir: input.rootDir,
+    repoIdOverride: daemonRepoIdOverride(input.args),
+    autoRegisterSingleRepo: true
+  });
+  const socketPath = readOption(input.args, "--socket") ?? target.socketPath;
   if (foreground) {
-    await input.runServe(input.rootDir, input.layoutOverrides, ["daemon", "serve", "--socket", socketPath, "--idle-ms", "0"], {
+    await input.runServe(target.canonicalRoot, input.layoutOverrides, ["daemon", "serve", "--repo", target.repoId, "--socket", socketPath, "--user-root", target.userRoot, "--idle-ms", "0"], {
       onStarted: (status) => emitDaemonResult("daemon-start", { ...status, mode: "foreground" }, input.json)
     });
     return 0;
@@ -190,21 +197,25 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
       ...process.execArgv,
       cliEntrypointPath(),
       "--root",
-      input.rootDir,
+      target.canonicalRoot,
       ...(input.layoutOverrides?.authoredRoot ? ["--authored-root", input.layoutOverrides.authoredRoot] : []),
       "daemon",
       "serve",
+      "--repo",
+      target.repoId,
       "--socket",
       socketPath,
+      "--user-root",
+      target.userRoot,
       "--idle-ms",
       "0"
     ], {
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, HARNESS_DAEMON_MODE: "direct" }
+      env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: target.userRoot, HARNESS_DAEMON_ID: target.daemonId }
     });
     child.unref();
-    const status = await waitForReachableStatus(input.rootDir, 6_000);
+    const status = await waitForReachableStatus(target, 6_000);
     emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath }, input.json);
     return 0;
   }
@@ -212,9 +223,14 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
 }
 
 async function statusDaemon(input: DaemonCommandInput): Promise<number> {
-  const layout = resolveHarnessLayout(createHarnessRuntimeContext(input.rootDir, input.layoutOverrides));
+  const target = resolveLocalDaemonTarget({
+    rootDir: input.rootDir,
+    repoIdOverride: daemonRepoIdOverride(input.args),
+    autoRegisterSingleRepo: false
+  });
+  const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));
   const lockStatus = readDaemonLock(path.join(layout.locksRoot, "global.lock"));
-  const rpcStatus = await readReachableDaemonStatus(input.rootDir);
+  const rpcStatus = await readReachableDaemonStatus(target);
   emitDaemonResult("daemon-status", {
     ...lockStatus,
     reachable: Boolean(rpcStatus),
@@ -231,7 +247,12 @@ async function statusDaemon(input: DaemonCommandInput): Promise<number> {
 
 async function stopDaemon(input: DaemonCommandInput): Promise<number> {
   const timeoutMs = Number.parseInt(readOption(input.args, "--timeout-ms") ?? "5000", 10);
-  const layout = resolveHarnessLayout(createHarnessRuntimeContext(input.rootDir, input.layoutOverrides));
+  const target = resolveLocalDaemonTarget({
+    rootDir: input.rootDir,
+    repoIdOverride: daemonRepoIdOverride(input.args),
+    autoRegisterSingleRepo: false
+  });
+  const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));
   const lockPath = path.join(layout.locksRoot, "global.lock");
   const before = readDaemonLock(lockPath);
   if (before.started && typeof before.pid === "number") {
@@ -277,9 +298,16 @@ async function bootstrapServer(input: DaemonCommandInput): Promise<number> {
   const reportPath = readOption(input.args, "--report") ?? path.join(canonicalRoot, ".harness", "generated", "daemon-bootstrap-report.json");
   const skipSshCheck = input.args.includes("--skip-ssh-check");
   const noStart = input.args.includes("--no-start");
+  const registryRepoId = readOption(input.args, "--repo-id") ?? "canonical";
 
   ensureCanonicalRepo(canonicalRoot);
   initializeHarness({ rootDir: canonicalRoot }, false, path.basename(canonicalRoot));
+  const registryUserRoot = daemonUserRoot(input.args);
+  const registry = registerDaemonRepo({
+    ...(registryUserRoot ? { userRoot: registryUserRoot } : {}),
+    canonicalRoot,
+    repoId: registryRepoId
+  });
   const layout = resolveHarnessLayout({ rootDir: canonicalRoot });
   const peoplePath = path.join(layout.authoredRoot, "people.yaml");
   ensurePeopleRoster(peoplePath, { personId, displayName, primaryEmail, role, sshUser, sshHost });
@@ -287,13 +315,19 @@ async function bootstrapServer(input: DaemonCommandInput): Promise<number> {
   const mirrorReport = readonlyMirror ? ensureReadonlyMirror(canonicalRoot, path.resolve(readonlyMirror)) : undefined;
   const daemon = noStart
     ? { started: false, reason: "no-start" }
-    : await startBootstrapDaemon(canonicalRoot);
+    : await startBootstrapDaemon(canonicalRoot, registry.repo.repoId, registry.registryPath);
   const ssh = skipSshCheck ? { checked: false, reason: "skip-ssh-check" } : await checkSshReachability(sshHost, sshUser, canonicalRoot);
   const report = {
     schema: "daemon-bootstrap-report/v1",
     canonicalRoot,
     peoplePath,
     daemon,
+    registry: {
+      path: registry.registryPath,
+      repoId: registry.repo.repoId,
+      changed: registry.changed,
+      warnings: registry.warnings
+    },
     ssh,
     gitHook: {
       path: path.join(canonicalRoot, ".git/hooks/pre-receive"),
@@ -380,7 +414,14 @@ function ensureReadonlyMirror(canonicalRoot: string, mirrorRoot: string): Record
   return { path: mirrorRoot, sync: "git fetch", hookPath };
 }
 
-async function startBootstrapDaemon(rootDir: string): Promise<Record<string, unknown>> {
+async function startBootstrapDaemon(rootDir: string, repoId: string, registryPath: string): Promise<Record<string, unknown>> {
+  const userRoot = path.dirname(registryPath);
+  const target = resolveLocalDaemonTarget({
+    rootDir,
+    repoIdOverride: repoId,
+    userRoot,
+    autoRegisterSingleRepo: false
+  });
   const child = spawn(process.execPath, [
     ...process.execArgv,
     cliEntrypointPath(),
@@ -388,17 +429,21 @@ async function startBootstrapDaemon(rootDir: string): Promise<Record<string, unk
     rootDir,
     "daemon",
     "serve",
+    "--repo",
+    target.repoId,
     "--socket",
-    localDaemonSocketPath(rootDir),
+    target.socketPath,
+    "--user-root",
+    target.userRoot,
     "--idle-ms",
     "0"
   ], {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env, HARNESS_DAEMON_MODE: "direct" }
+    env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: target.userRoot, HARNESS_DAEMON_ID: target.daemonId }
   });
   child.unref();
-  return waitForReachableStatus(rootDir, 6_000);
+  return waitForReachableStatus(target, 6_000);
 }
 
 async function checkSshReachability(host: string, user: string, canonicalRoot: string): Promise<Record<string, unknown>> {
@@ -435,9 +480,14 @@ function readDaemonLock(lockPath: string): Record<string, unknown> {
   };
 }
 
-async function readReachableDaemonStatus(rootDir: string): Promise<Record<string, unknown> | undefined> {
+async function readReachableDaemonStatus(target: LocalDaemonTarget): Promise<Record<string, unknown> | undefined> {
   try {
-    const receipt = await requestLocalDaemonJsonRpc(rootDir, "repo.daemon.status", { repo: { repoId: "canonical" } });
+    const receipt = await requestLocalDaemonJsonRpc(target.canonicalRoot, "repo.daemon.status", { repo: { repoId: target.repoId } }, 1_000, {
+      userRoot: target.userRoot,
+      daemonId: target.daemonId,
+      socketPath: target.socketPath,
+      allowLegacySocket: true
+    });
     const details = isDaemonRecord(receipt.details) ? receipt.details : {};
     const data = isDaemonRecord(details.data) ? details.data : undefined;
     return receipt.ok === true && data ? data : { rpcError: receipt };
@@ -446,10 +496,10 @@ async function readReachableDaemonStatus(rootDir: string): Promise<Record<string
   }
 }
 
-async function waitForReachableStatus(rootDir: string, timeoutMs: number): Promise<Record<string, unknown>> {
+async function waitForReachableStatus(target: LocalDaemonTarget, timeoutMs: number): Promise<Record<string, unknown>> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    const status = await readReachableDaemonStatus(rootDir);
+    const status = await readReachableDaemonStatus(target);
     if (status) return status;
     await waitDaemonPollInterval(100);
   }
@@ -486,20 +536,12 @@ function emitDaemonError(message: string, json: boolean): void {
   console.error(`error code=${CliErrorCode.JournalUnavailable} hint=${message}`);
 }
 
-function renderDaemonHelp(): string {
-  return [
-    "Usage: harness-anything daemon <start|status|stop|bootstrap-server|install-templates> [options]",
-    "Alias: ha daemon <subcommand> [options]",
-    "",
-    "Commands:",
-    "  start --service              Start a detached local daemon service (default).",
-    "  start --foreground           Run the daemon service in the foreground.",
-    "  status --json                Show lock holder, queue depth, connections, and version.",
-    "  stop [--timeout-ms <ms>]     Signal the daemon and wait for queue drain and lock release.",
-    "  repo <subcommand>            Register, list, or unregister daemon repositories.",
-    "  bootstrap-server             Initialize a canonical team server repository.",
-    "  install-templates --out DIR  Copy systemd, launchd, and Windows Service templates."
-  ].join("\n");
+function daemonRepoIdOverride(args: ReadonlyArray<string>): string | undefined {
+  return readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID;
+}
+
+function daemonUserRoot(args: ReadonlyArray<string>): string | undefined {
+  return readOption(args, "--user-root") ?? process.env.HARNESS_DAEMON_USER_ROOT;
 }
 
 function requiredOption(args: ReadonlyArray<string>, name: string): string {
