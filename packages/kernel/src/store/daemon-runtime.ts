@@ -10,7 +10,7 @@ import {
 import { runLedgerMaterializer, type LedgerMaterializerReport } from "./ledger-materializer.ts";
 import { acquireDaemonGlobalLock, type DaemonGlobalLock } from "./write-journal-locks.ts";
 import { makeJournaledWriteCoordinator } from "./write-journal-coordinator.ts";
-import type { JournalActor } from "./write-journal-types.ts";
+import type { GitCommitAuthor, JournalActor } from "./write-journal-types.ts";
 
 const defaultDaemonActor: JournalActor = { kind: "system", id: "daemon-runtime" };
 const defaultLockTtlMs = 60_000;
@@ -35,6 +35,8 @@ export interface InteractiveWriteRequest {
   readonly commandId: string;
   readonly ops: ReadonlyArray<WriteOp>;
   readonly deadlineMs?: number;
+  readonly actor?: JournalActor;
+  readonly commitAuthor?: GitCommitAuthor;
 }
 
 export interface InteractiveWriteReceipt {
@@ -80,6 +82,8 @@ interface InteractiveQueueItem {
   readonly kind: "interactive";
   readonly commandId: string;
   readonly ops: ReadonlyArray<WriteOp>;
+  readonly actor?: JournalActor;
+  readonly commitAuthor?: GitCommitAuthor;
   readonly enqueuedAt: number;
   started: boolean;
   timeout?: ReturnType<typeof setTimeout>;
@@ -135,6 +139,19 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     return queue.enqueueBackground(request);
   };
 
+  const makeStartedCoordinator = (
+    started: ReturnType<typeof requireStarted>,
+    request?: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }
+  ) => makeJournaledWriteCoordinator({
+    rootDir,
+    layoutOverrides: options.layoutOverrides,
+    actor: request?.actor ?? actor,
+    lockTtlMs,
+    heldGlobalLock: started.lock,
+    autoMaterialize: false,
+    ...(request?.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
+  });
+
   return {
     start: async () => {
       if (lock && coordinator) return status();
@@ -168,7 +185,7 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     status,
     enqueueInteractiveWrite: (request) => {
       const started = requireStarted();
-      return queue.enqueueInteractive(request, started.coordinator);
+      return queue.enqueueInteractive(request, (batch) => makeStartedCoordinator(started, batch));
     },
     enqueueBackgroundBatch,
     enqueueMaterializerBatch
@@ -193,7 +210,7 @@ class DaemonWriteQueue {
   private running = false;
   private closed = false;
   private idleWaiters: Array<() => void> = [];
-  private coordinator: ReturnType<typeof makeJournaledWriteCoordinator> | undefined;
+  private coordinatorFor: ((batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => ReturnType<typeof makeJournaledWriteCoordinator>) | undefined;
   private readonly maxInteractiveOpsPerCommit: number;
   private readonly interactiveMicroBatchMs: number;
 
@@ -205,14 +222,19 @@ class DaemonWriteQueue {
     this.interactiveMicroBatchMs = interactiveMicroBatchMs;
   }
 
-  enqueueInteractive(request: InteractiveWriteRequest, coordinator: ReturnType<typeof makeJournaledWriteCoordinator>): Promise<InteractiveWriteReceipt> {
+  enqueueInteractive(
+    request: InteractiveWriteRequest,
+    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => ReturnType<typeof makeJournaledWriteCoordinator>
+  ): Promise<InteractiveWriteReceipt> {
     if (this.closed) return Promise.reject({ _tag: "JournalUnavailable", cause: new Error("daemon write queue is closed") } satisfies WriteError);
-    this.coordinator = coordinator;
+    this.coordinatorFor = coordinatorFor;
     return new Promise((resolve, reject) => {
       const item: InteractiveQueueItem = {
         kind: "interactive",
         commandId: request.commandId,
         ops: request.ops,
+        ...(request.actor ? { actor: request.actor } : {}),
+        ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {}),
         enqueuedAt: Date.now(),
         started: false,
         resolve,
@@ -281,8 +303,8 @@ class DaemonWriteQueue {
   private async drain(): Promise<void> {
     while (!this.isIdle()) {
       if (this.interactive.length > 0) {
-        if (!this.coordinator) return;
-        await this.drainInteractive(this.coordinator);
+        if (!this.coordinatorFor) return;
+        await this.drainInteractive(this.coordinatorFor);
         continue;
       }
       const backgroundItem = this.normal.shift() ?? this.background.shift() ?? this.maintenance.shift();
@@ -291,13 +313,17 @@ class DaemonWriteQueue {
     }
   }
 
-  private async drainInteractive(coordinator: ReturnType<typeof makeJournaledWriteCoordinator>): Promise<void> {
+  private async drainInteractive(
+    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => ReturnType<typeof makeJournaledWriteCoordinator>
+  ): Promise<void> {
     if (this.interactiveMicroBatchMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.interactiveMicroBatchMs));
     }
     const batch: InteractiveQueueItem[] = [];
     let opCount = 0;
     while (this.interactive.length > 0 && opCount < this.maxInteractiveOpsPerCommit) {
+      const next = this.interactive[0]!;
+      if (batch.length > 0 && !sameAttribution(batch[0]!, next)) break;
       const item = this.interactive.shift()!;
       item.started = true;
       if (item.timeout) clearTimeout(item.timeout);
@@ -305,6 +331,7 @@ class DaemonWriteQueue {
       opCount += item.ops.length;
     }
     const accepted: InteractiveQueueItem[] = [];
+    const coordinator = coordinatorFor(attributionFor(batch[0]));
     for (const item of batch) {
       try {
         for (const op of item.ops) {
@@ -364,6 +391,26 @@ class DaemonWriteQueue {
     const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
     for (const resolve of waiters) resolve();
   }
+}
+
+function attributionFor(item: InteractiveQueueItem | undefined): { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor } {
+  return {
+    ...(item?.actor ? { actor: item.actor } : {}),
+    ...(item?.commitAuthor ? { commitAuthor: item.commitAuthor } : {})
+  };
+}
+
+function sameAttribution(left: InteractiveQueueItem, right: InteractiveQueueItem): boolean {
+  return actorKey(left.actor) === actorKey(right.actor)
+    && authorKey(left.commitAuthor) === authorKey(right.commitAuthor);
+}
+
+function actorKey(actor: JournalActor | undefined): string {
+  return actor ? `${actor.kind}\0${actor.id}` : "";
+}
+
+function authorKey(author: GitCommitAuthor | undefined): string {
+  return author ? `${author.name}\0${author.email}` : "";
 }
 
 function toWriteError(error: unknown): WriteError {

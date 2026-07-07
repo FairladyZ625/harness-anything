@@ -2,11 +2,21 @@ import { Effect } from "effect";
 import type { FlushReport, RecoveryReport, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 
 type QueuedWriteOp = Parameters<WriteCoordinator["enqueue"]>[0];
+interface QueuedJournalActor {
+  readonly kind: "agent" | "human" | "system";
+  readonly id: string;
+}
+interface QueuedGitCommitAuthor {
+  readonly name: string;
+  readonly email: string;
+}
 
 export interface CliDaemonRuntime {
   readonly enqueueInteractiveWrite: (request: {
     readonly commandId: string;
     readonly ops: ReadonlyArray<QueuedWriteOp>;
+    readonly actor?: QueuedJournalActor;
+    readonly commitAuthor?: QueuedGitCommitAuthor;
   }) => Promise<{
     readonly flush: FlushReport;
   }>;
@@ -17,7 +27,8 @@ export interface CliDaemonRuntime {
 
 export function makeDaemonQueuedWriteCoordinator(
   runtime: CliDaemonRuntime,
-  commandId: string
+  commandId: string,
+  options: { readonly actor?: QueuedJournalActor; readonly commitAuthor?: QueuedGitCommitAuthor } = {}
 ): WriteCoordinator {
   const pending: Array<QueuedWriteOp> = [];
   return {
@@ -33,7 +44,9 @@ export function makeDaemonQueuedWriteCoordinator(
         const ops = pending.splice(0, pending.length);
         const receipt = await runtime.enqueueInteractiveWrite({
           commandId,
-          ops
+          ops,
+          ...(options.actor ? { actor: options.actor } : {}),
+          ...(options.commitAuthor ? { commitAuthor: options.commitAuthor } : {})
         });
         return receipt.flush;
       },

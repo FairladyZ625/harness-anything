@@ -8,11 +8,13 @@ import type { LocalControllerService } from "../../application/src/index.ts";
 import { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
 import { apiRouteContracts } from "../../gui/src/api/api-contract-registry.ts";
 import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
+import { commandSpecs } from "../../cli/src/cli/command-spec/index.ts";
 import {
   createJsonRpcProtocolServer,
   currentDaemonProtocolVersion,
   jsonRpcServiceMethodContracts,
   jsonRpcMethodContracts,
+  repoCommandRunClassifiedActionKinds,
   makeTransportDerivedIdentityProvider,
   peopleRosterFromDocument,
   type IdentityProvider,
@@ -48,8 +50,18 @@ test("daemon method registry classifies every non-hello method exactly once", ()
       assert.equal(contract.commandClass, undefined);
       continue;
     }
-    assert.match(contract.commandClass ?? "", /^(admin|repo-write|repo-read|arbiter)$/u, contract.method);
+    const hasStaticClass = typeof contract.commandClass === "string";
+    const hasDerivedClass = contract.commandClassDerivation === "repo-command-run-action";
+    assert.equal(Number(hasStaticClass) + Number(hasDerivedClass), 1, contract.method);
+    if (hasStaticClass) assert.match(contract.commandClass ?? "", /^(admin|repo-write|repo-read|arbiter)$/u, contract.method);
   }
+});
+
+test("repo.command.run classification covers every parsed CLI action kind", () => {
+  assert.deepEqual(
+    repoCommandRunClassifiedActionKinds,
+    commandSpecs.map((spec) => spec.kind).sort()
+  );
 });
 
 test("protocol.hello accepts the current daemon protocol version", async () => {
@@ -150,7 +162,7 @@ test("admin people list returns roster data and stamps receipt actor", async () 
   const receipt = resultReceipt(response);
 
   assert.equal(receipt.ok, true);
-  assert.equal(receipt.items?.length, 3);
+  assert.equal(receipt.items?.length, 4);
   assert.equal((receipt.details.actor as { readonly personId?: string }).personId, "person_alice");
 });
 
@@ -251,8 +263,67 @@ test("RBAC rejects non-arbiter methods and records a runtime event with actor", 
   }
 });
 
+test("repo.command.run derives RBAC from the inner CLI command", async () => {
+  const roster = sampleRoster();
+  const calls: string[] = [];
+  const server = makeServer({
+    peopleRoster: roster,
+    identityProvider: makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" }),
+    authContext: {
+      transportKind: "ssh-exec",
+      sshExecUser: { username: "maint", host: "team-host", source: "ssh-authenticated-exec" }
+    },
+    services: {
+      LocalControllerService: emptyLocalController(),
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" }),
+      CliCommandService: {
+        runCommand: async (payload) => {
+          const kind = (((payload?.command as Record<string, unknown> | undefined)?.action as Record<string, unknown> | undefined)?.kind);
+          calls.push(String(kind));
+          return {
+            ok: true,
+            schema: "command-receipt/v2",
+            command: String(kind),
+            action: String(kind),
+            summary: `completed ${String(kind)}`,
+            details: {},
+            meta: {
+              generatedAt: "2026-07-07T00:00:00.000Z",
+              compatibility: { legacyReceipt: "CommandReceipt/v1" }
+            }
+          };
+        }
+      }
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const readReceipt = resultReceipt(await server.handle(commandRunRequest("version", "rbac-read")));
+  assert.equal(readReceipt.ok, true);
+  const writeReceipt = resultReceipt(await server.handle(commandRunRequest("new-task", "rbac-write")));
+  assert.equal(writeReceipt.ok, true);
+
+  const arbiterReceipt = resultReceipt(await server.handle(commandRunRequest("decision-accept", "rbac-arbiter")));
+  assert.equal(arbiterReceipt.ok, false);
+  assert.equal(arbiterReceipt.error?.code, "rbac_forbidden");
+  assert.equal(arbiterReceipt.details.commandClass, "arbiter");
+  assert.deepEqual(calls, ["version", "new-task"]);
+});
+
 function makeServer(overrides: Partial<Parameters<typeof createJsonRpcProtocolServer>[0]> = {}) {
-  const localController: LocalControllerService = {
+  return createJsonRpcProtocolServer({
+    daemonId: "daemon-test",
+    repos: [{ repoId: "canonical", canonicalRoot: "/tmp/canonical" }],
+    services: {
+      LocalControllerService: emptyLocalController(),
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" })
+    },
+    ...overrides
+  });
+}
+
+function emptyLocalController(): LocalControllerService {
+  return {
     getTasks: () => ({ ok: true, tasks: [], warnings: [] }),
     getTaskDetail: () => ({ ok: true }),
     getTaskDocument: () => ({ ok: true }),
@@ -263,16 +334,24 @@ function makeServer(overrides: Partial<Parameters<typeof createJsonRpcProtocolSe
     archiveTask: () => ({ ok: true }),
     openShell: () => ({ ok: true, policy: { displayOnly: true, outputCreatesTaskState: false } })
   };
+}
 
-  return createJsonRpcProtocolServer({
-    daemonId: "daemon-test",
-    repos: [{ repoId: "canonical", canonicalRoot: "/tmp/canonical" }],
-    services: {
-      LocalControllerService: localController,
-      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" })
-    },
-    ...overrides
-  });
+function commandRunRequest(actionKind: string, id: string): JsonRpcRequest {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "repo.command.run",
+    params: {
+      repo: { repoId: "canonical" },
+      payload: {
+        command: {
+          rootDir: "/tmp/canonical",
+          json: true,
+          action: { kind: actionKind }
+        }
+      }
+    }
+  };
 }
 
 function readFixture(name: string): JsonRpcRequest {
@@ -327,6 +406,14 @@ function sampleRoster(): PeopleRoster {
     "      - kind: ssh-username",
     "        issuer: host:team-host",
     "        subject: viewer",
+    "  - personId: person_maint",
+    "    displayName: Mina Maintainer",
+    "    primaryEmail: maint@example.com",
+    "    roles: [maintainer]",
+    "    credentials:",
+    "      - kind: ssh-username",
+    "        issuer: host:team-host",
+    "        subject: maint",
     "  - personId: person_arbiter",
     "    displayName: Ari Arbiter",
     "    primaryEmail: ari@example.com",
@@ -340,6 +427,8 @@ function sampleRoster(): PeopleRoster {
     "    commandClasses: [admin, repo-write, repo-read, arbiter]",
     "  - roleId: observer",
     "    commandClasses: [repo-read]",
+    "  - roleId: maintainer",
+    "    commandClasses: [repo-write, repo-read]",
     "  - roleId: arbiter",
     "    commandClasses: [arbiter, repo-write, repo-read]",
     ""
