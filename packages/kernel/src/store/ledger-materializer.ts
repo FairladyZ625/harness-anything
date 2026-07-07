@@ -3,7 +3,7 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
 import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
-import { abortMerge, changedFilesBetween, checkoutMaster, commitsNotInMaster, currentGitHead, deleteBranch, ledgerGitTopLevel, mergeNoFf, refExists, sessionBranches } from "./write-journal-git.ts";
+import { abortMerge, changedFilesBetween, checkoutTrunk, commitsNotInTrunk, currentGitHead, deleteBranch, ledgerGitTopLevel, mergeNoFf, refExists, resolveTrunkBranch, sessionBranches } from "./write-journal-git.ts";
 import { withRepoLocks } from "./write-journal-locks.ts";
 import type { OwnedLock } from "./write-journal-types.ts";
 
@@ -57,20 +57,21 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
   const projectionSourceHashBeforeMerge = readMarkdownSource(rootInput).hash;
   const touchedPaths = new Set<string>();
 
-  if (!refExists(repoRoot, "master")) {
+  const trunkBranch = resolveTrunkBranch(repoRoot);
+  if (!refExists(repoRoot, trunkBranch)) {
     return {
       dryRun,
       merged: 0,
       considered: 0,
       branches: [],
-      warnings: ["master branch does not exist"],
+      warnings: [`trunk branch ${trunkBranch} does not exist`],
       projectionRebuilt: false
     };
   }
 
   const branches = sessionBranches(repoRoot);
   for (const branch of branches) {
-    const commits = commitsNotInMaster(repoRoot, branch);
+    const commits = commitsNotInTrunk(repoRoot, trunkBranch, branch);
     if (commits.length === 0) {
       reports.push({ branch, commitCount: 0, status: "skipped", commits });
       continue;
@@ -82,7 +83,7 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
       continue;
     }
 
-    checkoutMaster(repoRoot);
+    checkoutTrunk(repoRoot, trunkBranch);
     try {
       const beforeMergeHead = currentGitHead(repoRoot);
       mergeNoFf(repoRoot, branch, `materializer: merge session ${branch.slice("sessions/".length)}`);

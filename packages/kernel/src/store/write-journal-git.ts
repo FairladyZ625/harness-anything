@@ -24,8 +24,11 @@ export function commitTouchedPaths(
   const forcedPaths = plan.relativePaths.filter((relativePath) => !respectGitignore.has(relativePath));
   const unforcedPaths = plan.relativePaths.filter((relativePath) => respectGitignore.has(relativePath));
   const sessionBranch = sessionBranchName(sessionId);
+  // Resolve the trunk branch while HEAD still points at it, before checkoutSessionBranch
+  // moves us onto the session branch; the finally must return to the same trunk.
+  const trunkBranch = sessionBranch ? resolveTrunkBranch(plan.repoRoot) : undefined;
 
-  if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch);
+  if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!);
   try {
     if (forcedPaths.length > 0) runGit(plan.repoRoot, "add", "-A", "-f", "--", ...forcedPaths);
     if (unforcedPaths.length > 0) runGit(plan.repoRoot, "add", "-A", "--", ...unforcedPaths);
@@ -36,7 +39,7 @@ export function commitTouchedPaths(
     runGitAs(plan.repoRoot, options.author, "commit", "-m", message ?? `harness write ${opIds.join(",")}`);
     return currentGitHead(plan.repoRoot);
   } finally {
-    if (sessionBranch) runGit(plan.repoRoot, "checkout", "master");
+    if (sessionBranch && trunkBranch) runGit(plan.repoRoot, "checkout", trunkBranch);
   }
 }
 
@@ -64,8 +67,53 @@ export function ledgerGitTopLevel(inputPath: string): string | null {
   return gitTopLevel(inputPath);
 }
 
-export function checkoutMaster(repoRoot: string): void {
-  runGit(repoRoot, "checkout", "master");
+export function checkoutTrunk(repoRoot: string, trunkBranch: string): void {
+  runGit(repoRoot, "checkout", trunkBranch);
+}
+
+// Resolve the repository's trunk (integration) branch. The session-branch write model
+// checks out trunk, branches sessions/<id> from it, then materializes back into trunk;
+// hardcoding "master" broke every repo whose trunk is "main" (or anything else). Order:
+// current branch (unless it is a session branch) -> origin/HEAD -> local main -> local
+// master -> "main". Detection is git-native so any trunk name works without config.
+export function resolveTrunkBranch(repoRoot: string, explicit?: string): string {
+  const configured = explicit?.trim();
+  if (configured) return configured;
+
+  const current = currentBranchName(repoRoot);
+  if (current && !current.startsWith("sessions/")) return current;
+
+  const originHead = originHeadBranch(repoRoot);
+  if (originHead) return originHead;
+
+  for (const candidate of ["main", "master"]) {
+    if (localBranchExists(repoRoot, candidate)) return candidate;
+  }
+  return "main";
+}
+
+function currentBranchName(repoRoot: string): string | null {
+  try {
+    const name = runGit(repoRoot, "rev-parse", "--abbrev-ref", "HEAD").trim();
+    return name.length > 0 && name !== "HEAD" ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+function originHeadBranch(repoRoot: string): string | null {
+  try {
+    const ref = runGit(repoRoot, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").trim();
+    if (ref.length === 0) return null;
+    const slash = ref.indexOf("/");
+    return slash >= 0 ? ref.slice(slash + 1) : ref;
+  } catch {
+    return null;
+  }
+}
+
+function localBranchExists(repoRoot: string, branch: string): boolean {
+  return refExists(repoRoot, `refs/heads/${branch}`);
 }
 
 export function mergeNoFf(repoRoot: string, branch: string, message: string): void {
@@ -87,8 +135,8 @@ export function sessionBranches(repoRoot: string): ReadonlyArray<string> {
     .filter((entry) => entry.startsWith("sessions/"));
 }
 
-export function commitsNotInMaster(repoRoot: string, branch: string): ReadonlyArray<string> {
-  return runGit(repoRoot, "log", `master..${branch}`, "--oneline")
+export function commitsNotInTrunk(repoRoot: string, trunkBranch: string, branch: string): ReadonlyArray<string> {
+  return runGit(repoRoot, "log", `${trunkBranch}..${branch}`, "--oneline")
     .split(/\r?\n/u)
     .map((entry) => entry.trim())
     .filter(Boolean);
@@ -197,8 +245,8 @@ function logPathspecsFor(relativePath: string): ReadonlyArray<string> {
   return [`:(glob)${normalized}/**/*.log`, `${normalized}/*.log`];
 }
 
-function checkoutSessionBranch(repoRoot: string, branchName: string): void {
-  runGit(repoRoot, "checkout", "master");
+function checkoutSessionBranch(repoRoot: string, branchName: string, trunkBranch: string): void {
+  runGit(repoRoot, "checkout", trunkBranch);
   if (!branchExists(repoRoot, branchName)) {
     runGit(repoRoot, "branch", branchName);
   }
