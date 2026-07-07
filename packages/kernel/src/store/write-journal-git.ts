@@ -55,7 +55,7 @@ export function resolveCommitPlan(
   versionControlSystem: VersionControlSystem = defaultVersionControlSystem
 ): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
   if (touchedPaths.length === 0) return null;
-  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(layoutInput).authoredRoot, versionControlSystem);
+  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(layoutInput).authoredRoot, touchedPaths, versionControlSystem);
   if (!target) return null;
   return {
     repoRoot: target.repoRoot,
@@ -63,12 +63,18 @@ export function resolveCommitPlan(
   };
 }
 
-function resolveCommitTarget(rootDir: string, authoredRoot: string, vcs: VersionControlSystem): { readonly repoRoot: string } | null {
+function resolveCommitTarget(rootDir: string, authoredRoot: string, touchedPaths: ReadonlyArray<string>, vcs: VersionControlSystem): { readonly repoRoot: string } | null {
   const rootRepo = vcs.topLevel(rootDir);
   const authoredRepo = vcs.topLevel(authoredRoot);
   if (!authoredRepo) return rootRepo ? { repoRoot: rootRepo } : null;
   if (rootRepo && authoredRepo === rootRepo && isIgnoredByRepo(rootRepo, authoredRoot, vcs)) {
     throw new Error("authored root is ignored by Git but is not a nested Git repository");
+  }
+  if (touchedPaths.every((filePath) => isPathInsideRepo(authoredRepo, filePath, vcs))) {
+    return { repoRoot: authoredRepo };
+  }
+  if (rootRepo && touchedPaths.every((filePath) => isPathInsideRepo(rootRepo, filePath, vcs))) {
+    return { repoRoot: rootRepo };
   }
   return { repoRoot: authoredRepo };
 }
@@ -141,6 +147,11 @@ export function refExists(repoRoot: string, ref: string, versionControlSystem: V
 function isIgnoredByRepo(repoRoot: string, candidatePath: string, vcs: VersionControlSystem): boolean {
   const relativePath = repoRelativePath(repoRoot, candidatePath, vcs);
   return vcs.isIgnored(repoRoot, relativePath);
+}
+
+function isPathInsideRepo(repoRoot: string, filePath: string, vcs: VersionControlSystem): boolean {
+  const relativePath = path.relative(vcs.normalizePath(repoRoot), vcs.normalizePath(filePath));
+  return relativePath.length === 0 || (relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath));
 }
 
 function repoRelativePath(repoRoot: string, filePath: string, vcs: VersionControlSystem): string {
