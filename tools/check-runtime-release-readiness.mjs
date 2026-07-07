@@ -9,6 +9,10 @@ import {
 const root = process.cwd();
 const errors = [];
 const commandBySurface = new Map(harnessRuntimeReleaseReadiness.commands.map((command) => [command.surface, command]));
+const manifestGateRunner = "node tools/run-manifest-gates.mjs";
+const gateManifest = existsSync(path.join(root, "tools/gate-manifest.json"))
+  ? readJson("tools/gate-manifest.json")
+  : null;
 const releaseClaimSubjects = [
   { name: "npm release", subject: /\bnpm\b[^.!?\n;|]*\brelease\b/i },
   { name: "signed installer", subject: /\bsigned\b[^.!?\n;|]*\binstallers?\b/i },
@@ -67,7 +71,7 @@ for (const [scriptName, requiredCommand] of [
   ["check", "npm run harness:check-runtime-release-readiness"],
   ["check:pr", "npm run harness:check-runtime-release-readiness"]
 ]) {
-  if (!rootPackage.scripts?.[scriptName]?.includes(requiredCommand)) {
+  if (!packageScriptRunsCommand(rootPackage, scriptName, requiredCommand)) {
     record(`package.json script ${scriptName} must run ${requiredCommand}`);
   }
 }
@@ -116,11 +120,11 @@ for (const snippet of [
   commandBySurface.get("package-smoke")?.command,
   commandBySurface.get("gui-build")?.command
 ]) {
-  if (snippet && !workflow.includes(snippet)) record(`${harnessRuntimeReleaseReadiness.ciWorkflowPath} must include ${snippet}`);
+  if (snippet && !workflowCoversCommand(workflow, snippet)) record(`${harnessRuntimeReleaseReadiness.ciWorkflowPath} must include ${snippet}`);
 }
 
 for (const command of harnessRuntimeReleaseReadiness.commands) {
-  if (command.requiredInCi && !workflow.includes(command.command)) {
+  if (command.requiredInCi && !workflowCoversCommand(workflow, command.command)) {
     record(`${harnessRuntimeReleaseReadiness.ciWorkflowPath} must run ${command.command}`);
   }
 }
@@ -147,6 +151,101 @@ function executeSourceRunSmoke() {
   } catch (error) {
     record(`source-run command failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function packageScriptRunsCommand(packageJson, scriptName, requiredCommand) {
+  const script = packageJson.scripts?.[scriptName] ?? "";
+  return script.includes(requiredCommand) || manifestRunnerCommands(script).includes(requiredCommand);
+}
+
+function workflowCoversCommand(workflowBody, requiredCommand) {
+  return workflowBody.includes(requiredCommand) || workflowRunCommands(workflowBody)
+    .some((command) => manifestRunnerCommands(command).includes(requiredCommand));
+}
+
+function workflowRunCommands(workflowBody) {
+  return [...workflowBody.matchAll(/^\s+(?:-\s*)?run:\s*(.+?)\s*$/gmu)]
+    .map((match) => unquoteYamlScalar(match[1]))
+    .filter((command) => command !== "|" && command !== ">");
+}
+
+function manifestRunnerCommands(script) {
+  if (!gateManifest) return [];
+  const gatesById = new Map((gateManifest.gates ?? []).map((gate) => [gate.id, gate]));
+  const commands = [];
+  for (const command of splitShellAndList(script)) {
+    const invocation = parseManifestRunnerCommand(command);
+    if (!invocation) continue;
+    for (const id of expandManifestRunnerIds(invocation)) {
+      const gateCommand = gatesById.get(id)?.command;
+      if (gateCommand) commands.push(gateCommand);
+    }
+  }
+  return commands;
+}
+
+function parseManifestRunnerCommand(command) {
+  if (!command.startsWith(manifestGateRunner)) return null;
+  const args = command.slice(manifestGateRunner.length).trim().split(/\s+/).filter(Boolean);
+  const invocation = {
+    packageSurface: null,
+    workflowJob: null,
+    exclude: new Set()
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const value = args[index + 1];
+    if (arg === "--package-surface") {
+      invocation.packageSurface = value ?? null;
+      index += 1;
+      continue;
+    }
+    if (arg === "--workflow-job") {
+      invocation.workflowJob = value ?? null;
+      index += 1;
+      continue;
+    }
+    if (arg === "--exclude") {
+      for (const id of String(value ?? "").split(",")) {
+        const trimmed = id.trim();
+        if (trimmed) invocation.exclude.add(trimmed);
+      }
+      index += 1;
+    }
+  }
+
+  return invocation;
+}
+
+function expandManifestRunnerIds(invocation) {
+  if (invocation.packageSurface) {
+    return (gateManifest.surfaces?.packageJson?.[invocation.packageSurface] ?? [])
+      .filter((id) => !invocation.exclude.has(id));
+  }
+  if (invocation.workflowJob) {
+    return (gateManifest.gates ?? [])
+      .filter((gate) => !gate.aggregate)
+      .filter((gate) => gate.executionSurfaces?.rewriteCi?.pullRequestJobs?.includes(invocation.workflowJob))
+      .map((gate) => gate.id)
+      .filter((id) => !invocation.exclude.has(id));
+  }
+  return [];
+}
+
+function splitShellAndList(script) {
+  return script
+    .split(/\s+&&\s+/)
+    .map((command) => command.trim())
+    .filter(Boolean);
+}
+
+function unquoteYamlScalar(value) {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 function collectReleaseOverclaims() {

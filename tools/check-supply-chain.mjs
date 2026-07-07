@@ -9,6 +9,10 @@ import {
 const root = process.cwd();
 const errors = [];
 const policy = harnessSupplyChainReleaseReadiness;
+const manifestGateRunner = "node tools/run-manifest-gates.mjs";
+const gateManifest = existsSync(path.join(root, "tools/gate-manifest.json"))
+  ? readJson("tools/gate-manifest.json")
+  : null;
 
 function read(relativePath) {
   return readFileSync(path.join(root, relativePath), "utf8");
@@ -92,7 +96,7 @@ function validatePackageMetadata() {
     record("package.json must expose harness:check-supply-chain as node tools/check-supply-chain.mjs");
   }
   for (const scriptName of ["check", "check:pr"]) {
-    if (!rootPackage.scripts?.[scriptName]?.includes("npm run harness:check-supply-chain")) {
+    if (!packageScriptRunsCommand(rootPackage, scriptName, "npm run harness:check-supply-chain")) {
       record(`package.json script ${scriptName} must run npm run harness:check-supply-chain`);
     }
   }
@@ -174,11 +178,106 @@ function validateDocsAndWorkflow() {
   }
 
   const workflow = read(".github/workflows/rewrite-ci.yml");
-  if (!workflow.includes("npm run harness:check-supply-chain")) {
+  if (!workflowCoversCommand(workflow, "npm run harness:check-supply-chain")) {
     record(".github/workflows/rewrite-ci.yml must run npm run harness:check-supply-chain");
   }
 
   collectReleaseOverclaims();
+}
+
+function packageScriptRunsCommand(packageJson, scriptName, requiredCommand) {
+  const script = packageJson.scripts?.[scriptName] ?? "";
+  return script.includes(requiredCommand) || manifestRunnerCommands(script).includes(requiredCommand);
+}
+
+function workflowCoversCommand(workflowBody, requiredCommand) {
+  return workflowBody.includes(requiredCommand) || workflowRunCommands(workflowBody)
+    .some((command) => manifestRunnerCommands(command).includes(requiredCommand));
+}
+
+function workflowRunCommands(workflowBody) {
+  return [...workflowBody.matchAll(/^\s+(?:-\s*)?run:\s*(.+?)\s*$/gmu)]
+    .map((match) => unquoteYamlScalar(match[1]))
+    .filter((command) => command !== "|" && command !== ">");
+}
+
+function manifestRunnerCommands(script) {
+  if (!gateManifest) return [];
+  const gatesById = new Map((gateManifest.gates ?? []).map((gate) => [gate.id, gate]));
+  const commands = [];
+  for (const command of splitShellAndList(script)) {
+    const invocation = parseManifestRunnerCommand(command);
+    if (!invocation) continue;
+    for (const id of expandManifestRunnerIds(invocation)) {
+      const gateCommand = gatesById.get(id)?.command;
+      if (gateCommand) commands.push(gateCommand);
+    }
+  }
+  return commands;
+}
+
+function parseManifestRunnerCommand(command) {
+  if (!command.startsWith(manifestGateRunner)) return null;
+  const args = command.slice(manifestGateRunner.length).trim().split(/\s+/).filter(Boolean);
+  const invocation = {
+    packageSurface: null,
+    workflowJob: null,
+    exclude: new Set()
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const value = args[index + 1];
+    if (arg === "--package-surface") {
+      invocation.packageSurface = value ?? null;
+      index += 1;
+      continue;
+    }
+    if (arg === "--workflow-job") {
+      invocation.workflowJob = value ?? null;
+      index += 1;
+      continue;
+    }
+    if (arg === "--exclude") {
+      for (const id of String(value ?? "").split(",")) {
+        const trimmed = id.trim();
+        if (trimmed) invocation.exclude.add(trimmed);
+      }
+      index += 1;
+    }
+  }
+
+  return invocation;
+}
+
+function expandManifestRunnerIds(invocation) {
+  if (invocation.packageSurface) {
+    return (gateManifest.surfaces?.packageJson?.[invocation.packageSurface] ?? [])
+      .filter((id) => !invocation.exclude.has(id));
+  }
+  if (invocation.workflowJob) {
+    return (gateManifest.gates ?? [])
+      .filter((gate) => !gate.aggregate)
+      .filter((gate) => gate.executionSurfaces?.rewriteCi?.pullRequestJobs?.includes(invocation.workflowJob))
+      .map((gate) => gate.id)
+      .filter((id) => !invocation.exclude.has(id));
+  }
+  return [];
+}
+
+function splitShellAndList(script) {
+  return script
+    .split(/\s+&&\s+/)
+    .map((command) => command.trim())
+    .filter(Boolean);
+}
+
+function unquoteYamlScalar(value) {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 function requireChecklistItem(file, text) {
