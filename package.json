@@ -26,7 +26,7 @@
     "packages/adapters/*"
   ],
   "scripts": {
-    "check": "npm run typecheck && npm run lint && npm test && npm run test:gui && npm run test:gui:e2e && node tools/run-manifest-gates.mjs --package-surface check --exclude typecheck,lint,test-node-all,test-gui,test-gui-e2e",
+    "check": "npm run typecheck && npm run lint && npm test && npm run test:gui && node tools/run-manifest-gates.mjs --package-surface check --exclude typecheck,lint,test-node-all,test-gui",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "test": "node tools/run-node-tests.mjs",
@@ -38,7 +38,7 @@
     "test:list": "node tools/run-node-tests.mjs --list",
     "quickstart:demo": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs",
     "quickstart:demo:fail-closed": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs --break-step fact-record",
-    "check:pr": "npm run typecheck && npm run lint && npm run test:fast && npm run test:contract && npm run test:integration && npm run test:gui && npm run test:gui:e2e && node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui,test-gui-e2e",
+    "check:pr": "npm run typecheck && npm run lint && npm run test:fast && npm run test:contract && npm run test:integration && npm run test:gui && node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui",
     "check:local": "node tools/run-local-check.mjs",
     "check:local:full": "node tools/run-local-check.mjs --full",
     "harness:check-file-complexity": "node tools/check-file-complexity.mjs",
@@ -73,7 +73,8 @@
     "harness:check-bypass-write-boundary": "node tools/check-bypass-write-boundary.mjs",
     "harness:check-kernel-dead-exports": "node tools/check-kernel-dead-exports.mjs",
     "harness:check-relation-cycle-substrate": "node tools/check-relation-cycle-substrate.mjs",
-    "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs"
+    "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs",
+    "pr:doctor": "node tools/pr-doctor.mjs"
   },
   "engines": {
     "node": ">=24"

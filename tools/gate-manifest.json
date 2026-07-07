@@ -26,7 +26,6 @@
         "integration",
         "supply-chain",
         "gui-build",
-        "gui-e2e",
         "node26-compatibility",
         "pr-body-lint"
       ]
@@ -52,7 +51,6 @@
         "lint",
         "test-node-all",
         "test-gui",
-        "test-gui-e2e",
         "check-file-complexity",
         "check-cli-structure",
         "check-cli-help-contract",
@@ -92,7 +90,6 @@
         "test-contract",
         "test-integration",
         "test-gui",
-        "test-gui-e2e",
         "check-file-complexity",
         "check-cli-structure",
         "check-cli-help-contract",
@@ -135,7 +132,6 @@
         "package-policy",
         "supply-chain",
         "gui-build",
-        "gui-e2e",
         "node26-compatibility"
       ],
       "helperJobsNotRegisteredAsGates": [
@@ -155,7 +151,6 @@
         "integration",
         "supply-chain",
         "gui-build",
-        "gui-e2e",
         "node26-compatibility",
         "pr-body-lint"
       ],
@@ -1019,38 +1014,31 @@
       "id": "test-gui-e2e",
       "command": "npm run test:gui:e2e",
       "category": "smoke",
-      "tier": "pr-required",
-      "tierReason": null,
+      "tier": "manual-only",
+      "tierReason": "decision/dec_mrat10bn: headed GUI E2E tests run only by explicit local invocation; headless GitHub CI has low signal and previously caused merge-queue hangs.",
       "authoritySource": [
         "task_01KWGEEG8DB00Z6A5BDXR22702 PRE-03",
         "task_01KWY818D8X6V2WC00D9SMN6C0 PRE03-R1",
         "decision/dec_mra5ylto",
         "packages/gui/e2e/electron-smoke.e2e.mjs",
         "tools/run-gui-e2e-tests.mjs",
-        ".github/workflows/rewrite-ci.yml:jobs.gui-e2e",
-        "package.json:scripts.test:gui:e2e"
+        "package.json:scripts.test:gui:e2e",
+        "decision/dec_mrat10bn"
       ],
       "consumerScope": [
-        "Electron shell smoke through Playwright for Electron",
-        "headless Linux GUI E2E execution under xvfb-run with uploaded failure logs"
+        "Explicit local GUI task closeout evidence via npm run test:gui:e2e",
+        "GUI related task closeout must run this local E2E entry and attach evidence; it is not part of GitHub CI or check:local."
       ],
       "githubContext": {
-        "requiredContexts": [
-          "gui-e2e"
-        ],
-        "workflowJobs": [
-          "gui-e2e"
-        ],
-        "nodeVersions": [
-          24
-        ],
-        "pathFiltered": true
+        "requiredContexts": [],
+        "workflowJobs": [],
+        "nodeVersions": []
       },
       "allowlistPolicy": {
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "The E2E lane owns explicit smoke files; it does not use a bypass allowlist."
+        "notes": "dec_mrat10bn: GUI related task closeout must run the local GUI E2E command and attach evidence. This is enforced by task closeout discipline, not by GitHub CI, check:local, or branch protection."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -1058,31 +1046,24 @@
         "protectedSurfaces": [
           "packages/gui/e2e",
           "tools/run-gui-e2e-tests.mjs",
-          "package.json:scripts.test:gui:e2e",
-          ".github/workflows/rewrite-ci.yml"
+          "package.json:scripts.test:gui:e2e"
         ]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": {
-          "check": true,
-          "checkPr": true,
+          "check": false,
+          "checkPr": false,
           "script": "test:gui:e2e"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "gui-e2e"
-          ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ],
-          "pathFiltered": true
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": [],
+          "pathFiltered": false
         },
         "branchProtection": {
-          "required": true,
-          "contexts": [
-            "gui-e2e"
-          ]
+          "required": false,
+          "contexts": []
         }
       }
     },
