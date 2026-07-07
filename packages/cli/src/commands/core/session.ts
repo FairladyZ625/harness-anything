@@ -22,7 +22,7 @@ export const runSessionCommand: CommandRunner = (context, command) => {
     }).pipe(
       Effect.map((result) => {
         const paths = result.exported.map((entry) => entry.path);
-      const git = commitAuthoredPaths(context.layoutInput, paths, `session(backfill): ${paths.length} sessions`);
+      const git = acknowledgeCoordinatorCommit(commitAuthoredPaths(context.layoutInput, paths, `session(backfill): ${paths.length} sessions`));
       const displayPaths = paths.map((entry) => rootRelativeSessionPath(context.layoutInput, entry));
       return {
         ok: true,
@@ -57,7 +57,7 @@ function runSessionExport(
     : context.provenanceSessionExporter.exportCurrentSession();
   return exportEffect.pipe(
     Effect.map((result) => {
-      const git = commitAuthoredPaths(context.layoutInput, [result.path], `session(export): ${result.session.sessionId}`);
+      const git = acknowledgeCoordinatorCommit(commitAuthoredPaths(context.layoutInput, [result.path], `session(export): ${result.session.sessionId}`));
       const displayPath = rootRelativeSessionPath(context.layoutInput, result.path);
       return {
         ok: true,
@@ -94,6 +94,12 @@ function runSessionSync(rootInput: Parameters<CommandRunner>[0]["layoutInput"]) 
       }
     } satisfies CliResult;
   });
+}
+
+function acknowledgeCoordinatorCommit(git: ReturnType<typeof commitAuthoredPaths>): ReturnType<typeof commitAuthoredPaths> {
+  return git.attempted && git.reason === "no_changes"
+    ? { ...git, committed: true, reason: "already_committed" }
+    : git;
 }
 
 function rootRelativeSessionPath(rootInput: Parameters<CommandRunner>[0]["layoutInput"], authoredRelative: string): string {
