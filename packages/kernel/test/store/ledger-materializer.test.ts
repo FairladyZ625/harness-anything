@@ -54,10 +54,36 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
   });
 });
 
-function initAuthoredGit(rootDir: string): void {
+test("session write + materializer resolve the trunk on a main-trunk repo", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir, "main");
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      sessionId: "codex-session-3",
+      autoMaterialize: false
+    });
+
+    Effect.runSync(coordinator.enqueue(docWrite("op-main-trunk", "task-3", "note.md", "main trunk write\n")));
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    // Before the fix this flush threw JournalUnavailable ("pathspec 'master' did not match")
+    // even though the entity file had already been written to disk.
+    assert.equal(report.opCount, 1);
+    assert.equal(git(rootDir, "rev-parse", "--abbrev-ref", "HEAD"), "main");
+    assert.match(git(rootDir, "log", "main..sessions/codex-session-3", "--oneline"), /op-main-trunk/u);
+
+    const merged = runLedgerMaterializer(rootDir);
+    assert.equal(merged.merged, 1);
+    assert.equal(git(rootDir, "branch", "--list", "sessions/codex-session-3"), "");
+    assert.equal(git(rootDir, "rev-parse", "--abbrev-ref", "HEAD"), "main");
+    assert.equal(readGitFile(rootDir, "tasks/task-3/note.md", "main"), "main trunk write\n");
+  });
+});
+
+function initAuthoredGit(rootDir: string, trunk = "master"): void {
   const harnessRoot = path.join(rootDir, "harness");
   mkdirSync(harnessRoot, { recursive: true });
-  execFileSync("git", ["-C", harnessRoot, "init", "-b", "master"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "init", "-b", trunk], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "config", "user.name", "Harness Test"], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
   writeFileSync(path.join(harnessRoot, ".gitkeep"), "", "utf8");
@@ -72,8 +98,8 @@ function git(rootDir: string, ...args: ReadonlyArray<string>): string {
   }).trim();
 }
 
-function readGitFile(rootDir: string, relativePath: string): string {
-  return execFileSync("git", ["-C", path.join(rootDir, "harness"), "show", `master:${relativePath}`], {
+function readGitFile(rootDir: string, relativePath: string, trunk = "master"): string {
+  return execFileSync("git", ["-C", path.join(rootDir, "harness"), "show", `${trunk}:${relativePath}`], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   });
