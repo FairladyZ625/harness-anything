@@ -22,6 +22,35 @@ test("WriteCoordinator flushes same-task writes in FIFO order", () => {
   });
 });
 
+test("WriteCoordinator journals actor person and uses explicit git authors", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    const alice = makeJournaledWriteCoordinator({
+      rootDir,
+      actor: { kind: "human", id: "person_alice" },
+      commitAuthor: { name: "Alice Admin", email: "alice@example.com" }
+    });
+    const bob = makeJournaledWriteCoordinator({
+      rootDir,
+      actor: { kind: "human", id: "person_bob" },
+      commitAuthor: { name: "Bob Builder", email: "team-fallback@example.invalid" }
+    });
+
+    Effect.runSync(alice.enqueue(docWrite("op-alice", "task-1", "alice.md", "alice")));
+    const journalBody = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
+    assert.match(journalBody, /"actor":\{"kind":"human","id":"person_alice"\}/u);
+    Effect.runSync(alice.flush("explicit"));
+
+    Effect.runSync(bob.enqueue(docWrite("op-bob", "task-1", "bob.md", "bob")));
+    Effect.runSync(bob.flush("explicit"));
+
+    assert.deepEqual(
+      runGit(rootDir, "log", "-2", "--format=%an <%ae>").split(/\r?\n/u),
+      ["Bob Builder <team-fallback@example.invalid>", "Alice Admin <alice@example.com>"]
+    );
+  });
+});
+
 test("WriteCoordinator preserves same-task FIFO across two coordinators", () => {
   withTempStore((rootDir) => {
     const firstCoordinator = makeJournaledWriteCoordinator({ rootDir });

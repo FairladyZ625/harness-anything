@@ -28,6 +28,27 @@
     "kind": {
       "enum": ["session", "turn", "step", "tool", "approval", "interrupt", "result", "cost"]
     },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["personId", "displayName", "providerId", "credential"],
+      "properties": {
+        "personId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "primaryEmail": { "type": "string" },
+        "providerId": { "type": "string" },
+        "credential": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "issuer", "subject"],
+          "properties": {
+            "kind": { "type": "string" },
+            "issuer": { "type": "string" },
+            "subject": { "type": "string" }
+          }
+        }
+      }
+    },
     "session": {
       "type": "object",
       "additionalProperties": false,

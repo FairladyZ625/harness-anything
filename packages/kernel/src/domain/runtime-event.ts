@@ -10,11 +10,26 @@ export type RuntimeEventResultStatus = typeof runtimeEventResultStatuses[number]
 export type RuntimeEventApprovalDecision = typeof runtimeEventApprovalDecisions[number];
 export type RuntimeEventInterruptAction = typeof runtimeEventInterruptActions[number];
 
+export interface RuntimeEventActorCredential {
+  readonly kind: string;
+  readonly issuer: string;
+  readonly subject: string;
+}
+
+export interface RuntimeEventActor {
+  readonly personId: string;
+  readonly displayName: string;
+  readonly primaryEmail?: string;
+  readonly providerId: string;
+  readonly credential: RuntimeEventActorCredential;
+}
+
 export interface RuntimeEventRecord {
   readonly schema: "runtime-event/v1";
   readonly eventId: string;
   readonly recordedAt: string;
   readonly kind: RuntimeEventKind;
+  readonly actor?: RuntimeEventActor;
   readonly session: {
     readonly sessionId: string;
     readonly runtime: RuntimeEventRuntime | "unknown";

@@ -23,6 +23,7 @@ export interface RuntimeEventAppendInput {
   readonly eventId?: string;
   readonly recordedAt?: string;
   readonly kind: RuntimeEventKind;
+  readonly actor?: RuntimeEventRecord["actor"];
   readonly session: {
     readonly sessionId: string;
     readonly runtime?: RuntimeEventRuntime | "unknown";
@@ -77,6 +78,14 @@ export interface RuntimeEventLedgerService {
   readonly readSession: (sessionId: string) => Effect.Effect<RuntimeEventLedgerReadResult, RuntimeEventLedgerRejected>;
 }
 
+export function makeRuntimeEventAppendPromise(
+  service: RuntimeEventLedgerService
+): (input: RuntimeEventAppendInput) => Promise<void> {
+  return async (input) => {
+    await Effect.runPromise(service.append(input));
+  };
+}
+
 export function makeRuntimeEventLedgerService(options: RuntimeEventLedgerServiceOptions): RuntimeEventLedgerService {
   const timestamp = () => options.now?.() ?? new Date().toISOString();
   const eventId = () => options.makeEventId?.() ?? makeRuntimeEventId(timestamp());
@@ -97,6 +106,7 @@ function toRuntimeEventRecord(
     eventId: id,
     recordedAt: input.recordedAt ?? timestamp(),
     kind: input.kind,
+    ...(input.actor ? { actor: input.actor } : {}),
     session: {
       sessionId: input.session.sessionId,
       runtime: input.session.runtime ?? "unknown",
