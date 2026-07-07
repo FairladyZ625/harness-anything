@@ -57,6 +57,63 @@ test("gate surface check rejects a PR workflow lane that no longer runs a requir
   }
 });
 
+test("gate surface check accepts a GUI E2E manifest runner wrapped by xvfb and tee", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      manifest(manifest) {
+        manifest.surfaces.rewriteCi.pullRequestGateJobs.push("gui-e2e");
+        manifest.surfaces.branchProtection.requiredContexts.push("gui-e2e");
+        manifest.gates.push({
+          id: "test-gui-e2e",
+          command: "npm run test:gui:e2e",
+          category: "smoke",
+          tier: "pr-required",
+          authoritySource: ["packages/gui/e2e/electron-smoke.e2e.mjs"],
+          consumerScope: ["Electron shell smoke through Playwright for Electron"],
+          githubContext: {
+            requiredContexts: ["gui-e2e"],
+            workflowJobs: ["gui-e2e"],
+            nodeVersions: [24]
+          },
+          allowlistPolicy: { allowed: false },
+          bypassFixtureRequired: false,
+          executionSurfaces: {
+            packageJson: { check: false, checkPr: false, script: null },
+            rewriteCi: { pullRequestJobs: ["gui-e2e"], nonPullRequestJobs: [] },
+            branchProtection: { required: true, contexts: ["gui-e2e"] }
+          }
+        });
+      },
+      workflow(workflow) {
+        return workflow.replace(
+          "  boundaries:\n",
+          [
+            "  gui-e2e:",
+            "    if: github.event_name == 'pull_request'",
+            "    runs-on: ubuntu-latest",
+            "    steps:",
+            "      - run: npm ci",
+            "      - run: mkdir -p artifacts/gui-e2e",
+            "      - run: xvfb-run --auto-servernum node tools/run-manifest-gates.mjs --workflow-job gui-e2e --exclude mergify-queue-metadata-edit-noop 2>&1 | tee artifacts/gui-e2e/gui-e2e.log",
+            "  boundaries:",
+            ""
+          ].join("\n")
+        );
+      },
+      branchProtection(branchProtection) {
+        return branchProtection.replace("- boundaries\n", "- boundaries\n- gui-e2e\n");
+      }
+    });
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Gate surface check passed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("gate surface check rejects branch-protection document drift from required contexts", () => {
   const root = makeFixtureRoot();
   try {
