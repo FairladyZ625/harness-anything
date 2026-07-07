@@ -263,7 +263,7 @@ function readProjectionDatabase(
   }));
 }
 
-function runSqlite<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {
+export function runSqlite<A>(filename: string, effect: Effect.Effect<A, unknown, SqlClient.SqlClient>): A {
   return Effect.runSync(Effect.provide(effect, SqliteClient.layer({ filename })));
 }
 
@@ -275,7 +275,7 @@ function addTaskProjectionColumn(sql: SqlClient.SqlClient, column: string): Effe
   return sql.unsafe(`ALTER TABLE task_projection ADD COLUMN ${quoteIdentifier(column)} TEXT`);
 }
 
-function insertTaskRow(
+export function insertTaskRow(
   sql: SqlClient.SqlClient,
   row: TaskProjectionRow,
   taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection>
@@ -314,7 +314,7 @@ function insertTaskRow(
   );
 }
 
-function insertDecisionRow(sql: SqlClient.SqlClient, row: DecisionProjectionRow): Effect.Effect<unknown, unknown> {
+export function insertDecisionRow(sql: SqlClient.SqlClient, row: DecisionProjectionRow): Effect.Effect<unknown, unknown> {
   return sql`
     INSERT OR REPLACE INTO decision_projection (
       decision_id, legacy_id, legacy_number, state, title, question, chosen_json,
@@ -327,21 +327,21 @@ function insertDecisionRow(sql: SqlClient.SqlClient, row: DecisionProjectionRow)
   `;
 }
 
-function insertRelationEdge(sql: SqlClient.SqlClient, edge: RelationGraphEdgeRow): Effect.Effect<unknown, unknown> {
+export function insertRelationEdge(sql: SqlClient.SqlClient, edge: RelationGraphEdgeRow): Effect.Effect<unknown, unknown> {
   return sql`
     INSERT OR REPLACE INTO relation_edges (relation_id, source_ref, target_ref, relation_type, direction, state, row_json)
     VALUES (${edge.relationId}, ${edge.sourceRef}, ${edge.targetRef}, ${edge.relationType}, ${edge.direction}, ${edge.state}, ${JSON.stringify(edge)})
   `;
 }
 
-function insertCoverageRow(sql: SqlClient.SqlClient, row: RelationCoverageRow): Effect.Effect<unknown, unknown> {
+export function insertCoverageRow(sql: SqlClient.SqlClient, row: RelationCoverageRow): Effect.Effect<unknown, unknown> {
   return sql`
     INSERT OR REPLACE INTO relation_coverage (claim_ref, decision_ref, status, covering_fact_ref, row_json)
     VALUES (${row.claimRef}, ${row.decisionRef}, ${row.status}, ${row.coveringFactRef ?? null}, ${JSON.stringify(row)})
   `;
 }
 
-function insertFactAnchor(sql: SqlClient.SqlClient, row: FactAnchorRow): Effect.Effect<unknown, unknown> {
+export function insertFactAnchor(sql: SqlClient.SqlClient, row: FactAnchorRow): Effect.Effect<unknown, unknown> {
   return sql`
     INSERT OR REPLACE INTO task_fact_anchors (fact_ref, task_id, fact_id, source_path, row_json)
     VALUES (${row.factRef}, ${row.taskId}, ${row.factId}, ${row.sourcePath}, ${JSON.stringify(row)})
@@ -533,7 +533,7 @@ function legacyNumberFromLabel(value: string): number | undefined {
   return Number.isInteger(parsed) ? parsed : undefined;
 }
 
-function queryableTaskFieldExtensions(
+export function queryableTaskFieldExtensions(
   extensions: ReadonlyArray<TaskFieldExtensionProjection>
 ): ReadonlyArray<TaskFieldExtensionProjection> {
   const seen = new Set<string>(baseTaskProjectionColumns);

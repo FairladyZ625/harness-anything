@@ -1,7 +1,9 @@
+import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
-import { abortMerge, checkoutMaster, commitsNotInMaster, deleteBranch, ledgerGitTopLevel, mergeNoFf, refExists, sessionBranches } from "./write-journal-git.ts";
+import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
+import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
+import { abortMerge, changedFilesBetween, checkoutMaster, commitsNotInMaster, currentGitHead, deleteBranch, ledgerGitTopLevel, mergeNoFf, refExists, sessionBranches } from "./write-journal-git.ts";
 import { withRepoLocks } from "./write-journal-locks.ts";
 import type { OwnedLock } from "./write-journal-types.ts";
 
@@ -52,6 +54,8 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
   const warnings: string[] = [];
   let merged = 0;
   let processed = 0;
+  const projectionSourceHashBeforeMerge = readMarkdownSource(rootInput).hash;
+  const touchedPaths = new Set<string>();
 
   if (!refExists(repoRoot, "master")) {
     return {
@@ -80,7 +84,12 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
 
     checkoutMaster(repoRoot);
     try {
+      const beforeMergeHead = currentGitHead(repoRoot);
       mergeNoFf(repoRoot, branch, `materializer: merge session ${branch.slice("sessions/".length)}`);
+      const afterMergeHead = currentGitHead(repoRoot);
+      for (const relativePath of changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead)) {
+        touchedPaths.add(path.join(repoRoot, relativePath));
+      }
       deleteBranch(repoRoot, branch);
       merged += 1;
       reports.push({ branch, commitCount: commits.length, status: "merged", commits });
@@ -100,9 +109,11 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
 
   if (merged > 0) {
     const layout = resolveHarnessLayout(rootInput);
-    rebuildTaskProjection({
+    updateTaskProjectionIncrementally({
       rootDir: layout.rootDir,
-      ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {})
+      ...(typeof rootInput === "object" && rootInput.layoutOverrides ? { layoutOverrides: rootInput.layoutOverrides } : {}),
+      touchedPaths: [...touchedPaths],
+      previousSourceHash: projectionSourceHashBeforeMerge
     });
   }
 
