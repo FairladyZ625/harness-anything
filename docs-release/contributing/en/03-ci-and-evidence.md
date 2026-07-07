@@ -61,6 +61,22 @@ The full aggregate `npm run check` lane is reserved for `main`, scheduled runs,
 and manual dispatch. Do not treat a pull-request skip of the full-check job as a
 failure when the PR lanes passed by design.
 
+## Merge discipline
+
+`main` only advances through the merge queue. Do not merge a pull request into
+`main` outside the queue, even when the branch is green locally or in CI.
+
+If an emergency direct merge is explicitly approved, the person performing it is
+responsible for immediately rebasing every pull request already in the queue and
+rerunning the required gates. The emergency merge is not complete until queued
+work has a fresh base.
+
+Queue troubleshooting starts with the PR labels:
+
+1. Check whether the PR has the `dequeued` label.
+2. Ask Mergify to refresh with `@Mergifyio refresh`.
+3. Requeue with `@Mergifyio queue` after the required checks are green.
+
 ## Evidence in the PR
 
 The PR template asks for:

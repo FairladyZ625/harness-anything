@@ -16,6 +16,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_ROOT = process.cwd();
+const MANIFEST_GATE_RUNNER = "node tools/run-manifest-gates.mjs";
 const INFRASTRUCTURE_RUN_COMMANDS = new Set([
   "npm ci",
   "git diff --check",
@@ -61,12 +62,16 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
     findings,
     aggregateName: "check",
     commands: splitShellAndList(packageScripts.check ?? ""),
+    manifest,
+    gates,
     commandToGateIds
   });
   const actualCheckPrIds = mapAggregateCommands({
     findings,
     aggregateName: "check:pr",
     commands: splitShellAndList(packageScripts["check:pr"] ?? ""),
+    manifest,
+    gates,
     commandToGateIds
   });
 
@@ -139,6 +144,13 @@ function checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds 
       if (INFRASTRUCTURE_RUN_COMMANDS.has(command)) {
         continue;
       }
+      const runnerInvocation = parseManifestRunnerCommand(command);
+      if (runnerInvocation) {
+        if (runnerInvocation.workflowJob !== job.id) {
+          findings.push(formatFinding("rewrite-ci", `${job.id} runs manifest gate runner for ${runnerInvocation.workflowJob ?? "no workflow job"}.`));
+        }
+        continue;
+      }
       const mappedIds = commandToGateIds.get(command) ?? [];
       if (mappedIds.length === 0) {
         findings.push(formatFinding("rewrite-ci", `${job.id} runs ${JSON.stringify(command)} but no manifest gate declares that command.`));
@@ -163,7 +175,7 @@ function checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds 
           findings.push(formatFinding("rewrite-ci", `${gate.id} expects pull-request job ${jobId}, but that job is not a pull_request job.`));
           continue;
         }
-        if (!jobRunsGateCommand(job, gate.command)) {
+        if (!jobRunsGateCommand({ job, gate, manifest, gates })) {
           findings.push(formatFinding("rewrite-ci", `${gate.id} expects ${jobId} to run ${JSON.stringify(gate.command)}, but the command is absent.`));
         }
       }
@@ -244,9 +256,19 @@ function checkBoundaryFields({ findings, gates }) {
   }
 }
 
-function mapAggregateCommands({ findings, aggregateName, commands, commandToGateIds }) {
+function mapAggregateCommands({ findings, aggregateName, commands, manifest, gates, commandToGateIds }) {
   const ids = [];
   for (const command of commands) {
+    const runnerInvocation = parseManifestRunnerCommand(command);
+    if (runnerInvocation) {
+      const expandedIds = expandManifestRunnerIds({ invocation: runnerInvocation, manifest, gates });
+      if (runnerInvocation.packageSurface === null) {
+        findings.push(formatFinding("package-json", `package.json scripts.${aggregateName} uses manifest gate runner without --package-surface.`));
+      }
+      ids.push(...expandedIds);
+      continue;
+    }
+
     const mappedIds = commandToGateIds.get(command) ?? [];
     if (mappedIds.length === 0) {
       findings.push(formatFinding("package-json", `package.json scripts.${aggregateName} contains ${JSON.stringify(command)} but no manifest gate declares that command.`));
@@ -280,12 +302,43 @@ function checkCommandResolvableInPackageScripts({ findings, gate, packageScripts
   }
 }
 
-function jobRunsGateCommand(job, command) {
-  if (job.runCommands.includes(command)) {
+function jobRunsGateCommand({ job, gate, manifest, gates }) {
+  if (job.runCommands.includes(gate.command)) {
     return true;
   }
-  const parts = splitShellAndList(command);
-  return parts.length > 1 && parts.every((part) => job.runCommands.includes(part));
+  if (job.runCommands.some((command) => manifestRunnerCoversGate({ command, gateId: gate.id, workflowJob: job.id, manifest, gates }))) {
+    return true;
+  }
+  const parts = splitShellAndList(gate.command);
+  return parts.length > 1 && parts.every((part) => jobRunsCommandPart({ job, part, manifest, gates }));
+}
+
+function manifestRunnerCoversGate({ command, gateId, workflowJob, manifest, gates }) {
+  const invocation = parseManifestRunnerCommand(command);
+  if (!invocation || invocation.workflowJob !== workflowJob) {
+    return false;
+  }
+  return expandManifestRunnerIds({ invocation, manifest, gates }).includes(gateId);
+}
+
+function jobRunsCommandPart({ job, part, manifest, gates }) {
+  if (job.runCommands.includes(part)) {
+    return true;
+  }
+  const gatesById = new Map(gates.map((gate) => [gate.id, gate]));
+  for (const command of job.runCommands) {
+    const invocation = parseManifestRunnerCommand(command);
+    if (!invocation || invocation.workflowJob !== job.id) {
+      continue;
+    }
+    const expandedGates = expandManifestRunnerIds({ invocation, manifest, gates })
+      .map((id) => gatesById.get(id))
+      .filter(Boolean);
+    if (expandedGates.some((gate) => gate.command === part)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildCommandIndex(gates) {
@@ -410,6 +463,62 @@ function splitShellAndList(script) {
     .split(/\s+&&\s+/)
     .map((command) => command.trim())
     .filter(Boolean);
+}
+
+function parseManifestRunnerCommand(command) {
+  if (!command.startsWith(MANIFEST_GATE_RUNNER)) {
+    return null;
+  }
+  const args = command.slice(MANIFEST_GATE_RUNNER.length).trim().split(/\s+/).filter(Boolean);
+  const invocation = {
+    packageSurface: null,
+    workflowJob: null,
+    exclude: new Set()
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const value = args[index + 1];
+    if (arg === "--package-surface") {
+      invocation.packageSurface = value ?? null;
+      index += 1;
+      continue;
+    }
+    if (arg === "--workflow-job") {
+      invocation.workflowJob = value ?? null;
+      index += 1;
+      continue;
+    }
+    if (arg === "--exclude") {
+      for (const id of String(value ?? "").split(",")) {
+        const trimmed = id.trim();
+        if (trimmed) {
+          invocation.exclude.add(trimmed);
+        }
+      }
+      index += 1;
+      continue;
+    }
+  }
+
+  return invocation;
+}
+
+function expandManifestRunnerIds({ invocation, manifest, gates }) {
+  if (invocation.packageSurface) {
+    return (manifest.surfaces?.packageJson?.[invocation.packageSurface] ?? [])
+      .filter((id) => !invocation.exclude.has(id));
+  }
+
+  if (invocation.workflowJob) {
+    return gates
+      .filter((gate) => !gate.aggregate)
+      .filter((gate) => gate.executionSurfaces?.rewriteCi?.pullRequestJobs?.includes(invocation.workflowJob))
+      .map((gate) => gate.id)
+      .filter((id) => !invocation.exclude.has(id));
+  }
+
+  return [];
 }
 
 function compareIdSets({ findings, label, expected, actual }) {

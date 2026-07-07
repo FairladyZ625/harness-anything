@@ -55,6 +55,19 @@ integration、boundary、package-policy、GUI build、Node 26 compatibility、su
 完整聚合 `npm run check` lane 保留给 `main`、scheduled run 和 manual dispatch。pull request 上 full-check
 job 按设计 skipped 时，不要把它当失败。
 
+## 合并纪律
+
+`main` 只通过 merge queue 前进。不要在队列外把 pull request 手动合进 `main`，即使本地或 CI 已经是绿色。
+
+如果紧急情况被明确批准为直接合并，执行者负责立即 rebase 队列里已有的所有 pull request，并重新运行 required
+gates。队内工作重新基于最新 `main` 之前，这次紧急合并不算收尾完成。
+
+队列排障先看 PR 标签：
+
+1. 检查 PR 是否带有 `dequeued` 标签。
+2. 用 `@Mergifyio refresh` 让 Mergify 刷新状态。
+3. required checks 变绿后，用 `@Mergifyio queue` 重新入队。
+
 ## PR 里的证据
 
 PR 模板要求填写：
