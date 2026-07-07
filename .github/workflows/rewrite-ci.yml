@@ -234,6 +234,7 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: changes
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Accept Mergify queue metadata edit
         if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
@@ -245,13 +246,95 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Restore Electron binary cache
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: ${{ runner.os }}-electron-42.5.1-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-42.5.1-
       # Skip the Electron E2E smoke when a PR touches no GUI or shared-root files.
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
         run: npm ci
+      - name: Warm Electron binary
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+        timeout-minutes: 6
+        uses: actions/github-script@v7
+        env:
+          electron_config_cache: /home/runner/.cache/electron
+          npm_config_electron_config_cache: /home/runner/.cache/electron
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "0"
+        with:
+          script: |
+            const { spawnSync } = require("node:child_process");
+            const cacheEnv = {
+              ...process.env,
+              electron_config_cache: process.env.electron_config_cache,
+              npm_config_electron_config_cache: process.env.npm_config_electron_config_cache,
+              ELECTRON_SKIP_BINARY_DOWNLOAD: "0"
+            };
+            const run = (label, args) => {
+              core.info(`${label}: ${process.execPath} ${args.join(" ")}`);
+              const result = spawnSync(process.execPath, args, {
+                cwd: process.env.GITHUB_WORKSPACE,
+                env: cacheEnv,
+                stdio: "inherit"
+              });
+              if (result.error) core.warning(`${label} launch failed: ${result.error.message}`);
+              return result.status === 0;
+            };
+            if (process.env.npm_config_ignore_scripts === "true") {
+              core.setFailed("npm ignore-scripts is true; Electron postinstall cannot download its binary.");
+              return;
+            }
+            if (process.env.ELECTRON_SKIP_BINARY_DOWNLOAD === "1" || process.env.ELECTRON_SKIP_BINARY_DOWNLOAD === "true") {
+              core.setFailed("ELECTRON_SKIP_BINARY_DOWNLOAD disables the Electron binary download.");
+              return;
+            }
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              core.info(`Electron warmup attempt ${attempt}/3`);
+              const installed = run("electron install", ["node_modules/electron/install.js"]);
+              const verified = installed && run("electron verify", ["-e", "const electron = require('electron'); console.log(`Electron ready: ${electron}`);"]);
+              if (verified) break;
+              if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 10_000));
+              if (attempt === 3) {
+                core.setFailed("Electron binary warmup failed before GUI E2E test execution.");
+                return;
+              }
+            }
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const electronPath = require(path.join(process.env.GITHUB_WORKSPACE, "node_modules/electron"));
+            const realElectronPath = `${electronPath}.real`;
+            if (!fs.existsSync(realElectronPath)) {
+              fs.renameSync(electronPath, realElectronPath);
+              fs.writeFileSync(
+                electronPath,
+                `#!/usr/bin/env bash\nexec "${realElectronPath}" --no-sandbox --disable-gpu --disable-dev-shm-usage "$@"\n`
+              );
+              fs.chmodSync(electronPath, 0o755);
+            }
+            core.info(`Electron CI wrapper ready: ${electronPath}`);
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
-        run: node tools/run-manifest-gates.mjs --workflow-job gui-e2e --exclude mergify-queue-metadata-edit-noop
+        run: mkdir -p artifacts/gui-e2e
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+        shell: bash
+        env:
+          ELECTRON_ENABLE_LOGGING: "1"
+          ELECTRON_ENABLE_STACK_DUMPING: "1"
+          ELECTRON_OZONE_PLATFORM_HINT: x11
+          XDG_SESSION_TYPE: x11
+        run: xvfb-run --auto-servernum node tools/run-manifest-gates.mjs --workflow-job gui-e2e --exclude mergify-queue-metadata-edit-noop 2>&1 | tee artifacts/gui-e2e/gui-e2e.log
+      - name: Upload GUI E2E logs
+        if: ${{ always() && env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-e2e-logs
+          path: artifacts/gui-e2e/*.log
+          if-no-files-found: warn
 
   node26-compatibility:
     if: github.event_name == 'pull_request'

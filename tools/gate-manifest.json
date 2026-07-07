@@ -579,11 +579,15 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "eslint.config.js",
-        "package.json:scripts.lint"
+        "eslint.config.mjs",
+        "package.json:scripts.lint",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6--gate-binary-boundary-architecture-invariants-vs-local-consistency-formatlocal-coherence",
+        "decision/dec_mr9z0b7m"
       ],
       "consumerScope": [
-        "repository JavaScript and TypeScript lint surface"
+        "repository JavaScript and TypeScript lint surface",
+        "GUI renderer import boundary: renderer must consume window.harness bridge only",
+        "GUI IPC primitive placement: ipcMain.handle and ipcRenderer stay in their approved Electron files"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -606,7 +610,7 @@
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
-          "eslint.config.js",
+          "eslint.config.mjs",
           "package.json:scripts.lint"
         ]
       },
@@ -764,10 +768,15 @@
       "authoritySource": [
         "tools/test-tier-manifest.mjs",
         "tools/run-node-tests.mjs",
-        "package.json:scripts.test:contract"
+        "package.json:scripts.test:contract",
+        "packages/gui/test/ipc-handler-registration.test.ts",
+        "packages/gui/src/api/api-contract-registry.ts",
+        "packages/gui/src/preload/allowlist.ts",
+        "packages/gui/src/main/ipc-handlers.ts"
       ],
       "consumerScope": [
-        "node:test suites classified as contract"
+        "node:test suites classified as contract",
+        "GUI bridge static lock: API registry shipped/deferred methods, preload allowlist, and registered IPC channels stay aligned"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -794,7 +803,8 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/test-tier-manifest.mjs",
-          "package.json:scripts.test:contract"
+          "package.json:scripts.test:contract",
+          "packages/gui/test/ipc-handler-registration.test.ts"
         ]
       },
       "bypassFixtureRequired": false,
@@ -1013,13 +1023,16 @@
       "tierReason": null,
       "authoritySource": [
         "task_01KWGEEG8DB00Z6A5BDXR22702 PRE-03",
+        "task_01KWY818D8X6V2WC00D9SMN6C0 PRE03-R1",
         "decision/dec_mra5ylto",
         "packages/gui/e2e/electron-smoke.e2e.mjs",
         "tools/run-gui-e2e-tests.mjs",
+        ".github/workflows/rewrite-ci.yml:jobs.gui-e2e",
         "package.json:scripts.test:gui:e2e"
       ],
       "consumerScope": [
-        "Electron shell smoke through Playwright for Electron"
+        "Electron shell smoke through Playwright for Electron",
+        "headless Linux GUI E2E execution under xvfb-run with uploaded failure logs"
       ],
       "githubContext": {
         "requiredContexts": [
