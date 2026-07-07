@@ -30,7 +30,7 @@ export const runDocCommand: CommandRunner = (context, command) => Effect.gen(fun
         }
       } satisfies CliResult;
     }
-    const result = readDocmapManifest(context.layoutInput);
+    const result = readDocmapManifest(context.layoutInput, context.artifactStore);
     if (action.kind === "doc-list") {
       const docs = filterDocmapDocuments(result.manifest, action.filters);
       return {

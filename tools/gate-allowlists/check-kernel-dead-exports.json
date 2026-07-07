@@ -1109,6 +1109,46 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
+        "value": "LockRegistryError",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the LockRegistry port contract as public kernel surface for composition roots and downstream port wiring."
+      },
+      {
+        "value": "LockRegistryPort",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the LockRegistry port contract as public kernel surface for composition roots and downstream port wiring."
+      },
+      {
+        "value": "LockRequest",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the LockRegistry port contract as public kernel surface for composition roots and downstream port wiring."
+      },
+      {
+        "value": "makeLocalVersionControlSystem",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the local VCS implementation factory through the kernel composition surface."
+      },
+      {
+        "value": "VcsCommandError",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
+      },
+      {
+        "value": "VcsCommitAuthor",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
+      },
+      {
+        "value": "VersionControlSystem",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
+      },
+      {
+        "value": "VersionControlSystemPort",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring."
+      },
+      {
         "value": "WriteAck",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { readDocmapManifest } from "../packages/kernel/src/docmap/index.ts";
+import { makeMarkdownArtifactStore, readDocmapManifest } from "../packages/kernel/src/index.ts";
 import { deriveDocmapManifest } from "../packages/cli/src/commands/core/docmap-generate.ts";
 
 const freshnessWindowMs = 7 * 24 * 60 * 60 * 1000;
@@ -17,7 +17,7 @@ export function checkDocmapFresh(rootDir = process.cwd()) {
     };
   }
 
-  const persisted = readDocmapManifest(rootDir).manifest;
+  const persisted = readDocmapManifest(rootDir, makeMarkdownArtifactStore({ rootDir })).manifest;
   const derived = deriveDocmapManifest(rootDir).manifest;
   const persistedText = stableJson(routingManifest(persisted));
   const derivedText = stableJson(routingManifest(derived));

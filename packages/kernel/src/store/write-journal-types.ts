@@ -1,5 +1,6 @@
 import type { EntityId, TaskId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
+import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 
 export interface JournaledWriteCoordinatorOptions {
@@ -14,6 +15,7 @@ export interface JournaledWriteCoordinatorOptions {
   readonly sessionId?: string;
   readonly autoMaterialize?: boolean;
   readonly commitAuthor?: GitCommitAuthor;
+  readonly versionControlSystem?: VersionControlSystem;
 }
 
 export interface LockConflictRetryOptions {

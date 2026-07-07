@@ -404,12 +404,15 @@ for (const file of files) {
   if (rel.startsWith("packages/kernel/src/store/") && /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)) {
     record(`${rel}: store must not import engine adapter implementations`);
   }
+  const allowedGitProcessImplementations = new Set([
+    "packages/kernel/src/store/local-version-control-system.ts"
+  ]);
   if (
     rel.startsWith("packages/kernel/src/store/") &&
-    rel !== "packages/kernel/src/store/write-journal-git.ts" &&
+    !allowedGitProcessImplementations.has(rel) &&
     (/\bfrom\s+["']node:child_process["']/.test(text) || /\brunGit\s*\(/.test(text))
   ) {
-    record(`${rel}: WriteCoordinator git process calls must stay isolated in write-journal-git.ts`);
+    record(`${rel}: WriteCoordinator git process calls must stay isolated in the governed VCS implementation`);
   }
 
   if (rel.startsWith("packages/adapters/") && !isTestOrFixture) {

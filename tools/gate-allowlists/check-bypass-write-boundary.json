@@ -19,9 +19,24 @@
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-coordinator.ts#rmSync@249:5",
+        "value": "packages/kernel/src/store/write-journal-coordinator.ts#rmSync@257:5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@25:3",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 local LockRegistry implementation for external adopt claim directories; callers acquire through the LockRegistry port."
+      },
+      {
+        "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@26:3",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 local LockRegistry implementation for external adopt claim directories; callers acquire through the LockRegistry port."
+      },
+      {
+        "value": "packages/kernel/src/store/local-lock-registry.ts#rmSync@30:9",
+        "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
+        "reason": "PLT-Bedrock W2 local LockRegistry implementation for external adopt claim release; callers release through the LockRegistry lease."
       },
       {
         "value": "packages/kernel/src/store/write-journal-decision-documents.ts#mkdirSync@28:3",

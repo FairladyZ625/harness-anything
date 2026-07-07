@@ -1,11 +1,11 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
+import type { VersionControlSystem } from "../ports/version-control-system.ts";
+import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
 import type { GitCommitAuthor } from "./write-journal-types.ts";
 
-const gitMaxBuffer = 256 * 1024 * 1024;
+const defaultVersionControlSystem = makeLocalVersionControlSystem();
 
 export function commitTouchedPaths(
   rootDir: string,
@@ -14,61 +14,71 @@ export function commitTouchedPaths(
   layoutInput: HarnessLayoutInput = rootDir,
   message?: string,
   sessionId?: string,
-  options: { readonly respectGitignorePaths?: ReadonlyArray<string>; readonly author?: GitCommitAuthor } = {}
+  options: {
+    readonly respectGitignorePaths?: ReadonlyArray<string>;
+    readonly author?: GitCommitAuthor;
+    readonly versionControlSystem?: VersionControlSystem;
+  } = {}
 ): string {
   if (touchedPaths.length === 0) return "no-git-change";
+  const vcs = options.versionControlSystem ?? defaultVersionControlSystem;
 
-  const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput);
+  const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput, vcs);
   if (!plan) return "no-git-change";
-  const respectGitignore = new Set(resolveCommitPlan(rootDir, options.respectGitignorePaths ?? [], layoutInput)?.relativePaths ?? []);
+  const respectGitignore = new Set(resolveCommitPlan(rootDir, options.respectGitignorePaths ?? [], layoutInput, vcs)?.relativePaths ?? []);
   const forcedPaths = plan.relativePaths.filter((relativePath) => !respectGitignore.has(relativePath));
   const unforcedPaths = plan.relativePaths.filter((relativePath) => respectGitignore.has(relativePath));
   const sessionBranch = sessionBranchName(sessionId);
   // Resolve the trunk branch while HEAD still points at it, before checkoutSessionBranch
   // moves us onto the session branch; the finally must return to the same trunk.
-  const trunkBranch = sessionBranch ? resolveTrunkBranch(plan.repoRoot) : undefined;
+  const trunkBranch = sessionBranch ? resolveTrunkBranch(plan.repoRoot, undefined, vcs) : undefined;
 
-  if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!);
+  if (sessionBranch) checkoutSessionBranch(plan.repoRoot, sessionBranch, trunkBranch!, vcs);
   try {
-    if (forcedPaths.length > 0) runGit(plan.repoRoot, "add", "-A", "-f", "--", ...forcedPaths);
-    if (unforcedPaths.length > 0) runGit(plan.repoRoot, "add", "-A", "--", ...unforcedPaths);
-    unstageLogFiles(plan.repoRoot, plan.relativePaths);
-    const staged = runGit(plan.repoRoot, "diff", "--cached", "--name-only", "--", ...plan.relativePaths).trim();
-    if (staged.length === 0) return currentGitHead(plan.repoRoot);
+    if (forcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: forcedPaths, force: true });
+    if (unforcedPaths.length > 0) vcs.add(plan.repoRoot, { paths: unforcedPaths });
+    unstageLogFiles(plan.repoRoot, plan.relativePaths, vcs);
+    const staged = vcs.stagedFiles(plan.repoRoot, plan.relativePaths).trim();
+    if (staged.length === 0) return currentGitHead(plan.repoRoot, vcs);
 
-    runGitAs(plan.repoRoot, options.author, "commit", "-m", message ?? `harness write ${opIds.join(",")}`);
-    return currentGitHead(plan.repoRoot);
+    vcs.commit(plan.repoRoot, message ?? `harness write ${opIds.join(",")}`, options.author);
+    return currentGitHead(plan.repoRoot, vcs);
   } finally {
-    if (sessionBranch && trunkBranch) runGit(plan.repoRoot, "checkout", trunkBranch);
+    if (sessionBranch && trunkBranch) vcs.checkout(plan.repoRoot, trunkBranch);
   }
 }
 
-export function resolveCommitPlan(rootDir: string, touchedPaths: ReadonlyArray<string>, layoutInput: HarnessLayoutInput = rootDir): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
+export function resolveCommitPlan(
+  rootDir: string,
+  touchedPaths: ReadonlyArray<string>,
+  layoutInput: HarnessLayoutInput = rootDir,
+  versionControlSystem: VersionControlSystem = defaultVersionControlSystem
+): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
   if (touchedPaths.length === 0) return null;
-  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(layoutInput).authoredRoot);
+  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(layoutInput).authoredRoot, versionControlSystem);
   if (!target) return null;
   return {
     repoRoot: target.repoRoot,
-    relativePaths: unique(touchedPaths.map((filePath) => repoRelativePath(target.repoRoot, filePath)))
+    relativePaths: unique(touchedPaths.map((filePath) => repoRelativePath(target.repoRoot, filePath, versionControlSystem)))
   };
 }
 
-function resolveCommitTarget(rootDir: string, authoredRoot: string): { readonly repoRoot: string } | null {
-  const rootRepo = gitTopLevel(rootDir);
-  const authoredRepo = gitTopLevel(authoredRoot);
+function resolveCommitTarget(rootDir: string, authoredRoot: string, vcs: VersionControlSystem): { readonly repoRoot: string } | null {
+  const rootRepo = vcs.topLevel(rootDir);
+  const authoredRepo = vcs.topLevel(authoredRoot);
   if (!authoredRepo) return rootRepo ? { repoRoot: rootRepo } : null;
-  if (rootRepo && authoredRepo === rootRepo && isIgnoredByRepo(rootRepo, authoredRoot)) {
+  if (rootRepo && authoredRepo === rootRepo && isIgnoredByRepo(rootRepo, authoredRoot, vcs)) {
     throw new Error("authored root is ignored by Git but is not a nested Git repository");
   }
   return { repoRoot: authoredRepo };
 }
 
-export function ledgerGitTopLevel(inputPath: string): string | null {
-  return gitTopLevel(inputPath);
+export function ledgerGitTopLevel(inputPath: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): string | null {
+  return versionControlSystem.topLevel(inputPath);
 }
 
-export function checkoutTrunk(repoRoot: string, trunkBranch: string): void {
-  runGit(repoRoot, "checkout", trunkBranch);
+export function checkoutTrunk(repoRoot: string, trunkBranch: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): void {
+  versionControlSystem.checkout(repoRoot, trunkBranch);
 }
 
 // Resolve the repository's trunk (integration) branch. The session-branch write model
@@ -76,117 +86,65 @@ export function checkoutTrunk(repoRoot: string, trunkBranch: string): void {
 // hardcoding "master" broke every repo whose trunk is "main" (or anything else). Order:
 // current branch (unless it is a session branch) -> origin/HEAD -> local main -> local
 // master -> "main". Detection is git-native so any trunk name works without config.
-export function resolveTrunkBranch(repoRoot: string, explicit?: string): string {
+export function resolveTrunkBranch(repoRoot: string, explicit?: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): string {
   const configured = explicit?.trim();
   if (configured) return configured;
 
-  const current = currentBranchName(repoRoot);
+  const current = versionControlSystem.currentBranch(repoRoot);
   if (current && !current.startsWith("sessions/")) return current;
 
-  const originHead = originHeadBranch(repoRoot);
+  const originHead = versionControlSystem.originHeadBranch(repoRoot);
   if (originHead) return originHead;
 
   for (const candidate of ["main", "master"]) {
-    if (localBranchExists(repoRoot, candidate)) return candidate;
+    if (localBranchExists(repoRoot, candidate, versionControlSystem)) return candidate;
   }
   return "main";
 }
 
-function currentBranchName(repoRoot: string): string | null {
-  try {
-    const name = runGit(repoRoot, "rev-parse", "--abbrev-ref", "HEAD").trim();
-    return name.length > 0 && name !== "HEAD" ? name : null;
-  } catch {
-    return null;
-  }
+function localBranchExists(repoRoot: string, branch: string, vcs: VersionControlSystem): boolean {
+  return refExists(repoRoot, `refs/heads/${branch}`, vcs);
 }
 
-function originHeadBranch(repoRoot: string): string | null {
-  try {
-    const ref = runGit(repoRoot, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").trim();
-    if (ref.length === 0) return null;
-    const slash = ref.indexOf("/");
-    return slash >= 0 ? ref.slice(slash + 1) : ref;
-  } catch {
-    return null;
-  }
+export function mergeNoFf(repoRoot: string, branch: string, message: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): void {
+  versionControlSystem.mergeNoFf(repoRoot, branch, message);
 }
 
-function localBranchExists(repoRoot: string, branch: string): boolean {
-  return refExists(repoRoot, `refs/heads/${branch}`);
+export function deleteBranch(repoRoot: string, branch: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): void {
+  versionControlSystem.deleteBranch(repoRoot, branch);
 }
 
-export function mergeNoFf(repoRoot: string, branch: string, message: string): void {
-  runGit(repoRoot, "merge", "--no-ff", branch, "-m", message);
+export function abortMerge(repoRoot: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): void {
+  versionControlSystem.abortMerge(repoRoot);
 }
 
-export function deleteBranch(repoRoot: string, branch: string): void {
-  runGit(repoRoot, "branch", "-d", branch);
+export function sessionBranches(repoRoot: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): ReadonlyArray<string> {
+  return versionControlSystem.sessionBranches(repoRoot);
 }
 
-export function abortMerge(repoRoot: string): void {
-  runGit(repoRoot, "merge", "--abort");
+export function commitsNotInTrunk(repoRoot: string, trunkBranch: string, branch: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): ReadonlyArray<string> {
+  return versionControlSystem.commitsNotInTrunk(repoRoot, trunkBranch, branch);
 }
 
-export function sessionBranches(repoRoot: string): ReadonlyArray<string> {
-  return runGit(repoRoot, "for-each-ref", "--sort=creatordate", "--format=%(refname:short)", "refs/heads/sessions")
-    .split(/\r?\n/u)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.startsWith("sessions/"));
+export function currentGitHead(repoRoot: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): string {
+  return versionControlSystem.currentHead(repoRoot);
 }
 
-export function commitsNotInTrunk(repoRoot: string, trunkBranch: string, branch: string): ReadonlyArray<string> {
-  return runGit(repoRoot, "log", `${trunkBranch}..${branch}`, "--oneline")
-    .split(/\r?\n/u)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+export function changedFilesBetween(repoRoot: string, before: string, after: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): ReadonlyArray<string> {
+  return versionControlSystem.changedFilesBetween(repoRoot, before, after);
 }
 
-export function currentGitHead(repoRoot: string): string {
-  try {
-    return runGit(repoRoot, "rev-parse", "HEAD").trim();
-  } catch {
-    return "no-git-head";
-  }
+export function refExists(repoRoot: string, ref: string, versionControlSystem: VersionControlSystem = defaultVersionControlSystem): boolean {
+  return versionControlSystem.refExists(repoRoot, ref);
 }
 
-export function changedFilesBetween(repoRoot: string, before: string, after: string): ReadonlyArray<string> {
-  if (before === after) return [];
-  return runGit(repoRoot, "diff", "--name-only", before, after)
-    .split(/\r?\n/u)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+function isIgnoredByRepo(repoRoot: string, candidatePath: string, vcs: VersionControlSystem): boolean {
+  const relativePath = repoRelativePath(repoRoot, candidatePath, vcs);
+  return vcs.isIgnored(repoRoot, relativePath);
 }
 
-export function refExists(repoRoot: string, ref: string): boolean {
-  try {
-    runGit(repoRoot, "rev-parse", "--verify", "--quiet", ref);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function gitTopLevel(inputPath: string): string | null {
-  try {
-    return normalizeExistingPath(execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], { encoding: "utf8", maxBuffer: gitMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }).trim());
-  } catch {
-    return null;
-  }
-}
-
-function isIgnoredByRepo(repoRoot: string, candidatePath: string): boolean {
-  const relativePath = repoRelativePath(repoRoot, candidatePath);
-  try {
-    runGit(repoRoot, "check-ignore", "-q", "--", relativePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function repoRelativePath(repoRoot: string, filePath: string): string {
-  const relativePath = path.relative(normalizeExistingPath(repoRoot), normalizeExistingPath(filePath));
+function repoRelativePath(repoRoot: string, filePath: string, vcs: VersionControlSystem): string {
+  const relativePath = path.relative(vcs.normalizePath(repoRoot), vcs.normalizePath(filePath));
   if (relativePath.length === 0) return ".";
   if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
     throw new Error("touched path is outside commit repository");
@@ -194,48 +152,10 @@ function repoRelativePath(repoRoot: string, filePath: string): string {
   return relativePath.split(path.sep).join("/");
 }
 
-function normalizeExistingPath(inputPath: string): string {
-  const resolved = path.resolve(inputPath);
-  if (existsSync(resolved)) return realpathSync.native(resolved);
-
-  const pendingSegments: string[] = [];
-  let current = resolved;
-  while (!existsSync(current)) {
-    const parent = path.dirname(current);
-    if (parent === current) return resolved;
-    pendingSegments.unshift(path.basename(current));
-    current = parent;
-  }
-  return path.join(realpathSync.native(current), ...pendingSegments);
-}
-
-function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
-  return runGitAs(repoRoot, undefined, ...args);
-}
-
-function runGitAs(repoRoot: string, author: GitCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
-  try {
-    return execFileSync("git", ["-C", repoRoot, ...args], {
-      encoding: "utf8",
-      maxBuffer: gitMaxBuffer,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: author?.name ?? process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
-        GIT_AUTHOR_EMAIL: author?.email ?? process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
-        GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
-        GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness@example.invalid"
-      }
-    });
-  } catch (error) {
-    throw new Error(`git ${args[0] ?? "command"} failed: ${gitErrorMessage(error)}`);
-  }
-}
-
-function unstageLogFiles(repoRoot: string, relativePaths: ReadonlyArray<string>): void {
+function unstageLogFiles(repoRoot: string, relativePaths: ReadonlyArray<string>, vcs: VersionControlSystem): void {
   const logPathspecs = relativePaths.flatMap((relativePath) => logPathspecsFor(relativePath));
   if (logPathspecs.length === 0) return;
-  runGit(repoRoot, "reset", "-q", "--", ...unique(logPathspecs));
+  vcs.resetQuiet(repoRoot, unique(logPathspecs));
 }
 
 function logPathspecsFor(relativePath: string): ReadonlyArray<string> {
@@ -245,21 +165,16 @@ function logPathspecsFor(relativePath: string): ReadonlyArray<string> {
   return [`:(glob)${normalized}/**/*.log`, `${normalized}/*.log`];
 }
 
-function checkoutSessionBranch(repoRoot: string, branchName: string, trunkBranch: string): void {
-  runGit(repoRoot, "checkout", trunkBranch);
-  if (!branchExists(repoRoot, branchName)) {
-    runGit(repoRoot, "branch", branchName);
+function checkoutSessionBranch(repoRoot: string, branchName: string, trunkBranch: string, vcs: VersionControlSystem): void {
+  vcs.checkout(repoRoot, trunkBranch);
+  if (!branchExists(repoRoot, branchName, vcs)) {
+    vcs.createBranch(repoRoot, branchName);
   }
-  runGit(repoRoot, "checkout", branchName);
+  vcs.checkout(repoRoot, branchName);
 }
 
-function branchExists(repoRoot: string, branchName: string): boolean {
-  try {
-    runGit(repoRoot, "rev-parse", "--verify", "--quiet", branchName);
-    return true;
-  } catch {
-    return false;
-  }
+function branchExists(repoRoot: string, branchName: string, vcs: VersionControlSystem): boolean {
+  return vcs.refExists(repoRoot, branchName);
 }
 
 function sessionBranchName(sessionId: string | undefined): string | undefined {
@@ -273,19 +188,4 @@ function sessionBranchName(sessionId: string | undefined): string | undefined {
 
 function unique(values: ReadonlyArray<string>): ReadonlyArray<string> {
   return [...new Set(values)];
-}
-
-function gitErrorMessage(error: unknown): string {
-  if (typeof error === "object" && error && "code" in error && typeof (error as { readonly code?: unknown }).code === "string") {
-    const code = (error as { readonly code: string }).code;
-    if (code.length > 0) return code;
-  }
-  if (typeof error === "object" && error && "stderr" in error) {
-    const stderr = (error as { readonly stderr?: unknown }).stderr;
-    const text = Buffer.isBuffer(stderr) ? stderr.toString("utf8") : typeof stderr === "string" ? stderr : "";
-    const firstLine = text.trim().split(/\r?\n/u).find((line) => line.trim().length > 0);
-    if (firstLine) return firstLine;
-  }
-  if (error instanceof Error) return error.message.split(/\r?\n/u)[0] ?? error.message;
-  return String(error);
 }

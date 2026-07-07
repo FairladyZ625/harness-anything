@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { Effect } from "effect";
 import { taskEntityId, type WriteError } from "../../src/domain/index.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import type { VersionControlSystem } from "../../src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
@@ -76,6 +77,24 @@ test("WriteCoordinator validates package create batch before writing any documen
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-new-new/INDEX.md")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-new-new/absolute.md")), false);
+  });
+});
+
+test("WriteCoordinator flush uses injected VCS port for git operations", () => {
+  withTempStore((rootDir) => {
+    const vcs = fakeVersionControlSystem(rootDir);
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, versionControlSystem: vcs });
+
+    Effect.runSync(coordinator.enqueue(docWrite("op-vcs-port", "task-1", "notes.md", "via fake vcs\n")));
+    const report = Effect.runSync(coordinator.flush("manual"));
+    const watermark = JSON.parse(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8")) as {
+      readonly lastCommitSha: string;
+    };
+
+    assert.equal(report.committed, true);
+    assert.equal(report.watermark, "op-vcs-port");
+    assert.equal(watermark.lastCommitSha, "fake-head-1");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "via fake vcs\n");
   });
 });
 
@@ -385,4 +404,31 @@ function runWriteFailure<A>(effect: Effect.Effect<A, WriteError>): WriteError {
     throw new Error("expected write effect to fail");
   }
   return result.left;
+}
+
+function fakeVersionControlSystem(repoRoot: string): VersionControlSystem {
+  let commitCount = 0;
+  return {
+    normalizePath: (inputPath) => path.resolve(inputPath),
+    topLevel: () => repoRoot,
+    isIgnored: () => false,
+    add: () => undefined,
+    stagedFiles: () => "harness/tasks/task-1/notes.md\n",
+    commit: () => {
+      commitCount += 1;
+    },
+    currentHead: () => `fake-head-${commitCount}`,
+    currentBranch: () => "main",
+    originHeadBranch: () => null,
+    refExists: (_repoRoot, ref) => ref === "refs/heads/main" || ref === "main",
+    checkout: () => undefined,
+    createBranch: () => undefined,
+    mergeNoFf: () => undefined,
+    deleteBranch: () => undefined,
+    abortMerge: () => undefined,
+    sessionBranches: () => [],
+    commitsNotInTrunk: () => [],
+    changedFilesBetween: () => [],
+    resetQuiet: () => undefined
+  };
 }

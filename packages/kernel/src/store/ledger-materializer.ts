@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
+import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
 import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
 import { abortMerge, changedFilesBetween, checkoutTrunk, commitsNotInTrunk, currentGitHead, deleteBranch, ledgerGitTopLevel, mergeNoFf, refExists, resolveTrunkBranch, sessionBranches } from "./write-journal-git.ts";
@@ -28,11 +29,12 @@ export interface LedgerMaterializerOptions {
   readonly dryRun?: boolean;
   readonly maxBranches?: number;
   readonly heldGlobalLock?: OwnedLock;
+  readonly versionControlSystem?: VersionControlSystem;
 }
 
 export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: LedgerMaterializerOptions = {}): LedgerMaterializerReport {
   const layout = resolveHarnessLayout(rootInput);
-  const repoRoot = ledgerGitTopLevel(layout.authoredRoot) ?? ledgerGitTopLevel(layout.rootDir);
+  const repoRoot = ledgerGitTopLevel(layout.authoredRoot, options.versionControlSystem) ?? ledgerGitTopLevel(layout.rootDir, options.versionControlSystem);
   if (!repoRoot) {
     return {
       dryRun: options.dryRun === true,
@@ -45,11 +47,11 @@ export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: Le
   }
 
   return withRepoLocks(layout.rootDir, rootInput, layout.journalPath, { kind: "system", id: "ledger-materializer" }, 60_000, [], () => {
-    return materializeBranches(repoRoot, rootInput, options.dryRun === true, options.maxBranches);
+    return materializeBranches(repoRoot, rootInput, options.dryRun === true, options.maxBranches, options.versionControlSystem);
   }, { heldGlobalLock: options.heldGlobalLock });
 }
 
-function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dryRun: boolean, maxBranches?: number): LedgerMaterializerReport {
+function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dryRun: boolean, maxBranches?: number, versionControlSystem?: VersionControlSystem): LedgerMaterializerReport {
   const reports: LedgerMaterializerBranchReport[] = [];
   const warnings: string[] = [];
   let merged = 0;
@@ -57,8 +59,8 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
   const projectionSourceHashBeforeMerge = readMarkdownSource(rootInput).hash;
   const touchedPaths = new Set<string>();
 
-  const trunkBranch = resolveTrunkBranch(repoRoot);
-  if (!refExists(repoRoot, trunkBranch)) {
+  const trunkBranch = resolveTrunkBranch(repoRoot, undefined, versionControlSystem);
+  if (!refExists(repoRoot, trunkBranch, versionControlSystem)) {
     return {
       dryRun,
       merged: 0,
@@ -69,9 +71,9 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
     };
   }
 
-  const branches = sessionBranches(repoRoot);
+  const branches = sessionBranches(repoRoot, versionControlSystem);
   for (const branch of branches) {
-    const commits = commitsNotInTrunk(repoRoot, trunkBranch, branch);
+    const commits = commitsNotInTrunk(repoRoot, trunkBranch, branch, versionControlSystem);
     if (commits.length === 0) {
       reports.push({ branch, commitCount: 0, status: "skipped", commits });
       continue;
@@ -83,22 +85,22 @@ function materializeBranches(repoRoot: string, rootInput: HarnessLayoutInput, dr
       continue;
     }
 
-    checkoutTrunk(repoRoot, trunkBranch);
+    checkoutTrunk(repoRoot, trunkBranch, versionControlSystem);
     try {
-      const beforeMergeHead = currentGitHead(repoRoot);
-      mergeNoFf(repoRoot, branch, `materializer: merge session ${branch.slice("sessions/".length)}`);
-      const afterMergeHead = currentGitHead(repoRoot);
-      for (const relativePath of changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead)) {
+      const beforeMergeHead = currentGitHead(repoRoot, versionControlSystem);
+      mergeNoFf(repoRoot, branch, `materializer: merge session ${branch.slice("sessions/".length)}`, versionControlSystem);
+      const afterMergeHead = currentGitHead(repoRoot, versionControlSystem);
+      for (const relativePath of changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead, versionControlSystem)) {
         touchedPaths.add(path.join(repoRoot, relativePath));
       }
-      deleteBranch(repoRoot, branch);
+      deleteBranch(repoRoot, branch, versionControlSystem);
       merged += 1;
       reports.push({ branch, commitCount: commits.length, status: "merged", commits });
     } catch (error) {
       const warning = `${branch}: ${error instanceof Error ? error.message : String(error)}`;
       warnings.push(warning);
       try {
-        abortMerge(repoRoot);
+        abortMerge(repoRoot, versionControlSystem);
       } catch {
         // No merge was in progress or Git could not abort; keep the warning and continue.
       }

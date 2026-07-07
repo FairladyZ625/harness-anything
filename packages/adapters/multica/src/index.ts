@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect, Either, Option } from "effect";
 import { taskEntityId, type ArtifactStoreError, type EngineError, type ExternalRef, type TaskId, type WriteError } from "../../../kernel/src/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/index.ts";
-import type { ArtifactStore, LifecycleEngine, WriteCoordinator } from "../../../kernel/src/index.ts";
+import type { ArtifactStore, LifecycleEngine, LockLease, LockRegistry, WriteCoordinator } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, findTaskIdByExternalRef, resolveHarnessLayout, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/index.ts";
+import { createHarnessRuntimeContext, findTaskIdByExternalRef, makeLocalLockRegistry, taskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/index.ts";
 import { writeCoordinatedPayload } from "../../../kernel/src/write-coordination/write-helpers.ts";
 
 export type BindingLookup = Pick<ArtifactStore, "findBindingByExternalRef">;
@@ -35,6 +35,7 @@ export interface MulticaAdoptionOptions extends MulticaLifecycleOptions {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly coordinator: WriteCoordinator;
   readonly bindingIndex?: BindingLookup;
+  readonly lockRegistry?: Pick<LockRegistry, "acquire">;
 }
 
 export interface AdoptMulticaTaskInput {
@@ -156,18 +157,18 @@ export function makeMulticaAdoptionService(options: MulticaAdoptionOptions): Mul
   const clock = options.clock ?? (() => new Date());
   const engine = makeMulticaLifecycleEngine(options);
   const bindingIndex = options.bindingIndex ?? makeMarkdownBindingIndex(layoutInput);
+  const lockRegistry = options.lockRegistry ?? makeLocalLockRegistry(layoutInput);
 
   return {
     adopt: (input) => Effect.gen(function* () {
       validateTaskId(input.taskId);
-      const claims = yield* Effect.try({
-        try: () => acquireAdoptClaims(layoutInput, input.taskId, input.ref),
-        catch: (): EngineError => ({
+      const claims = yield* acquireAdoptClaims(lockRegistry, input.taskId, input.ref).pipe(
+        Effect.mapError((): EngineError => ({
           _tag: "DuplicateAdoptClaim",
           engine: "multica",
           ref: input.ref
-        })
-      });
+        }))
+      );
       try {
         if (existsSync(taskIndexPath(layoutInput, input.taskId))) {
           return yield* Effect.fail({
@@ -212,27 +213,27 @@ export function makeMulticaAdoptionService(options: MulticaAdoptionOptions): Mul
   };
 }
 
-function acquireAdoptClaims(rootInput: HarnessLayoutInput, taskId: TaskId, ref: ExternalRef): ReadonlyArray<string> {
-  const taskClaimPath = claimPath(rootInput, "task", taskId);
-  const bindingClaimPath = claimPath(rootInput, "binding", `multica:${ref}`);
-  const acquired: string[] = [];
-  try {
-    mkdirSync(path.dirname(taskClaimPath), { recursive: true });
-    mkdirSync(path.dirname(bindingClaimPath), { recursive: true });
-    mkdirSync(taskClaimPath, { recursive: false });
-    acquired.push(taskClaimPath);
-    mkdirSync(bindingClaimPath, { recursive: false });
-    acquired.push(bindingClaimPath);
-    return acquired;
-  } catch {
-    releaseAdoptClaims(acquired);
-    throw new Error(`adopt claim already held: multica ${ref}`);
-  }
+function acquireAdoptClaims(lockRegistry: Pick<LockRegistry, "acquire">, taskId: TaskId, ref: ExternalRef): Effect.Effect<ReadonlyArray<LockLease>, unknown> {
+  return Effect.gen(function* () {
+    const taskClaim = yield* lockRegistry.acquire({
+      kind: "external-adopt-claim",
+      namespace: "task",
+      key: taskId
+    });
+    const bindingClaim = yield* lockRegistry.acquire({
+      kind: "external-adopt-claim",
+      namespace: "binding",
+      key: `multica:${ref}`
+    }).pipe(
+      Effect.catchAll((error) => taskClaim.release().pipe(Effect.flatMap(() => Effect.fail(error))))
+    );
+    return [taskClaim, bindingClaim];
+  });
 }
 
-function releaseAdoptClaims(claims: ReadonlyArray<string>): void {
+function releaseAdoptClaims(claims: ReadonlyArray<LockLease>): void {
   for (const claim of [...claims].reverse()) {
-    rmSync(claim, { recursive: true, force: true });
+    Effect.runSync(claim.release());
   }
 }
 
@@ -332,10 +333,6 @@ function validateTaskId(taskId: TaskId): void {
 
 function taskIndexPath(rootInput: HarnessLayoutInput, taskId: TaskId): string {
   return taskDocumentPath(rootInput, taskId, "INDEX.md");
-}
-
-function claimPath(rootInput: HarnessLayoutInput, kind: "binding" | "task", key: string): string {
-  return path.join(resolveHarnessLayout(rootInput).claimsRoot, kind, stableHash(key));
 }
 
 function stableHash(value: unknown): string {

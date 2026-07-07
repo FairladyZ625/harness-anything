@@ -9,6 +9,7 @@ import type {
   WriteCoordinator,
   WriteOp
 } from "../ports/write-coordinator.ts";
+import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import type { EntityId, TaskId, WriteError } from "../domain/index.ts";
 import {
   isDomainStatus,
@@ -65,6 +66,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const lockConflictRetry = options.lockConflictRetry;
   const heldGlobalLock = options.heldGlobalLock;
   const commitAuthor = options.commitAuthor;
+  const versionControlSystem = options.versionControlSystem;
   const sessionId = cleanSessionId(options.sessionId);
   const autoMaterialize = options.autoMaterialize ?? true;
   const pending: WriteOp[] = [];
@@ -73,7 +75,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       pending.splice(0, pending.length);
       const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor);
+      return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -82,7 +84,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
-        preflightWriteOp(rootDir, runtimeContext, op);
+        preflightWriteOp(rootDir, runtimeContext, op, versionControlSystem);
         if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         if (state.applied.has(op.opId) || state.records.some((record) => record.opId === op.opId) || pending.some((item) => item.opId === op.opId)) {
@@ -98,13 +100,13 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     }),
     flush: (reason) => {
       const effect = lockConflictRetry ? retryLockConflictFlush(() => flushOnce(reason), lockConflictRetry, Date.now(), 0) : flushOnce(reason);
-      return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize);
+    return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem);
     },
     recover: Effect.try({
       try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
         const state = readDurableState(journalPath, watermarkPath, rootDir);
         const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor);
+        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
         return {
           replayedOps: report.opCount,
           recoveredWatermark: report.watermark
@@ -151,7 +153,8 @@ function maybeAutoMaterialize(
   effect: Effect.Effect<FlushReport, WriteError>,
   rootInput: HarnessLayoutInput,
   sessionId: string | undefined,
-  autoMaterialize: boolean
+  autoMaterialize: boolean,
+  versionControlSystem?: VersionControlSystem
 ): Effect.Effect<FlushReport, WriteError> {
   if (!sessionId || !autoMaterialize) return effect;
   return effect.pipe(
@@ -159,7 +162,7 @@ function maybeAutoMaterialize(
       if (report.opCount === 0 || !report.committed) return Effect.void;
       return Effect.try({
         try: () => {
-          runLedgerMaterializer(rootInput);
+          runLedgerMaterializer(rootInput, { versionControlSystem });
         },
         catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
       });
@@ -177,7 +180,8 @@ function flushRecords(
   records: ReadonlyArray<JournalRecord>,
   fileApplied: ReadonlySet<string>,
   sessionId?: string,
-  commitAuthor?: GitCommitAuthor
+  commitAuthor?: GitCommitAuthor,
+  versionControlSystem?: VersionControlSystem
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
@@ -186,7 +190,7 @@ function flushRecords(
     touchedPaths: recordTouchedPaths(rootDir, rootInput, record)
   }));
 
-  resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput);
+  resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, versionControlSystem);
   const previousProjectionSourceHash = records.length > 0 ? readMarkdownSource(rootInput).hash : undefined;
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
@@ -206,7 +210,11 @@ function flushRecords(
     rootInput,
     semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)),
     sessionId,
-    { respectGitignorePaths: plannedRecords.filter((entry) => entry.record.kind === "task_tree_stage").flatMap((entry) => entry.touchedPaths), author: commitAuthor }
+    {
+      respectGitignorePaths: plannedRecords.filter((entry) => entry.record.kind === "task_tree_stage").flatMap((entry) => entry.touchedPaths),
+      author: commitAuthor,
+      versionControlSystem
+    }
   );
   const projectionHash = committedOpIds.length > 0
     ? rebuildProjectionHash(rootDir, rootInput, touchedPaths, previousProjectionSourceHash)
@@ -295,8 +303,8 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
   };
 }
 
-function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp): void {
-  resolveCommitPlan(rootDir, writeOpTouchedPaths(rootInput, op), rootInput);
+function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {
+  resolveCommitPlan(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, versionControlSystem);
   try {
     assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForWriteOp(op));
   } catch (error) {

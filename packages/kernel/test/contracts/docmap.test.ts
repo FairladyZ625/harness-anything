@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildDocmapReadSet, readDocmapManifest } from "../../src/index.ts";
+import { buildDocmapReadSet, makeMarkdownArtifactStore, readDocmapManifest } from "../../src/index.ts";
 
 test("docmap manifest reader normalizes authored-root relative docs and computes scoped read set", () => {
   withTempRoot((rootDir) => {
@@ -16,7 +16,7 @@ test("docmap manifest reader normalizes authored-root relative docs and computes
       ]
     });
 
-    const result = readDocmapManifest(rootDir);
+    const result = readDocmapManifest(rootDir, makeMarkdownArtifactStore({ rootDir }));
     const readSet = buildDocmapReadSet(result.manifest, { moduleKey: "m4-loadbearing" });
 
     assert.equal(result.relativePath, "harness/docmap.json");
@@ -39,7 +39,7 @@ test("docmap manifest reader rejects unsafe document paths", () => {
       ]
     });
 
-    assert.throws(() => readDocmapManifest(rootDir), /docmap/i);
+    assert.throws(() => readDocmapManifest(rootDir, makeMarkdownArtifactStore({ rootDir })), /docmap/i);
   });
 });
 
@@ -53,7 +53,7 @@ test("docmap manifest reader rejects duplicate document ids", () => {
       ]
     });
 
-    assert.throws(() => readDocmapManifest(rootDir), /duplicate document ids/u);
+    assert.throws(() => readDocmapManifest(rootDir, makeMarkdownArtifactStore({ rootDir })), /duplicate document ids/u);
   });
 });
 

@@ -32,3 +32,23 @@ test("domain source does not import runtime, IO, database or Effect modules", as
     }
   }
 });
+
+test("layout and docmap logic do not import direct physical IO modules", async () => {
+  const files = [
+    ...await readKernelSourceFilesUnder("layout"),
+    ...await readKernelSourceFilesUnder("docmap")
+  ];
+  const forbiddenIoImports = [
+    "node:fs",
+    "fs",
+    "node:child_process",
+    "child_process"
+  ];
+
+  for (const file of files) {
+    for (const moduleName of forbiddenIoImports) {
+      assert.equal(file.text.includes(`from "${moduleName}"`), false, `${file.path} imports ${moduleName}`);
+      assert.equal(file.text.includes(`from '${moduleName}'`), false, `${file.path} imports ${moduleName}`);
+    }
+  }
+});

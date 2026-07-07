@@ -18,7 +18,7 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
-export { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "./composition/index.ts";
+export { makeJournaledWriteCoordinator, makeLocalLockRegistry, makeLocalVersionControlSystem, makeMarkdownArtifactStore } from "./composition/index.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";
 export {
   readDaemonRegistry,

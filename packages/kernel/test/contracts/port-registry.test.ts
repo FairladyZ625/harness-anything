@@ -9,7 +9,9 @@ const sanctionedPortTags = [
   "@harness-anything/kernel/ArtifactStore",
   "@harness-anything/kernel/CurrentSessionProbe",
   "@harness-anything/kernel/LifecycleEngine",
+  "@harness-anything/kernel/LockRegistry",
   "@harness-anything/kernel/TemplateLibrary",
+  "@harness-anything/kernel/VersionControlSystem",
   "@harness-anything/kernel/WriteCoordinator"
 ];
 
