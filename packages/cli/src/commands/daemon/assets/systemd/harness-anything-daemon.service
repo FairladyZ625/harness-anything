@@ -1,0 +1,16 @@
+[Unit]
+Description=Harness Anything daemon
+Documentation=https://github.com/FairladyZ625/harness-anything
+After=network.target
+
+[Service]
+Type=simple
+User={{USER}}
+WorkingDirectory={{CANONICAL_ROOT}}
+Environment=HARNESS_DAEMON_MODE=direct
+ExecStart={{HA_BIN}} --root {{CANONICAL_ROOT}} daemon start --foreground
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
