@@ -1,3 +1,4 @@
+/** @slice-activation GUI workspace shell contract: exported for layout routing tests and package-level shell consumers. */
 export type WorkspacePerspective = "triage" | "review" | "operate";
 
 export type WorkspacePaneKind =
