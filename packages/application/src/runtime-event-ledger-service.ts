@@ -164,7 +164,7 @@ function appendRuntimeEvent(
           payload
         }).pipe(
         Effect.map(() => result),
-        Effect.mapError((error) => runtimeEventRejection(decoded.session.sessionId, writeErrorMessage(error)))
+        Effect.mapError((error) => runtimeEventRejection(decoded.session.sessionId, runtimeLedgerWriteErrorMessage(error)))
       )
         : Effect.tryPromise({
         try: async () => {
@@ -244,7 +244,7 @@ function runtimeEventErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function writeErrorMessage(error: WriteError): string {
+function runtimeLedgerWriteErrorMessage(error: WriteError): string {
   if (error._tag === "WriteRejected") return error.reason;
   if (error._tag === "WriteConflict") return `write conflict for ${error.taskId}`;
   if (error._tag === "GlobalWriteConflict") return "global write conflict";

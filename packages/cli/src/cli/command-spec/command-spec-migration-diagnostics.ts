@@ -251,6 +251,54 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "diagnostics-command-usage",
+    "usage": "diagnostics command-usage [--json]",
+    "summary": "Analyze runtime-event JSONL command usage, failures, and unused evented command surfaces.",
+    "examples": ["harness-anything diagnostics command-usage --json"],
+    "parserId": "diagnostics",
+    "runnerId": "diagnostics",
+    "receiptContract": {
+      "data": ["rows", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    }
+  },
+  {
+    "kind": "worktree-create",
+    "usage": "worktree create --task <task-id> [--agent <id>|--branch-prefix <prefix>] [--base <ref>] [--path <path>] [--json]",
+    "summary": "Create a task-bound public implementation worktree without destructive Git operations.",
+    "examples": ["harness-anything worktree create --task task_01ABC --agent codex --base origin/main --json"],
+    "parserId": "worktree",
+    "runnerId": "worktree",
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": ["primary"]
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "auto"
+    }
+  },
+  {
+    "kind": "worktree-status",
+    "usage": "worktree status --task <task-id> [--json]",
+    "summary": "Report the stored binding and current Git status for a task-bound worktree.",
+    "examples": ["harness-anything worktree status --task task_01ABC --json"],
+    "parserId": "worktree",
+    "runnerId": "worktree",
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": ["primary"]
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    }
+  },
+  {
     "kind": "graph",
     "usage": "graph [--out <path>] [--focus <entity-ref>] [--projection <path>] [--json]",
     "summary": "Generate a self-contained relation graph HTML panorama from the SQLite projection, with optional F5 cascade focus.",

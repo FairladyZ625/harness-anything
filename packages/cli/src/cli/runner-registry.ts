@@ -5,12 +5,14 @@ import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskW
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
-import { requiresConflictMarkerPreflight, runtimeEventPolicyForAction } from "./command-event-policy.ts";
+import { requiresConflictMarkerPreflight } from "./command-event-policy.ts";
 import type { CommandRunnerId } from "./command-registry.ts";
 import { runnerIdForAction } from "./command-registry.ts";
 import { readConflictMarkerPreflight } from "./conflict-preflight.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
+import { toCliError } from "./error-mapper.ts";
 import { actionTaskId } from "./parse-args.ts";
+import { appendCommandRuntimeEvent } from "./command-runtime-events.ts";
 import type { CliResult, MaterializerCommandReport, ParsedCommand } from "./types.ts";
 import {
   runDiagnosticsCommand,
@@ -32,7 +34,8 @@ import {
   runTaskGatesCommand,
   runTaskLifecycleCommand,
   runTaskQueryCommand,
-  runVersionCommand
+  runVersionCommand,
+  runWorktreeCommand
 } from "../commands/core/index.ts";
 
 export interface CommandRunnerContext {
@@ -129,6 +132,7 @@ export const runnerRegistry = {
   governance: runGovernanceCommand,
   migration: runMigrationCommand,
   diagnostics: runDiagnosticsCommand,
+  worktree: runWorktreeCommand,
   extension: runExtensionRunnerCommand,
   gui: runGuiCommand
 } satisfies Record<CommandRunnerId, CommandRunner>;
@@ -204,53 +208,14 @@ export function runRegisteredCommand(
     runLedgerMaterializer: (options) => runLedgerMaterializer(layoutInput, options)
   };
   return runner(context, command).pipe(
+    Effect.catchAll((error) => Effect.succeed({
+      ok: false,
+      command: command.action.kind,
+      taskId: actionTaskId(command.action),
+      error: toCliError(error)
+    } satisfies CliResult)),
     Effect.flatMap((result) => appendCommandRuntimeEvent(context, command, result))
   );
 }
 
 export { requiresConflictMarkerPreflight };
-
-function appendCommandRuntimeEvent(
-  context: CommandRunnerContext,
-  command: ParsedCommand,
-  result: CliResult
-): CommandRunnerEffect {
-  if (!result.ok || runtimeEventPolicyForAction(command.action) !== "auto") return Effect.succeed(result);
-  return context.currentSessionProbe.currentSession.pipe(
-    Effect.flatMap((session) => context.runtimeEventLedgerService.append({
-      kind: "result",
-      session: {
-        sessionId: session.sessionId,
-        runtime: session.runtime,
-        ...eventEntityRefs(command.action, result)
-      },
-      result: {
-        status: "succeeded",
-        summary: `CLI command succeeded: ${command.action.kind}`
-      }
-    })),
-    Effect.match({
-      onFailure: (error): CliResult => ({
-        ok: false,
-        command: command.action.kind,
-        ...eventEntityRefs(command.action, result),
-        error: cliError(CliErrorCode.RuntimeEventLedgerRejected, `${error.sessionId}: ${error.reason}`)
-      }),
-      onSuccess: (): CliResult => result
-    })
-  );
-}
-
-function eventEntityRefs(
-  action: ParsedCommand["action"],
-  result: CliResult
-): { readonly taskId?: string; readonly decisionId?: string; readonly factRef?: string } {
-  const taskId = result.taskId ?? actionTaskId(action);
-  const decisionId = result.decisionId ?? ("decisionId" in action ? action.decisionId : undefined);
-  const factRef = result.factRef;
-  return {
-    ...(taskId ? { taskId } : {}),
-    ...(decisionId ? { decisionId } : {}),
-    ...(factRef ? { factRef } : {})
-  };
-}

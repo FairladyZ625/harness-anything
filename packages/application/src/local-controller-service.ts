@@ -45,7 +45,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       validateLocalControllerTaskId(payload.taskId);
       const parsed = readTaskDocumentPayload(payload);
       if (!parsed.ok) return parsed;
-      return Effect.runPromise(readTaskDocument(options.artifactStore, parsed.taskId, parsed.path));
+      return Effect.runPromise(readControllerTaskDocument(options.artifactStore, parsed.taskId, parsed.path));
     },
     setTaskStatus: async (payload) => {
       validateLocalControllerTaskId(payload.taskId);
@@ -101,7 +101,7 @@ function taskNotFound(taskId: string): LocalControllerFailure {
   return { ok: false, error: { code: "task_not_found", hint: `task not found: ${taskId}` } };
 }
 
-function readTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {
+function readControllerTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {
   return artifactStore.readTaskPackage(taskId).pipe(
     Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === portablePath)?.body ?? null),
     Effect.catchAll(() => Effect.succeed(null)),

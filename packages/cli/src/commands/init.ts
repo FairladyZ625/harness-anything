@@ -94,9 +94,9 @@ interface HarnessIsolationReport {
 
 function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string): HarnessIsolationResult {
   const warnings: unknown[] = [];
-  const authoredRootRelative = relativeLayoutPath(rootDir, authoredRoot);
+  const authoredRootRelative = initRelativeLayoutPath(rootDir, authoredRoot);
   const innerGitDir = path.join(authoredRoot, ".git");
-  const outerGit = isInsideGitWorkTree(rootDir);
+  const outerGit = isInsideInitGitWorkTree(rootDir);
   const gitignore = ensureOuterGitignoreIsolation(rootDir, outerGit, authoredRootRelative);
   warnings.push(...gitignore.warnings);
   const innerRepository = ensureInnerGitRepository(authoredRoot, innerGitDir);
@@ -182,13 +182,13 @@ function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string): {
 
   try {
     try {
-      runGit(authoredRoot, ["init", "--initial-branch=master"]);
+      runInitGit(authoredRoot, ["init", "--initial-branch=master"]);
     } catch {
-      runGit(authoredRoot, ["init"]);
-      runGit(authoredRoot, ["symbolic-ref", "HEAD", "refs/heads/master"]);
+      runInitGit(authoredRoot, ["init"]);
+      runInitGit(authoredRoot, ["symbolic-ref", "HEAD", "refs/heads/master"]);
     }
-    runGit(authoredRoot, ["add", "."]);
-    runGit(authoredRoot, ["commit", "-m", "chore: initialize harness ledger"]);
+    runInitGit(authoredRoot, ["add", "."]);
+    runInitGit(authoredRoot, ["commit", "-m", "chore: initialize harness ledger"]);
     return {
       warnings: [],
       report: {
@@ -213,7 +213,7 @@ function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string): {
   }
 }
 
-function isInsideGitWorkTree(rootDir: string): boolean {
+function isInsideInitGitWorkTree(rootDir: string): boolean {
   return readGitText(rootDir, ["rev-parse", "--is-inside-work-tree"]) === "true";
 }
 
@@ -233,7 +233,7 @@ function readGitText(rootDir: string, args: ReadonlyArray<string>): string | und
   }
 }
 
-function runGit(rootDir: string, args: ReadonlyArray<string>): void {
+function runInitGit(rootDir: string, args: ReadonlyArray<string>): void {
   execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -257,7 +257,7 @@ function isolationWarning(code: string, error: unknown): Record<string, string> 
   };
 }
 
-function relativeLayoutPath(rootDir: string, filePath: string): string {
+function initRelativeLayoutPath(rootDir: string, filePath: string): string {
   return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 

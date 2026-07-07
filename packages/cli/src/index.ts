@@ -10,6 +10,7 @@ import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
+import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import {
   createJsonRpcProtocolServer,
   createUnixSocketTransportServer,
@@ -49,6 +50,7 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
 
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
+    await appendParseFailureRuntimeEvent(argv, parsed.error);
     emit(toCommandReceipt({ ok: false, command: "parse", error: parsed.error }), true);
     return 2;
   }

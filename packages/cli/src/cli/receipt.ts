@@ -249,6 +249,9 @@ function displayCommand(command: string): { readonly command: string; readonly e
     "legacy-copy-safe-docs": "legacy copy-docs",
     "git-diff": "git diff",
     "module-step": "module step",
+    "diagnostics-command-usage": "diagnostics command-usage",
+    "worktree-create": "worktree create",
+    "worktree-status": "worktree status",
     "entity-list": "entity list",
     capabilities: "capabilities"
   };
