@@ -1,10 +1,10 @@
-# Module Plan
+# 模块计划
 
-## Module
+## 模块
 
-记录模块边界、owner 和依赖。
+记录模块边界、负责人和依赖。
 
-## Steps
+## 步骤
 
-| Step | Status | Evidence |
+| 步骤 | 状态 | 证据 |
 | --- | --- | --- |
