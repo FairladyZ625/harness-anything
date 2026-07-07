@@ -37,6 +37,49 @@ test("CLI in_review and complete sweeps commit hand-edited closeout.md", () => {
   });
 });
 
+for (const preset of ["milestone-closeout", "lesson-sedimentation"] as const) {
+  test(`CLI task complete queues a distill candidate for ${preset}`, () => {
+    withGitTempRoot((rootDir) => {
+      const created = runJson(rootDir, [
+        "new-task",
+        "--title",
+        `Closeout Candidate ${preset}`,
+        "--vertical",
+        "software/coding",
+        "--preset",
+        preset
+      ]);
+      const taskId = assertGeneratedTaskId(created.taskId);
+      const taskPath = String(created.packagePath);
+      const closeoutPath = path.join(rootDir, taskPath, "closeout.md");
+      const factsPath = path.join(rootDir, taskPath, "facts.md");
+
+      runJson(rootDir, ["task", "transition", taskId, "active"]);
+      runJson(rootDir, ["task", "transition", taskId, "in_review"]);
+      writeFact(rootDir, taskPath);
+      writeReview(rootDir, taskPath);
+      writeFileSync(closeoutPath, `# Closeout\n\n${preset} generated a closeout candidate source.\n`, "utf8");
+      const factsBefore = readFileSync(factsPath, "utf8");
+
+      const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
+
+      assert.equal(completed.ok, true);
+      assert.equal(completed.status, "done");
+      assert.equal(completed.report.distillCandidate.queued, true);
+      assert.equal(completed.report.distillCandidate.report.factWrite, false);
+      const candidatePath = String(completed.report.distillCandidate.path);
+      assert.match(candidatePath, new RegExp(`^\\.harness/generated/distill/${taskId}/distill_[^/]+\\.json$`, "u"));
+      const artifact = JSON.parse(readFileSync(path.join(rootDir, candidatePath), "utf8")) as Record<string, unknown>;
+      assert.equal(artifact.schema, "distill-candidate/v1");
+      assert.equal(artifact.taskId, taskId);
+      assert.equal(artifact.command, "ha distill candidate");
+      assert.equal(artifact.factState, "candidate");
+      assert.equal(artifact.inputPath, `${taskPath}/closeout.md`);
+      assert.equal(readFileSync(factsPath, "utf8"), factsBefore);
+    });
+  });
+}
+
 test("CLI transition sweep commits orchestration markdown but never commits logs", () => {
   withGitTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Sweep Logs"]);
