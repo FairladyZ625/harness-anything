@@ -78,6 +78,7 @@ export const testTierManifest = {
     "tools/check-gate-surface.test.mjs",
     "tools/check-integrity-single-source.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
+    "tools/check-locale-content.test.mjs",
     "tools/check-pr-body-bilingual.test.mjs",
     "tools/check-pr-governance.test.mjs",
     "tools/check-relation-cycle-substrate.test.mjs",

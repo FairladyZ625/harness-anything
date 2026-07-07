@@ -48,6 +48,7 @@ const FAST_STEPS = [
   ["boundaries: forbidden-symbols", "harness:scan-forbidden-symbols"],
   ["boundaries: private-boundary", "harness:check-private-boundary"],
   ["boundaries: gate-surface", "harness:check-gate-surface"],
+  ["boundaries: locale-content", "harness:check-locale-content"],
   ["boundaries: runtime-release-readiness", "harness:check-runtime-release-readiness"],
   ["boundaries: implementation-contracts", "harness:check-implementation-contracts"],
   ["boundaries: schema-contracts", "harness:check-schema-contracts"],
