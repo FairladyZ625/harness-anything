@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
-import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts";
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { indexPath, makeIndex, renderIndex } from "../../../adapters/local/src/task-index.ts";
 import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import type { WriteCoordinator } from "../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { createTaskPackagePath, generateTaskId, resolveHarnessLayout, slugifyTaskTitle } from "../../../kernel/src/index.ts";
 import { LegacyIndexSchema, type LegacyIndexEntry } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -36,7 +36,8 @@ interface LegacyProvenance {
 
 export function runNewTaskFromLegacy(
   rootInput: HarnessLayoutInput,
-  action: NewTaskAction
+  action: NewTaskAction,
+  makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   if (!action.fromLegacyId) {
     throw new Error("runNewTaskFromLegacy requires fromLegacyId");
@@ -70,11 +71,7 @@ export function runNewTaskFromLegacy(
       const packagePath = createTaskPackagePath(rootInput, taskId, slug);
       const provenance = buildLegacyProvenance(legacySource.entry, createdAt);
       const provenanceMd = renderLegacyProvenanceMarkdown(rootDir, packagePath, legacySource.entry);
-      const coordinator = makeLocalWriteCoordinator({
-        rootDir,
-        layoutOverrides: layoutOverridesFromInput(rootInput),
-        actor: { kind: "agent", id: "local-lifecycle" }
-      });
+      const coordinator = makeWriteCoordinator({ kind: "agent", id: "local-lifecycle" });
       const writes = [
         { taskId, path: "INDEX.md", body: renderIndex(index), packageSlug: slug },
         { taskId, path: "legacy-provenance.json", body: `${JSON.stringify(provenance, null, 2)}\n`, packageSlug: slug },
@@ -160,10 +157,6 @@ function readLegacyRebuildSource(rootInput: HarnessLayoutInput, legacyId: string
       }
     };
   }
-}
-
-function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {
-  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }
 
 function buildLegacyProvenance(entry: LegacyIndexEntry, rebuiltAt: string): LegacyProvenance {

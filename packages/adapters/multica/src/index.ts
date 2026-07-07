@@ -60,6 +60,16 @@ export interface MulticaAdoptionService {
   readonly adopt: (input: AdoptMulticaTaskInput) => Effect.Effect<AdoptMulticaTaskResult, ArtifactStoreError | EngineError | WriteError>;
 }
 
+export const multicaAdapterProviderMetadata = {
+  id: "multica",
+  capabilities: [
+    "task.read",
+    "task.snapshot"
+  ],
+  readonly: true,
+  writable: false
+} as const;
+
 interface CacheEntry {
   readonly snapshot: TaskSnapshot;
   readonly expiresAtMs: number;

@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { makeLocalWriteCoordinator } from "../../../adapters/local/src/index.ts";
 import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
@@ -14,8 +13,8 @@ import {
   type EngineError,
   type ExtensionValidationIssue,
   type HarnessLayoutInput,
-  type HarnessLayoutOverrides,
   type MaterializedTemplatePlan,
+  type WriteCoordinator,
   type WriteError
 } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -53,7 +52,8 @@ export function runNewTaskWithPreset(
   rootInput: HarnessLayoutInput,
   action: NewTaskAction,
   settings?: ProjectHarnessSettings,
-  provenanceOptions: ProvenanceBindingOptions = {}
+  provenanceOptions: ProvenanceBindingOptions = {},
+  makeWriteCoordinator?: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const rootDir = resolveHarnessLayout(rootInput).rootDir;
@@ -206,11 +206,8 @@ export function runNewTaskWithPreset(
       }] : []),
       ...readSetWrite
     ];
-    const coordinator = makeLocalWriteCoordinator({
-      rootDir,
-      layoutOverrides: layoutOverridesFromInput(rootInput),
-      actor: { kind: "agent", id: "local-lifecycle" }
-    });
+    const coordinator = makeWriteCoordinator?.({ kind: "agent", id: "local-lifecycle" });
+    if (!coordinator) return yield* Effect.fail({ _tag: "JournalUnavailable", cause: new Error("write coordinator factory is required") } satisfies WriteError);
     const opId = `${Date.now()}-${stablePayloadHash({ kind: "package_create", writes }).slice(0, 16)}`;
     yield* coordinator.enqueue({
       opId,
@@ -318,10 +315,6 @@ function resolveTaskReadSet(
   moduleKey: string | undefined
 ): ReturnType<typeof buildDerivedDocmapReadSet> {
   return buildDerivedDocmapReadSet(rootInput, moduleKey);
-}
-
-function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutOverrides | undefined {
-  return typeof rootInput === "string" ? undefined : rootInput.layoutOverrides;
 }
 
 function renderModuleSelection(module: { readonly key: string; readonly title: string; readonly scopes: ReadonlyArray<string> }): string {
