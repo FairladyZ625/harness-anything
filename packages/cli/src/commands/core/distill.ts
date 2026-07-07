@@ -17,7 +17,7 @@ interface DistillCandidateArtifact {
   readonly schema: "distill-candidate/v1";
   readonly candidateId: string;
   readonly taskId: string;
-  readonly command: "ha distill candidate";
+  readonly command: "ha distill candidate" | "ha task archive";
   readonly factState: "candidate";
   readonly inputPath: string;
   readonly inputSha256: string;
@@ -31,6 +31,14 @@ export const runDistillCommand: CommandRunner = (context, command) => {
 };
 
 function runCandidate(context: Parameters<CommandRunner>[0], action: DistillCandidateAction): Effect.Effect<CliResult, WriteError> {
+  return writeDistillCandidate(context, action, "ha distill candidate");
+}
+
+export function writeDistillCandidate(
+  context: Parameters<CommandRunner>[0],
+  action: { readonly taskId: string; readonly inputPath: string },
+  command: "ha distill candidate" | "ha task archive"
+): Effect.Effect<CliResult, WriteError> {
   const layout = resolveHarnessLayout(context.layoutInput);
   const input = resolveRootRelativeFile(layout.rootDir, action.inputPath);
   if (!input.ok) {
@@ -42,7 +50,7 @@ function runCandidate(context: Parameters<CommandRunner>[0], action: DistillCand
     schema: "distill-candidate/v1",
     candidateId,
     taskId: action.taskId,
-    command: "ha distill candidate",
+    command,
     factState: "candidate",
     inputPath: input.relativePath,
     inputSha256: createHash("sha256").update(inputBytes).digest("hex"),
