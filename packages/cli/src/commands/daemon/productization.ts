@@ -22,6 +22,7 @@ import { resolveCliVersion } from "../core/version.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 import { resolveLocalDaemonTarget, requestLocalDaemonJsonRpc, type LocalDaemonTarget } from "../../daemon/client.ts";
+import { renderDaemonHelp } from "./help.ts";
 import { runDaemonRepoCommand } from "./repo-registry.ts";
 
 export interface DaemonCommandInput {
@@ -541,22 +542,6 @@ function daemonRepoIdOverride(args: ReadonlyArray<string>): string | undefined {
 
 function daemonUserRoot(args: ReadonlyArray<string>): string | undefined {
   return readOption(args, "--user-root") ?? process.env.HARNESS_DAEMON_USER_ROOT;
-}
-
-function renderDaemonHelp(): string {
-  return [
-    "Usage: harness-anything daemon <start|status|stop|bootstrap-server|install-templates> [options]",
-    "Alias: ha daemon <subcommand> [options]",
-    "",
-    "Commands:",
-    "  start --service              Start a detached local daemon service (default).",
-    "  start --foreground           Run the daemon service in the foreground.",
-    "  status --json                Show lock holder, queue depth, connections, and version.",
-    "  stop [--timeout-ms <ms>]     Signal the daemon and wait for queue drain and lock release.",
-    "  repo <subcommand>            Register, list, or unregister daemon repositories.",
-    "  bootstrap-server             Initialize a canonical team server repository.",
-    "  install-templates --out DIR  Copy systemd, launchd, and Windows Service templates."
-  ].join("\n");
 }
 
 function requiredOption(args: ReadonlyArray<string>, name: string): string {
