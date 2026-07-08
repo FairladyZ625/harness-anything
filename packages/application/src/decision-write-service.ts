@@ -126,7 +126,10 @@ export function makeDecisionWriteService(options: DecisionWriteServiceOptions): 
         ...request.current,
         relations: [...request.current.relations, request.relation]
       };
-      return writeDecision(options.coordinator, hashPayload, "decision_relate", next, request, request.current);
+      return writeDecision(options.coordinator, hashPayload, "decision_relate", next, request, request.current, {
+        kind: "append_relation",
+        relation: request.relation
+      });
     },
     retireRelation: (request) => {
       const retired = retireRelationRecord(request.current, request.relationId);
@@ -267,7 +270,8 @@ function writeDecision(
   kind: WriteOpKind,
   decision: DecisionPackage,
   request: { readonly body?: string; readonly opIdPrefix?: string; readonly taskWrites?: ReadonlyArray<DocumentWrite> },
-  previous?: DecisionPackage
+  previous?: DecisionPackage,
+  writeMode?: DecisionDocumentWriteMode
 ): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError> {
   const validation = validateDecisionWrite(decision, previous);
   if (validation) return Effect.fail(validation);
@@ -277,11 +281,19 @@ function writeDecision(
     payload: {
       decision,
       ...(request.taskWrites && request.taskWrites.length > 0 ? { taskWrites: request.taskWrites } : {}),
-      ...(request.body ? { body: request.body } : {})
+      ...(request.body ? { body: request.body } : {}),
+      writeMode: writeMode ?? {
+        kind: "snapshot",
+        expectedWatermark: previous?._coordinatorWatermark ?? null
+      }
     },
     ...(request.opIdPrefix ? { opIdPrefix: request.opIdPrefix } : {})
   }).pipe(Effect.as({ decisionId: decision.decision_id, state: decision.state }));
 }
+
+type DecisionDocumentWriteMode =
+  | { readonly kind: "snapshot"; readonly expectedWatermark?: string | null }
+  | { readonly kind: "append_relation"; readonly relation: EntityRelationRecord };
 
 function validateDecisionWrite(decision: DecisionPackage, previous?: DecisionPackage): DecisionWriteRejected | null {
   if (sameActor(decision.proposedBy, decision.arbiter)) {

@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
-import type { EntityId } from "../domain/index.ts";
-import { moduleKeyFromEntityId, taskEntityId } from "../domain/index.ts";
+import type { EntityId, EntityRelationRecord, FactRecord } from "../domain/index.ts";
+import { formatFactFlowRecord, formatRelationFlowRecord, moduleKeyFromEntityId, parseFactFlowRecords, taskEntityId } from "../domain/index.ts";
 import { isContentAddressedBlobRef, readContentAddressedTextBlob, resolveContentAddressedBlobPath, type ContentAddressedBlobRef } from "./content-addressed-blob-store.ts";
 import {
   createTaskPackagePath,
@@ -53,6 +53,9 @@ export function applyWriteOp(rootInput: HarnessLayoutInput, op: WriteOp): Docume
   if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
     return applyProgressAppendDelta(rootInput, op, op.payload);
   }
+  if ((op.kind === "doc_write" || op.kind === "fact_invalidate") && isDocumentAppendRecordPayload(op.payload)) {
+    return applyDocumentAppendRecord(rootInput, op, op.payload);
+  }
   if (op.kind === "doc_stage") {
     return null;
   }
@@ -100,6 +103,9 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
   if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
     return [documentTargetPath(rootInput, progressAppendDeltaWrite(op, op.payload))];
   }
+  if ((op.kind === "doc_write" || op.kind === "fact_invalidate") && isDocumentAppendRecordPayload(op.payload)) {
+    return [documentTargetPath(rootInput, documentAppendRecordWrite(op, op.payload))];
+  }
   if (op.kind === "doc_stage") {
     return [documentTargetPath(rootInput, documentStageWrite(op))];
   }
@@ -131,6 +137,9 @@ export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWri
   if (op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) {
     return [progressAppendDeltaWrite(op, op.payload)];
   }
+  if ((op.kind === "doc_write" || op.kind === "fact_invalidate") && isDocumentAppendRecordPayload(op.payload)) {
+    return [documentAppendRecordWrite(op, op.payload)];
+  }
   if (op.kind === "doc_stage") {
     return [];
   }
@@ -151,9 +160,32 @@ export function isProgressAppendDeltaPayload(payload: unknown): payload is Progr
   return typeof candidate.path === "string" && typeof candidate.append === "string" && !("body" in candidate);
 }
 
+function isDocumentAppendRecordPayload(payload: unknown): payload is DocumentAppendRecordPayload {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as { readonly path?: unknown; readonly appendRecord?: unknown; readonly body?: unknown };
+  return typeof candidate.path === "string" &&
+    !("body" in candidate) &&
+    isAppendRecord(candidate.appendRecord);
+}
+
+function isAppendRecord(value: unknown): value is DocumentAppendRecordPayload["appendRecord"] {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { readonly kind?: unknown; readonly record?: unknown; readonly relation?: unknown };
+  return (candidate.kind === "fact-record/v1" && Boolean(candidate.record && typeof candidate.record === "object")) ||
+    (candidate.kind === "fact-relation/v1" && Boolean(candidate.relation && typeof candidate.relation === "object"));
+}
+
 interface ProgressAppendDeltaPayload {
   readonly path: string;
   readonly append: string;
+  readonly packageSlug?: string;
+}
+
+interface DocumentAppendRecordPayload {
+  readonly path: string;
+  readonly appendRecord:
+    | { readonly kind: "fact-record/v1"; readonly record: FactRecord }
+    | { readonly kind: "fact-relation/v1"; readonly relation: EntityRelationRecord; readonly requiresFacts?: ReadonlyArray<string> };
   readonly packageSlug?: string;
 }
 
@@ -212,6 +244,15 @@ function progressAppendDeltaWrite(op: WriteOp, payload: ProgressAppendDeltaPaylo
   };
 }
 
+function documentAppendRecordWrite(op: WriteOp, payload: DocumentAppendRecordPayload): DocumentWrite {
+  return {
+    taskId: taskIdForWriteOp(op),
+    path: payload.path,
+    body: "",
+    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
+  };
+}
+
 function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, payload: ProgressAppendDeltaPayload): DocumentWrite {
   const targetPath = documentTargetPath(rootInput, progressAppendDeltaWrite(op, payload));
   const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
@@ -224,6 +265,55 @@ function applyProgressAppendDelta(rootInput: HarnessLayoutInput, op: WriteOp, pa
   };
   writeDocument(rootInput, write);
   return write;
+}
+
+function applyDocumentAppendRecord(rootInput: HarnessLayoutInput, op: WriteOp, payload: DocumentAppendRecordPayload): DocumentWrite {
+  const targetPath = documentTargetPath(rootInput, documentAppendRecordWrite(op, payload));
+  const existing = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  const body = payload.appendRecord.kind === "fact-record/v1"
+    ? appendFactRecordDelta(existing, payload.appendRecord.record, op.entityId)
+    : appendFactRelationDelta(existing, payload.appendRecord.relation, payload.appendRecord.requiresFacts ?? [], op.entityId);
+  const write: DocumentWrite = {
+    taskId: taskIdForWriteOp(op),
+    path: payload.path,
+    body,
+    packageSlug: typeof payload.packageSlug === "string" ? payload.packageSlug : undefined
+  };
+  writeDocument(rootInput, write);
+  return write;
+}
+
+function appendFactRecordDelta(existingBody: string, record: FactRecord, entityId?: EntityId): string {
+  const duplicate = parseFactFlowRecords(existingBody).find((entry) => entry.fact_id === record.fact_id);
+  if (duplicate) {
+    if (formatFactFlowRecord(duplicate) === formatFactFlowRecord(record)) return existingBody;
+    rejectWrite(`duplicate fact id: ${record.fact_id}`, entityId);
+  }
+  const base = existingBody.trim().length === 0 ? "# Facts\n\n" : ensureTrailingNewline(existingBody);
+  return `${base}${formatFactFlowRecord(record)}\n`;
+}
+
+function appendFactRelationDelta(
+  existingBody: string,
+  relation: EntityRelationRecord,
+  requiredFactIds: ReadonlyArray<string>,
+  entityId?: EntityId
+): string {
+  const existingFacts = parseFactFlowRecords(existingBody);
+  for (const factId of requiredFactIds) {
+    if (!existingFacts.some((record) => record.fact_id === factId)) {
+      rejectWrite(`fact not found for relation append: ${factId}`, entityId);
+    }
+  }
+  if (existingBody.includes(`relation_id: ${relation.relation_id}`)) return existingBody;
+  const relationLine = formatRelationFlowRecord(relation);
+  const base = existingBody.trim().length === 0 ? "# Facts\n\n" : ensureTrailingNewline(existingBody);
+  if (/^relations:\s*$/mu.test(base)) return `${base}${relationLine}\n`;
+  return `${base}\nrelations:\n${relationLine}\n`;
+}
+
+function ensureTrailingNewline(value: string): string {
+  return value.endsWith("\n") ? value : `${value}\n`;
 }
 
 function isBatchDocumentWritePayload(payload: unknown): payload is BatchDocumentWritePayload {

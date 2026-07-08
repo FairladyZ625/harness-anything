@@ -121,8 +121,13 @@ test("decision write service appends relation records through relation-specific 
 
   assert.deepEqual(result, { decisionId: "dec_TEST", state: "active" });
   assert.equal(enqueued[0]?.kind, "decision_relate");
-  const payload = enqueued[0]?.payload as { readonly decision?: DecisionPackage };
+  const payload = enqueued[0]?.payload as {
+    readonly decision?: DecisionPackage;
+    readonly writeMode?: { readonly kind?: string; readonly relation?: EntityRelationRecord };
+  };
   assert.deepEqual(payload.decision?.relations, [relation]);
+  assert.equal(payload.writeMode?.kind, "append_relation");
+  assert.deepEqual(payload.writeMode?.relation, relation);
 });
 
 test("healing writes are not blocked by pre-existing illegal sibling edges", () => {
