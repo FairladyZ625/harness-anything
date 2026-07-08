@@ -297,7 +297,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "paths": ["primary"]
     },
     "eventPolicy": {
-      "conflictMarkerPreflight": true,
+      "conflictMarkerPreflight": false,
       "runtimeEvent": "none"
     }
   },
@@ -329,7 +329,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "paths": []
     },
     "eventPolicy": {
-      "conflictMarkerPreflight": true,
+      "conflictMarkerPreflight": false,
       "runtimeEvent": "none"
     }
   },
