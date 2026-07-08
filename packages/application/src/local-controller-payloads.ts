@@ -49,6 +49,12 @@ export function validateLocalControllerTaskId(taskId: string): void {
   validateTaskIdSyntax(taskId);
 }
 
+export function validateLocalControllerDecisionId(decisionId: string): void {
+  if (decisionId.length === 0 || decisionId.includes("/") || decisionId.includes("..")) {
+    throw new Error("Invalid decision id.");
+  }
+}
+
 function invalidPayload(hint: string): LocalControllerFailure {
   return { ok: false, error: { code: "invalid_payload", hint } };
 }

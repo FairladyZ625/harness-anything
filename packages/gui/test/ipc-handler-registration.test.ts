@@ -70,6 +70,21 @@ test("main process registers one IPC handler for each preload allowlist method",
     method: "getTasks",
     payload: null
   });
+  assert.deepEqual(await handlers.get("harness:getRelationGraph")?.(trustedEvent, null), {
+    ok: true,
+    method: "getRelationGraph",
+    payload: null
+  });
+  assert.deepEqual(await handlers.get("harness:getDecisionDetail")?.(trustedEvent, { decisionId: "dec_1" }), {
+    ok: true,
+    method: "getDecisionDetail",
+    payload: { decisionId: "dec_1" }
+  });
+  assert.deepEqual(await handlers.get("harness:getTaskFacts")?.(trustedEvent, { taskId: "task-1" }), {
+    ok: true,
+    method: "getTaskFacts",
+    payload: { taskId: "task-1" }
+  });
   await assert.rejects(() => handlers.get("harness:getTasks")?.(trustedEvent, "raw-string"), /payload must be an object/i);
   await assert.rejects(
     () => handlers.get("harness:getTasks")?.({ sender: { id: 1 }, senderFrame: { url: "https://example.com" } }, null),

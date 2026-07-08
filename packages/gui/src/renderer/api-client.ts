@@ -7,6 +7,16 @@ import type {
   TaskDocumentResult,
   TaskIdPayload,
   TaskListResult,
+  DecisionIdPayload,
+  DecisionListResult,
+  DecisionProjectionRow,
+  DecisionDetailResult,
+  FactProjectionRow,
+  RelationGraphReadResult,
+  RelationGraphEdgeRow,
+  RelationCoverageRow,
+  FactAnchorRow,
+  TaskFactListResult,
   ProjectionWarning,
   TaskProjectionRow
 } from "../api/renderer-dto.ts";
@@ -15,6 +25,10 @@ type HarnessBridgeMethod =
   | "getTasks"
   | "getTaskDetail"
   | "getTaskDocument"
+  | "getRelationGraph"
+  | "getDecisions"
+  | "getDecisionDetail"
+  | "getTaskFacts"
   | "setTaskStatus"
   | "reviewTask"
   | "appendTaskProgress"
@@ -49,6 +63,33 @@ export interface TaskDocumentSuccess {
   readonly body: string;
 }
 
+export interface RelationGraphSuccess {
+  readonly ok: true;
+  readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+export interface DecisionListSuccess {
+  readonly ok: true;
+  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+export interface DecisionDetailSuccess {
+  readonly ok: true;
+  readonly decision: DecisionProjectionRow;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+export interface TaskFactListSuccess {
+  readonly ok: true;
+  readonly taskId: string;
+  readonly path: string;
+  readonly facts: ReadonlyArray<FactProjectionRow>;
+}
+
 export interface CommandSuccess {
   readonly ok: true;
 }
@@ -75,6 +116,22 @@ export const harnessClient = {
   async getTaskDocument(payload: TaskDocumentPayload): Promise<TaskDocumentSuccess> {
     const result = await invokeBridge("getTaskDocument", payload);
     return readTaskDocumentResult(result);
+  },
+  async getRelationGraph(): Promise<RelationGraphSuccess> {
+    const result = await invokeBridge("getRelationGraph", null);
+    return readRelationGraphResult(result);
+  },
+  async getDecisions(): Promise<DecisionListSuccess> {
+    const result = await invokeBridge("getDecisions", null);
+    return readDecisionListResult(result);
+  },
+  async getDecisionDetail(payload: DecisionIdPayload): Promise<DecisionDetailSuccess> {
+    const result = await invokeBridge("getDecisionDetail", payload);
+    return readDecisionDetailResult(result);
+  },
+  async getTaskFacts(payload: TaskIdPayload): Promise<TaskFactListSuccess> {
+    const result = await invokeBridge("getTaskFacts", payload);
+    return readTaskFactListResult(result);
   },
   async setTaskStatus(payload: SetTaskStatusPayload): Promise<CommandResult> {
     return readCommandResult(await invokeBridge("setTaskStatus", payload));
@@ -142,6 +199,61 @@ function readTaskDocumentResult(value: unknown): TaskDocumentSuccess {
   };
 }
 
+function readRelationGraphResult(value: unknown): RelationGraphSuccess {
+  const result = value as RelationGraphReadResult;
+  if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.edges) || !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors)) {
+    throw new Error(localErrorHint(value, "Relation graph bridge returned an invalid result."));
+  }
+  return {
+    ok: true,
+    edges: result.edges.filter(isRelationGraphEdgeRow),
+    coverageRows: result.coverageRows.filter(isRelationCoverageRow),
+    factAnchors: result.factAnchors.filter(isFactAnchorRow),
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
+function readDecisionListResult(value: unknown): DecisionListSuccess {
+  const result = value as DecisionListResult;
+  if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.decisions)) {
+    throw new Error(localErrorHint(value, "Decision list bridge returned an invalid result."));
+  }
+  return {
+    ok: true,
+    decisions: result.decisions.filter(isDecisionProjectionRow),
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
+function readDecisionDetailResult(value: unknown): DecisionDetailSuccess {
+  const result = value as DecisionDetailResult;
+  if (!result || typeof result !== "object" || result.ok !== true || !isDecisionProjectionRow(result.decision)) {
+    throw new Error(localErrorHint(value, "Decision detail bridge returned an invalid result."));
+  }
+  return {
+    ok: true,
+    decision: result.decision,
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
+function readTaskFactListResult(value: unknown): TaskFactListSuccess {
+  const result = value as TaskFactListResult;
+  if (!result || typeof result !== "object" || result.ok !== true || typeof result.taskId !== "string" || !Array.isArray(result.facts)) {
+    throw new Error(localErrorHint(value, "Task facts bridge returned an invalid result."));
+  }
+  const facts = result.facts.filter(isFactProjectionRow);
+  if (facts.length !== result.facts.length) {
+    throw new Error("Task facts bridge returned rows outside task-fact-row/v1.");
+  }
+  return {
+    ok: true,
+    taskId: result.taskId,
+    path: typeof result.path === "string" ? result.path : "",
+    facts
+  };
+}
+
 function readCommandResult(value: unknown): CommandResult {
   const result = value as LocalControllerResult;
   if (result && typeof result === "object" && result.ok === true) return { ok: true };
@@ -170,6 +282,59 @@ function isTaskProjectionRow(value: unknown): value is TaskProjectionRow {
     (value as TaskProjectionRow).schema === "sqlite-task-row/v1" &&
     typeof (value as TaskProjectionRow).taskId === "string" &&
     typeof (value as TaskProjectionRow).title === "string"
+  );
+}
+
+function isDecisionProjectionRow(value: unknown): value is DecisionProjectionRow {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    (value as DecisionProjectionRow).schema === "d4-decision-row/v1" &&
+    typeof (value as DecisionProjectionRow).decisionId === "string" &&
+    typeof (value as DecisionProjectionRow).title === "string" &&
+    typeof (value as DecisionProjectionRow).state === "string"
+  );
+}
+
+function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as RelationGraphEdgeRow).sourceRef === "string" &&
+    typeof (value as RelationGraphEdgeRow).targetRef === "string" &&
+    typeof (value as RelationGraphEdgeRow).relationType === "string"
+  );
+}
+
+function isRelationCoverageRow(value: unknown): value is RelationCoverageRow {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as RelationCoverageRow).decisionRef === "string" &&
+    typeof (value as RelationCoverageRow).claimRef === "string" &&
+    typeof (value as RelationCoverageRow).status === "string"
+  );
+}
+
+function isFactAnchorRow(value: unknown): value is FactAnchorRow {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as FactAnchorRow).factRef === "string" &&
+    typeof (value as FactAnchorRow).taskId === "string" &&
+    typeof (value as FactAnchorRow).factId === "string"
+  );
+}
+
+function isFactProjectionRow(value: unknown): value is FactProjectionRow {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    (value as FactProjectionRow).schema === "task-fact-row/v1" &&
+    typeof (value as FactProjectionRow).ref === "string" &&
+    typeof (value as FactProjectionRow).taskId === "string" &&
+    typeof (value as FactProjectionRow).factId === "string" &&
+    typeof (value as FactProjectionRow).statement === "string"
   );
 }
 

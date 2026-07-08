@@ -43,6 +43,20 @@ test("local controller service reads projection and writes through injected task
     const document = await service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Task One/);
+    writeTaskFacts(rootDir, "task-1");
+    writeDecision(rootDir, "dec_test");
+    const relationGraph = service.getRelationGraph();
+    assert.equal(relationGraph.ok, true);
+    assert.deepEqual(relationGraph.factAnchors.map((anchor) => anchor.factRef), ["fact/task-1/F-12345678"]);
+    const decisions = service.getDecisions();
+    assert.equal(decisions.ok, true);
+    assert.deepEqual(decisions.decisions.map((decision) => decision.decisionId), ["dec_test"]);
+    const decisionDetail = service.getDecisionDetail({ decisionId: "dec_test" });
+    assert.equal(decisionDetail.ok, true);
+    assert.equal(decisionDetail.decision.title, "Projection Decision");
+    const facts = await service.getTaskFacts({ taskId: "task-1" });
+    assert.equal(facts.ok, true);
+    assert.deepEqual(facts.facts.map((fact) => fact.ref), ["fact/task-1/F-12345678"]);
     assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "C:\\Users\\name\\secret.md" }), {
       ok: false,
       error: {
@@ -143,4 +157,49 @@ function patchTaskStatus(rootDir: string, taskId: string, status: string): void 
   const indexPath = path.join(rootDir, "harness/tasks", taskId, "INDEX.md");
   const index = readFileSync(indexPath, "utf8");
   writeFileSync(indexPath, index.replace(/^  status: .+$/m, `  status: ${status}`), "utf8");
+}
+
+function writeTaskFacts(rootDir: string, taskId: string): void {
+  writeFileSync(path.join(rootDir, "harness/tasks", taskId, "facts.md"), [
+    "- {fact_id: F-12345678, statement: \"Projection fact\", source: \"test\", observedAt: \"2026-07-07T00:00:00.000Z\", confidence: high, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: \"codex\", sessionId: \"session-1\", boundAt: \"2026-07-07T00:00:00.000Z\"}]}",
+    ""
+  ].join("\n"), "utf8");
+}
+
+function writeDecision(rootDir: string, decisionId: string): void {
+  const decisionDir = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
+  mkdirSync(decisionDir, { recursive: true });
+  writeFileSync(path.join(decisionDir, "decision.md"), [
+    "---",
+    "schema: decision-package/v1",
+    `decision_id: ${decisionId}`,
+    "_coordinatorWatermark: test-watermark",
+    "title: \"Projection Decision\"",
+    "state: active",
+    "riskTier: medium",
+    "urgency: medium",
+    "vertical: \"software/coding\"",
+    "preset: \"architecture-decision\"",
+    "applies_to:",
+    "  modules: [\"gui\"]",
+    "  productLines: []",
+    "proposedBy: { kind: \"agent\", id: \"codex\" }",
+    "proposedAt: \"2026-07-07T00:00:00.000Z\"",
+    "arbiter: { kind: \"human\", id: \"ZeyuLi\" }",
+    "decidedAt: \"2026-07-07T01:00:00.000Z\"",
+    "provenance:",
+    "  - { runtime: \"codex\", sessionId: \"session-1\", boundAt: \"2026-07-07T00:00:00.000Z\" }",
+    "question: \"Use projection?\"",
+    "chosen:",
+    "  - { id: \"CH1\", text: \"Use projection\" }",
+    "rejected:",
+    "  - { id: \"RJ1\", text: \"Parse markdown in GUI\", why_not: \"Projection owns reads\" }",
+    "claims:",
+    "  - { id: \"C1\", text: \"Projection reads are stable\", load_bearing: false }",
+    "relations: []",
+    "---",
+    "",
+    "# Projection Decision",
+    ""
+  ].join("\n"), "utf8");
 }

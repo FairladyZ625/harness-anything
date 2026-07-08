@@ -73,12 +73,18 @@ export type RelationKind =
   // 三元语扩展（entity-relations/v1）：边可跨 task/decision/fact
   | "supports" // decision 的承重论点 → 支撑 fact（覆盖度查可达）
   | "supersedes" // decision 推翻 decision（含 task 收尾派生）
+  | "refines"
+  | "narrows"
   | "derives" // decision 派生出 task
   | "blocks"
   | "relates"
-  | "invalidated_by" // 新 fact/decision → 旧 fact（fact 失效，E49；fact 自身无状态机）
-  | "supersedes_fact" // 同上，语义别名
-  | "observes";
+  | "implements"
+  | "depends-on"
+  | "produces"
+  | "evidences"
+  | "evidenced-by"
+  | "invalidated-by"
+  | "supersedes-fact";
 
 export interface RelationEdge {
   /**
@@ -165,7 +171,7 @@ export interface DecisionRow {
 /**
  * fact 是不可变观察，内嵌产出它的 task，不搬家。
  * 稳定短锚形如 task_x/F-a3f2（禁行号）。
- * 失效不靠状态，靠 relation 边（invalidated_by/supersede_fact）。
+ * 失效不靠状态，靠 relation 边（invalidated-by/supersedes-fact）。
  */
 export interface FactRef {
   anchor: string; // task_x/F-a3f2
@@ -173,7 +179,7 @@ export interface FactRef {
   category: "finding" | "progress" | "lesson";
   text: string;
   at: string;
-  /** 是否已被 invalidated_by/supersede_fact 边标记失效（由图查询推得，原型 mock 直接给） */
+  /** 是否已被 invalidated-by/supersedes-fact 边标记失效（由图查询推得，原型 mock 直接给） */
   invalidated?: boolean;
 }
 

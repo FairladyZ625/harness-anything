@@ -16,14 +16,12 @@ import {
   WarningCircle,
   GitBranch,
 } from "@phosphor-icons/react";
-import type { SnapshotStatus, DecisionRow, DecisionState, FactRef } from "./model/types.ts";
+import type { SnapshotStatus } from "./model/types.ts";
 import {
   MOCK_RELATIONS,
   MOCK_PRESETS,
   MOCK_ADAPTERS,
   MOCK_EVENTS,
-  MOCK_DECISIONS,
-  MOCK_FACTS,
 } from "./model/mock.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
@@ -48,6 +46,7 @@ import {
 } from "./model/taskFilters.ts";
 import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
 import { useTasksQuery } from "./task-data.ts";
+import { useTriadicProjectionQuery } from "./triadic-data.ts";
 
 type ViewId =
   | "home"
@@ -62,13 +61,9 @@ type ViewId =
   | "adapters"
   | "settings";
 
-// 这些视图的数据仍为 mock:decision/fact 三元语真实客户端 API(FG-P1-07)未落地,
-// preset/adapter 管理面亦无真实后端。进入时顶部显式挂 MOCK 横幅。
+// 这些视图的数据仍为 mock:preset/adapter 管理面无真实后端。进入时顶部显式挂 MOCK 横幅。
 const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
   "home",
-  "decisions",
-  "decisionPool",
-  "graph",
   "presets",
   "adapters",
 ]);
@@ -106,6 +101,7 @@ const VIEW_LABEL: Record<ViewId, string> = {
 function AppShell() {
   const [view, setView] = useState<ViewId>("overview");
   const tasksQuery = useTasksQuery();
+  const triadicQuery = useTriadicProjectionQuery();
   const realTasks = useMemo(
     () => adaptProjectionRows(tasksQuery.data?.tasks ?? []),
     [tasksQuery.data],
@@ -120,8 +116,9 @@ function AppShell() {
   const projectId = project.id;
   const projects = useMemo(() => [project], [project]);
 
-  const [decisions, setDecisions] = useState<DecisionRow[]>(MOCK_DECISIONS);
-  const [facts] = useState<FactRef[]>(MOCK_FACTS);
+  const decisions = triadicQuery.decisions;
+  const facts = triadicQuery.facts;
+  const relations = triadicQuery.relations;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [taskFilters, setTaskFilters] =
@@ -131,7 +128,7 @@ function AppShell() {
     null,
   );
 
-  const terminal = useMockTerminal(decisions, setDecisions);
+  const terminal = useMockTerminal([], () => undefined);
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === projectId),
@@ -398,7 +395,7 @@ function AppShell() {
                 tasks={projectTasks}
                 decisions={decisions}
                 facts={facts}
-                relations={MOCK_RELATIONS}
+                relations={relations}
                 onSelect={openTaskPreview}
                 onDrill={drillToBoard}
                 onOpenInbox={() => goto("decisions")}
@@ -436,7 +433,7 @@ function AppShell() {
             ) : view === "graph" ? (
               <GraphView
                 tasks={projectTasks}
-                relations={MOCK_RELATIONS}
+                relations={relations}
                 decisions={decisions}
                 facts={facts}
               />
@@ -444,34 +441,20 @@ function AppShell() {
               <DecisionsView
                 decisions={decisions}
                 tasks={tasks}
-                relations={MOCK_RELATIONS}
+                relations={relations}
                 facts={facts}
                 onTraceSession={(sid) => {
                   // 原型占位：真实由 coordinator 内置 conversation-mining 导出该 session 原文（E47）
                   console.log("[prototype] trace session:", sid);
                 }}
-                onCallAgent={terminal.execute}
-                onDecide={(id, action) => {
-                  // mock 状态机：accept→active / reject→rejected / defer→deferred（schema 无 accepted 态）
-                  const next: Record<string, DecisionState> = {
-                    accept: "active",
-                    reject: "rejected",
-                    defer: "deferred",
-                  };
-                  setDecisions((prev) =>
-                    prev.map((d) =>
-                      d.decisionId === id
-                        ? { ...d, state: next[action], decidedAt: new Date().toISOString(), lastChangedAt: new Date().toISOString() }
-                        : d,
-                    ),
-                  );
-                }}
+                onDecide={() => undefined}
+                readOnly
               />
             ) : view === "decisionPool" ? (
               <DecisionPoolView
                 decisions={decisions}
                 facts={facts}
-                relations={MOCK_RELATIONS}
+                relations={relations}
               />
             ) : view === "presets" ? (
               <PresetsView presets={MOCK_PRESETS} project={project} />
@@ -483,7 +466,7 @@ function AppShell() {
           </div>
 
           {/* Mock terminal split panel（decisions/review 的信息架构组成部分，数据为 mock） */}
-          {(view === "decisions" || view === "review") && !selected && (
+          {view === "review" && !selected && (
             <TerminalPanel
               logs={terminal.logs}
               input={terminal.input}

@@ -108,7 +108,7 @@ export async function computeGraphLayout(
 
   for (const t of tasks) {
     if (filters && !filters.types.has("task")) continue;
-    if (filters && !filters.modules.has(t.module)) continue;
+    if (filters && filters.modules.size > 0 && !filters.modules.has(t.module)) continue;
     placed.push({ id: t.taskId, module: t.module, width: NODE_W, height: NODE_H, entity: "task", data: t });
   }
 
@@ -116,7 +116,7 @@ export async function computeGraphLayout(
     if (filters && !filters.types.has("decision")) continue;
     const id = `decision/${d.decisionId}`;
     const moduleName = getDecisionModule(id, validEdges, tasks);
-    if (filters && !filters.modules.has(moduleName) && moduleName !== "unknown") continue;
+    if (filters && filters.modules.size > 0 && !filters.modules.has(moduleName) && moduleName !== "unknown") continue;
     placed.push({ id, module: moduleName, width: 140, height: 52, entity: "decision", data: d });
   }
 
@@ -125,7 +125,7 @@ export async function computeGraphLayout(
     const anchor = f.anchor.split("/").pop() ?? f.anchor;
     const id = `fact/${f.taskId}/${anchor}`;
     const moduleName = getFactModule(id, tasks);
-    if (filters && !filters.modules.has(moduleName) && moduleName !== "unknown") continue;
+    if (filters && filters.modules.size > 0 && !filters.modules.has(moduleName) && moduleName !== "unknown") continue;
     placed.push({ id, module: moduleName, width: 140, height: 40, entity: "fact", data: f });
   }
 
@@ -239,7 +239,7 @@ export async function computeGraphLayout(
       ? "var(--color-danger)"
       : isLoop
         ? "#f97316"
-        : rawEdge.kind === "supports"
+        : rawEdge.kind === "supports" || rawEdge.kind === "evidenced-by" || rawEdge.kind === "evidences"
           ? "var(--color-accent)"
           : rawEdge.provenance === "external-engine"
             ? "var(--color-stale)"
@@ -263,7 +263,7 @@ export async function computeGraphLayout(
             ? "5 3"
             : rawEdge.kind === "references"
               ? "4 3"
-              : rawEdge.kind === "invalidated_by" || rawEdge.kind === "supersedes_fact"
+              : rawEdge.kind === "invalidated-by" || rawEdge.kind === "supersedes-fact"
                 ? "3 2"
                 : undefined,
       },

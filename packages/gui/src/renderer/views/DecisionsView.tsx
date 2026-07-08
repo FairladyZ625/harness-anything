@@ -27,6 +27,7 @@ export function DecisionsView({
   onTraceSession,
   onCallAgent,
   onDecide,
+  readOnly = false,
 }: {
   decisions: DecisionRow[];
   tasks: TaskRow[];
@@ -35,6 +36,7 @@ export function DecisionsView({
   onTraceSession: (sessionId: string) => void;
   onCallAgent?: (cmd: string) => void;
   onDecide: (id: string, action: DecideAction) => void;
+  readOnly?: boolean;
 }) {
   const [trace, setTrace] = useState<string | null>(null);
   // 本会话跳过的 id 集合(不改状态,仅本会话后移)
@@ -69,6 +71,7 @@ export function DecisionsView({
 
   const handleDecide = useCallback(
     (id: string, action: DecideAction) => {
+      if (readOnly) return;
       const d = decisions.find((x) => x.decisionId === id);
       if (d) {
         // accept 成功 + 声明需回写 → 记入处理历史(§3.1a:accept 只记意志,回写派生为 task)
@@ -78,7 +81,7 @@ export function DecisionsView({
       onDecide(id, action);
       // 处理一条 → 自动落到下一条(保持 cursor,因为该条已从 proposed 出队)
     },
-    [decisions, onDecide],
+    [decisions, onDecide, readOnly],
   );
 
   const handleSkip = () => {
@@ -194,6 +197,7 @@ export function DecisionsView({
                   onCallAgent={onCallAgent}
                   onDecide={handleDecide}
                   onInspectFact={setInspectedFactRef}
+                  readOnly={readOnly}
                 />
               </>
             ) : (
@@ -292,4 +296,3 @@ export function DecisionsView({
     </div>
   );
 }
-

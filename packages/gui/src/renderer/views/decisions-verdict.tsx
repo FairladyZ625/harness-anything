@@ -289,6 +289,7 @@ export function VerdictCard({
   onCallAgent,
   onDecide,
   onInspectFact,
+  readOnly = false,
 }: {
   d: DecisionRow;
   facts: FactRef[];
@@ -298,6 +299,7 @@ export function VerdictCard({
   onCallAgent?: (cmd: string) => void;
   onDecide: (id: string, action: "accept" | "reject" | "defer") => void;
   onInspectFact: (factRef: string) => void;
+  readOnly?: boolean;
 }) {
   const cov = coverageOf(d, facts);
   const selfArb = d.proposedBy.id === d.arbiter?.id;
@@ -317,6 +319,7 @@ export function VerdictCard({
   const [rejection, setRejection] = useState<{ code: string; reason: string; detail: string[] } | null>(null);
 
   const handleAccept = () => {
+    if (readOnly) return;
     if (conflictSignal) {
       // 冲突标记红灯:coordinator 前置预检拒绝(E52 R3)——渲染结构化拒因,不静默失败、不用 alert
       setRejection(buildConflictRejection(d));
@@ -487,20 +490,30 @@ export function VerdictCard({
       <div className="mt-3 flex gap-2 border-t border-border pt-3">
         <button
           onClick={handleAccept}
+          disabled={readOnly}
+          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Accept"}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent/90"
         >
           <CheckCircle weight="bold" className="text-[13px]" />
           Accept
         </button>
         <button
-          onClick={() => onDecide(d.decisionId, "reject")}
+          onClick={() => {
+            if (!readOnly) onDecide(d.decisionId, "reject");
+          }}
+          disabled={readOnly}
+          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Reject"}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-danger/50 hover:bg-danger/5 hover:text-danger"
         >
           <ProhibitInset weight="bold" className="text-[13px]" />
           Reject
         </button>
         <button
-          onClick={() => onDecide(d.decisionId, "defer")}
+          onClick={() => {
+            if (!readOnly) onDecide(d.decisionId, "defer");
+          }}
+          disabled={readOnly}
+          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Defer"}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-stale/50 hover:bg-stale/5 hover:text-stale"
         >
           <ClockClockwise weight="bold" className="text-[13px]" />
@@ -558,4 +571,3 @@ export function VerdictCard({
 }
 
 // ============ inbox 队列壳层 ============
-

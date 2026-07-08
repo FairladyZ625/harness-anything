@@ -238,6 +238,10 @@ function localController(calls: string[]): LocalControllerService {
     },
     getTaskDetail: async () => ({ ok: true }),
     getTaskDocument: async () => ({ ok: true }),
+    getRelationGraph: () => ({ ok: true, edges: [], coverageRows: [], factAnchors: [], warnings: [] }),
+    getDecisions: () => ({ ok: true, decisions: [], warnings: [] }),
+    getDecisionDetail: () => ({ ok: false, error: { code: "decision_not_found", hint: "missing" } }),
+    getTaskFacts: async (payload) => ({ ok: true, taskId: payload.taskId, path: "harness/tasks/task/facts.md", facts: [] }),
     setTaskStatus: async () => ({ ok: true }),
     reviewTask: async () => ({ ok: true }),
     appendTaskProgress: async () => {
