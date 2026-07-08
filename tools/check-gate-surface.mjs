@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { boundaryAllowlistAuthorityFindings } from "./gate-surface-boundary-policy.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const MANIFEST_GATE_RUNNER = "node tools/run-manifest-gates.mjs";
@@ -42,7 +43,7 @@ export function checkGateSurface(root = DEFAULT_ROOT) {
   checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds });
   checkBranchProtection({ findings, manifest, gates, branchContexts });
   checkTierReasons({ findings, gates });
-  checkBoundaryFields({ findings, gates });
+  checkBoundaryFields({ findings, gates, packageScripts });
 
   return {
     ok: findings.length === 0,
@@ -240,7 +241,7 @@ function checkTierReasons({ findings, gates }) {
   }
 }
 
-function checkBoundaryFields({ findings, gates }) {
+function checkBoundaryFields({ findings, gates, packageScripts }) {
   for (const gate of gates.filter((candidate) => candidate.category === "boundary")) {
     if (!Array.isArray(gate.authoritySource) || gate.authoritySource.length === 0) {
       findings.push(formatFinding("boundary", `${gate.id} is boundary but has no authoritySource.`));
@@ -250,6 +251,10 @@ function checkBoundaryFields({ findings, gates }) {
     }
     if (!gate.allowlistPolicy || typeof gate.allowlistPolicy !== "object") {
       findings.push(formatFinding("boundary", `${gate.id} is boundary but has no allowlistPolicy.`));
+    } else {
+      for (const finding of boundaryAllowlistAuthorityFindings(gate, packageScripts)) {
+        findings.push(formatFinding("boundary", finding));
+      }
     }
     if (gate.bypassFixtureRequired !== true) {
       findings.push(formatFinding("boundary", `${gate.id} is boundary but bypassFixtureRequired is not true.`));

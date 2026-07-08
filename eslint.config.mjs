@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-known-debt.mjs";
+import { portPhysicalIoBoundaryKnownDebt } from "./tools/port-physical-io-boundary-known-debt.mjs";
 
 const nodeGlobals = Object.fromEntries([
   "AbortController",
@@ -54,19 +55,56 @@ const kernelDeepImportPattern = {
   message: "Import kernel through its public barrel instead of deep src paths."
 };
 
+function noRestrictedKernelImportOptions(allowedPatterns = []) {
+  return {
+    patterns: [
+      {
+        ...kernelDeepImportPattern,
+        group: [
+          ...kernelDeepImportPattern.group,
+          ...allowedPatterns
+        ]
+      }
+    ]
+  };
+}
+
 function noRestrictedKernelImports(allowedPatterns = []) {
+  return ["error", noRestrictedKernelImportOptions(allowedPatterns)];
+}
+
+const physicalIoBoundaryMessage = "Kernel/application physical I/O must be routed through an explicit port implementation file.";
+const physicalIoRestrictedImportPaths = [
+  "fs",
+  "fs/promises",
+  "node:fs",
+  "node:fs/promises",
+  "child_process",
+  "node:child_process"
+].map((name) => ({
+  name,
+  message: physicalIoBoundaryMessage
+}));
+const physicalIoSourcePattern = String.raw`^(?:node:)?(?:fs|fs\/promises|child_process)$`;
+const physicalIoSyntaxRestrictions = [
+  {
+    selector: `ImportExpression[source.type='Literal'][source.value=/${physicalIoSourcePattern}/u]`,
+    message: physicalIoBoundaryMessage
+  },
+  {
+    selector: `CallExpression[callee.name='require'][arguments.0.value=/${physicalIoSourcePattern}/u]`,
+    message: physicalIoBoundaryMessage
+  }
+];
+const portPhysicalIoBoundaryKnownDebtFiles = portPhysicalIoBoundaryKnownDebt.map((entry) => entry.file);
+
+function noRestrictedKernelAndPhysicalIoImports() {
+  const kernelOptions = noRestrictedKernelImportOptions();
   return [
     "error",
     {
-      patterns: [
-        {
-          ...kernelDeepImportPattern,
-          group: [
-            ...kernelDeepImportPattern.group,
-            ...allowedPatterns
-          ]
-        }
-      ]
+      paths: physicalIoRestrictedImportPaths,
+      patterns: kernelOptions.patterns
     }
   ];
 }
@@ -221,6 +259,23 @@ export default tseslint.config(
       "no-restricted-syntax": [
         "error",
         ...packageSyntaxRestrictions
+      ]
+    }
+  },
+  {
+    files: [
+      "packages/application/src/**/*.{ts,tsx,js,mjs}",
+      "packages/kernel/src/**/*.{ts,tsx,js,mjs}"
+    ],
+    ignores: portPhysicalIoBoundaryKnownDebtFiles,
+    rules: {
+      "no-restricted-imports": [
+        ...noRestrictedKernelAndPhysicalIoImports()
+      ],
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        ...physicalIoSyntaxRestrictions
       ]
     }
   },

@@ -86,6 +86,7 @@ export const testTierManifest = {
     "tools/check-schema-field-coverage.test.mjs",
     "tools/check-template-command-surface.test.mjs",
     "tools/check-write-coordinator-boundary.test.mjs",
+    "tools/port-physical-io-eslint-boundary.test.mjs",
     "tools/skill-contracts.test.mjs",
     "tools/smoke-cli-package.test.mjs",
     "tools/scan-forbidden-symbols.test.mjs"
