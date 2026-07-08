@@ -2,13 +2,14 @@
 
 A cheat sheet for the commands you'll reach for most. Add `--json` to any command for structured output.
 
-## The ten you'll use constantly
+## The commands you'll use constantly
 
 | Command | What it does |
 |---|---|
 | `ha init` | Create the `harness/` directory layout in the current repo. |
 | `ha task create --title <title>` | Create a new task package. |
 | `ha task list` | List task packages, with state / module / search filters. |
+| `ha task show <id>` | Show one task with projected status, metadata, hierarchy, relation edges, and fact anchors. |
 | `ha task transition <id> <state>` | Move a task to a new lifecycle state. |
 | `ha decision propose --title <t> ...` | Propose a decision (question, chosen, rejected, why-not). |
 | `ha decision accept <id>` | Adjudicate a proposed decision — the evidence checkpoint. |
@@ -42,6 +43,7 @@ ha fact record --task <id> --statement "..." --source "..." --confidence high
 ```bash
 ha status          # what state am I in?
 ha check           # is everything healthy?
+ha relation list --entity task/<id>
 ha graph           # visualize how it all links
 ha doctor          # read-only environment diagnostics
 ```

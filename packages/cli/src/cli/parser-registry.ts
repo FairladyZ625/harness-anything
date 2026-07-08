@@ -19,6 +19,7 @@ import { parseWorktreeArgs } from "./parsers/worktree.ts";
 import { parseMaterializerArgs } from "./parsers/materializer.ts";
 import { parseNewTaskArgs } from "./parsers/new-task.ts";
 import { parseRecordArgs } from "./parsers/record.ts";
+import { parseRelationArgs } from "./parsers/relation.ts";
 import { parseRuntimeEventArgs } from "./parsers/runtime-event.ts";
 import { parseSessionArgs } from "./parsers/session.ts";
 import { parseStatusCheckArgs } from "./parsers/status-check.ts";
@@ -73,6 +74,11 @@ export const parserRegistry = [
     id: "record",
     commandKinds: commandKindsForParser("record"),
     parse: parseRecordArgs
+  },
+  {
+    id: "relation",
+    commandKinds: commandKindsForParser("relation"),
+    parse: parseRelationArgs
   },
   {
     id: "distill",

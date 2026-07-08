@@ -49,6 +49,14 @@ export interface TaskListFilters {
   }>;
 }
 
+export interface RelationListFilters {
+  readonly entity?: string;
+  readonly source?: string;
+  readonly target?: string;
+  readonly type?: RelationType;
+  readonly state?: "active" | "retired";
+}
+
 export interface EvidenceAppendInput {
   readonly type: string;
   readonly path: string;
@@ -173,8 +181,10 @@ export interface ParsedCommand {
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
+    | { readonly kind: "task-show"; readonly taskId: string }
     | { readonly kind: "task-tree"; readonly taskId: string }
     | { readonly kind: "task-relate"; readonly sourceTaskId: string; readonly relationType: "depends-on"; readonly targetTaskId: string; readonly rationale: string; readonly dryRun: boolean }
+    | { readonly kind: "relation-list"; readonly filters: RelationListFilters }
     | { readonly kind: "decision-list"; readonly search?: string; readonly legacyId?: string; readonly legacyRange?: string; readonly state?: string; readonly moduleKey?: string; readonly productLine?: string; readonly compact?: boolean }
     | { readonly kind: "decision-show"; readonly selector: string }
     | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: string; readonly rejected: string; readonly whyNot: string; readonly claim?: string; readonly claims: ReadonlyArray<DecisionClaimInput>; readonly claimLoadBearing: boolean; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly proposedBy?: string; readonly arbiter?: string; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly evidenceRelations: ReadonlyArray<DecisionEvidenceRelationInput>; readonly body?: string; readonly dryRun: boolean }

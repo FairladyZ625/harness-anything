@@ -286,6 +286,22 @@ export const coreCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "task-show",
+    "usage": "task show <id> [--json]",
+    "summary": "Show one task from the task projection with status, metadata, hierarchy, relation edges, and fact anchors.",
+    "examples": ["harness-anything task show task_01ABC --json"],
+    "parserId": "core-task",
+    "runnerId": "task-query",
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": ["primary"]
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    }
+  },
+  {
     "kind": "task-tree",
     "usage": "task tree <id> [--json]",
     "summary": "Show a task subtree derived from the parent field projection.",
@@ -298,6 +314,22 @@ export const coreCommandSpecs = defineCommandSpecs([
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,
+      "runtimeEvent": "none"
+    }
+  },
+  {
+    "kind": "relation-list",
+    "usage": "relation list [--entity <entity-ref>] [--source <entity-ref>] [--target <entity-ref>] [--type <type>] [--state active|retired] [--json]",
+    "summary": "List projected relation graph edges with source, target, type, state, owner, and source path filters.",
+    "examples": ["harness-anything relation list --entity task/task_01ABC --json", "harness-anything relation list --target decision/dec_LEDGER_E51 --state active --json"],
+    "parserId": "relation",
+    "runnerId": "task-query",
+    "receiptContract": {
+      "data": ["rows", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
       "runtimeEvent": "none"
     }
   },
