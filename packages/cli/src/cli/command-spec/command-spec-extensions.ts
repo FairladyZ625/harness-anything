@@ -131,9 +131,9 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "preset-run",
-    "usage": "preset run <id> <plan|scaffold|check> --task <id> [--allow-scripts] [--json]",
+    "usage": "preset run <id> <plan|scaffold|check> --task <id> [--allow-scripts] [--input key=value] [--json]",
     "summary": "Run a preset entrypoint for a task package.",
-    "examples": ["harness-anything preset run standard-task plan --task task_01ABC"],
+    "examples": ["harness-anything preset run standard-task plan --task task_01ABC --input mode=smoke"],
     "parserId": "preset",
     "runnerId": "extension",
     "receiptContract": {
@@ -147,9 +147,9 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "preset-action",
-    "usage": "preset action <id> <action> --task <id> [--allow-scripts] [--json]",
+    "usage": "preset action <id> <action> --task <id> [--allow-scripts] [--input key=value] [--json]",
     "summary": "Run a named preset action for a task package.",
-    "examples": ["harness-anything preset action standard-task scaffold --task task_01ABC"],
+    "examples": ["harness-anything preset action standard-task scaffold --task task_01ABC --input mode=smoke"],
     "parserId": "preset",
     "runnerId": "extension",
     "receiptContract": {

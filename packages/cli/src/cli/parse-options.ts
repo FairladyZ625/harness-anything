@@ -49,6 +49,18 @@ export function readRepeatedRawOption(argv: ReadonlyArray<string>, name: string)
   return values;
 }
 
+export function readInputOptions(args: ReadonlyArray<string>): Record<string, string> {
+  const inputs: Record<string, string> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== "--input") continue;
+    const value = args[index + 1] ?? "";
+    const separator = value.indexOf("=");
+    if (separator <= 0) continue;
+    inputs[value.slice(0, separator)] = value.slice(separator + 1);
+  }
+  return inputs;
+}
+
 /**
  * Reads a required value option and rejects a following flag token as a missing value.
  * Optional parsers use readOption directly when flag-like literals are valid values.

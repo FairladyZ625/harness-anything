@@ -313,7 +313,7 @@ function stableSegment(value: string): string {
 }
 
 function isWorkspaceLayout(value: unknown): value is WorkspaceLayout {
-  if (!isRecord(value)) return false;
+  if (!isWorkspaceRecord(value)) return false;
   if (value.schema !== "workspace-layout/v1") return false;
   if (!isPerspective(value.perspective)) return false;
   if (typeof value.activePaneId !== "string") return false;
@@ -328,7 +328,7 @@ function isWorkspaceLayout(value: unknown): value is WorkspaceLayout {
 }
 
 function isWorkspacePaneDescriptor(value: unknown): value is WorkspacePaneDescriptor {
-  if (!isRecord(value)) return false;
+  if (!isWorkspaceRecord(value)) return false;
   if (typeof value.id !== "string" || value.id.length === 0) return false;
   if (!isPaneKind(value.kind)) return false;
   if (typeof value.title !== "string" || value.title.length === 0) return false;
@@ -346,7 +346,7 @@ function isWorkspacePaneDescriptor(value: unknown): value is WorkspacePaneDescri
 
 function isP06BrowserPlaceholder(value: Record<string, unknown>): boolean {
   if (value.placement !== "external") return false;
-  if (!isRecord(value.state)) return false;
+  if (!isWorkspaceRecord(value.state)) return false;
   if (value.state.trustPolicy !== "not-opened-by-p06") return false;
   if (typeof value.state.url !== "string" || value.state.url.length === 0) return false;
   if (value.source !== undefined) {
@@ -356,7 +356,7 @@ function isP06BrowserPlaceholder(value: Record<string, unknown>): boolean {
   return true;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isWorkspaceRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -391,7 +391,7 @@ function isPaneViewState(value: unknown): value is WorkspacePaneViewState {
 }
 
 function isOpenIntent(value: unknown): value is OpenIntent {
-  if (!isRecord(value)) return false;
+  if (!isWorkspaceRecord(value)) return false;
   if (!isOpenIntentSource(value.source)) return false;
   if (!isOpenTarget(value.target)) return false;
   if (value.disposition !== undefined && !isPanePlacement(value.disposition)) return false;
@@ -412,7 +412,7 @@ function isOpenIntentSource(value: unknown): value is OpenIntentSource {
 }
 
 function isOpenTarget(value: unknown): value is OpenTarget {
-  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (!isWorkspaceRecord(value) || typeof value.kind !== "string") return false;
   switch (value.kind) {
     case "task":
       return typeof value.taskId === "string" && optionalString(value.projectId);
@@ -451,7 +451,7 @@ function isOpenTarget(value: unknown): value is OpenTarget {
 }
 
 function isPaneState(value: unknown): value is Readonly<Record<string, string | number | boolean>> {
-  if (!isRecord(value)) return false;
+  if (!isWorkspaceRecord(value)) return false;
   return Object.values(value).every((entry) => typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean");
 }
 

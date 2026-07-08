@@ -1,5 +1,5 @@
 import { cliError, CliErrorCode } from "../error-codes.ts";
-import { readOption } from "../parse-options.ts";
+import { readInputOptions, readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -51,16 +51,4 @@ export function parseScriptArgs(args: ReadonlyArray<string>, rootDir: string, js
     };
   }
   return { ok: false, error: cliError(CliErrorCode.UnknownCommand, "Use script list, script inspect <id>, or script run <id>.") };
-}
-
-function readInputOptions(args: ReadonlyArray<string>): Record<string, string> {
-  const inputs: Record<string, string> = {};
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] !== "--input") continue;
-    const value = args[index + 1] ?? "";
-    const separator = value.indexOf("=");
-    if (separator <= 0) continue;
-    inputs[value.slice(0, separator)] = value.slice(separator + 1);
-  }
-  return inputs;
 }

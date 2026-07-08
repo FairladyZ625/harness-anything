@@ -74,7 +74,8 @@ export function runScriptEntrypoint(
   entrypointName: string,
   taskId: string,
   evidenceDir: string,
-  commandName: "preset-run" | "preset-action"
+  commandName: "preset-run" | "preset-action",
+  runtimeInputs: Record<string, string> = {}
 ): { readonly ok: true; readonly generated: ReadonlyArray<string>; readonly scriptedResult?: Record<string, unknown> } | { readonly ok: false; readonly result: CliResult } {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
@@ -125,7 +126,7 @@ export function runScriptEntrypoint(
     preset,
     entrypointName,
     taskId,
-    inputs: entrypoint.inputs ?? {},
+    inputs: { ...(entrypoint.inputs ?? {}), ...runtimeInputs },
     readRoots: readScope.roots,
     writeRoots: writeScope.roots,
     outputRoot

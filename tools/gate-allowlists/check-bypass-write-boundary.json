@@ -421,22 +421,22 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@304:3",
+        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@305:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@336:5",
+        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@337:5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@337:5",
+        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@338:5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@357:3",
+        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@358:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
@@ -590,17 +590,17 @@
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#mkdirSync@121:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#mkdirSync@122:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@123:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@124:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@154:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@156:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },

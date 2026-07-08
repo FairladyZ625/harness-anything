@@ -13,6 +13,8 @@ test("P16 new-task dry-run and inline module registration are explicit and non-d
     const dryRun = runJson(rootDir, ["new-task", "--title", "Billing Work", "--register-module", "billing", "--module-title", "Billing", "--module-prefix", "BILL", "--module-scope", "packages/billing/**", "--long-running", "--dry-run", "--locale", "en-US"]);
 
     assert.equal(dryRun.ok, true);
+    assert.match(dryRun.receiptSummary, /would create task/u);
+    assert.doesNotMatch(dryRun.receiptSummary, /^created task/u);
     assert.equal(dryRun.report.dryRun, true);
     assert.equal(dryRun.report.longRunning, true);
     assert.equal(dryRun.generated.includes("long-running-task-contract.md"), true);

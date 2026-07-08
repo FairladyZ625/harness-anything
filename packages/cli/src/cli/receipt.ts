@@ -207,7 +207,13 @@ function summarizeResult(raw: Record<string, unknown>): string {
   const rows = typeof raw.rows === "number" ? raw.rows : undefined;
   const version = typeof raw.version === "string" ? raw.version : undefined;
 
-  if (command === "new-task" && taskId && packagePath) return `created task ${taskId} at ${packagePath}`;
+  if (command === "new-task" && taskId && packagePath) {
+    const report = raw.report;
+    const dryRun = report && typeof report === "object" && !Array.isArray(report)
+      ? (report as { readonly dryRun?: unknown }).dryRun === true
+      : false;
+    return dryRun ? `would create task ${taskId} at ${packagePath}` : `created task ${taskId} at ${packagePath}`;
+  }
   if (command === "status-set" && taskId && status) return `set task ${taskId} to ${status}`;
   if (command === "progress-append" && taskId) return `appended progress for ${taskId}`;
   if (command === "init" && path) return initSummary(path, raw.report);

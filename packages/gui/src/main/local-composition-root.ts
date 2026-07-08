@@ -99,7 +99,7 @@ async function requestGuiRouteViaDaemon(
     const nodeRuntime = resolveGuiDaemonNodeRuntime();
     const receipt = await daemonClient.requestLocalDaemonJsonRpcForTarget(target, `repo.${route.id}`, {
       repo: { repoId: target.repoId },
-      ...(isRecord(payload) ? { payload: payload as JsonObject } : {})
+      ...(isLocalServiceRecord(payload) ? { payload: payload as JsonObject } : {})
     }, 200, {
       entryPath: cliEntrypointPath(),
       idleExitMs: daemonIdleExitMs(),
@@ -235,6 +235,6 @@ function positiveIntegerOr(value: string | undefined, fallback: number): number 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isLocalServiceRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -160,7 +160,7 @@ const domainStatuses = new Set(["planned", "active", "blocked", "in_review", "do
 export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknown): PayloadValidation {
   switch (route.inputSchemaId) {
     case "gui.empty/v1":
-      return payload === undefined || payload === null || isRecord(payload)
+      return payload === undefined || payload === null || isServicePayloadRecord(payload)
         ? { ok: true, payload }
         : invalidPayload("empty payload is required.");
     case "application.task-id-payload/v1":
@@ -177,7 +177,7 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
 }
 
 function validateTaskIdPayload(payload: unknown): PayloadValidation {
-  if (!isRecord(payload) || typeof payload.taskId !== "string") return invalidPayload("taskId is required.");
+  if (!isServicePayloadRecord(payload) || typeof payload.taskId !== "string") return invalidPayload("taskId is required.");
   if (!isValidTaskId(payload.taskId)) return invalidPayload("taskId is invalid.");
   return { ok: true, payload };
 }
@@ -185,14 +185,14 @@ function validateTaskIdPayload(payload: unknown): PayloadValidation {
 function validateTaskDocumentPayload(payload: unknown): PayloadValidation {
   const taskPayload = validateTaskIdPayload(payload);
   if (!taskPayload.ok) return taskPayload;
-  if (!isRecord(payload) || typeof payload.path !== "string") return invalidPayload("path is required.");
+  if (!isServicePayloadRecord(payload) || typeof payload.path !== "string") return invalidPayload("path is required.");
   return { ok: true, payload };
 }
 
 function validateSetStatusPayload(payload: unknown): PayloadValidation {
   const taskPayload = validateTaskIdPayload(payload);
   if (!taskPayload.ok) return taskPayload;
-  if (!isRecord(payload) || typeof payload.status !== "string" || !domainStatuses.has(payload.status)) {
+  if (!isServicePayloadRecord(payload) || typeof payload.status !== "string" || !domainStatuses.has(payload.status)) {
     return invalidPayload("valid status is required.");
   }
   return { ok: true, payload };
@@ -201,7 +201,7 @@ function validateSetStatusPayload(payload: unknown): PayloadValidation {
 function validateAppendProgressPayload(payload: unknown): PayloadValidation {
   const taskPayload = validateTaskIdPayload(payload);
   if (!taskPayload.ok) return taskPayload;
-  if (!isRecord(payload) || typeof payload.text !== "string" || payload.text.length === 0) return invalidPayload("text is required.");
+  if (!isServicePayloadRecord(payload) || typeof payload.text !== "string" || payload.text.length === 0) return invalidPayload("text is required.");
   return { ok: true, payload };
 }
 
@@ -223,11 +223,11 @@ function isValidTaskId(taskId: string): boolean {
 }
 
 function unwrapDaemonReceipt(receipt: JsonObject): unknown {
-  const details = isRecord(receipt.details) ? receipt.details : undefined;
-  const data = isRecord(details?.data) ? details.data : undefined;
+  const details = isServicePayloadRecord(receipt.details) ? receipt.details : undefined;
+  const data = isServicePayloadRecord(details?.data) ? details.data : undefined;
   if (data) return data;
   if (receipt.ok === false) {
-    const error = isRecord(receipt.error) ? receipt.error : {};
+    const error = isServicePayloadRecord(receipt.error) ? receipt.error : {};
     return {
       ok: false,
       error: {
@@ -239,6 +239,6 @@ function unwrapDaemonReceipt(receipt: JsonObject): unknown {
   return { ok: true };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isServicePayloadRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

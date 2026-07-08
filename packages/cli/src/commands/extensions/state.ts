@@ -274,7 +274,8 @@ export function runPresetEntrypoint(
   entrypoint: string,
   taskId: string,
   commandName: "preset-run" | "preset-action",
-  allowScripts = false
+  allowScripts = false,
+  inputs: Record<string, string> = {}
 ): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
@@ -318,7 +319,7 @@ export function runPresetEntrypoint(
       });
     }
     const presetSummary = publicPresetSummary(preset);
-    const scriptResult = runScriptEntrypoint(rootInput, preset, presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName);
+    const scriptResult = runScriptEntrypoint(rootInput, preset, presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
     if (!scriptResult.ok) return scriptResult.result;
     generated.push(...scriptResult.generated);
     if (scriptResult.scriptedResult) {

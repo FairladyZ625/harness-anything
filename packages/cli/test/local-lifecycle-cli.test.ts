@@ -95,6 +95,7 @@ test("CLI blocks ordinary terminal status-set and requires audited force for rec
     const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
     assert.equal(invalidForce.ok, false);
     assert.equal(invalidForce.error?.code, "invalid_transition");
+    assert.match(invalidForce.error?.hint ?? "", /active.*task complete|archive|supersede/u);
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
     runJson(rootDir, ["task", "status", "set", taskId, "active"]);

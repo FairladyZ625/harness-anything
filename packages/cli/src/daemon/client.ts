@@ -88,7 +88,7 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
     repo: { repoId: target.repoId },
     payload: { command: commandForTarget(command, target) as unknown as JsonObject }
   }, 200, {
-    entryPath: cliEntrypointPath(),
+    entryPath: daemonClientCliEntrypointPath(),
     idleExitMs: config.idleExitMs,
     timeoutMs: config.autostartTimeoutMs,
     layoutOverrides: command.layoutOverrides
@@ -160,7 +160,7 @@ function commandForTarget(command: ParsedCommand, target: LocalDaemonTarget): Pa
     : { ...command, rootDir: target.canonicalRoot };
 }
 
-function cliEntrypointPath(): string {
+function daemonClientCliEntrypointPath(): string {
   return fileURLToPath(import.meta.url).replace(/\/daemon\/client\.(ts|js)$/u, "/index.$1");
 }
 

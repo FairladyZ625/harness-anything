@@ -54,7 +54,7 @@ export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAc
     case "preset-uninstall":
       return runPresetUninstall(rootInput, action);
     case "preset-run":
-      return runPresetEntrypoint(rootInput, action.presetId, action.entrypoint, action.taskId, "preset-run", action.allowScripts);
+      return runPresetEntrypoint(rootInput, action.presetId, action.entrypoint, action.taskId, "preset-run", action.allowScripts, action.inputs);
     case "preset-action":
       return runPresetAction(rootInput, action);
   }
@@ -231,5 +231,5 @@ function runPresetAction(rootInput: HarnessLayoutInput, action: Extract<PresetAc
       error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.actionName} is not declared.`)
     };
   }
-  return runPresetEntrypoint(rootInput, action.presetId, action.actionName, action.taskId, "preset-action", action.allowScripts);
+  return runPresetEntrypoint(rootInput, action.presetId, action.actionName, action.taskId, "preset-action", action.allowScripts, action.inputs);
 }

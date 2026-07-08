@@ -115,7 +115,7 @@ function runStatusSet(
         command: "status-set",
         taskId,
         status,
-        error: cliError(CliErrorCode.InvalidTransition, `invalid transition: ${taskPolicy.status} -> ${status}`)
+        error: cliError(CliErrorCode.InvalidTransition, `invalid transition: ${taskPolicy.status} -> ${status}; move the task to active before task complete, or use task archive/task supersede for non-completion closure.`)
       } satisfies CliResult;
     }
 

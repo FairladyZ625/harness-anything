@@ -195,7 +195,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
   if (service) {
     const child = spawn(process.execPath, [
       ...process.execArgv,
-      cliEntrypointPath(),
+      productizationCliEntrypointPath(),
       "--root",
       target.canonicalRoot,
       ...(input.layoutOverrides?.authoredRoot ? ["--authored-root", input.layoutOverrides.authoredRoot] : []),
@@ -424,7 +424,7 @@ async function startBootstrapDaemon(rootDir: string, repoId: string, registryPat
   });
   const child = spawn(process.execPath, [
     ...process.execArgv,
-    cliEntrypointPath(),
+    productizationCliEntrypointPath(),
     "--root",
     rootDir,
     "daemon",
@@ -558,7 +558,7 @@ function runDaemonGit(cwd: string, args: ReadonlyArray<string>): void {
   }
 }
 
-function cliEntrypointPath(): string {
+function productizationCliEntrypointPath(): string {
   return realpathSync(fileURLToPath(new URL("../../index.ts", import.meta.url)));
 }
 

@@ -24,7 +24,7 @@ test("CLI process preset script entrypoint requires authorization and writes evi
     assert.equal(existsSync(path.join(rootDir, unauthorized.evidenceBundle, "evidence.json")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/artifacts/evidence.json")), false);
 
-    const result = runJson(rootDir, ["preset", "action", "publish-standard", "scaffold", "--task", "task-1", "--allow-scripts"]);
+    const result = runJson(rootDir, ["preset", "action", "publish-standard", "scaffold", "--task", "task-1", "--allow-scripts", "--input", "mode=agent-smoke"]);
 
     assert.equal(result.ok, true);
     assert.equal(result.command, "preset-action");
@@ -37,7 +37,7 @@ test("CLI process preset script entrypoint requires authorization and writes evi
     assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
     assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
     const scriptEvidence = JSON.parse(readFileSync(path.join(rootDir, "harness/tasks/task-1/artifacts/evidence.json"), "utf8"));
-    assert.equal(scriptEvidence.mode, "capability-smoke");
+    assert.equal(scriptEvidence.mode, "agent-smoke");
   });
 });
 
