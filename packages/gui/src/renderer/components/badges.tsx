@@ -233,18 +233,34 @@ export function DecisionSourceBadge({
   decisionId,
   title,
   compact = false,
+  onNavigate,
 }: {
   decisionId: string;
   title?: string;
   compact?: boolean;
+  /** W2B 活链接:传入则变可点 button,跳转到该 decision 视图 */
+  onNavigate?: () => void;
 }) {
+  const className = `inline-flex max-w-full items-center gap-1 rounded border border-accent/30 bg-accent/10 font-mono font-semibold text-accent ${
+    compact ? "px-1.5 py-px text-[10px]" : "px-2 py-0.5 text-[12px]"
+  }${onNavigate ? " cursor-pointer hover:border-accent/60 hover:bg-accent/15" : ""}`;
+  const tooltip = title ? `派生自 ${decisionId}: ${title}` : `派生自 ${decisionId}`;
+  // 活链接:有 onNavigate 时渲染 button,否则保持原 span(向后兼容 BoardView/ListView 等)
+  if (onNavigate) {
+    return (
+      <button
+        type="button"
+        onClick={onNavigate}
+        title={`${tooltip} — 点击跳转`}
+        className={className}
+      >
+        <Scales weight="bold" className={compact ? "text-[10px]" : "text-[12px]"} />
+        派生自 {decisionId}
+      </button>
+    );
+  }
   return (
-    <span
-      title={title ? `派生自 ${decisionId}: ${title}` : `派生自 ${decisionId}`}
-      className={`inline-flex max-w-full items-center gap-1 rounded border border-accent/30 bg-accent/10 font-mono font-semibold text-accent ${
-        compact ? "px-1.5 py-px text-[10px]" : "px-2 py-0.5 text-[12px]"
-      }`}
-    >
+    <span title={tooltip} className={className}>
       <Scales weight="bold" className={compact ? "text-[10px]" : "text-[12px]"} />
       派生自 {decisionId}
     </span>

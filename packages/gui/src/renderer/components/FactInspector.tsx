@@ -15,6 +15,8 @@ export function FactInspector({
   decisions,
   relations,
   onClose,
+  onNavigateDecision,
+  onNavigateTask,
 }: {
   factRef: string;
   facts: FactRef[];
@@ -22,6 +24,10 @@ export function FactInspector({
   decisions: DecisionRow[];
   relations: RelationEdge[];
   onClose: () => void;
+  /** W2B 活链接:点击 decision ref 跳转 */
+  onNavigateDecision?: (decisionId: string) => void;
+  /** W2B 活链接:点击 task ref 跳转 */
+  onNavigateTask?: (taskId: string) => void;
 }) {
   const anchor = factRef.replace(/^fact\//, "");
   const fullRef = `fact/${anchor}`;
@@ -91,7 +97,17 @@ export function FactInspector({
                 所在 task 包
               </div>
               <div className="mt-1 flex items-center gap-2">
-                <span className="font-mono text-[12px] text-text">{fact.taskId}</span>
+                {onNavigateTask && task ? (
+                  <button
+                    onClick={() => onNavigateTask(fact.taskId)}
+                    className="font-mono text-[12px] text-accent hover:underline"
+                    title="跳转到来源 task"
+                  >
+                    {fact.taskId}
+                  </button>
+                ) : (
+                  <span className="font-mono text-[12px] text-text">{fact.taskId}</span>
+                )}
                 <span className="min-w-0 truncate text-[12px] text-text-muted">
                   {task?.title ?? "宿主 task 不在当前 mock 投影"}
                 </span>
@@ -162,12 +178,27 @@ export function FactInspector({
               支撑的 decision
             </div>
             <div className="mt-1 space-y-1">
-              {supportedDecisions.map(({ relation, decision }) => (
+              {supportedDecisions.map(({ relation, decision }) => {
+                const decId = normalizeDecisionId(
+                  relation.from.startsWith("decision/") ? relation.from : relation.to,
+                );
+                return (
                 <div key={relation.from} className="text-[12px]">
-                  <span className="font-mono text-accent">{shortEndpoint(relation.from)}</span>
+                  {onNavigateDecision ? (
+                    <button
+                      onClick={() => onNavigateDecision(decId)}
+                      className="font-mono text-accent hover:underline"
+                      title="跳转到该 decision"
+                    >
+                      {shortEndpoint(relation.from)}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-accent">{shortEndpoint(relation.from)}</span>
+                  )}
                   <span className="ml-1 text-text-muted">{decision?.title ?? "未知 decision"}</span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
