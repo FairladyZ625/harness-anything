@@ -9,6 +9,8 @@
     "dev:electron": "node scripts/dev-electron.mjs",
     "build": "vite build",
     "build:preload": "vite build --config vite.preload.config.ts",
+    "package:prepare": "npm run build && npm run build:preload && npm run build -w @harness-anything/cli && node scripts/prepare-desktop-runtime.mjs",
+    "package:mac:arm64": "npm run package:prepare && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.mjs --mac --arm64",
     "preview": "vite preview --host 127.0.0.1",
     "test:gui": "vitest run --config vitest.config.ts",
     "test:e2e": "npm run build:preload && node --test e2e/*.e2e.mjs"
@@ -35,6 +37,7 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "electron": "42.5.1",
+    "electron-builder": "^26.15.3",
     "playwright-core": "1.61.1",
     "tailwindcss": "^4.3.2",
     "vite": "8.0.16",

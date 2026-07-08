@@ -20,7 +20,7 @@ test("CLI gui command delegates to the local desktop controller without importin
     apiHost: "127.0.0.1",
     delegated: true,
     dryRun: true,
-    command: ["npm", "--workspace", "@harness-anything/gui", "run", "dev"]
+    command: ["npm", "--workspace", "@harness-anything/gui", "run", "dev:electron"]
   });
 });
 
@@ -61,7 +61,7 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
     assert.notEqual(result.launchPlan.pid, undefined);
     const marker = waitForJsonMarker(npmMarkerPath);
     assert.equal(marker.cwd, process.cwd());
-    assert.deepEqual(marker.argv, ["--workspace", "@harness-anything/gui", "run", "dev"]);
+    assert.deepEqual(marker.argv, ["--workspace", "@harness-anything/gui", "run", "dev:electron"]);
     assert.equal(existsSync(evilMarkerPath), false);
   });
 });

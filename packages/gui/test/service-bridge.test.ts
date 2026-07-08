@@ -8,6 +8,7 @@ import {
   createGuiServiceBridgeForDaemon,
   createLocalGuiServiceBridge,
   getShippedGuiBridgeMethods,
+  packagedCliEntrypointPath,
   resolveGuiDaemonNodeRuntime
 } from "../src/index.ts";
 
@@ -40,6 +41,47 @@ test("GUI daemon autostart honors HARNESS_NODE_BIN before other Node candidates"
   });
 
   assert.equal(runtime.execPath, "/custom/bin/node");
+});
+
+test("GUI daemon autostart uses packaged Node when system PATH has no Node", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-packaged-runtime-"));
+  try {
+    const packagedNode = path.join(rootDir, "node/darwin-arm64/node");
+    mkdirSync(path.dirname(packagedNode), { recursive: true });
+    writeFileSync(packagedNode, "");
+
+    const runtime = resolveGuiDaemonNodeRuntime({
+      execPath: "/Applications/Harness Anything.app/Contents/MacOS/Harness Anything",
+      resourcesPath: rootDir,
+      platform: "darwin",
+      arch: "arm64",
+      env: {
+        PATH: "/usr/bin:/bin",
+        npm_node_execpath: "/Applications/Harness Anything.app/Contents/MacOS/Harness Anything",
+        ELECTRON_RUN_AS_NODE: "1"
+      },
+      lookupNodeOnPath: () => undefined
+    });
+
+    assert.equal(runtime.execPath, packagedNode);
+    assert.deepEqual(runtime.execArgv, []);
+    assert.equal(runtime.env.ELECTRON_RUN_AS_NODE, undefined);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("GUI packaged daemon entrypoint resolves to unpacked CLI dist", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-packaged-entry-"));
+  try {
+    const entrypoint = path.join(rootDir, "app/packages/cli/dist/cli/src/index.js");
+    mkdirSync(path.dirname(entrypoint), { recursive: true });
+    writeFileSync(entrypoint, "");
+
+    assert.equal(packagedCliEntrypointPath(rootDir), entrypoint);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("GUI daemon bridge rejects malformed payload contracts before request dispatch", async () => {

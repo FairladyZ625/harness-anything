@@ -1,18 +1,19 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { evaluateNavigationRequest, evaluatePermissionRequest, evaluateWindowOpenRequest } from "./security-policy.ts";
-import { assertDevRendererUrl, createGuiContentSecurityPolicy, createPackagedRendererUrl } from "./window-config.ts";
+import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createMainWindow(): BrowserWindow {
-  const preloadPath = path.join(dirname, "../../dist-electron/electron-preload.cjs");
+  const preloadPath = path.join(guiPackageRoot(), "dist-electron/electron-preload.cjs");
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   const allowDevRenderer = Boolean(rendererUrl);
+  const packagedRendererUrl = createLocalPackagedRendererUrl();
   const mainWindow = new BrowserWindow({
     title: "Harness Anything",
     width: 1440,
@@ -32,7 +33,7 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (evaluateNavigationRequest(url, { packagedRendererUrl: createPackagedRendererUrl(), allowDevRenderer }).action === "deny") {
+    if (evaluateNavigationRequest(url, { packagedRendererUrl, allowDevRenderer }).action === "deny") {
       event.preventDefault();
     }
   });
@@ -40,7 +41,7 @@ export function createMainWindow(): BrowserWindow {
     assertDevRendererUrl(rendererUrl);
     void mainWindow.loadURL(rendererUrl);
   } else {
-    void mainWindow.loadFile(path.join(dirname, "../renderer/index.html"));
+    void mainWindow.loadFile(packagedRendererIndexPath());
   }
   return mainWindow;
 }
@@ -68,7 +69,7 @@ export async function startGuiApp(): Promise<void> {
   registerHarnessIpcHandlers(ipcMain, createLocalGuiServiceBridge(resolveGuiProjectRoot(), resolveGuiLayoutOverrides()), {
     isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
     rendererUrl: {
-      packagedRendererUrl: createPackagedRendererUrl(),
+      packagedRendererUrl: createLocalPackagedRendererUrl(),
       allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL)
     }
   });
@@ -97,10 +98,22 @@ export function resolveGuiLayoutOverrides(): HarnessLayoutOverrides | undefined 
   return authoredRoot && authoredRoot.length > 0 ? { authoredRoot } : undefined;
 }
 
+function guiPackageRoot(): string {
+  return path.resolve(dirname, "../..");
+}
+
+function packagedRendererIndexPath(): string {
+  return path.join(guiPackageRoot(), "dist/index.html");
+}
+
+function createLocalPackagedRendererUrl(): string {
+  return pathToFileURL(packagedRendererIndexPath()).href;
+}
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-if (process.argv.some((arg) => /electron-main\.(?:js|ts)$/u.test(arg))) {
+if (app.isPackaged || process.argv.some((arg) => /electron-main\.(?:js|ts)$/u.test(arg))) {
   void startGuiApp();
 }

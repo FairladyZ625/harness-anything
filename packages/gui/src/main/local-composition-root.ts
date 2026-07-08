@@ -131,16 +131,21 @@ export interface GuiDaemonNodeRuntime {
 export function resolveGuiDaemonNodeRuntime(input: {
   readonly env?: NodeJS.ProcessEnv;
   readonly execPath?: string;
+  readonly resourcesPath?: string;
   readonly platform?: NodeJS.Platform;
+  readonly arch?: NodeJS.Architecture;
   readonly lookupNodeOnPath?: (env: NodeJS.ProcessEnv, platform: NodeJS.Platform) => string | undefined;
 } = {}): GuiDaemonNodeRuntime {
   const env = input.env ?? process.env;
   const currentExecPath = input.execPath ?? process.execPath;
+  const platform = input.platform ?? process.platform;
   const explicit = nonEmptyEnv(env, "HARNESS_NODE_BIN");
   if (explicit) return guiDaemonNodeRuntime(explicit, env);
+  const packagedNode = packagedNodeExecutablePath(input.resourcesPath ?? electronResourcesPath(), platform, input.arch ?? process.arch);
+  if (packagedNode && existsSync(packagedNode)) return guiDaemonNodeRuntime(packagedNode, env);
   const npmNode = nonEmptyEnv(env, "npm_node_execpath");
   if (npmNode && !sameExecutable(npmNode, currentExecPath)) return guiDaemonNodeRuntime(npmNode, env);
-  const pathNode = (input.lookupNodeOnPath ?? lookupNodeOnPath)(env, input.platform ?? process.platform);
+  const pathNode = (input.lookupNodeOnPath ?? lookupNodeOnPath)(env, platform);
   if (pathNode) return guiDaemonNodeRuntime(pathNode, env);
   throw new Error("System Node runtime not found; set HARNESS_NODE_BIN to a Node executable.");
 }
@@ -178,13 +183,35 @@ function daemonClientModuleUrl(): string {
 }
 
 function cliEntrypointPath(): string {
+  const packagedEntrypoint = packagedCliEntrypointPath(electronResourcesPath());
   const candidates = [
+    ...(packagedEntrypoint ? [packagedEntrypoint] : []),
     fileURLToPath(new URL("../../../cli/src/index.ts", import.meta.url)),
     fileURLToPath(new URL("../../../cli/dist/cli/src/index.js", import.meta.url))
   ];
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) throw new Error(`Harness CLI entrypoint not found; checked ${candidates.join(", ")}`);
   return realpathSync(found);
+}
+
+export function packagedNodeExecutablePath(
+  resourcesPath: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch
+): string | undefined {
+  if (!resourcesPath) return undefined;
+  return path.join(resourcesPath, "node", `${platform}-${arch}`, platform === "win32" ? "node.exe" : "node");
+}
+
+export function packagedCliEntrypointPath(resourcesPath: string | undefined): string | undefined {
+  if (!resourcesPath) return undefined;
+  const candidate = path.join(resourcesPath, "app/packages/cli/dist/cli/src/index.js");
+  return existsSync(candidate) ? candidate : undefined;
+}
+
+function electronResourcesPath(): string | undefined {
+  const resourcesPath = (process as NodeJS.Process & { readonly resourcesPath?: unknown }).resourcesPath;
+  return typeof resourcesPath === "string" && resourcesPath.length > 0 ? resourcesPath : undefined;
 }
 
 function daemonIdleExitMs(): number {

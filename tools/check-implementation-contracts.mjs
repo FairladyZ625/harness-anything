@@ -79,7 +79,7 @@ async function walk(dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
+      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out" || entry.name === "build-resources") continue;
       files.push(...await walk(full));
     } else if (entry.name.endsWith(".d.ts")) {
       if (/\/src\//.test(relative(full))) {

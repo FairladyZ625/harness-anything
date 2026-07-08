@@ -32,6 +32,7 @@
     "test": "node tools/run-node-tests.mjs",
     "test:gui": "node tools/run-gui-tests.mjs",
     "test:gui:e2e": "node tools/run-gui-e2e-tests.mjs",
+    "package:gui:mac:arm64": "npm run package:mac:arm64 -w @harness-anything/gui",
     "test:fast": "node tools/run-node-tests.mjs --tier fast",
     "test:contract": "node tools/run-node-tests.mjs --tier contract",
     "test:integration": "node tools/run-node-tests.mjs --tier integration",
