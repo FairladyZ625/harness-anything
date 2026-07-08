@@ -412,16 +412,27 @@ export function buildCheckReport(
 
 function listTextFiles(inputPath: string): ReadonlyArray<string> {
   if (!existsSync(inputPath)) return [];
-  const stat = statPathIfPresent(inputPath);
-  if (stat === null) return [];
-  if (stat.isFile()) return isTextLikePath(inputPath) ? [inputPath] : [];
-  if (!stat.isDirectory()) return [];
+  const rootStat = statPathIfPresent(inputPath);
+  if (rootStat === null) return [];
+  if (rootStat.isFile()) return isTextLikePath(inputPath) ? [inputPath] : [];
+  if (!rootStat.isDirectory()) return [];
   const files: string[] = [];
-  const entries = readDirIfPresent(inputPath);
-  if (entries === null) return [];
-  for (const entry of entries) {
-    if (entry.name === ".git" || entry.name === "node_modules") continue;
-    files.push(...listTextFiles(path.join(inputPath, entry.name)));
+  const dirQueue: string[] = [inputPath];
+  while (dirQueue.length > 0) {
+    const dir = dirQueue.pop()!;
+    const entries = readDirIfPresent(dir);
+    if (entries === null) continue;
+    for (const entry of entries) {
+      if (entry.name === ".git" || entry.name === "node_modules") continue;
+      const childPath = path.join(dir, entry.name);
+      const childStat = statPathIfPresent(childPath);
+      if (childStat === null) continue;
+      if (childStat.isDirectory()) {
+        dirQueue.push(childPath);
+      } else if (childStat.isFile() && isTextLikePath(childPath)) {
+        files.push(childPath);
+      }
+    }
   }
   return files;
 }
