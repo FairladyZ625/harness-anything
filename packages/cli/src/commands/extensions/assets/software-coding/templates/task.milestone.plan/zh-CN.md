@@ -32,7 +32,7 @@ Task Contract: harness-task v1
 ## Context
 
 - 映射文档：`harness/milestones/<line>/<slug>/00-overview.md`
-- 路线图：`harness/milestones/00-roadmap.md`
+- 路线图：`<harness root>/milestones/00-roadmap.md`
 - 结构化表：`harness/milestones/dossier-data.md`
 - Charter decision：`dec_*`，由 CEO 裁决后填写；本 preset 只校验存在，不代创建。
 
