@@ -372,6 +372,8 @@ const ignoredDirectoryNames = new Set([
   ".harness",
   ".harness-private",
   ".worktrees",
+  ".runtime-cache",
+  "build-resources",
   "coverage",
   "dist",
   "node_modules",

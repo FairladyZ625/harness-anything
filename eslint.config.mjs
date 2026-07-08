@@ -214,6 +214,8 @@ export default tseslint.config(
       "dist/",
       "harness/",
       "node_modules/",
+      "packages/gui/build-resources/",
+      "packages/gui/.runtime-cache/",
       "packages/**/dist/",
       "packages/**/dist-electron/",
       "tmp/"

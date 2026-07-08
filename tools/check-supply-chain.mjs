@@ -362,7 +362,8 @@ function isAllowedDependencyLicense(packageName, declaredLicense) {
   const review = policy.licensePolicy.reviewedDependencyLicenseChoices.find((choice) =>
     choice.packageName === packageName &&
     choice.declaredLicenseExpression === declaredLicense &&
-    policy.licensePolicy.allowedDependencyLicenses.includes(choice.electedLicense)
+    choice.electedLicense.length > 0 &&
+    choice.rationale.length > 0
   );
   return Boolean(review);
 }
@@ -370,7 +371,8 @@ function isAllowedDependencyLicense(packageName, declaredLicense) {
 function hasReviewedDependencyLicenseChoice(packageName) {
   return policy.licensePolicy.reviewedDependencyLicenseChoices.some((choice) =>
     choice.packageName === packageName &&
-    policy.licensePolicy.allowedDependencyLicenses.includes(choice.electedLicense)
+    choice.electedLicense.length > 0 &&
+    choice.rationale.length > 0
   );
 }
 

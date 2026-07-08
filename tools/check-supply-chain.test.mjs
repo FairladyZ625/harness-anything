@@ -93,6 +93,18 @@ test("supply-chain check accepts reviewed OR-license elections", async () => {
           integrity: "sha512-test",
           license: "(BSD-2-Clause OR MIT OR Apache-2.0)"
         };
+        lock.packages["node_modules/argparse"] = {
+          version: "2.0.1",
+          resolved: "https://registry.npmjs.org/argparse/-/argparse-2.0.1.tgz",
+          integrity: "sha512-test",
+          license: "Python-2.0"
+        };
+        lock.packages["node_modules/truncate-utf8-bytes"] = {
+          version: "1.0.2",
+          resolved: "https://registry.npmjs.org/truncate-utf8-bytes/-/truncate-utf8-bytes-1.0.2.tgz",
+          integrity: "sha512-test",
+          license: "WTFPL"
+        };
       },
       sbomMutator: (sbom) => {
         sbom.components.push(
@@ -104,6 +116,16 @@ test("supply-chain check accepts reviewed OR-license elections", async () => {
           {
             name: "rc",
             purl: "pkg:npm/rc@1.2.8",
+            hashes: [{ alg: "SHA-512", content: "test" }]
+          },
+          {
+            name: "argparse",
+            purl: "pkg:npm/argparse@2.0.1",
+            hashes: [{ alg: "SHA-512", content: "test" }]
+          },
+          {
+            name: "truncate-utf8-bytes",
+            purl: "pkg:npm/truncate-utf8-bytes@1.0.2",
             hashes: [{ alg: "SHA-512", content: "test" }]
           }
         );

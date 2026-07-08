@@ -26,7 +26,7 @@ async function walk(dir) {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (["node_modules", "dist", "out", ".git", ".harness"].includes(entry.name)) continue;
+      if (["node_modules", "dist", "out", "build-resources", ".git", ".harness"].includes(entry.name)) continue;
       files.push(...await walk(fullPath));
       continue;
     }

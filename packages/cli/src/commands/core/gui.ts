@@ -12,7 +12,7 @@ export const runGuiCommand: CommandRunner = (_context, command) =>
   Effect.sync(() => launchGui(command.rootDir, command.layoutOverrides?.authoredRoot));
 
 function launchGui(rootDir: string, authoredRoot?: string): CliResult {
-  const command = ["npm", "--workspace", "@harness-anything/gui", "run", "dev"] as const;
+  const command = ["npm", "--workspace", "@harness-anything/gui", "run", "dev:electron"] as const;
   const dryRun = process.env.HARNESS_GUI_DRY_RUN === "1";
   if (dryRun) {
     return {

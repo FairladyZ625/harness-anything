@@ -28,3 +28,8 @@ tmp/
 
 # Electron preload bundle (built by packages/gui build:preload)
 packages/gui/dist-electron/
+
+# Local Electron packaging outputs and downloaded runtime payloads.
+packages/gui/build-resources/node/
+packages/gui/build-resources/app-node_modules/
+packages/gui/.runtime-cache/
