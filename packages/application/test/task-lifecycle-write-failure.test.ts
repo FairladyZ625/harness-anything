@@ -5,8 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeMarkdownArtifactStore, type ArtifactStore, type EngineError, type TaskPackageRead, type WriteError } from "../../kernel/src/index.ts";
+import type { GitRunner } from "../src/code-doc-reconciliation.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
 import { runEffect } from "./effect-test-helpers.ts";
+
+const codeDocSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 // Regression: task-complete must surface the underlying kernel writer error code
 // rather than the misleading completion_gate_failed. A stub writer forces setStatus
@@ -51,6 +54,7 @@ for (const { name, error, code } of writeFailureCases) {
         rootDir,
         taskWriter: failingWriter(error),
         artifactStore: makeMarkdownArtifactStore({ rootDir }),
+        codeDocGit: codeDocGit(),
         now: () => "2026-06-13T00:00:00.000Z"
       });
 
@@ -107,6 +111,7 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
       artifactStore: inMemoryTaskPackageStore("task-1", {
         "review.md": validReview(),
         "facts.md": validFact(),
+        "code-doc-anchors.json": validCodeDocAnchors(),
         "closeout.md": [
           "# Closeout",
           "",
@@ -119,6 +124,7 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
       documentPlaceholderPolicy: {
         closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
       },
+      codeDocGit: codeDocGit(),
       now: () => "2026-06-13T00:00:00.000Z"
     });
 
@@ -223,6 +229,26 @@ function validFact(): string {
   ].join("\n");
 }
 
+function validCodeDocAnchors(): string {
+  return `${JSON.stringify({
+    schema: "code-doc-reconciliation/v1",
+    taskId: "task-1",
+    records: [{
+      id: "A4-001",
+      ledgerPath: "closeout.md",
+      kind: "closeout",
+      anchors: [{ kind: "commit", sha: codeDocSha }]
+    }]
+  }, null, 2)}\n`;
+}
+
+function codeDocGit(): GitRunner {
+  return {
+    commitExists: (sha) => sha === codeDocSha,
+    pathExistsAtCommit: () => true
+  };
+}
+
 function writeIndexOnly(rootDir: string, directoryName: string, title: string, status: string): void {
   mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
@@ -304,6 +330,7 @@ function writeTaskPackage(rootDir: string, directoryName: string, title: string)
     "No residual risk accepted.",
     ""
   ].join("\n"), "utf8");
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "code-doc-anchors.json"), validCodeDocAnchors(), "utf8");
 }
 
 function writeFact(rootDir: string, directoryName: string): void {

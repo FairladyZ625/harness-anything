@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -67,8 +67,54 @@ test("CLI task-complete rejects initial not-started review placeholders", () => 
   });
 });
 
+test("CLI task-complete rejects missing code-doc anchors", () => {
+  withTempRoot((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeIndex(rootDir, "task-1", "Complete Task", "in_review");
+    writeReview(rootDir, "task-1");
+    writeFact(rootDir, "task-1");
+    writeCloseout(rootDir, "task-1", [
+      "## Summary",
+      "",
+      "Implemented the task document gate.",
+      "",
+      "## Verification",
+      "",
+      "npm run check passed.",
+      "",
+      "## Residual Risk",
+      "",
+      "No residual risk accepted."
+    ]);
+
+    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "code_doc_reconciliation_failed");
+    assert.equal(blocked.issues?.[0]?.code, "code_doc_anchors_missing");
+  });
+});
+
+test("CLI task-complete rejects fabricated code-doc shas", () => {
+  withTempRoot((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeIndex(rootDir, "task-1", "Complete Task", "in_review");
+    writeReview(rootDir, "task-1");
+    writeFact(rootDir, "task-1");
+    writeRealCloseout(rootDir, "task-1");
+    writeCodeDocAnchors(rootDir, "task-1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "code_doc_reconciliation_failed");
+    assert.equal(blocked.issues?.[0]?.code, "code_doc_git_ref_missing");
+  });
+});
+
 test("CLI task-complete reports the underlying completion write failure", () => {
   withTempRoot((rootDir) => {
+    initializeGitRepo(rootDir);
     writeIndex(rootDir, "task-1", "Complete Task", "in_review", { provenance: false });
     writeReview(rootDir, "task-1");
     writeFact(rootDir, "task-1");
@@ -250,6 +296,7 @@ function writeRealCloseout(rootDir: string, directoryName: string): void {
     "",
     "No residual risk accepted."
   ]);
+  writeCodeDocAnchors(rootDir, directoryName);
 }
 
 function writeFact(rootDir: string, directoryName: string): void {
@@ -265,6 +312,19 @@ function writeCloseout(rootDir: string, directoryName: string, lines: ReadonlyAr
   writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "closeout.md"), ["# Closeout", "", ...lines, ""].join("\n"), "utf8");
 }
 
+function writeCodeDocAnchors(rootDir: string, directoryName: string, sha = ensureAnchorCommit(rootDir)): void {
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "code-doc-anchors.json"), `${JSON.stringify({
+    schema: "code-doc-reconciliation/v1",
+    taskId: directoryName,
+    records: [{
+      id: "A4-001",
+      ledgerPath: "closeout.md",
+      kind: "closeout",
+      anchors: [{ kind: "path", sha, path: "evidence/code-doc-anchor.txt" }]
+    }]
+  }, null, 2)}\n`, "utf8");
+}
+
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-task-doc-gates-"));
   try {
@@ -275,9 +335,23 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 }
 
 function initializeGitRepo(rootDir: string): void {
+  if (pathExists(path.join(rootDir, ".git"))) return;
   runGit(rootDir, "init");
   runGit(rootDir, "config", "user.email", "test@example.com");
   runGit(rootDir, "config", "user.name", "Test User");
+}
+
+function ensureAnchorCommit(rootDir: string): string {
+  initializeGitRepo(rootDir);
+  mkdirSync(path.join(rootDir, "evidence"), { recursive: true });
+  writeFileSync(path.join(rootDir, "evidence/code-doc-anchor.txt"), "code-doc reconciliation fixture\n", "utf8");
+  runGit(rootDir, "add", "evidence/code-doc-anchor.txt");
+  runGit(rootDir, "commit", "-m", "seed code-doc anchor");
+  return runGit(rootDir, "rev-parse", "HEAD");
+}
+
+function pathExists(filePath: string): boolean {
+  return existsSync(filePath);
 }
 
 function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {
