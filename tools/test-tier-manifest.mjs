@@ -25,6 +25,7 @@ export const testTierManifest = {
     "tools/run-node-tests.test.mjs"
   ],
   contract: [
+    "packages/application/test/code-doc-reconciliation.test.ts",
     "packages/application/test/current-session-probe.test.ts",
     "packages/application/test/decision-write-service.test.ts",
     "packages/application/test/fact-write-service.test.ts",

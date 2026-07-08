@@ -26,6 +26,7 @@ test("CLI in_review and complete sweeps commit hand-edited closeout.md", () => {
     writeFact(rootDir, taskPath);
     writeReview(rootDir, taskPath);
     writeFileSync(closeoutPath, "# Closeout\n\nUpdated before completion.\n", "utf8");
+    writeCodeDocAnchors(rootDir, taskPath, taskId);
     assert.match(gitStatus(rootDir, taskPath), /closeout\.md/u);
 
     const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
@@ -59,6 +60,7 @@ for (const preset of ["milestone-closeout", "lesson-sedimentation"] as const) {
       writeFact(rootDir, taskPath);
       writeReview(rootDir, taskPath);
       writeFileSync(closeoutPath, `# Closeout\n\n${preset} generated a closeout candidate source.\n`, "utf8");
+      writeCodeDocAnchors(rootDir, taskPath, taskId);
       const factsBefore = readFileSync(factsPath, "utf8");
 
       const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
@@ -110,6 +112,7 @@ test("CLI task complete blocks when the task tree is dirty after the sweep", () 
     writeFact(rootDir, taskPath);
     writeReview(rootDir, taskPath);
     writeFileSync(path.join(rootDir, taskPath, "closeout.md"), "# Closeout\n\nReady.\n", "utf8");
+    writeCodeDocAnchors(rootDir, taskPath, taskId);
     installPostCommitDirtyHook(rootDir, taskPath);
 
     const failure = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
@@ -125,6 +128,8 @@ function withGitTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-transition-sweep-"));
   try {
     execFileSync("git", ["-C", rootDir, "init", "-q"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.name", "Test User"]);
     writeFileSync(path.join(rootDir, ".gitignore"), "*.log\n", "utf8");
     return fn(rootDir);
   } finally {
@@ -163,6 +168,27 @@ function writeReview(rootDir: string, taskPath: string): void {
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ""
   ].join("\n"), "utf8");
+}
+
+function writeCodeDocAnchors(rootDir: string, taskPath: string, taskId: string, sha = ensureAnchorCommit(rootDir)): void {
+  writeFileSync(path.join(rootDir, taskPath, "code-doc-anchors.json"), `${JSON.stringify({
+    schema: "code-doc-reconciliation/v1",
+    taskId,
+    records: [{
+      id: "A4-001",
+      ledgerPath: "closeout.md",
+      kind: "closeout",
+      anchors: [{ kind: "path", sha, path: "evidence/code-doc-anchor.txt" }]
+    }]
+  }, null, 2)}\n`, "utf8");
+}
+
+function ensureAnchorCommit(rootDir: string): string {
+  mkdirSync(path.join(rootDir, "evidence"), { recursive: true });
+  writeFileSync(path.join(rootDir, "evidence/code-doc-anchor.txt"), "code-doc reconciliation fixture\n", "utf8");
+  execFileSync("git", ["-C", rootDir, "add", "evidence/code-doc-anchor.txt"]);
+  execFileSync("git", ["-C", rootDir, "commit", "-m", "seed code-doc anchor"]);
+  return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 }
 
 function installPostCommitDirtyHook(rootDir: string, taskPath: string): void {
