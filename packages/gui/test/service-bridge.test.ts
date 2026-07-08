@@ -164,15 +164,12 @@ test("GUI service bridge refuses custom authored root when an existing daemon la
   try {
     writeTaskIndex(rootDir, "task-1", "Default GUI Task", "planned");
     const defaultBridge = createLocalGuiServiceBridge(rootDir);
-    const defaultList = await withGuiDaemonEnv(rootDir, () =>
-      defaultBridge.invoke("getTasks", null)
-    ) as { readonly ok: boolean };
-    assert.equal(defaultList.ok, true);
-
     const customBridge = createLocalGuiServiceBridge(rootDir, { authoredRoot: ".custom-harness" });
-    const customList = await withGuiDaemonEnv(rootDir, () =>
-      customBridge.invoke("getTasks", null)
-    ) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+    const customList = await withGuiDaemonEnv(rootDir, async () => {
+      const defaultList = await defaultBridge.invoke("getTasks", null) as { readonly ok: boolean };
+      assert.equal(defaultList.ok, true);
+      return customBridge.invoke("getTasks", null);
+    }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
     assert.equal(customList.ok, false);
     assert.equal(customList.error?.code, "daemon_layout_conflict");
     assert.match(customList.error?.hint ?? "", /layout/u);
