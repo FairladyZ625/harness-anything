@@ -157,7 +157,9 @@ ha task complete task_01ABC --ci passed --reviewer alex
 
 # 审问这份记录
 ha task list --state in_review
+ha task show task_01ABC
 ha decision list --search "rate limit"
+ha relation list --entity task/task_01ABC
 ha fact list --task task_01ABC
 
 # 证明本地状态仍与仓库一致

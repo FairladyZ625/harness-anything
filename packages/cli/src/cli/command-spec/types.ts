@@ -4,6 +4,7 @@ export type CommandParserId =
   | "help"
   | "version"
   | "core-task"
+  | "relation"
   | "new-task"
   | "decision"
   | "distill"

@@ -168,7 +168,9 @@ ha task complete task_01ABC --ci passed --reviewer alex
 
 # Interrogate the record
 ha task list --state in_review
+ha task show task_01ABC
 ha decision list --search "rate limit"
+ha relation list --entity task/task_01ABC
 ha fact list --task task_01ABC
 
 # Prove local state still matches the repository

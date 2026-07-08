@@ -63,8 +63,10 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "task reopen", argv: ["task", "reopen", "task_1", "--reason", "followup"], kind: "task-reopen", fields: { taskId: "task_1", reason: "followup" } },
   { name: "task review", argv: ["task", "review", "task_1", "--reviewer", "alice"], kind: "task-review", fields: { taskId: "task_1", reviewerId: "alice" } },
   { name: "task complete", argv: ["task", "complete", "task_1", "--ci", "passed", "--reviewer", "alice"], kind: "task-complete", fields: { taskId: "task_1", ciGate: "passed", reviewerId: "alice" } },
+  { name: "task show", argv: ["task", "show", "task_1"], kind: "task-show", fields: { taskId: "task_1" } },
   { name: "task tree", argv: ["task", "tree", "task_1"], kind: "task-tree", fields: { taskId: "task_1" } },
   { name: "task relate depends-on", argv: ["task", "relate", "task_1", "depends-on", "task_2", "--rationale", "needs output"], kind: "task-relate", fields: { sourceTaskId: "task_1", relationType: "depends-on", targetTaskId: "task_2", rationale: "needs output", dryRun: false } },
+  { name: "relation list", argv: ["relation", "list", "--entity", "task/task_1", "--source", "task/task_1", "--target", "task/task_2", "--type", "depends-on", "--state", "active"], kind: "relation-list", fields: { filters: { entity: "task/task_1", source: "task/task_1", target: "task/task_2", type: "depends-on", state: "active" } } },
   {
     name: "decision propose",
     argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--non-load-bearing", "--dry-run"],
@@ -463,6 +465,8 @@ test("parseArgs handles command-level help before command parsers", () => {
     { argv: ["help", "new-task"], commandKind: "new-task" },
     { argv: ["task", "transition", "--help"], commandKind: "status-set" },
     { argv: ["task", "status", "set", "--help"], commandKind: "status-set" },
+    { argv: ["task", "show", "--help"], commandKind: "task-show" },
+    { argv: ["relation", "list", "--help"], commandKind: "relation-list" },
     { argv: ["task", "--help"], commandPrefix: ["task"] }
   ] as const;
 

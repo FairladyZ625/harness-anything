@@ -2,13 +2,14 @@
 
 你最常用命令的速记表。任何命令加 `--json` 得到结构化输出。
 
-## 你会持续用的十条
+## 你会持续用的命令
 
 | 命令 | 做什么 |
 |---|---|
 | `ha init` | 在当前仓库创建 `harness/` 目录布局。 |
 | `ha task create --title <title>` | 创建一个新任务包。 |
 | `ha task list` | 列出任务包，带状态/模块/搜索过滤。 |
+| `ha task show <id>` | 查看单个任务的投影状态、元数据、层级、关系边和事实锚。 |
 | `ha task transition <id> <state>` | 把任务移到新的生命周期状态。 |
 | `ha decision propose --title <t> ...` | 提议一个决策（问题、已选、已拒、为何不）。 |
 | `ha decision accept <id>` | 裁决一个提议的决策——证据检查点。 |
@@ -42,6 +43,7 @@ ha fact record --task <id> --statement "..." --source "..." --confidence high
 ```bash
 ha status          # 我在什么状态？
 ha check           # 一切健康吗？
+ha relation list --entity task/<id>
 ha graph           # 可视化一切怎样链接
 ha doctor          # 只读环境诊断
 ```

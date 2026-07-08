@@ -137,6 +137,7 @@ export const testTierManifest = {
     "packages/cli/test/task-delete-disposition-cli.test.ts",
     "packages/cli/test/task-document-gates-cli.test.ts",
     "packages/cli/test/task-list-cli.test.ts",
+    "packages/cli/test/task-show-relation-list-cli.test.ts",
     "packages/cli/test/task-transition-sweep-cli.test.ts",
     "packages/cli/test/task-tree-cli.test.ts",
     "packages/cli/test/worktree-cli.test.ts",
