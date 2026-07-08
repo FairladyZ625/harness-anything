@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
 import type { ArtifactStore, EngineError, WriteError } from "../../kernel/src/index.ts";
-import { readTaskProjection } from "../../kernel/src/index.ts";
+import { queryTaskProjection, readTaskProjection } from "../../kernel/src/index.ts";
 import {
   readTaskDocumentPayload,
   validateLocalControllerTaskId
@@ -27,7 +27,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
 
   return {
     getTasks: () => {
-      const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
+      const result = queryTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
       return { ok: true, tasks: result.rows, warnings: result.warnings };
     },
     getTaskDetail: async (payload) => {
@@ -65,7 +65,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       ));
     },
     rebuildGovernance: () => {
-      const result = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
+      const result = queryTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
       return { ok: true, tasks: result.rows, warnings: result.warnings };
     },
     archiveTask: () => ({

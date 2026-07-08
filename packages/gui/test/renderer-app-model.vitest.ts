@@ -33,7 +33,8 @@ describe("renderer app model", () => {
   it("builds task shell views from sqlite-task-row/v1 fields only", () => {
     const rows = [
       taskRow({ taskId: "task-child", title: "Child", parentTaskId: "task-parent", coordinationStatus: "blocked" }),
-      taskRow({ taskId: "task-parent", title: "Parent", closeoutReadiness: "ready" })
+      taskRow({ taskId: "task-parent", title: "Parent", closeoutReadiness: "ready" }),
+      taskRow({ taskId: "task-archived", title: "Archived", packageDisposition: "archived" })
     ];
 
     const model = buildGuiViewModelFromTaskProjection(rows);
@@ -53,7 +54,10 @@ describe("renderer app model", () => {
   it("reads task route results defensively without depending on optional route fields", () => {
     const list = readGuiTaskListResult({
       ok: true,
-      tasks: [taskRow({ taskId: "task-1", title: "One" })]
+      tasks: [
+        taskRow({ taskId: "task-1", title: "One" }),
+        taskRow({ taskId: "task-archived", title: "Archived", packageDisposition: "archived" })
+      ]
     });
     const detail = readGuiTaskDetailResult({
       ok: true,
@@ -65,6 +69,7 @@ describe("renderer app model", () => {
 
     expect(list).toMatchObject({ ok: true, warnings: [] });
     expect(list.ok && list.rows[0]).toMatchObject({ taskId: "task-1", title: "One" });
+    expect(list.ok && list.rows.map((row) => row.taskId)).toEqual(["task-1"]);
     expect(detail.ok && detail.documents).toEqual([{ path: "INDEX.md" }]);
     expect(document).toEqual({ ok: true, taskId: "task-1", path: "INDEX.md", body: "" });
     expect(invalid).toEqual({

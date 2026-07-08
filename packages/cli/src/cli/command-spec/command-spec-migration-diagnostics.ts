@@ -300,7 +300,7 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "graph",
-    "usage": "graph [--out <path>] [--focus <entity-ref>] [--projection <path>] [--json]",
+    "usage": "graph [--out <path>] [--focus <entity-ref>] [--projection <path>] [--include-archived] [--json]",
     "summary": "Generate a self-contained relation graph HTML panorama from the SQLite projection, with optional F5 cascade focus.",
     "examples": ["harness-anything graph --focus decision/dec_LEDGER_E51 --out .harness/generated/graph-panorama/index.html --json"],
     "parserId": "graph",

@@ -36,7 +36,8 @@ export function runGraphCommand(rootDir: string, action: GraphAction): CliResult
       rootDir,
       outputPath: action.outputPath,
       focus: action.focus,
-      projectionPath: action.projectionPath
+      projectionPath: action.projectionPath,
+      includeArchived: action.includeArchived
     }) as GraphToolReport);
     return {
       ok: true,

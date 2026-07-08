@@ -14,7 +14,8 @@ export function parseGraphArgs(args: ReadonlyArray<string>, rootDir: string, jso
         kind: "graph",
         outputPath: readOption(args, "--out"),
         focus: readOption(args, "--focus"),
-        projectionPath: readOption(args, "--projection")
+        projectionPath: readOption(args, "--projection"),
+        includeArchived: args.includes("--include-archived")
       }
     }
   };
