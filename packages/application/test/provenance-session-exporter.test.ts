@@ -1,11 +1,11 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type CurrentSessionRef, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, moduleEntityId, type CurrentSessionRef, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
 import type { ProvenanceSessionExporterOptions } from "../src/index.ts";
 import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
@@ -124,6 +124,72 @@ test("provenance session exporter renders Codex JSONL conversation text", async 
     assert.match(body, /## Conversation/u);
     assert.match(body, /Codex user original line/u);
     assert.match(body, /Codex assistant original line/u);
+
+    const payload = readOnlyJournalPayload(rootDir);
+    assert.equal(payload.boundary, "provenance-session");
+    assert.equal(payload.path, "harness/sessions/codex-session-1.md");
+    assert.equal("body" in payload, false);
+    assert.equal(JSON.stringify(payload).includes("Codex user original line"), false);
+    const bodyRef = assertContentAddressedBlobRef(payload.bodyRef);
+    assert.equal(bodyRef.mediaType, "text/markdown; charset=utf-8");
+    assert.equal(readFileSync(path.join(rootDir, bodyRef.ref), "utf8"), body);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter dedupes identical claim-check blobs and verifies corruption", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const logsRoot = path.join(rootDir, "runtime-logs", "codex");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "rollout-2026-07-03T00-00-00-codex-session-1.jsonl"), [
+      JSON.stringify({
+        timestamp: "2026-07-03T00:00:01.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "Deduped Codex user line" }
+      })
+    ].join("\n"), "utf8");
+
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "codex-session-1",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { codex: [logsRoot] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    await runEffect(exporter.exportCurrentSession());
+    await runEffect(exporter.exportCurrentSession());
+
+    const payload = readOnlyJournalPayload(rootDir);
+    const bodyRef = assertContentAddressedBlobRef(payload.bodyRef);
+    assert.deepEqual(listObjectFiles(rootDir), [bodyRef.ref]);
+    assert.match(readFileSync(path.join(rootDir, bodyRef.ref), "utf8"), /Deduped Codex user line/u);
+
+    writeFileSync(path.join(rootDir, bodyRef.ref), "corrupted blob", "utf8");
+    const corruptCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const corruptResult = await runEffect(Effect.either(Effect.gen(function* () {
+      yield* corruptCoordinator.enqueue({
+        opId: "session-export-corrupt-blob",
+        entityId: moduleEntityId("provenance-session"),
+        kind: "machine_artifact_write",
+        payload: {
+          boundary: "provenance-session",
+          path: "harness/sessions/corrupt.md",
+          bodyRef
+        }
+      });
+      yield* corruptCoordinator.flush("explicit");
+    })));
+    assert.equal(corruptResult._tag, "Left");
+    if (corruptResult._tag === "Left") {
+      assert.equal(corruptResult.left._tag, "JournalUnavailable");
+      assert.match(corruptResult.left.cause instanceof Error ? corruptResult.left.cause.message : String(corruptResult.left.cause), /content-addressed blob sha256 mismatch/u);
+    }
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -373,4 +439,47 @@ function createHarnessRoot(): string {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
   return rootDir;
+}
+
+function readOnlyJournalPayload(rootDir: string): Record<string, unknown> {
+  const payloadRoot = path.join(rootDir, ".harness", "write-journal", "payloads");
+  const payloadFiles = readdirSync(payloadRoot).filter((entry) => entry.endsWith(".json"));
+  assert.equal(payloadFiles.length, 1);
+  return JSON.parse(readFileSync(path.join(payloadRoot, payloadFiles[0]!), "utf8")) as Record<string, unknown>;
+}
+
+interface TestContentAddressedBlobRef {
+  readonly ref: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+}
+
+function assertContentAddressedBlobRef(value: unknown): TestContentAddressedBlobRef {
+  assert.equal(Boolean(value && typeof value === "object"), true);
+  const candidate = value as Partial<TestContentAddressedBlobRef>;
+  assert.equal(typeof candidate.ref, "string");
+  assert.equal(typeof candidate.sha256, "string");
+  assert.equal(typeof candidate.size, "number");
+  assert.equal(typeof candidate.mediaType, "string");
+  assert.match(candidate.sha256!, /^[0-9a-f]{64}$/u);
+  assert.equal(candidate.ref, `harness/objects/sha256/${candidate.sha256!.slice(0, 2)}/${candidate.sha256!.slice(2)}`);
+  return candidate as TestContentAddressedBlobRef;
+}
+
+function listObjectFiles(rootDir: string): ReadonlyArray<string> {
+  const objectRoot = path.join(rootDir, "harness", "objects");
+  const files: string[] = [];
+  function visit(current: string): void {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        visit(fullPath);
+      } else {
+        files.push(path.relative(rootDir, fullPath).split(path.sep).join("/"));
+      }
+    }
+  }
+  visit(objectRoot);
+  return files.sort();
 }

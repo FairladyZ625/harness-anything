@@ -204,6 +204,7 @@ const publicRuntimeSurface = [
   "validateTemplateCatalog",
   "validateVerticalDefinition",
   "warning",
+  "writeContentAddressedBlob",
   "writeCoordinatedPayload",
   "writeCoordinatedTaskDocuments"
 ];
