@@ -4,14 +4,28 @@
 // allowed to import the kernel/application public barrels and re-exports only the
 // projection/payload types the renderer needs, so renderer code depends on
 // `../api/renderer-dto` instead of reaching into `../../../kernel`.
-export type { DomainStatus, ProjectionWarning, TaskProjectionRow } from "../../../kernel/src/index.ts";
+export type {
+  DecisionProjectionRow,
+  DomainStatus,
+  ProjectionWarning,
+  TaskProjectionRow
+} from "../../../kernel/src/index.ts";
 export type {
   AppendTaskProgressPayload,
+  DecisionDetailResult,
+  DecisionIdPayload,
+  DecisionListResult,
+  FactAnchorRow,
+  FactProjectionRow,
   LocalControllerResult,
+  RelationCoverageRow,
+  RelationGraphEdgeRow,
+  RelationGraphReadResult,
   SetTaskStatusPayload,
   TaskDetailResult,
   TaskDocumentPayload,
   TaskDocumentResult,
   TaskIdPayload,
+  TaskFactListResult,
   TaskListResult
 } from "../../../application/src/index.ts";

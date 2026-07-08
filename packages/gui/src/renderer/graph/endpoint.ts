@@ -63,7 +63,9 @@ export function collectClosure(
   while (changed) {
     changed = false;
     for (const e of edges) {
-      const [src, dst] = dir === "out" ? [e.from, e.to] : [e.to, e.from];
+      const [src, dst] = dir === "out"
+        ? [endpointToNodeId(e.from), endpointToNodeId(e.to)]
+        : [endpointToNodeId(e.to), endpointToNodeId(e.from)];
       if (seen.has(src) && !seen.has(dst)) {
         seen.add(dst);
         changed = true;

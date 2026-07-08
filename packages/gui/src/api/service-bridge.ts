@@ -16,6 +16,10 @@ type LocalControllerGuiMethod =
   | "getTasks"
   | "getTaskDetail"
   | "getTaskDocument"
+  | "getRelationGraph"
+  | "getDecisions"
+  | "getDecisionDetail"
+  | "getTaskFacts"
   | "setTaskStatus"
   | "reviewTask"
   | "appendTaskProgress"
@@ -25,6 +29,10 @@ interface GuiBridgeServiceProxy {
   readonly getTasks: () => Promise<unknown> | unknown;
   readonly getTaskDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly getTaskDocument: (payload: unknown) => Promise<unknown> | unknown;
+  readonly getRelationGraph: () => Promise<unknown> | unknown;
+  readonly getDecisions: () => Promise<unknown> | unknown;
+  readonly getDecisionDetail: (payload: unknown) => Promise<unknown> | unknown;
+  readonly getTaskFacts: (payload: unknown) => Promise<unknown> | unknown;
   readonly setTaskStatus: (payload: unknown) => Promise<unknown> | unknown;
   readonly reviewTask: (payload: unknown) => Promise<unknown> | unknown;
   readonly appendTaskProgress: (payload: unknown) => Promise<unknown> | unknown;
@@ -53,6 +61,22 @@ export const guiBridgeHandlerImplementations = {
   getTaskDocument: {
     serviceMethod: "getTaskDocument",
     invoke: ({ service, payload }) => service.getTaskDocument(payload)
+  },
+  getRelationGraph: {
+    serviceMethod: "getRelationGraph",
+    invoke: ({ service }) => service.getRelationGraph()
+  },
+  getDecisions: {
+    serviceMethod: "getDecisions",
+    invoke: ({ service }) => service.getDecisions()
+  },
+  getDecisionDetail: {
+    serviceMethod: "getDecisionDetail",
+    invoke: ({ service, payload }) => service.getDecisionDetail(payload)
+  },
+  getTaskFacts: {
+    serviceMethod: "getTaskFacts",
+    invoke: ({ service, payload }) => service.getTaskFacts(payload)
   },
   setTaskStatus: {
     serviceMethod: "setTaskStatus",
@@ -126,6 +150,10 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     getTasks: () => invokeDaemonGuiRoute(request, "getTasks", undefined),
     getTaskDetail: (payload) => invokeDaemonGuiRoute(request, "getTaskDetail", payload),
     getTaskDocument: (payload) => invokeDaemonGuiRoute(request, "getTaskDocument", payload),
+    getRelationGraph: () => invokeDaemonGuiRoute(request, "getRelationGraph", undefined),
+    getDecisions: () => invokeDaemonGuiRoute(request, "getDecisions", undefined),
+    getDecisionDetail: (payload) => invokeDaemonGuiRoute(request, "getDecisionDetail", payload),
+    getTaskFacts: (payload) => invokeDaemonGuiRoute(request, "getTaskFacts", payload),
     setTaskStatus: (payload) => invokeDaemonGuiRoute(request, "setTaskStatus", payload),
     reviewTask: (payload) => invokeDaemonGuiRoute(request, "reviewTask", payload),
     appendTaskProgress: (payload) => invokeDaemonGuiRoute(request, "appendTaskProgress", payload),
@@ -165,6 +193,8 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
         : invalidPayload("empty payload is required.");
     case "application.task-id-payload/v1":
       return validateTaskIdPayload(payload);
+    case "application.decision-id-payload/v1":
+      return validateDecisionIdPayload(payload);
     case "application.task-document-payload/v1":
       return validateTaskDocumentPayload(payload);
     case "application.set-task-status-payload/v1":
@@ -179,6 +209,12 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
 function validateTaskIdPayload(payload: unknown): PayloadValidation {
   if (!isServicePayloadRecord(payload) || typeof payload.taskId !== "string") return invalidPayload("taskId is required.");
   if (!isValidTaskId(payload.taskId)) return invalidPayload("taskId is invalid.");
+  return { ok: true, payload };
+}
+
+function validateDecisionIdPayload(payload: unknown): PayloadValidation {
+  if (!isServicePayloadRecord(payload) || typeof payload.decisionId !== "string") return invalidPayload("decisionId is required.");
+  if (!isValidEntityId(payload.decisionId)) return invalidPayload("decisionId is invalid.");
   return { ok: true, payload };
 }
 
@@ -219,7 +255,11 @@ function invalidPayload(hint: string): PayloadValidation {
 }
 
 function isValidTaskId(taskId: string): boolean {
-  return taskId.length > 0 && !taskId.includes("/") && !taskId.includes("..");
+  return isValidEntityId(taskId);
+}
+
+function isValidEntityId(value: string): boolean {
+  return value.length > 0 && !value.includes("/") && !value.includes("..");
 }
 
 function unwrapDaemonReceipt(receipt: JsonObject): unknown {

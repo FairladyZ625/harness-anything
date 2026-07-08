@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { ReactFlow, MiniMap, Controls, Background, BackgroundVariant, ReactFlowProvider, Panel } from '@xyflow/react';
+import { ReactFlow, MiniMap, Controls, Background, BackgroundVariant, ReactFlowProvider, Panel, useReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
-import { collectClosure } from "../graph/endpoint";
+import { collectClosure, endpointToNodeId } from "../graph/endpoint";
 import { GraphDrawer } from "../graph/GraphDrawer";
 import { computeGraphLayout } from "../graph/graphLayout";
 
@@ -36,6 +36,7 @@ function GraphViewInner({
   decisions?: DecisionRow[];
   facts?: FactRef[];
 }) {
+  const { fitView } = useReactFlow();
   const [focusId, setFocusId] = useState<string | null>(null);
   
   const [nodes, setNodes] = useState<any[]>([]);
@@ -53,6 +54,14 @@ function GraphViewInner({
     types: new Set(['decision', 'task', 'fact'])
   }));
 
+  useEffect(() => {
+    setFilters((current) => {
+      const nextModules = new Set(availableModules);
+      if (current.modules.size === nextModules.size && [...current.modules].every((module) => nextModules.has(module))) return current;
+      return { ...current, modules: nextModules };
+    });
+  }, [availableModules]);
+
   // Calculate closures for focus
   const chain = useMemo(() => {
     if (!focusId) return null;
@@ -61,11 +70,11 @@ function GraphViewInner({
     const nodeSet = new Set([...up, ...down]);
     const edgeSet = new Set(
       relations
-        .filter(
-          (e) =>
-            (up.has(e.from) && up.has(e.to)) ||
-            (down.has(e.from) && down.has(e.to)),
-        )
+        .filter((e) => {
+          const from = endpointToNodeId(e.from);
+          const to = endpointToNodeId(e.to);
+          return (up.has(from) && up.has(to)) || (down.has(from) && down.has(to));
+        })
         .map((e) => `${e.from}|${e.to}`),
     );
     return { nodeSet, edgeSet, upCount: up.size - 1, downCount: down.size - 1 };
@@ -76,14 +85,10 @@ function GraphViewInner({
     const loopEdges = new Set<string>();
     if (!focusId || focusId.startsWith('e_')) return { loopNodes, loopEdges };
     
-    // Normalize focusId for BFS matching: Task nodes are purely KER-xxx or STO-xxx in the layout, but edges use task/KER-xxx
-    let rootId = focusId;
-    if (!rootId.includes('/')) {
-      rootId = `task/${rootId}`;
-    }
+    const rootId = focusId;
     
     // Dynamically find the Decision-Task-Fact triplet
-    const validKinds = new Set(["derives", "supports", "observes"]);
+    const validKinds = new Set(["derives", "supports", "evidenced-by", "produces", "evidences"]);
     
     // A simple 2-hop undirected traversal restricted to triplet edges
     const queue = [rootId];
@@ -97,18 +102,20 @@ function GraphViewInner({
       for (const node of currentHop) {
         for (const e of relations) {
           if (validKinds.has(e.kind)) {
-            if (e.from === node && !loopNodes.has(e.to.replace('task/', ''))) {
-              loopNodes.add(e.to.replace('task/', ''));
+            const from = endpointToNodeId(e.from);
+            const to = endpointToNodeId(e.to);
+            if (from === node && !loopNodes.has(to)) {
+              loopNodes.add(to);
               loopEdges.add(`${e.from}|${e.to}`);
-              queue.push(e.to);
+              queue.push(to);
             }
-            if (e.to === node && !loopNodes.has(e.from.replace('task/', ''))) {
-              loopNodes.add(e.from.replace('task/', ''));
+            if (to === node && !loopNodes.has(from)) {
+              loopNodes.add(from);
               loopEdges.add(`${e.from}|${e.to}`);
-              queue.push(e.from);
+              queue.push(from);
             }
             // If both ends are in the loop, make sure the edge is highlighted too
-            if (loopNodes.has(e.from.replace('task/', '')) && loopNodes.has(e.to.replace('task/', ''))) {
+            if (loopNodes.has(from) && loopNodes.has(to)) {
               loopEdges.add(`${e.from}|${e.to}`);
             }
           }
@@ -139,6 +146,14 @@ function GraphViewInner({
         setError(err instanceof Error ? err.stack || err.message : String(err));
       });
   }, [tasks, relations, decisions, facts, chain, loopData, filters]);
+
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      fitView({ padding: 0.12, duration: 120 });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [edges.length, fitView, nodes.length]);
 
   const onNodeClick = useCallback((_: any, node: any) => {
     if (node.type === 'moduleGroup') return;

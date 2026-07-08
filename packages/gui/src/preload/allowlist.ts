@@ -21,6 +21,10 @@ export const allowedPreloadApi = Object.freeze({
   reviewTask: "reviewTask",
   appendTaskProgress: "appendTaskProgress",
   rebuildGovernance: "rebuildGovernance",
+  getRelationGraph: "getRelationGraph",
+  getDecisions: "getDecisions",
+  getDecisionDetail: "getDecisionDetail",
+  getTaskFacts: "getTaskFacts",
   archiveTask: "archiveTask",
   openShell: "openShell"
 } as const satisfies { readonly [Method in PreloadApiMethod]: Method });
@@ -33,6 +37,10 @@ export const preloadApiCapabilities = Object.freeze({
   reviewTask: { method: "reviewTask", status: "shipped" },
   appendTaskProgress: { method: "appendTaskProgress", status: "shipped" },
   rebuildGovernance: { method: "rebuildGovernance", status: "shipped" },
+  getRelationGraph: { method: "getRelationGraph", status: "shipped" },
+  getDecisions: { method: "getDecisions", status: "shipped" },
+  getDecisionDetail: { method: "getDecisionDetail", status: "shipped" },
+  getTaskFacts: { method: "getTaskFacts", status: "shipped" },
   archiveTask: {
     method: "archiveTask",
     status: "deferred",
