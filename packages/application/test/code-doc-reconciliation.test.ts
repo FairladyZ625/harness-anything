@@ -1,0 +1,102 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  CODE_DOC_RECONCILIATION_DOCUMENT,
+  evaluateCodeDocReconciliationGate,
+  type GitRunner
+} from "../src/code-doc-reconciliation.ts";
+
+const goodSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const missingSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+test("code-doc reconciliation accepts commit and path anchors and warns on PR status", () => {
+  const result = evaluateCodeDocReconciliationGate({
+    taskId: "task-1",
+    rootDir: "/repo",
+    git: gitRunner({ commits: [goodSha], paths: [`${goodSha}:packages/app.ts`] }),
+    documents: documents([{
+      id: "A4-001",
+      ledgerPath: "closeout.md",
+      kind: "closeout",
+      anchors: [
+        { kind: "commit", sha: goodSha },
+        { kind: "path", sha: goodSha, path: "packages/app.ts" },
+        { kind: "pr", ref: "refs/pull/123/merge", sha: goodSha }
+      ]
+    }])
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.checkedRecords, 1);
+  assert.equal(result.checkedAnchors, 3);
+  assert.deepEqual(result.warnings.map((warning) => warning.code), ["code_doc_pr_status_unverified"]);
+});
+
+test("code-doc reconciliation rejects fabricated shas", () => {
+  const result = evaluateCodeDocReconciliationGate({
+    taskId: "task-1",
+    rootDir: "/repo",
+    git: gitRunner({ commits: [goodSha], paths: [] }),
+    documents: documents([{
+      id: "A4-001",
+      ledgerPath: "closeout.md",
+      kind: "closeout",
+      anchors: [{ kind: "commit", sha: missingSha }]
+    }])
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map((issue) => issue.code), ["code_doc_git_ref_missing"]);
+});
+
+test("code-doc reconciliation rejects missing evidence paths at an existing commit", () => {
+  const result = evaluateCodeDocReconciliationGate({
+    taskId: "task-1",
+    rootDir: "/repo",
+    git: gitRunner({ commits: [goodSha], paths: [] }),
+    documents: documents([{
+      id: "A4-001",
+      ledgerPath: "closeout.md",
+      kind: "evidence",
+      anchors: [{ kind: "path", sha: goodSha, path: "missing/file.ts" }]
+    }])
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map((issue) => issue.code), ["code_doc_path_missing"]);
+});
+
+test("code-doc reconciliation ignores unrelated package documents but requires the anchor ledger", () => {
+  const result = evaluateCodeDocReconciliationGate({
+    taskId: "task-1",
+    rootDir: "/repo",
+    git: gitRunner({ commits: [goodSha], paths: [] }),
+    documents: [{ path: "closeout.md", body: "# Closeout" }]
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map((issue) => issue.code), ["code_doc_anchors_missing"]);
+});
+
+function documents(records: ReadonlyArray<Record<string, unknown>>) {
+  return [
+    { path: "closeout.md", body: "# Closeout" },
+    {
+      path: CODE_DOC_RECONCILIATION_DOCUMENT,
+      body: `${JSON.stringify({
+        schema: "code-doc-reconciliation/v1",
+        taskId: "task-1",
+        records
+      }, null, 2)}\n`
+    }
+  ];
+}
+
+function gitRunner(input: { readonly commits: ReadonlyArray<string>; readonly paths: ReadonlyArray<string> }): GitRunner {
+  const commits = new Set(input.commits);
+  const paths = new Set(input.paths);
+  return {
+    commitExists: (sha) => commits.has(sha),
+    pathExistsAtCommit: (sha, relativePath) => paths.has(`${sha}:${relativePath}`)
+  };
+}

@@ -531,6 +531,7 @@ test("CLI task-complete evaluates review, CI, and closeout readiness before sett
     writeFact(rootDir, "task-1");
     writeReview(rootDir, "task-1", []);
     writeFileSync(path.join(rootDir, "harness/tasks/task-1/closeout.md"), "# Closeout\n", "utf8");
+    writeCodeDocAnchors(rootDir, "task-1");
 
     const passed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
     assert.equal(passed.ok, true);
@@ -617,6 +618,26 @@ function writeFact(rootDir: string, directoryName: string): void {
     "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
     ""
   ].join("\n"), "utf8");
+}
+
+function writeCodeDocAnchors(rootDir: string, directoryName: string, sha = ensureAnchorCommit(rootDir)): void {
+  const anchors = [{ id: "A4-001", ledgerPath: "closeout.md", kind: "closeout", anchors: [{ kind: "path", sha, path: "evidence/code-doc-anchor.txt" }] }];
+  const body = JSON.stringify({ schema: "code-doc-reconciliation/v1", taskId: directoryName, records: anchors }, null, 2);
+  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "code-doc-anchors.json"), `${body}\n`, "utf8");
+}
+
+function ensureAnchorCommit(rootDir: string): string {
+  if (!existsSync(path.join(rootDir, ".git"))) {
+    execFileSync("git", ["-C", rootDir, "init", "-q"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.name", "Test User"]);
+  }
+  const evidencePath = "evidence/code-doc-anchor.txt";
+  mkdirSync(path.join(rootDir, path.dirname(evidencePath)), { recursive: true });
+  writeFileSync(path.join(rootDir, evidencePath), "code-doc reconciliation fixture\n", "utf8");
+  execFileSync("git", ["-C", rootDir, "add", evidencePath]);
+  execFileSync("git", ["-C", rootDir, "commit", "-m", "seed code-doc anchor"]);
+  return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 }
 
 function writeConflictMarker(rootDir: string): void {

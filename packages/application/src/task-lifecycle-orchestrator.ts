@@ -4,6 +4,8 @@ import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kern
 import { parseFactFlowRecords } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 import { readFrontmatter, readScalar } from "../../kernel/src/index.ts";
+import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
+import type { GitRunner } from "./code-doc-reconciliation.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 
@@ -39,6 +41,7 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly taskWriter: TaskLifecycleWriter;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
   readonly documentPlaceholderPolicy?: TaskDocumentPlaceholderPolicy;
+  readonly codeDocGit?: GitRunner;
   readonly now?: () => string;
 }
 
@@ -139,6 +142,9 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const documentPlaceholder = yield* validateCompletionDocumentPlaceholders(options.artifactStore, payload.taskId, options.documentPlaceholderPolicy);
       if (documentPlaceholder) return documentPlaceholder;
 
+      const codeDocReconciliation = yield* validateCodeDocReconciliation(options.artifactStore, options.rootDir, payload.taskId, options.codeDocGit);
+      if (codeDocReconciliation) return codeDocReconciliation;
+
       const completionGate = evaluateCompletionGate({
         taskId: payload.taskId,
         coordinationStatus: row.coordinationStatus,
@@ -221,6 +227,39 @@ function validateCompletionDocumentPlaceholders(
     }
 
     return null;
+  });
+}
+
+function validateCodeDocReconciliation(
+  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
+  rootDir: string,
+  taskId: string,
+  git: GitRunner | undefined
+): Effect.Effect<TaskLifecycleFailure | null> {
+  return Effect.gen(function* () {
+    const taskPackage = yield* artifactStore.readTaskPackage(taskId as TaskId).pipe(
+      Effect.catchAll(() => Effect.succeed(null))
+    );
+    if (taskPackage === null) {
+      return taskFailure(taskId, "code_doc_reconciliation_failed", "Task completion requires a readable task package for code-doc reconciliation.");
+    }
+    const gate = evaluateCodeDocReconciliationGate({
+      taskId,
+      rootDir,
+      documents: taskPackage.documents,
+      git
+    });
+    if (gate.ok) return null;
+    return {
+      ok: false,
+      taskId,
+      report: gate,
+      issues: gate.issues,
+      error: {
+        code: "code_doc_reconciliation_failed",
+        hint: "Task completion requires load-bearing code-doc records to anchor to git commits or path@commit evidence."
+      }
+    };
   });
 }
 
