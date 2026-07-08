@@ -66,6 +66,7 @@
     "harness:check-schema-contracts": "node tools/check-schema-contracts.mjs",
     "harness:check-schema-field-coverage": "node tools/check-schema-field-coverage.mjs",
     "harness:check-legacy-intake-readiness": "node tools/check-legacy-intake-readiness.mjs",
+    "harness:sync-runtime-skills": "node tools/sync-runtime-skills.mjs",
     "harness:check-supply-chain": "node tools/check-supply-chain.mjs",
     "harness:smoke-legacy-intake": "node tools/smoke-legacy-intake.mjs",
     "harness:smoke-cli-package": "node tools/smoke-cli-package.mjs",

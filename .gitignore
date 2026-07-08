@@ -11,6 +11,8 @@
 /.harness/
 /harness/
 /.claude/
+/.agents/
+/.codex/
 /.worktrees/
 /.gstack/
 
@@ -21,6 +23,7 @@ tmp/
 *.log
 *.tsbuildinfo
 .harness/
+.playwright-mcp/
 
 # release tarballs (npm pack output)
 *.tgz

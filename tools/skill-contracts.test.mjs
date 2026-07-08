@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readlinkSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { runtimeSkillTargetDirs, syncRuntimeSkills } from "./sync-runtime-skills.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const skillsRoot = path.join(repoRoot, "skills");
@@ -16,6 +18,33 @@ test("repository decision skills are discoverable with agent metadata", () => {
   for (const skillName of ["decision", "decisions", "graph-panorama", "preset-trigger"]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
+  }
+});
+
+test("runtime skill sync links every repository skill into project runtime dirs", () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-runtime-skills-"));
+  try {
+    const sourceSkills = path.join(repoRoot, "skills");
+    symlinkSync(sourceSkills, path.join(tempRoot, "skills"), "dir");
+
+    const result = syncRuntimeSkills({ repoRoot: tempRoot });
+    const skillNames = readdirSync(sourceSkills, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+
+    assert.deepEqual(result.skillNames, skillNames);
+    assert.deepEqual(result.targetDirs, runtimeSkillTargetDirs);
+
+    for (const targetDir of runtimeSkillTargetDirs) {
+      for (const skillName of skillNames) {
+        const link = path.join(tempRoot, targetDir, skillName);
+        assert.equal(lstatSync(link).isSymbolicLink(), true, `${targetDir}/${skillName}`);
+        assert.equal(path.resolve(path.dirname(link), readlinkSync(link)), path.join(tempRoot, "skills", skillName));
+      }
+    }
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 
