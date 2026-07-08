@@ -10,37 +10,53 @@ export interface TaskFilters {
   query: string;
   module: string;
   engine: EngineId | "all";
-  status: SnapshotStatus | "all";
+  /**
+   * 状态多选(D-04):空数组=全部;非空=任务 status 必须命中数组。
+   * 替换原 `SnapshotStatus | "all"` 单选语义。
+   */
+  status: SnapshotStatus[];
   closeout: CloseoutReadiness | "all";
   freshness: Freshness | "all";
   includeArchived: boolean;
+  /** 仅看收藏(GUI 本地偏好,不写台账) */
+  favoritesOnly: boolean;
 }
 
 export const DEFAULT_TASK_FILTERS: TaskFilters = {
   query: "",
   module: "all",
   engine: "all",
-  status: "all",
+  status: [],
   closeout: "all",
   freshness: "all",
   includeArchived: false,
+  favoritesOnly: false,
 };
 
 export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.query.trim() !== "" ||
   filters.module !== "all" ||
   filters.engine !== "all" ||
-  filters.status !== "all" ||
+  filters.status.length > 0 ||
   filters.closeout !== "all" ||
   filters.freshness !== "all" ||
-  filters.includeArchived;
+  filters.includeArchived ||
+  filters.favoritesOnly;
 
-export function matchesTask(task: TaskRow, filters: TaskFilters): boolean {
+export function matchesTask(
+  task: TaskRow,
+  filters: TaskFilters,
+  favorites?: ReadonlySet<string>,
+): boolean {
   if (
     !filters.includeArchived &&
     (task.packageDisposition !== "active" ||
       task.coordinationStatus === "cancelled")
   ) {
+    return false;
+  }
+
+  if (filters.favoritesOnly && favorites && !favorites.has(task.taskId)) {
     return false;
   }
 
@@ -63,7 +79,7 @@ export function matchesTask(task: TaskRow, filters: TaskFilters): boolean {
 
   if (filters.module !== "all" && task.module !== filters.module) return false;
   if (filters.engine !== "all" && task.engine !== filters.engine) return false;
-  if (filters.status !== "all" && task.coordinationStatus !== filters.status)
+  if (filters.status.length > 0 && !filters.status.includes(task.coordinationStatus))
     return false;
   if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout)
     return false;
@@ -73,17 +89,35 @@ export function matchesTask(task: TaskRow, filters: TaskFilters): boolean {
   return true;
 }
 
-export const applyTaskFilters = (tasks: TaskRow[], filters: TaskFilters) =>
-  tasks.filter((task) => matchesTask(task, filters));
+export const applyTaskFilters = (
+  tasks: TaskRow[],
+  filters: TaskFilters,
+  favorites?: ReadonlySet<string>,
+) => tasks.filter((task) => matchesTask(task, filters, favorites));
 
 export const taskFilterSummary = (filters: TaskFilters): string[] => {
   const parts: string[] = [];
   if (filters.query.trim()) parts.push(`搜索 "${filters.query.trim()}"`);
   if (filters.module !== "all") parts.push(`module=${filters.module}`);
   if (filters.engine !== "all") parts.push(`engine=${filters.engine}`);
-  if (filters.status !== "all") parts.push(`status=${filters.status}`);
+  if (filters.status.length > 0) parts.push(`status=${filters.status.join("|")}`);
   if (filters.closeout !== "all") parts.push(`closeout=${filters.closeout}`);
   if (filters.freshness !== "all") parts.push(`freshness=${filters.freshness}`);
   if (filters.includeArchived) parts.push("含归档/取消");
+  if (filters.favoritesOnly) parts.push("仅看收藏");
   return parts;
 };
+
+/**
+ * 收藏排序助手:把收藏的任务排到同组前面(sticky 置顶)。
+ * 稳定排序:不改变同 favorites 等级内的原有顺序。
+ */
+export function sortByFavoritesFirst<T>(items: readonly T[], getTaskId: (item: T) => string, favorites: ReadonlySet<string>): T[] {
+  const favorited: T[] = [];
+  const rest: T[] = [];
+  for (const item of items) {
+    if (favorites.has(getTaskId(item))) favorited.push(item);
+    else rest.push(item);
+  }
+  return [...favorited, ...rest];
+}

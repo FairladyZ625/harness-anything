@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Kanban,
-  ListBullets,
   SealCheck,
   MagnifyingGlass,
   FolderSimple,
@@ -28,7 +27,6 @@ import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
-import { ListView } from "./views/ListView.tsx";
 import { ReviewWorkbenchView } from "./views/ReviewWorkbenchView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
@@ -49,12 +47,13 @@ import {
 import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
 import { useTasksQuery } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
+import { useFavorites } from "./model/favorites.ts";
+import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 
 type ViewId =
   | "home"
   | "overview"
   | "board"
-  | "list"
   | "decisions"
   | "decisionPool"
   | "factTriage"
@@ -71,10 +70,10 @@ const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
   "adapters",
 ]);
 
+// W2C:列表并入看板(第三种 layout),独立「列表」入口删除。
 const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "总览", icon: <SquaresFour weight="duotone" /> },
   { id: "board", label: "看板", icon: <Kanban weight="duotone" /> },
-  { id: "list", label: "列表", icon: <ListBullets weight="bold" /> },
   { id: "decisions", label: "裁决收件箱", icon: <Scales weight="duotone" /> },
   { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
   { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
@@ -92,7 +91,6 @@ const VIEW_LABEL: Record<ViewId, string> = {
   home: "项目",
   overview: "总览",
   board: "看板",
-  list: "列表",
   decisions: "裁决收件箱",
   decisionPool: "决策池",
   factTriage: "事实分诊",
@@ -120,6 +118,7 @@ function AppShell() {
   const project = useMemo(() => buildRealProject(realTasks), [realTasks]);
   const projectId = project.id;
   const projects = useMemo(() => [project], [project]);
+  const { favorites, toggleFavorite } = useFavorites(projectId);
 
   const decisions = triadicQuery.decisions;
   const facts = triadicQuery.facts;
@@ -129,9 +128,11 @@ function AppShell() {
   const [taskFilters, setTaskFilters] =
     useState<TaskFilters>(DEFAULT_TASK_FILTERS);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
-  const [drill, setDrill] = useState<{ module: string; status: SnapshotStatus } | null>(
-    null,
-  );
+  const [drill, setDrill] = useState<{
+    lane: string;
+    status: SnapshotStatus;
+    groupBy: LaneGroupBy;
+  } | null>(null);
 
   const terminal = useMockTerminal([], () => undefined);
 
@@ -157,8 +158,8 @@ function AppShell() {
     [previewId, tasks],
   );
   const filteredProjectTasks = useMemo(
-    () => applyTaskFilters(projectTasks, taskFilters),
-    [projectTasks, taskFilters],
+    () => applyTaskFilters(projectTasks, taskFilters, favorites),
+    [projectTasks, taskFilters, favorites],
   );
 
   // 裁决收件箱角标:proposed 决策数(唯一面向人的"待人处理"计数)
@@ -182,8 +183,14 @@ function AppShell() {
     goto("overview");
   };
 
-  const drillToBoard = (module: string, status: SnapshotStatus) => {
-    setDrill({ module, status });
+  const drillToBoard = (
+    lane: string,
+    status: SnapshotStatus,
+    dimension: "root" | "module",
+  ) => {
+    // 特殊占位 __all__ 表示不锁定 lane(只 drill 到状态维度)
+    const groupBy: LaneGroupBy = dimension === "root" ? "root" : "module";
+    setDrill({ lane, status, groupBy });
     setView("board");
     setSelectedId(null);
     setPreviewId(null);
@@ -432,15 +439,8 @@ function AppShell() {
                 onUpdate={updateTask}
                 drill={drill}
                 relations={MOCK_RELATIONS}
-              />
-            ) : view === "list" ? (
-              <ListView
-                tasks={filteredProjectTasks}
-                allTasks={projectTasks}
-                filters={taskFilters}
-                onFiltersChange={setTaskFilters}
-                onSelect={openTaskPreview}
-                relations={MOCK_RELATIONS}
+                favorites={favorites}
+                onToggleFavorite={toggleFavorite}
               />
             ) : view === "review" ? (
               <ReviewWorkbenchView

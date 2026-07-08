@@ -19,7 +19,7 @@ function toEngineId(lifecycleEngine: string): EngineId {
   return (KNOWN_ENGINES.has(lifecycleEngine) ? lifecycleEngine : "local") as EngineId;
 }
 
-export function adaptProjectionRow(row: TaskProjectionRow): TaskRow {
+function adaptProjectionRow(row: TaskProjectionRow): TaskRow {
   return {
     taskId: row.taskId,
     title: row.title,
@@ -37,12 +37,48 @@ export function adaptProjectionRow(row: TaskProjectionRow): TaskRow {
     docs: [],
     riskTier: row.riskTier,
     urgency: row.urgency,
-    spawningDecision: row.parentTaskId
+    spawningDecision: row.parentTaskId,
+    parentTaskId: row.parentTaskId
   };
 }
 
+/**
+ * 沿 parentTaskId 链上溯到根任务 id。投影行以 Map 形式提供(taskId→parentTaskId)。
+ * 根任务的 rootTaskId=自身。链中检测到环或指向不存在的 task 时,以当前 task 为根
+ * (防御:不无限循环,投影数据不应有环,但前端不能信任输入)。
+ */
+export function computeRootTaskId(
+  taskId: string,
+  parentById: ReadonlyMap<string, string | undefined>,
+): string {
+  let current = taskId;
+  const visited = new Set<string>();
+  while (true) {
+    if (visited.has(current)) return taskId; // 环防御
+    visited.add(current);
+    const parent = parentById.get(current);
+    if (!parent || !parentById.has(parent)) return current;
+    current = parent;
+  }
+}
+
+/**
+ * 在 adaptProjectionRow 之上补齐 rootTaskId / rootTitle。两阶段:先建 parentById
+ * 查找表,再按表给每个 row 标根与根标题。
+ */
 export function adaptProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): TaskRow[] {
-  return rows.map(adaptProjectionRow);
+  const base = rows.map(adaptProjectionRow);
+  const parentById = new Map<string, string | undefined>();
+  const titleById = new Map<string, string>();
+  for (const task of base) {
+    parentById.set(task.taskId, task.parentTaskId);
+    titleById.set(task.taskId, task.title);
+  }
+  return base.map((task) => {
+    const rootTaskId = computeRootTaskId(task.taskId, parentById);
+    const rootTitle = titleById.get(rootTaskId) ?? task.title;
+    return { ...task, rootTaskId, rootTitle };
+  });
 }
 
 export function buildRealProject(tasks: ReadonlyArray<TaskRow>): Project {
