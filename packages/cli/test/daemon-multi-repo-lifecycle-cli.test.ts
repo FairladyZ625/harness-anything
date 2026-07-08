@@ -153,6 +153,7 @@ function setupRegisteredRepos(workspaceRoot: string): {
   for (const rootDir of [alphaRoot, betaRoot]) {
     mkdirSync(rootDir, { recursive: true });
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    writePeopleRoster(rootDir);
   }
   runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
     HARNESS_DAEMON_USER_ROOT: userRoot
@@ -161,6 +162,46 @@ function setupRegisteredRepos(workspaceRoot: string): {
     HARNESS_DAEMON_USER_ROOT: userRoot
   });
   return { userRoot, alphaRoot, betaRoot };
+}
+
+function writePeopleRoster(rootDir: string): void {
+  const harnessRoot = path.join(rootDir, "harness");
+  mkdirSync(harnessRoot, { recursive: true });
+  writeFileSync(path.join(harnessRoot, "people.yaml"), [
+    "schema: harness-people/v1",
+    "people:",
+    "  - personId: person_daemon_tester",
+    "    displayName: Daemon Tester",
+    "    primaryEmail: daemon-tester@example.test",
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: unix-uid",
+    `        issuer: host:${hostname()}`,
+    `        subject: ${process.getuid?.() ?? 0}`,
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    ""
+  ].join("\n"), "utf8");
+  if (existsSync(path.join(harnessRoot, ".git"))) {
+    execFileSync("git", ["-C", harnessRoot, "add", "--", "people.yaml"], { stdio: "ignore" });
+    execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure daemon people roster"], {
+      stdio: "ignore",
+      env: gitAuthorEnv()
+    });
+  }
+}
+
+function gitAuthorEnv(): NodeJS.ProcessEnv {
+  const name = process.env.HARNESS_GIT_AUTHOR_NAME ?? "Harness Test";
+  const email = process.env.HARNESS_GIT_AUTHOR_EMAIL ?? "harness@example.test";
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: name,
+    GIT_AUTHOR_EMAIL: email,
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? name,
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? email
+  };
 }
 
 function runRawJson(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {

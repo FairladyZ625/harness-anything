@@ -33,7 +33,7 @@ test("WriteCoordinator journals actor person and uses explicit git authors", () 
     const bob = makeJournaledWriteCoordinator({
       rootDir,
       actor: { kind: "human", id: "person_bob" },
-      commitAuthor: { name: "Bob Builder", email: "team-fallback@example.invalid" }
+      commitAuthor: { name: "Bob Builder", email: "bob@example.com" }
     });
 
     Effect.runSync(alice.enqueue(docWrite("op-alice", "task-1", "alice.md", "alice")));
@@ -42,11 +42,13 @@ test("WriteCoordinator journals actor person and uses explicit git authors", () 
     Effect.runSync(alice.flush("explicit"));
 
     Effect.runSync(bob.enqueue(docWrite("op-bob", "task-1", "bob.md", "bob")));
+    const bobJournalBody = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
+    assert.match(bobJournalBody, /"actor":\{"kind":"human","id":"person_bob"\}/u);
     Effect.runSync(bob.flush("explicit"));
 
     assert.deepEqual(
       runGit(rootDir, "log", "-2", "--format=%an <%ae>").split(/\r?\n/u),
-      ["Bob Builder <team-fallback@example.invalid>", "Alice Admin <alice@example.com>"]
+      ["Bob Builder <bob@example.com>", "Alice Admin <alice@example.com>"]
     );
   });
 });

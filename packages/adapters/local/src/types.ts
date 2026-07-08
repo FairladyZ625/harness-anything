@@ -13,6 +13,7 @@ export interface LocalLifecycleOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly coordinator?: WriteCoordinator;
+  readonly actor?: LocalJournalActor;
   readonly clock?: () => Date;
   readonly bindCreateProvenance?: (boundAt: string) => Effect.Effect<ProvenancePayload | undefined, CreateProvenanceRejected>;
 }
@@ -27,6 +28,10 @@ export interface LocalWriteCoordinatorOptions {
   readonly actor?: LocalJournalActor;
   readonly sessionId?: string;
   readonly autoMaterialize?: boolean;
+  readonly commitAuthor?: {
+    readonly name: string;
+    readonly email: string;
+  };
 }
 
 export interface AdapterProviderMetadata {

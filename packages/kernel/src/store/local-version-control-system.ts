@@ -131,10 +131,12 @@ function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        GIT_AUTHOR_NAME: author?.name ?? process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
-        GIT_AUTHOR_EMAIL: author?.email ?? process.env.GIT_AUTHOR_EMAIL ?? "harness@example.invalid",
-        GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
-        GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness@example.invalid"
+        ...(author ? {
+          GIT_AUTHOR_NAME: author.name,
+          GIT_AUTHOR_EMAIL: author.email,
+          GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? author.name,
+          GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? author.email
+        } : {})
       }
     });
   } catch (error) {

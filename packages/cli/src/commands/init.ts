@@ -2,13 +2,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import type { CliGitCommitAuthor } from "../composition/actor-attribution.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
 import { bundledVerticalDefinition } from "./extensions/bundled.ts";
 import { materializeRepositoryScaffold } from "./extensions/repository-scaffold.ts";
 
-export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string): CliResult {
+export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string, commitAuthor?: CliGitCommitAuthor): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const warnings: unknown[] = [];
@@ -33,7 +34,7 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
   const harnessConfigPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   writeHarnessYaml(harnessConfigPath, resolvedProjectName, projectName !== undefined);
   materializeRepositoryScaffold(rootInput, vertical);
-  const isolation = ensureHarnessRepositoryIsolation(rootDir, layout.authoredRoot);
+  const isolation = ensureHarnessRepositoryIsolation(rootDir, layout.authoredRoot, commitAuthor);
   warnings.push(...isolation.warnings);
   const packagePath = path.join(layout.rootDir, "package.json");
   if (addNpmScripts) {
@@ -92,14 +93,14 @@ interface HarnessIsolationReport {
   readonly nextSteps: readonly string[];
 }
 
-function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string): HarnessIsolationResult {
+function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string, commitAuthor?: CliGitCommitAuthor): HarnessIsolationResult {
   const warnings: unknown[] = [];
   const authoredRootRelative = initRelativeLayoutPath(rootDir, authoredRoot);
   const innerGitDir = path.join(authoredRoot, ".git");
   const outerGit = isInsideInitGitWorkTree(rootDir);
   const gitignore = ensureOuterGitignoreIsolation(rootDir, outerGit, authoredRootRelative);
   warnings.push(...gitignore.warnings);
-  const innerRepository = ensureInnerGitRepository(authoredRoot, innerGitDir);
+  const innerRepository = ensureInnerGitRepository(authoredRoot, innerGitDir, commitAuthor);
   warnings.push(...innerRepository.warnings);
 
   return {
@@ -163,7 +164,7 @@ function ensureOuterGitignoreIsolation(rootDir: string, outerGit: boolean, autho
   }
 }
 
-function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string): {
+function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string, commitAuthor?: CliGitCommitAuthor): {
   readonly report: HarnessIsolationReport["innerRepository"];
   readonly warnings: ReadonlyArray<unknown>;
 } {
@@ -182,13 +183,13 @@ function ensureInnerGitRepository(authoredRoot: string, innerGitDir: string): {
 
   try {
     try {
-      runInitGit(authoredRoot, ["init", "--initial-branch=master"]);
+      runInitGit(authoredRoot, ["init", "--initial-branch=master"], commitAuthor);
     } catch {
-      runInitGit(authoredRoot, ["init"]);
-      runInitGit(authoredRoot, ["symbolic-ref", "HEAD", "refs/heads/master"]);
+      runInitGit(authoredRoot, ["init"], commitAuthor);
+      runInitGit(authoredRoot, ["symbolic-ref", "HEAD", "refs/heads/master"], commitAuthor);
     }
-    runInitGit(authoredRoot, ["add", "."]);
-    runInitGit(authoredRoot, ["commit", "-m", "chore: initialize harness ledger"]);
+    runInitGit(authoredRoot, ["add", "."], commitAuthor);
+    runInitGit(authoredRoot, ["commit", "-m", "chore: initialize harness ledger"], commitAuthor);
     return {
       warnings: [],
       report: {
@@ -233,16 +234,18 @@ function readGitText(rootDir: string, args: ReadonlyArray<string>): string | und
   }
 }
 
-function runInitGit(rootDir: string, args: ReadonlyArray<string>): void {
+function runInitGit(rootDir: string, args: ReadonlyArray<string>, author?: CliGitCommitAuthor): void {
   execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
-      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Harness Anything",
-      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "harness-anything@example.invalid",
-      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Harness Anything",
-      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "harness-anything@example.invalid"
+      ...(author ? {
+        GIT_AUTHOR_NAME: author.name,
+        GIT_AUTHOR_EMAIL: author.email,
+        GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? author.name,
+        GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? author.email
+      } : {})
     }
   });
 }

@@ -15,6 +15,9 @@ const roots = ["packages", "tools"];
 // env, so the cache is shared. Lives under node_modules/.cache (already
 // git-ignored).
 process.env.NODE_COMPILE_CACHE ||= resolve(repoRoot, "node_modules/.cache/harness-node-compile");
+process.env.HARNESS_ACTOR ||= "human:harness-test";
+process.env.HARNESS_GIT_AUTHOR_NAME ||= "Harness Test";
+process.env.HARNESS_GIT_AUTHOR_EMAIL ||= "harness@example.test";
 
 let options;
 try {
