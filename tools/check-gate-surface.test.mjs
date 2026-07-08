@@ -166,6 +166,27 @@ test("gate surface check includes a bypass fixture for missing boundary bypass c
   }
 });
 
+test("gate surface check rejects boundary allowlists embedded in the checker file", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      manifest(manifest) {
+        manifest.gates.find((gate) => gate.id === "check-import-boundaries").allowlistPolicy = {
+          allowed: true,
+          location: "tools/check-import-boundaries.mjs",
+          adrOrDecisionRequired: true
+        };
+      }
+    });
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /check-import-boundaries allowlistPolicy\.location must be outside the checker file tools\/check-import-boundaries\.mjs/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-gate-surface-"));
   mkdirSync(path.join(root, "tools"), { recursive: true });

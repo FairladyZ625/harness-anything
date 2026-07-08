@@ -575,14 +575,17 @@
       "tierReason": null,
       "authoritySource": [
         "eslint.config.mjs",
+        "tools/port-physical-io-boundary-known-debt.mjs",
         "package.json:scripts.lint",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6--gate-binary-boundary-architecture-invariants-vs-local-consistency-formatlocal-coherence",
+        "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
         "decision/dec_mr9z0b7m"
       ],
       "consumerScope": [
         "repository JavaScript and TypeScript lint surface",
         "GUI renderer import boundary: renderer must consume window.harness bridge only",
-        "GUI IPC primitive placement: ipcMain.handle and ipcRenderer stay in their approved Electron files"
+        "GUI IPC primitive placement: ipcMain.handle and ipcRenderer stay in their approved Electron files",
+        "kernel/application production-source physical I/O import boundary: fs/fs/promises/child_process imports are rejected outside explicit port implementation debt files"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -597,15 +600,16 @@
       },
       "allowlistPolicy": {
         "allowed": true,
-        "location": "tools/kernel-import-boundary-known-debt.mjs",
+        "location": "tools/kernel-import-boundary-known-debt.mjs; tools/port-physical-io-boundary-known-debt.mjs",
         "adrOrDecisionRequired": true,
-        "notes": "Kernel deep-import known debt is already externalized from eslint.config.mjs; kept in place because ESLint imports this module directly and each entry carries decision+reason evidence."
+        "notes": "Kernel deep-import known debt and W3 port physical-I/O file exceptions are externalized from eslint.config.mjs; ESLint imports these modules directly and each entry carries decision/task plus reason evidence."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "eslint.config.mjs",
+          "tools/port-physical-io-boundary-known-debt.mjs",
           "package.json:scripts.lint"
         ]
       },
@@ -2168,6 +2172,7 @@
         "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d7--meta-gate-guards-cigate-itself",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
         "tools/gate-manifest.json",
+        "tools/gate-surface-boundary-policy.mjs",
         "package.json:scripts.check",
         "package.json:scripts.check:pr",
         ".github/workflows/rewrite-ci.yml",
@@ -2177,7 +2182,7 @@
         "gate manifest to package.json aggregate scripts",
         "gate manifest to rewrite-ci pull-request and full-check surfaces",
         "gate manifest to branch-protection documentation",
-        "manifest tier reasons and boundary gate metadata"
+        "manifest tier reasons, boundary gate metadata, and boundary allowlist authority location checks"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -2201,6 +2206,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-gate-surface.mjs",
+          "tools/gate-surface-boundary-policy.mjs",
           "tools/gate-manifest.json",
           "package.json",
           ".github/workflows/rewrite-ci.yml",
