@@ -425,11 +425,10 @@ function listTextFiles(inputPath: string): ReadonlyArray<string> {
     for (const entry of entries) {
       if (entry.name === ".git" || entry.name === "node_modules") continue;
       const childPath = path.join(dir, entry.name);
-      const childStat = statPathIfPresent(childPath);
-      if (childStat === null) continue;
-      if (childStat.isDirectory()) {
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
         dirQueue.push(childPath);
-      } else if (childStat.isFile() && isTextLikePath(childPath)) {
+      } else if (entry.isFile() && isTextLikePath(childPath)) {
         files.push(childPath);
       }
     }

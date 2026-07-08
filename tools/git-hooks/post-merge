@@ -14,21 +14,48 @@ previous_head=$(git rev-parse --verify ORIG_HEAD 2>/dev/null || true)
 if [ -z "$previous_head" ]; then
   echo "post-merge: ORIG_HEAD unavailable; rebuilding CLI conservatively."
   npm run build -w @harness-anything/cli
+  npm install -g ./packages/cli
   exit 0
 fi
 
-changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
+cli_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
   package-lock.json \
   package.json \
   packages/cli/package.json \
   packages/cli/tsconfig.build.json \
   packages/cli/scripts/copy-assets.mjs \
-  packages/cli/src)
+  packages/cli/src \
+  packages/kernel/package.json \
+  packages/kernel/src \
+  packages/application/package.json \
+  packages/application/src \
+  packages/domain/package.json \
+  packages/domain/src)
 
-if [ -z "$changed_paths" ]; then
-  echo "post-merge: no CLI source or asset changes; skipping CLI build."
+gui_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
+  package-lock.json \
+  package.json \
+  packages/kernel/package.json \
+  packages/kernel/src \
+  packages/application/package.json \
+  packages/application/src \
+  packages/domain/package.json \
+  packages/domain/src \
+  packages/gui/package.json \
+  packages/gui/src)
+
+if [ -z "$cli_changed_paths" ] && [ -z "$gui_changed_paths" ]; then
+  echo "post-merge: no CLI, upstream, or GUI source changes; skipping builds."
   exit 0
 fi
 
-echo "post-merge: CLI source or assets changed; rebuilding @harness-anything/cli."
-npm run build -w @harness-anything/cli
+if [ -n "$cli_changed_paths" ]; then
+  echo "post-merge: CLI source, assets, or upstream packages changed; rebuilding @harness-anything/cli."
+  npm run build -w @harness-anything/cli
+  npm install -g ./packages/cli
+fi
+
+if [ -n "$gui_changed_paths" ]; then
+  echo "post-merge: GUI or upstream packages changed; rebuilding @harness-anything/gui."
+  npm run build -w @harness-anything/gui
+fi
