@@ -11,6 +11,12 @@ import {
   packagedCliEntrypointPath,
   resolveGuiDaemonNodeRuntime
 } from "../src/index.ts";
+import {
+  daemonIdFromEnv,
+  daemonUserRoot,
+  requestLocalDaemonJsonRpcForTarget,
+  resolveLocalDaemonTarget
+} from "../../daemon/src/client/local-json-rpc-client.ts";
 
 test("GUI daemon autostart resolves system Node instead of Electron runtime", () => {
   const electronExecPath = "/Applications/Harness Anything.app/Contents/MacOS/Harness Anything";
@@ -203,6 +209,7 @@ test("GUI service bridge resolves project root before daemon routing", async () 
 
 test("GUI service bridge refuses custom authored root when an existing daemon layout cannot be verified", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
+  let daemonPid: number | undefined;
   try {
     writeTaskIndex(rootDir, "task-1", "Default GUI Task", "planned");
     const defaultBridge = createLocalGuiServiceBridge(rootDir);
@@ -210,13 +217,17 @@ test("GUI service bridge refuses custom authored root when an existing daemon la
     const customList = await withGuiDaemonEnv(rootDir, async () => {
       const defaultList = await defaultBridge.invoke("getTasks", null) as { readonly ok: boolean };
       assert.equal(defaultList.ok, true);
+      const status = daemonStatusData(await readDaemonStatus(rootDir));
+      assert.equal(status.started, true);
+      daemonPid = daemonPidFromStatus(status);
+      assert.equal(typeof daemonPid, "number");
       return customBridge.invoke("getTasks", null);
-    }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+    }, { idleMs: "0" }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
     assert.equal(customList.ok, false);
     assert.equal(customList.error?.code, "daemon_layout_conflict");
     assert.match(customList.error?.hint ?? "", /layout/u);
   } finally {
-    await waitForDaemonIdle();
+    await stopDaemonProcess(daemonPid);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -249,11 +260,15 @@ test("GUI service bridge shipped methods are registry-driven and deferred method
   }
 });
 
-async function withGuiDaemonEnv<T>(rootDir: string, run: () => Promise<T>): Promise<T> {
+async function withGuiDaemonEnv<T>(
+  rootDir: string,
+  run: () => Promise<T>,
+  options: { readonly idleMs?: string } = {}
+): Promise<T> {
   const previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
   const previousIdleMs = process.env.HARNESS_DAEMON_IDLE_MS;
   process.env.HARNESS_DAEMON_USER_ROOT = path.join(rootDir, "user-daemon");
-  process.env.HARNESS_DAEMON_IDLE_MS = "250";
+  process.env.HARNESS_DAEMON_IDLE_MS = options.idleMs ?? "250";
   try {
     return await run();
   } finally {
@@ -309,4 +324,79 @@ function restoreEnv(name: string, value: string | undefined): void {
 
 function waitForDaemonIdle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 700));
+}
+
+async function readDaemonStatus(rootDir: string): Promise<Record<string, unknown>> {
+  const target = resolveLocalDaemonTarget({
+    rootDir,
+    userRoot: daemonUserRoot(),
+    daemonId: daemonIdFromEnv(),
+    autoRegisterSingleRepo: false
+  });
+  return await requestLocalDaemonJsonRpcForTarget(target, "repo.daemon.status", {
+    repo: { repoId: target.repoId }
+  }, 1_000);
+}
+
+function daemonPidFromStatus(status: Record<string, unknown>): number | undefined {
+  const daemonId = status.daemonId;
+  if (typeof daemonId !== "string") return undefined;
+  const match = /^ha-(\d+)$/u.exec(daemonId);
+  if (!match) return undefined;
+  const pid = Number.parseInt(match[1]!, 10);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+function daemonStatusData(receipt: Record<string, unknown>): Record<string, unknown> {
+  const details = receipt.details;
+  const data = details && typeof details === "object" && "data" in details
+    ? (details as { readonly data?: unknown }).data
+    : undefined;
+  assert.equal(receipt.ok, true);
+  assert.equal(typeof data, "object");
+  assert.notEqual(data, null);
+  assert.equal(Array.isArray(data), false);
+  return data as Record<string, unknown>;
+}
+
+async function stopDaemonProcess(pid: number | undefined): Promise<void> {
+  if (!pid) return;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (isNoSuchProcess(error)) return;
+    throw error;
+  }
+  await waitForProcessExit(pid, 2_000);
+}
+
+function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (isNoSuchProcess(error)) {
+          resolve();
+          return;
+        }
+        reject(error);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(new Error(`daemon process ${pid} did not exit within ${timeoutMs}ms`));
+        return;
+      }
+      setTimeout(check, 25);
+    };
+    check();
+  });
+}
+
+function isNoSuchProcess(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { readonly code?: unknown }).code === "ESRCH";
 }
