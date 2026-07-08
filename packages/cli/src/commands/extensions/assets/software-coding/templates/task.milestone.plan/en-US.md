@@ -32,7 +32,7 @@ State in one sentence who gets which verifiable capability from this milestone.
 ## Context
 
 - Map document: `harness/milestones/<line>/<slug>/00-overview.md`
-- Roadmap: `harness/milestones/00-roadmap.md`
+- Roadmap: `<harness root>/milestones/00-roadmap.md`
 - Structured table: `harness/milestones/dossier-data.md`
 - Charter decision: `dec_*`, decided by the CEO; this preset validates the anchor but does not create the decision.
 

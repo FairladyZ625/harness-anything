@@ -87,7 +87,8 @@ test("CLI create-milestone preset wins over --long-running and scaffolds milesto
     assert.match(overview, /npm run pr:doctor/u);
     assert.match(overview, /fan-out pending/u);
     assert.match(overview, /\| W0 \| fan-out pending/u);
-    assert.match(readFileSync(path.join(rootDir, "harness/milestones/00-roadmap.md"), "utf8"), new RegExp(created.taskId, "u"));
+    const roadmapPath = path.join(rootDir, "harness", "milestones", "00-roadmap.md");
+    assert.match(readFileSync(roadmapPath, "utf8"), new RegExp(created.taskId, "u"));
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/dossier-data.md"), "utf8"), new RegExp(created.taskId, "u"));
     assert.equal(existsSync(path.join(rootDir, "harness/milestones/milestones-dossier.html")), true);
     assert.match(readFileSync(path.join(rootDir, "harness/milestones/milestones-dossier.html"), "utf8"), /Milestone Dossier/u);
