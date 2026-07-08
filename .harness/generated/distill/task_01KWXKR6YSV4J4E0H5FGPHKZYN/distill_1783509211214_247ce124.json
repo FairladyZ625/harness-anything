@@ -1,0 +1,11 @@
+{
+  "schema": "distill-candidate/v1",
+  "candidateId": "distill_1783509211214_247ce124",
+  "taskId": "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
+  "command": "ha distill candidate",
+  "factState": "candidate",
+  "inputPath": "harness/tasks/task_01KWXKR6YSV4J4E0H5FGPHKZYN-plt-bedrock-w3-port-c7/closeout.md",
+  "inputSha256": "c7a83808998bc5893313766cf296c3897585a6de3471639fe14e6d08441b78a5",
+  "suggestedClaim": "# Closeout",
+  "createdAt": "2026-07-08T11:13:31.214Z"
+}

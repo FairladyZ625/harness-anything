@@ -1,0 +1,3 @@
+# Facts
+
+- {fact_id: F-QV49H6GC, statement: "fleet-vision context 已以 dec_mrcatnjo 为锚完成 principal/node identity/authorship 措辞对齐; crosswalk 记录 dec_mrcatnjo active supersedes dec_mrc9dgik rejected,并列出 dec_mrc9dpxk active、dec_mrc9dyd5 deferred、dec_mrc9e600 active、dec_mrc9ef3g active; glossary 已新增 principal/node identity/authorship 三词条。", source: "commits c5661d2f,6110eb2d,086023e0,35941fe6,f14c2937,57844858,1dc8fc2b,8befb3f6,bfae2eff,69b4d506,69ffae2e; rg dec_mrcatnjo/principal/authorship", observedAt: "2026-07-08T17:03:12.392Z", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: "claude-code", sessionId: "657f6b32-c3b6-4963-a2bc-7034fe5dca81", boundAt: "2026-07-08T17:03:12.392Z"}]}

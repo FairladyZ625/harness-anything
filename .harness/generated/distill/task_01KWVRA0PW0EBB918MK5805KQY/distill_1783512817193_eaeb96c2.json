@@ -1,0 +1,11 @@
+{
+  "schema": "distill-candidate/v1",
+  "candidateId": "distill_1783512817193_eaeb96c2",
+  "taskId": "task_01KWVRA0PW0EBB918MK5805KQY",
+  "command": "ha distill candidate",
+  "factState": "candidate",
+  "inputPath": "harness/tasks/task_01KWVRA0PW0EBB918MK5805KQY-cli-task-show-relation-list/closeout.md",
+  "inputSha256": "c089dbd63c9d09073cc0ad1c17cc164578084c032b15a4819fe808e59576142e",
+  "suggestedClaim": "# Closeout",
+  "createdAt": "2026-07-08T12:13:37.193Z"
+}

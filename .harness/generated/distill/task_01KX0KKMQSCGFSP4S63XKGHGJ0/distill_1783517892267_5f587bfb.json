@@ -1,0 +1,11 @@
+{
+  "schema": "distill-candidate/v1",
+  "candidateId": "distill_1783517892267_5f587bfb",
+  "taskId": "task_01KX0KKMQSCGFSP4S63XKGHGJ0",
+  "command": "ha distill candidate",
+  "factState": "candidate",
+  "inputPath": "harness/tasks/task_01KX0KKMQSCGFSP4S63XKGHGJ0-retire-graph-archived-d3/closeout.md",
+  "inputSha256": "acf7e7ee763591bc302aedadd6c6795acca24f3f5bb8616fa1fa1a901b21365d",
+  "suggestedClaim": "# Closeout",
+  "createdAt": "2026-07-08T13:38:12.267Z"
+}

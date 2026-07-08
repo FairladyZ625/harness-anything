@@ -1,0 +1,11 @@
+{
+  "schema": "distill-candidate/v1",
+  "candidateId": "distill_1783530920449_c6753492",
+  "taskId": "task_01KX19GW0S8ZBJY1DNYWVDYKK3",
+  "command": "ha distill candidate",
+  "factState": "candidate",
+  "inputPath": "harness/tasks/task_01KX19GW0S8ZBJY1DNYWVDYKK3-mc-ctx-fleet-vision-context-dec-mrcatnjo-principal/closeout.md",
+  "inputSha256": "3537a55f6646da0eeea57b9965c70c19e466ad8ec0a2c4e33376fe55bbb18334",
+  "suggestedClaim": "# Closeout",
+  "createdAt": "2026-07-08T17:15:20.449Z"
+}
