@@ -175,10 +175,10 @@ function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOp
 function canonicalHarnessRoot(rootDir: string): string {
   const realRoot = existsSync(path.resolve(rootDir)) ? realpathSync.native(path.resolve(rootDir)) : invalidCanonicalRoot(rootDir);
   const layout = resolveHarnessLayout(realRoot);
-  if (layout.rootDir !== realRoot || !layout.configPath || !existsSync(layout.configPath)) {
+  if (!layout.configPath || !existsSync(layout.configPath)) {
     throw new Error(`canonicalRoot must be an initialized harness repository: ${rootDir}`);
   }
-  return realRoot;
+  return realpathSync.native(layout.rootDir);
 }
 
 function generateRepoId(displayName: string, canonicalRoot: string, repos: ReadonlyArray<DaemonRegistryRepo>): string {
