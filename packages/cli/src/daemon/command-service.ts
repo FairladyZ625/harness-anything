@@ -1,7 +1,11 @@
-import { actorGitCommitAuthor, type AuthenticatedActor, type JsonObject } from "../../../daemon/src/index.ts";
+import { Effect } from "effect";
+import type { AuthenticatedActor, JsonObject } from "../../../daemon/src/index.ts";
+import type { WriteCoordinator } from "../../../kernel/src/index.ts";
+import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
+import { CliActorAttributionError, daemonActorAttribution } from "../composition/actor-attribution.ts";
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
 import { makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
@@ -21,23 +25,49 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       const command = readParsedCommandPayload(payload);
       const daemonActor = context?.actor;
       try {
+        const attribution = daemonActor ? daemonActorAttribution(daemonActor) : undefined;
         const result = await runRegisteredCommandWithCliComposition(command, {
-          makeWriteCoordinator: (actor) => makeDaemonQueuedWriteCoordinator(
-            runtime,
-            `${command.action.kind}:${actor.kind}:${actor.id}`,
-            daemonActor
-              ? {
-                actor: { kind: "human", id: daemonActor.personId },
-                commitAuthor: actorGitCommitAuthor(daemonActor, "harness@example.invalid")
-              }
-              : undefined
-          )
+          requireProvidedActorAttribution: true,
+          ...(attribution ? { actorAttribution: attribution } : {
+            missingActorAttributionMessage: "Daemon writes require a per-request authenticated actor from harness/people.yaml."
+          }),
+          makeWriteCoordinator: (actor) => attribution
+            ? makeDaemonQueuedWriteCoordinator(
+              runtime,
+              `${command.action.kind}:${actor.kind}:${actor.id}`,
+              { actor: attribution.actor, commitAuthor: attribution.commitAuthor }
+            )
+            : missingDaemonActorCoordinator(command.action.kind, actor)
         });
         return toCommandReceipt(result);
+      } catch (error) {
+        if (error instanceof CliActorAttributionError) {
+          return toCommandReceipt({
+            ok: false,
+            command: command.action.kind,
+            error: cliError(CliErrorCode.AuthMissing, error.message)
+          });
+        }
+        throw error;
       } finally {
         options.onCommandSettled?.();
       }
     }
+  };
+}
+
+function missingDaemonActorCoordinator(
+  commandKind: string,
+  requestedActor: { readonly kind: "agent" | "human" | "system"; readonly id: string }
+): WriteCoordinator {
+  const fail = () => Effect.fail({
+    _tag: "JournalUnavailable" as const,
+    cause: new Error(`Daemon command ${commandKind} requires a per-request authenticated actor from harness/people.yaml. Requested writer: ${requestedActor.kind}:${requestedActor.id}.`)
+  });
+  return {
+    enqueue: () => fail(),
+    flush: () => fail(),
+    recover: fail()
   };
 }
 

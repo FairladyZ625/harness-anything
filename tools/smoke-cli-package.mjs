@@ -113,7 +113,21 @@ export function buildCliPackageArtifact(root, options = {}) {
 }
 
 function runJson(command, args, cwd) {
-  return unwrapReceipt(JSON.parse(execFileSync(command.file, [...command.argsPrefix, ...args], { cwd, encoding: "utf8" })));
+  return unwrapReceipt(JSON.parse(execFileSync(command.file, [...command.argsPrefix, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: smokeCliWriteEnv()
+  })));
+}
+
+function smokeCliWriteEnv() {
+  return {
+    ...process.env,
+    // Test-only actor attribution for package smoke writes; real env wins.
+    HARNESS_ACTOR: process.env.HARNESS_ACTOR || "human:harness-smoke",
+    HARNESS_GIT_AUTHOR_NAME: process.env.HARNESS_GIT_AUTHOR_NAME || "Harness Smoke",
+    HARNESS_GIT_AUTHOR_EMAIL: process.env.HARNESS_GIT_AUTHOR_EMAIL || "harness-smoke@example.test"
+  };
 }
 
 function resolveBinCommand(consumerDir, name) {

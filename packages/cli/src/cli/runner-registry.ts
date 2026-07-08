@@ -14,6 +14,7 @@ import { toCliError } from "./error-mapper.ts";
 import { actionTaskId } from "./parse-args.ts";
 import { appendCommandRuntimeEvent } from "./command-runtime-events.ts";
 import type { CliResult, MaterializerCommandReport, ParsedCommand } from "./types.ts";
+import type { CliActorAttribution } from "../composition/actor-attribution.ts";
 import {
   runDiagnosticsCommand,
   runCapabilitiesCommand,
@@ -49,6 +50,7 @@ export interface CommandRunnerContext {
   readonly syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
   readonly runtimeEventLedgerService: RuntimeEventLedgerService;
   readonly makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
+  readonly actorAttribution: () => CliActorAttribution;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
   readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
@@ -145,6 +147,7 @@ export function runRegisteredCommand(
   makeProvenanceSessionExporter: () => ProvenanceSessionExporter,
   syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>,
   makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator,
+  actorAttribution: () => CliActorAttribution,
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService,
   makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
@@ -193,6 +196,7 @@ export function runRegisteredCommand(
     },
     syncExportedSession,
     makeWriteCoordinator,
+    actorAttribution,
     get decisionWriteService() {
       decisionWriteService ??= makeDecisionWriteService();
       return decisionWriteService;

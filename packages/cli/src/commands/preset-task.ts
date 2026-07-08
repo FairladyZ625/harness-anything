@@ -205,7 +205,7 @@ export function runNewTaskWithPreset(
       }] : []),
       ...readSetWrite
     ];
-    const coordinator = makeWriteCoordinator?.({ kind: "agent", id: "local-lifecycle" });
+    const coordinator = makeWriteCoordinator?.({ kind: "agent", id: "preset-task" });
     if (!coordinator) return yield* Effect.fail({ _tag: "JournalUnavailable", cause: new Error("write coordinator factory is required") } satisfies WriteError);
     const opId = `${Date.now()}-${stablePayloadHash({ kind: "package_create", writes }).slice(0, 16)}`;
     yield* coordinator.enqueue({

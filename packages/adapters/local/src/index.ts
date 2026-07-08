@@ -79,6 +79,9 @@ export const localAdapterProviderMetadata = {
 } as const satisfies AdapterProviderMetadata;
 
 export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions): WriteCoordinator {
+  if (!options.actor) {
+    throw new Error("Local write coordinator requires explicit actor attribution.");
+  }
   return makeJournaledWriteCoordinator({
     ...options,
     lockConflictRetry: localLockConflictRetry
@@ -91,7 +94,7 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
   const coordinator = options.coordinator ?? makeLocalWriteCoordinator({
     rootDir,
     layoutOverrides: options.layoutOverrides,
-    actor: { kind: "agent", id: "local-lifecycle" }
+    actor: options.actor
   });
   const clock = options.clock ?? (() => new Date());
 

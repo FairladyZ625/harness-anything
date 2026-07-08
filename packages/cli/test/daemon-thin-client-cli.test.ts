@@ -21,7 +21,13 @@ test("daemon client mode preserves command receipt output shape against direct m
 
 test("daemon client auto-starts, durably writes, and exits after idle", () => {
   withTempRoot((rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "250" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    writePeopleRoster(rootDir, {
+      personId: "person_auto",
+      displayName: "Auto User",
+      email: "auto@example.test",
+      role: "owner"
+    });
     const created = runRawJson(rootDir, ["new-task", "--title", "Daemon Client Write"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "250" });
 
     assert.equal(created.ok, true);
@@ -90,11 +96,11 @@ test("daemon client writes git commits with the resolved actor author", () => {
 
 test("concurrent daemon client startup converges on one lock owner and both clients continue", async () => {
   await withTempRootAsync(async (rootDir) => {
-    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "1500" });
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
 
     const [left, right] = await Promise.all([
-      runRawJsonAsync(rootDir, ["task", "list"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "1500" }),
-      runRawJsonAsync(rootDir, ["task", "list"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "1500" })
+      runRawJsonAsync(rootDir, ["task", "list"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000" }),
+      runRawJsonAsync(rootDir, ["task", "list"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "10000" })
     ]);
 
     assert.equal(left.ok, true);
@@ -109,6 +115,12 @@ test("concurrent daemon client writes serialize into linear git history", async 
   await withTempRootAsync(async (rootDir) => {
     initGitRepo(rootDir);
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    writePeopleRoster(rootDir, {
+      personId: "person_concurrent",
+      displayName: "Concurrent User",
+      email: "concurrent@example.test",
+      role: "owner"
+    });
     const harnessRoot = path.join(rootDir, "harness");
     const beforeCount = Number(git(harnessRoot, "rev-list", "--count", "HEAD"));
 
@@ -258,6 +270,12 @@ test("daemon client resolves an existing single-repo registry without requiring 
   withTempRoot((rootDir) => {
     const userRoot = path.join(rootDir, "user-daemon");
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    writePeopleRoster(rootDir, {
+      personId: "person_registered",
+      displayName: "Registered User",
+      email: "registered@example.test",
+      role: "owner"
+    });
     const registered = runDaemonCommand(rootDir, ["daemon", "repo", "register", "--repo-id", "canonical", "--user-root", userRoot, "--no-link", "--json"], {
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
@@ -646,6 +664,28 @@ function writePeopleRoster(rootDir: string, person: {
     "    commandClasses: [repo-write, repo-read]",
     ""
   ].join("\n"), "utf8");
+  commitPeopleRoster(harnessRoot);
+}
+
+function commitPeopleRoster(harnessRoot: string): void {
+  if (!existsSync(path.join(harnessRoot, ".git"))) return;
+  execFileSync("git", ["-C", harnessRoot, "add", "--", "people.yaml"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure daemon people roster"], {
+    stdio: "ignore",
+    env: gitAuthorEnv()
+  });
+}
+
+function gitAuthorEnv(): NodeJS.ProcessEnv {
+  const name = process.env.HARNESS_GIT_AUTHOR_NAME ?? "Harness Test";
+  const email = process.env.HARNESS_GIT_AUTHOR_EMAIL ?? "harness@example.test";
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: name,
+    GIT_AUTHOR_EMAIL: email,
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? name,
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? email
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

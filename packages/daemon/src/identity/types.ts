@@ -129,9 +129,11 @@ export function actorStampJson(actor: AuthenticatedActor): JsonObject {
   };
 }
 
-export function actorGitCommitAuthor(actor: AuthenticatedActor, fallbackEmail: string): GitCommitAuthor {
+export function actorGitCommitAuthor(actor: AuthenticatedActor): GitCommitAuthor {
+  const email = actor.primaryEmail?.trim();
+  if (!email) throw new Error(`Actor ${actor.personId} requires primaryEmail for git author attribution.`);
   return {
     name: actor.displayName,
-    email: actor.primaryEmail?.trim() || fallbackEmail
+    email
   };
 }

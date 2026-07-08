@@ -12,7 +12,17 @@ const initSmokeSlug = "harness-onboarding-smoke";
 
 export const runInitCommand: CommandRunner = (context, command) => {
   const action = command.action as Extract<typeof command.action, { readonly kind: "init" }>;
-  return Effect.sync(() => initializeHarness(context.layoutInput, action.addNpmScripts, action.projectName))
+  return Effect.sync(() => {
+    try {
+      return initializeHarness(context.layoutInput, action.addNpmScripts, action.projectName, context.actorAttribution().commitAuthor);
+    } catch (error) {
+      return {
+        ok: false,
+        command: "init",
+        error: cliError(CliErrorCode.AuthMissing, error instanceof Error ? error.message : String(error))
+      } satisfies CliResult;
+    }
+  })
     .pipe(Effect.flatMap((result) => runConfigureVerifySmoke(context, result)));
 };
 
@@ -20,6 +30,7 @@ function runConfigureVerifySmoke(
   context: Parameters<CommandRunner>[0],
   result: CliResult
 ): ReturnType<CommandRunner> {
+  if (!result.ok) return Effect.succeed(result);
   return Effect.sync(() => {
     const layout = resolveHarnessLayout(context.layoutInput);
     const smokeTaskId = generateTaskId();

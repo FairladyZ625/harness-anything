@@ -71,7 +71,7 @@ export function runNewTaskFromLegacy(
       const packagePath = createTaskPackagePath(rootInput, taskId, slug);
       const provenance = buildLegacyProvenance(legacySource.entry, createdAt);
       const provenanceMd = renderLegacyProvenanceMarkdown(rootDir, packagePath, legacySource.entry);
-      const coordinator = makeWriteCoordinator({ kind: "agent", id: "local-lifecycle" });
+      const coordinator = makeWriteCoordinator({ kind: "agent", id: "legacy-rebuild" });
       const writes = [
         { taskId, path: "INDEX.md", body: renderIndex(index), packageSlug: slug },
         { taskId, path: "legacy-provenance.json", body: `${JSON.stringify(provenance, null, 2)}\n`, packageSlug: slug },

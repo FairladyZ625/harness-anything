@@ -251,22 +251,22 @@
     ],
     "exemptHumanOrBootstrap": [
       {
-        "value": "packages/cli/src/commands/core/init.ts#mkdirSync@97:3",
+        "value": "packages/cli/src/commands/core/init.ts#mkdirSync@108:3",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init Configure-Verify smoke package bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/core/init.ts#rmSync@31:7",
+        "value": "packages/cli/src/commands/core/init.ts#rmSync@42:7",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/core/init.ts#rmSync@39:7",
+        "value": "packages/cli/src/commands/core/init.ts#rmSync@50:7",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/core/init.ts#writeFileSync@98:3",
+        "value": "packages/cli/src/commands/core/init.ts#writeFileSync@109:3",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init Configure-Verify smoke package bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
@@ -476,32 +476,32 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#mkdirSync@30:5",
+        "value": "packages/cli/src/commands/init.ts#mkdirSync@31:5",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init local directory bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#mkdirSync@286:5",
+        "value": "packages/cli/src/commands/init.ts#mkdirSync@289:5",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init harness.yaml bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@52:5",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@53:5",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init optional package.json script bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@287:5",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@290:5",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init harness.yaml bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@296:3",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@299:3",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init harness.yaml name update write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@303:3",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@306:3",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init outer .gitignore bootstrap isolation write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
