@@ -121,6 +121,18 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
   }
 
+  const currentDecisionRowsHash = hashDecisionProjectionRows(readDecisionProjectionRows(runtimeContext));
+  if ((existing.meta.decisionRowsHash ?? "") !== currentDecisionRowsHash) {
+    warnings.push(warning(
+      "generated-cache",
+      "projection_stale",
+      "Projection decision cache was stale and has been rebuilt from markdown.",
+      "Run harness-anything governance rebuild after authored decision changes or merges."
+    ));
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
+    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+  }
+
   return {
     rows: [...existing.rows].sort(compareRows),
     warnings
