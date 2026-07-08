@@ -33,6 +33,9 @@ export function generateGraphPanorama(input: GenerateGraphPanoramaInput = {}): R
   const rootDir = path.resolve(input.rootDir ?? process.cwd());
   const projectionPath = path.resolve(rootDir, input.projectionPath ?? defaultProjectionPath);
   const outputPath = path.resolve(rootDir, input.outputPath ?? defaultOutputPath);
+  if (!existsSync(projectionPath)) {
+    throw new Error(`Projection database not found: ${projectionPath}`);
+  }
   const includeArchived = input.includeArchived === true;
   const visibility = readGraphVisibility(projectionPath, includeArchived);
   const graphRows = applyGraphVisibility(
@@ -94,6 +97,9 @@ function readGraphVisibility(projectionPath: string, includeArchived: boolean): 
   if (includeArchived) return { includeArchived, archivedTaskIds: new Set() };
   const db = new DatabaseSync(projectionPath, { readOnly: true });
   try {
+    if (!hasColumn(db, "task_projection", "package_disposition")) {
+      return { includeArchived, archivedTaskIds: new Set() };
+    }
     return {
       includeArchived,
       archivedTaskIds: new Set(safeAll(db, "SELECT task_id FROM task_projection WHERE package_disposition != 'active' ORDER BY task_id")
@@ -111,8 +117,12 @@ function readProjectedEntities(
 ): ReadonlyArray<ProjectedEntity> {
   const db = new DatabaseSync(projectionPath, { readOnly: true });
   try {
-    const taskWhere = visibility.includeArchived ? "" : "WHERE package_disposition = 'active'";
-    const tasks = safeAll(db, `SELECT task_id, title, canonical_status AS state, package_disposition FROM task_projection ${taskWhere} ORDER BY task_id`)
+    const hasPackageDisposition = hasColumn(db, "task_projection", "package_disposition");
+    const taskWhere = visibility.includeArchived || !hasPackageDisposition ? "" : "WHERE package_disposition = 'active'";
+    const taskColumns = hasPackageDisposition
+      ? "task_id, title, canonical_status AS state, package_disposition"
+      : "task_id, title, canonical_status AS state, 'active' AS package_disposition";
+    const tasks = safeAll(db, `SELECT ${taskColumns} FROM task_projection ${taskWhere} ORDER BY task_id`)
       .map((row) => ({
         kind: "task",
         ref: `task/${String(row.task_id ?? "")}`,
@@ -134,6 +144,11 @@ function safeAll(db: DatabaseSync, sql: string): ReadonlyArray<Record<string, un
   } catch {
     return [];
   }
+}
+
+function hasColumn(db: DatabaseSync, tableName: string, columnName: string): boolean {
+  return safeAll(db, `PRAGMA table_info(${tableName})`)
+    .some((row) => row.name === columnName);
 }
 
 function applyGraphVisibility(
