@@ -1,0 +1,202 @@
+name: gui-release
+
+on:
+  push:
+    tags:
+      - "gui-v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to build, for example gui-v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: gui-release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  release-context:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.context.outputs.release_tag }}
+      release_version: ${{ steps.context.outputs.release_version }}
+    steps:
+      - id: context
+        env:
+          DISPATCH_RELEASE_TAG: ${{ github.event.inputs.release_tag || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            release_tag="${DISPATCH_RELEASE_TAG}"
+          fi
+
+          if [[ ! "${release_tag}" =~ ^gui-v[0-9A-Za-z._-]+$ ]]; then
+            echo "release_tag must match ^gui-v[0-9A-Za-z._-]+$; got ${release_tag}" >&2
+            exit 1
+          fi
+
+          echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_version=${release_tag#gui-v}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    needs: release-context
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-14
+            artifact_dir: macos-arm64
+            builder_args: --mac --arm64
+          - name: windows-x64
+            os: windows-latest
+            artifact_dir: windows-x64
+            builder_args: --win --x64
+          - name: linux-x64
+            os: ubuntu-latest
+            artifact_dir: linux-x64
+            builder_args: --linux AppImage deb --x64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && needs.release-context.outputs.release_tag || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg
+
+      - run: npm ci
+
+      - name: Prepare GUI desktop runtime
+        working-directory: packages/gui
+        run: npm run package:prepare
+
+      - name: Build GUI package
+        working-directory: packages/gui
+        env:
+          HARNESS_GUI_BUILDER_OUTPUT: ../../dist/gui-release/${{ matrix.artifact_dir }}
+          WIN_CSC_LINK: ""
+          CSC_LINK: ""
+        run: npx electron-builder --config electron-builder.config.mjs ${{ matrix.builder_args }}
+
+      - name: Write SHA256SUMS
+        env:
+          ARTIFACT_DIR: ${{ matrix.artifact_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { createHash } = require("node:crypto");
+          const { readdirSync, readFileSync, writeFileSync } = require("node:fs");
+          const path = require("node:path");
+
+          const root = path.resolve("dist/gui-release", process.env.ARTIFACT_DIR);
+          const files = [];
+          const releaseAssetPattern = /\.(?:AppImage|blockmap|deb|dmg|exe|zip)$/u;
+          function walk(dir) {
+            for (const entry of readdirSync(dir, { withFileTypes: true })) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                walk(fullPath);
+              } else if (releaseAssetPattern.test(entry.name)) {
+                files.push(fullPath);
+              }
+            }
+          }
+          walk(root);
+          files.sort();
+
+          const lines = files.map((file) => {
+            const hash = createHash("sha256").update(readFileSync(file)).digest("hex");
+            const relativePath = path.relative(root, file).split(path.sep).join("/");
+            return `${hash}  ${relativePath}`;
+          });
+          writeFileSync(path.join(root, `SHA256SUMS-${process.env.ARTIFACT_DIR}.txt`), `${lines.join("\n")}\n`);
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-${{ matrix.artifact_dir }}
+          path: dist/gui-release/${{ matrix.artifact_dir }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs:
+      - release-context
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gui-*
+          path: dist/gui-release-artifacts
+
+      - name: Write release notes
+        env:
+          RELEASE_TAG: ${{ needs.release-context.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.release_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          # Harness Anything GUI ${RELEASE_VERSION}
+
+          Draft pre-release build for the desktop GUI packaging wave.
+
+          ## Signing status
+
+          These artifacts are unsigned and unnotarized by design. No Apple Developer ID, Apple notarization, or Windows code-signing certificate is used for this pre-release.
+
+          ## Artifacts
+
+          - macOS arm64: unsigned dmg and zip.
+          - Windows x64: unsigned NSIS installer. Build produced by CI; Windows runtime/install flow not manually tested.
+          - Linux x64: unsigned AppImage and deb. Build produced by CI; Linux runtime/install flow not manually tested.
+          - SHA256SUMS files are included per platform.
+
+          ## Notes
+
+          The Windows and Linux packages are first-pass CI artifacts for inspection and smoke distribution. Treat them as unverified until platform-specific install and runtime testing is completed.
+          EOF
+
+      - name: Create or update draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.release_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="Harness Anything GUI ${RELEASE_VERSION}"
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" --draft --prerelease --title "${title}" --notes-file release-notes.md --target "${GITHUB_SHA}"
+          else
+            gh release create "${RELEASE_TAG}" --draft --prerelease --title "${title}" --notes-file release-notes.md --target "${GITHUB_SHA}"
+          fi
+
+          mapfile -d '' assets < <(find dist/gui-release-artifacts -type f \( -name '*.AppImage' -o -name '*.blockmap' -o -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.zip' -o -name 'SHA256SUMS-*.txt' \) -print0)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets found." >&2
+            exit 1
+          fi
+          gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
