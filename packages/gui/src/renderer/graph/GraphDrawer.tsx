@@ -1,4 +1,4 @@
-import { X, GitBranch, ArrowSquareOut } from "@phosphor-icons/react";
+import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { RelationEdge } from "../model/types";
 import {
   StatusBadge,
@@ -42,6 +42,8 @@ interface Props {
   downCount: number;
   onClose: () => void;
   onFocus: (id: string | null) => void;
+  /** W2B 活链接:在列表/详情侧打开该 entity(task→detail, decision→pool, fact→triage) */
+  onNavigateEntity?: (ref: string) => void;
 }
 
 export function GraphDrawer({
@@ -53,6 +55,7 @@ export function GraphDrawer({
   downCount,
   onClose,
   onFocus,
+  onNavigateEntity,
 }: Props) {
   if (focusEdge) {
     return (
@@ -123,6 +126,16 @@ export function GraphDrawer({
         <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">
           {focusNode.entity}
         </span>
+        {onNavigateEntity && (
+          <button
+            onClick={() => onNavigateEntity(focusNode.id)}
+            title="在侧栏打开(task→详情, decision→决策池, fact→分诊)"
+            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-strong hover:text-text"
+          >
+            <ArrowsOutSimple weight="bold" className="text-[10px]" />
+            打开
+          </button>
+        )}
         <button
           onClick={onClose}
           title="退出聚焦 (Esc)"

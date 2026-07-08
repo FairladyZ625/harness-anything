@@ -15,6 +15,7 @@ import {
   CloudSlash,
   WarningCircle,
   GitBranch,
+  FirstAidKit,
 } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import {
@@ -31,6 +32,7 @@ import { ListView } from "./views/ListView.tsx";
 import { ReviewWorkbenchView } from "./views/ReviewWorkbenchView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
+import { FactTriageView } from "./views/FactTriageView.tsx";
 import { GraphView } from "./views/GraphView.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
@@ -55,6 +57,7 @@ type ViewId =
   | "list"
   | "decisions"
   | "decisionPool"
+  | "factTriage"
   | "review"
   | "graph"
   | "presets"
@@ -74,6 +77,7 @@ const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: "list", label: "列表", icon: <ListBullets weight="bold" /> },
   { id: "decisions", label: "裁决收件箱", icon: <Scales weight="duotone" /> },
   { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
+  { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
   { id: "review", label: "审阅工作台", icon: <SealCheck weight="duotone" /> },
   { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
 ];
@@ -91,6 +95,7 @@ const VIEW_LABEL: Record<ViewId, string> = {
   list: "列表",
   decisions: "裁决收件箱",
   decisionPool: "决策池",
+  factTriage: "事实分诊",
   review: "审阅工作台",
   graph: "关系图",
   presets: "Preset / Vertical",
@@ -193,6 +198,20 @@ function AppShell() {
     setPreviewId(null);
     setSelectedId(id);
   };
+
+  // W2B 活链接:跨实体跳转(task→详情, decision→决策池, fact→事实分诊)
+  const navigateToEntity = (ref: string) => {
+    if (ref.startsWith("task/")) {
+      const id = ref.slice(5).split("/")[0];
+      openTaskDetail(id);
+    } else if (ref.startsWith("decision/")) {
+      goto("decisionPool");
+    } else if (ref.startsWith("fact/")) {
+      goto("factTriage");
+    }
+  };
+  const navigateToDecision = (_decisionId: string) => goto("decisionPool");
+  const navigateToTask = (taskId: string) => openTaskDetail(taskId);
 
   const showMockBanner = !selected && MOCK_BACKED_VIEWS.has(view);
 
@@ -380,6 +399,8 @@ function AppShell() {
                 onSelect={setSelectedId}
                 projectName={project.name}
                 fromViewLabel={VIEW_LABEL[view]}
+                onNavigateDecision={navigateToDecision}
+                onNavigateEntity={navigateToEntity}
               />
             ) : view === "home" ? (
               <HomeView
@@ -436,6 +457,16 @@ function AppShell() {
                 relations={relations}
                 decisions={decisions}
                 facts={facts}
+                onNavigateEntity={navigateToEntity}
+              />
+            ) : view === "factTriage" ? (
+              <FactTriageView
+                facts={facts}
+                relations={relations}
+                decisions={decisions}
+                tasks={tasks}
+                onNavigateDecision={navigateToDecision}
+                onNavigateTask={navigateToTask}
               />
             ) : view === "decisions" ? (
               <DecisionsView

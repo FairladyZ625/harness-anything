@@ -44,6 +44,8 @@ export function TaskDetailView({
   onSelect,
   projectName,
   fromViewLabel = "工作区",
+  onNavigateDecision,
+  onNavigateEntity,
 }: {
   task: TaskRow;
   onBack: () => void;
@@ -54,6 +56,10 @@ export function TaskDetailView({
   onSelect?: (id: string) => void;
   projectName: string;
   fromViewLabel?: string;
+  /** W2B 活链接:DecisionSourceBadge 点击跳转 */
+  onNavigateDecision?: (decisionId: string) => void;
+  /** W2B 活链接:RelationRow 跨实体(decision/fact peer)跳转 */
+  onNavigateEntity?: (ref: string) => void;
 }) {
   const external = isExternal(task);
   const [activeDoc, setActiveDoc] = useState(task.docs[0]?.path ?? "");
@@ -215,7 +221,11 @@ export function TaskDetailView({
                 <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
                   Decision 上游
                 </span>
-                <DecisionSourceBadge decisionId={spawningDecision} title={spawningDecisionTitle} />
+                <DecisionSourceBadge
+                  decisionId={spawningDecision}
+                  title={spawningDecisionTitle}
+                  onNavigate={onNavigateDecision ? () => onNavigateDecision(spawningDecision) : undefined}
+                />
                 {spawningDecisionTitle && (
                   <span className="text-[11px] leading-snug text-text-muted">
                     {spawningDecisionTitle}
@@ -276,6 +286,7 @@ export function TaskDetailView({
                           provenance={r.provenance}
                           title={peerTitle(r.to)}
                           onSelect={onSelect}
+                          onNavigateEntity={onNavigateEntity}
                         />
                       ))}
                     </div>
@@ -291,6 +302,7 @@ export function TaskDetailView({
                           provenance={r.provenance}
                           title={peerTitle(r.from)}
                           onSelect={onSelect}
+                          onNavigateEntity={onNavigateEntity}
                         />
                       ))}
                     </div>
