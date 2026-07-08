@@ -4,6 +4,7 @@ import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 import type { EntityId } from "../domain/index.ts";
 import { moduleKeyFromEntityId, taskEntityId } from "../domain/index.ts";
+import { isContentAddressedBlobRef, readContentAddressedTextBlob, resolveContentAddressedBlobPath, type ContentAddressedBlobRef } from "./content-addressed-blob-store.ts";
 import {
   createTaskPackagePath,
   type HarnessLayoutInput,
@@ -80,7 +81,11 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
     return moduleScaffoldWrites(rootInput, op).map((write) => write.targetPath);
   }
   if (op.kind === "machine_artifact_write") {
-    return [machineArtifactWrite(rootInput, op).targetPath];
+    const artifact = machineArtifactWrite(rootInput, op);
+    return [
+      artifact.targetPath,
+      ...(artifact.bodyRef ? [resolveContentAddressedBlobPath(rootInput, artifact.bodyRef)] : [])
+    ];
   }
   if (op.kind === "machine_artifact_append_jsonl") {
     const artifact = machineArtifactJsonlAppend(rootInput, op);
@@ -167,7 +172,8 @@ interface ModuleScaffoldWritePayload {
 interface MachineArtifactWritePayload {
   readonly boundary: MachineArtifactBoundary;
   readonly path: string;
-  readonly body: string;
+  readonly body?: string;
+  readonly bodyRef?: ContentAddressedBlobRef;
 }
 
 interface MachineArtifactAppendJsonlPayload {
@@ -303,14 +309,15 @@ function writeModuleScaffold(rootInput: HarnessLayoutInput, op: WriteOp): void {
   }
 }
 
-function machineArtifactWrite(rootInput: HarnessLayoutInput, op: WriteOp): { readonly targetPath: string; readonly body: string } {
+function machineArtifactWrite(rootInput: HarnessLayoutInput, op: WriteOp): { readonly targetPath: string; readonly body: string; readonly bodyRef?: ContentAddressedBlobRef } {
   const payload = op.payload;
   if (!isMachineArtifactWritePayload(payload)) {
-    rejectWrite(`${op.kind} op requires boundary, path, and body payload: ${op.opId}`, op.entityId);
+    rejectWrite(`${op.kind} op requires boundary, path, and exactly one of body/bodyRef payload: ${op.opId}`, op.entityId);
   }
   return {
     targetPath: resolveMachineArtifactPath(rootInput, payload.boundary, payload.path, op.entityId),
-    body: payload.body
+    body: payload.body ?? readContentAddressedTextBlob(rootInput, payload.bodyRef!),
+    ...(payload.bodyRef ? { bodyRef: payload.bodyRef } : {})
   };
 }
 
@@ -327,13 +334,13 @@ function machineArtifactJsonlAppend(rootInput: HarnessLayoutInput, op: WriteOp):
 }
 
 function isMachineArtifactWritePayload(payload: unknown): payload is MachineArtifactWritePayload {
-  return Boolean(
-    payload &&
-    typeof payload === "object" &&
-    isMachineArtifactBoundary((payload as { readonly boundary?: unknown }).boundary) &&
-    typeof (payload as { readonly path?: unknown }).path === "string" &&
-    typeof (payload as { readonly body?: unknown }).body === "string"
-  );
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as { readonly boundary?: unknown; readonly path?: unknown; readonly body?: unknown; readonly bodyRef?: unknown };
+  const hasBody = typeof candidate.body === "string";
+  const hasBodyRef = isContentAddressedBlobRef(candidate.bodyRef);
+  return isMachineArtifactBoundary(candidate.boundary) &&
+    typeof candidate.path === "string" &&
+    hasBody !== hasBodyRef;
 }
 
 function isMachineArtifactAppendJsonlPayload(payload: unknown): payload is MachineArtifactAppendJsonlPayload & { readonly value: Record<string, unknown> } {

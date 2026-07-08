@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
 import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, WriteCoordinator, WriteError } from "../../kernel/src/index.ts";
-import { moduleEntityId, readFrontmatter, readScalar, resolveHarnessLayout, stablePayloadHash, writeCoordinatedPayload, type HarnessLayoutInput } from "../../kernel/src/index.ts";
+import { moduleEntityId, readFrontmatter, readScalar, resolveHarnessLayout, stablePayloadHash, writeContentAddressedBlob, writeCoordinatedPayload, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
 
 export interface ProvenanceSessionExporterOptions {
@@ -54,6 +54,7 @@ export interface ProvenanceSessionExporter {
 }
 
 const sessionSchema = "provenance-session/v1";
+const sessionMediaType = "text/markdown; charset=utf-8";
 const safeSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function makeProvenanceSessionExporter(options: ProvenanceSessionExporterOptions): ProvenanceSessionExporter {
@@ -89,6 +90,11 @@ function writeSessionDocument(
   return Effect.gen(function* () {
     const target = resolveSessionPath(rootInput, session.sessionId);
     const conversation = yield* resolveRuntimeConversation(session, options);
+    const body = renderSessionMarkdown(session, conversation);
+    const bodyRef = yield* Effect.try({
+      try: () => writeContentAddressedBlob(rootInput, body, sessionMediaType),
+      catch: (cause) => sessionRejection(session.sessionId, cause instanceof Error ? cause.message : String(cause))
+    });
     return yield* writeCoordinatedPayload(options.coordinator, stablePayloadHash, {
       entityId: moduleEntityId("provenance-session"),
       kind: "machine_artifact_write",
@@ -96,7 +102,7 @@ function writeSessionDocument(
       payload: {
         boundary: "provenance-session",
         path: target.rootRelativePath,
-        body: renderSessionMarkdown(session, conversation)
+        bodyRef
       }
     }).pipe(
       Effect.map(() => ({

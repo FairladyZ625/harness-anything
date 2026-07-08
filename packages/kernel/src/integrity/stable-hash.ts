@@ -4,6 +4,10 @@ export function sha256Text(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+export function sha256Bytes(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 export function stablePayloadHash(value: unknown): string {
   return sha256Text(stableStringify(value));
 }

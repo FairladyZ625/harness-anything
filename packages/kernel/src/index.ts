@@ -4,7 +4,7 @@ export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
-export * from "./integrity/stable-hash.ts";
+export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export * from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/artifact-store-writer.ts";
@@ -18,7 +18,13 @@ export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
-export { makeJournaledWriteCoordinator, makeLocalLockRegistry, makeLocalVersionControlSystem, makeMarkdownArtifactStore } from "./composition/index.ts";
+export {
+  makeJournaledWriteCoordinator,
+  makeLocalLockRegistry,
+  makeLocalVersionControlSystem,
+  makeMarkdownArtifactStore,
+  writeContentAddressedBlob
+} from "./composition/index.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";
 export {
   readDaemonRegistry,

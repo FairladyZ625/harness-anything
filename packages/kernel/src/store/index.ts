@@ -1,3 +1,4 @@
+export * from "./content-addressed-blob-store.ts";
 export * from "../integrity/stable-hash.ts";
 export * from "./daemon-runtime.ts";
 export * from "./ledger-materializer.ts";

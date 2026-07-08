@@ -120,12 +120,25 @@ export function writeWatermarkDurably(filePath: string, watermark: WriteWatermar
   writeFileDurably(filePath, JSON.stringify(watermark));
 }
 
-export function writeFileDurably(filePath: string, body: string): void {
+export function durableFileExists(filePath: string): boolean {
+  return existsSync(filePath);
+}
+
+export function readFileBytes(filePath: string): Uint8Array {
+  return readFileSync(filePath);
+}
+
+export function writeFileDurably(filePath: string, body: string | Uint8Array): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   const fd = openSync(tempPath, "w");
   try {
-    writeSync(fd, body, null, "utf8");
+    if (typeof body === "string") {
+      writeSync(fd, body, null, "utf8");
+    } else {
+      const buffer = Buffer.from(body);
+      writeSync(fd, buffer, 0, buffer.byteLength, 0);
+    }
     fsyncSync(fd);
   } finally {
     closeSync(fd);
