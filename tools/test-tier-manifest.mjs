@@ -20,6 +20,7 @@ export const testTierManifest = {
     "packages/kernel/test/write-coordination/write-helpers.test.ts",
     "tools/run-gui-tests.test.mjs",
     "tools/run-gui-e2e-tests.test.mjs",
+    "tools/run-local-gates-check.test.mjs",
     "tools/run-local-check.test.mjs",
     "tools/run-node-tests.test.mjs"
   ],

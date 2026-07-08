@@ -41,6 +41,7 @@
     "quickstart:demo:fail-closed": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs --break-step fact-record",
     "check:pr": "npm run typecheck && npm run lint && npm run test:fast && npm run test:contract && npm run test:integration && npm run test:gui && node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui",
     "check:local": "node tools/run-local-check.mjs",
+    "check:local:gates": "node tools/run-local-gates-check.mjs",
     "check:local:full": "node tools/run-local-check.mjs --full",
     "harness:check-file-complexity": "node tools/check-file-complexity.mjs",
     "harness:check-cli-structure": "node tools/check-cli-structure.mjs",
