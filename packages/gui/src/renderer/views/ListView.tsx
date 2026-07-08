@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CaretLeft, CaretRight, Lock } from "@phosphor-icons/react";
+import { CaretLeft, CaretRight, Lock, Star } from "@phosphor-icons/react";
 import type { TaskRow, RelationEdge } from "../model/types";
 import { isExternal } from "../model/types";
 import {
@@ -11,9 +11,12 @@ import {
 } from "../components/badges";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
+import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE_OPTIONS = [8, 15, 30, 60] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+const DEFAULT_PAGE_SIZE: PageSize = 15;
 
 const dateLabel = (iso: string) => iso.slice(5, 16).replace("T", " ");
 
@@ -23,12 +26,16 @@ function AuditRow({
   selected,
   onToggleSelect,
   relations,
+  isFavorite,
+  onToggleFavorite,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
   selected: boolean;
   onToggleSelect: (ev: React.MouseEvent) => void;
   relations: RelationEdge[];
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void;
 }) {
   const archived = task.packageDisposition !== "active";
   const spawningDecision = spawningDecisionOf(task, relations);
@@ -42,7 +49,7 @@ function AuditRow({
       }}
       className={`cursor-pointer border-b border-border hover:bg-surface-raised/60 ${
         archived ? "opacity-55" : ""
-      }`}
+      } ${isFavorite ? "bg-accent/[0.04]" : ""}`}
     >
       <td className="px-3 py-2 align-top" onClick={(e) => e.stopPropagation()}>
         <input
@@ -52,6 +59,18 @@ function AuditRow({
           onClick={onToggleSelect}
           className="mt-1 accent-accent"
         />
+      </td>
+      <td className="px-2 py-2 align-top" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(task.taskId)}
+          title={isFavorite ? "取消收藏" : "收藏(置顶)"}
+          className={`inline-flex items-center justify-center rounded p-0.5 text-[14px] hover:bg-surface ${
+            isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
+          }`}
+        >
+          <Star weight={isFavorite ? "fill" : "bold"} />
+        </button>
       </td>
       <td className="px-3 py-2 align-top">
         <div className="font-mono text-[13px] text-text">{task.taskId}</div>
@@ -103,6 +122,9 @@ export function ListView({
   onFiltersChange,
   onSelect,
   relations,
+  favorites,
+  onToggleFavorite,
+  embedded = false,
 }: {
   tasks: TaskRow[];
   allTasks: TaskRow[];
@@ -110,8 +132,13 @@ export function ListView({
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
   relations: RelationEdge[];
+  favorites?: ReadonlySet<string>;
+  onToggleFavorite?: (id: string) => void;
+  /** 嵌入到 BoardView 时不重复渲染自己的 header/TaskFilterBar(看板已提供)。 */
+  embedded?: boolean;
 }) {
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -132,13 +159,19 @@ export function ListView({
     });
   };
 
+  const favSet = favorites ?? new Set<string>();
   const sorted = useMemo(
-    () => [...tasks].sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt)),
-    [tasks],
+    () =>
+      sortByFavoritesFirst(
+        [...tasks].sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt)),
+        (t) => t.taskId,
+        favSet,
+      ),
+    [tasks, favSet],
   );
-  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const visible = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const visible = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
   const externalCount = tasks.filter((task) => isExternal(task)).length;
   const riskCount = tasks.filter(
     (task) =>
@@ -149,25 +182,30 @@ export function ListView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="ui-title font-semibold">列表</h1>
-          <span className="font-mono text-[13px] text-text-faint">
-            审计表格 · 定位任务、外部只读源、归档和投影风险
-          </span>
-          <span className="ml-auto font-mono text-[13px] text-text-faint">
-            {tasks.length}/{allTasks.length} filtered
-          </span>
-        </div>
-      </header>
+      {!embedded && (
+        <>
+          <header className="border-b border-border px-4 py-3">
+            <div className="flex flex-wrap items-baseline gap-3">
+              <h1 className="ui-title font-semibold">列表</h1>
+              <span className="font-mono text-[13px] text-text-faint">
+                审计表格 · 定位任务、外部只读源、归档和投影风险
+              </span>
+              <span className="ml-auto font-mono text-[13px] text-text-faint">
+                {tasks.length}/{allTasks.length} filtered
+              </span>
+            </div>
+          </header>
 
-      <TaskFilterBar
-        tasks={allTasks}
-        filteredCount={tasks.length}
-        filters={filters}
-        onChange={onFiltersChange}
-        contextLabel="列表"
-      />
+          <TaskFilterBar
+            tasks={allTasks}
+            filteredCount={tasks.length}
+            filters={filters}
+            onChange={onFiltersChange}
+            contextLabel="列表"
+            favorites={favorites}
+          />
+        </>
+      )}
 
       {selectedTaskIds.size > 0 && (
         <div className="flex items-center gap-3 bg-accent/10 border-b border-border/40 px-4 py-2 text-[13px]">
@@ -264,6 +302,7 @@ export function ListView({
                     className="accent-accent"
                   />
                 </th>
+                <th className="w-10 px-2 py-2 font-medium" title="收藏">★</th>
                 <th className="px-3 py-2 font-medium">task</th>
                 <th className="px-3 py-2 font-medium">title / module</th>
                 <th className="px-3 py-2 font-medium">status</th>
@@ -282,6 +321,8 @@ export function ListView({
                   selected={selectedTaskIds.has(task.taskId)}
                   onToggleSelect={(ev) => handleToggleSelect(task.taskId, ev)}
                   relations={relations}
+                  isFavorite={favSet.has(task.taskId)}
+                  onToggleFavorite={onToggleFavorite ?? (() => undefined)}
                 />
               ))}
             </tbody>
@@ -289,13 +330,28 @@ export function ListView({
         )}
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-border px-4 py-2.5">
+      <footer className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
         <span className="font-mono text-[13px] text-text-faint">
           page {safePage + 1} / {pageCount}
         </span>
         <span className="font-mono text-[13px] text-text-faint">
           rows {visible.length} of {sorted.length}
         </span>
+        <label className="ml-2 flex items-center gap-1.5 text-[12px] text-text-faint">
+          每页
+          <select
+            value={pageSize}
+            onChange={(event) => {
+              setPageSize(Number(event.target.value) as PageSize);
+              setPage(0);
+            }}
+            className="rounded-md border border-border bg-surface-raised px-1.5 py-1 text-[12px] text-text outline-none focus:border-border-strong"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>{size}</option>
+            ))}
+          </select>
+        </label>
         <div className="ml-auto flex items-center gap-1">
           <button
             disabled={safePage === 0}

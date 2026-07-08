@@ -64,6 +64,18 @@ export interface TaskRow {
   spawningDecision?: string;
   /** entity 原文溯源（⚠️ 与 RelationEdge.provenance 同名不同义） */
   provenance?: ProvenanceEntry[];
+  /**
+   * 直接父任务（task 树层级，来自 projection frontmatter `parent` 字段）。
+   * 与 spawningDecision 不同:这是 task→task 的层级关系,不是 decision 派生。
+   */
+  parentTaskId?: string;
+  /**
+   * 任务树的根 taskId(沿 parentTaskId 上溯到顶层)。根任务的 rootTaskId=自身。
+   * 用于「按 milestone/root task 分组」(milestone 在内核=根 task)。
+   */
+  rootTaskId?: string;
+  /** root task 的标题(查表填入,便于分组标签展示) */
+  rootTitle?: string;
 }
 
 export type RelationKind =
@@ -251,6 +263,11 @@ export interface PresetEntry {
   selections: TemplateSelection[];
   /** 被更高优先级来源覆盖时，指向覆盖者 id */
   overriddenBy?: string;
+  /**
+   * 看板默认分组维度(信息架构声明)。coding preset 通常=root(milestone=root task)。
+   * 可选;未声明时 BoardView 退回自身默认。仅 renderer 侧消费,不动 preset 引擎。
+   */
+  defaultGroupBy?: "module" | "engine" | "root";
 }
 
 export interface AdapterMappingRow {
