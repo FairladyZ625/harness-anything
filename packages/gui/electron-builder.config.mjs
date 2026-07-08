@@ -1,3 +1,5 @@
+const outputDir = process.env.HARNESS_GUI_BUILDER_OUTPUT ?? "../../dist/gui-local-mac-arm64";
+
 /** @type {import("electron-builder").Configuration} */
 const config = {
   appId: "dev.harness-anything.gui",
@@ -6,9 +8,10 @@ const config = {
   asar: false,
   npmRebuild: false,
   compression: "normal",
+  forceCodeSigning: false,
   directories: {
     app: "../..",
-    output: "../../dist/gui-local-mac-arm64"
+    output: outputDir
   },
   extraMetadata: {
     name: "harness-anything-gui",
@@ -41,14 +44,29 @@ const config = {
       filter: ["**/*"]
     }
   ],
-  artifactName: "Harness-Anything-GUI-${version}-mac-${arch}.${ext}",
   mac: {
     target: [
       { target: "dmg", arch: ["arm64"] },
       { target: "zip", arch: ["arm64"] }
     ],
     category: "public.app-category.developer-tools",
-    identity: null
+    identity: null,
+    artifactName: "Harness-Anything-GUI-${version}-mac-${arch}.${ext}"
+  },
+  win: {
+    target: [
+      { target: "nsis", arch: ["x64"] }
+    ],
+    signExecutable: false,
+    artifactName: "Harness-Anything-GUI-Setup-${version}-win-${arch}.${ext}"
+  },
+  linux: {
+    target: [
+      { target: "AppImage", arch: ["x64"] },
+      { target: "deb", arch: ["x64"] }
+    ],
+    category: "Development",
+    artifactName: "Harness-Anything-GUI-${version}-linux-${arch}.${ext}"
   }
 };
 
