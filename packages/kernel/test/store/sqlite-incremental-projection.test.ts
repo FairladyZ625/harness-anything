@@ -67,6 +67,19 @@ test("incremental projection upserts task rows when package slug differs from ta
   });
 });
 
+test("decision queries rebuild stale projection when active decision exists only on disk", () => {
+  withProjectionPair((rootDir) => {
+    seedHarness(rootDir);
+    rebuildTaskProjection({ rootDir });
+
+    writeDecision(rootDir, false, "dec_W6_DISK_ONLY");
+    const result = queryDecisionProjection({ rootDir, filters: { state: "active" } });
+
+    assert.equal(result.rows.some((row) => row.decisionId === "dec_W6_DISK_ONLY"), true);
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_stale"), true);
+  });
+});
+
 function withProjectionPair(fn: (incrementalRoot: string, rebuildRoot: string) => void): void {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-incremental-projection-"));
   try {
@@ -195,16 +208,16 @@ function writeFacts(rootDir: string, taskId: string, includeRelation: boolean): 
   return factsPath;
 }
 
-function writeDecision(rootDir: string, includeRelation: boolean): string {
-  const decisionDir = path.join(rootDir, "harness/decisions/decision-dec_W6_INCREMENTAL");
+function writeDecision(rootDir: string, includeRelation: boolean, decisionId = "dec_W6_INCREMENTAL"): string {
+  const decisionDir = path.join(rootDir, "harness/decisions", `decision-${decisionId}`);
   mkdirSync(decisionDir, { recursive: true });
   const decisionPath = path.join(decisionDir, "decision.md");
   writeFileSync(decisionPath, [
     "---",
     "schema: decision-package/v1",
-    "decision_id: dec_W6_INCREMENTAL",
-    "_coordinatorWatermark: wm-w6-incremental",
-    "title: W6 incremental projection decision",
+    `decision_id: ${decisionId}`,
+    `_coordinatorWatermark: wm-${decisionId}`,
+    `title: W6 incremental projection decision ${decisionId}`,
     "state: active",
     "riskTier: medium",
     "urgency: medium",
@@ -228,11 +241,11 @@ function writeDecision(rootDir: string, includeRelation: boolean): string {
     "  - { id: \"C1\", text: \"Incremental equals rebuild\" }",
     "relations:",
     ...(includeRelation ? [
-      formatRelationFlowRecord(relation("decision/dec_W6_INCREMENTAL/CH1", "fact/task-a/F-DEADBEEF", "evidenced-by", "decision evidence edge"))
+      formatRelationFlowRecord(relation(`decision/${decisionId}/CH1`, "fact/task-a/F-DEADBEEF", "evidenced-by", "decision evidence edge"))
     ] : []),
     "---",
     "",
-    "# W6 incremental projection decision",
+    `# W6 incremental projection decision ${decisionId}`,
     ""
   ].join("\n"));
   stamp(decisionPath);
