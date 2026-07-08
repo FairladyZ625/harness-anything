@@ -86,9 +86,16 @@ test("fact create service binds provenance into the single-line record and expor
       confidence: "high"
     }));
 
-    const body = (enqueued[0]?.payload as { readonly body?: string }).body ?? "";
-    assert.match(body, /memoryClass: episodic, memoryTags: \[\]/u);
-    assert.match(body, /provenance: \[\{runtime: "human", sessionId: "human-cli-1783036800000", boundAt: "2026-07-03T00:01:00\.000Z"\}\]/u);
+    const record = (enqueued[0]?.payload as {
+      readonly appendRecord?: { readonly record?: { readonly memoryClass?: string; readonly memoryTags?: ReadonlyArray<string>; readonly provenance?: unknown } };
+    }).appendRecord?.record;
+    assert.equal(record?.memoryClass, "episodic");
+    assert.deepEqual(record?.memoryTags, []);
+    assert.deepEqual(record?.provenance, [{
+      runtime: "human",
+      sessionId: "human-cli-1783036800000",
+      boundAt: "2026-07-03T00:01:00.000Z"
+    }]);
     const session = await runEffect(exporter.readById("human-cli-1783036800000"));
     assert.equal(session.path, "sessions/human-cli-1783036800000.md");
     assert.equal(session.session.runtime, "human");

@@ -42,7 +42,16 @@ export type TemplateLibraryError =
   | { readonly _tag: "TemplateCatalogInvalid"; readonly reason: string };
 
 export type WriteError =
-  | { readonly _tag: "WriteRejected"; readonly taskId: TaskId; readonly reason: string }
+  | {
+    readonly _tag: "WriteRejected";
+    readonly taskId?: TaskId;
+    readonly entityId?: string;
+    readonly reason: string;
+    readonly code?: string;
+    readonly currentWatermark?: string | null;
+    readonly expectedWatermark?: string | null;
+    readonly retryable?: boolean;
+  }
   | { readonly _tag: "WriteConflict"; readonly taskId: TaskId; readonly owner?: string }
   | { readonly _tag: "GlobalWriteConflict"; readonly owner?: string }
   | { readonly _tag: "JournalUnavailable"; readonly cause?: unknown };

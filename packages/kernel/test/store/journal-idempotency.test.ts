@@ -43,6 +43,7 @@ test("WriteCoordinator reports duplicate batch write conflicts on the conflictin
       assert.deepEqual(result.left, {
         _tag: "WriteRejected",
         taskId: "task-conflict",
+        entityId: "task/task-conflict",
         reason: "duplicate batch write target: INDEX.md"
       });
     }

@@ -146,6 +146,7 @@ export const testTierManifest = {
     "packages/cli/test/worktree-cli.test.ts",
     "packages/cli/test/write-lock-retry-cli.test.ts",
     "packages/kernel/test/store/crash-before-watermark.test.ts",
+    "packages/kernel/test/store/conditional-delta-writes.test.ts",
     "packages/kernel/test/store/daemon-registry.test.ts",
     "packages/kernel/test/store/daemon-runtime.test.ts",
     "packages/kernel/test/store/entity-disposition.test.ts",

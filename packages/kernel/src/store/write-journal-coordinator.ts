@@ -533,9 +533,16 @@ function mapJournalError(
         : { _tag: "GlobalWriteConflict", owner: cause.owner };
     case "WriteRejectedError": {
       const taskId = cause.taskId ?? (context.entityId ? taskIdFromEntityId(context.entityId) ?? undefined : undefined);
-      return taskId
-        ? { _tag: "WriteRejected", taskId, reason: cause.reason }
-        : { _tag: "JournalUnavailable", cause };
+      return {
+        _tag: "WriteRejected",
+        ...(taskId ? { taskId } : {}),
+        ...(cause.entityId ?? context.entityId ? { entityId: cause.entityId ?? context.entityId } : {}),
+        reason: cause.reason,
+        ...(cause.code ? { code: cause.code } : {}),
+        ...(cause.currentWatermark !== undefined ? { currentWatermark: cause.currentWatermark } : {}),
+        ...(cause.expectedWatermark !== undefined ? { expectedWatermark: cause.expectedWatermark } : {}),
+        ...(cause.retryable !== undefined ? { retryable: cause.retryable } : {})
+      };
     }
     case "NonTaskWriteEntityError":
       return { _tag: "JournalUnavailable", cause };

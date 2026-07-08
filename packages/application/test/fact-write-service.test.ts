@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import { makeFactWriteService, type FactWriteRejected } from "../src/index.ts";
+import { makeFactWriteService, makeHumanFallbackSessionProbe } from "../src/index.ts";
 import { formatFactFlowRecord, parseEntityRef, type FactRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
-import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
+import { runEffect } from "./effect-test-helpers.ts";
 
 test("fact write service invalidates through a relation op without rewriting fact records", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-write-"));
@@ -32,35 +32,51 @@ test("fact write service invalidates through a relation op without rewriting fac
     assert.equal(result.ref, "fact/task_fact_owner/F-DEADBEEF");
     assert.equal(enqueued[0]?.kind, "fact_invalidate");
     assert.equal(enqueued[0]?.entityId, "task/task_fact_owner");
-    const payload = enqueued[0]?.payload as { readonly path?: string; readonly body?: string };
+    const payload = enqueued[0]?.payload as {
+      readonly path?: string;
+      readonly appendRecord?: { readonly kind?: string; readonly relation?: { readonly target?: string; readonly type?: string } };
+    };
     assert.equal(payload.path, "facts.md");
-    assert.match(payload.body ?? "", /relations:/u);
-    assert.match(payload.body ?? "", /type: supersedes-fact/u);
-    assert.match(payload.body ?? "", /target: fact\/task_fact_owner\/F-DEADBEEF/u);
+    assert.equal(payload.appendRecord?.kind, "fact-relation/v1");
+    assert.equal(payload.appendRecord?.relation?.type, "supersedes-fact");
+    assert.equal(payload.appendRecord?.relation?.target, "fact/task_fact_owner/F-DEADBEEF");
     assert.equal(parseEntityRef(`fact/task_fact_owner/${result.invalidatedByFactId}`)?.kind, "fact");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("fact write service rejects invalidation when the invalidating fact is missing", async () => {
+test("fact write service records facts as append deltas", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-write-"));
+  const enqueued: WriteOp[] = [];
   try {
-    writeFacts(rootDir, "task_fact_owner", [fact("F-DEADBEEF", "Old observation.")]);
     const service = makeFactWriteService({
       rootInput: rootDir,
-      coordinator: fakeCoordinator([])
+      coordinator: fakeCoordinator(enqueued),
+      currentSessionProbe: makeHumanFallbackSessionProbe({
+        now: () => "2026-07-04T00:00:00.000Z",
+        user: () => "zeyu"
+      }),
+      now: () => "2026-07-04T00:00:00.000Z"
     });
 
-    const result = await runEffectExit(service.invalidate({
+    const result = await runEffect(service.record({
       ownerTaskId: "task_fact_owner",
-      factId: "F-DEADBEEF",
-      invalidatedByFactId: "F-FEEDFACE",
-      rationale: "Missing invalidator."
+      factId: "F-FEEDFACE",
+      statement: "New observation.",
+      source: "test",
+      confidence: "high"
     }));
 
-    assert.equal(result._tag, "Failure");
-    assert.match(failureReason(result.cause), /invalidating fact not found/u);
+    assert.equal(result.factId, "F-FEEDFACE");
+    assert.equal(enqueued[0]?.kind, "doc_write");
+    const payload = enqueued[0]?.payload as {
+      readonly path?: string;
+      readonly appendRecord?: { readonly kind?: string; readonly record?: { readonly fact_id?: string } };
+    };
+    assert.equal(payload.path, "facts.md");
+    assert.equal(payload.appendRecord?.kind, "fact-record/v1");
+    assert.equal(payload.appendRecord?.record?.fact_id, "F-FEEDFACE");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -103,13 +119,4 @@ function fact(factId: string, statement: string): FactRecord {
       boundAt: "2026-07-04T00:00:00.000Z"
     }]
   };
-}
-
-function failureReason(cause: unknown): string {
-  return JSON.stringify(cause, (_key, value: unknown) => {
-    if (value && typeof value === "object" && "_tag" in value && (value as FactWriteRejected)._tag === "FactWriteRejected") {
-      return (value as FactWriteRejected).reason;
-    }
-    return value;
-  });
 }
