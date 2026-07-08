@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Lock, Archive } from "@phosphor-icons/react";
+import { Lock, Archive, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal, isTerminal } from "../model/types";
 import {
@@ -24,7 +24,9 @@ import {
 import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
+import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
+import { ListView } from "./ListView";
 
 const ENGINE_HINT: Record<string, string> = {
   multica: "由 Multica 管理，去 Multica 改状态",
@@ -37,11 +39,15 @@ function Card({
   onSelect,
   dragging,
   relations,
+  isFavorite,
+  onToggleFavorite,
 }: {
   task: TaskRow;
   onSelect?: (id: string) => void;
   dragging?: boolean;
   relations: RelationEdge[];
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void;
 }) {
   const external = isExternal(task);
   const archived = task.packageDisposition !== "active";
@@ -52,16 +58,32 @@ function Card({
       title={external ? ENGINE_HINT[task.engine] : undefined}
       className={`group relative cursor-pointer rounded-lg bg-surface-raised p-2.5 ${freshnessBorder(
         task.freshness,
-      )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-border-strong"}`}
+      )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-border-strong"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
     >
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[13px] text-text-faint">{task.taskId}</span>
         <EngineBadge engine={task.engine} locked={external} />
         {archived && (
           <span className="ml-auto inline-flex items-center gap-1 font-mono text-[10px] text-text-faint">
             <Archive weight="bold" />
             {task.packageDisposition}
           </span>
+        )}
+        {!archived && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFavorite(task.taskId);
+            }}
+            title={isFavorite ? "取消收藏" : "收藏(置顶)"}
+            className={`ml-auto inline-flex items-center justify-center rounded p-0.5 text-[12px] hover:bg-surface ${
+              isFavorite
+                ? "text-accent opacity-100"
+                : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
+            }`}
+          >
+            <Star weight={isFavorite ? "fill" : "bold"} />
+          </button>
         )}
       </div>
       <p className="mt-1.5 text-[15px] leading-snug text-text">{task.title}</p>
@@ -78,10 +100,14 @@ function DraggableCard({
   task,
   onSelect,
   relations,
+  isFavorite,
+  onToggleFavorite,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
   relations: RelationEdge[];
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void;
 }) {
   // external 任务允许拿起、落下被拒，让护栏可感知；终态完全锁定
   const draggable = !isTerminal(task.coordinationStatus);
@@ -96,7 +122,13 @@ function DraggableCard({
       {...listeners}
       className={isDragging ? "opacity-30" : ""}
     >
-      <Card task={task} onSelect={onSelect} relations={relations} />
+      <Card
+        task={task}
+        onSelect={onSelect}
+        relations={relations}
+        isFavorite={isFavorite}
+        onToggleFavorite={onToggleFavorite}
+      />
     </div>
   );
 }
@@ -107,15 +139,20 @@ function Column({
   onSelect,
   rejecting,
   relations,
+  favorites,
+  onToggleFavorite,
 }: {
   status: SnapshotStatus;
   tasks: TaskRow[];
   onSelect: (id: string) => void;
   rejecting: boolean;
   relations: RelationEdge[];
+  favorites: ReadonlySet<string>;
+  onToggleFavorite: (id: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
+  const ordered = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
   return (
     <div
       ref={setNodeRef}
@@ -141,9 +178,16 @@ function Column({
         )}
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto pb-1">
-        {tasks.length > 0 ? (
-          tasks.map((t) => (
-            <DraggableCard key={t.taskId} task={t} onSelect={onSelect} relations={relations} />
+        {ordered.length > 0 ? (
+          ordered.map((t) => (
+            <DraggableCard
+              key={t.taskId}
+              task={t}
+              onSelect={onSelect}
+              relations={relations}
+              isFavorite={favorites.has(t.taskId)}
+              onToggleFavorite={onToggleFavorite}
+            />
           ))
         ) : (
           <div className="rounded-lg border border-dashed border-border px-3 py-5 text-[14px] text-text-faint">
@@ -155,6 +199,8 @@ function Column({
   );
 }
 
+export type BoardLayout = "column" | "swimlane" | "list";
+
 export function BoardView({
   tasks,
   allTasks,
@@ -164,6 +210,10 @@ export function BoardView({
   onUpdate,
   drill,
   relations,
+  favorites,
+  onToggleFavorite,
+  initialLayout,
+  initialGroupBy,
 }: {
   tasks: TaskRow[];
   allTasks: TaskRow[];
@@ -171,18 +221,25 @@ export function BoardView({
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
   onUpdate: (id: string, patch: Partial<TaskRow>) => void;
-  drill?: { module: string; status: SnapshotStatus } | null;
+  drill?: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
   relations: RelationEdge[];
+  favorites: ReadonlySet<string>;
+  onToggleFavorite: (id: string) => void;
+  initialLayout?: BoardLayout;
+  initialGroupBy?: LaneGroupBy;
 }) {
-  const [layout, setLayout] = useState<"column" | "swimlane">(
-    drill ? "swimlane" : "column",
+  // coding preset 默认按 root 分组(milestone=root task)。drill 携带 groupBy 提示。
+  const [layout, setLayout] = useState<BoardLayout>(
+    drill ? "swimlane" : initialLayout ?? "column",
   );
-  const [groupBy, setGroupBy] = useState<LaneGroupBy>("module");
+  const [groupBy, setGroupBy] = useState<LaneGroupBy>(
+    drill?.groupBy ?? initialGroupBy ?? "root",
+  );
 
   useEffect(() => {
     if (drill) {
       setLayout("swimlane");
-      setGroupBy("module");
+      setGroupBy(drill.groupBy);
     }
   }, [drill]);
 
@@ -211,50 +268,66 @@ export function BoardView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-border px-4 py-2.5">
+      <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
         <h1 className="ui-title font-semibold">看板</h1>
         <span className="font-mono text-[13px] text-text-faint">
           {tasks.length}/{allTasks.length}
         </span>
         <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-          <button onClick={() => setLayout("column")} className={seg(layout === "column")}>
+          <button
+            onClick={() => setLayout("column")}
+            className={seg(layout === "column")}
+            title="按 coordinationStatus 分列(可拖拽改状态)"
+          >
             列
           </button>
           <button
             onClick={() => setLayout("swimlane")}
             className={seg(layout === "swimlane")}
+            title="按分组维度 × 状态的泳道矩阵"
           >
             泳道
+          </button>
+          <button
+            onClick={() => setLayout("list")}
+            className={seg(layout === "list")}
+            title="审计表格:每页行数可调,支持批量选择"
+          >
+            列表
           </button>
         </div>
         <span className="text-[12px] text-text-faint">
           {layout === "column"
             ? "coordinationStatus 轴 · local 任务可拖拽"
-            : "拖拽改状态请在列模式 · 外部任务任何模式都只读"}
+            : layout === "list"
+              ? "审计面 · 支持 ID 复制与批量操作"
+              : "拖拽改状态请在列模式 · 外部任务任何模式都只读"}
         </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-            泳道分组
-          </span>
-          <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-            {(["module", "engine"] as const).map((d) => (
-              <button
-                key={d}
-                onClick={() => setGroupBy(d)}
-                className={`font-mono ${seg(groupBy === d)}`}
-              >
-                {d}
-              </button>
-            ))}
-            <button
-              disabled
-              title="vertical 维度 · 规划中"
-              className="cursor-not-allowed rounded px-2 py-0.5 font-mono text-[12px] text-text-faint opacity-50"
-            >
-              vertical
-            </button>
+        {layout !== "list" && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              分组维度
+            </span>
+            <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+              {(["root", "module", "engine"] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setGroupBy(d)}
+                  title={
+                    d === "root"
+                      ? "按任务树根分组(milestone)"
+                      : d === "module"
+                        ? "按 module 维度(传统)"
+                        : "按引擎分组"
+                  }
+                  className={`font-mono ${seg(groupBy === d)}`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </header>
       <TaskFilterBar
         tasks={allTasks}
@@ -262,8 +335,21 @@ export function BoardView({
         filters={filters}
         onChange={onFiltersChange}
         contextLabel="看板"
+        favorites={favorites}
       />
-      {layout === "swimlane" ? (
+      {layout === "list" ? (
+        <ListView
+          tasks={tasks}
+          allTasks={allTasks}
+          filters={filters}
+          onFiltersChange={onFiltersChange}
+          onSelect={onSelect}
+          relations={relations}
+          favorites={favorites}
+          onToggleFavorite={onToggleFavorite}
+          embedded
+        />
+      ) : layout === "swimlane" ? (
         <SwimlaneBoard
           key={groupBy}
           tasks={tasks}
@@ -271,6 +357,8 @@ export function BoardView({
           onSelect={onSelect}
           drill={drill ?? null}
           relations={relations}
+          favorites={favorites}
+          onToggleFavorite={onToggleFavorite}
         />
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -283,13 +371,21 @@ export function BoardView({
                 onSelect={onSelect}
                 rejecting={activeTask ? isExternal(activeTask) : false}
                 relations={relations}
+                favorites={favorites}
+                onToggleFavorite={onToggleFavorite}
               />
             ))}
           </div>
           <DragOverlay>
             {activeTask && (
               <div className="w-[256px] rotate-2">
-                <Card task={activeTask} dragging relations={relations} />
+                <Card
+                  task={activeTask}
+                  dragging
+                  relations={relations}
+                  isFavorite={favorites.has(activeTask.taskId)}
+                  onToggleFavorite={onToggleFavorite}
+                />
               </div>
             )}
           </DragOverlay>

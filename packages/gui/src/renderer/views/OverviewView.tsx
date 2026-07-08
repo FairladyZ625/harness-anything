@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import {
   ArrowSquareOut,
   CheckCircle,
@@ -33,6 +34,25 @@ function QuestionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+type DrillDimension = "root" | "module";
+
+function dimensionKey(task: TaskRow, dimension: DrillDimension): string {
+  if (dimension === "root") return task.rootTaskId ?? task.taskId;
+  return task.module;
+}
+
+function dimensionLabel(
+  key: string,
+  dimension: DrillDimension,
+  tasks: ReadonlyArray<TaskRow>,
+): string {
+  if (dimension === "root") {
+    const representative = tasks.find((t) => (t.rootTaskId ?? t.taskId) === key);
+    return representative?.rootTitle ?? representative?.title ?? key;
+  }
+  return key;
+}
+
 export function OverviewView({
   project,
   tasks,
@@ -50,10 +70,13 @@ export function OverviewView({
   facts: FactRef[];
   relations: RelationEdge[];
   onSelect: (id: string) => void;
-  onDrill: (module: string, status: SnapshotStatus) => void;
+  onDrill: (lane: string, status: SnapshotStatus, dimension: DrillDimension) => void;
   onOpenInbox: () => void;
   onOpenDecisionPool: () => void;
 }) {
+  // coding preset 默认按 root(milestone=root task)。用户可切回 module 维度。
+  const [dimension, setDimension] = useState<DrillDimension>("root");
+
   const countStatus = (status: SnapshotStatus) =>
     tasks.filter((task) => task.coordinationStatus === status).length;
   const blocked = tasks.filter((task) => task.coordinationStatus === "blocked");
@@ -73,9 +96,14 @@ export function OverviewView({
   });
   const proposedTop = sortDecisionQueue(decisions.filter((decision) => decision.state === "proposed")).slice(0, 5);
 
-  const modules = [...new Set(tasks.map((task) => task.module))];
-  const cellCount = (module: string, status: SnapshotStatus) =>
-    tasks.filter((task) => task.module === module && task.coordinationStatus === status).length;
+  const dimensionKeys = useMemo(
+    () => [...new Set(tasks.map((task) => dimensionKey(task, dimension)))],
+    [tasks, dimension],
+  );
+  const cellCount = (key: string, status: SnapshotStatus) =>
+    tasks.filter(
+      (task) => dimensionKey(task, dimension) === key && task.coordinationStatus === status,
+    ).length;
 
   const blockers = [...blocked, ...inReview.filter((task) => task.closeoutReadiness === "ready")]
     .sort((a, b) => a.lastKnownAt.localeCompare(b.lastKnownAt))
@@ -107,6 +135,11 @@ export function OverviewView({
       ok: stale.length + unavailable.length === 0,
     },
   ];
+
+  const seg = (active: boolean) =>
+    `rounded px-2 py-0.5 text-[11px] ${
+      active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
+    }`;
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
@@ -170,7 +203,8 @@ export function OverviewView({
             {(["active", "blocked", "in_review"] as SnapshotStatus[]).map((status) => (
               <button
                 key={status}
-                onClick={() => onDrill("gui", status)}
+                onClick={() => onDrill("__all__", status, dimension)}
+                title="按当前维度下钻该状态"
                 className="rounded-md border border-border bg-surface-raised px-3 py-2 text-left hover:border-border-strong"
               >
                 <div className="flex items-center gap-1.5">
@@ -186,9 +220,9 @@ export function OverviewView({
               <button
                 key={task.taskId}
                 onClick={() => onSelect(task.taskId)}
+                title={task.taskId}
                 className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-left hover:bg-surface-raised"
               >
-                <span className="w-16 shrink-0 font-mono text-[12px] text-text-faint">{task.taskId}</span>
                 <span className="min-w-0 flex-1 truncate text-[13px] text-text">{task.title}</span>
                 <StatusBadge status={task.coordinationStatus} />
               </button>
@@ -224,13 +258,31 @@ export function OverviewView({
           </div>
         </Card>
 
-        <Card title="模块 × 状态下钻" bodyClassName="p-3">
-          <QuestionLabel>② 点击进入可操作任务集合</QuestionLabel>
+        <Card title={`${dimension === "root" ? "根任务" : "模块"} × 状态下钻`} bodyClassName="p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <QuestionLabel>② 点击进入可操作任务集合</QuestionLabel>
+            <div className="ml-auto flex items-center gap-0.5 rounded-md border border-border p-0.5">
+              {(["root", "module"] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDimension(d)}
+                  title={
+                    d === "root"
+                      ? "按任务树根分组(milestone)"
+                      : "按 module 分组(传统)"
+                  }
+                  className={seg(dimension === d)}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
           <table className="w-full border-collapse text-center">
             <thead>
               <tr>
                 <th className="px-1.5 py-1 text-left font-mono text-[11px] font-normal uppercase tracking-wide text-text-faint">
-                  module
+                  {dimension}
                 </th>
                 {BOARD_COLUMNS.map((status) => (
                   <th key={status} title={STATUS_META[status].label} className="px-1 py-1">
@@ -242,29 +294,37 @@ export function OverviewView({
               </tr>
             </thead>
             <tbody>
-              {modules.map((module) => (
-                <tr key={module} className="border-t border-border">
-                  <td className="px-1.5 py-1 text-left font-mono text-[12px] text-text-muted">{module}</td>
-                  {BOARD_COLUMNS.map((status) => {
-                    const count = cellCount(module, status);
-                    return (
-                      <td key={status} className="px-0.5 py-0.5">
-                        {count > 0 ? (
-                          <button
-                            onClick={() => onDrill(module, status)}
-                            title={`${module} · ${STATUS_META[status].label} · ${count}`}
-                            className="w-full rounded px-1 py-1 font-mono text-[12px] hover:bg-surface-raised"
-                          >
-                            {count}
-                          </button>
-                        ) : (
-                          <span className="font-mono text-[12px] text-text-faint">·</span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {dimensionKeys.map((key) => {
+                const label = dimensionLabel(key, dimension, tasks);
+                return (
+                  <tr key={key} className="border-t border-border">
+                    <td
+                      className="max-w-[180px] truncate px-1.5 py-1 text-left font-mono text-[12px] text-text-muted"
+                      title={label}
+                    >
+                      {label}
+                    </td>
+                    {BOARD_COLUMNS.map((status) => {
+                      const count = cellCount(key, status);
+                      return (
+                        <td key={status} className="px-0.5 py-0.5">
+                          {count > 0 ? (
+                            <button
+                              onClick={() => onDrill(key, status, dimension)}
+                              title={`${label} · ${STATUS_META[status].label} · ${count}`}
+                              className="w-full rounded px-1 py-1 font-mono text-[12px] hover:bg-surface-raised"
+                            >
+                              {count}
+                            </button>
+                          ) : (
+                            <span className="font-mono text-[12px] text-text-faint">·</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </Card>

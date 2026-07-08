@@ -8,6 +8,7 @@ export const testTierManifest = {
     "packages/gui/test/terminal-no-ingestion.test.ts",
     "packages/gui/test/terminal-session-registry.test.ts",
     "packages/gui/test/workspace-shell.test.ts",
+    "packages/gui/test/favorites-storage.test.ts",
     "packages/kernel/test/domain/binding-immutability.test.ts",
     "packages/kernel/test/domain/domain-status.test.ts",
     "packages/kernel/test/domain/entity-ref.test.ts",

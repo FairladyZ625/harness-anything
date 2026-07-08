@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   CaretRight,
@@ -7,9 +7,12 @@ import {
   CheckCircle,
   XCircle,
   ArrowSquareOut,
+  Spinner,
 } from "@phosphor-icons/react";
 import type {
   DecisionRow,
+  DocEntry,
+  DocGroup,
   TaskRow,
   RelationEdge,
 } from "../model/types";
@@ -33,6 +36,99 @@ import { AxisRow, DocPresence } from "../components/taskDetail/widgets";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
 import { RelationRow } from "../components/taskDetail/RelationRow";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
+import { useTaskDetailQuery, useTaskDocumentQuery } from "../task-data";
+
+/**
+ * 推断文档分组:preset 模板里常见文件名 → DocGroup。投影只给 path,组别靠命名启发式。
+ * 未命中归到「进度」(默认进度日志)。
+ */
+function inferDocGroup(path: string): DocGroup {
+  const lower = path.toLowerCase();
+  if (lower.includes("contract") || lower === "index.md") return "必读";
+  if (lower.includes("plan") || lower.includes("roadmap") || lower.includes("task-plan")) return "计划";
+  if (lower.includes("design") || lower.includes("adr") || lower.includes("architecture")) return "设计";
+  if (lower.includes("progress")) return "进度";
+  if (lower.includes("closeout") || lower.includes("verification") || lower.includes("verify")) return "收口";
+  if (lower.includes("evidence") || lower.includes("fact") || lower.includes("lesson")) return "证据";
+  return "进度";
+}
+
+function docTitleFromPath(path: string): string {
+  const file = path.split("/").pop() ?? path;
+  const stem = file.replace(/\.md$/i, "");
+  return stem
+    .split(/[-_\s]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/**
+ * 文档阅读区:优先用真实 useTaskDocumentQuery 的 body;查询失败或加载中给出占位。
+ * 当 activeDoc 为空(无文档可读)时回退到 SAMPLE_MARKDOWN 占位以保留原型可用性。
+ */
+function DocBody({
+  taskId,
+  path,
+  fallbackPresent,
+}: {
+  taskId: string;
+  path: string | null;
+  fallbackPresent: boolean;
+}) {
+  const documentQuery = useTaskDocumentQuery(path ? taskId : null, path);
+
+  if (!path) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
+        <FileText weight="duotone" className="text-2xl text-text-faint" />
+        <p className="text-[13px] text-text-muted">该任务无投影文档</p>
+        <p className="font-mono text-[11px] text-text-faint">从 preset 物化的 doc 清单为空</p>
+      </div>
+    );
+  }
+
+  if (documentQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-border px-4 py-8 text-[13px] text-text-muted">
+        <Spinner weight="bold" className="animate-spin" />
+        正在读取 {path} …
+      </div>
+    );
+  }
+
+  if (documentQuery.isError) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-12 text-center">
+        <XCircle weight="duotone" className="text-2xl text-danger" />
+        <p className="text-[13px] text-text">文档读取失败</p>
+        <p className="font-mono text-[11px] text-text-faint">
+          {(documentQuery.error as Error | undefined)?.message ?? "本地台账桥未返回正文"}
+        </p>
+        {fallbackPresent && (
+          <p className="mt-2 font-mono text-[11px] text-text-faint">回退显示样例正文</p>
+        )}
+        {fallbackPresent && <DocReader content={DOC_CONTENT[path] ?? SAMPLE_MARKDOWN} />}
+      </div>
+    );
+  }
+
+  const body = documentQuery.data?.body ?? "";
+  if (body.trim()) {
+    return <DocReader content={body} />;
+  }
+
+  // body 空:既无 mock 命中也无真实正文
+  if (!fallbackPresent) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
+        <FileText weight="duotone" className="text-2xl text-text-faint" />
+        <p className="text-[13px] text-text-muted">文档未物化</p>
+        <p className="font-mono text-[11px] text-text-faint">该骨架由 preset 定义</p>
+      </div>
+    );
+  }
+  return <DocReader content={DOC_CONTENT[path] ?? SAMPLE_MARKDOWN} />;
+}
 
 export function TaskDetailView({
   task,
@@ -62,9 +158,43 @@ export function TaskDetailView({
   onNavigateEntity?: (ref: string) => void;
 }) {
   const external = isExternal(task);
-  const [activeDoc, setActiveDoc] = useState(task.docs[0]?.path ?? "");
-  const doc = task.docs.find((d) => d.path === activeDoc) ?? task.docs[0];
-  const docGroups = DOC_GROUPS.filter((g) => task.docs.some((d) => d.group === g));
+  // 真实文档清单:从 useTaskDetailQuery 拉,投影本身不内嵌 docs(task-adapter 给空数组)。
+  const detailQuery = useTaskDetailQuery(task.taskId);
+  const realDocs = useMemo<DocEntry[]>(() => {
+    const docs = detailQuery.data?.documents ?? [];
+    if (docs.length === 0) return task.docs;
+    return docs.map((d) => {
+      const group = inferDocGroup(d.path);
+      return {
+        path: d.path,
+        title: docTitleFromPath(d.path),
+        group,
+        required: group === "必读" || group === "收口",
+        present: true,
+      };
+    });
+  }, [detailQuery.data, task.docs]);
+  // 文档清单只看必读/计划/设计/进度/收口/证据 6 组;其他归入进度(滚动日志)。
+  const docGroups = useMemo(
+    () => DOC_GROUPS.filter((g) => realDocs.some((d) => d.group === g)),
+    [realDocs],
+  );
+
+  const [activeDoc, setActiveDoc] = useState(
+    () => realDocs[0]?.path ?? task.docs[0]?.path ?? "",
+  );
+  useEffect(() => {
+    // 任务切换或文档清单刷新时,如果当前 activeDoc 失效,重置到首篇。
+    if (realDocs.length === 0) {
+      if (activeDoc !== "") setActiveDoc("");
+      return;
+    }
+    if (!realDocs.some((d) => d.path === activeDoc)) {
+      setActiveDoc(realDocs[0].path);
+    }
+  }, [realDocs, activeDoc]);
+
+  const doc = realDocs.find((d) => d.path === activeDoc) ?? realDocs[0];
 
   const rels = relations ?? [];
   const outEdges = rels.filter((r) => normalizeTaskId(r.from) === task.taskId);
@@ -108,49 +238,55 @@ export function TaskDetailView({
       <div className="flex min-h-0 flex-1">
         {/* 文档目录树 */}
         <nav className="w-56 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
-          {docGroups.map((g) => {
-            const groupDocs = task.docs.filter((d) => d.group === g);
-            const presentCount = groupDocs.filter((d) => d.present).length;
-            return (
-              <div key={g} className="mb-3">
-                <div className="flex items-center justify-between px-1 pb-1">
-                  <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                    {g}
-                  </span>
-                  <span className="font-mono text-[10px] text-text-faint">
-                    {presentCount}/{groupDocs.length}
-                  </span>
+          {docGroups.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
+              投影未返回文档清单
+            </div>
+          ) : (
+            docGroups.map((g) => {
+              const groupDocs = realDocs.filter((d) => d.group === g);
+              const presentCount = groupDocs.filter((d) => d.present).length;
+              return (
+                <div key={g} className="mb-3">
+                  <div className="flex items-center justify-between px-1 pb-1">
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                      {g}
+                    </span>
+                    <span className="font-mono text-[10px] text-text-faint">
+                      {presentCount}/{groupDocs.length}
+                    </span>
+                  </div>
+                  {groupDocs.map((d) => (
+                    <button
+                      key={d.path}
+                      onClick={() => setActiveDoc(d.path)}
+                      className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[13px] ${
+                        activeDoc === d.path
+                          ? "bg-surface-raised text-text"
+                          : "text-text-muted hover:text-text"
+                      }`}
+                    >
+                      <DocPresence doc={d} />
+                      <span className="min-w-0 truncate">{d.title}</span>
+                      {d.required && (
+                        <span className="shrink-0 rounded border border-border px-1 text-[9px] text-text-faint">
+                          必需
+                        </span>
+                      )}
+                      {!d.present && d.required && (
+                        <span
+                          className="shrink-0 text-[10px]"
+                          style={{ color: "var(--color-danger)" }}
+                        >
+                          缺失
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
-                {groupDocs.map((d) => (
-                  <button
-                    key={d.path}
-                    onClick={() => setActiveDoc(d.path)}
-                    className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[13px] ${
-                      activeDoc === d.path
-                        ? "bg-surface-raised text-text"
-                        : "text-text-muted hover:text-text"
-                    }`}
-                  >
-                    <DocPresence doc={d} />
-                    <span className="min-w-0 truncate">{d.title}</span>
-                    {d.required && (
-                      <span className="shrink-0 rounded border border-border px-1 text-[9px] text-text-faint">
-                        必需
-                      </span>
-                    )}
-                    {!d.present && d.required && (
-                      <span
-                        className="shrink-0 text-[10px]"
-                        style={{ color: "var(--color-danger)" }}
-                      >
-                        缺失
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </nav>
 
         {/* 文档阅读区 */}
@@ -164,27 +300,23 @@ export function TaskDetailView({
                 weight="bold"
                 className="self-center text-[9px] text-text-faint"
               />
-              <span className="text-[12px] text-text-muted">{doc.group}</span>
+              <span className="text-[12px] text-text-muted">{doc?.group ?? "—"}</span>
               <CaretRight
                 weight="bold"
                 className="self-center text-[9px] text-text-faint"
               />
-              <span className="text-[13px] font-semibold text-text">{doc.title}</span>
-              <span className="ml-2 font-mono text-[10px] text-text-faint">
-                {doc.path}
-              </span>
+              <span className="text-[13px] font-semibold text-text">{doc?.title ?? "无文档"}</span>
+              {doc && (
+                <span className="ml-2 font-mono text-[10px] text-text-faint">
+                  {doc.path}
+                </span>
+              )}
             </div>
-            {doc.present ? (
-              <DocReader content={DOC_CONTENT[doc.path] ?? SAMPLE_MARKDOWN} />
-            ) : (
-              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
-                <FileText weight="duotone" className="text-2xl text-text-faint" />
-                <p className="text-[13px] text-text-muted">文档未物化</p>
-                <p className="font-mono text-[11px] text-text-faint">
-                  该骨架由 preset 定义
-                </p>
-              </div>
-            )}
+            <DocBody
+              taskId={task.taskId}
+              path={doc?.path ?? null}
+              fallbackPresent={Boolean(doc?.present)}
+            />
           </div>
         </article>
 
