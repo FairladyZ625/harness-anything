@@ -11,6 +11,7 @@ test("local controller service reads projection and writes through injected task
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
   try {
     writeTaskIndex(rootDir, "task-1", "Task One", "planned");
+    writeTaskIndex(rootDir, "task-archived", "Archived Task", "done", "harness", "archived");
     const writes: string[] = [];
     const service = makeLocalControllerService({
       rootDir,
@@ -33,6 +34,7 @@ test("local controller service reads projection and writes through injected task
     const list = service.getTasks();
     assert.equal(list.ok, true);
     assert.equal(list.tasks.length, 1);
+    assert.deepEqual(list.tasks.map((task) => task.taskId), ["task-1"]);
 
     const detail = await service.getTaskDetail({ taskId: "task-1" });
     assert.equal(detail.ok, true);
@@ -113,7 +115,7 @@ test("local controller service honors explicit authored root for reads and write
   }
 });
 
-function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string, authoredRoot = "harness"): void {
+function writeTaskIndex(rootDir: string, taskId: string, title: string, status: string, authoredRoot = "harness", packageDisposition = "active"): void {
   mkdirSync(path.join(rootDir, authoredRoot, "tasks", taskId), { recursive: true });
   writeFileSync(path.join(rootDir, authoredRoot, "tasks", taskId, "INDEX.md"), [
     "---",
@@ -129,7 +131,7 @@ function writeTaskIndex(rootDir: string, taskId: string, title: string, status: 
     "  url: ",
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:test",
-    "packageDisposition: active",
+    `packageDisposition: ${packageDisposition}`,
     "vertical: default",
     "preset: default",
     "---",

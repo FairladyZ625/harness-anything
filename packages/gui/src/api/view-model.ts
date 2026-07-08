@@ -77,7 +77,8 @@ export const guiTaskProjectionFields = [
   "title",
   "parentTaskId",
   "coordinationStatus",
-  "closeoutReadiness"
+  "closeoutReadiness",
+  "packageDisposition"
 ] as const satisfies ReadonlyArray<keyof TaskProjectionRow>;
 
 const viewOrder: readonly GuiViewId[] = ["board", "list", "detail", "doc-viewer", "review-queue", "graph"];
@@ -105,7 +106,7 @@ export function buildGuiViewModel(rows: readonly GuiTaskRow[]): GuiViewModel {
 }
 
 export function buildGuiViewModelFromTaskProjection(rows: readonly TaskProjectionRow[]): GuiViewModel {
-  return buildGuiViewModel(rows.map(toGuiTaskRow));
+  return buildGuiViewModel(rows.filter((row) => row.packageDisposition === "active").map(toGuiTaskRow));
 }
 
 export function readGuiTaskListResult(result: unknown): GuiTaskListReadResult {
@@ -118,6 +119,7 @@ export function readGuiTaskListResult(result: unknown): GuiTaskListReadResult {
   for (const task of result.tasks) {
     const row = readGuiTaskRow(task);
     if (!row.ok) return row;
+    if ((task as TaskProjectionRow).packageDisposition !== "active") continue;
     rows.push(row.row);
   }
   return {
@@ -232,6 +234,7 @@ function isSqliteTaskProjectionRow(value: unknown): value is TaskProjectionRow {
     && typeof value.title === "string"
     && typeof value.coordinationStatus === "string"
     && typeof value.closeoutReadiness === "string"
+    && typeof value.packageDisposition === "string"
     && (value.parentTaskId === undefined || typeof value.parentTaskId === "string");
 }
 

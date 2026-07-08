@@ -461,12 +461,12 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/graph-panorama.ts#mkdirSync@31:3",
+        "value": "packages/cli/src/commands/graph-panorama.ts#mkdirSync@49:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/graph-panorama.ts#writeFileSync@32:3",
+        "value": "packages/cli/src/commands/graph-panorama.ts#writeFileSync@50:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },

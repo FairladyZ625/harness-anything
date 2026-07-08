@@ -12,21 +12,39 @@ interface GenerateGraphPanoramaInput {
   readonly projectionPath?: string;
   readonly outputPath?: string;
   readonly focus?: string;
+  readonly includeArchived?: boolean;
 }
 
 interface GraphRows {
   readonly relationEdges: ReadonlyArray<Record<string, any>>;
   readonly coverageRows: ReadonlyArray<Record<string, any>>;
+  readonly factAnchors: ReadonlyArray<Record<string, any>>;
+}
+
+interface ProjectedEntity {
+  readonly kind: string;
+  readonly ref: string;
+  readonly title: string;
+  readonly state: string;
+  readonly packageDisposition?: string;
 }
 
 export function generateGraphPanorama(input: GenerateGraphPanoramaInput = {}): Record<string, any> {
   const rootDir = path.resolve(input.rootDir ?? process.cwd());
   const projectionPath = path.resolve(rootDir, input.projectionPath ?? defaultProjectionPath);
   const outputPath = path.resolve(rootDir, input.outputPath ?? defaultOutputPath);
-  const graphRows = readFreshGraphRows({ rootDir, projectionPath, usesDefaultProjection: !input.projectionPath });
-  const projectedEntities = readProjectedEntities(projectionPath);
+  if (!existsSync(projectionPath)) {
+    throw new Error(`Projection database not found: ${projectionPath}`);
+  }
+  const includeArchived = input.includeArchived === true;
+  const visibility = readGraphVisibility(projectionPath, includeArchived);
+  const graphRows = applyGraphVisibility(
+    readFreshGraphRows({ rootDir, projectionPath, usesDefaultProjection: !input.projectionPath }),
+    visibility
+  );
+  const projectedEntities = readProjectedEntities(projectionPath, visibility);
   const cascade = input.focus ? readEntityCascadeImpact({ rootDir, projectionPath, entityRef: input.focus }) : undefined;
-  const model = buildPanoramaModel(graphRows, projectedEntities, { focus: input.focus, cascade });
+  const model = buildPanoramaModel(graphRows, projectedEntities, { focus: input.focus, cascade, visibility });
 
   mkdirSync(path.dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, renderPanoramaHtml(model), "utf8");
@@ -49,7 +67,8 @@ function readFreshGraphRows(input: { readonly rootDir: string; readonly projecti
   const projection = readRelationGraphProjection({ rootDir: input.rootDir, projectionPath: input.projectionPath });
   return {
     relationEdges: projection.edges,
-    coverageRows: projection.coverageRows
+    coverageRows: projection.coverageRows,
+    factAnchors: projection.factAnchors
   };
 }
 
@@ -64,17 +83,53 @@ function readGraphRows(projectionPath: string): GraphRows {
       .prepare("SELECT row_json FROM relation_coverage ORDER BY claim_ref")
       .all()
       .map((record) => JSON.parse(String((record as { row_json: unknown }).row_json)) as Record<string, any>);
-    return { relationEdges, coverageRows };
+    const factAnchors = db
+      .prepare("SELECT row_json FROM task_fact_anchors ORDER BY fact_ref")
+      .all()
+      .map((record) => JSON.parse(String((record as { row_json: unknown }).row_json)) as Record<string, any>);
+    return { relationEdges, coverageRows, factAnchors };
   } finally {
     db.close();
   }
 }
 
-function readProjectedEntities(projectionPath: string): ReadonlyArray<Record<string, string>> {
+function readGraphVisibility(projectionPath: string, includeArchived: boolean): { readonly includeArchived: boolean; readonly archivedTaskIds: ReadonlySet<string> } {
+  if (includeArchived) return { includeArchived, archivedTaskIds: new Set() };
   const db = new DatabaseSync(projectionPath, { readOnly: true });
   try {
-    const tasks = safeAll(db, "SELECT task_id, title, canonical_status AS state FROM task_projection ORDER BY task_id")
-      .map((row) => ({ kind: "task", ref: `task/${String(row.task_id ?? "")}`, title: String(row.title ?? ""), state: String(row.state ?? "") }));
+    if (!hasColumn(db, "task_projection", "package_disposition")) {
+      return { includeArchived, archivedTaskIds: new Set() };
+    }
+    return {
+      includeArchived,
+      archivedTaskIds: new Set(safeAll(db, "SELECT task_id FROM task_projection WHERE package_disposition != 'active' ORDER BY task_id")
+        .map((row) => String(row.task_id ?? ""))
+        .filter((taskId) => taskId.length > 0))
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function readProjectedEntities(
+  projectionPath: string,
+  visibility: { readonly includeArchived: boolean }
+): ReadonlyArray<ProjectedEntity> {
+  const db = new DatabaseSync(projectionPath, { readOnly: true });
+  try {
+    const hasPackageDisposition = hasColumn(db, "task_projection", "package_disposition");
+    const taskWhere = visibility.includeArchived || !hasPackageDisposition ? "" : "WHERE package_disposition = 'active'";
+    const taskColumns = hasPackageDisposition
+      ? "task_id, title, canonical_status AS state, package_disposition"
+      : "task_id, title, canonical_status AS state, 'active' AS package_disposition";
+    const tasks = safeAll(db, `SELECT ${taskColumns} FROM task_projection ${taskWhere} ORDER BY task_id`)
+      .map((row) => ({
+        kind: "task",
+        ref: `task/${String(row.task_id ?? "")}`,
+        title: String(row.title ?? ""),
+        state: String(row.state ?? ""),
+        packageDisposition: String(row.package_disposition ?? "")
+      }));
     const decisions = safeAll(db, "SELECT decision_id, title, state FROM decision_projection ORDER BY decision_id")
       .map((row) => ({ kind: "decision", ref: `decision/${String(row.decision_id ?? "")}`, title: String(row.title ?? ""), state: String(row.state ?? "") }));
     return [...tasks, ...decisions];
@@ -91,7 +146,34 @@ function safeAll(db: DatabaseSync, sql: string): ReadonlyArray<Record<string, un
   }
 }
 
-function buildPanoramaModel(rows: GraphRows, projectedEntities: ReadonlyArray<Record<string, string>>, options: { readonly focus?: string; readonly cascade?: any }): Record<string, any> {
+function hasColumn(db: DatabaseSync, tableName: string, columnName: string): boolean {
+  return safeAll(db, `PRAGMA table_info(${tableName})`)
+    .some((row) => row.name === columnName);
+}
+
+function applyGraphVisibility(
+  rows: GraphRows,
+  visibility: { readonly includeArchived: boolean; readonly archivedTaskIds: ReadonlySet<string> }
+): GraphRows {
+  if (visibility.includeArchived || visibility.archivedTaskIds.size === 0) return rows;
+  const relationEdges = rows.relationEdges.filter((edge) => isVisibleEdge(edge, visibility));
+  const factAnchors = rows.factAnchors.filter((anchor) => isVisibleRef(String(anchor.factRef ?? ""), visibility));
+  return {
+    relationEdges,
+    coverageRows: rebuildCoverageRows(rows.coverageRows, relationEdges, factAnchors),
+    factAnchors
+  };
+}
+
+function buildPanoramaModel(
+  rows: GraphRows,
+  projectedEntities: ReadonlyArray<ProjectedEntity>,
+  options: {
+    readonly focus?: string;
+    readonly cascade?: any;
+    readonly visibility: { readonly includeArchived: boolean; readonly archivedTaskIds: ReadonlySet<string> };
+  }
+): Record<string, any> {
   const refs = new Map<string, { readonly ref: string; readonly roles: Set<string> }>();
   for (const edge of rows.relationEdges) {
     addRef(refs, String(edge.sourceRef), "source");
@@ -115,9 +197,9 @@ function buildPanoramaModel(rows: GraphRows, projectedEntities: ReadonlyArray<Re
   const islands = collectIslands(projectedEntities, activeEdges);
   const focus = options.focus ? {
     entityRef: options.focus,
-    incoming: options.cascade?.incoming ?? [],
-    outgoing: options.cascade?.outgoing ?? [],
-    impactedRefs: options.cascade?.impactedRefs ?? []
+    incoming: filterCascadeEdges(options.cascade?.incoming ?? [], options.visibility),
+    outgoing: filterCascadeEdges(options.cascade?.outgoing ?? [], options.visibility),
+    impactedRefs: (options.cascade?.impactedRefs ?? []).filter((ref: unknown) => isVisibleRef(String(ref), options.visibility))
   } : undefined;
   return {
     generatedAt: new Date().toISOString(),
@@ -150,6 +232,91 @@ function addRef(refs: Map<string, { readonly ref: string; readonly roles: Set<st
     return;
   }
   refs.set(ref, { ref, roles: new Set([role]) });
+}
+
+function rebuildCoverageRows(
+  coverageRows: ReadonlyArray<Record<string, any>>,
+  relationEdges: ReadonlyArray<Record<string, any>>,
+  factAnchors: ReadonlyArray<Record<string, any>>
+): ReadonlyArray<Record<string, any>> {
+  const activeEdges = relationEdges.filter((edge) => edge.state === "active");
+  const graph = new Map<string, Record<string, any>[]>();
+  const liveFactRefs = new Set(factAnchors.map((anchor) => String(anchor.factRef ?? "")));
+  const invalidatedFactRefs = new Set(
+    activeEdges
+      .filter((edge) => {
+        const type = String(edge.relationType ?? "");
+        return String(edge.sourceRef ?? "").startsWith("fact/")
+          && String(edge.targetRef ?? "").startsWith("fact/")
+          && (type === "invalidated-by" || type === "supersedes-fact");
+      })
+      .map((edge) => String(edge.targetRef ?? ""))
+  );
+  for (const edge of activeEdges) {
+    const sourceRef = String(edge.sourceRef ?? "");
+    graph.set(sourceRef, [...(graph.get(sourceRef) ?? []), edge]);
+  }
+  return coverageRows.map((row) => {
+    const reachable = firstReachableLiveFact(String(row.claimRef ?? ""), graph, liveFactRefs, invalidatedFactRefs);
+    return reachable
+      ? { ...row, status: "covered", coveringFactRef: reachable.factRef, relationPath: reachable.path }
+      : withoutCoverage(row);
+  });
+}
+
+function firstReachableLiveFact(
+  startRef: string,
+  graph: ReadonlyMap<string, ReadonlyArray<Record<string, any>>>,
+  liveFactRefs: ReadonlySet<string>,
+  invalidatedFactRefs: ReadonlySet<string>
+): { readonly factRef: string; readonly path: ReadonlyArray<string> } | null {
+  const visited = new Set<string>();
+  const queue: Array<{ readonly ref: string; readonly path: ReadonlyArray<string> }> = [{ ref: startRef, path: [] }];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || visited.has(current.ref)) continue;
+    visited.add(current.ref);
+    if (liveFactRefs.has(current.ref) && !invalidatedFactRefs.has(current.ref)) {
+      return { factRef: current.ref, path: current.path };
+    }
+    for (const edge of graph.get(current.ref) ?? []) {
+      const targetRef = String(edge.targetRef ?? "");
+      if (!visited.has(targetRef)) queue.push({ ref: targetRef, path: current.path.concat(String(edge.relationId ?? "")) });
+    }
+  }
+  return null;
+}
+
+function withoutCoverage(row: Record<string, any>): Record<string, any> {
+  const { coveringFactRef: _coveringFactRef, ...rest } = row;
+  return { ...rest, status: "uncovered", relationPath: [] };
+}
+
+function filterCascadeEdges(
+  edges: ReadonlyArray<Record<string, any>>,
+  visibility: { readonly includeArchived: boolean; readonly archivedTaskIds: ReadonlySet<string> }
+): ReadonlyArray<Record<string, any>> {
+  return edges.filter((edge) => isVisibleEdge(edge, visibility));
+}
+
+function isVisibleEdge(
+  edge: Record<string, any>,
+  visibility: { readonly includeArchived: boolean; readonly archivedTaskIds: ReadonlySet<string> }
+): boolean {
+  return isVisibleRef(String(edge.sourceRef ?? ""), visibility)
+    && isVisibleRef(String(edge.targetRef ?? ""), visibility)
+    && isVisibleRef(String(edge.ownerRef ?? ""), visibility);
+}
+
+function isVisibleRef(
+  ref: string,
+  visibility: { readonly includeArchived: boolean; readonly archivedTaskIds: ReadonlySet<string> }
+): boolean {
+  if (visibility.includeArchived) return true;
+  const parts = ref.split("/");
+  if (parts[0] === "task" && parts[1]) return !visibility.archivedTaskIds.has(parts[1]);
+  if (parts[0] === "fact" && parts[1]) return !visibility.archivedTaskIds.has(parts[1]);
+  return true;
 }
 
 function renderPanoramaHtml(model: Record<string, any>): string {
@@ -247,7 +414,7 @@ function renderFocus(focus: Record<string, any>): string {
   ].join("\n");
 }
 
-function collectIslands(projectedEntities: ReadonlyArray<Record<string, string>>, activeEdges: ReadonlyArray<Record<string, any>>): ReadonlyArray<Record<string, string>> {
+function collectIslands(projectedEntities: ReadonlyArray<ProjectedEntity>, activeEdges: ReadonlyArray<Record<string, any>>): ReadonlyArray<ProjectedEntity> {
   const incident = new Set<string>();
   for (const edge of activeEdges) {
     incident.add(baseEntityRef(String(edge.sourceRef ?? "")));
