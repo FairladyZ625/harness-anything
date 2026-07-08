@@ -78,6 +78,7 @@ Summary: 47 direct drops; 0 pending CEO absorption.
 ## Verification
 
 - `git ls-files harness/ | wc -l` -> `0`.
+- Fresh worktree verification -> passed; `git -c core.hooksPath=/dev/null worktree add --detach <tmp> HEAD` produced a checkout where `harness/` was absent.
 - `npm run check:local` -> passed; local fast tier completed 15 steps in 27.7s.
 - `node tools/check-legacy-intake-readiness.mjs` -> passed after removing public report text that matched the old package-name guard.
 - `node tools/check-pr-body-bilingual.mjs --text <temporary bilingual body>` -> passed.
@@ -88,4 +89,4 @@ Summary: 47 direct drops; 0 pending CEO absorption.
 ## Residual Risk
 
 - `node tools/check-cli-structure.mjs` still fails on the pre-existing file-length rule: `packages/cli/src/commands/core/task-query.ts` is reported over the 250-line core runner limit. That file is unchanged by this task and outside the ghost-harness reference-repair scope.
-- Current worktree still has an ignored local `harness/` directory because `git rm --cached` intentionally leaves files on disk. A fresh worktree from the resulting commit is expected not to materialize it.
+- Current worktree still has an ignored local `harness/` directory because `git rm --cached` intentionally leaves files on disk. A fresh worktree from the resulting commit was verified not to materialize it.
