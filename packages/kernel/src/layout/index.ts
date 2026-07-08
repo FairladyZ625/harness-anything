@@ -103,11 +103,6 @@ export function createHarnessRuntimeContext(
   };
 }
 
-export function resolveHarnessRuntimeContext(input: HarnessLayoutInput): HarnessRuntimeContext {
-  const layout = resolveHarnessLayout(input);
-  return createHarnessRuntimeContext(layout.rootDir, layoutInputOverrides(input));
-}
-
 export function harnessRuntimeRoot(input: HarnessLayoutInput): string {
   return typeof input === "string" ? path.resolve(input) : input.rootDir;
 }

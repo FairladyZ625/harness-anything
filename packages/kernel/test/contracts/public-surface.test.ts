@@ -174,7 +174,6 @@ const publicRuntimeSurface = [
   "resolveDaemonRepoByRoot",
   "resolveEntityRoot",
   "resolveHarnessLayout",
-  "resolveHarnessRuntimeContext",
   "resolveTaskSchema",
   "reviewArtifactStatuses",
   "runPostMergeChecks",

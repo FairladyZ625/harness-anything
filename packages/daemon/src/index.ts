@@ -1,4 +1,22 @@
 export {
+  daemonIdForRoot,
+  daemonIdForUserRoot,
+  daemonIdFromEnv,
+  daemonUserRoot,
+  defaultDaemonAutostartTimeoutMs,
+  defaultDaemonIdleExitMs,
+  JsonRpcLineClient,
+  localDaemonSocketPath,
+  localUserDaemonSocketPath,
+  requestLocalDaemonJsonRpc,
+  requestLocalDaemonJsonRpcForTarget,
+  resolveLocalDaemonTarget,
+  spawnLocalDaemon,
+  type LocalDaemonAutostartOptions,
+  type LocalDaemonJsonRpcOptions,
+  type LocalDaemonTarget
+} from "./client/local-json-rpc-client.ts";
+export {
   actorGitCommitAuthor,
   actorStamp,
   actorStampJson,

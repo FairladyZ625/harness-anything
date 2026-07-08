@@ -1,33 +1,43 @@
-import path from "node:path";
-import type { LocalControllerService } from "../../../application/src/index.ts";
-import {
-  readAppendProgressPayload,
-  readSetStatusPayload,
-  readTaskDocumentPayload,
-  readTaskIdPayload
-} from "../../../application/src/index.ts";
-import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, normalizeRelativeDocumentPath, resolveHarnessRuntimeContext, taskDocumentPath } from "../../../kernel/src/index.ts";
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
-import { apiRouteContracts, deferredGuiBridgeContracts } from "./api-contract-registry.ts";
-import { validateProjectPath } from "./local-api.ts";
+import { apiRouteContracts, deferredGuiBridgeContracts, type ApiRouteContract } from "./api-contract-registry.ts";
 
+// Contract anchor: document path normalization remains owned by the daemon-side
+// LocalControllerService via kernel normalizeRelativeDocumentPath. GUI main must
+// not import that kernel barrel because it would reintroduce the sqlite ABI path.
 export interface GuiServiceBridge {
   readonly invoke: (method: string, payload: unknown) => Promise<unknown>;
 }
 
+type JsonObject = { readonly [key: string]: JsonValue };
+type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
 type ShippedGuiBridgeRoute = Extract<(typeof apiRouteContracts)[number], { readonly guiBridgeMethod: PreloadApiMethod }>;
 type ShippedGuiBridgeMethod = ShippedGuiBridgeRoute["guiBridgeMethod"];
+type LocalControllerGuiMethod =
+  | "getTasks"
+  | "getTaskDetail"
+  | "getTaskDocument"
+  | "setTaskStatus"
+  | "reviewTask"
+  | "appendTaskProgress"
+  | "rebuildGovernance";
+
+interface GuiBridgeServiceProxy {
+  readonly getTasks: () => Promise<unknown> | unknown;
+  readonly getTaskDetail: (payload: unknown) => Promise<unknown> | unknown;
+  readonly getTaskDocument: (payload: unknown) => Promise<unknown> | unknown;
+  readonly setTaskStatus: (payload: unknown) => Promise<unknown> | unknown;
+  readonly reviewTask: (payload: unknown) => Promise<unknown> | unknown;
+  readonly appendTaskProgress: (payload: unknown) => Promise<unknown> | unknown;
+  readonly rebuildGovernance: () => Promise<unknown> | unknown;
+}
 
 interface GuiBridgeHandlerContext {
-  readonly rootDir: string;
-  readonly layoutInput: HarnessLayoutInput;
-  readonly service: LocalControllerService;
+  readonly service: GuiBridgeServiceProxy;
   readonly payload: unknown;
 }
 
 interface GuiBridgeHandlerImplementation {
-  readonly serviceMethod: keyof LocalControllerService;
+  readonly serviceMethod: LocalControllerGuiMethod;
   readonly invoke: (context: GuiBridgeHandlerContext) => Promise<unknown> | unknown;
 }
 
@@ -38,45 +48,23 @@ export const guiBridgeHandlerImplementations = {
   },
   getTaskDetail: {
     serviceMethod: "getTaskDetail",
-    invoke: ({ service, payload }) => {
-      const parsed = readTaskIdPayload(payload);
-      if (!parsed.ok) return parsed;
-      return service.getTaskDetail(parsed);
-    }
+    invoke: ({ service, payload }) => service.getTaskDetail(payload)
   },
   getTaskDocument: {
     serviceMethod: "getTaskDocument",
-    invoke: ({ rootDir, layoutInput, service, payload }) => {
-      const pathDecision = validateTaskDocumentPayloadPath(rootDir, layoutInput, payload);
-      if (!pathDecision.ok) return pathDecision;
-      const parsed = readTaskDocumentPayload(payload);
-      if (!parsed.ok) return parsed;
-      return service.getTaskDocument(parsed);
-    }
+    invoke: ({ service, payload }) => service.getTaskDocument(payload)
   },
   setTaskStatus: {
     serviceMethod: "setTaskStatus",
-    invoke: ({ service, payload }) => {
-      const parsed = readSetStatusPayload(payload);
-      if (!parsed.ok) return parsed;
-      return service.setTaskStatus(parsed);
-    }
+    invoke: ({ service, payload }) => service.setTaskStatus(payload)
   },
   reviewTask: {
     serviceMethod: "reviewTask",
-    invoke: ({ service, payload }) => {
-      const parsed = readTaskIdPayload(payload);
-      if (!parsed.ok) return parsed;
-      return service.reviewTask(parsed);
-    }
+    invoke: ({ service, payload }) => service.reviewTask(payload)
   },
   appendTaskProgress: {
     serviceMethod: "appendTaskProgress",
-    invoke: ({ service, payload }) => {
-      const parsed = readAppendProgressPayload(payload);
-      if (!parsed.ok) return parsed;
-      return service.appendTaskProgress(parsed);
-    }
+    invoke: ({ service, payload }) => service.appendTaskProgress(payload)
   },
   rebuildGovernance: {
     serviceMethod: "rebuildGovernance",
@@ -84,36 +72,35 @@ export const guiBridgeHandlerImplementations = {
   }
 } as const satisfies Record<ShippedGuiBridgeMethod, GuiBridgeHandlerImplementation>;
 
+export type GuiDaemonRequester = (route: ApiRouteContract, payload: unknown) => Promise<JsonObject>;
+
 export function getShippedGuiBridgeMethods(): ReadonlyArray<ShippedGuiBridgeMethod> {
   return apiRouteContracts.flatMap((route) => "guiBridgeMethod" in route && route.guiBridgeMethod ? [route.guiBridgeMethod] : []) as ReadonlyArray<ShippedGuiBridgeMethod>;
 }
 
 const shippedGuiBridgeMethods = new Set<PreloadApiMethod>(getShippedGuiBridgeMethods());
+const routeByGuiMethod = new Map<PreloadApiMethod, ApiRouteContract>(
+  apiRouteContracts.flatMap((route) => "guiBridgeMethod" in route && route.guiBridgeMethod ? [[route.guiBridgeMethod as PreloadApiMethod, route]] : [])
+);
 const deferredGuiBridgeReasons = new Map<PreloadApiMethod, string>(
   deferredGuiBridgeContracts.map((entry) => [entry.guiBridgeMethod, entry.reason])
 );
 
-export function createGuiServiceBridgeForService(
-  rootDir: string,
-  service: LocalControllerService,
-  layoutOverrides?: HarnessLayoutOverrides
-): GuiServiceBridge {
-  const layoutInput = resolveHarnessRuntimeContext(createHarnessRuntimeContext(rootDir, layoutOverrides));
+export function createGuiServiceBridgeForDaemon(request: GuiDaemonRequester): GuiServiceBridge {
+  const service = createDaemonServiceProxy(request);
   return {
-    invoke: async (method, payload) => dispatchGuiServiceMethod(layoutInput.rootDir, layoutInput, service, method, payload)
+    invoke: async (method, payload) => dispatchGuiServiceMethod(service, method, payload)
   };
 }
 
 export async function dispatchGuiServiceMethod(
-  rootDir: string,
-  layoutInput: HarnessLayoutInput,
-  service: LocalControllerService,
+  service: GuiBridgeServiceProxy,
   method: string,
   payload: unknown
 ): Promise<unknown> {
   if (shippedGuiBridgeMethods.has(method as PreloadApiMethod)) {
     const handler = guiBridgeHandlerImplementations[method as ShippedGuiBridgeMethod];
-    return handler.invoke({ rootDir, layoutInput, service, payload });
+    return handler.invoke({ service, payload });
   }
   const deferredReason = deferredGuiBridgeReasons.get(method as PreloadApiMethod);
   if (deferredReason) {
@@ -134,39 +121,124 @@ export async function dispatchGuiServiceMethod(
   };
 }
 
-function validateTaskDocumentPayloadPath(
-  rootDir: string,
-  layoutInput: HarnessLayoutInput,
+function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeServiceProxy {
+  return {
+    getTasks: () => invokeDaemonGuiRoute(request, "getTasks", undefined),
+    getTaskDetail: (payload) => invokeDaemonGuiRoute(request, "getTaskDetail", payload),
+    getTaskDocument: (payload) => invokeDaemonGuiRoute(request, "getTaskDocument", payload),
+    setTaskStatus: (payload) => invokeDaemonGuiRoute(request, "setTaskStatus", payload),
+    reviewTask: (payload) => invokeDaemonGuiRoute(request, "reviewTask", payload),
+    appendTaskProgress: (payload) => invokeDaemonGuiRoute(request, "appendTaskProgress", payload),
+    rebuildGovernance: () => invokeDaemonGuiRoute(request, "rebuildGovernance", undefined)
+  };
+}
+
+async function invokeDaemonGuiRoute(
+  request: GuiDaemonRequester,
+  method: PreloadApiMethod,
   payload: unknown
-): { readonly ok: true } | { readonly ok: false; readonly error: { readonly code: string; readonly hint: string } } {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    return { ok: false, error: { code: "invalid_payload", hint: "taskId and path are required." } };
-  }
-  const record = payload as Record<string, unknown>;
-  if (typeof record.taskId !== "string" || typeof record.path !== "string") {
-    return { ok: false, error: { code: "invalid_payload", hint: "taskId and path are required." } };
-  }
-  let documentPath: string;
-  try {
-    documentPath = normalizeRelativeDocumentPath(record.path);
-  } catch {
-    return { ok: false, error: { code: "invalid_payload", hint: "Portable document path is required." } };
-  }
-  let relativeDocumentPath: string;
-  try {
-    relativeDocumentPath = path.relative(rootDir, taskDocumentPath(layoutInput, record.taskId, documentPath));
-  } catch {
-    return { ok: false, error: { code: "invalid_payload", hint: "taskId is invalid." } };
-  }
-  const decision = validateProjectPath(rootDir, relativeDocumentPath);
-  if (!decision.ok) {
+): Promise<unknown> {
+  const route = routeByGuiMethod.get(method);
+  if (!route) {
     return {
       ok: false,
       error: {
-        code: decision.reason ?? "path_rejected",
-        hint: "Requested document path is outside the public task package."
+        code: "method_not_allowed",
+        hint: `Unsupported GUI service method: ${method}`
+      }
+    };
+  }
+  const validation = validateGuiRoutePayload(route, payload);
+  if (!validation.ok) return validation.failure;
+  const receipt = await request(route, validation.payload);
+  return unwrapDaemonReceipt(receipt);
+}
+
+type PayloadValidation = { readonly ok: true; readonly payload: unknown } | { readonly ok: false; readonly failure: JsonObject };
+const domainStatuses = new Set(["planned", "active", "blocked", "in_review", "done", "cancelled"]);
+
+export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknown): PayloadValidation {
+  switch (route.inputSchemaId) {
+    case "gui.empty/v1":
+      return payload === undefined || payload === null || isRecord(payload)
+        ? { ok: true, payload }
+        : invalidPayload("empty payload is required.");
+    case "application.task-id-payload/v1":
+      return validateTaskIdPayload(payload);
+    case "application.task-document-payload/v1":
+      return validateTaskDocumentPayload(payload);
+    case "application.set-task-status-payload/v1":
+      return validateSetStatusPayload(payload);
+    case "application.append-task-progress-payload/v1":
+      return validateAppendProgressPayload(payload);
+    default:
+      return { ok: true, payload };
+  }
+}
+
+function validateTaskIdPayload(payload: unknown): PayloadValidation {
+  if (!isRecord(payload) || typeof payload.taskId !== "string") return invalidPayload("taskId is required.");
+  if (!isValidTaskId(payload.taskId)) return invalidPayload("taskId is invalid.");
+  return { ok: true, payload };
+}
+
+function validateTaskDocumentPayload(payload: unknown): PayloadValidation {
+  const taskPayload = validateTaskIdPayload(payload);
+  if (!taskPayload.ok) return taskPayload;
+  if (!isRecord(payload) || typeof payload.path !== "string") return invalidPayload("path is required.");
+  return { ok: true, payload };
+}
+
+function validateSetStatusPayload(payload: unknown): PayloadValidation {
+  const taskPayload = validateTaskIdPayload(payload);
+  if (!taskPayload.ok) return taskPayload;
+  if (!isRecord(payload) || typeof payload.status !== "string" || !domainStatuses.has(payload.status)) {
+    return invalidPayload("valid status is required.");
+  }
+  return { ok: true, payload };
+}
+
+function validateAppendProgressPayload(payload: unknown): PayloadValidation {
+  const taskPayload = validateTaskIdPayload(payload);
+  if (!taskPayload.ok) return taskPayload;
+  if (!isRecord(payload) || typeof payload.text !== "string" || payload.text.length === 0) return invalidPayload("text is required.");
+  return { ok: true, payload };
+}
+
+function invalidPayload(hint: string): PayloadValidation {
+  return {
+    ok: false,
+    failure: {
+      ok: false,
+      error: {
+        code: "invalid_payload",
+        hint
+      }
+    }
+  };
+}
+
+function isValidTaskId(taskId: string): boolean {
+  return taskId.length > 0 && !taskId.includes("/") && !taskId.includes("..");
+}
+
+function unwrapDaemonReceipt(receipt: JsonObject): unknown {
+  const details = isRecord(receipt.details) ? receipt.details : undefined;
+  const data = isRecord(details?.data) ? details.data : undefined;
+  if (data) return data;
+  if (receipt.ok === false) {
+    const error = isRecord(receipt.error) ? receipt.error : {};
+    return {
+      ok: false,
+      error: {
+        code: typeof error.code === "string" ? error.code : "daemon_error",
+        hint: typeof error.hint === "string" ? error.hint : "Daemon request failed."
       }
     };
   }
   return { ok: true };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
