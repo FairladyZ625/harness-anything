@@ -1,0 +1,11 @@
+{
+  "schema": "distill-candidate/v1",
+  "candidateId": "distill_1783511070759_0fdeffe7",
+  "taskId": "task_01KWYFD9H0M1CA8WCW397BBNT8",
+  "command": "ha task archive",
+  "factState": "candidate",
+  "inputPath": "harness/tasks/task_01KWYFD9H0M1CA8WCW397BBNT8-gui-v1-pre03-r1-ci-gui-e2e-electron-smoke-sandbox-no-sandbox-vite-firstw/closeout.md",
+  "inputSha256": "5386161868728678daef0f734cc96e3a8268c7d66affce2fd3c819a009e5e0e3",
+  "suggestedClaim": "# Closeout",
+  "createdAt": "2026-07-08T11:44:30.759Z"
+}
