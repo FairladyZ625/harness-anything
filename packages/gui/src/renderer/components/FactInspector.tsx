@@ -28,13 +28,14 @@ export function FactInspector({
   const fact = facts.find((candidate) => candidate.anchor === anchor);
   const task = fact ? tasks.find((candidate) => candidate.taskId === fact.taskId) : undefined;
   const inbound = relations.filter((relation) => relation.to === fullRef);
+  const outbound = relations.filter((relation) => relation.from === fullRef);
   const invalidators = inbound.filter(
-    (relation) => relation.kind === "invalidated_by" || relation.kind === "supersedes_fact",
+    (relation) => relation.kind === "invalidated-by" || relation.kind === "supersedes-fact",
   );
-  const supportedDecisions = inbound
-    .filter((relation) => relation.from.startsWith("decision/"))
+  const supportedDecisions = [...inbound, ...outbound]
+    .filter((relation) => relation.from.startsWith("decision/") || relation.to.startsWith("decision/"))
     .map((relation) => {
-      const id = normalizeDecisionId(relation.from);
+      const id = normalizeDecisionId(relation.from.startsWith("decision/") ? relation.from : relation.to);
       return { relation, decision: decisions.find((decision) => decision.decisionId === id) };
     });
 
@@ -137,7 +138,7 @@ export function FactInspector({
                     <span className="text-text-faint">{shortEndpoint(relation.from)}</span>
                     <ArrowSquareOut weight="bold" className="text-[10px] text-text-faint" />
                     <span className={
-                      relation.kind === "invalidated_by" || relation.kind === "supersedes_fact"
+                      relation.kind === "invalidated-by" || relation.kind === "supersedes-fact"
                         ? "text-stale"
                         : "text-accent"
                     }>

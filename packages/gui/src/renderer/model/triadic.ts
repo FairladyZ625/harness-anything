@@ -77,7 +77,10 @@ export function factOf(ref: string, facts: FactRef[]): FactRef | undefined {
 }
 
 export function rationaleFor(ref: string, relations: RelationEdge[]): string | undefined {
-  return relations.find((relation) => relation.to === ref && relation.kind === "supports")?.rationale;
+  return relations.find((relation) =>
+    (relation.to === ref && (relation.kind === "supports" || relation.kind === "evidenced-by" || relation.kind === "evidences")) ||
+    (relation.from === ref && relation.kind === "supports")
+  )?.rationale;
 }
 
 export const axisRank = (value: "high" | "medium" | "low") =>

@@ -112,8 +112,8 @@ export function GraphDrawer({
 
   const focusId = focusNode.id;
   const focusTask = focusNode.task ?? null;
-  const directOut = edges.filter((e) => e.from === focusId);
-  const directIn = edges.filter((e) => e.to === focusId);
+  const directOut = edges.filter((e) => endpointToNodeId(e.from) === focusId);
+  const directIn = edges.filter((e) => endpointToNodeId(e.to) === focusId);
 
   return (
     <aside className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface">

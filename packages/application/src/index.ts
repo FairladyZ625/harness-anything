@@ -1,5 +1,16 @@
 import type { Effect } from "effect";
-import type { ArtifactStore, DomainStatus, EngineError, ProjectionWarning, TaskProjectionRow, WriteError } from "../../kernel/src/index.ts";
+import type {
+  ArtifactStore,
+  DecisionProjectionRow,
+  DomainStatus,
+  EngineError,
+  FactConfidence,
+  FactMemoryClass,
+  FactMemoryTag,
+  ProjectionWarning,
+  TaskProjectionRow,
+  WriteError
+} from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 export { commandReceiptEnvelope } from "./command-receipt.ts";
 export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
@@ -58,6 +69,7 @@ export type {
 export { makeLocalControllerService } from "./local-controller-service.ts";
 export {
   readAppendProgressPayload,
+  validateLocalControllerDecisionId,
   readSetStatusPayload,
   readTaskDocumentPayload,
   readTaskIdPayload
@@ -149,6 +161,84 @@ export interface TaskDocumentSuccess extends LocalControllerSuccess {
 
 export type TaskDocumentResult = TaskDocumentSuccess | LocalControllerFailure;
 
+export interface RelationGraphEdgeRow {
+  readonly relationId: string;
+  readonly sourceRef: string;
+  readonly targetRef: string;
+  readonly relationType: string;
+  readonly direction: string;
+  readonly strength: string;
+  readonly origin: string;
+  readonly state: string;
+  readonly rationale: string;
+  readonly ownerRef: string;
+  readonly sourcePath: string;
+  readonly recordIndex: number;
+}
+
+export interface RelationCoverageRow {
+  readonly decisionRef: string;
+  readonly claimRef: string;
+  readonly status: "covered" | "uncovered";
+  readonly coveringFactRef?: string;
+  readonly relationPath: ReadonlyArray<string>;
+}
+
+export interface FactAnchorRow {
+  readonly factRef: string;
+  readonly taskId: string;
+  readonly factId: string;
+  readonly sourcePath: string;
+}
+
+export interface RelationGraphReadSuccess extends LocalControllerSuccess {
+  readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+export type RelationGraphReadResult = RelationGraphReadSuccess | LocalControllerFailure;
+
+export interface DecisionListSuccess extends LocalControllerSuccess {
+  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+export type DecisionListResult = DecisionListSuccess | LocalControllerFailure;
+
+export interface DecisionDetailSuccess extends LocalControllerSuccess {
+  readonly decision: DecisionProjectionRow;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+export type DecisionDetailResult = DecisionDetailSuccess | LocalControllerFailure;
+
+export interface DecisionIdPayload {
+  readonly decisionId: string;
+}
+
+export interface FactProjectionRow {
+  readonly schema: "task-fact-row/v1";
+  readonly ref: string;
+  readonly taskId: string;
+  readonly factId: string;
+  readonly statement: string;
+  readonly source: string;
+  readonly observedAt: string;
+  readonly confidence: FactConfidence;
+  readonly memoryClass: FactMemoryClass;
+  readonly memoryTags: ReadonlyArray<FactMemoryTag>;
+}
+
+export interface TaskFactListSuccess extends LocalControllerSuccess {
+  readonly taskId: string;
+  readonly path: string;
+  readonly facts: ReadonlyArray<FactProjectionRow>;
+}
+
+export type TaskFactListResult = TaskFactListSuccess | LocalControllerFailure;
+
 export interface TaskIdPayload {
   readonly taskId: string;
 }
@@ -204,6 +294,10 @@ export interface LocalControllerService {
   readonly getTasks: () => TaskListResult;
   readonly getTaskDetail: (payload: TaskIdPayload) => Promise<TaskDetailResult>;
   readonly getTaskDocument: (payload: TaskDocumentPayload) => Promise<TaskDocumentResult>;
+  readonly getRelationGraph: () => RelationGraphReadResult;
+  readonly getDecisions: () => DecisionListResult;
+  readonly getDecisionDetail: (payload: DecisionIdPayload) => DecisionDetailResult;
+  readonly getTaskFacts: (payload: TaskIdPayload) => Promise<TaskFactListResult>;
   readonly setTaskStatus: (payload: SetTaskStatusPayload) => Promise<LocalControllerResult>;
   readonly reviewTask: (payload: TaskIdPayload) => Promise<LocalControllerResult>;
   readonly appendTaskProgress: (payload: AppendTaskProgressPayload) => Promise<LocalControllerResult>;

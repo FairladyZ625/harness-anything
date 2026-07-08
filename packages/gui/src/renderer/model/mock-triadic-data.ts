@@ -198,7 +198,7 @@ export const MOCK_DECISIONS: DecisionRow[] = [
   },
   // ===== 信号灯样本(41 §3.1a):全绿 = DEC-105(无字段);以下覆盖黄/红 =====
   {
-    // 黄灯①:evidence 活性 —— 引用了被 invalidated_by 标记失效的 fact(F-perf-baseline)
+    // 黄灯①:evidence 活性 —— 引用了被 supersedes-fact 标记失效的 fact(F-perf-baseline)
     decisionId: "DEC-109",
     title: "递归 CTE 深度上限设为 32 层",
     state: "proposed",

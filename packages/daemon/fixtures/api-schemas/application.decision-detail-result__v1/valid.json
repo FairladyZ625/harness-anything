@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "decision": {
+    "schema": "d4-decision-row/v1",
+    "decisionId": "dec_1",
+    "state": "active",
+    "title": "Decision",
+    "question": "Question?",
+    "chosen": [],
+    "rejected": [],
+    "path": "harness/decisions/decision-dec_1/decision.md",
+    "moduleKeys": [],
+    "productLineKeys": []
+  },
+  "warnings": []
+}

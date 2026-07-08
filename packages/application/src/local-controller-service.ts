@@ -1,12 +1,21 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactStore, EngineError, WriteError } from "../../kernel/src/index.ts";
-import { queryTaskProjection, readTaskProjection } from "../../kernel/src/index.ts";
+import type { ArtifactStore, EngineError, FactRecord, WriteError } from "../../kernel/src/index.ts";
+import {
+  parseFactFlowRecords,
+  queryDecisionProjection,
+  queryTaskProjection,
+  readRelationGraphProjection,
+  readTaskProjection,
+  resolveHarnessLayout
+} from "../../kernel/src/index.ts";
 import {
   readTaskDocumentPayload,
+  validateLocalControllerDecisionId,
   validateLocalControllerTaskId
 } from "./local-controller-payloads.ts";
 import type {
+  FactProjectionRow,
   LocalControllerError,
   LocalControllerFailure,
   LocalControllerResult,
@@ -46,6 +55,42 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       const parsed = readTaskDocumentPayload(payload);
       if (!parsed.ok) return parsed;
       return Effect.runPromise(readControllerTaskDocument(options.artifactStore, parsed.taskId, parsed.path));
+    },
+    getRelationGraph: () => {
+      const result = readRelationGraphProjection({ rootDir, layoutOverrides: options.layoutOverrides });
+      return {
+        ok: true,
+        edges: result.edges,
+        coverageRows: result.coverageRows,
+        factAnchors: result.factAnchors,
+        warnings: result.warnings
+      };
+    },
+    getDecisions: () => {
+      const result = queryDecisionProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
+      return { ok: true, decisions: result.rows, warnings: result.warnings };
+    },
+    getDecisionDetail: (payload) => {
+      validateLocalControllerDecisionId(payload.decisionId);
+      const result = queryDecisionProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
+      const decision = result.rows.find((row) => row.decisionId === payload.decisionId || row.legacyId === payload.decisionId);
+      if (!decision) return decisionNotFound(payload.decisionId);
+      return { ok: true, decision, warnings: result.warnings };
+    },
+    getTaskFacts: async (payload) => {
+      validateLocalControllerTaskId(payload.taskId);
+      const layout = resolveHarnessLayout({ rootDir, layoutOverrides: options.layoutOverrides });
+      const factsPath = path.relative(layout.rootDir, layout.taskFactDocumentPath(payload.taskId)).split(path.sep).join("/");
+      return Effect.runPromise(options.artifactStore.readTaskPackage(payload.taskId).pipe(
+        Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === layout.factDocumentName)?.body ?? ""),
+        Effect.catchAll(() => Effect.succeed("")),
+        Effect.map((body) => ({
+          ok: true,
+          taskId: payload.taskId,
+          path: factsPath,
+          facts: parseFactFlowRecords(body).map((fact) => toFactProjectionRow(payload.taskId, fact))
+        }))
+      ));
     },
     setTaskStatus: async (payload) => {
       validateLocalControllerTaskId(payload.taskId);
@@ -99,6 +144,25 @@ function listKnownTaskDocuments(artifactStore: Pick<ArtifactStore, "readTaskPack
 
 function taskNotFound(taskId: string): LocalControllerFailure {
   return { ok: false, error: { code: "task_not_found", hint: `task not found: ${taskId}` } };
+}
+
+function decisionNotFound(decisionId: string): LocalControllerFailure {
+  return { ok: false, error: { code: "decision_not_found", hint: `decision not found: ${decisionId}` } };
+}
+
+function toFactProjectionRow(taskId: string, fact: FactRecord): FactProjectionRow {
+  return {
+    schema: "task-fact-row/v1",
+    ref: `fact/${taskId}/${fact.fact_id}`,
+    taskId,
+    factId: fact.fact_id,
+    statement: fact.statement,
+    source: fact.source,
+    observedAt: fact.observedAt,
+    confidence: fact.confidence,
+    memoryClass: fact.memoryClass,
+    memoryTags: fact.memoryTags
+  };
 }
 
 function readControllerTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {

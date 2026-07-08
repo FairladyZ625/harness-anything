@@ -39,8 +39,13 @@ export interface EmptyGuiPayload {
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "application.append-task-progress-payload/v1", owner: "application", typeName: "AppendTaskProgressPayload" },
+  { id: "application.decision-detail-result/v1", owner: "application", typeName: "DecisionDetailResult" },
+  { id: "application.decision-id-payload/v1", owner: "application", typeName: "DecisionIdPayload" },
+  { id: "application.decision-list-result/v1", owner: "application", typeName: "DecisionListResult" },
+  { id: "application.fact-list-result/v1", owner: "application", typeName: "TaskFactListResult" },
   { id: "application.local-controller-error/v1", owner: "application", typeName: "LocalControllerError" },
   { id: "application.local-controller-result/v1", owner: "application", typeName: "LocalControllerResult" },
+  { id: "application.relation-graph-result/v1", owner: "application", typeName: "RelationGraphReadResult" },
   { id: "application.set-task-status-payload/v1", owner: "application", typeName: "SetTaskStatusPayload" },
   { id: "application.task-detail-result/v1", owner: "application", typeName: "TaskDetailResult" },
   { id: "application.task-document-payload/v1", owner: "application", typeName: "TaskDocumentPayload" },
@@ -140,6 +145,54 @@ export const apiRouteContracts = [
     serviceMethod: "rebuildGovernance",
     auth: "local-session-token",
     guiBridgeMethod: "rebuildGovernance"
+  },
+  {
+    id: "triadic.relationGraph",
+    method: "GET",
+    path: "/api/triadic/relation-graph",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.relation-graph-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getRelationGraph",
+    auth: "local-session-token",
+    guiBridgeMethod: "getRelationGraph"
+  },
+  {
+    id: "decisions.list",
+    method: "GET",
+    path: "/api/decisions",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.decision-list-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getDecisions",
+    auth: "local-session-token",
+    guiBridgeMethod: "getDecisions"
+  },
+  {
+    id: "decisions.detail",
+    method: "GET",
+    path: "/api/decisions/:decisionId",
+    inputSchemaId: "application.decision-id-payload/v1",
+    outputSchemaId: "application.decision-detail-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getDecisionDetail",
+    auth: "local-session-token",
+    guiBridgeMethod: "getDecisionDetail"
+  },
+  {
+    id: "facts.taskList",
+    method: "GET",
+    path: "/api/tasks/:taskId/facts",
+    inputSchemaId: "application.task-id-payload/v1",
+    outputSchemaId: "application.fact-list-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getTaskFacts",
+    auth: "local-session-token",
+    guiBridgeMethod: "getTaskFacts"
   },
   {
     id: "terminal.sessions.create",
