@@ -408,7 +408,7 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   try {
     return fn(rootDir);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRootSync(rootDir);
   }
 }
 
@@ -417,8 +417,99 @@ async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>): Promis
   try {
     return await fn(rootDir);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    await stopDaemonForRoot(rootDir);
+    await removeTempRoot(rootDir);
   }
+}
+
+async function stopDaemonForRoot(rootDir: string): Promise<void> {
+  const pid = daemonPidFromStatus(rootDir);
+  if (!pid) return;
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (isNoSuchProcess(error)) return;
+    throw error;
+  }
+  await waitForProcessExit(pid, 3_000);
+}
+
+function daemonPidFromStatus(rootDir: string): number | undefined {
+  let status: Record<string, unknown>;
+  try {
+    status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+  } catch {
+    return undefined;
+  }
+  if (typeof status.pid === "number" && Number.isSafeInteger(status.pid) && status.pid > 0) return status.pid;
+  const daemonId = status.daemonId;
+  if (typeof daemonId !== "string") return undefined;
+  const match = /^ha-(\d+)$/u.exec(daemonId);
+  if (!match) return undefined;
+  const pid = Number.parseInt(match[1]!, 10);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (isNoSuchProcess(error)) {
+          resolve();
+          return;
+        }
+        reject(error);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(new Error(`daemon process ${pid} did not exit within ${timeoutMs}ms`));
+        return;
+      }
+      setTimeout(check, 25);
+    };
+    check();
+  });
+}
+
+async function removeTempRoot(rootDir: string): Promise<void> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      rmSync(rootDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isRetriableRemoveError(error) || attempt === 7) throw error;
+      await delay(25 * (attempt + 1));
+    }
+  }
+}
+
+function removeTempRootSync(rootDir: string): void {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      rmSync(rootDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isRetriableRemoveError(error) || attempt === 7) throw error;
+      sleep(25 * (attempt + 1));
+    }
+  }
+}
+
+function isRetriableRemoveError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && ["ENOTEMPTY", "EBUSY", "EPERM"].includes(String((error as { readonly code?: unknown }).code));
+}
+
+function isNoSuchProcess(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { readonly code?: unknown }).code === "ESRCH";
 }
 
 function runRawJson(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
@@ -492,11 +583,15 @@ function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function waitForCondition(check: () => boolean, timeoutMs = 4_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
     if (check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await delay(100);
   }
   assert.equal(check(), true);
 }
