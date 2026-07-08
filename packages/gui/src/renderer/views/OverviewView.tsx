@@ -160,11 +160,11 @@ export function OverviewView({
 
       <div className="grid grid-cols-1 gap-4 p-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <Card title="今天要裁什么" bodyClassName="p-3">
-          <QuestionLabel>① proposed decision top-N → 裁决收件箱</QuestionLabel>
+          <QuestionLabel>① proposed decision top-N → 决策批准</QuestionLabel>
           {proposedTop.length === 0 ? (
             <div className="rounded-md border border-border bg-surface-raised px-3 py-4 text-[13px] text-text-muted">
               <CheckCircle weight="duotone" className="mr-1 inline text-success" />
-              今日无待裁决策。
+              今日无待决策批准。
             </div>
           ) : (
             <div className="space-y-2">
@@ -229,7 +229,7 @@ export function OverviewView({
             ))}
             {blockers.length === 0 && (
               <p className="rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text-faint">
-                当前无 blocked 或 ready review 滞留项。
+                当前无 blocked 或封存就绪滞留项。
               </p>
             )}
           </div>

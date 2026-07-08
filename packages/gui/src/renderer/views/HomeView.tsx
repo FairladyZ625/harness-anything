@@ -83,7 +83,7 @@ function ProjectCard({
       <div className="flex items-center gap-2.5">
         {ready > 0 && (
           <span className="rounded-md bg-accent px-1.5 py-0.5 font-mono text-[11px] font-semibold text-accent-fg">
-            待审 {ready}
+            封存就绪 {ready}
           </span>
         )}
         {stale > 0 && (
@@ -155,11 +155,12 @@ export function HomeView({
           />
         ))}
         <button
-          title="选择目录 / 拖入文件夹"
-          className="flex min-h-36 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-text-faint hover:border-border-strong hover:text-text-muted"
+          disabled
+          title="本地多项目注册将在 V2 提供(coming soon)"
+          className="flex min-h-36 cursor-not-allowed flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-text-faint opacity-60"
         >
           <Plus weight="bold" className="text-lg" />
-          <span className="text-xs">添加项目</span>
+          <span className="text-xs">添加项目(V2)</span>
         </button>
       </div>
 

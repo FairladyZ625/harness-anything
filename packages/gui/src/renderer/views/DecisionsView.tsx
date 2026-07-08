@@ -118,7 +118,7 @@ export function DecisionsView({
       {/* 队列指示条:当前位置 + 两轴排序说明 + 跳过/导航 */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ChatCircleDots weight="bold" className="text-[14px] text-accent" />
-        <span className="text-[13px] font-semibold text-text">裁决收件箱</span>
+        <span className="text-[13px] font-semibold text-text">决策批准</span>
         <span className="rounded bg-surface-raised px-1.5 py-px font-mono text-[11px] text-text-muted">
           {queue.length > 0 ? `${idx + 1} / ${queue.length}` : "0 / 0"}
         </span>
@@ -207,7 +207,7 @@ export function DecisionsView({
                   <SealCheck weight="duotone" className="text-[28px] text-success" />
                 </div>
                 <div>
-                  <div className="text-[15px] font-semibold text-text">今日无待裁决策</div>
+                  <div className="text-[15px] font-semibold text-text">今日无待决策批准</div>
                   <div className="mt-1 text-[12px] text-text-faint">
                     队列清空是正常态。承重决策由内核产出时再进队。
                   </div>

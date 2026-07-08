@@ -50,7 +50,7 @@ export const STATUS_META: Record<
     icon: <PauseCircle weight="duotone" />,
   },
   in_review: {
-    label: "In Review",
+    label: "封存中(Finalizing)",
     color: "var(--color-status-in-review)",
     icon: <CircleHalf weight="duotone" />,
   },
@@ -94,7 +94,7 @@ const CLOSEOUT_META: Record<
   not_required: { label: "无需收口", icon: <MinusCircle weight="duotone" /> },
   missing: { label: "材料缺失", icon: <Seal weight="duotone" /> },
   incomplete: { label: "收口未齐", icon: <HourglassMedium weight="duotone" /> },
-  ready: { label: "待审阅", icon: <SealCheck weight="fill" />, accent: true },
+  ready: { label: "封存就绪", icon: <SealCheck weight="fill" />, accent: true },
   passed: { label: "已通过", icon: <SealCheck weight="duotone" /> },
   failed: { label: "未通过", icon: <SealWarning weight="duotone" />, tone: "danger" },
 };
@@ -178,7 +178,7 @@ const DECISION_STATE_META: Record<
   DecisionState,
   { icon: ReactNode; cls: string; label: string }
 > = {
-  proposed: { icon: <ChatCircleDots weight="bold" />, cls: "bg-accent text-accent-fg", label: "待裁决" },
+  proposed: { icon: <ChatCircleDots weight="bold" />, cls: "bg-accent text-accent-fg", label: "待决策批准" },
   rejected: { icon: <XCircle weight="bold" />, cls: "bg-danger/20 text-danger", label: "已否决" },
   deferred: { icon: <PauseCircle weight="bold" />, cls: "bg-stale/20 text-stale", label: "暂缓" },
   active: { icon: <SealCheck weight="bold" />, cls: "bg-success/15 text-success", label: "生效中" },
