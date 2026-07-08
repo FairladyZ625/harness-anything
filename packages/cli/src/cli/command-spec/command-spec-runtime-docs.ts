@@ -86,7 +86,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
   {
     "kind": "session-sync",
     "usage": "session sync [--json]",
-    "summary": "Commit existing managed session markdown files under harness/sessions.",
+    "summary": "Synchronize existing managed session markdown files under harness/sessions through the write journal.",
     "examples": ["harness-anything session sync --json"],
     "parserId": "session",
     "runnerId": "session",

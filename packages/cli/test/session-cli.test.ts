@@ -16,7 +16,7 @@ const cleanRuntimeEnv = {
   ANTIGRAVITY_SESSION_ID: ""
 } as const;
 
-test("CLI session export binds CODEX_THREAD_ID and commits managed session markdown", () => {
+test("CLI session export binds CODEX_THREAD_ID and writes managed session markdown through the journal", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     mkdirSync(harnessRoot, { recursive: true });
@@ -32,12 +32,15 @@ test("CLI session export binds CODEX_THREAD_ID and commits managed session markd
     assert.equal(exported.paths.primary, "harness/sessions/019f28de-f7f6-7223-a2a8-b2968686fe21.md");
     assert.equal(exported.report.session.sessionId, "019f28de-f7f6-7223-a2a8-b2968686fe21");
     assert.equal(exported.report.git.committed, true);
+    assert.equal(exported.report.git.coordinator, "write-journal");
     assert.match(readFileSync(path.join(rootDir, exported.paths.primary), "utf8"), /sessionId: 019f28de-f7f6-7223-a2a8-b2968686fe21/u);
+    assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
+    assert.match(writeWatermarkBody(rootDir), /session-export-019f28de-f7f6-7223-a2a8-b2968686fe21/u);
     assert.equal(gitStatus(harnessRoot), "");
   });
 });
 
-test("CLI session sync commits existing untracked session exports", () => {
+test("CLI session sync writes existing untracked session exports through the journal", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     mkdirSync(path.join(harnessRoot, "sessions"), { recursive: true });
@@ -62,11 +65,14 @@ test("CLI session sync commits existing untracked session exports", () => {
     assert.equal(synced.command, "session-sync");
     assert.equal(synced.rows, 1);
     assert.equal(synced.report.git.committed, true);
+    assert.equal(synced.report.git.coordinator, "write-journal");
+    assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
+    assert.match(writeWatermarkBody(rootDir), /session-sync-0/u);
     assert.equal(gitStatus(harnessRoot), "");
   });
 });
 
-test("CLI session backfill discovers Codex runtime logs and commits exports", () => {
+test("CLI session backfill discovers Codex runtime logs and writes exports through the journal", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const homeDir = path.join(rootDir, "home");
@@ -91,12 +97,15 @@ test("CLI session backfill discovers Codex runtime logs and commits exports", ()
     assert.equal(backfilled.rows, 1);
     assert.equal(backfilled.report.exported[0].session.sessionId, "codex-thread-backfill");
     assert.equal(backfilled.report.git.committed, true);
+    assert.equal(backfilled.report.git.coordinator, "write-journal");
     assert.match(readFileSync(path.join(harnessRoot, "sessions", "codex-thread-backfill.md"), "utf8"), /Backfill this Codex thread/u);
+    assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
+    assert.match(writeWatermarkBody(rootDir), /session-export-codex-thread-backfill/u);
     assert.equal(gitStatus(harnessRoot), "");
   });
 });
 
-test("CLI session backfill discovers ZCode runtime logs and commits exports", () => {
+test("CLI session backfill discovers ZCode runtime logs and writes exports through the journal", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const homeDir = path.join(rootDir, "home");
@@ -123,8 +132,11 @@ test("CLI session backfill discovers ZCode runtime logs and commits exports", ()
     assert.equal(backfilled.rows, 1);
     assert.equal(backfilled.report.exported[0].session.sessionId, "sess_zcode-thread-backfill");
     assert.equal(backfilled.report.git.committed, true);
+    assert.equal(backfilled.report.git.coordinator, "write-journal");
     assert.match(readFileSync(path.join(harnessRoot, "sessions", "sess_zcode-thread-backfill.md"), "utf8"), /Backfill this ZCode thread/u);
     assert.match(readFileSync(path.join(harnessRoot, "sessions", "sess_zcode-thread-backfill.md"), "utf8"), /ZCode backfill response/u);
+    assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
+    assert.match(writeWatermarkBody(rootDir), /session-export-sess_zcode-thread-backfill/u);
     assert.equal(gitStatus(harnessRoot), "");
   });
 });
@@ -163,4 +175,8 @@ function initHarnessGit(harnessRoot: string): void {
 
 function gitStatus(harnessRoot: string): string {
   return execFileSync("git", ["-C", harnessRoot, "status", "--short"], { encoding: "utf8" }).trim();
+}
+
+function writeWatermarkBody(rootDir: string): string {
+  return readFileSync(path.join(rootDir, ".harness", "write-journal", "watermark.json"), "utf8");
 }

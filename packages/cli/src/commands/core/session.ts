@@ -1,12 +1,13 @@
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { CurrentSessionRef } from "../../../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
+import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, writeContentAddressedBlob, writeCoordinatedPayload } from "../../../../kernel/src/index.ts";
+import type { FlushReport, WriteError } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, SessionExportRuntime, SessionExportSource } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
-import { authoredRelativePath, commitAuthoredPaths } from "./authored-git.ts";
+import { authoredRelativePath } from "./authored-git.ts";
 
 type SessionAction = Extract<Parameters<CommandRunner>[1]["action"], {
   readonly kind: "session-export" | "session-backfill" | "session-sync";
@@ -14,7 +15,7 @@ type SessionAction = Extract<Parameters<CommandRunner>[1]["action"], {
 
 export const runSessionCommand: CommandRunner = (context, command) => {
   const action = command.action as SessionAction;
-  if (action.kind === "session-sync") return runSessionSync(context.layoutInput);
+  if (action.kind === "session-sync") return runSessionSync(context);
   if (action.kind === "session-backfill") {
     return context.provenanceSessionExporter.backfillRuntimeSessions({
       ...(action.runtime ? { runtime: action.runtime } : {}),
@@ -22,18 +23,18 @@ export const runSessionCommand: CommandRunner = (context, command) => {
     }).pipe(
       Effect.map((result) => {
         const paths = result.exported.map((entry) => entry.path);
-      const git = acknowledgeCoordinatorCommit(commitAuthoredPaths(context.layoutInput, paths, `session(backfill): ${paths.length} sessions`));
-      const displayPaths = paths.map((entry) => rootRelativeSessionPath(context.layoutInput, entry));
-      return {
-        ok: true,
-        command: "session-backfill",
-        rows: result.exported.length,
-        path: displayPaths[0],
-        warnings: result.warnings,
-        report: {
-          schema: "session-backfill-report/v1",
-          runtime: action.runtime,
-          limit: action.limit,
+        const git = journalGitReport(paths.length > 0, paths, paths.length > 0);
+        const displayPaths = paths.map((entry) => rootRelativeSessionPath(context.layoutInput, entry));
+        return {
+          ok: true,
+          command: "session-backfill",
+          rows: result.exported.length,
+          path: displayPaths[0],
+          warnings: result.warnings,
+          report: {
+            schema: "session-backfill-report/v1",
+            runtime: action.runtime,
+            limit: action.limit,
             exported: result.exported,
             git
           }
@@ -57,7 +58,7 @@ function runSessionExport(
     : context.provenanceSessionExporter.exportCurrentSession();
   return exportEffect.pipe(
     Effect.map((result) => {
-      const git = acknowledgeCoordinatorCommit(commitAuthoredPaths(context.layoutInput, [result.path], `session(export): ${result.session.sessionId}`));
+      const git = journalGitReport(true, [result.path], true);
       const displayPath = rootRelativeSessionPath(context.layoutInput, result.path);
       return {
         ok: true,
@@ -76,11 +77,14 @@ function runSessionExport(
   );
 }
 
-function runSessionSync(rootInput: Parameters<CommandRunner>[0]["layoutInput"]) {
-  return Effect.sync(() => {
-    const paths = listSessionMarkdownPaths(rootInput);
-    const displayPaths = paths.map((entry) => rootRelativeSessionPath(rootInput, entry));
-    const git = commitAuthoredPaths(rootInput, paths, `session(sync): ${paths.length} sessions`);
+function runSessionSync(context: Parameters<CommandRunner>[0]) {
+  return Effect.gen(function* () {
+    const paths = listSessionMarkdownPaths(context.layoutInput);
+    const displayPaths = paths.map((entry) => rootRelativeSessionPath(context.layoutInput, entry));
+    const flush = paths.length === 0
+      ? undefined
+      : yield* writeExistingSessionDocuments(context, paths);
+    const git = journalGitReport(paths.length > 0, paths, flush?.committed ?? false, flush);
     return {
       ok: true,
       command: "session-sync",
@@ -96,15 +100,58 @@ function runSessionSync(rootInput: Parameters<CommandRunner>[0]["layoutInput"]) 
   });
 }
 
-function acknowledgeCoordinatorCommit(git: ReturnType<typeof commitAuthoredPaths>): ReturnType<typeof commitAuthoredPaths> {
-  return git.attempted && git.reason === "no_changes"
-    ? { ...git, committed: true, reason: "already_committed" }
-    : git;
-}
-
 function rootRelativeSessionPath(rootInput: Parameters<CommandRunner>[0]["layoutInput"], authoredRelative: string): string {
   const layout = resolveHarnessLayout(rootInput);
   return path.relative(layout.rootDir, path.join(layout.authoredRoot, authoredRelative)).split(path.sep).join("/");
+}
+
+function writeExistingSessionDocuments(
+  context: Parameters<CommandRunner>[0],
+  paths: ReadonlyArray<string>
+): Effect.Effect<FlushReport, WriteError> {
+  const coordinator = context.makeWriteCoordinator({ kind: "agent", id: "session-sync" });
+  return Effect.gen(function* () {
+    for (const [index, authoredRelativePath] of paths.entries()) {
+      const rootRelativePath = rootRelativeSessionPath(context.layoutInput, authoredRelativePath);
+      const absolutePath = path.join(resolveHarnessLayout(context.layoutInput).rootDir, rootRelativePath);
+      const body = readFileSync(absolutePath, "utf8");
+      const bodyRef = writeContentAddressedBlob(context.layoutInput, body, "text/markdown; charset=utf-8");
+      yield* writeCoordinatedPayload(coordinator, stablePayloadHash, {
+        entityId: moduleEntityId("provenance-session"),
+        kind: "machine_artifact_write",
+        opIdPrefix: `session-sync-${index}`,
+        payload: {
+          boundary: "provenance-session",
+          path: rootRelativePath,
+          bodyRef
+        }
+      }, { flush: false });
+    }
+    return yield* coordinator.flush("explicit");
+  });
+}
+
+function journalGitReport(
+  attempted: boolean,
+  paths: ReadonlyArray<string>,
+  committed: boolean,
+  flush?: FlushReport
+): {
+  readonly attempted: boolean;
+  readonly committed: boolean;
+  readonly coordinator: "write-journal";
+  readonly paths: ReadonlyArray<string>;
+  readonly reason?: string;
+  readonly flush?: FlushReport;
+} {
+  return {
+    attempted,
+    committed,
+    coordinator: "write-journal",
+    paths,
+    ...(!attempted ? { reason: "no_paths" } : {}),
+    ...(flush ? { flush } : {})
+  };
 }
 
 function toExplicitSession(action: Extract<SessionAction, { readonly kind: "session-export" }>): CurrentSessionRef {

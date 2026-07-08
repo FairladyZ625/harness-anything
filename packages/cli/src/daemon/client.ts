@@ -142,7 +142,7 @@ function daemonUnavailableReceipt(command: ParsedCommand, error: unknown): Comma
     command: command.action.kind,
     error: cliError(
       CliErrorCode.JournalUnavailable,
-      `Daemon unavailable. Use HARNESS_DAEMON_MODE=direct to bypass local client mode, or check 'ha daemon status'. Cause: ${error instanceof Error ? error.message : String(error)}`
+      `Daemon unavailable. Start the daemon with 'ha daemon start' or check 'ha daemon status'. Cause: ${error instanceof Error ? error.message : String(error)}`
     )
   });
   if (receipt.ok) throw new Error("daemon unavailable receipt unexpectedly succeeded");

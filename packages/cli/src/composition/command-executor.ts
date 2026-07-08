@@ -6,7 +6,6 @@ import {
   makeFactWriteService,
   makeProvenanceSessionExporter,
   makeRuntimeEventLedgerService,
-  type ProvenanceSessionExporterRejected,
   type ProvenanceSessionExportResult
 } from "../../../application/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
@@ -15,7 +14,6 @@ import { toCliError } from "../cli/error-mapper.ts";
 import { actionTaskId } from "../cli/parse-args.ts";
 import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
-import { commitAuthoredPaths } from "../commands/core/authored-git.ts";
 import {
   defaultCliAdapterProvider,
   type CliCompositionAdapterProvider
@@ -50,21 +48,7 @@ export async function runRegisteredCommandWithCliComposition(
     }
     return sessionBranchId;
   };
-  const syncExportedSession = (result: ProvenanceSessionExportResult): Effect.Effect<void, ProvenanceSessionExporterRejected> => Effect.try({
-    try: () => {
-      try {
-        commitAuthoredPaths(layoutInput, [result.path], `session(export): ${result.session.sessionId}`);
-      } catch (error) {
-        if (error instanceof Error && error.message === "authored root is ignored by Git but is not a nested Git repository") return;
-        throw error;
-      }
-    },
-    catch: (error) => ({
-      _tag: "ProvenanceSessionExporterRejected" as const,
-      sessionId: result.session.sessionId,
-      reason: error instanceof Error ? error.message : "session git commit failed"
-    })
-  }).pipe(Effect.asVoid);
+  const syncExportedSession = (_result: ProvenanceSessionExportResult): Effect.Effect<void, never> => Effect.void;
 
   const rawMakeWriteCoordinator = options.makeWriteCoordinator ?? ((actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) =>
     provider.createWriteCoordinator({
