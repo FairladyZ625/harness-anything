@@ -153,7 +153,7 @@ function checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds 
         }
         continue;
       }
-      const mappedIds = gateIdsForWorkflowCommand(command, commandToGateIds);
+      const mappedIds = commandToGateIds.get(command) ?? [];
       if (mappedIds.length === 0) {
         findings.push(formatFinding("rewrite-ci", `${job.id} runs ${JSON.stringify(command)} but no manifest gate declares that command.`));
       }
@@ -312,9 +312,6 @@ function jobRunsGateCommand({ job, gate, manifest, gates }) {
   if (job.runCommands.includes(gate.command)) {
     return true;
   }
-  if (gate.id === "test-integration" && job.runCommands.some(isIntegrationShardCommand)) {
-    return true;
-  }
   if (job.runCommands.some((command) => manifestRunnerCoversGate({ command, gateId: gate.id, workflowJob: job.id, manifest, gates }))) {
     return true;
   }
@@ -361,21 +358,6 @@ function buildCommandIndex(gates) {
     commandToGateIds.set(gate.command, existing);
   }
   return commandToGateIds;
-}
-
-function gateIdsForWorkflowCommand(command, commandToGateIds) {
-  const exact = commandToGateIds.get(command);
-  if (exact) {
-    return exact;
-  }
-  if (isIntegrationShardCommand(command)) {
-    return ["test-integration"];
-  }
-  return [];
-}
-
-function isIntegrationShardCommand(command) {
-  return /^npm run test:integration -- --shard (?:\$\{\{\s*matrix\.shard\s*\}\}|[1-9][0-9]*)$/u.test(command);
 }
 
 function parseRewriteCi(text) {
@@ -526,6 +508,10 @@ function parseManifestRunnerCommand(command) {
           invocation.exclude.add(trimmed);
         }
       }
+      index += 1;
+      continue;
+    }
+    if (arg === "--shard") {
       index += 1;
       continue;
     }

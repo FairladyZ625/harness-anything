@@ -162,7 +162,7 @@ jobs:
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
         run: npm ci
       - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
-        run: npm run test:integration -- --shard ${{ matrix.shard }}
+        run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }} --exclude mergify-queue-metadata-edit-noop
 
   integration:
     if: ${{ always() && github.event_name == 'pull_request' }}

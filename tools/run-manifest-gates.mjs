@@ -19,6 +19,7 @@ export function parseManifestGateArgs(args) {
   const options = {
     packageSurface: null,
     workflowJob: null,
+    shard: null,
     exclude: new Set()
   };
 
@@ -31,6 +32,11 @@ export function parseManifestGateArgs(args) {
     }
     if (arg === "--workflow-job") {
       options.workflowJob = requireValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--shard") {
+      options.shard = parsePositiveInteger(requireValue(args, index, arg), arg);
       index += 1;
       continue;
     }
@@ -89,7 +95,7 @@ export function buildManifestGatePlan(manifest, options) {
     return gate;
   });
 
-  return collapseCompositeCoveredCommands(dedupeCommands(gates));
+  return collapseCompositeCoveredCommands(dedupeCommands(applyShardOption(gates, options.shard)));
 }
 
 function dedupeCommands(gates) {
@@ -103,6 +109,19 @@ function dedupeCommands(gates) {
     commands.push({ id: gate.id, command: gate.command });
   }
   return commands;
+}
+
+function applyShardOption(gates, shard) {
+  if (shard === null || shard === undefined) {
+    return gates.map((gate) => ({ ...gate }));
+  }
+
+  return gates.map((gate) => {
+    if (gate.shardable !== true) {
+      throw new Error(`manifest gate ${gate.id} is not shardable but --shard was provided`);
+    }
+    return { ...gate, command: `${gate.command} -- --shard ${shard}` };
+  });
 }
 
 function collapseCompositeCoveredCommands(commands) {
@@ -135,6 +154,14 @@ function requireValue(args, index, flag) {
     throw new Error(`${flag} requires a value`);
   }
   return value;
+}
+
+function parsePositiveInteger(value, flag) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${flag} must be a positive integer`);
+  }
+  return parsed;
 }
 
 function readManifest() {

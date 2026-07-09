@@ -835,6 +835,7 @@
     {
       "id": "test-integration",
       "command": "npm run test:integration",
+      "shardable": true,
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
