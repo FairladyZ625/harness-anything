@@ -6,78 +6,19 @@ queue_rules:
       - label = merge-queue
       - "-draft"
       - "-conflict"
-      - check-success = pr-body-lint
-    merge_conditions:
       - check-success = boundaries
       - check-success = package-policy
       - check-success = "typecheck (24)"
       - check-success = "typecheck (26)"
       - check-success = fast-contract
+      - check-success = integration
+      - check-success = supply-chain
+      - check-success = gui-build
+      - check-success = node26-compatibility
       - check-success = pr-body-lint
+    merge_conditions: []
 
 pull_request_rules:
-  - name: self-heal dequeued pull requests attempt 1
-    conditions:
-      - base = main
-      - label = merge-queue
-      - label = dequeued
-      - "-label = merge-queue-requeue-1"
-      - "-label = merge-queue-requeue-2"
-      - check-success = boundaries
-      - check-success = package-policy
-      - check-success = "typecheck (24)"
-      - check-success = "typecheck (26)"
-      - check-success = fast-contract
-      - check-success = pr-body-lint
-    actions:
-      label:
-        add:
-          - merge-queue-requeue-1
-        remove:
-          - dequeued
-      queue:
-        name: default
-
-  - name: self-heal dequeued pull requests attempt 2
-    conditions:
-      - base = main
-      - label = merge-queue
-      - label = dequeued
-      - label = merge-queue-requeue-1
-      - "-label = merge-queue-requeue-2"
-      - check-success = boundaries
-      - check-success = package-policy
-      - check-success = "typecheck (24)"
-      - check-success = "typecheck (26)"
-      - check-success = fast-contract
-      - check-success = pr-body-lint
-    actions:
-      label:
-        add:
-          - merge-queue-requeue-2
-        remove:
-          - dequeued
-      queue:
-        name: default
-
-  - name: stop self-heal after two dequeue attempts
-    conditions:
-      - base = main
-      - label = merge-queue
-      - label = dequeued
-      - label = merge-queue-requeue-2
-    actions:
-      label:
-        remove:
-          - merge-queue
-          - queued
-          - dequeued
-      comment:
-        message: |
-          Mergify stopped automatic requeue after two dequeue recovery attempts.
-
-          The `merge-queue` label was removed to prevent an unbounded queue loop. Please inspect the latest Mergify check-run output and CI runs before re-adding `merge-queue`.
-
   - name: merge via queue when CI passes
     conditions:
       - base = main
