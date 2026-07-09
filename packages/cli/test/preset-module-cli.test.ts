@@ -441,16 +441,20 @@ test("CLI preset run rejects undeclared v2 actions instead of succeeding as no-o
 test("CLI module CRUD maintains generated module view and module-step state", () => {
   withTempRoot((rootDir) => {
     initializeGitRepo(rootDir);
-    writeFile(rootDir, ".gitignore", ".harness/\n");
+    writeFile(rootDir, ".gitignore", "/harness/\n/.harness/\n");
     runGit(rootDir, "add", ".gitignore");
     runGit(rootDir, "commit", "-m", "seed ignore");
+    initializeGitRepo(path.join(rootDir, "harness"));
+    writeFile(rootDir, "harness/.gitignore", "*.log\n");
+    runGit(path.join(rootDir, "harness"), "add", ".gitignore");
+    runGit(path.join(rootDir, "harness"), "commit", "-m", "seed harness repo");
 
     const registered = runJson(rootDir, ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"]);
     assert.equal(registered.ok, true);
     assert.equal(registered.command, "module-register");
     assert.equal(registered.module.key, "billing");
-    assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /module\(registry\): billing register/);
+    assert.equal(runGit(path.join(rootDir, "harness"), "status", "--short"), "");
+    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "--all"), /module\(registry\): billing register/);
 
     const listed = runJson(rootDir, ["module", "list"]);
     assert.equal(listed.ok, true);
@@ -464,14 +468,14 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
     const scaffolded = runJson(rootDir, ["module", "scaffold", "billing"]);
     assert.equal(scaffolded.ok, true);
     assert.equal(scaffolded.path, "harness/modules/billing/module_plan.md");
-    assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /module\(scaffold\): billing scaffold/);
+    assert.equal(runGit(path.join(rootDir, "harness"), "status", "--short"), "");
+    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "--all"), /module\(scaffold\): billing scaffold/);
 
     const stepped = runJson(rootDir, ["module-step", "billing", "BILL-01", "--state", "done"]);
     assert.equal(stepped.ok, true);
     assert.equal(stepped.module.steps[0].state, "done");
-    assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /module\(registry\): billing step/);
+    assert.equal(runGit(path.join(rootDir, "harness"), "status", "--short"), "");
+    assert.match(runGit(path.join(rootDir, "harness"), "log", "--oneline", "--all"), /module\(registry\): billing step/);
 
     const registry = readFileSync(path.join(rootDir, ".harness/generated/Module-Registry.md"), "utf8");
     assert.match(registry, /\| billing \| Billing \| active \|/);
@@ -511,6 +515,7 @@ function writeFile(rootDir: string, relativePath: string, body: string): void {
 }
 
 function initializeGitRepo(rootDir: string): void {
+  mkdirSync(rootDir, { recursive: true });
   runGit(rootDir, "init");
   runGit(rootDir, "config", "user.email", "test@example.com");
   runGit(rootDir, "config", "user.name", "Test User");

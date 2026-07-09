@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -527,6 +528,7 @@ test("CLI task-review fails closed on open release-blocking findings and emits p
 
 test("CLI task-complete evaluates review, CI, and closeout readiness before setting status done", () => {
   withTempRoot((rootDir) => {
+    initializeNestedHarnessRepo(rootDir);
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeFact(rootDir, "task-1");
     writeReview(rootDir, "task-1", []);
