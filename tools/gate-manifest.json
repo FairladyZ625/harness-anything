@@ -70,6 +70,7 @@
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
+        "check-mergify-queue-contexts",
         "check-docs-release-map",
         "check-docmap-fresh",
         "check-gate-surface",
@@ -110,6 +111,7 @@
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
+        "check-mergify-queue-contexts",
         "check-docs-release-map",
         "check-docmap-fresh",
         "check-gate-surface",
@@ -2128,6 +2130,69 @@
           "check": true,
           "checkPr": true,
           "script": "harness:check-integration-test-shards"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
+      "id": "check-mergify-queue-contexts",
+      "command": "npm run harness:check-mergify-queue-contexts",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        ".mergify.yml",
+        "tools/gate-manifest.json"
+      ],
+      "consumerScope": [
+        "Mergify queue_conditions must require exactly the same GitHub contexts as the gate manifest branch-protection surface"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Queue context reconciliation is fail-closed and has no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          ".mergify.yml",
+          "tools/check-mergify-queue-contexts.mjs",
+          "package.json:scripts.harness:check-mergify-queue-contexts",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-mergify-queue-contexts"
         },
         "rewriteCi": {
           "pullRequestJobs": [
