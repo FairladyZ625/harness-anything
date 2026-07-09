@@ -60,13 +60,23 @@ The Mergify GitHub App must be installed from
 https://github.com/marketplace/mergify before maintainers rely on the queue.
 The queue rules live in `.mergify.yml`.
 
-Mergify queue rules track the fast gate subset:
+Mergify queue rules track the same required contexts as GitHub branch
+protection. `merge_conditions` stays empty so Mergify can run in-place checks
+against the queued pull request's predicted merge state.
 
 - boundaries
 - package-policy
 - typecheck (24)
-- typecheck (26)
 - fast-contract
+- integration-shard (1)
+- integration-shard (2)
+- integration-shard (3)
+- integration-shard (4)
+- integration-shard (5)
+- integration-shard (6)
+- supply-chain
+- gui-build
+- node26-compatibility
 - pr-body-lint
 
 The `pr-body-lint` job checks human-authored pull request bodies against the
@@ -87,9 +97,6 @@ fast no-op success. That keeps queue bookkeeping edits from launching another
 full CI pass while preserving normal `edited` body validation for
 human-authored pull requests.
 
-The slower `integration`, `supply-chain`, `gui-build`, and
-`node26-compatibility` contexts remain GitHub branch-protection required
-contexts even though they are outside the Mergify fast-gate subset.
 GUI Electron E2E is an explicit local closeout gate for GUI-related tasks and
 must be recorded as task evidence instead of running in GitHub CI.
 
