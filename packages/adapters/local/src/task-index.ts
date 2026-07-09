@@ -253,7 +253,7 @@ function parseProvenance(frontmatter: string): ReadonlyArray<ProvenancePayload> 
 
 function readIndentedBlock(frontmatter: string, key: string): ReadonlyArray<string> {
   const lines = frontmatter.split(/\r?\n/u);
-  const start = lines.findIndex((line) => line === `${key}:`);
+  const start = lines.findIndex((line) => line.trimEnd() === `${key}:`);
   if (start === -1) return [];
   const block: string[] = [];
   for (const line of lines.slice(start + 1)) {

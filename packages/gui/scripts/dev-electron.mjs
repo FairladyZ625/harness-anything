@@ -14,15 +14,30 @@ const guiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const repoRoot = path.resolve(guiRoot, "../..");
 const rendererUrl = "http://127.0.0.1:5173";
 const electronPath = require("electron");
+const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
 
 function log(message) {
   console.log(`[dev-electron] ${message}`);
 }
 
+function runCommand(program, args) {
+  return process.platform === "win32" ? [quoteWindowsShell(program), ...args.map(quoteWindowsShell)].join(" ") : program;
+}
+
+function commandArgs(args) {
+  return process.platform === "win32" ? [] : args;
+}
+
+function quoteWindowsShell(value) {
+  return `"${String(value).replace(/"/gu, "\"\"")}"`;
+}
+
 log("building preload bundle...");
-const preloadBuild = spawnSync("npx", ["vite", "build", "--config", "vite.preload.config.ts"], {
+const preloadArgs = ["vite", "build", "--config", "vite.preload.config.ts"];
+const preloadBuild = spawnSync(runCommand(npxBin, preloadArgs), commandArgs(preloadArgs), {
   cwd: guiRoot,
-  stdio: "inherit"
+  stdio: "inherit",
+  shell: process.platform === "win32"
 });
 if (preloadBuild.status !== 0) {
   console.error("[dev-electron] preload build failed");
@@ -30,10 +45,12 @@ if (preloadBuild.status !== 0) {
 }
 
 log(`starting renderer dev server at ${rendererUrl} ...`);
-const vite = spawn("npx", ["vite", "--host", "127.0.0.1", "--port", "5173", "--strictPort"], {
+const viteArgs = ["vite", "--host", "127.0.0.1", "--port", "5173", "--strictPort"];
+const vite = spawn(runCommand(npxBin, viteArgs), commandArgs(viteArgs), {
   cwd: guiRoot,
   env: { ...process.env, BROWSER: "none" },
-  stdio: ["ignore", "pipe", "pipe"]
+  stdio: ["ignore", "pipe", "pipe"],
+  shell: process.platform === "win32"
 });
 vite.stderr.on("data", (chunk) => process.stderr.write(chunk));
 

@@ -8,6 +8,7 @@ import { isTrustedGuiWorkspaceRoot } from "../src/commands/core/gui.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
 
 test("CLI gui command delegates to the local desktop controller without importing GUI", () => {
   const result = runJson(process.cwd(), ["gui"], true, { HARNESS_GUI_DRY_RUN: "1" });
@@ -20,7 +21,7 @@ test("CLI gui command delegates to the local desktop controller without importin
     apiHost: "127.0.0.1",
     delegated: true,
     dryRun: true,
-    command: ["npm", "--workspace", "@harness-anything/gui", "run", "dev:electron"]
+    command: [npmBin, "--workspace", "@harness-anything/gui", "run", "dev:electron"]
   });
 });
 
@@ -45,15 +46,21 @@ test("CLI gui command launches npm from the trusted package workspace, not the c
       "import { writeFileSync } from 'node:fs';",
       `writeFileSync(${JSON.stringify(evilMarkerPath)}, JSON.stringify({ cwd: process.cwd() }));`
     ].join("\n"));
-    writeFileSync(path.join(binDir, "npm"), [
+    const fakeNpmJs = [
       "#!/usr/bin/env node",
       "const { writeFileSync } = require('node:fs');",
       "writeFileSync(process.env.HARNESS_GUI_NPM_MARKER, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2) }));"
-    ].join("\n"));
-    chmodSync(path.join(binDir, "npm"), 0o755);
+    ].join("\n");
+    if (process.platform === "win32") {
+      writeFileSync(path.join(binDir, "fake-npm.js"), fakeNpmJs);
+      writeFileSync(path.join(binDir, npmBin), "@echo off\r\nnode \"%~dp0fake-npm.js\" %*\r\n");
+    } else {
+      writeFileSync(path.join(binDir, npmBin), fakeNpmJs);
+    }
+    chmodSync(path.join(binDir, npmBin), 0o755);
 
     const result = runJson(rootDir, ["gui"], true, {
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+      [pathEnvName()]: `${binDir}${path.delimiter}${process.env[pathEnvName()] ?? ""}`,
       HARNESS_GUI_NPM_MARKER: npmMarkerPath
     }, callerDir);
 
@@ -89,6 +96,10 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function pathEnvName(): string {
+  return Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
 }
 
 function runJson(
@@ -133,7 +144,7 @@ function writeEntrypoint(entrypointPath: string): void {
 }
 
 function waitForJsonMarker(markerPath: string): Record<string, any> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + (process.platform === "win32" ? 30_000 : 5_000);
   while (Date.now() < deadline) {
     if (existsSync(markerPath)) return JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, any>;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);

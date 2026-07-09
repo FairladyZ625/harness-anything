@@ -12,7 +12,8 @@ export const runGuiCommand: CommandRunner = (_context, command) =>
   Effect.sync(() => launchGui(command.rootDir, command.layoutOverrides?.authoredRoot));
 
 function launchGui(rootDir: string, authoredRoot?: string): CliResult {
-  const command = ["npm", "--workspace", "@harness-anything/gui", "run", "dev:electron"] as const;
+  const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
+  const command = [npmBin, "--workspace", "@harness-anything/gui", "run", "dev:electron"] as const;
   const dryRun = process.env.HARNESS_GUI_DRY_RUN === "1";
   if (dryRun) {
     return {
@@ -41,9 +42,20 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
     };
   }
 
-  const child = spawn(command[0], command.slice(1), {
+  const detached = process.env.HARNESS_GUI_NPM_MARKER === undefined;
+  const child = process.platform === "win32" ? spawn(windowsShellCommand(command), {
     cwd: workspaceRoot,
-    detached: true,
+    detached,
+    stdio: "ignore",
+    shell: true,
+    env: {
+      ...process.env,
+      HARNESS_GUI_ROOT: path.resolve(rootDir),
+      ...(authoredRoot ? { HARNESS_AUTHORED_ROOT: authoredRoot } : {})
+    }
+  }) : spawn(command[0], command.slice(1), {
+    cwd: workspaceRoot,
+    detached,
     stdio: "ignore",
     env: {
       ...process.env,
@@ -51,7 +63,7 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
       ...(authoredRoot ? { HARNESS_AUTHORED_ROOT: authoredRoot } : {})
     }
   });
-  child.unref();
+  if (detached) child.unref();
 
   return {
     ok: true,
@@ -66,6 +78,24 @@ function launchGui(rootDir: string, authoredRoot?: string): CliResult {
       pid: child.pid
     }
   };
+}
+
+function windowsShellCommand(command: ReadonlyArray<string>): string {
+  const [program = "", ...args] = command;
+  return [quoteWindowsShell(resolveWindowsCommand(program)), ...args.map(quoteWindowsShell)].join(" ");
+}
+
+function resolveWindowsCommand(command: string): string {
+  if (path.isAbsolute(command)) return command;
+  for (const entry of (process.env.PATH ?? "").split(path.delimiter)) {
+    const candidate = path.join(entry, command);
+    if (existsSync(candidate)) return candidate;
+  }
+  return command;
+}
+
+function quoteWindowsShell(value: string): string {
+  return `"${value.replace(/"/gu, "\"\"")}"`;
 }
 
 interface PackageJsonSummary {
