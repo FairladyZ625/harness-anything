@@ -32,7 +32,7 @@ import {
 
 const dateLabel = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
 
-// ============ 裁决就绪信号灯(41 §3.1a)============
+// ============ 决策就绪信号灯(41 §3.1a)============
 
 export type SignalColor = "green" | "yellow" | "red";
 
@@ -45,7 +45,7 @@ export interface ReadinessSignal {
 }
 
 /**
- * 计算四盏裁决就绪信号灯(41 §3.1a 表)。
+ * 计算四盏决策就绪信号灯(41 §3.1a 表)。
  * ⚠ mock 捷径:evidence 活性 + 覆盖度由 relation/fact 推导(真实为 TP-M3-06 图查询);
  * applies_to 漂移 + 冲突标记从 decision.readinessSignals 显式 mock 字段取(真实为
  * provenance.boundAt × git log / findConflictMarkers)。
@@ -171,7 +171,7 @@ const axisRank = (v: "high" | "medium" | "low") => (v === "high" ? 0 : v === "me
 export const sortKey = (d: DecisionRow): readonly [number, number] =>
   [axisRank(d.riskTier), axisRank(d.urgency)] as const;
 
-// ============ 单条裁决卡(必显项五项,41 §3.1 表格)============
+// ============ 单条决策卡(必显项五项,41 §3.1 表格)============
 
 function FactChip({
   factRef,
@@ -273,7 +273,7 @@ function ClaimList({
 }
 
 /**
- * 裁决卡。五必显项逐项落地(41 §3.1):
+ * 决策卡。五必显项逐项落地(41 §3.1):
  * ① chosen + rejected(rejected 非空且每条带 why_not)
  * ② riskTier / urgency 两枚徽章并排(正交,不合并)
  * ③ 证据 fact chips(含 relation rationale)
@@ -309,7 +309,7 @@ export function VerdictCard({
   const deepHint = d.riskTier === "high";
   const quickHint = d.riskTier === "low";
 
-  // 裁决就绪信号灯(41 §3.1a)
+  // 决策就绪信号灯(41 §3.1a)
   const signals = computeReadinessSignals(d, facts);
   const worst = worstColor(signals);
   const hasAlert = worst !== "green";
@@ -353,7 +353,7 @@ export function VerdictCard({
       {deepHint && (
         <div className="mt-2 rounded-md bg-stale/10 px-2.5 py-1.5 text-[11px] text-stale">
           <WarningCircle weight="bold" className="mr-1 inline text-[11px]" />
-          高风险:建议拉满证据审查,优先用右侧终端对话式裁决而非卡面快裁。
+          高风险:建议拉满证据审查,放慢节奏充分核查后再决策批准。
         </div>
       )}
       {quickHint && (
@@ -362,14 +362,14 @@ export function VerdictCard({
         </div>
       )}
 
-      {/* 裁决就绪信号灯(41 §3.1a):四盏机械信号灯必显,灯名 + 判定摘要 hover */}
+      {/* 决策就绪信号灯(41 §3.1a):四盏机械信号灯必显,灯名 + 判定摘要 hover */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface-raised/40 px-2.5 py-1.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-faint">裁决就绪</span>
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-faint">决策就绪</span>
         {signals.map((s) => (
           <SignalLamp key={s.id} signal={s} />
         ))}
         {worst === "green" && (
-          <span className="ml-auto text-[10px] text-success">全绿 · 直接裁决正当</span>
+          <span className="ml-auto text-[10px] text-success">全绿 · 直接决策批准正当</span>
         )}
       </div>
 
@@ -384,7 +384,7 @@ export function VerdictCard({
         >
           <div className="flex items-center gap-1 font-semibold">
             {worst === "red" ? <BugBeetle weight="bold" className="text-[12px]" /> : <WarningCircle weight="bold" className="text-[12px]" />}
-            {worst === "red" ? "红灯:裁决前必须核查(承重风险)" : "黄灯:裁决前建议核查"}
+            {worst === "red" ? "红灯:决策批准前必须核查(承重风险)" : "黄灯:决策批准前建议核查"}
           </div>
           <ul className="mt-1 space-y-0.5 pl-4">
             {signals.filter((s) => s.color !== "green").map((s) => (
@@ -398,13 +398,13 @@ export function VerdictCard({
         </div>
       )}
 
-      {/* 提议/裁决者 + proposer≠arbiter 自证警示(actorClass 审计性展示,INV-7 已删 → 不再强拒 agent) */}
+      {/* 提议/批准者 + proposer≠arbiter 自证警示(actorClass 审计性展示,INV-7 已删 → 不再强拒 agent) */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
         <span>
           proposedBy <span className="font-mono text-text-muted">{d.proposedBy.kind}:{d.proposedBy.id}</span>
         </span>
         <span>
-          arbiter <span className="font-mono text-text-muted">{d.arbiter ? `${d.arbiter.kind}:${d.arbiter.id}` : "待裁决"}</span>
+          arbiter <span className="font-mono text-text-muted">{d.arbiter ? `${d.arbiter.kind}:${d.arbiter.id}` : "待决策批准"}</span>
         </span>
         {selfArb && (
           <span className="inline-flex items-center gap-1 text-danger">
@@ -539,9 +539,9 @@ export function VerdictCard({
       )}
 
       {/* "呼叫 Agent 核查"动作(41 §3.1a):
-          全绿 → 低调次级链接(直接裁决才是正当主路径);
+          全绿 → 低调次级链接(直接决策批准才是正当主路径);
           黄/红 → 升为高亮推荐按钮(视觉权重 ≥ accept),但不弱化 reject/defer(它们在上行保持同尺寸)。
-          裁决权归人:agent 是核查助手不是裁决通道(§3.1a 裁决权归属) */}
+          决策批准权归人:agent 是核查助手不是决策通道(§3.1a 决策批准权归属) */}
       {onCallAgent && (
         hasAlert ? (
           <button
@@ -554,7 +554,7 @@ export function VerdictCard({
           >
             <Robot weight="bold" className="text-[13px]" />
             呼叫 Agent 核查(推荐)
-            <span className="ml-1 text-[10px] font-normal opacity-70">agent 核查漂移/失效,经 CLI 代录裁决</span>
+            <span className="ml-1 text-[10px] font-normal opacity-70">agent 核查漂移/失效,经 CLI 代录决策</span>
           </button>
         ) : (
           <button
@@ -562,7 +562,7 @@ export function VerdictCard({
             className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
           >
             <PaperPlaneTilt weight="bold" className="text-[11px]" />
-            或在右侧终端与 Agent 讨论后裁决(预填 /decisions)
+            或通过 CLI 与 Agent 讨论后决策批准(预填 /decisions)
           </button>
         )
       )}

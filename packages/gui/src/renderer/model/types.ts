@@ -33,7 +33,7 @@ export interface DocEntry {
   present: boolean;
 }
 
-/** materialization gate / check 结果——审阅工作台的"原因"维度 */
+/** materialization gate / check 结果——任务详情收口区的"原因"维度 */
 export interface GateResult {
   name: string;
   ok: boolean;
@@ -109,7 +109,7 @@ export interface RelationEdge {
   kind: RelationKind;
   /** ⚠️ 同名陷阱消歧：这是「边的来源」标量；entity 顶层的 provenance 是 session 原文溯源数组（见 DecisionRow/TaskRow），同名不同义 */
   provenance: "local-document" | "external-engine";
-  /** 强 relation 的 rationale 必填非空（INV-5）；supports/derives/supersedes 承重边在此给裁决卡证据栏展示 */
+  /** 强 relation 的 rationale 必填非空（INV-5）；supports/derives/supersedes 承重边在此给决策卡证据栏展示 */
   rationale?: string;
 }
 
@@ -164,7 +164,7 @@ export interface DecisionRow {
   provenance: ProvenanceEntry[];
   lastChangedAt: string;
   /**
-   * 裁决就绪信号灯(41 §3.1a)。⚠️ mock 捷径:evidence 活性 / 覆盖度在原型里由 relation/fact
+   * 决策就绪信号灯(41 §3.1a)。⚠️ mock 捷径:evidence 活性 / 覆盖度在原型里由 relation/fact
    * 推导(见 DecisionsView 的 computeReadinessSignals),真实版为 RelationGraphProjection 查询;
    * applies_to 漂移 / 冲突标记 / 需回写在此显式给出(真实为 boundAt×git log / findConflictMarkers)。
    */

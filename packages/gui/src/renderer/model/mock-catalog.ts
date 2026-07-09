@@ -324,12 +324,12 @@ export const MOCK_EVENTS: EventEntry[] = [
   { at: "2026-06-12T09:58:00", projectId: "harness-anything", taskId: "KER-106", summary: "材料齐备 → closeoutReadiness=ready" },
   { at: "2026-06-12T09:55:00", projectId: "coding-agent-harness", taskId: "DOC-12", summary: "材料齐备 → closeoutReadiness=ready" },
   { at: "2026-06-12T09:30:00", projectId: "harness-anything", taskId: "ADP-501", summary: "快照刷新：raw=open:review" },
-  { at: "2026-06-12T08:15:00", projectId: "harness-anything", taskId: "KER-102", summary: "进入 in_review，等待 human review" },
+  { at: "2026-06-12T08:15:00", projectId: "harness-anything", taskId: "KER-102", summary: "进入 Finalizing（封存前暂存）" },
   { at: "2026-06-12T07:55:00", projectId: "harness-anything", taskId: "FAI-37", summary: "freshness 降级 → stale-but-usable" },
   { at: "2026-06-11T22:40:00", projectId: "harness-anything", taskId: "LIN-88", summary: "出现未映射 raw=triage_hold → unknown" },
-  { at: "2026-06-11T16:45:00", projectId: "harness-anything", taskId: "CI-602", summary: "human review → failed（e2e 3 条用例超时）" },
+  { at: "2026-06-11T16:45:00", projectId: "harness-anything", taskId: "CI-602", summary: "review gate 机判 → failed（e2e 3 条用例超时）" },
   { at: "2026-06-11T15:00:00", projectId: "harness-anything", taskId: "STO-210", summary: "材料齐备 → closeoutReadiness=ready" },
-  { at: "2026-06-10T16:03:00", projectId: "harness-anything", taskId: "KER-104", summary: "human review → passed，可归档" },
+  { at: "2026-06-10T16:03:00", projectId: "harness-anything", taskId: "KER-104", summary: "review gate 机判 → passed，可归档" },
 ];
 
 /* ---------------- 文档内容样例 ---------------- */

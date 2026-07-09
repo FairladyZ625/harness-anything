@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Kanban,
-  SealCheck,
-  MagnifyingGlass,
   FolderSimple,
   SquaresFour,
   Graph,
@@ -27,7 +25,6 @@ import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
-import { ReviewWorkbenchView } from "./views/ReviewWorkbenchView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
 import { FactTriageView } from "./views/FactTriageView.tsx";
@@ -38,14 +35,13 @@ import { SettingsView } from "./views/SettingsView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { ThemeToggle, NavButton, ProjectSummary, MockViewBanner } from "./components/shell-chrome.tsx";
-import { TerminalPanel, useMockTerminal } from "./components/MockTerminal.tsx";
 import {
   DEFAULT_TASK_FILTERS,
   applyTaskFilters,
   type TaskFilters,
 } from "./model/taskFilters.ts";
 import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
-import { useTasksQuery } from "./task-data.ts";
+import { useTasksQuery, useSetTaskStatusMutation } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
@@ -57,7 +53,6 @@ type ViewId =
   | "decisions"
   | "decisionPool"
   | "factTriage"
-  | "review"
   | "graph"
   | "presets"
   | "adapters"
@@ -74,10 +69,9 @@ const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
 const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "总览", icon: <SquaresFour weight="duotone" /> },
   { id: "board", label: "看板", icon: <Kanban weight="duotone" /> },
-  { id: "decisions", label: "裁决收件箱", icon: <Scales weight="duotone" /> },
+  { id: "decisions", label: "决策批准", icon: <Scales weight="duotone" /> },
   { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
   { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
-  { id: "review", label: "审阅工作台", icon: <SealCheck weight="duotone" /> },
   { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
 ];
 
@@ -91,10 +85,9 @@ const VIEW_LABEL: Record<ViewId, string> = {
   home: "项目",
   overview: "总览",
   board: "看板",
-  decisions: "裁决收件箱",
+  decisions: "决策批准",
   decisionPool: "决策池",
   factTriage: "事实分诊",
-  review: "审阅工作台",
   graph: "关系图",
   presets: "Preset / Vertical",
   adapters: "引擎 Adapter",
@@ -134,8 +127,6 @@ function AppShell() {
     groupBy: LaneGroupBy;
   } | null>(null);
 
-  const terminal = useMockTerminal([], () => undefined);
-
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === projectId),
     [tasks, projectId],
@@ -162,13 +153,19 @@ function AppShell() {
     [projectTasks, taskFilters, favorites],
   );
 
-  // 裁决收件箱角标:proposed 决策数(唯一面向人的"待人处理"计数)
+  // 决策批准角标:proposed 决策数(唯一面向人的"待人处理"计数)
   const inboxCount = decisions.filter((d) => d.state === "proposed").length;
 
-  const updateTask = (taskId: string, patch: Partial<import("./model/types.ts").TaskRow>) =>
+  // 状态写真桥:乐观更新本地态 + setTaskStatus 持久化(查询刷新时被权威投影覆盖)。
+  const statusMutation = useSetTaskStatusMutation();
+  const updateTask = (taskId: string, patch: Partial<import("./model/types.ts").TaskRow>) => {
     setTasks((prev) =>
       prev.map((t) => (t.taskId === taskId ? { ...t, ...patch } : t)),
     );
+    if (patch.coordinationStatus && patch.coordinationStatus !== "unknown") {
+      statusMutation.mutate({ taskId, status: patch.coordinationStatus });
+    }
+  };
 
   const goto = (v: ViewId) => {
     setView(v);
@@ -334,14 +331,6 @@ function AppShell() {
           </div>
         </div>
 
-        <div className="px-3 pb-2">
-          <button className="flex w-full items-center gap-2 rounded-md border border-border px-2 py-1.5 text-sm text-text-faint hover:text-text-muted">
-            <MagnifyingGlass weight="bold" />
-            搜索
-            <kbd className="ml-auto font-mono text-[12px] text-text-faint">⌘K</kbd>
-          </button>
-        </div>
-
         <div className="px-3 pt-1 pb-1 font-mono text-[12px] uppercase tracking-wide text-text-faint">
           工作区
         </div>
@@ -375,8 +364,9 @@ function AppShell() {
 
         <div className="mt-auto hidden border-t border-border px-3 py-2.5 md:block">
           <button
+            disabled
             title="V2 预览：账号登录后可多设备同步、远程访问项目"
-            className="flex w-full items-center gap-2 text-left"
+            className="flex w-full cursor-not-allowed items-center gap-2 text-left opacity-70"
           >
             <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised font-mono text-[11px] font-semibold text-text-muted">
               Z
@@ -442,15 +432,6 @@ function AppShell() {
                 favorites={favorites}
                 onToggleFavorite={toggleFavorite}
               />
-            ) : view === "review" ? (
-              <ReviewWorkbenchView
-                tasks={filteredProjectTasks}
-                allTasks={projectTasks}
-                filters={taskFilters}
-                onFiltersChange={setTaskFilters}
-                onSelect={openTaskPreview}
-                onUpdate={updateTask}
-              />
             ) : view === "graph" ? (
               <GraphView
                 tasks={projectTasks}
@@ -495,16 +476,6 @@ function AppShell() {
               <SettingsView />
             )}
           </div>
-
-          {/* Mock terminal split panel（decisions/review 的信息架构组成部分，数据为 mock） */}
-          {view === "review" && !selected && (
-            <TerminalPanel
-              logs={terminal.logs}
-              input={terminal.input}
-              setInput={terminal.setInput}
-              onSubmit={() => terminal.execute(terminal.input)}
-            />
-          )}
         </div>
       </main>
       <TaskPreviewDrawer

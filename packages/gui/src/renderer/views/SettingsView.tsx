@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { ArrowsClockwise, CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
+import { useRebuildGovernanceMutation } from "../task-data";
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "dark", label: "暗色" },
@@ -16,12 +17,10 @@ const SCALE_OPTIONS: { key: UiScale; label: string }[] = [
   { key: "comfortable", label: "宽松" },
 ];
 
+// 已实现的快捷键(其余 ⌘K/⌘1..5/R/X 暂未实现,已从此清单移除以免假承诺)。
 const SHORTCUTS: { keys: string[]; desc: string }[] = [
-  { keys: ["⌘K"], desc: "全局搜索" },
-  { keys: ["⌘1", "⌘5"], desc: "视图切换" },
-  { keys: ["R"], desc: "标记 passed" },
-  { keys: ["X"], desc: "标记 failed" },
-  { keys: ["Esc"], desc: "返回列表" },
+  { keys: ["Esc"], desc: "关闭预览抽屉" },
+  { keys: ["Enter"], desc: "在列表中打开任务详情" },
 ];
 
 type SettingsTab =
@@ -38,7 +37,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
   { id: "appearance", label: "外观", desc: "主题与状态色" },
   { id: "language", label: "语言", desc: "界面文案" },
   { id: "shortcuts", label: "快捷键", desc: "全局操作" },
-  { id: "notifications", label: "通知", desc: "待审提醒" },
+  { id: "notifications", label: "通知", desc: "封存就绪提醒" },
   { id: "data", label: "数据", desc: "缓存与投影" },
   { id: "terminal", label: "终端", desc: "shell 偏好" },
   { id: "privacy", label: "隐私", desc: "本地默认" },
@@ -50,17 +49,8 @@ export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
   const [language, setLanguage] = useState<"zh" | "en">("zh");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
-  const [rebuildTriggered, setRebuildTriggered] = useState(false);
-  const rebuildTimer = useRef<number | undefined>(undefined);
-
-  const triggerRebuild = () => {
-    setRebuildTriggered(true);
-    window.clearTimeout(rebuildTimer.current);
-    rebuildTimer.current = window.setTimeout(
-      () => setRebuildTriggered(false),
-      2000,
-    );
-  };
+  // 重建投影 = 重读本地投影缓存(路径A:hook 已就绪,底层只 queryTaskProjection 不写盘重算)。
+  const rebuildMutation = useRebuildGovernanceMutation();
 
   const renderActivePanel = () => {
     switch (activeTab) {
@@ -103,7 +93,7 @@ export function SettingsView() {
       case "language":
         return (
           <Section title="语言">
-            <Row label="界面语言" desc="仅影响本地界面文案">
+            <Row label="界面语言" desc="多语言切换将在 V2 提供(coming soon)">
               <Segmented
                 value={language}
                 options={[
@@ -111,6 +101,7 @@ export function SettingsView() {
                   { key: "en", label: "English" },
                 ]}
                 onChange={setLanguage}
+                disabled
               />
             </Row>
           </Section>
@@ -149,10 +140,10 @@ export function SettingsView() {
         return (
           <Section title="通知">
             <Row
-              label="待审阅桌面通知"
-              desc="closeoutReadiness=ready 时发送桌面通知（原型仅保存偏好）"
+              label="封存就绪桌面通知"
+              desc="closeoutReadiness=ready 时发送桌面通知（Electron Notification API 尚未接入,coming soon）"
             >
-              <Toggle checked={notifyOnReady} onChange={setNotifyOnReady} />
+              <Toggle checked={notifyOnReady} onChange={setNotifyOnReady} disabled />
             </Row>
           </Section>
         );
@@ -164,16 +155,23 @@ export function SettingsView() {
                 ~/.harness/cache/projections.db
               </span>
             </Row>
-            <Row label="重建投影" desc="从事件日志重新计算 governance 投影">
-              {rebuildTriggered && (
-                <span className="ui-meta text-accent">
-                  已触发 governance rebuild（模拟）
+            <Row label="重建投影" desc="重读本地投影缓存(不重算,不写盘)">
+              {rebuildMutation.isError && (
+                <span className="ui-meta text-danger">
+                  重读失败:{(rebuildMutation.error as Error)?.message ?? "桥未返回"}
                 </span>
               )}
-              <button onClick={triggerRebuild} className={BTN}>
+              {rebuildMutation.isPending && (
+                <span className="ui-meta text-accent">重读中…</span>
+              )}
+              <button
+                onClick={() => rebuildMutation.mutate()}
+                disabled={rebuildMutation.isPending}
+                className={BTN}
+              >
                 <span className="inline-flex items-center gap-1">
                   <ArrowsClockwise weight="bold" className="text-[12px]" />
-                  重建投影
+                  重读投影
                 </span>
               </button>
             </Row>

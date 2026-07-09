@@ -8,6 +8,7 @@ import {
   XCircle,
   ArrowSquareOut,
   Spinner,
+  SealCheck,
 } from "@phosphor-icons/react";
 import type {
   DecisionRow,
@@ -36,7 +37,7 @@ import { AxisRow, DocPresence } from "../components/taskDetail/widgets";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
 import { RelationRow } from "../components/taskDetail/RelationRow";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
-import { useTaskDetailQuery, useTaskDocumentQuery } from "../task-data";
+import { useTaskDetailQuery, useTaskDocumentQuery, useReviewTaskMutation } from "../task-data";
 
 /**
  * 推断文档分组:preset 模板里常见文件名 → DocGroup。投影只给 path,组别靠命名启发式。
@@ -160,6 +161,8 @@ export function TaskDetailView({
   const external = isExternal(task);
   // 真实文档清单:从 useTaskDetailQuery 拉,投影本身不内嵌 docs(task-adapter 给空数组)。
   const detailQuery = useTaskDetailQuery(task.taskId);
+  // 收口机判:review gate 只机判 PASS/FAIL,人工不可覆写(dec_mrca9hx4 CH1)。
+  const reviewMutation = useReviewTaskMutation();
   const realDocs = useMemo<DocEntry[]>(() => {
     const docs = detailQuery.data?.documents ?? [];
     if (docs.length === 0) return task.docs;
@@ -489,30 +492,23 @@ export function TaskDetailView({
             {task.closeoutReadiness === "ready" && (
               <div className="flex flex-col gap-2">
                 <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                  Human Review
+                  收口机判
                 </span>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() =>
-                      onUpdate(task.taskId, { closeoutReadiness: "passed" })
-                    }
-                    className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-accent px-2 py-1.5 text-[12px] font-semibold text-accent-fg active:scale-[0.98]"
-                  >
-                    <CheckCircle weight="bold" />
-                    Passed
-                  </button>
-                  <button
-                    onClick={() =>
-                      onUpdate(task.taskId, { closeoutReadiness: "failed" })
-                    }
-                    className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-2 py-1.5 text-[12px] text-text-muted hover:text-danger active:scale-[0.98]"
-                  >
-                    <XCircle weight="bold" />
-                    Failed
-                  </button>
-                </div>
+                <button
+                  onClick={() => reviewMutation.mutate({ taskId: task.taskId })}
+                  disabled={reviewMutation.isPending}
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-accent px-2 py-1.5 text-[12px] font-semibold text-accent-fg active:scale-[0.98] disabled:opacity-50"
+                >
+                  <SealCheck weight="bold" />
+                  {reviewMutation.isPending ? "机判中…" : "请求 review gate 机判"}
+                </button>
+                {reviewMutation.isError && (
+                  <p className="text-[11px] leading-relaxed text-danger">
+                    机判请求失败:{(reviewMutation.error as Error)?.message ?? "本地台账桥未返回"}
+                  </p>
+                )}
                 <p className="text-[11px] leading-relaxed text-text-faint">
-                  verdict 只写收口轴；打回重做需另行转换状态
+                  判定由 review gate 机判(PASS/FAIL 由 findings 与 gates 决定),人工不可覆写。结果经投影重读回写 closeoutReadiness。
                 </p>
               </div>
             )}
