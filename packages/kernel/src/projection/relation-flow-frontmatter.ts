@@ -28,7 +28,7 @@ function parseRelationFlowLine(line: string): EntityRelationRecord | null {
   for (const chunk of splitFlowFields(body)) {
     const separator = chunk.indexOf(":");
     if (separator <= 0) continue;
-    fields.set(chunk.slice(0, separator).trim(), parseFlowValue(chunk.slice(separator + 1).trim()));
+    fields.set(chunk.slice(0, separator).trim(), parseRelationFlowValue(chunk.slice(separator + 1).trim()));
   }
   const record = {
     relation_id: fields.get("relation_id") ?? "",
@@ -78,7 +78,7 @@ function splitFlowFields(body: string): ReadonlyArray<string> {
   return fields;
 }
 
-function parseFlowValue(value: string): string {
+function parseRelationFlowValue(value: string): string {
   if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
     try {
       return JSON.parse(value);

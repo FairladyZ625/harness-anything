@@ -512,6 +512,7 @@ function taskCreatePresetHelp(): ReadonlyArray<string> {
     "  subtask-expansion       Plan and fan out a parent task into concrete subtasks.",
     "  long-running-task       Extended task that needs explicit long-running coordination.",
     "  legacy-migration        Legacy task intake or migration planning.",
+    "  github-issue-repair     Pull a GitHub issue and prepare an evidence-backed repair plan.",
     "  dogfood-utilization-audit  Audit whether Harness presets and artifacts are being used.",
     "  doc-canon-sync          Documentation canon synchronization work.",
     "  lesson-sedimentation    Promote useful lessons from task evidence.",

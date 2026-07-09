@@ -1,12 +1,8 @@
 import type { Effect } from "effect";
 import type {
   ArtifactStore,
-  DecisionProjectionRow,
   DomainStatus,
   EngineError,
-  FactConfidence,
-  FactMemoryClass,
-  FactMemoryTag,
   ProjectionWarning,
   TaskProjectionRow,
   WriteError
@@ -152,6 +148,30 @@ export interface TaskDetailSuccess extends LocalControllerSuccess {
 }
 
 export type TaskDetailResult = TaskDetailSuccess | LocalControllerFailure;
+
+export interface DecisionProjectionRejected {
+  readonly text: string;
+  readonly whyNot: string;
+}
+
+export interface DecisionProjectionRow {
+  readonly schema: "d4-decision-row/v1";
+  readonly decisionId: string;
+  readonly legacyId?: string;
+  readonly state: string;
+  readonly title: string;
+  readonly question: string;
+  readonly chosen: ReadonlyArray<string>;
+  readonly rejected: ReadonlyArray<DecisionProjectionRejected>;
+  readonly path: string;
+  readonly moduleKeys: ReadonlyArray<string>;
+  readonly productLineKeys: ReadonlyArray<string>;
+  readonly decidedAt?: string;
+}
+
+export type FactConfidence = "low" | "medium" | "high";
+export type FactMemoryClass = "semantic" | "episodic" | "procedural";
+export type FactMemoryTag = "episode" | "procedural" | "tool_memory" | "pattern" | "task_skill" | "abstract_rule" | "other";
 
 export interface TaskDocumentSuccess extends LocalControllerSuccess {
   readonly taskId?: string;

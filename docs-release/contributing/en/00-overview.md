@@ -34,6 +34,8 @@ the required gates pass.
   evidence, bot comment triage, and merge authority.
 - [Agent contributors](05-agent-contributors.md): rules for coding agents that
   work on this repository.
+- [Filing GitHub issues](06-github-issues.md): how to write public issues that
+  maintainers and agents can reproduce and repair.
 
 ## Public scope only
 

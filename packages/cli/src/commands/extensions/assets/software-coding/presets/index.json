@@ -4,6 +4,7 @@
     "create-milestone",
     "module",
     "legacy-migration",
+    "github-issue-repair",
     "dogfood-utilization-audit",
     "doc-canon-sync",
     "milestone-closeout",
