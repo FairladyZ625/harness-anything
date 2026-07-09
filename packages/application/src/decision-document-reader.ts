@@ -30,7 +30,7 @@ export function readDecisionDocument(rootInput: HarnessLayoutInput, decisionId: 
     const decision = Schema.decodeUnknownSync(DecisionPackageSchema)(parseDecisionFrontmatter(frontmatter));
     return {
       decision,
-      body: documentBody.replace(/^---\n[\s\S]*?\n---\n?/u, ""),
+      body: documentBody.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/u, ""),
       path: path.relative(layout.rootDir, documentPath).split(path.sep).join("/")
     };
   });

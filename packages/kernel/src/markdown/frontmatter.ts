@@ -3,7 +3,8 @@ export interface ReadScalarOptions {
 }
 
 export function readFrontmatter(body: string): string | null {
-  return body.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u)?.[1] ?? null;
+  const frontmatter = body.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u)?.[1] ?? null;
+  return frontmatter?.replace(/\r\n/gu, "\n") ?? null;
 }
 
 export function readScalar(frontmatter: string, key: string, options: ReadScalarOptions = {}): string {

@@ -181,8 +181,8 @@ function upsertFrontmatterScalar(frontmatter: string, field: string, value: stri
 
 function replaceFrontmatter(body: string, previous: string, next: string): string {
   const openingNewline = body.startsWith("---\r\n") ? "\r\n" : "\n";
-  const previousBlockPattern = new RegExp(`^---\\r?\\n${escapeTaskFieldRegExp(previous)}\\r?\\n---`, "u");
-  return body.replace(previousBlockPattern, `---${openingNewline}${next}${openingNewline}---`);
+  void previous;
+  return body.replace(/^---\r?\n[\s\S]*?\r?\n---/u, `---${openingNewline}${next}${openingNewline}---`);
 }
 
 function escapeTaskFieldRegExp(value: string): string {

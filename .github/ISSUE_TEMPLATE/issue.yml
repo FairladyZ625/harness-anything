@@ -1,0 +1,126 @@
+name: Source-triaged issue
+description: Report a bug, documentation gap, or scoped improvement with source-level triage.
+title: "[Issue]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Public issues must include source-level triage. Do not assume maintainers can run the same OS, shell, filesystem, toolchain, or agent runtime as the reporter.
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue type
+      description: Choose the closest public intake category.
+      options:
+        - Bug
+        - Documentation gap
+        - Scoped improvement
+        - Failing command or CI lane
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What should happen?
+      placeholder: The command should...
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+      placeholder: The command exits with...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Start from a clean source checkout when possible.
+      placeholder: |
+        1. Check out commit ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: command-output
+    attributes:
+      label: Command output or logs
+      description: Include the exact command, exit code, and the smallest relevant stdout/stderr or log excerpt. Redact secrets.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Reporter environment
+      description: Include OS, shell, Node version, package manager, branch or commit, and any agent/runtime involved.
+      placeholder: |
+        - OS:
+        - Shell:
+        - Node:
+        - Package manager:
+        - Branch/commit:
+        - Agent/runtime:
+    validations:
+      required: true
+  - type: textarea
+    id: source-triage-target
+    attributes:
+      label: Source-level triage target
+      description: List the public files, functions, schemas, contracts, generated artifacts, or docs the reporter or agent inspected.
+      placeholder: |
+        - packages/... controls ...
+        - docs-release/... describes ...
+        - Generated artifact path and relevant snippet ...
+    validations:
+      required: true
+  - type: textarea
+    id: source-hypothesis
+    attributes:
+      label: Source-level hypothesis
+      description: State the likely failing data flow, path handling, command contract, platform assumption, validation rule, or test gap.
+      placeholder: The likely source boundary is ... because ...
+    validations:
+      required: true
+  - type: textarea
+    id: suggested-repair
+    attributes:
+      label: Suggested repair target
+      description: Point maintainers to the file, function, contract, validation rule, or test case to investigate first. This is directional input, not authority over the final fix.
+      placeholder: Start with ... and add/adjust a test for ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence-boundary
+    attributes:
+      label: Evidence boundary
+      description: Say what was read, what was changed, which checks ran, which checks did not run, and why.
+      placeholder: |
+        Read:
+        Changed:
+        Checks run:
+        Checks not run:
+        Reason skipped:
+    validations:
+      required: true
+  - type: textarea
+    id: stop-condition
+    attributes:
+      label: Stop condition or acceptance criteria
+      description: What observable condition means this issue is fixed, or what maintainer decision is needed before implementation?
+      placeholder: The issue is fixed when ...
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Public issue checklist
+      options:
+        - label: I removed secrets, credentials, private harness records, absolute local paths, and local-only generated caches.
+          required: true
+        - label: I included source-level triage instead of only asking maintainers to recreate my environment.
+          required: true
