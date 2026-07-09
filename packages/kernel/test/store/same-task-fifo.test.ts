@@ -6,7 +6,8 @@ import path from "node:path";
 import { Effect } from "effect";
 import { hashTaskProjectionRows, rebuildTaskProjection } from "../../src/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
-import { taskEntityId } from "../../src/domain/index.ts";
+import { resolveCommitPlan } from "../../src/store/write-journal-git.ts";
+import { moduleEntityId, taskEntityId } from "../../src/domain/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator flushes same-task writes in FIFO order", () => {
@@ -25,6 +26,7 @@ test("WriteCoordinator flushes same-task writes in FIFO order", () => {
 test("WriteCoordinator journals actor person and uses explicit git authors", () => {
   withTempStore((rootDir) => {
     initializeGitRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
     const alice = makeJournaledWriteCoordinator({
       rootDir,
       actor: { kind: "human", id: "person_alice" },
@@ -165,23 +167,144 @@ test("WriteCoordinator rejects hard delete for task packages with anchored facts
   });
 });
 
-test("WriteCoordinator force-adds explicit harness paths ignored by target repo patterns", () => {
+test("WriteCoordinator rejects ignored authored paths instead of reporting success", () => {
   withTempStore((rootDir) => {
     initializeGitRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
     writeFileSync(path.join(rootDir, ".gitignore"), "artifacts/\n", "utf8");
     runGit(rootDir, "add", ".gitignore");
     runGit(rootDir, "commit", "-m", "ignore artifacts");
+    const beforeHead = runGit(rootDir, "rev-parse", "HEAD");
 
     const coordinator = makeJournaledWriteCoordinator({
       rootDir,
       commitAuthor: testCommitAuthor
     });
-    Effect.runSync(coordinator.enqueue(docWrite("op-ignored-artifact", "task-1", "artifacts/.gitkeep", "")));
+    assert.throws(
+      () => Effect.runSync(coordinator.enqueue(docWrite("op-ignored-artifact", "task-1", "artifacts/.gitkeep", ""))),
+      /gitignored authored path requires explicit forceAddPaths: harness\/tasks\/task-1\/artifacts\/\.gitkeep/u
+    );
+
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/artifacts/.gitkeep")), false);
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
+    assert.equal(runGit(rootDir, "rev-parse", "HEAD"), beforeHead);
+  });
+});
+
+test("WriteCoordinator rejects tracked files that are now matched by gitignore", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness/tasks/task-1/artifacts"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".gitignore"), "artifacts/\n", "utf8");
+    writeFileSync(path.join(rootDir, "harness/tasks/task-1/artifacts/tracked.md"), "before\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "add", "-f", "harness/tasks/task-1/artifacts/tracked.md");
+    runGit(rootDir, "commit", "-m", "seed tracked ignored authored path");
+    const beforeHead = runGit(rootDir, "rev-parse", "HEAD");
+
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      commitAuthor: testCommitAuthor
+    });
+
+    assert.throws(
+      () => Effect.runSync(coordinator.enqueue(docWrite("op-tracked-ignored-artifact", "task-1", "artifacts/tracked.md", "after\n"))),
+      /gitignored authored path requires explicit forceAddPaths: harness\/tasks\/task-1\/artifacts\/tracked\.md/u
+    );
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/artifacts/tracked.md"), "utf8"), "before\n");
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
+    assert.equal(runGit(rootDir, "rev-parse", "HEAD"), beforeHead);
+  });
+});
+
+test("WriteCoordinator excludes localRoot machine artifacts from every git repo", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "commit", "-m", "ignore private harness");
+    const outerHead = runGit(rootDir, "rev-parse", "HEAD");
+
+    const harnessRoot = path.join(rootDir, "harness");
+    mkdirSync(harnessRoot, { recursive: true });
+    initializeGitRepo(harnessRoot);
+    writeFileSync(path.join(harnessRoot, "harness.yaml"), [
+      "schema: harness-anything/v1",
+      "name: self-host-fixture",
+      "layout:",
+      "  authoredRoot: harness",
+      "  localRoot: .harness",
+      ""
+    ].join("\n"), "utf8");
+    runGit(harnessRoot, "add", "harness.yaml");
+    runGit(harnessRoot, "commit", "-m", "seed nested harness");
+    const innerHead = runGit(harnessRoot, "rev-parse", "HEAD");
+
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      sessionId: "codex-distill-leak",
+      autoMaterialize: false,
+      commitAuthor: testCommitAuthor
+    });
+    Effect.runSync(coordinator.enqueue({
+      opId: "op-distill-candidate",
+      entityId: moduleEntityId("distill-candidate"),
+      kind: "machine_artifact_write",
+      payload: {
+        boundary: "distill-candidate",
+        path: ".harness/generated/distill/task-1/distill_fixture.json",
+        body: "{\"schema\":\"distill-candidate/v1\"}\n"
+      }
+    }));
     const report = Effect.runSync(coordinator.flush("explicit"));
 
-    assert.equal(report.watermark, "op-ignored-artifact");
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/artifacts/.gitkeep")), true);
-    assert.match(runGit(rootDir, "show", "--name-only", "--format=", "HEAD"), /harness\/tasks\/task-1\/artifacts\/\.gitkeep/);
+    assert.equal(report.watermark, "op-distill-candidate");
+    assert.equal(readFileSync(path.join(rootDir, ".harness/generated/distill/task-1/distill_fixture.json"), "utf8"), "{\"schema\":\"distill-candidate/v1\"}\n");
+    assert.equal(runGit(rootDir, "rev-parse", "HEAD"), outerHead);
+    assert.equal(runGit(rootDir, "branch", "--list", "sessions/*"), "");
+    assert.equal(runGit(rootDir, "ls-files", "--", "harness", ".harness"), "");
+    assert.equal(runGit(harnessRoot, "rev-parse", "HEAD"), innerHead);
+    assert.equal(runGit(harnessRoot, "branch", "--list", "sessions/*"), "");
+  });
+});
+
+test("WriteCoordinator creates missing unignored authored root in root repo", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), "/.harness/\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "commit", "-m", "seed outer repo");
+    const beforeHead = runGit(rootDir, "rev-parse", "HEAD");
+
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      commitAuthor: testCommitAuthor
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-create-authored-root", "task-1", "notes.md", "first write")));
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(report.watermark, "op-create-authored-root");
+    assert.notEqual(runGit(rootDir, "rev-parse", "HEAD"), beforeHead);
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/notes.md"), "utf8"), "first write");
+    assert.equal(runGit(rootDir, "ls-files", "--", "harness/tasks/task-1/notes.md"), "harness/tasks/task-1/notes.md");
+    assert.equal(runGit(rootDir, "branch", "--list", "sessions/*"), "");
+  });
+});
+
+test("resolveCommitPlan fails closed when missing authored root is ignored by root repo", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "commit", "-m", "ignore private harness");
+    const beforeHead = runGit(rootDir, "rev-parse", "HEAD");
+
+    assert.throws(
+      () => resolveCommitPlan(rootDir, [path.join(rootDir, "harness/tasks/task-1/notes.md")], rootDir),
+      /authored root is ignored by Git but is not a nested Git repository/u
+    );
+    assert.equal(runGit(rootDir, "rev-parse", "HEAD"), beforeHead);
+    assert.equal(runGit(rootDir, "branch", "--list", "sessions/*"), "");
   });
 });
 
@@ -341,6 +464,26 @@ test("WriteCoordinator fails closed when ignored authored root has no nested Git
     );
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
+  });
+});
+
+test("WriteCoordinator still fails closed when ignored authored root was force-tracked", () => {
+  withTempStore((rootDir) => {
+    initializeGitRepo(rootDir);
+    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/tracked.md"), "tracked despite ignore\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "add", "-f", "harness/tracked.md");
+    runGit(rootDir, "commit", "-m", "seed force tracked harness");
+
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+
+    assert.throws(
+      () => Effect.runSync(coordinator.enqueue(docWrite("op-force-tracked-ignored", "task-1", "notes.md", "ignored"))),
+      /authored root is ignored by Git but is not a nested Git repository/
+    );
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
   });
 });
 

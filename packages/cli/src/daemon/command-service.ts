@@ -24,6 +24,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       options.onCommandStart?.();
       const command = readParsedCommandPayload(payload);
       const daemonActor = context?.actor;
+      const sessionId = readSessionId(payload);
       try {
         const attribution = daemonActor ? daemonActorAttribution(daemonActor) : undefined;
         const result = await runRegisteredCommandWithCliComposition(command, {
@@ -35,7 +36,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
             ? makeDaemonQueuedWriteCoordinator(
               runtime,
               `${command.action.kind}:${actor.kind}:${actor.id}`,
-              { actor: attribution.actor, commitAuthor: attribution.commitAuthor }
+              { actor: attribution.actor, commitAuthor: attribution.commitAuthor, ...(sessionId ? { sessionId } : {}) }
             )
             : missingDaemonActorCoordinator(command.action.kind, actor)
         });
@@ -69,6 +70,13 @@ function missingDaemonActorCoordinator(
     flush: () => fail(),
     recover: fail()
   };
+}
+
+function readSessionId(payload: JsonObject | undefined): string | undefined {
+  const session = payload?.session;
+  if (!isPlainRecord(session) || typeof session.sessionId !== "string") return undefined;
+  const trimmed = session.sessionId.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function readParsedCommandPayload(payload: JsonObject | undefined): ParsedCommand {

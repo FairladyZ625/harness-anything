@@ -12,7 +12,7 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
     topLevel: gitTopLevel,
     isIgnored: (repoRoot, relativePath) => {
       try {
-        runGit(repoRoot, "check-ignore", "-q", "--", relativePath);
+        runGit(repoRoot, "check-ignore", "--no-index", "-q", "--", relativePath);
         return true;
       } catch {
         return false;

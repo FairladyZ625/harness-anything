@@ -31,7 +31,7 @@ import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-inc
 import { hashTaskProjectionRows } from "../projection/sqlite-task-projection.ts";
 import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
-import { commitTouchedPaths, resolveCommitPlan } from "./write-journal-git.ts";
+import { assertCommitPlanAddable, commitTouchedPaths } from "./write-journal-git.ts";
 import { runLedgerMaterializer } from "./ledger-materializer.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
 import { NonTaskWriteEntityError, taskIdForJournalRecord, taskIdForWriteOp } from "./write-journal-entity.ts";
@@ -190,7 +190,7 @@ function flushRecords(
     touchedPaths: recordTouchedPaths(rootDir, rootInput, record)
   }));
 
-  resolveCommitPlan(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, versionControlSystem);
+  assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem });
   const previousProjectionSourceHash = records.length > 0 ? readMarkdownSource(rootInput).hash : undefined;
 
   for (const { record, touchedPaths: recordTouchedPaths } of plannedRecords) {
@@ -211,7 +211,6 @@ function flushRecords(
     semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)),
     sessionId,
     {
-      respectGitignorePaths: plannedRecords.filter((entry) => entry.record.kind === "task_tree_stage").flatMap((entry) => entry.touchedPaths),
       author: commitAuthor,
       versionControlSystem
     }
@@ -304,7 +303,7 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
 }
 
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {
-  resolveCommitPlan(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, versionControlSystem);
+  assertCommitPlanAddable(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, { versionControlSystem });
   try {
     assertDocumentWritePathsDoNotCollide(rootInput, documentWritesForWriteOp(op));
   } catch (error) {

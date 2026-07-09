@@ -84,6 +84,7 @@ export const testTierManifest = {
     "tools/check-locale-content.test.mjs",
     "tools/check-pr-body-bilingual.test.mjs",
     "tools/check-pr-governance.test.mjs",
+    "tools/check-private-boundary.test.mjs",
     "tools/check-relation-cycle-substrate.test.mjs",
     "tools/check-service-mappability.test.mjs",
     "tools/check-schema-field-coverage.test.mjs",

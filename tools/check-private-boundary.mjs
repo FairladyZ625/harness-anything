@@ -32,16 +32,18 @@ if (topLevel !== cwd) {
   record(`run from repository root: expected ${topLevel}, got ${process.cwd()}`);
 }
 
-try {
-  // Probe a phantom child path: works even when .harness-private does not
-  // exist on disk (CI clean checkout), while still failing if the ignore
-  // rule is missing from .gitignore.
-  gitStatus(["check-ignore", "-q", ".harness-private/__boundary_probe__"]);
-} catch {
-  record(".harness-private is not ignored by git");
+for (const privateRoot of [".harness-private", "harness", ".harness"]) {
+  try {
+    // Probe a phantom child path: works even when the private root does not
+    // exist on disk (CI clean checkout), while still failing if the ignore
+    // rule is missing from .gitignore.
+    gitStatus(["check-ignore", "--no-index", "-q", `${privateRoot}/__boundary_probe__`]);
+  } catch {
+    record(`${privateRoot} is not ignored by git`);
+  }
 }
 
-const explicitlyForbidden = git(["ls-files", "--", ".harness-private", "AGENTS.md"])
+const explicitlyForbidden = git(["ls-files", "--", ".harness-private", "harness", ".harness", "AGENTS.md"])
   .trim()
   .split(/\r?\n/)
   .filter(Boolean);
@@ -58,11 +60,25 @@ const allowlist = loadGateAllowlist("check-private-boundary", {
 });
 const privateContentMarkers = entryJoinedValues(allowlist.privateContentMarkers);
 
+const sessionBranches = git(["branch", "--list", "sessions/*"])
+  .trim()
+  .split(/\r?\n/u)
+  .map((entry) => entry.replace(/^\*\s*/u, "").trim())
+  .filter(Boolean);
+
+for (const branch of sessionBranches) {
+  record(`forbidden session branch in public repo: ${branch}`);
+}
+
 for (const trackedPath of allTracked) {
   if (
     trackedPath === "AGENTS.md" ||
     trackedPath === ".harness-private" ||
     trackedPath.startsWith(".harness-private/") ||
+    trackedPath === "harness" ||
+    trackedPath.startsWith("harness/") ||
+    trackedPath === ".harness" ||
+    trackedPath.startsWith(".harness/") ||
     trackedPath.startsWith(".codex/attachments/")
   ) {
     record(`private path tracked in public repo: ${trackedPath}`);

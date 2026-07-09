@@ -15,7 +15,7 @@ export function commitTouchedPaths(
   message?: string,
   sessionId?: string,
   options: {
-    readonly respectGitignorePaths?: ReadonlyArray<string>;
+    readonly forceAddPaths?: ReadonlyArray<string>;
     readonly author?: GitCommitAuthor;
     readonly versionControlSystem?: VersionControlSystem;
   } = {}
@@ -23,11 +23,14 @@ export function commitTouchedPaths(
   if (touchedPaths.length === 0) return "no-git-change";
   const vcs = options.versionControlSystem ?? defaultVersionControlSystem;
 
-  const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput, vcs);
+  const plan = assertCommitPlanAddable(rootDir, touchedPaths, layoutInput, {
+    forceAddPaths: options.forceAddPaths,
+    versionControlSystem: vcs
+  });
   if (!plan) return "no-git-change";
-  const respectGitignore = new Set(resolveCommitPlan(rootDir, options.respectGitignorePaths ?? [], layoutInput, vcs)?.relativePaths ?? []);
-  const forcedPaths = plan.relativePaths.filter((relativePath) => !respectGitignore.has(relativePath));
-  const unforcedPaths = plan.relativePaths.filter((relativePath) => respectGitignore.has(relativePath));
+  const forceAdd = resolveForceAddSet(rootDir, options.forceAddPaths ?? [], layoutInput, vcs);
+  const forcedPaths = plan.relativePaths.filter((relativePath) => forceAdd.has(relativePath));
+  const unforcedPaths = plan.relativePaths.filter((relativePath) => !forceAdd.has(relativePath));
   const sessionBranch = sessionBranchName(sessionId);
   // Resolve the trunk branch while HEAD still points at it, before checkoutSessionBranch
   // moves us onto the session branch; the finally must return to the same trunk.
@@ -54,27 +57,50 @@ export function resolveCommitPlan(
   layoutInput: HarnessLayoutInput = rootDir,
   versionControlSystem: VersionControlSystem = defaultVersionControlSystem
 ): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
-  if (touchedPaths.length === 0) return null;
-  const target = resolveCommitTarget(rootDir, resolveHarnessLayout(layoutInput).authoredRoot, touchedPaths, versionControlSystem);
+  const layout = resolveHarnessLayout(layoutInput);
+  const committablePaths = excludeLocalRootPaths(layout.localRoot, touchedPaths, versionControlSystem);
+  if (committablePaths.length === 0) return null;
+  const target = resolveCommitTarget(rootDir, layout.authoredRoot, committablePaths, versionControlSystem);
   if (!target) return null;
   return {
     repoRoot: target.repoRoot,
-    relativePaths: unique(touchedPaths.map((filePath) => repoRelativePath(target.repoRoot, filePath, versionControlSystem)))
+    relativePaths: unique(committablePaths.map((filePath) => repoRelativePath(target.repoRoot, filePath, versionControlSystem)))
   };
+}
+
+export function assertCommitPlanAddable(
+  rootDir: string,
+  touchedPaths: ReadonlyArray<string>,
+  layoutInput: HarnessLayoutInput = rootDir,
+  options: {
+    readonly forceAddPaths?: ReadonlyArray<string>;
+    readonly versionControlSystem?: VersionControlSystem;
+  } = {}
+): { readonly repoRoot: string; readonly relativePaths: ReadonlyArray<string> } | null {
+  const vcs = options.versionControlSystem ?? defaultVersionControlSystem;
+  const plan = resolveCommitPlan(rootDir, touchedPaths, layoutInput, vcs);
+  if (!plan) return null;
+  const forceAdd = resolveForceAddSet(rootDir, options.forceAddPaths ?? [], layoutInput, vcs);
+  const ignoredPaths = plan.relativePaths.filter((relativePath) => !forceAdd.has(relativePath) && vcs.isIgnored(plan.repoRoot, relativePath));
+  if (ignoredPaths.length > 0) {
+    throw new Error(`gitignored authored path requires explicit forceAddPaths: ${ignoredPaths.join(", ")}`);
+  }
+  return plan;
 }
 
 function resolveCommitTarget(rootDir: string, authoredRoot: string, touchedPaths: ReadonlyArray<string>, vcs: VersionControlSystem): { readonly repoRoot: string } | null {
   const rootRepo = vcs.topLevel(rootDir);
   const authoredRepo = vcs.topLevel(authoredRoot);
-  if (!authoredRepo) return rootRepo ? { repoRoot: rootRepo } : null;
+  if (!touchedPaths.every((filePath) => isPathInside(authoredRoot, filePath, vcs))) return null;
+  if (!authoredRepo) {
+    if (!rootRepo || !isPathInsideRepo(rootRepo, authoredRoot, vcs)) return null;
+    if (isIgnoredByRepo(rootRepo, authoredRoot, vcs)) {
+      throw new Error("authored root is ignored by Git but is not a nested Git repository");
+    }
+    return { repoRoot: rootRepo };
+  }
   if (rootRepo && authoredRepo === rootRepo && isIgnoredByRepo(rootRepo, authoredRoot, vcs)) {
     throw new Error("authored root is ignored by Git but is not a nested Git repository");
-  }
-  if (touchedPaths.every((filePath) => isPathInsideRepo(authoredRepo, filePath, vcs))) {
-    return { repoRoot: authoredRepo };
-  }
-  if (rootRepo && touchedPaths.every((filePath) => isPathInsideRepo(rootRepo, filePath, vcs))) {
-    return { repoRoot: rootRepo };
   }
   return { repoRoot: authoredRepo };
 }
@@ -146,7 +172,27 @@ export function refExists(repoRoot: string, ref: string, versionControlSystem: V
 
 function isIgnoredByRepo(repoRoot: string, candidatePath: string, vcs: VersionControlSystem): boolean {
   const relativePath = repoRelativePath(repoRoot, candidatePath, vcs);
-  return vcs.isIgnored(repoRoot, relativePath);
+  const directoryPath = relativePath.endsWith("/") ? relativePath : `${relativePath}/`;
+  return vcs.isIgnored(repoRoot, relativePath) || vcs.isIgnored(repoRoot, directoryPath);
+}
+
+function resolveForceAddSet(
+  rootDir: string,
+  forceAddPaths: ReadonlyArray<string>,
+  layoutInput: HarnessLayoutInput,
+  vcs: VersionControlSystem
+): ReadonlySet<string> {
+  if (forceAddPaths.length === 0) return new Set<string>();
+  return new Set(resolveCommitPlan(rootDir, forceAddPaths, layoutInput, vcs)?.relativePaths ?? []);
+}
+
+function excludeLocalRootPaths(localRoot: string, touchedPaths: ReadonlyArray<string>, vcs: VersionControlSystem): ReadonlyArray<string> {
+  return touchedPaths.filter((filePath) => !isPathInside(localRoot, filePath, vcs));
+}
+
+function isPathInside(rootPath: string, filePath: string, vcs: VersionControlSystem): boolean {
+  const relativePath = path.relative(vcs.normalizePath(rootPath), vcs.normalizePath(filePath));
+  return relativePath.length === 0 || (relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath));
 }
 
 function isPathInsideRepo(repoRoot: string, filePath: string, vcs: VersionControlSystem): boolean {
