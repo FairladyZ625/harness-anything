@@ -218,7 +218,7 @@ is published to npm from this repository at this time.
 
 [Shipped / Foundation / Planned status](./docs-release/release-posture.md) lives
 in the release posture page, the single public source for runtime, packaging,
-product-line, supply-chain, and license status. This README intentionally does
+capability, supply-chain, and license status. This README intentionally does
 not duplicate that status matrix.
 
 </details>

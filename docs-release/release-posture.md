@@ -19,7 +19,7 @@ docs should link here instead of restating status tables.
 - Planned: not implemented as a supported capability, or explicitly owned by a
   later milestone or task packet.
 
-## Product line status
+## Capability status
 
 | Area | Status | Boundary and evidence |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ docs should link here instead of restating status tables.
 | Remote SSH daemon mode | Experimental | Remote mode starts `ssh <host> ha daemon serve --stdio` for a single client session. It is not a persistent daemon plus concurrent SSH client topology, not GUI-to-remote-daemon, not a tunnel, not TCP, not HTTP, and not WebSocket. Evidence: canon 1.3. |
 | Runtime/release readiness | Foundation | Source checkout, Node 24 and Node 26 CI, package smoke, and GUI build checks are executable gates. Release artifacts remain unshipped. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts:50-60` and canon 1.2. |
 | Supply-chain/license gate | Foundation | npm audit, SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`. |
-| M3-M7 backlog | Planned | External adapter implementation, cross-harness product-line identity, full GUI product, and release hardening remain later work. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state. |
+| M3-M7 backlog | Planned | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state. |
 
 ## Mechanism-complete ledger
 
@@ -75,13 +75,12 @@ The same track also has explicit non-capabilities:
 These boundaries are why the GUI is foundation state, not a full desktop
 product.
 
-## Next milestone ownership
+## Non-shipped boundary summary
 
-| Milestone band | Owns | Must not inherit as accidental state |
+| Surface | Not shipped yet | Must not inherit as accidental state |
 | --- | --- | --- |
-| Near-term hardening | Documentation and workflow proof for shipped and mechanism-complete CLI surfaces. | Old docs that call shipped hierarchy work planned, or docs that hide attribution requirements for write commands. |
-| Adapter work | External adapter implementation and proof. | Placeholder GitHub Issues or Linear packages as shipped integrations. |
-| Cross-harness product line | Product identity across multiple harness workspaces. | Cloud database or relay assumptions from local GUI work. |
+| Shipped and mechanism-complete CLI surfaces | Workflow proof and complete public documentation. | Old docs that call shipped hierarchy work planned, or docs that hide attribution requirements for write commands. |
+| Adapter integrations | Real GitHub Issues or Linear implementations and proof. | Placeholder packages as shipped integrations. |
 | Full GUI product | Persisted GUI writes, decision actions, real relations everywhere, non-mock terminal/adapters/presets, and supported distribution. | Page-only GUI assumptions, duplicate CLI/daemon business logic, or state-only drag/drop behavior as lifecycle truth. |
 | Release hardening | Signed artifacts, notarization, update feeds, release artifact SBOMs, and publication evidence. | Unsigned production, unreviewed license/SBOM gaps, or auto-update without signing, update-feed, rollback, and security tests. |
 

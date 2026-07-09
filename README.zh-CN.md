@@ -190,7 +190,7 @@ git 下的 Markdown；generated 状态是可重建缓存。
 <br>
 
 [Shipped / Foundation / Planned 状态](./docs-release/release-posture.md) 只存在于发布态势页；
-那里是 runtime、打包、产品线、供应链与 license 状态的唯一公开来源。本 README 刻意不复制
+那里是 runtime、打包、能力、供应链与 license 状态的唯一公开来源。本 README 刻意不复制
 那张状态矩阵。
 
 </details>

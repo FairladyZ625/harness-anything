@@ -10,7 +10,7 @@
 - Experimental：只覆盖某个拓扑或会话形态的窄原型或 shim，存在已知限制，不能作为通用支持承诺。
 - Planned：尚未作为受支持能力实现，或明确归属于后续里程碑或任务包。
 
-## 产品线状态
+## 能力状态
 
 | 范围 | 状态 | 边界和证据 |
 | --- | --- | --- |
@@ -21,7 +21,7 @@
 | Remote SSH daemon 模式 | Experimental | remote 模式会为单个客户端会话启动 `ssh <host> ha daemon serve --stdio`。它不是“持久 daemon 加并发 SSH 客户端”，不是“GUI 连接远端 daemon”，不是 tunnel，不是 TCP，不是 HTTP，也不是 WebSocket。证据：canon 1.3。 |
 | 运行时与发布就绪 | Foundation | 源码 checkout、Node 24 和 Node 26 CI、package smoke、GUI build 都有可执行 gate。发布产物仍未 ship。证据：`packages/gui/src/distribution/runtime-release-readiness.ts:50-60` 与 canon 1.2。 |
 | 供应链与许可证 gate | Foundation | npm audit、SBOM 校验、OSV 证据路径检查、许可证策略、Dependabot 覆盖、AGPL 网络服务发布说明 checklist，都是 gate 或任务包可检查的策略。发布产物仍未 ship。证据：`package.json:71` 与 `tools/check-supply-chain.mjs:51-74`。 |
-| M3-M7 backlog | Planned | 外部 adapter 实现、跨 harness 产品线身份、完整 GUI 产品、发布硬化仍属后续工作。占位 adapter package、仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。 |
+| M3-M7 backlog | Planned | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package、仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。 |
 
 ## 机制已完成清单
 
@@ -59,13 +59,12 @@ GUI/daemon 方向有真实的 foundation 切片：
 
 这些边界就是 GUI 仍是 foundation 状态，而不是完整桌面产品的原因。
 
-## 后续里程碑归属
+## 未发布边界摘要
 
-| 里程碑带 | 负责内容 | 不能意外继承为状态事实 |
+| 界面 | 尚未发布 | 不能意外继承为状态事实 |
 | --- | --- | --- |
-| 近期硬化 | 为已 ship 和 mechanism-complete 的 CLI 界面补文档与工作流证明。 | 把已 ship 的层级能力继续写成 planned 的旧文档，或隐藏写命令归属变量要求的文档。 |
-| Adapter 工作 | 外部 adapter 实现和证明。 | 把 GitHub Issues 或 Linear 占位包当成已 ship 集成。 |
-| 跨 harness 产品线 | 多个 harness workspace 之间的产品身份。 | 从本地 GUI 工作中继承 cloud database 或 relay 假设。 |
+| 已 ship 与 mechanism-complete 的 CLI 界面 | 工作流证明与完整公开文档。 | 把已 ship 的层级能力继续写成 planned 的旧文档，或隐藏写命令归属变量要求的文档。 |
+| Adapter 集成 | 真实 GitHub Issues 或 Linear 实现与证明。 | 把占位 package 当成已 ship 集成。 |
 | 完整 GUI 产品 | 持久化 GUI 写入、决策动作、全局真实 relations、非 mock terminal/adapters/presets，以及受支持分发。 | 把页面级 GUI 假设、重复 CLI/daemon 业务逻辑，或仅 state 的拖拽行为当成生命周期真相。 |
 | 发布硬化 | 签名产物、notarization、update feeds、发布产物 SBOM、发布证据。 | 未签名生产产物、未经审查的 license/SBOM 缺口，或没有签名、update-feed、rollback、安全测试的 auto-update。 |
 
