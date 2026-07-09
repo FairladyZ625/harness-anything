@@ -1197,8 +1197,8 @@
       "id": "check-cli-structure",
       "command": "npm run harness:check-cli-structure",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/cli/src",
         "tools/check-cli-structure.mjs"
@@ -1207,8 +1207,11 @@
         "CLI source structure"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -1239,14 +1242,18 @@
           "script": "harness:check-cli-structure"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
         }
       }
     },
