@@ -74,12 +74,22 @@ export function extractGitHubRequiredStatusCheckContexts(branchRules) {
   return { hasRequiredStatusCheckRule, contexts };
 }
 
+// Retry only what a retry can fix: transport faults, rate limiting, and 5xx.
+// A 4xx is a permission or configuration answer -- repeating it just delays a
+// red that must stay red.
+function isRetryableStatus(status) {
+  return status === 429 || status >= 500;
+}
+
 export async function fetchGitHubBranchRules({
   repo,
   branch = DEFAULT_BRANCH,
   token = process.env.GITHUB_TOKEN,
   apiBase = DEFAULT_API_BASE,
-  fetchImpl = globalThis.fetch
+  fetchImpl = globalThis.fetch,
+  attempts = 3,
+  backoffMs = 500,
+  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
   if (!repo || !/^[^/\s]+\/[^/\s]+$/u.test(repo)) {
     throw new Error("repository must be provided as owner/name");
@@ -92,22 +102,40 @@ export async function fetchGitHubBranchRules({
   }
 
   const url = `${apiBase.replace(/\/+$/u, "")}/repos/${repo}/rules/branches/${encodeURIComponent(branch)}`;
-  const response = await fetchImpl(url, {
-    headers: {
-      "Accept": "application/vnd.github+json",
-      "Authorization": `Bearer ${token}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "harness-anything-required-context-check"
-    }
-  });
+  let lastError;
 
-  if (!response.ok) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        headers: {
+          "Accept": "application/vnd.github+json",
+          "Authorization": `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "harness-anything-required-context-check"
+        }
+      });
+    } catch (error) {
+      lastError = new Error(`GitHub branch rules request failed: ${error.message}`);
+      if (attempt === attempts) break;
+      await sleepImpl(backoffMs * attempt);
+      continue;
+    }
+
+    if (response.ok) {
+      return response.json();
+    }
+
     const body = await response.text();
     const detail = body.trim() ? `: ${body.slice(0, 500)}` : "";
-    throw new Error(`GitHub branch rules request failed (${response.status} ${response.statusText})${detail}`);
+    lastError = new Error(
+      `GitHub branch rules request failed (${response.status} ${response.statusText})${detail}`
+    );
+    if (!isRetryableStatus(response.status) || attempt === attempts) break;
+    await sleepImpl(backoffMs * attempt);
   }
 
-  return response.json();
+  throw lastError;
 }
 
 function parseArgs(argv) {

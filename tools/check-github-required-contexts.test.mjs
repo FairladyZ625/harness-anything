@@ -2,8 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   checkGithubRequiredContexts,
-  extractGitHubRequiredStatusCheckContexts
+  extractGitHubRequiredStatusCheckContexts,
+  fetchGitHubBranchRules
 } from "./check-github-required-contexts.mjs";
+
+const FETCH_OPTIONS = { repo: "o/r", token: "t", backoffMs: 0, sleepImpl: async () => {} };
+
+function response(status, payload) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: String(status),
+    json: async () => payload,
+    text: async () => JSON.stringify(payload)
+  };
+}
 
 function manifestWithContexts(contexts) {
   return JSON.stringify({
@@ -82,4 +95,70 @@ test("github required context parser unions contexts across multiple rulesets", 
     hasRequiredStatusCheckRule: true,
     contexts: ["boundaries", "typecheck (24)", "integration-shard (6)"]
   });
+});
+
+test("branch-rules fetch retries a transport fault and then succeeds", async () => {
+  let calls = 0;
+  const rules = await fetchGitHubBranchRules({
+    ...FETCH_OPTIONS,
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("socket hang up");
+      return response(200, [{ type: "deletion" }]);
+    }
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(rules, [{ type: "deletion" }]);
+});
+
+test("branch-rules fetch retries 5xx and 429 but not 403", async () => {
+  let serverErrorCalls = 0;
+  await fetchGitHubBranchRules({
+    ...FETCH_OPTIONS,
+    fetchImpl: async () => {
+      serverErrorCalls += 1;
+      return serverErrorCalls < 3 ? response(503, {}) : response(200, []);
+    }
+  });
+  assert.equal(serverErrorCalls, 3);
+
+  let rateLimitedCalls = 0;
+  await fetchGitHubBranchRules({
+    ...FETCH_OPTIONS,
+    fetchImpl: async () => {
+      rateLimitedCalls += 1;
+      return rateLimitedCalls === 1 ? response(429, {}) : response(200, []);
+    }
+  });
+  assert.equal(rateLimitedCalls, 2);
+
+  // A 403 is an answer, not a fault: it must fail on the first attempt so a
+  // missing token permission stays red instead of being retried into silence.
+  let forbiddenCalls = 0;
+  await assert.rejects(
+    fetchGitHubBranchRules({
+      ...FETCH_OPTIONS,
+      fetchImpl: async () => {
+        forbiddenCalls += 1;
+        return response(403, { message: "Resource not accessible by integration" });
+      }
+    }),
+    /403/u
+  );
+  assert.equal(forbiddenCalls, 1);
+});
+
+test("branch-rules fetch stays fail-closed after exhausting retries", async () => {
+  let calls = 0;
+  await assert.rejects(
+    fetchGitHubBranchRules({
+      ...FETCH_OPTIONS,
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("EOF");
+      }
+    }),
+    /EOF/u
+  );
+  assert.equal(calls, 3);
 });
