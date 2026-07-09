@@ -130,7 +130,7 @@ export function computeFactTriageSignals(
       detail: "该 fact 未被任何 decision claim 沿承重边引用(潜在噪声)",
     });
   } else {
-    // WEAKLY_CITED: 所有 citing decision 都是非 active(rejected/deferred/retired/proposed 待裁决)
+    // WEAKLY_CITED: 所有 citing decision 都是非 active(rejected/deferred/retired/proposed 待决策批准)
     const citingDecisions = decisions.filter((d) => citingDecisionIds.has(d.decisionId));
     const hasActive = citingDecisions.some((d) => d.state === "active");
     if (!hasActive) {

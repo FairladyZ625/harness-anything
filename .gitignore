@@ -4,6 +4,10 @@
 /CLAUDE.md
 /docs/
 
+# Phase working documents (盘点/报告):not for commit, excluded from public-text gates.
+/W2D-DISPOSAL.md
+/W2D-REPORT.md
+
 # Private self-hosted harness for this source repository.
 # This directory is versioned by its own local/private git repository and must not be
 # published with the open-source package.

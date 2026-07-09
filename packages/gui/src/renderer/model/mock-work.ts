@@ -196,7 +196,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "GUI-402",
-    title: "审阅工作台批量操作",
+    title: "看板批量操作交互",
     coordinationStatus: "planned",
     module: "gui",
     docs: docs(["design/visual-map.md", "review/walkthrough.md", "evidence/run-log.md"]),
@@ -252,7 +252,7 @@ export const MOCK_TASKS: TaskRow[] = [
     taskId: "LIN-92",
     title: "Closeout note 发布管道",
     coordinationStatus: "in_review",
-    rawStatus: "In Review",
+    rawStatus: "Finalizing",
     module: "adapters",
     engine: "linear",
     source: "snapshot-cache",
@@ -410,7 +410,7 @@ export const MOCK_TASKS: TaskRow[] = [
     taskId: "RAG-3",
     title: "重排序 provider 接口",
     coordinationStatus: "in_review",
-    rawStatus: "In Review",
+    rawStatus: "Finalizing",
     module: "retrieval",
     projectId: "rag-pipeline-svc",
     engine: "linear",
@@ -496,7 +496,7 @@ export const MOCK_RELATIONS: RelationEdge[] = [
   { from: "RAG-1", to: "RAG-6", kind: "parent_of", provenance: "external-engine" },
   /* ===== 三元语 relation：decision/task/fact 跨实体边（<entity>/<id> 形式）===== */
   // DEC-101(三元语内核)派生出 task,并 supports 其 evidence fact
-  { from: "decision/DEC-101", to: "task/KER-101", kind: "derives", provenance: "local-document", rationale: "三元语内核裁决派生 WriteCoordinator 串行写入实现" },
+  { from: "decision/DEC-101", to: "task/KER-101", kind: "derives", provenance: "local-document", rationale: "三元语内核决策派生 WriteCoordinator 串行写入实现" },
   { from: "decision/DEC-101/C1", to: "fact/KER-101/F-lesson-drift", kind: "evidenced-by", provenance: "local-document", rationale: "lesson 漂移事实证实 loop 闭不上是 task-only 的根因" },
   { from: "decision/DEC-101/C2", to: "fact/KER-106/F-perf-baseline", kind: "evidenced-by", provenance: "local-document", rationale: "性能基线证明 fact 内嵌 task 不增加检索负担" },
   // DEC-102 推翻 DEC-100(老的 task-only 假设)
@@ -508,14 +508,14 @@ export const MOCK_RELATIONS: RelationEdge[] = [
 
   // ===== 收件箱验证用新增 relation:DEC-105/106/107/108 的派生 + 证据 =====
   // DEC-105 派生出 daemon runtime task + evidence fact 支撑
-  { from: "decision/DEC-105", to: "task/KER-109", kind: "derives", provenance: "local-document", rationale: "并发模型裁决派生 daemon 锁竞争压测" },
+  { from: "decision/DEC-105", to: "task/KER-109", kind: "derives", provenance: "local-document", rationale: "并发模型决策派生 daemon 锁竞争压测" },
   { from: "decision/DEC-105/CH1", to: "fact/KER-109/F-pty-bench", kind: "evidenced-by", provenance: "local-document", rationale: "PTY 基准证明 Effect fiber 调度足以承载流式输出" },
   { from: "decision/DEC-105/C1", to: "fact/KER-101/F-lesson-drift", kind: "evidenced-by", provenance: "local-document", rationale: "WriteCoordinator 串行化已是既成事实,无需 worker 池" },
   // DEC-106 派生出 CSP 落地 task + 安全审计 fact
-  { from: "decision/DEC-106", to: "task/GUI-403", kind: "derives", provenance: "local-document", rationale: "CSP 裁决派生 Electron 安全合同落地" },
+  { from: "decision/DEC-106", to: "task/GUI-403", kind: "derives", provenance: "local-document", rationale: "CSP 决策派生 Electron 安全合同落地" },
   { from: "decision/DEC-106/CH1", to: "fact/GUI-403/F-csp-audit", kind: "evidenced-by", provenance: "local-document", rationale: "安全审计定性 eval 是 RCE 放大器" },
   // DEC-107 派生出看板重构 task + DnD 抖动 fact
-  { from: "decision/DEC-107", to: "task/GUI-401", kind: "derives", provenance: "local-document", rationale: "dnd-kit 迁移裁决派生七视图导航壳看板拖拽改造" },
+  { from: "decision/DEC-107", to: "task/GUI-401", kind: "derives", provenance: "local-document", rationale: "dnd-kit 迁移决策派生七视图导航壳看板拖拽改造" },
   { from: "decision/DEC-107/CH1", to: "fact/GUI-401/F-dnd-jank", kind: "evidenced-by", provenance: "local-document", rationale: "抖动测量证明 HTML5 DnD 在 Firefox+触控板不可救" },
   // DEC-106 推翻一条更早的宽松 CSP 提案(演示 supersede 链)
   { from: "decision/DEC-106", to: "decision/DEC-099", kind: "supersedes", provenance: "local-document", rationale: "早期生产也留 eval 的便利方案被安全审计否决" },
