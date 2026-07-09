@@ -137,7 +137,6 @@
         "node26-compatibility"
       ],
       "helperJobsNotRegisteredAsGates": [
-        "changes",
         "integration"
       ],
       "nonPullRequestGateJobs": [

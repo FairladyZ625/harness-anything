@@ -46,38 +46,6 @@ jobs:
           PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node tools/run-manifest-gates.mjs --workflow-job pr-body-lint --exclude mergify-queue-metadata-edit-noop
 
-  # Detect what a PR touched so heavy, package-scoped jobs can no-op their
-  # expensive steps. The jobs still run and report green, so required-check
-  # branch protection never deadlocks on a skipped context.
-  changes:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    outputs:
-      gui: ${{ steps.filter.outputs.gui }}
-    steps:
-      - name: Accept Mergify queue metadata edit
-        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT == 'true' }}
-        run: echo "Mergify queue metadata edit does not change the source under test."
-      - uses: actions/checkout@v4
-        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: dorny/paths-filter@v4
-        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
-        id: filter
-        with:
-          # Force git-based comparison so Mergify merge-queue draft PRs use the
-          # event's explicit base/head SHAs instead of the synthetic PR file list.
-          token: ""
-          base: ${{ github.event.pull_request.base.sha }}
-          filters: |
-            gui:
-              - 'packages/gui/**'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'tsconfig*.json'
-
   full-check:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -234,7 +202,6 @@ jobs:
 
   gui-build:
     if: github.event_name == 'pull_request'
-    needs: changes
     runs-on: ubuntu-latest
     steps:
       - name: Accept Mergify queue metadata edit
@@ -242,15 +209,31 @@ jobs:
         run: echo "Mergify queue metadata edit does not change the source under test."
       - uses: actions/checkout@v4
         if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
-      - uses: actions/setup-node@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v4
         if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' }}
+        id: filter
+        with:
+          # Force git-based comparison so Mergify merge-queue draft PRs use the
+          # event's explicit base/head SHAs instead of the synthetic PR file list.
+          token: ""
+          base: ${{ github.event.pull_request.base.sha }}
+          filters: |
+            gui:
+              - 'packages/gui/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig*.json'
+      - uses: actions/setup-node@v4
+        if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && steps.filter.outputs.gui == 'true' }}
         with:
           node-version: 24
           cache: npm
       # Skip the GUI build/test when a PR touches no GUI or shared-root files.
-      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && steps.filter.outputs.gui == 'true' }}
         run: npm ci
-      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && needs.changes.outputs.gui == 'true' }}
+      - if: ${{ env.MERGIFY_QUEUE_METADATA_EDIT != 'true' && steps.filter.outputs.gui == 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build --exclude mergify-queue-metadata-edit-noop
   node26-compatibility:
     if: github.event_name == 'pull_request'
