@@ -1,0 +1,28 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "github-issue-repair",
+  "title": "GitHub Issue Repair",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [{ "id": "github-issue-repair", "kind": "command", "version": "1", "required": false }],
+  "entrypoints": {
+    "plan": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": ["{{outputRoot}}/**"],
+      "writes": ["{{outputRoot}}/**"],
+      "inputs": {
+        "repo": "FairladyZ625/harness-anything",
+        "state": "open",
+        "limit": "10",
+        "labels": "",
+        "excludeLabels": "blocked,needs-decision",
+        "issue": "next"
+      }
+    }
+  },
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "templateSelections": [] }],
+  "defaultProfile": "baseline"
+}

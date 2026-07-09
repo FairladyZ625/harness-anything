@@ -27,6 +27,8 @@ required gates 通过之后执行。
 - [PR、审查与合入](04-pr-review-and-merge.md)：PR 模板、review evidence、bot
   comment triage、合入权限。
 - [Agent 贡献者](05-agent-contributors.md)：参与本仓开发的 coding agent 必须遵守的规则。
+- [提 GitHub issue](06-github-issues.md)：如何写出 maintainer 和 agent 都能复现、
+  修复的公开 issue。
 
 ## 只进入公开范围
 

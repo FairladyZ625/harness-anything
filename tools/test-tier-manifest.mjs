@@ -126,6 +126,7 @@ export const testTierManifest = {
     "packages/cli/test/preset-create-milestone-cli.test.ts",
     "packages/cli/test/preset-create-milestone-render-html-cli.test.ts",
     "packages/cli/test/preset-dogfood-utilization-cli.test.ts",
+    "packages/cli/test/preset-github-issue-repair-cli.test.ts",
     "packages/cli/test/preset-milestone-closeout-cli.test.ts",
     "packages/cli/test/preset-module-cli.test.ts",
     "packages/cli/test/preset-subtask-expansion-cli.test.ts",
