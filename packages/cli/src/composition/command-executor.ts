@@ -1,14 +1,17 @@
 import { Effect } from "effect";
 import {
   bindCreateProvenance,
+  isTaskHolderError,
   makeDecisionWriteService,
   makeEnvironmentCurrentSessionProbe,
   makeFactWriteService,
   makeProvenanceSessionExporter,
   makeRuntimeEventLedgerService,
+  makeTaskHolderService,
+  taskHolderPrincipalFromJournalActor,
   type ProvenanceSessionExportResult
 } from "../../../application/src/index.ts";
-import type { WriteCoordinator } from "../../../kernel/src/index.ts";
+import type { WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext, findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
 import { toCliError } from "../cli/error-mapper.ts";
 import { actionTaskId } from "../cli/parse-args.ts";
@@ -103,6 +106,7 @@ export async function runRegisteredCommandWithCliComposition(
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides
   });
+  const makeTaskHolder = () => makeTaskHolderService({ rootInput: layoutInput });
   const makeSessionExporter = () => makeProvenanceSessionExporter({
     rootInput: layoutInput,
     currentSessionProbe: getCurrentSessionProbe(),
@@ -110,7 +114,7 @@ export async function runRegisteredCommandWithCliComposition(
     artifactStore: makeArtifactStore()
   });
 
-  return Effect.runPromise(runRegisteredCommand(command, () => provider.createLifecycleEngine({
+  return Effect.runPromise(runRegisteredCommand(command, () => withOptionalLeaseGuard(provider.createLifecycleEngine({
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "task-lifecycle" }),
@@ -119,19 +123,19 @@ export async function runRegisteredCommandWithCliComposition(
       provenanceSessionExporter: makeSessionExporter(),
       syncExportedSession
     }, boundAt)
-  }), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, getActorAttribution, () => makeDecisionWriteService({
+  }), makeTaskHolder, getActorAttribution), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, getActorAttribution, () => makeDecisionWriteService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "decision-cli" }),
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
-  }), () => makeFactWriteService({
+  }), () => withOptionalFactLeaseGuard(makeFactWriteService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "fact-cli" }),
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
-  }), () => makeRuntimeEventLedgerService({
+  }), makeTaskHolder, getActorAttribution), makeTaskHolder, () => makeRuntimeEventLedgerService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "runtime-event-cli" })
   }), provider.runLedgerMaterializer).pipe(
@@ -149,6 +153,75 @@ export async function runRegisteredCommandWithCliComposition(
 
 export function commandRootInput(command: ParsedCommand): ReturnType<typeof createHarnessRuntimeContext> {
   return createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
+}
+
+type LifecycleEngine = ReturnType<CliCompositionAdapterProvider["createLifecycleEngine"]>;
+type FactWriteService = ReturnType<typeof makeFactWriteService>;
+type TaskHolderServiceFactory = () => ReturnType<typeof makeTaskHolderService>;
+type ActorAttributionFactory = () => CliActorAttribution;
+
+function withOptionalLeaseGuard(
+  engine: LifecycleEngine,
+  makeTaskHolder: TaskHolderServiceFactory,
+  getActorAttribution: ActorAttributionFactory
+): LifecycleEngine {
+  if (!leaseEnforcementEnabled()) return engine;
+  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getActorAttribution);
+  return {
+    ...engine,
+    setStatus: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.setStatus(input))),
+    appendProgress: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.appendProgress(input))),
+    archiveTask: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.archiveTask(input))),
+    supersedeTask: (input) => guard(input.oldTaskId).pipe(Effect.flatMap(() => engine.supersedeTask(input))),
+    deleteTask: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.deleteTask(input))),
+    reopenTask: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.reopenTask(input)))
+  };
+}
+
+function withOptionalFactLeaseGuard(
+  service: FactWriteService,
+  makeTaskHolder: TaskHolderServiceFactory,
+  getActorAttribution: ActorAttributionFactory
+): FactWriteService {
+  if (!leaseEnforcementEnabled()) return service;
+  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getActorAttribution);
+  return {
+    ...service,
+    record: (request) => guard(request.ownerTaskId).pipe(Effect.flatMap(() => service.record(request))),
+    invalidate: (request) => guard(request.ownerTaskId).pipe(Effect.flatMap(() => service.invalidate(request)))
+  };
+}
+
+function assertTaskLease(
+  taskId: string,
+  makeTaskHolder: TaskHolderServiceFactory,
+  getActorAttribution: ActorAttributionFactory
+): Effect.Effect<void, WriteError> {
+  return Effect.tryPromise({
+    try: () => makeTaskHolder().assertActiveLease({
+      taskId,
+      principal: taskHolderPrincipalFromJournalActor(getActorAttribution().actor)
+    }),
+    catch: taskLeaseWriteError
+  });
+}
+
+function taskLeaseWriteError(error: unknown): WriteError {
+  if (isTaskHolderError(error)) {
+    return {
+      _tag: "WriteRejected",
+      taskId: error.taskId,
+      reason: error.message,
+      code: error.code,
+      retryable: false
+    };
+  }
+  return { _tag: "JournalUnavailable", cause: error };
+}
+
+function leaseEnforcementEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.HARNESS_TASK_LEASE_ENFORCEMENT?.trim().toLowerCase();
+  return value === "1" || value === "true";
 }
 
 function withConflictMarkerFlushRecheck(

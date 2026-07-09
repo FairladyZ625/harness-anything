@@ -15,6 +15,15 @@ export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, 
 export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
+export {
+  TaskClaimCollisionError,
+  TaskLeaseRequiredError,
+  TaskReleaseNotHolderError,
+  isTaskHolderError,
+  makeTaskHolderService,
+  taskHolderPrincipalFromActor,
+  taskHolderPrincipalFromJournalActor
+} from "../../kernel/src/index.ts";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
 export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";
 export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
@@ -45,6 +54,17 @@ export type {
   FactWriteService,
   FactWriteServiceOptions
 } from "./fact-write-service.ts";
+export type {
+  TaskHolderAcquiredVia,
+  TaskHolderClaimResult,
+  TaskHolderCredential,
+  TaskHolderPrincipal,
+  TaskHolderRecord,
+  TaskHolderReleaseResult,
+  TaskHolderService,
+  TaskHolderServiceOptions,
+  TaskHolderSnapshot
+} from "../../kernel/src/index.ts";
 export type {
   ProvenanceSessionBackfillOptions,
   ProvenanceSessionBackfillResult,

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { readTaskLifecyclePolicy } from "../../../../application/src/index.ts";
+import { isTaskHolderError, readTaskLifecyclePolicy, taskHolderPrincipalFromJournalActor } from "../../../../application/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/index.ts";
 import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -15,12 +15,18 @@ export const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
 type TaskLifecycleAction = Extract<
   Parameters<CommandRunner>[1]["action"],
-  { readonly kind: "status-set" | "progress-append" | "task-amend" | "task-archive" | "task-supersede" | "task-delete" | "task-reopen" | "task-relate" }
+  { readonly kind: "task-claim" | "task-holder" | "task-release" | "status-set" | "progress-append" | "task-amend" | "task-archive" | "task-supersede" | "task-delete" | "task-reopen" | "task-relate" }
 >;
 
 export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskLifecycleAction;
   switch (action.kind) {
+    case "task-claim":
+      return runTaskClaim(context, action);
+    case "task-holder":
+      return runTaskHolder(context, action);
+    case "task-release":
+      return runTaskRelease(context, action);
     case "status-set":
       return runStatusSet(context, action.taskId, action.status, action.force, action.reason);
     case "progress-append":
@@ -45,6 +51,77 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
       return runTaskRelate(context, action);
   }
 };
+
+function runTaskClaim(
+  context: CommandRunnerContext,
+  action: Extract<TaskLifecycleAction, { readonly kind: "task-claim" }>
+): Effect.Effect<CliResult> {
+  return Effect.gen(function* () {
+    const principal = taskHolderPrincipal(context);
+    if (!principal.ok) return principal.result;
+    return yield* Effect.tryPromise({
+      try: () => context.taskHolderService.claim({ taskId: action.taskId, principal: principal.value, ttlMs: action.ttlMs }),
+      catch: taskHolderCommandFailure
+    }).pipe(Effect.match({
+      onFailure: (result): CliResult => resultForTaskHolderFailure("task-claim", action.taskId, result),
+      onSuccess: (result): CliResult => ({
+        ok: true,
+        command: "task-claim",
+        taskId: action.taskId,
+        report: {
+          schema: "task-holder-claim-result/v1",
+          ...result
+        }
+      })
+    }));
+  });
+}
+
+function runTaskHolder(
+  context: CommandRunnerContext,
+  action: Extract<TaskLifecycleAction, { readonly kind: "task-holder" }>
+): Effect.Effect<CliResult> {
+  return Effect.tryPromise({
+    try: () => context.taskHolderService.holder({ taskId: action.taskId }),
+    catch: taskHolderCommandFailure
+  }).pipe(Effect.match({
+    onFailure: (result): CliResult => resultForTaskHolderFailure("task-holder", action.taskId, result),
+    onSuccess: (result): CliResult => ({
+      ok: true,
+      command: "task-holder",
+      taskId: action.taskId,
+      report: {
+        schema: "task-holder-snapshot/v1",
+        ...result
+      }
+    })
+  }));
+}
+
+function runTaskRelease(
+  context: CommandRunnerContext,
+  action: Extract<TaskLifecycleAction, { readonly kind: "task-release" }>
+): Effect.Effect<CliResult> {
+  return Effect.gen(function* () {
+    const principal = taskHolderPrincipal(context);
+    if (!principal.ok) return principal.result;
+    return yield* Effect.tryPromise({
+      try: () => context.taskHolderService.release({ taskId: action.taskId, principal: principal.value }),
+      catch: taskHolderCommandFailure
+    }).pipe(Effect.match({
+      onFailure: (result): CliResult => resultForTaskHolderFailure("task-release", action.taskId, result),
+      onSuccess: (result): CliResult => ({
+        ok: true,
+        command: "task-release",
+        taskId: action.taskId,
+        report: {
+          schema: "task-holder-release-result/v1",
+          ...result
+        }
+      })
+    }));
+  });
+}
 
 function runProgressAppend(
   context: CommandRunnerContext,
@@ -186,6 +263,56 @@ function runTaskDelete(
     mode: result.mode,
     report: action.deletedBy ? { schema: "task-delete-report/v1", deletedBy: action.deletedBy } : undefined
   })));
+}
+
+function taskHolderPrincipal(context: CommandRunnerContext):
+  | { readonly ok: true; readonly value: ReturnType<typeof taskHolderPrincipalFromJournalActor> }
+  | { readonly ok: false; readonly result: CliResult } {
+  try {
+    return { ok: true, value: taskHolderPrincipalFromJournalActor(context.actorAttribution().actor) };
+  } catch (error) {
+    return {
+      ok: false,
+      result: {
+        ok: false,
+        command: "task-holder",
+        error: cliError(CliErrorCode.AuthMissing, error instanceof Error ? error.message : String(error))
+      }
+    };
+  }
+}
+
+function taskHolderCommandFailure(error: unknown): CliResult {
+  if (isTaskHolderError(error)) {
+    return {
+      ok: false,
+      command: "task-holder",
+      taskId: error.taskId,
+      error: cliError(CliErrorCode.WriteRejected, error.message),
+      report: {
+        schema: "task-holder-error/v1",
+        code: error.code,
+        taskId: error.taskId,
+        ...("holder" in error ? { holder: error.holder } : {}),
+        ...("principal" in error ? { principal: error.principal } : {}),
+        ...("leaseExpiresAt" in error ? { leaseExpiresAt: error.leaseExpiresAt } : {}),
+        ...("orphan" in error ? { orphan: error.orphan } : {})
+      }
+    };
+  }
+  return {
+    ok: false,
+    command: "task-holder",
+    error: cliError(CliErrorCode.JournalUnavailable, error instanceof Error ? error.message : String(error))
+  };
+}
+
+function resultForTaskHolderFailure(command: "task-claim" | "task-holder" | "task-release", taskId: string, result: CliResult): CliResult {
+  return {
+    ...result,
+    command,
+    taskId
+  };
 }
 
 function renderForceStatusAudit(status: string, reason: string): string {

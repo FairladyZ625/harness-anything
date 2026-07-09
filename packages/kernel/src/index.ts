@@ -33,3 +33,23 @@ export {
   unregisterDaemonRepo
 } from "./daemon/registry.ts";
 export type { DaemonRegistry, DaemonRegistryRepo } from "./daemon/registry.ts";
+export {
+  TaskClaimCollisionError,
+  TaskLeaseRequiredError,
+  TaskReleaseNotHolderError,
+  isTaskHolderError,
+  makeTaskHolderService,
+  taskHolderPrincipalFromActor,
+  taskHolderPrincipalFromJournalActor
+} from "./local/task-holder-state.ts";
+export type {
+  TaskHolderAcquiredVia,
+  TaskHolderClaimResult,
+  TaskHolderCredential,
+  TaskHolderPrincipal,
+  TaskHolderRecord,
+  TaskHolderReleaseResult,
+  TaskHolderService,
+  TaskHolderServiceOptions,
+  TaskHolderSnapshot
+} from "./local/task-holder-state.ts";

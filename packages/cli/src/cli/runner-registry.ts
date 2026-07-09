@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService } from "../../../application/src/index.ts";
+import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService, TaskHolderService } from "../../../application/src/index.ts";
 import type { ArtifactStore, CurrentSessionProbePort } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
@@ -53,6 +53,7 @@ export interface CommandRunnerContext {
   readonly actorAttribution: () => CliActorAttribution;
   readonly decisionWriteService: DecisionWriteService;
   readonly factWriteService: FactWriteService;
+  readonly taskHolderService: TaskHolderService;
   readonly runLedgerMaterializer: (options: { readonly dryRun?: boolean }) => MaterializerCommandReport;
 }
 
@@ -150,6 +151,7 @@ export function runRegisteredCommand(
   actorAttribution: () => CliActorAttribution,
   makeDecisionWriteService: () => DecisionWriteService,
   makeFactWriteService: () => FactWriteService,
+  makeTaskHolderService: () => TaskHolderService,
   makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
   runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport
 ): CommandRunnerEffect {
@@ -173,6 +175,7 @@ export function runRegisteredCommand(
   let provenanceSessionExporter: ProvenanceSessionExporter | undefined;
   let decisionWriteService: DecisionWriteService | undefined;
   let factWriteService: FactWriteService | undefined;
+  let taskHolderService: TaskHolderService | undefined;
   let runtimeEventLedgerService: RuntimeEventLedgerService | undefined;
   const context: CommandRunnerContext = {
     rootDir: command.rootDir,
@@ -204,6 +207,10 @@ export function runRegisteredCommand(
     get factWriteService() {
       factWriteService ??= makeFactWriteService();
       return factWriteService;
+    },
+    get taskHolderService() {
+      taskHolderService ??= makeTaskHolderService();
+      return taskHolderService;
     },
     get runtimeEventLedgerService() {
       runtimeEventLedgerService ??= makeRuntimeEventLedgerService();

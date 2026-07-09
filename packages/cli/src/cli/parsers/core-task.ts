@@ -18,6 +18,9 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
       projectName: projectName.value
     });
   }
+  if (args[0] === "task" && args[1] === "claim" && args[2]) return parseTaskClaim(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "holder" && args[2]) return ok(rootDir, json, { kind: "task-holder", taskId: args[2] });
+  if (args[0] === "task" && args[1] === "release" && args[2]) return ok(rootDir, json, { kind: "task-release", taskId: args[2] });
   if (args[0] === "task" && args[1] === "transition" && args[2] && args[3]) return parseStatusSet(["task", "status", "set", ...args.slice(2)], rootDir, json);
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
@@ -35,6 +38,22 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "relate" && args[2] && args[3] && args[4]) return parseTaskRelate(args, rootDir, json);
   if (args[0] === "task" && args[1] === "list") return parseTaskList(args, rootDir, json);
   return null;
+}
+
+function parseTaskClaim(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
+  const ttlValue = readOption(args, "--ttl-ms");
+  let ttlMs: number | undefined;
+  if (ttlValue !== undefined) {
+    ttlMs = Number(ttlValue);
+    if (!Number.isInteger(ttlMs) || ttlMs <= 0) {
+      return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --ttl-ms with a positive integer.") };
+    }
+  }
+  return ok(rootDir, json, {
+    kind: "task-claim",
+    taskId: args[2],
+    ...(ttlMs !== undefined ? { ttlMs } : {})
+  });
 }
 
 function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {

@@ -49,6 +49,13 @@ export interface RemoteDaemonConfig {
   readonly repoId: string;
 }
 
+type TaskHolderParsedCommand = ParsedCommand & {
+  readonly action:
+    | { readonly kind: "task-claim"; readonly taskId: string; readonly ttlMs?: number }
+    | { readonly kind: "task-holder"; readonly taskId: string }
+    | { readonly kind: "task-release"; readonly taskId: string };
+};
+
 export function readDaemonClientConfig(env: NodeJS.ProcessEnv = process.env): DaemonClientConfig {
   const mode = readMode(env.HARNESS_DAEMON_MODE);
   const userRoot = daemonUserRoot(env);
@@ -84,6 +91,19 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
     daemonId: config.daemonId,
     autoRegisterSingleRepo: true
   });
+  if (isTaskHolderCommand(command)) {
+    const response = await requestLocalDaemonJsonRpcForTarget(target, taskHolderMethod(command), {
+      repo: { repoId: target.repoId },
+      payload: taskHolderPayload(command)
+    }, 200, {
+      entryPath: daemonClientCliEntrypointPath(),
+      idleExitMs: config.idleExitMs,
+      timeoutMs: config.autostartTimeoutMs,
+      layoutOverrides: command.layoutOverrides
+    });
+    if (isCommandReceipt(response)) return normalizeTaskHolderReceipt(response, command.action.kind);
+    throw new Error(`${taskHolderMethod(command)} did not return command-receipt/v2`);
+  }
   const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.command.run", {
     repo: { repoId: target.repoId },
     payload: { command: commandForTarget(command, target) as unknown as JsonObject }
@@ -125,6 +145,14 @@ async function runWithLineClient(
 ): Promise<CommandReceipt | CommandFailureReceipt> {
   try {
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+    if (isTaskHolderCommand(command)) {
+      const response = await client.request(taskHolderMethod(command), {
+        repo: { repoId },
+        payload: taskHolderPayload(command)
+      });
+      if (isCommandReceipt(response)) return normalizeTaskHolderReceipt(response, command.action.kind);
+      throw new Error(`${taskHolderMethod(command)} did not return command-receipt/v2`);
+    }
     const response = await client.request("repo.command.run", {
       repo: { repoId },
       payload: { command: command as unknown as JsonObject }
@@ -181,4 +209,29 @@ function requiredEnv(env: NodeJS.ProcessEnv, name: string): string {
 
 function isCommandReceipt(value: JsonObject): boolean {
   return value.schema === "command-receipt/v2" && typeof value.ok === "boolean" && typeof value.command === "string";
+}
+
+function isTaskHolderCommand(command: ParsedCommand): command is TaskHolderParsedCommand {
+  return command.action.kind === "task-claim" || command.action.kind === "task-holder" || command.action.kind === "task-release";
+}
+
+function taskHolderMethod(command: TaskHolderParsedCommand): "repo.task.claim" | "repo.task.holder" | "repo.task.release" {
+  if (command.action.kind === "task-claim") return "repo.task.claim";
+  if (command.action.kind === "task-holder") return "repo.task.holder";
+  return "repo.task.release";
+}
+
+function taskHolderPayload(command: TaskHolderParsedCommand): JsonObject {
+  return {
+    taskId: command.action.taskId,
+    ...(command.action.kind === "task-claim" && command.action.ttlMs ? { ttlMs: command.action.ttlMs } : {})
+  };
+}
+
+function normalizeTaskHolderReceipt(response: JsonObject, commandKind: "task-claim" | "task-holder" | "task-release"): CommandReceipt | CommandFailureReceipt {
+  return {
+    ...(response as unknown as CommandReceipt | CommandFailureReceipt),
+    command: commandKind,
+    action: commandKind.replace(/^task-/u, "task.")
+  };
 }

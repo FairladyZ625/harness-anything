@@ -77,6 +77,42 @@ const docSyncContracts = [
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
+const taskHolderContracts = [
+  {
+    method: "repo.task.claim",
+    mode: "active",
+    namespace: "repo",
+    inputSchemaId: "daemon.task-holder-claim/v1",
+    outputSchemaId: "application.task-holder-claim-result/v1",
+    errorSchemaId: "daemon.protocol-error/v1",
+    auth: "local-session-token",
+    requiresRepo: true,
+    commandClass: "repo-write"
+  },
+  {
+    method: "repo.task.holder",
+    mode: "active",
+    namespace: "repo",
+    inputSchemaId: "daemon.task-holder-read/v1",
+    outputSchemaId: "application.task-holder-snapshot/v1",
+    errorSchemaId: "daemon.protocol-error/v1",
+    auth: "local-session-token",
+    requiresRepo: true,
+    commandClass: "repo-read"
+  },
+  {
+    method: "repo.task.release",
+    mode: "active",
+    namespace: "repo",
+    inputSchemaId: "daemon.task-holder-release/v1",
+    outputSchemaId: "application.task-holder-release-result/v1",
+    errorSchemaId: "daemon.protocol-error/v1",
+    auth: "local-session-token",
+    requiresRepo: true,
+    commandClass: "repo-write"
+  }
+] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
+
 const notificationStubContracts = [
   {
     method: "repo.notifications.subscribe",
@@ -186,6 +222,7 @@ const repoReadCliActionKinds = new Set<string>([
   "script-list",
   "snapshot-multica",
   "status",
+  "task-holder",
   "task-list",
   "task-show",
   "task-tree",
@@ -242,9 +279,11 @@ const repoWriteCliActionKinds = new Set<string>([
   "session-sync",
   "task-amend",
   "task-archive",
+  "task-claim",
   "task-delete",
   "task-relate",
   "task-reopen",
+  "task-release",
   "task-supersede",
   "worktree-create"
 ]);
@@ -299,6 +338,7 @@ export const jsonRpcMethodContracts = [
   ...cliCommandContracts,
   ...daemonStatusContracts,
   ...docSyncContracts,
+  ...taskHolderContracts,
   ...jsonRpcServiceMethodContracts,
   ...notificationStubContracts,
   ...adminReservedContracts

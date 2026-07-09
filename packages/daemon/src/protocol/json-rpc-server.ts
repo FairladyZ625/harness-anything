@@ -1,7 +1,16 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import type { CommandFailureReceipt, CommandReceipt, DocSyncSubmitRequestV1, DocSyncSubmitResultV1, LocalControllerService } from "../../../application/src/index.ts";
+import {
+  isTaskHolderError,
+  taskHolderPrincipalFromActor,
+  type CommandFailureReceipt,
+  type CommandReceipt,
+  type DocSyncSubmitRequestV1,
+  type DocSyncSubmitResultV1,
+  type LocalControllerService,
+  type TaskHolderService
+} from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
@@ -44,6 +53,7 @@ export interface DaemonRepoServiceContext {
 export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
+  readonly TaskHolderService?: TaskHolderService;
   readonly DaemonStatusService?: {
     readonly getStatus: (context?: DaemonRepoServiceContext) => JsonObject | Promise<JsonObject>;
   };
@@ -257,6 +267,9 @@ async function callServiceMethod(
     if (rootMismatch) return rootMismatch;
     return services.CliCommandService.runCommand(payload, { actor, repo });
   }
+  if (contract.method === "repo.task.claim" || contract.method === "repo.task.holder" || contract.method === "repo.task.release") {
+    return callTaskHolderMethod(contract, payload, services, actor);
+  }
   if (contract.method === "repo.doc.sync.submit") {
     if (!services.DocSyncService) {
       return failureReceipt(contract.method, "doc_sync_service_unavailable", "Doc sync submit service is not configured.");
@@ -266,12 +279,96 @@ async function callServiceMethod(
       ? successReceipt(contract.method, `completed ${contract.method}`, result as unknown as JsonObject)
       : failureReceipt(contract.method, result.code, result.reason, { data: result as unknown as JsonObject });
   }
+  const taskLeaseFailure = await validateTaskLeaseForServiceWrite(contract, payload, services, actor);
+  if (taskLeaseFailure) return taskLeaseFailure;
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
     : await invokeServiceMethod(services.LocalControllerService, String(contract.serviceMethod), payload);
   return isJsonObject(result)
     ? serviceResultReceipt(contract.method, result)
     : successReceipt(contract.method, `completed ${contract.method}`, { value: toJsonValue(result) });
+}
+
+async function callTaskHolderMethod(
+  contract: JsonRpcMethodContract,
+  payload: JsonObject | undefined,
+  services: DaemonServiceHost,
+  actor: AuthenticatedActor | undefined
+): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
+  if (!services.TaskHolderService) {
+    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is not configured.");
+  }
+  const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
+  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task holder methods require payload.taskId.");
+  try {
+    if (contract.method === "repo.task.holder") {
+      return successReceipt(contract.method, "read task holder", toJsonValue(await services.TaskHolderService.holder({ taskId })) as JsonObject);
+    }
+    if (!actor) return failureReceipt(contract.method, "actor_required", "Task holder writes require a per-request authenticated actor.");
+    const principal = taskHolderPrincipalFromActor(actor);
+    if (contract.method === "repo.task.claim") {
+      const ttlMs = typeof payload?.ttlMs === "number" ? payload.ttlMs : undefined;
+      return successReceipt(contract.method, "claimed task", toJsonValue(await services.TaskHolderService.claim({ taskId, principal, ttlMs })) as JsonObject);
+    }
+    return successReceipt(contract.method, "released task holder", toJsonValue(await services.TaskHolderService.release({ taskId, principal })) as JsonObject);
+  } catch (error) {
+    if (isTaskHolderError(error)) {
+      return failureReceipt(contract.method, error.code, error.message, taskHolderErrorDetails(error));
+    }
+    return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function taskHolderErrorDetails(error: {
+  readonly code: string;
+  readonly taskId: string;
+  readonly holder?: unknown;
+  readonly principal?: unknown;
+  readonly leaseExpiresAt?: string | null;
+  readonly orphan?: boolean;
+}): JsonObject {
+  return {
+    taskId: error.taskId,
+    code: error.code,
+    ...(error.holder ? { holder: toJsonValue(error.holder) } : {}),
+    ...(error.principal ? { principal: toJsonValue(error.principal) } : {}),
+    leaseExpiresAt: error.leaseExpiresAt ?? null,
+    ...(typeof error.orphan === "boolean" ? { orphan: error.orphan } : {})
+  };
+}
+
+async function validateTaskLeaseForServiceWrite(
+  contract: JsonRpcMethodContract,
+  payload: JsonObject | undefined,
+  services: DaemonServiceHost,
+  actor: AuthenticatedActor | undefined
+): Promise<ReturnType<typeof failureReceipt> | undefined> {
+  if (!taskLeaseEnforcementEnabled() || !taskLeaseGuardedRouteIds.has(contract.routeId ?? "")) return undefined;
+  const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
+  if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task lease enforcement requires payload.taskId.");
+  if (!services.TaskHolderService) {
+    return failureReceipt(contract.method, "task_holder_service_unavailable", "Task holder service is not configured.");
+  }
+  if (!actor) return failureReceipt(contract.method, "actor_required", "Task lease enforcement requires a per-request authenticated actor.");
+  try {
+    await services.TaskHolderService.assertActiveLease({ taskId, principal: taskHolderPrincipalFromActor(actor) });
+    return undefined;
+  } catch (error) {
+    if (isTaskHolderError(error)) {
+      return failureReceipt(contract.method, error.code, error.message, taskHolderErrorDetails(error));
+    }
+    return failureReceipt(contract.method, "task_holder_failed", error instanceof Error ? error.message : String(error));
+  }
+}
+
+const taskLeaseGuardedRouteIds = new Set<string>([
+  "tasks.status.set",
+  "tasks.progress.append"
+]);
+
+function taskLeaseEnforcementEnabled(): boolean {
+  const value = process.env.HARNESS_TASK_LEASE_ENFORCEMENT?.toLowerCase();
+  return value === "1" || value === "true";
 }
 
 function resolveServicesForRepo(
@@ -390,13 +487,14 @@ async function appendCommandEvent(
   repo?: DaemonRepoNamespace
 ): Promise<void> {
   if (!options.appendRuntimeEvent) return;
-  const session = runtimeSession(params, options.daemonId);
+  const command = commandEventDetails(params);
+  const session = runtimeSession(params, options.daemonId, command.taskId);
   await options.appendRuntimeEvent({
     kind: "result",
     actorAxes: actorAxes(session, actor),
     session,
     tool: {
-      toolName: contract.method,
+      toolName: command.toolName ?? contract.method,
       ...(errorCode ? { errorCode } : {})
     },
     result: {
@@ -417,14 +515,39 @@ function actorAxes(session: ReturnType<typeof runtimeSession>, actor: Authentica
   };
 }
 
-function runtimeSession(params: JsonObject, daemonId: string): { readonly sessionId: string; readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown" } {
+function commandEventDetails(params: JsonObject): { readonly toolName?: string; readonly taskId?: string } {
+  const payload = isJsonObject(params.payload) ? params.payload : {};
+  const command = isJsonObject(payload.command) ? payload.command : {};
+  const action = isJsonObject(command.action) ? command.action : {};
+  const toolName = typeof action.kind === "string" && action.kind.trim() ? action.kind : undefined;
+  const taskId = typeof payload.taskId === "string"
+    ? payload.taskId
+    : typeof action.taskId === "string"
+    ? action.taskId
+    : typeof action.oldTaskId === "string"
+      ? action.oldTaskId
+      : typeof action.sourceTaskId === "string"
+        ? action.sourceTaskId
+        : undefined;
+  return {
+    ...(toolName ? { toolName } : {}),
+    ...(taskId ? { taskId } : {})
+  };
+}
+
+function runtimeSession(
+  params: JsonObject,
+  daemonId: string,
+  taskId?: string
+): { readonly sessionId: string; readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown"; readonly taskId?: string } {
   const session = isJsonObject(params.session) ? params.session : {};
   const runtime = typeof session.runtime === "string" && ["human", "claude-code", "codex", "zcode", "antigravity"].includes(session.runtime)
     ? session.runtime as "human" | "claude-code" | "codex" | "zcode" | "antigravity"
     : "unknown";
   return {
     sessionId: typeof session.sessionId === "string" && session.sessionId.trim() ? session.sessionId : `daemon-${daemonId}`,
-    runtime
+    runtime,
+    ...(taskId ? { taskId } : {})
   };
 }
 

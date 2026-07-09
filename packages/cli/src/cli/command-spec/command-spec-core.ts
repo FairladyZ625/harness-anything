@@ -107,6 +107,54 @@ export const coreCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "task-claim",
+    "usage": "task claim <id> [--ttl-ms <ms>] [--json]",
+    "summary": "Claim a task holder lease for the authenticated principal.",
+    "examples": ["harness-anything task claim task_01ABC --ttl-ms 1800000"],
+    "parserId": "core-task",
+    "runnerId": "task-lifecycle",
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "auto"
+    }
+  },
+  {
+    "kind": "task-holder",
+    "usage": "task holder <id> [--json]",
+    "summary": "Read the effective holder lease state for a task.",
+    "examples": ["harness-anything task holder task_01ABC --json"],
+    "parserId": "core-task",
+    "runnerId": "task-lifecycle",
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    }
+  },
+  {
+    "kind": "task-release",
+    "usage": "task release <id> [--json]",
+    "summary": "Release the authenticated principal's task holder lease.",
+    "examples": ["harness-anything task release task_01ABC"],
+    "parserId": "core-task",
+    "runnerId": "task-lifecycle",
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "auto"
+    }
+  },
+  {
     "kind": "status-set",
     "usage": "task transition <id> <planned|active|blocked|in_review|done|cancelled> [--force --reason <reason>]",
     "aliases": ["task status set <id> <status> (deprecated, use task transition; retires at E77/F6 acceptance)"],

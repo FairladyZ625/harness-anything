@@ -45,6 +45,9 @@ const parseCases: ReadonlyArray<ParseCase> = [
     kind: "new-task",
     fields: { title: "Untitled task", fromLegacyId: "legacy-1", allowManualId: false }
   },
+  { name: "task claim", argv: ["task", "claim", "task_1", "--ttl-ms", "60000"], kind: "task-claim", fields: { taskId: "task_1", ttlMs: 60000 } },
+  { name: "task holder", argv: ["task", "holder", "task_1"], kind: "task-holder", fields: { taskId: "task_1" } },
+  { name: "task release", argv: ["task", "release", "task_1"], kind: "task-release", fields: { taskId: "task_1" } },
   {
     name: "status set forced",
     argv: ["task", "transition", "task_1", "done", "--force", "--reason", "verified"],

@@ -121,6 +121,7 @@ const descriptions: Record<string, string> = {
   "--target": "Set the relation target entity ref.",
   "--text": "Progress text appended as-is (no Markdown formatting or normalization).",
   "--title": "Set the required task title used for generated package metadata and slug.",
+  "--ttl-ms": "Set the task holder lease duration in milliseconds.",
   "--type": "Set the relation type. Valid relation types: supports, supersedes, refines, narrows, derives, blocks, relates, implements, depends-on, produces, evidences, evidenced-by, invalidated-by, supersedes-fact.",
   "--urgency": "Set or filter urgency as low, medium, or high. For derives->task relations, missing task values are seeded once from the source decision and are not live-synced.",
   "--user": "Set the user label for explicit session export.",

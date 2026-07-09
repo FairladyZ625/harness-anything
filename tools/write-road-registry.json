@@ -9,8 +9,8 @@
   ],
   "rowCountReconciliation": {
     "phase1FunctionalRows": 26,
-    "registryRows": 31,
-    "difference": "Five additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, plus one WriteCoordinator runtime substrate row."
+    "registryRows": 32,
+    "difference": "Six additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, task-holder runtime state, plus one WriteCoordinator runtime substrate row."
   },
   "rows": [
     {
@@ -69,6 +69,19 @@
       "cliActions": ["task-complete"],
       "evidence": ["packages/cli/src/commands/core/task-lifecycle.ts:87", "packages/cli/src/commands/core/task-lifecycle.ts:122"],
       "freshness": "progress-append-plus-transition"
+    },
+    {
+      "id": "task.holder.runtime-state",
+      "sourceInventoryRows": [2],
+      "road": "A",
+      "bearing": "task-holder",
+      "leaseRequired": false,
+      "channel": { "pathClass": "coordinator-runtime-state", "zoneClass": "task-holder-runtime-state" },
+      "entry": ["daemon-rpc", "cli"],
+      "cliActions": ["task-claim", "task-release"],
+      "directWrites": [{ "file": "packages/kernel/src/local/local-layout-file-system.ts" }],
+      "evidence": ["packages/kernel/src/local/task-holder-state.ts:287", "packages/kernel/src/local/local-layout-file-system.ts:11"],
+      "freshness": "runtime-state-cas"
     },
     {
       "id": "task.document.write-stage",

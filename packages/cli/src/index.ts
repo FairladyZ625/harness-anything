@@ -9,7 +9,7 @@ import {
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
-import { makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
+import { makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService, makeTaskHolderService } from "../../application/src/index.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import {
   createJsonRpcProtocolServer,
@@ -384,6 +384,10 @@ function createRepoServiceBinding(
     taskWriter,
     artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
   });
+  const taskHolderService = makeTaskHolderService({
+    rootInput: { rootDir, layoutOverrides },
+    mutate: ({ source, run }) => runtime.enqueueBackgroundBatch({ source, priority: "normal", run })
+  });
   const cliCommandService = createCliCommandService(runtime, commandOptions);
   const docSyncService = makeDocSyncService({ rootDir, layoutOverrides });
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
@@ -396,6 +400,7 @@ function createRepoServiceBinding(
     services: {
       LocalControllerService: localController,
       TerminalSessionService: makeUnavailableTerminalSessionService(),
+      TaskHolderService: taskHolderService,
       DaemonStatusService: {
         getStatus: (context) => {
           const targetRepo = context?.repo ?? repo;

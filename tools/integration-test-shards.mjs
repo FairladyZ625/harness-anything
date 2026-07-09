@@ -47,6 +47,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/task-archive-distill-cli.test.ts": 15682.0,
   "packages/cli/test/task-delete-disposition-cli.test.ts": 15148.2,
   "packages/cli/test/task-document-gates-cli.test.ts": 10050.9,
+  "packages/cli/test/task-lease-cli.test.ts": 2210.6,
   "packages/cli/test/task-list-cli.test.ts": 4079.4,
   "packages/cli/test/task-show-relation-list-cli.test.ts": 9469.7,
   "packages/cli/test/task-transition-sweep-cli.test.ts": 24335.2,
@@ -183,6 +184,7 @@ export const integrationTestShards = Object.freeze([
       "packages/cli/test/preset-github-issue-repair-cli.test.ts",
       "packages/kernel/test/store/progress-append-delta.test.ts",
       "packages/kernel/test/store/relation-graph-projection.test.ts",
+      "packages/cli/test/task-lease-cli.test.ts",
       "packages/adapters/multica/test/multica-readonly-adopt.test.ts",
       "tools/graph-panorama.test.mjs",
       "tools/relation-weathering-spike.test.mjs"
