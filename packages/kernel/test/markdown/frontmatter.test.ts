@@ -9,6 +9,13 @@ test("reads frontmatter block and scalar values", () => {
   assert.equal(readScalar(frontmatter ?? "", "  status"), "active");
 });
 
+test("reads frontmatter with Windows CRLF line endings", () => {
+  const frontmatter = readFrontmatter("---\r\ntitle: Demo\r\nlifecycle:\r\n  status: active\r\n---\r\n# Demo\r\n");
+  assert.equal(frontmatter, "title: Demo\r\nlifecycle:\r\n  status: active");
+  assert.equal(readScalar(frontmatter ?? "", "title"), "Demo");
+  assert.equal(readScalar(frontmatter ?? "", "  status"), "active");
+});
+
 test("missing optional scalar returns empty string", () => {
   assert.equal(readScalar("title: Demo", "missing"), "");
 });

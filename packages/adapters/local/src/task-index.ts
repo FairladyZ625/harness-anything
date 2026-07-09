@@ -202,7 +202,7 @@ function nullIfEmpty(value: string): string | null {
 }
 
 function readCreatedBy(frontmatter: string): { readonly createdBy?: TaskCreatedBy } {
-  const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
+  const block = frontmatter.match(/^createdBy:\r?\n((?:[ \t]+[^\r\n]*(?:\r?\n|$))*)/mu)?.[1];
   if (!block) return {};
   const name = readNestedScalar(block, "name");
   const email = readNestedScalar(block, "email");
@@ -252,7 +252,7 @@ function parseProvenance(frontmatter: string): ReadonlyArray<ProvenancePayload> 
 }
 
 function readIndentedBlock(frontmatter: string, key: string): ReadonlyArray<string> {
-  const lines = frontmatter.split("\n");
+  const lines = frontmatter.split(/\r?\n/u);
   const start = lines.findIndex((line) => line === `${key}:`);
   if (start === -1) return [];
   const block: string[] = [];

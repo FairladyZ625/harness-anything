@@ -8,7 +8,7 @@ import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
-test("CLI github issue repair preset pulls an issue fixture and writes a repair plan", () => {
+test("CLI github issue repair preset turns an issue fixture into repair intake", () => {
   withTempRoot((rootDir) => {
     writeFile(rootDir, "harness/tasks/task-github-issue/artifacts/issues.json", JSON.stringify({
       issues: [
@@ -55,14 +55,83 @@ test("CLI github issue repair preset pulls an issue fixture and writes a repair 
 
     assert.equal(result.ok, true);
     assert.equal(result.rows, 1);
-    assert.equal(result.report.schema, "github-issue-repair-plan/v1");
+    assert.equal(result.report.schema, "github-issue-repair-intake/v1");
     assert.equal(result.report.status, "ready");
-    assert.equal(result.report.selectedIssue.number, 42);
-    assert.match(result.report.prompt, /Repair GitHub issue FairladyZ625\/harness-anything#42/u);
+    assert.equal(result.report.source.acquisition.mode, "fixtureFile");
+    assert.equal(result.report.issueSnapshot.number, 42);
+    assert.equal(result.report.triageRepairBrief.taskType, "fix");
+    assert.match(result.report.triageRepairBrief.summary, /FairladyZ625\/harness-anything#42/u);
+    assert.equal(result.report.reproducibility.judgement, "reproducible-from-issue");
+    assert.equal(result.report.sourceInvestigationPlan.length >= 4, true);
+    assert.equal(result.report.acceptanceCriteria.some((criterion: string) => /reported behavior/u.test(criterion)), true);
+    assert.equal(result.report.stopConditions.some((condition: string) => /cannot be reproduced/u.test(condition)), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(result.report, "prompt"), false);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-github-issue/artifacts/github-issue-repair-plan.json")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-github-issue/artifacts/github-issue-repair-plan.md")), true);
     const markdown = readFileSync(path.join(rootDir, "harness/tasks/task-github-issue/artifacts/github-issue-repair-plan.md"), "utf8");
-    assert.match(markdown, /Open or update a PR that references FairladyZ625\/harness-anything#42/u);
+    assert.match(markdown, /## Issue Snapshot/u);
+    assert.match(markdown, /## Triage \/ Repair Brief/u);
+    assert.match(markdown, /## Reproducibility/u);
+    assert.match(markdown, /## Source Investigation Plan/u);
+    assert.doesNotMatch(markdown, /Agent Prompt/u);
+  });
+});
+
+test("CLI github issue repair preset accepts a deterministic single issueJson input", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/tasks/task-github-issue/artifacts/issue-496.json", JSON.stringify({
+      number: 496,
+      title: "github-issue-repair preset should create repair intake",
+      state: "open",
+      html_url: "https://github.com/FairladyZ625/harness-anything/issues/496",
+      user: { login: "maintainer" },
+      labels: [{ name: "bug" }],
+      created_at: "2026-07-08T10:00:00.000Z",
+      updated_at: "2026-07-09T10:00:00.000Z",
+      body: [
+        "Reproduction:",
+        "`ha preset action github-issue-repair plan --task task --allow-scripts`",
+        "",
+        "Expected: issue intake with acceptance criteria.",
+        "Actual: issue body is wrapped into an Agent Prompt."
+      ].join("\n")
+    }, null, 2));
+
+    const result = runJson(rootDir, [
+      "preset", "action", "github-issue-repair", "plan",
+      "--task", "task-github-issue",
+      "--allow-scripts",
+      "--input", "issueJson=artifacts/issue-496.json",
+      "--input", "repo=FairladyZ625/harness-anything",
+      "--input", "issue=496"
+    ]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.source.acquisition.mode, "issueJson");
+    assert.equal(result.report.issueSnapshot.number, 496);
+    assert.deepEqual(result.report.reproducibility.commands, ["ha preset action github-issue-repair plan --task task --allow-scripts"]);
+    assert.equal(result.report.acceptanceCriteria[0], "The bug no longer reproduces under the captured failing scenario.");
+  });
+});
+
+test("CLI github issue repair preset is honest when no deterministic issue source is supplied", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, [
+      "preset", "action", "github-issue-repair", "plan",
+      "--task", "task-github-issue",
+      "--allow-scripts"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_script_result_failed");
+    assert.equal(result.report.status, "blocked");
+    assert.equal(result.report.source.acquisition.mode, "none");
+    assert.match(result.report.triageRepairBrief.summary, /Network fetch is disabled by default/u);
+    assert.equal(result.report.issueSnapshot, null);
+    assert.equal(result.warnings.some((warning: string) => /issueJson or fixtureFile/u.test(warning)), true);
+    const markdown = readFileSync(path.join(rootDir, "harness/tasks/task-github-issue/artifacts/github-issue-repair-plan.md"), "utf8");
+    assert.match(markdown, /## Intake Blocker/u);
+    assert.doesNotMatch(markdown, /Agent Prompt/u);
   });
 });
 

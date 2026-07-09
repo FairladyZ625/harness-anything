@@ -1,8 +1,8 @@
 # 提 GitHub issue
 
 GitHub issue 是公开接收 bug、文档缺口和小范围改进的入口。issue 要写到
-maintainer 或 coding agent 可以复现问题、理解边界，并在不猜私有上下文的情况下开出可审查
-PR。
+maintainer 或 coding agent 尽可能可以复现问题；如果问题依赖特定环境、无法在本地复现，也能
+根据源码级证据完成 triage。
 
 ## 什么时候提 issue
 
@@ -30,6 +30,26 @@ PR。
 
 如果 issue 是 agent 生成的，还要说明 agent 的证据边界：它读了什么、改了什么、跑了哪些检查、
 哪些检查没有跑。
+
+## maintainer 无法本地复现时
+
+有些失败取决于 reporter 的操作系统、shell、文件系统或已安装工具链。如果 maintainer 无法在本地
+复现，reporter 或 reporter 的 agent 应提供源码级 triage target，而不是只要求 maintainer 重建
+同一个环境。
+
+请包含：
+
+- 真实环境输出：命令、退出码、相关 stdout 或 stderr、OS、shell、Node 版本、包管理器、分支或
+  commit；
+- 生成文件或日志的关键片段，使用仓库相对路径，并隐去 secret 或私有数据；
+- agent 检查过的相关源码区域，例如看起来控制失败行为的文件、函数、schema 或 contract；
+- agent 读了什么，包括公开文档、源码文件、生成产物，以及用于诊断的 issue 或 PR 上下文；
+- 源码级假设：可能失败的是哪条数据流、路径处理、命令契约或平台假设；
+- 建议修复目标，例如 maintainer 应优先调查的文件、函数、contract、校验规则或测试用例；
+- 已经运行的检查、没有运行的检查，以及跳过相关检查的原因。
+
+reporter 的 agent 不是最终修复方案的权威来源。它给出的修复建议只是方向输入，用来帮助
+maintainer 在拿不到完全相同环境时定位可能的源码边界。
 
 ## 适合 agent 修复的 issue 形状
 

@@ -131,12 +131,12 @@ function taskFieldExtensionObject(frontmatter: string, vertical: BundledVertical
 }
 
 function readProvenance(frontmatter: string): ReadonlyArray<Record<string, string>> {
-  const block = frontmatter.match(/^provenance:\n((?:[ \t]+-\s*\{[^\n]*\}\n?)*)/mu)?.[1] ?? "";
+  const block = frontmatter.match(/^provenance:\r?\n((?:[ \t]+-\s*\{[^\r\n]*\}(?:\r?\n|$))*)/mu)?.[1] ?? "";
   return [...block.matchAll(/-\s*\{([^}]*)\}/gmu)].map((match) => parseFlowObject(match[1] ?? ""));
 }
 
 function readCreatedByObject(frontmatter: string): Record<string, { readonly name: string; readonly email: string }> {
-  const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
+  const block = frontmatter.match(/^createdBy:\r?\n((?:[ \t]+[^\r\n]*(?:\r?\n|$))*)/mu)?.[1];
   if (!block) return {};
   const name = readScalar(block, "  name");
   const email = readScalar(block, "  email");
@@ -168,18 +168,21 @@ function nullIfEmpty(value: string): string | null {
 
 function upsertFrontmatterScalar(frontmatter: string, field: string, value: string): string {
   if (!/^[A-Za-z][A-Za-z0-9_]*$/u.test(field)) throw new Error(`invalid task frontmatter field: ${field}`);
+  const newline = frontmatter.includes("\r\n") ? "\r\n" : "\n";
   const line = `${field}: ${value}`;
-  const fieldPattern = new RegExp(`^${escapeTaskFieldRegExp(field)}:[^\\n]*(?:\\n|$)`, "mu");
+  const fieldPattern = new RegExp(`^${escapeTaskFieldRegExp(field)}:[^\\r\\n]*(?:\\r?\\n|$)`, "mu");
   if (fieldPattern.test(frontmatter)) {
-    return frontmatter.replace(fieldPattern, (current) => `${line}${current.endsWith("\n") ? "\n" : ""}`);
+    return frontmatter.replace(fieldPattern, (current) => `${line}${current.endsWith("\n") ? newline : ""}`);
   }
   return /^vertical:/mu.test(frontmatter)
-    ? frontmatter.replace(/^vertical:/mu, `${line}\nvertical:`)
-    : `${frontmatter}\n${line}`;
+    ? frontmatter.replace(/^vertical:/mu, `${line}${newline}vertical:`)
+    : `${frontmatter}${newline}${line}`;
 }
 
 function replaceFrontmatter(body: string, previous: string, next: string): string {
-  return body.replace(`---\n${previous}\n---`, `---\n${next}\n---`);
+  const openingNewline = body.startsWith("---\r\n") ? "\r\n" : "\n";
+  const previousBlockPattern = new RegExp(`^---\\r?\\n${escapeTaskFieldRegExp(previous)}\\r?\\n---`, "u");
+  return body.replace(previousBlockPattern, `---${openingNewline}${next}${openingNewline}---`);
 }
 
 function escapeTaskFieldRegExp(value: string): string {

@@ -118,6 +118,7 @@ export const testTierManifest = {
     "packages/cli/test/gui-cli.test.ts",
     "packages/cli/test/graph-cli.test.ts",
     "packages/cli/test/init-cli.test.ts",
+    "packages/cli/test/local-lifecycle-crlf-cli.test.ts",
     "packages/cli/test/local-lifecycle-cli.test.ts",
     "packages/cli/test/migration-adopt-cli.test.ts",
     "packages/cli/test/new-task-cli.test.ts",

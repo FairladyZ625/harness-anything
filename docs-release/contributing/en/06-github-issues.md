@@ -2,8 +2,8 @@
 
 GitHub issues are the public intake path for bugs, documentation gaps, and
 small scoped improvements. Write the issue so a maintainer or coding agent can
-reproduce the problem, understand the boundary, and open a reviewable PR without
-guessing at private context.
+reproduce the problem when possible, or triage an environment-specific failure
+from source-level evidence when it cannot be reproduced locally.
 
 ## When to open an issue
 
@@ -32,6 +32,34 @@ Include:
 
 For agent-generated issues, also include the agent's evidence boundary: what it
 read, what it changed, which checks it ran, and which checks it did not run.
+
+## When maintainers cannot reproduce locally
+
+Some failures depend on the reporter's operating system, shell, filesystem, or
+installed toolchain. If a maintainer cannot reproduce the issue locally, the
+reporter or the reporter's agent should provide a source-level triage target
+instead of only asking the maintainer to recreate the environment.
+
+Include:
+
+- real environment output: command, exit code, relevant stdout or stderr, OS,
+  shell, Node version, package manager, and branch or commit;
+- key snippets from generated files or logs, using relative repository paths and
+  redacting secrets or private data;
+- related source areas the agent inspected, such as files, functions, schemas, or
+  contracts that appear to control the failing behavior;
+- what the agent read, including public docs, source files, generated artifacts,
+  and any issue or PR context used for the diagnosis;
+- the source-level hypothesis: which data flow, path handling, command contract,
+  or platform assumption may be failing;
+- a suggested repair target, such as the file, function, contract, validation
+  rule, or test case maintainers should investigate first;
+- checks already run, checks not run, and the reason any relevant check was
+  skipped.
+
+The reporter's agent is not the authority on the final fix. Its repair
+suggestion is a directional input that helps maintainers locate the likely
+source boundary when the exact environment is unavailable.
 
 ## Agent-ready issue shape
 

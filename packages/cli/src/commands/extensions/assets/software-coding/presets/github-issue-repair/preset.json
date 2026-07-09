@@ -19,7 +19,10 @@
         "limit": "10",
         "labels": "",
         "excludeLabels": "blocked,needs-decision",
-        "issue": "next"
+        "issue": "next",
+        "fixtureFile": "",
+        "issueJson": "",
+        "fetchMode": "disabled"
       }
     }
   },
