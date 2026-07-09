@@ -1,23 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-
-const REQUIRED_CHECKS_FALLBACK = [
-  "boundaries",
-  "package-policy",
-  "typecheck (24)",
-  "fast-contract",
-  "integration-shard (1)",
-  "integration-shard (2)",
-  "integration-shard (3)",
-  "integration-shard (4)",
-  "integration-shard (5)",
-  "integration-shard (6)",
-  "supply-chain",
-  "gui-build",
-  "node26-compatibility",
-  "pr-body-lint"
-];
+import { extractGitHubRequiredStatusCheckContexts } from "./check-github-required-contexts.mjs";
+import { parseMergifyQueueCheckSuccessContexts } from "./check-mergify-queue-contexts.mjs";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -41,7 +26,27 @@ function runJson(command, args, fallback) {
 }
 
 function repoNameWithOwner() {
+  const envRepo = process.env.GITHUB_REPOSITORY;
+  if (isValidNameWithOwner(envRepo)) {
+    return envRepo;
+  }
+
+  const remote = run("git", ["config", "--get", "remote.origin.url"]);
+  const parsedRemote = parseGitHubRemote(remote);
+  if (parsedRemote) {
+    return parsedRemote;
+  }
+
   return runJson("gh", ["repo", "view", "--json", "nameWithOwner"], {}).nameWithOwner;
+}
+
+function parseGitHubRemote(remote) {
+  const match = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?$/u.exec(remote.trim());
+  return isValidNameWithOwner(match?.[1]) ? match[1] : null;
+}
+
+function isValidNameWithOwner(value) {
+  return typeof value === "string" && /^[^/\s]+\/[^/\s]+$/u.test(value);
 }
 
 function latestChecks(statusCheckRollup = []) {
@@ -117,46 +122,23 @@ function summarizeChecks(pr) {
     .join(", ");
 }
 
-function branchProtectionRequired(repo) {
-  try {
-    return runJson("gh", [
-      "api",
-      `repos/${repo}/branches/main/protection/required_status_checks`,
-      "--jq",
-      ".contexts"
-    ], []);
-  } catch (_error) {
-    return REQUIRED_CHECKS_FALLBACK;
+function githubRulesRequired(repo) {
+  const rules = runJson("gh", [
+    "api",
+    `repos/${repo}/rules/branches/main`
+  ], []);
+  const result = extractGitHubRequiredStatusCheckContexts(rules);
+  if (!result.hasRequiredStatusCheckRule) {
+    throw new Error("GitHub branch rules include no required_status_checks rule for main");
   }
+  if (result.contexts.length === 0) {
+    throw new Error("GitHub branch rules declare no required status check contexts for main");
+  }
+  return result.contexts;
 }
 
-function mergifyMergeConditions() {
-  const text = readFileSync(".mergify.yml", "utf8");
-  const lines = text.split(/\r?\n/u);
-  const checks = new Set();
-  let inDefaultQueue = false;
-  let inMergeConditions = false;
-  for (const line of lines) {
-    if (/^  - name: default\s*$/u.test(line)) {
-      inDefaultQueue = true;
-      continue;
-    }
-    if (inDefaultQueue && /^pull_request_rules:\s*$/u.test(line)) {
-      break;
-    }
-    if (!inDefaultQueue) continue;
-    if (/^    merge_conditions:\s*$/u.test(line)) {
-      inMergeConditions = true;
-      continue;
-    }
-    if (inMergeConditions && /^    [A-Za-z_]+/u.test(line)) {
-      inMergeConditions = false;
-    }
-    if (!inMergeConditions) continue;
-    const match = /^\s+- check-success = "?([^"]+?)"?\s*$/u.exec(line);
-    if (match) checks.add(match[1]);
-  }
-  return [...checks].sort();
+function mergifyQueueConditions() {
+  return parseMergifyQueueCheckSuccessContexts(readFileSync(".mergify.yml", "utf8"));
 }
 
 function diffSets(left, right) {
@@ -248,7 +230,7 @@ function printSection(title, lines) {
 
 function main() {
   const repo = repoNameWithOwner();
-  const requiredChecks = branchProtectionRequired(repo);
+  const requiredChecks = githubRulesRequired(repo);
   const prs = runJson("gh", [
     "pr",
     "list",
@@ -275,8 +257,8 @@ function main() {
 
   printSection("Recent Dequeue Events", recentDequeueEvents(repo, prs));
 
-  const mergifyChecks = mergifyMergeConditions();
-  printSection("Branch Protection vs Mergify", [
+  const mergifyChecks = mergifyQueueConditions();
+  printSection("GitHub Branch Rules vs Mergify", [
     `required-only: ${diffSets(requiredChecks, mergifyChecks).join(", ") || "none"}`,
     `mergify-only: ${diffSets(mergifyChecks, requiredChecks).join(", ") || "none"}`
   ]);

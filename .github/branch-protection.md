@@ -34,16 +34,14 @@ manual workflow dispatch. It remains the release-grade gate and still covers
 typecheck, all node tests, boundaries, package policy, schema/API/service gates,
 supply-chain, Legacy Intake smoke, and CLI package smoke.
 
-GitHub repository rulesets for `main` should require pull requests, the
-`rewrite-ci` status checks, deletion blocking, and non-fast-forward/force-push
-blocking with no bypass actors. Classic branch protection keeps the same
-required status checks with `required_status_checks.strict = false`, approval
-count `0`, and required conversation resolution disabled. Mergify owns the
-up-to-date guarantee by testing queued pull requests against the predicted
-merge state.
+The active GitHub repository ruleset is the sole enforcement surface for
+`main`. It requires pull requests, the `rewrite-ci` status checks, deletion
+blocking, and non-fast-forward/force-push blocking with no bypass actors. The
+`check-github-required-contexts` gate verifies the hosted branch rules against
+the structured gate manifest. Mergify owns the up-to-date guarantee by testing
+queued pull requests against the predicted merge state.
 
-The current GitHub branch-protection configuration for `main` has administrator
-enforcement disabled and requires these status contexts:
+The active GitHub ruleset enforcement for `main` requires these status contexts:
 
 - boundaries
 - package-policy
@@ -107,15 +105,11 @@ contexts, not through a slower aggregate `integration` context.
 GUI Electron E2E is an explicit local closeout gate for GUI-related tasks and
 must be recorded as task evidence instead of running in GitHub CI.
 
-This repository may leave classic administrator enforcement disabled so a
-single-owner/admin-agent workflow can merge after recorded local review
-evidence. The active ruleset still blocks force pushes, deletion, missing
-required checks, and non-PR updates to `main`.
-
 ## Admin Bypass
 
-Administrator merge is the normal autonomous path after local task evidence
-records:
+The active repository ruleset has no bypass actors. Repository administrators
+cannot bypass required checks for `main`; merges still require recorded task
+evidence, including:
 
 - verification commands
 - self-review
@@ -123,4 +117,4 @@ records:
 - residual risks
 - the latest `origin/main` sync state
 
-Bypass does not make checks, conflict resolution, or review evidence optional.
+Required checks, conflict resolution, and review evidence are not optional.
