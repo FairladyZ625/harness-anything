@@ -50,7 +50,29 @@ test("CLI decision accept blocks zero-evidence decisions without judgment-only",
 
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, "decision_write_rejected");
-    assert.match(result.error?.hint ?? "", /requires at least one evidence relation/u);
+    assert.match(result.error?.hint ?? "", /claim anchor/u);
+    assert.match(result.error?.hint ?? "", /--anchor C1/u);
+    assert.match(result.error?.hint ?? "", /CH1/u);
+  });
+});
+
+test("CLI decision accept dry-run enforces the same evidence floor as real accept", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_DRYRUN_FLOOR",
+      "--title", "Dry-run floor",
+      "--question", "Should dry-run enforce accept evidence?",
+      "--chosen", "Reject dry-run drift",
+      "--rejected", "Let dry-run pass",
+      "--why-not", "Dry-run must match real writes"
+    ]);
+
+    const result = runJson(rootDir, ["decision", "accept", "dec_DRYRUN_FLOOR", "--dry-run"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "decision_write_rejected");
+    assert.match(result.error?.hint ?? "", /--anchor C1/u);
   });
 });
 
@@ -74,6 +96,40 @@ test("CLI decision accept transitions an existing decision with evidence through
     assert.equal(result.command, "decision-accept");
     assert.equal(result.decisionState, "active");
     assert.match(readFileSync(path.join(rootDir, "harness/decisions/decision-dec_ACCEPTCLI/decision.md"), "utf8"), /^state: active$/mu);
+  });
+});
+
+test("CLI decision amend appends a chosen anchor that can satisfy accept evidence", () => {
+  withTempRoot((rootDir) => {
+    const task = runJson(rootDir, ["task", "create", "--title", "Amended Choice Evidence"]);
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_AMEND_CHOSEN_EVIDENCE",
+      "--title", "Amended chosen evidence",
+      "--question", "Can appended chosen anchors carry acceptance evidence?",
+      "--chosen", "Initial choice",
+      "--rejected", "No amendment",
+      "--why-not", "Fixture"
+    ]);
+    const amended = runJson(rootDir, [
+      "decision", "amend", "dec_AMEND_CHOSEN_EVIDENCE",
+      "--append", "chosen:{\"id\":\"CH2\",\"text\":\"Amended choice\"}"
+    ]);
+    assert.equal(amended.ok, true);
+    runJson(rootDir, [
+      "decision", "relate", "dec_AMEND_CHOSEN_EVIDENCE",
+      "--anchor", "CH2",
+      "--type", "relates",
+      "--target", `task/${task.taskId}`,
+      "--rationale", "Amended chosen anchor carries the acceptance evidence"
+    ]);
+
+    const result = runJson(rootDir, ["decision", "accept", "dec_AMEND_CHOSEN_EVIDENCE", "--arbiter", "human:ZeyuLi"]);
+
+    assert.equal(result.ok, true);
+    const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_AMEND_CHOSEN_EVIDENCE/decision.md"), "utf8");
+    assert.match(body, /claims:[\s\S]*\{ id: "CH2", text: "Amended choice" \}/u);
+    assert.match(body, /^state: active$/mu);
   });
 });
 

@@ -40,7 +40,7 @@ function applyDecisionAmendPatch(
   }
   if (patch.field === "chosen") {
     const entry = parseDecisionAnchorPatch(patch.value, nextDecisionAnchorId("CH", current.chosen.map((anchor) => anchor.id)));
-    return entry ? { ok: true, next: { ...current, chosen: [...current.chosen, entry] } } : { ok: false, reason: "chosen append requires JSON object with id and text" };
+    return entry ? { ok: true, next: { ...current, chosen: [...current.chosen, entry], claims: appendChosenClaim(current, entry) } } : { ok: false, reason: "chosen append requires JSON object with id and text" };
   }
   if (patch.field === "claims") {
     const entry = parseDecisionAnchorPatch(patch.value, nextDecisionAnchorId("C", current.claims.map((anchor) => anchor.id)));
@@ -51,6 +51,21 @@ function applyDecisionAmendPatch(
     return entry ? { ok: true, next: { ...current, rejected: [...current.rejected, entry] } } : { ok: false, reason: "rejected append requires JSON object with id, text, and why_not" };
   }
   return { ok: false, reason: `append is not supported for decision field: ${patch.field}` };
+}
+
+function appendChosenClaim(
+  current: DecisionPackage,
+  entry: DecisionPackage["chosen"][number]
+): DecisionPackage["claims"] {
+  if (current.claims.some((claim) => claim.id === entry.id)) return current.claims;
+  return [
+    ...current.claims,
+    {
+      id: entry.id,
+      text: entry.text,
+      ...(entry.load_bearing === false ? { load_bearing: false } : {})
+    }
+  ];
 }
 
 function replaceClaimLoadBearing(

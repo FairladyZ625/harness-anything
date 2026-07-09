@@ -71,7 +71,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
     name: "decision propose",
     argv: ["decision", "propose", "--id", "dec_TEST", "--title", "Decision", "--question", "Question?", "--chosen", "Chosen", "--rejected", "Rejected", "--why-not", "Because", "--risk-tier", "high", "--urgency", "medium", "--module", "kernel,cli", "--non-load-bearing", "--dry-run"],
     kind: "decision-propose",
-    fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: "Chosen", rejected: "Rejected", whyNot: "Because", riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], claimLoadBearing: false, dryRun: true }
+    fields: { decisionId: "dec_TEST", title: "Decision", question: "Question?", chosen: [{ text: "Chosen" }], rejected: [{ text: "Rejected", why_not: "Because" }], riskTier: "high", urgency: "medium", modules: ["kernel", "cli"], claimLoadBearing: false, dryRun: true }
   },
   { name: "decision list", argv: ["decision", "list", "--search", "self-host", "--legacy-id", "E72", "--legacy-range", "E1-E72", "--state", "active", "--module", "m5-circulation", "--product-line", "kernel", "--compact"], kind: "decision-list", fields: { search: "self-host", legacyId: "E72", legacyRange: "E1-E72", state: "active", moduleKey: "m5-circulation", productLine: "kernel", compact: true } },
   { name: "decision show", argv: ["decision", "show", "E72"], kind: "decision-show", fields: { selector: "E72" } },
@@ -393,9 +393,8 @@ test("parseArgs injects inline JSON input before command parsers and keeps flags
   assert.equal(parsed.value.action.kind, "decision-propose");
   assert.equal(parsed.value.action.title, "Flag Title");
   assert.equal(parsed.value.action.question, "Use global JSON input?");
-  assert.equal(parsed.value.action.chosen, "Use injected input");
-  assert.equal(parsed.value.action.rejected, "Per-parser payloads");
-  assert.equal(parsed.value.action.whyNot, "They duplicate schema translation.");
+  assert.deepEqual(parsed.value.action.chosen, [{ text: "Use injected input" }]);
+  assert.deepEqual(parsed.value.action.rejected, [{ text: "Per-parser payloads", why_not: "They duplicate schema translation." }]);
   assert.deepEqual(parsed.value.action.modules, ["cli", "m5-circulation"]);
   assert.deepEqual(parsed.value.action.claims, [{ text: "JSON claim one" }, { id: "C9", text: "JSON claim two", load_bearing: false }]);
   assert.equal(parsed.value.action.dryRun, true);

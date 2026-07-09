@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -73,6 +73,40 @@ test("CLI decision propose writes typed evidence relation frontmatter", () => {
     const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_RELCLI/decision.md"), "utf8");
     assert.match(body, /^relations:$/mu);
     assert.match(body, /  - \{ relation_id: "rel_[a-f0-9]{16}", source: "decision\/dec_RELCLI\/C1", target: "fact\/task_01REL\/F-1234ABCD", type: "supersedes-fact", strength: "strong", direction: "directed", origin: "declared", rationale: "Fact F-1234ABCD supersedes claim C1", state: "active" \}/u);
+  });
+});
+
+test("CLI decision propose preserves all chosen and rejected entries from file input", () => {
+  withTempRoot((rootDir) => {
+    const inputPath = path.join(rootDir, "decision-input.json");
+    writeFileSync(inputPath, JSON.stringify({
+      decisionId: "dec_MULTICHOICE",
+      title: "Multi-choice decision",
+      question: "Should proposal preserve all alternatives?",
+      chosen: [
+        { text: "Chosen one" },
+        { text: "Chosen two" },
+        { text: "Chosen three" },
+        { text: "Chosen four" }
+      ],
+      rejected: [
+        { text: "Rejected one", why_not: "Reason one" },
+        { text: "Rejected two", why_not: "Reason two" },
+        { text: "Rejected three", why_not: "Reason three" },
+        { text: "Rejected four", why_not: "Reason four" }
+      ]
+    }), "utf8");
+
+    const dryRun = runJson(rootDir, ["decision", "propose", "--from-file", inputPath, "--dry-run"]);
+    assert.equal(dryRun.ok, true);
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions/decision-dec_MULTICHOICE/decision.md")), false);
+
+    const result = runJson(rootDir, ["decision", "propose", "--from-file", inputPath]);
+
+    assert.equal(result.ok, true);
+    const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_MULTICHOICE/decision.md"), "utf8");
+    assert.match(body, /chosen:\n  - \{ id: "CH1", text: "Chosen one" \}\n  - \{ id: "CH2", text: "Chosen two" \}\n  - \{ id: "CH3", text: "Chosen three" \}\n  - \{ id: "CH4", text: "Chosen four" \}/u);
+    assert.match(body, /rejected:\n  - \{ id: "RJ1", text: "Rejected one", why_not: "Reason one" \}\n  - \{ id: "RJ2", text: "Rejected two", why_not: "Reason two" \}\n  - \{ id: "RJ3", text: "Rejected three", why_not: "Reason three" \}\n  - \{ id: "RJ4", text: "Rejected four", why_not: "Reason four" \}/u);
   });
 });
 

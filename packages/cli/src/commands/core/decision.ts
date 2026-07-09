@@ -12,7 +12,7 @@ import { runPropose } from "./decision-propose.ts";
 import { runDecisionQueryCommand } from "./decision-query.ts";
 import { runReckon } from "./decision-reckon.ts";
 import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetire } from "./decision-relate.ts";
-import { decisionFailure, decisionResult, parseActor } from "./decision-shared.ts";
+import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionResult, parseActor } from "./decision-shared.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
   | "decision-propose" | "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace" | "decision-retire"
@@ -57,10 +57,20 @@ function runTransition(
     Effect.flatMap((current) => {
       const arbiter = parseActor(action.arbiter) ?? current.arbiter;
       const request = { current, arbiter, decidedAt: action.decidedAt, judgmentOnlyRationale: action.judgmentOnlyRationale, body: action.body };
-      if (action.dryRun) return Effect.succeed(decisionResult(rootInput, action.kind, current.decision_id, transitionState(action.kind), true));
+      if (action.dryRun) {
+        if (action.kind === "decision-accept" && current.state === "proposed" && !action.judgmentOnlyRationale?.trim() && !decisionHasAcceptEvidenceFloor(current)) {
+          return Effect.succeed({
+            ok: false,
+            command: action.kind,
+            decisionId: current.decision_id,
+            error: cliError(CliErrorCode.DecisionWriteRejected, acceptEvidenceFloorHint(current))
+          } satisfies CliResult);
+        }
+        return Effect.succeed(decisionResult(rootInput, action.kind, current.decision_id, transitionState(action.kind), true));
+      }
       switch (action.kind) {
         case "decision-accept":
-          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
+          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error, current), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
         case "decision-reject":
           return service.reject(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
         case "decision-defer":

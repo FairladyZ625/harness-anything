@@ -57,15 +57,41 @@ function proposedDecision(action: ProposeAction, now: string, relations: Readonl
     proposedAt: now,
     arbiter: parseActor(action.arbiter) ?? { kind: "human", id: process.env.USER || "local-human" },
     question: action.question,
-    chosen: [{ id: "CH1", text: action.chosen }],
-    rejected: [{ id: "RJ1", text: action.rejected, why_not: action.whyNot }],
+    chosen: proposedChosen(action),
+    rejected: proposedRejected(action),
     claims: proposedClaims(action),
     relations
   };
 }
 
+function proposedChosen(action: ProposeAction): DecisionCreateInput["chosen"] {
+  const used = new Set<string>();
+  return action.chosen.map((choice, index) => {
+    const id = choice.id && !used.has(choice.id) ? choice.id : nextDecisionAnchorId("CH", [...used], index + 1);
+    used.add(id);
+    return {
+      id,
+      text: choice.text,
+      ...(choice.load_bearing === false ? { load_bearing: false } : {})
+    };
+  });
+}
+
+function proposedRejected(action: ProposeAction): DecisionCreateInput["rejected"] {
+  const used = new Set<string>();
+  return action.rejected.map((rejected, index) => {
+    const id = rejected.id && !used.has(rejected.id) ? rejected.id : nextDecisionAnchorId("RJ", [...used], index + 1);
+    used.add(id);
+    return {
+      id,
+      text: rejected.text,
+      why_not: rejected.why_not ?? ""
+    };
+  });
+}
+
 function proposedClaims(action: ProposeAction): DecisionCreateInput["claims"] {
-  const inputs = action.claims.length > 0 ? action.claims : [{ text: action.claim ?? action.chosen, ...(action.claimLoadBearing ? {} : { load_bearing: false }) }];
+  const inputs = action.claims.length > 0 ? action.claims : [{ text: action.claim ?? action.chosen[0]?.text ?? "", ...(action.claimLoadBearing ? {} : { load_bearing: false }) }];
   const used = new Set<string>();
   return inputs.map((claim, index) => {
     const id = claim.id && !used.has(claim.id) ? claim.id : nextDecisionAnchorId("C", [...used], index + 1);

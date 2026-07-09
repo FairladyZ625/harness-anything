@@ -35,7 +35,7 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-propose",
-    "usage": "decision propose --title <title> --question <text> --chosen <text> --rejected <text> --why-not <text> [--from-file <path>|--json-input <json>] [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--proposed-by kind:id] [--arbiter kind:id] [--claim <text>]... [--non-load-bearing] [--evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>] [--body <text>] [--dry-run] [--json]",
+    "usage": "decision propose --title <title> --question <text> --chosen <text|json>... --rejected <text|json>... --why-not <text> [--from-file <path>|--json-input <json>] [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--proposed-by kind:id] [--arbiter kind:id] [--claim <text>]... [--non-load-bearing] [--evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>] [--body <text>] [--dry-run] [--json]",
     "summary": "Create a proposed decision with optional typed evidence relations through the decision write service.",
     "examples": ["harness-anything decision propose --title \"Adopt CLI decision loop\" --question \"Should M3 expose decision CLI?\" --chosen \"Expose it\" --rejected \"Keep write API only\" --why-not \"No human fallback path\" --evidence-relation C1:supersedes-fact:fact/task_01ABC/F-1234ABCD:\"Evidence covers C1.\""],
     "parserId": "decision",

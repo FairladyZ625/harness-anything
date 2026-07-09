@@ -108,7 +108,8 @@ function valuesForShortcut(payload: JsonObject, shortcut: CommandInputShortcut):
   const value = valueAtPath(payload, pathKey);
   if (shortcut.flag === "--why-not" && value === undefined) return rejectedWhyNot(payload);
   if (value === undefined || value === null) return [];
-  if (shortcut.flag === "--chosen" || shortcut.flag === "--rejected") return firstTextValue(value);
+  if (shortcut.flag === "--chosen") return chosenValues(value);
+  if (shortcut.flag === "--rejected") return rejectedValues(value);
   if (shortcut.flag === "--claim") return claimValues(value);
   if (shortcut.flag === "--evidence-relation") return evidenceRelationValues(value);
   if (Array.isArray(value)) {
@@ -145,21 +146,53 @@ function valueAtPath(payload: JsonObject, pathKey: string): unknown {
   return current;
 }
 
-function firstTextValue(value: unknown): ReadonlyArray<string> {
+function chosenValues(value: unknown): ReadonlyArray<string> {
   if (typeof value === "string") return [value];
   if (!Array.isArray(value)) return [];
-  const first = value[0];
-  if (typeof first === "string") return [first];
-  if (first && typeof first === "object" && typeof (first as { readonly text?: unknown }).text === "string") return [(first as { readonly text: string }).text];
-  return [];
+  return value.flatMap((entry) => {
+    if (typeof entry === "string") return [entry];
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as { readonly id?: unknown; readonly text?: unknown; readonly load_bearing?: unknown };
+    if (typeof candidate.text !== "string") return [];
+    return [JSON.stringify({
+      ...(typeof candidate.id === "string" ? { id: candidate.id } : {}),
+      text: candidate.text,
+      ...(typeof candidate.load_bearing === "boolean" ? { load_bearing: candidate.load_bearing } : {})
+    })];
+  });
+}
+
+function rejectedValues(value: unknown): ReadonlyArray<string> {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry === "string") return [entry];
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as { readonly id?: unknown; readonly text?: unknown; readonly why_not?: unknown; readonly whyNot?: unknown };
+    const whyNot = typeof candidate.why_not === "string"
+      ? candidate.why_not
+      : typeof candidate.whyNot === "string"
+        ? candidate.whyNot
+        : undefined;
+    if (typeof candidate.text !== "string") return [];
+    return [JSON.stringify({
+      ...(typeof candidate.id === "string" ? { id: candidate.id } : {}),
+      text: candidate.text,
+      ...(whyNot ? { why_not: whyNot } : {})
+    })];
+  });
 }
 
 function rejectedWhyNot(payload: JsonObject): ReadonlyArray<string> {
   const rejected = payload.rejected;
   if (!Array.isArray(rejected)) return [];
   const first = rejected[0];
-  return first && typeof first === "object" && typeof (first as { readonly whyNot?: unknown }).whyNot === "string"
-    ? [(first as { readonly whyNot: string }).whyNot]
+  if (!first || typeof first !== "object") return [];
+  const candidate = first as { readonly whyNot?: unknown; readonly why_not?: unknown };
+  return typeof candidate.whyNot === "string"
+    ? [candidate.whyNot]
+    : typeof candidate.why_not === "string"
+      ? [candidate.why_not]
     : [];
 }
 
