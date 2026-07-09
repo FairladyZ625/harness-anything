@@ -126,11 +126,19 @@ test("CLI task complete blocks when the task tree is dirty after the sweep", () 
 
 function withGitTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-transition-sweep-"));
+  const harnessRoot = path.join(rootDir, "harness");
   try {
     execFileSync("git", ["-C", rootDir, "init", "-q"]);
     execFileSync("git", ["-C", rootDir, "config", "user.email", "test@example.com"]);
     execFileSync("git", ["-C", rootDir, "config", "user.name", "Test User"]);
-    writeFileSync(path.join(rootDir, ".gitignore"), "*.log\n", "utf8");
+    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
+    mkdirSync(harnessRoot, { recursive: true });
+    execFileSync("git", ["-C", harnessRoot, "init", "-q"]);
+    execFileSync("git", ["-C", harnessRoot, "config", "user.email", "test@example.com"]);
+    execFileSync("git", ["-C", harnessRoot, "config", "user.name", "Test User"]);
+    writeFileSync(path.join(harnessRoot, ".gitignore"), "*.log\n", "utf8");
+    execFileSync("git", ["-C", harnessRoot, "add", ".gitignore"]);
+    execFileSync("git", ["-C", harnessRoot, "commit", "-m", "seed harness gitignore"]);
     return fn(rootDir);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -192,25 +200,31 @@ function ensureAnchorCommit(rootDir: string): string {
 }
 
 function installPostCommitDirtyHook(rootDir: string, taskPath: string): void {
-  const hookPath = path.join(rootDir, ".git/hooks/post-commit");
+  const hookPath = path.join(rootDir, "harness/.git/hooks/post-commit");
   writeFileSync(hookPath, [
     "#!/bin/sh",
-    `printf 'dirty after sweep\\n' >> "${taskPath}/post-commit-dirty.md"`,
+    `printf 'dirty after sweep\\n' >> "${authoredRelativePath(taskPath)}/post-commit-dirty.md"`,
     ""
   ].join("\n"), "utf8");
   chmodSync(hookPath, 0o755);
 }
 
 function gitStatus(rootDir: string, taskPath: string): string {
-  return execFileSync("git", ["-C", rootDir, "status", "--porcelain", "-uall", "--", taskPath], {
+  return execFileSync("git", ["-C", path.join(rootDir, "harness"), "status", "--porcelain", "-uall", "--", authoredRelativePath(taskPath)], {
     encoding: "utf8"
   }).trim();
 }
 
 function gitLsFiles(rootDir: string, filePath: string): string {
-  return execFileSync("git", ["-C", rootDir, "ls-files", "--", filePath], {
+  const relativePath = authoredRelativePath(filePath);
+  const trackedPath = execFileSync("git", ["-C", path.join(rootDir, "harness"), "ls-files", "--", relativePath], {
     encoding: "utf8"
   }).trim();
+  return trackedPath.length === 0 ? "" : `harness/${trackedPath}`;
+}
+
+function authoredRelativePath(filePath: string): string {
+  return filePath.startsWith("harness/") ? filePath.slice("harness/".length) : filePath;
 }
 
 function assertGeneratedTaskId(value: unknown): string {

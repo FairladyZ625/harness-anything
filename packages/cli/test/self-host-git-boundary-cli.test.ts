@@ -8,29 +8,44 @@ import test from "node:test";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
+test("CLI reports doctor-aligned journal cause when authored root is tracked by the outer repo", () => {
+  withTempRoot((rootDir) => {
+    runGit(rootDir, "init");
+    writeFileSync(path.join(rootDir, ".gitignore"), "/.harness/\n", "utf8");
+    runGit(rootDir, "add", ".gitignore");
+    runGit(rootDir, "commit", "-m", "seed outer repo");
+    writeHarnessConfig(rootDir, "outer-managed-authored-root");
+
+    const failure = runJson(rootDir, ["new-task", "--title", "Outer Managed"], false);
+    const doctor = runJson(rootDir, ["doctor"]);
+
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "journal_unavailable");
+    assert.match(failure.error?.hint, /authored root is not isolated from the outer code repository/);
+    assert.match(failure.error?.hint, /independent Git repository/u);
+    assert.match(failure.error?.hint, /harness-anything init/u);
+    assert.equal(JSON.stringify(failure).includes(rootDir), false);
+    assert.equal(doctor.report.harness.isolation.ok, false);
+    assert.equal(doctor.report.harness.isolation.findings.some((finding: Record<string, unknown>) => finding.code === "harness_git_missing"), true);
+    assert.equal(doctor.report.harness.isolation.findings.some((finding: Record<string, unknown>) => finding.code === "outer_gitignore_missing"), true);
+  });
+});
+
 test("CLI reports actionable journal cause when authored root is ignored without nested Git repo", () => {
   withTempRoot((rootDir) => {
     runGit(rootDir, "init");
     writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
     runGit(rootDir, "add", ".gitignore");
     runGit(rootDir, "commit", "-m", "ignore private harness");
-    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
-      "schema: harness-anything/v1",
-      "name: ignored-authored-root",
-      "layout:",
-      "  authoredRoot: harness",
-      "  localRoot: .harness",
-      "tasks:",
-      "  root: harness/tasks",
-      ""
-    ].join("\n"), "utf8");
+    writeHarnessConfig(rootDir, "ignored-authored-root");
 
     const failure = runJson(rootDir, ["new-task", "--title", "Ignored Root"], false);
 
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "journal_unavailable");
-    assert.match(failure.error?.hint, /authored root is ignored by Git but is not a nested Git repository/);
+    assert.match(failure.error?.hint, /authored root is not isolated from the outer code repository/);
+    assert.match(failure.error?.hint, /independent Git repository/u);
+    assert.match(failure.error?.hint, /harness-anything init/u);
     assert.equal(JSON.stringify(failure).includes(rootDir), false);
   });
 });
@@ -68,4 +83,18 @@ function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {
       GIT_COMMITTER_EMAIL: "harness-test@example.invalid"
     }
   }).trim();
+}
+
+function writeHarnessConfig(rootDir: string, name: string): void {
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+    "schema: harness-anything/v1",
+    `name: ${name}`,
+    "layout:",
+    "  authoredRoot: harness",
+    "  localRoot: .harness",
+    "tasks:",
+    "  root: harness/tasks",
+    ""
+  ].join("\n"), "utf8");
 }

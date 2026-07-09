@@ -32,7 +32,7 @@ const cliErrorMappers = {
   Timeout: () => cliError(CliErrorCode.Timeout, "Command failed."),
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
   GlobalWriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."),
-  WriteRejected: (error) => error.reason === "authored root is ignored by Git but is not a nested Git repository"
+  WriteRejected: (error) => error.reason.includes("authored root is not isolated from the outer code repository")
     ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
     : cliError(CliErrorCode.WriteRejected, error.reason),
   ArtifactReadFailed: () => cliError(CliErrorCode.ArtifactReadFailed, "Artifact read failed."),

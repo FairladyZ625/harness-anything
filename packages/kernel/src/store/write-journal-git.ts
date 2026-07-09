@@ -6,6 +6,7 @@ import { makeLocalVersionControlSystem } from "./local-version-control-system.ts
 import type { GitCommitAuthor } from "./write-journal-types.ts";
 
 const defaultVersionControlSystem = makeLocalVersionControlSystem();
+const authoredRootNotIsolatedMessage = "authored root is not isolated from the outer code repository; run harness-anything init so the authored root is an independent Git repository and the outer .gitignore isolates it";
 
 export function commitTouchedPaths(
   rootDir: string,
@@ -94,13 +95,10 @@ function resolveCommitTarget(rootDir: string, authoredRoot: string, touchedPaths
   if (!touchedPaths.every((filePath) => isPathInside(authoredRoot, filePath, vcs))) return null;
   if (!authoredRepo) {
     if (!rootRepo || !isPathInsideRepo(rootRepo, authoredRoot, vcs)) return null;
-    if (isIgnoredByRepo(rootRepo, authoredRoot, vcs)) {
-      throw new Error("authored root is ignored by Git but is not a nested Git repository");
-    }
-    return { repoRoot: rootRepo };
+    throw new Error(authoredRootNotIsolatedMessage);
   }
-  if (rootRepo && authoredRepo === rootRepo && isIgnoredByRepo(rootRepo, authoredRoot, vcs)) {
-    throw new Error("authored root is ignored by Git but is not a nested Git repository");
+  if (rootRepo && authoredRepo === rootRepo && !isSamePath(rootRepo, authoredRoot, vcs)) {
+    throw new Error(authoredRootNotIsolatedMessage);
   }
   return { repoRoot: authoredRepo };
 }
@@ -170,12 +168,6 @@ export function refExists(repoRoot: string, ref: string, versionControlSystem: V
   return versionControlSystem.refExists(repoRoot, ref);
 }
 
-function isIgnoredByRepo(repoRoot: string, candidatePath: string, vcs: VersionControlSystem): boolean {
-  const relativePath = repoRelativePath(repoRoot, candidatePath, vcs);
-  const directoryPath = relativePath.endsWith("/") ? relativePath : `${relativePath}/`;
-  return vcs.isIgnored(repoRoot, relativePath) || vcs.isIgnored(repoRoot, directoryPath);
-}
-
 function resolveForceAddSet(
   rootDir: string,
   forceAddPaths: ReadonlyArray<string>,
@@ -198,6 +190,10 @@ function isPathInside(rootPath: string, filePath: string, vcs: VersionControlSys
 function isPathInsideRepo(repoRoot: string, filePath: string, vcs: VersionControlSystem): boolean {
   const relativePath = path.relative(vcs.normalizePath(repoRoot), vcs.normalizePath(filePath));
   return relativePath.length === 0 || (relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath));
+}
+
+function isSamePath(left: string, right: string, vcs: VersionControlSystem): boolean {
+  return vcs.normalizePath(left) === vcs.normalizePath(right);
 }
 
 function repoRelativePath(repoRoot: string, filePath: string, vcs: VersionControlSystem): string {

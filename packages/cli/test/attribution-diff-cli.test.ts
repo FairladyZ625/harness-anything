@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -13,6 +14,7 @@ test("new-task records optional createdBy from local git user config and project
   withTempRoot((rootDir) => {
     initGit(rootDir);
     configureGitUser(rootDir, "M2 Commander", "m2@example.com");
+    initializeNestedHarnessRepo(rootDir, { writeOuterGitignore: true });
 
     const created = runJson(rootDir, ["new-task", "--title", "Attribution Task"]);
     const taskId = assertGeneratedTaskId(created.taskId);
@@ -31,6 +33,7 @@ test("new-task records optional createdBy from local git user config and project
 test("new-task omits createdBy deterministically when git user config is unavailable", () => {
   withTempRoot((rootDir) => {
     initGit(rootDir);
+    initializeNestedHarnessRepo(rootDir, { writeOuterGitignore: true });
     mkdirSync(path.join(rootDir, "home"), { recursive: true });
 
     const created = runJson(rootDir, ["new-task", "--title", "Anonymous Task"], true, {

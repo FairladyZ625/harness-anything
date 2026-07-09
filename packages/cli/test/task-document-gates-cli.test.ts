@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -179,30 +180,33 @@ test("CLI task-review accepts a task with a real fact", () => {
 
 test("CLI task-review and task-complete stage reviewed artifacts through WriteCoordinator", () => {
   withTempRoot((rootDir) => {
+    const harnessRepo = path.join(rootDir, "harness");
     initializeGitRepo(rootDir);
-    writeFileSync(path.join(rootDir, ".gitignore"), ".harness/\n", "utf8");
+    writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\n", "utf8");
     writeIndex(rootDir, "task-1", "Review Task", "in_review");
     writeFact(rootDir, "task-1");
-    runGit(rootDir, "add", ".gitignore", "harness/tasks/task-1/INDEX.md", "harness/tasks/task-1/facts.md");
+    runGit(rootDir, "add", ".gitignore");
     runGit(rootDir, "commit", "-m", "seed task");
+    runGit(harnessRepo, "add", "tasks/task-1/INDEX.md", "tasks/task-1/facts.md");
+    runGit(harnessRepo, "commit", "-m", "seed task");
 
     writeReview(rootDir, "task-1");
-    assert.match(runGit(rootDir, "status", "--short"), /review\.md/);
+    assert.match(runGit(harnessRepo, "status", "--short"), /review\.md/);
 
     const reviewed = runJson(rootDir, ["task-review", "task-1", "--reviewer", "reviewer-a"]);
     assert.equal(reviewed.ok, true);
-    assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
+    assert.equal(runGit(harnessRepo, "status", "--short"), "");
+    assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
 
     writeRealCloseout(rootDir, "task-1");
-    assert.match(runGit(rootDir, "status", "--short"), /closeout\.md/);
+    assert.match(runGit(harnessRepo, "status", "--short"), /closeout\.md/);
 
     const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
     assert.equal(completed.ok, true);
     assert.equal(completed.data?.status ?? completed.status, "done");
-    assert.equal(runGit(rootDir, "status", "--short"), "");
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(transition\): task-1/);
-    assert.match(runGit(rootDir, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
+    assert.equal(runGit(harnessRepo, "status", "--short"), "");
+    assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(transition\): task-1/);
+    assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
   });
 });
 
@@ -328,6 +332,7 @@ function writeCodeDocAnchors(rootDir: string, directoryName: string, sha = ensur
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-task-doc-gates-"));
   try {
+    initializeNestedHarnessRepo(rootDir);
     return fn(rootDir);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -335,7 +340,8 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 }
 
 function initializeGitRepo(rootDir: string): void {
-  if (pathExists(path.join(rootDir, ".git"))) return;
+  if (existsSync(path.join(rootDir, ".git"))) return;
+  mkdirSync(rootDir, { recursive: true });
   runGit(rootDir, "init");
   runGit(rootDir, "config", "user.email", "test@example.com");
   runGit(rootDir, "config", "user.name", "Test User");
@@ -348,10 +354,6 @@ function ensureAnchorCommit(rootDir: string): string {
   runGit(rootDir, "add", "evidence/code-doc-anchor.txt");
   runGit(rootDir, "commit", "-m", "seed code-doc anchor");
   return runGit(rootDir, "rev-parse", "HEAD");
-}
-
-function pathExists(filePath: string): boolean {
-  return existsSync(filePath);
 }
 
 function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {

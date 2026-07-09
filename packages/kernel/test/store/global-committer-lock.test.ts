@@ -408,12 +408,13 @@ function runWriteFailure<A>(effect: Effect.Effect<A, WriteError>): WriteError {
 
 function fakeVersionControlSystem(repoRoot: string): VersionControlSystem {
   let commitCount = 0;
+  const harnessRoot = path.join(repoRoot, "harness");
   return {
     normalizePath: (inputPath) => path.resolve(inputPath),
-    topLevel: () => repoRoot,
+    topLevel: (inputPath) => path.resolve(inputPath).startsWith(`${harnessRoot}${path.sep}`) || path.resolve(inputPath) === harnessRoot ? harnessRoot : repoRoot,
     isIgnored: () => false,
     add: () => undefined,
-    stagedFiles: () => "harness/tasks/task-1/notes.md\n",
+    stagedFiles: () => "tasks/task-1/notes.md\n",
     commit: () => {
       commitCount += 1;
     },
