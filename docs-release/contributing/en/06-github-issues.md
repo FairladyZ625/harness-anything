@@ -2,8 +2,8 @@
 
 GitHub issues are the public intake path for bugs, documentation gaps, and
 small scoped improvements. Write the issue so a maintainer or coding agent can
-reproduce the problem when possible, or triage an environment-specific failure
-from source-level evidence when it cannot be reproduced locally.
+reproduce the problem when possible and can always triage the likely source
+boundary from public source-level evidence.
 
 ## When to open an issue
 
@@ -20,6 +20,10 @@ the public symptom and say what cannot be shared.
 
 ## Required issue content
 
+Use the repository's source-triaged issue form. Blank issues are disabled for
+contributors, and issues that bypass the form are closed by the issue intake
+workflow until they are resubmitted with the required sections.
+
 Include:
 
 - expected behavior;
@@ -33,12 +37,13 @@ Include:
 For agent-generated issues, also include the agent's evidence boundary: what it
 read, what it changed, which checks it ran, and which checks it did not run.
 
-## When maintainers cannot reproduce locally
+## Required source-level triage
 
-Some failures depend on the reporter's operating system, shell, filesystem, or
-installed toolchain. If a maintainer cannot reproduce the issue locally, the
-reporter or the reporter's agent should provide a source-level triage target
-instead of only asking the maintainer to recreate the environment.
+Every issue must include a source-level triage section. Do not assume maintainers
+share the reporter's operating system, shell, filesystem, installed toolchain, or
+agent runtime. The issue should give maintainers enough public evidence to
+inspect the likely source boundary even when they cannot run the reporter's exact
+environment.
 
 Include:
 
@@ -58,8 +63,9 @@ Include:
   skipped.
 
 The reporter's agent is not the authority on the final fix. Its repair
-suggestion is a directional input that helps maintainers locate the likely
-source boundary when the exact environment is unavailable.
+suggestion is required directional input that helps maintainers locate the likely
+source boundary. Maintainers may choose a different implementation after reading
+the source.
 
 ## Agent-ready issue shape
 
@@ -86,12 +92,13 @@ ha preset action github-issue-repair plan \
   --task <task-id> \
   --allow-scripts \
   --input repo=FairladyZ625/harness-anything \
-  --input issue=<number>
+  --input issueJson=artifacts/issue-<number>.json
 ```
 
-Without `--input issue=<number>`, the preset selects the most recently updated
-eligible open issue, excluding labels such as `blocked` and `needs-decision`.
-The preset writes a repair plan and an agent prompt under the task's
+Use `issueJson` or `fixtureFile` for deterministic intake. To let the preset make
+a live GitHub request, pass `--input fetchMode=best-effort` and
+`--input issue=<number>` explicitly; network access is best-effort in preset
+sandboxes. The preset writes a structured repair intake under the task's
 `artifacts/` directory. It does not merge code, bypass review, or replace the PR
 template.
 
