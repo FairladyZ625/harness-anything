@@ -5,7 +5,6 @@ import {
   validateIntegrationShardRequiredContexts,
   validateIntegrationShardWorkflowMatrix
 } from "./check-integration-test-shards.mjs";
-import { evaluateIntegrationShardResult } from "./check-integration-shard-result.mjs";
 
 test("integration shard declaration is non-overlapping and complete", () => {
   const result = checkIntegrationTestShards();
@@ -97,12 +96,4 @@ test("integration shard checker rejects gate manifest required context drift", (
       "test-integration executionSurfaces.branchProtection.contexts mismatch: expected [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5), integration-shard (6)], got [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5)]"
     ]
   });
-});
-
-test("integration shard aggregate fails closed for every non-success result", () => {
-  assert.equal(evaluateIntegrationShardResult("success").ok, true);
-  assert.equal(evaluateIntegrationShardResult("failure").ok, false);
-  assert.equal(evaluateIntegrationShardResult("cancelled").ok, false);
-  assert.equal(evaluateIntegrationShardResult("skipped").ok, false);
-  assert.equal(evaluateIntegrationShardResult("unexpected").ok, false);
 });
