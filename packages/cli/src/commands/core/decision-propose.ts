@@ -11,6 +11,7 @@ import {
 import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { nextDecisionAnchorId } from "./decision-anchor-id.ts";
 import { decisionFailure, decisionResult, parseActor } from "./decision-shared.ts";
 
@@ -33,13 +34,17 @@ export function runPropose(
     } satisfies CliResult);
   }
   const decision = { ...baseDecision, relations: relations.records };
-  if (action.dryRun) return Effect.succeed(decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true));
+  if (action.dryRun) return Effect.succeed(withDocSyncWarning(rootInput, decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true)));
   return service.propose({ decision, body: action.body }).pipe(
     Effect.match({
       onFailure: (error): CliResult => decisionFailure("decision-propose", decision.decision_id, error),
-      onSuccess: (result): CliResult => decisionResult(rootInput, "decision-propose", result.decisionId, result.state, false)
+      onSuccess: (result): CliResult => withDocSyncWarning(rootInput, decisionResult(rootInput, "decision-propose", result.decisionId, result.state, false))
     })
   );
+}
+
+function withDocSyncWarning(rootInput: HarnessLayoutInput, result: CliResult): CliResult {
+  return { ...result, warnings: [...(result.warnings ?? []), ...(docSyncDirtyWarnings(rootInput) ?? [])] };
 }
 
 function proposedDecision(action: ProposeAction, now: string, relations: ReadonlyArray<EntityRelationRecord>): DecisionCreateInput {

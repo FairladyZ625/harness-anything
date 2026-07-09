@@ -76,13 +76,17 @@
       "road": "D",
       "bearing": "task-document",
       "leaseRequired": false,
-      "channel": { "pathClass": "doc-sync-allowed-pending-B2", "zoneClass": "task-authored-prose-or-stage" },
-      "entry": ["cli", "internal", "gui-review"],
+      "channel": { "pathClass": "doc-sync-allowed", "zoneClass": "task-authored-prose-or-stage" },
+      "entry": ["cli", "daemon-rpc", "internal", "gui-review"],
       "writeKinds": ["doc_write", "doc_stage", "task_tree_stage"],
       "cliActions": ["task-amend", "task-relate"],
       "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
-      "evidence": ["packages/adapters/local/src/index.ts:224", "packages/adapters/local/src/task-writes.ts:67", "packages/application/src/task-lifecycle-orchestrator.ts:115"],
-      "freshness": "pending-B2-doc-write-intent"
+      "directWrites": [
+        { "file": "packages/cli/src/daemon/doc-sync-service.ts" },
+        { "file": "packages/cli/src/daemon/doc-sync-service.ts", "command": "git" }
+      ],
+      "evidence": ["packages/adapters/local/src/index.ts:224", "packages/adapters/local/src/task-writes.ts:67", "packages/application/src/task-lifecycle-orchestrator.ts:115", "packages/cli/src/daemon/doc-sync-service.ts:166"],
+      "freshness": "doc-sync-submit-cas-post-apply"
     },
     {
       "id": "write-coordinator.runtime-substrate",

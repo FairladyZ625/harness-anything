@@ -148,6 +148,38 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "doc-status",
+    "usage": "doc status [--json]",
+    "summary": "List dirty doc-sync files, forbidden touches, and candidate blobs without writing state.",
+    "examples": ["harness-anything doc status --json"],
+    "parserId": "doc",
+    "runnerId": "doc",
+    "receiptContract": {
+      "data": ["rows", "report"],
+      "paths": ["primary"]
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    }
+  },
+  {
+    "kind": "doc-sync-dry-run",
+    "usage": "doc sync --dry-run [--json]",
+    "summary": "Build a doc-sync write-intent preview without submitting it.",
+    "examples": ["harness-anything doc sync --dry-run --json"],
+    "parserId": "doc",
+    "runnerId": "doc",
+    "receiptContract": {
+      "data": ["rows", "report"],
+      "paths": ["primary"]
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": false,
+      "runtimeEvent": "none"
+    }
+  },
+  {
     "kind": "template-list",
     "usage": "template list [--catalog <path>] [--json]",
     "summary": "List available task and document templates.",

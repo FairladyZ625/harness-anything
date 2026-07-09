@@ -24,12 +24,22 @@ export interface RuntimeEventActor {
   readonly credential: RuntimeEventActorCredential;
 }
 
+export interface RuntimeEventActorAxes {
+  readonly principal: RuntimeEventActor | null;
+  readonly executor: {
+    readonly runtime: RuntimeEventRuntime | "unknown";
+    readonly sessionId?: string;
+  } | null;
+  readonly responsibleHuman: RuntimeEventActor | null;
+}
+
 export interface RuntimeEventRecord {
   readonly schema: "runtime-event/v1";
   readonly eventId: string;
   readonly recordedAt: string;
   readonly kind: RuntimeEventKind;
   readonly actor?: RuntimeEventActor;
+  readonly actorAxes?: RuntimeEventActorAxes;
   readonly session: {
     readonly sessionId: string;
     readonly runtime: RuntimeEventRuntime | "unknown";

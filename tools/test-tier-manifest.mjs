@@ -1,6 +1,7 @@
 export const testTierManifest = {
   fast: [
     "packages/adapters/local/test/task-writes.test.ts",
+    "packages/cli/test/doc-sync-service.test.ts",
     "packages/cli/test/parse-args.test.ts",
     "packages/cli/test/path-utils.test.ts",
     "packages/daemon/test/local-json-rpc-client.test.ts",
@@ -42,6 +43,7 @@ export const testTierManifest = {
     "packages/application/test/runtime-event-ledger-service.test.ts",
     "packages/application/test/task-lifecycle-gates.test.ts",
     "packages/application/test/task-lifecycle-write-failure.test.ts",
+    "packages/daemon/test/doc-sync-protocol.test.ts",
     "packages/daemon/test/json-rpc-protocol.test.ts",
     "packages/cli/test/package-surface.test.ts",
     "packages/cli/test/receipt-contracts.test.ts",

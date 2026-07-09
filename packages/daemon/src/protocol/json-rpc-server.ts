@@ -1,7 +1,7 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import type { CommandFailureReceipt, CommandReceipt, LocalControllerService } from "../../../application/src/index.ts";
+import type { CommandFailureReceipt, CommandReceipt, DocSyncSubmitRequestV1, DocSyncSubmitResultV1, LocalControllerService } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
 import type { TerminalSessionService } from "../../../gui/src/terminal/session-registry.ts";
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
@@ -49,6 +49,9 @@ export interface DaemonServiceHost {
   };
   readonly CliCommandService?: {
     readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly repo?: DaemonRepoNamespace }) => Promise<CommandReceipt | CommandFailureReceipt>;
+  };
+  readonly DocSyncService?: {
+    readonly submit: (request: DocSyncSubmitRequestV1, context?: { readonly actor?: AuthenticatedActor; readonly repo?: DaemonRepoNamespace }) => Promise<DocSyncSubmitResultV1>;
   };
 }
 
@@ -254,6 +257,15 @@ async function callServiceMethod(
     if (rootMismatch) return rootMismatch;
     return services.CliCommandService.runCommand(payload, { actor, repo });
   }
+  if (contract.method === "repo.doc.sync.submit") {
+    if (!services.DocSyncService) {
+      return failureReceipt(contract.method, "doc_sync_service_unavailable", "Doc sync submit service is not configured.");
+    }
+    const result = await services.DocSyncService.submit(params as unknown as DocSyncSubmitRequestV1, { actor, repo });
+    return result.ok
+      ? successReceipt(contract.method, `completed ${contract.method}`, result as unknown as JsonObject)
+      : failureReceipt(contract.method, result.code, result.reason, { data: result as unknown as JsonObject });
+  }
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
     : await invokeServiceMethod(services.LocalControllerService, String(contract.serviceMethod), payload);
@@ -381,6 +393,7 @@ async function appendCommandEvent(
   const session = runtimeSession(params, options.daemonId);
   await options.appendRuntimeEvent({
     kind: "result",
+    actorAxes: actorAxes(session, actor),
     session,
     tool: {
       toolName: contract.method,
@@ -393,6 +406,15 @@ async function appendCommandEvent(
     },
     ...(actor ? { actor: actorStamp(actor) } : {})
   }, repo ? { repo } : undefined).catch(() => undefined);
+}
+
+function actorAxes(session: ReturnType<typeof runtimeSession>, actor: AuthenticatedActor | undefined): RuntimeEventAppendInput["actorAxes"] {
+  const principal = actor ? actorStamp(actor) : null;
+  return {
+    principal,
+    executor: { runtime: session.runtime, sessionId: session.sessionId },
+    responsibleHuman: principal
+  };
 }
 
 function runtimeSession(params: JsonObject, daemonId: string): { readonly sessionId: string; readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown" } {

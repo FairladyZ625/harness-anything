@@ -101,6 +101,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "doc list", argv: ["doc", "list", "--module", "m4-loadbearing", "--product-line", "kernel"], kind: "doc-list", fields: { filters: { moduleKey: "m4-loadbearing", productLine: "kernel" } } },
   { name: "doc map", argv: ["doc", "map", "--module", "m4-loadbearing"], kind: "doc-map", fields: { filters: { moduleKey: "m4-loadbearing", productLine: undefined } } },
   { name: "doc generate", argv: ["doc", "generate", "--module", "m5-circulation", "--write"], kind: "doc-generate", fields: { filters: { moduleKey: "m5-circulation", productLine: undefined }, write: true } },
+  { name: "doc status", argv: ["doc", "status"], kind: "doc-status" },
+  { name: "doc sync dry-run", argv: ["doc", "sync", "--dry-run"], kind: "doc-sync-dry-run" },
   { name: "task list", argv: ["task", "list"], kind: "task-list", fields: { filters: { missingMaterials: false, includeArchived: false } } },
   {
     name: "task list filters",

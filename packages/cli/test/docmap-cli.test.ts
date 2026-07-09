@@ -106,6 +106,50 @@ test("CLI doc generate fails closed on duplicate derived docmap ids", () => {
   });
 });
 
+test("CLI doc status reports prose candidates and forbidden structured touches", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "task_plan.md"), "# Plan\n\nOriginal prose.\n");
+    writeFileSync(path.join(taskRoot, "facts.md"), "# Facts\n\n- fact: original\n");
+    initHarnessGit(harnessRoot);
+
+    writeFileSync(path.join(taskRoot, "task_plan.md"), "# Plan\n\nUpdated prose.\n");
+    writeFileSync(path.join(taskRoot, "facts.md"), "# Facts\n\n- fact: structured mutation\n");
+
+    const status = runJson(rootDir, ["doc", "status"]);
+    assert.equal(status.ok, true);
+    assert.equal(status.command, "doc-status");
+    assert.equal(status.report.candidateBlobs.length, 1);
+    assert.equal(status.report.candidateBlobs[0].path, "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md");
+    assert.equal(status.report.forbiddenTouches.some((touch: Record<string, any>) => touch.hunks[0].registryRowId === "fact.record"), true);
+
+    const dryRun = runJson(rootDir, ["doc", "sync", "--dry-run"]);
+    assert.equal(dryRun.ok, true);
+    assert.equal(dryRun.command, "doc-sync-dry-run");
+    assert.equal(dryRun.report.writeIntentPreview.submitImplemented, true);
+    assert.equal(dryRun.report.writeIntentPreview.changes.length, 1);
+  });
+});
+
+test("CLI doc status marks deletion as an explicit Phase 2 gap", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
+    mkdirSync(taskRoot, { recursive: true });
+    const planPath = path.join(taskRoot, "task_plan.md");
+    writeFileSync(planPath, "# Plan\n\nOriginal prose.\n");
+    initHarnessGit(harnessRoot);
+    rmSync(planPath);
+
+    const status = runJson(rootDir, ["doc", "status"]);
+    assert.equal(status.report.deletionPolicy, "undefined-pending-phase-2");
+    assert.equal(status.report.deletions.length, 1);
+    assert.equal(status.report.readyToSubmitPreview, false);
+  });
+});
+
 test("CLI new-task writes docmap read_set.md from derived declarations", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
@@ -184,7 +228,8 @@ function gitStatus(harnessRoot: string): string {
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: { ...process.env, HARNESS_ACTOR: "agent:docmap-cli-test", GIT_CONFIG_GLOBAL: "/dev/null" }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

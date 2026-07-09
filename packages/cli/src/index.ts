@@ -33,6 +33,7 @@ import { runRegisteredCommandWithCliComposition } from "./composition/command-ex
 import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonSocketPath, runCommandThroughDaemon } from "./daemon/client.ts";
 import { createCliCommandService } from "./daemon/command-service.ts";
+import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
@@ -384,6 +385,7 @@ function createRepoServiceBinding(
     artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
   });
   const cliCommandService = createCliCommandService(runtime, commandOptions);
+  const docSyncService = makeDocSyncService({ rootDir, layoutOverrides });
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
     rootInput: { rootDir, layoutOverrides },
     coordinator: makeDaemonQueuedWriteCoordinator(runtime, "runtime-event-protocol")
@@ -407,7 +409,14 @@ function createRepoServiceBinding(
           });
         }
       },
-      CliCommandService: cliCommandService
+      CliCommandService: cliCommandService,
+      DocSyncService: {
+        submit: (request) => runtime.enqueueBackgroundBatch({
+          source: "doc-sync-submit",
+          priority: "normal",
+          run: () => docSyncService.submit(request)
+        })
+      }
     },
     appendRuntimeEvent
   };

@@ -26,6 +26,7 @@ export interface RuntimeEventAppendInput {
   readonly recordedAt?: string;
   readonly kind: RuntimeEventKind;
   readonly actor?: RuntimeEventRecord["actor"];
+  readonly actorAxes?: RuntimeEventRecord["actorAxes"];
   readonly session: {
     readonly sessionId: string;
     readonly runtime?: RuntimeEventRuntime | "unknown";
@@ -109,6 +110,7 @@ function toRuntimeEventRecord(
     recordedAt: input.recordedAt ?? timestamp(),
     kind: input.kind,
     ...(input.actor ? { actor: input.actor } : {}),
+    ...(input.actorAxes ? { actorAxes: input.actorAxes } : {}),
     session: {
       sessionId: input.session.sessionId,
       runtime: input.session.runtime ?? "unknown",

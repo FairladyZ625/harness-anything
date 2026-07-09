@@ -16,6 +16,7 @@ export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
+export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";
 export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
 export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";
 export type { CodeDocDocument, CodeDocReconciliationInput, CodeDocReconciliationIssue, CodeDocReconciliationResult, CodeDocReconciliationWarning, GitRunner } from "./code-doc-reconciliation.ts";
@@ -53,6 +54,14 @@ export type {
   ProvenanceSessionExporterRejected,
   ProvenanceSessionExportResult
 } from "./provenance-session-exporter.ts";
+export type {
+  DocSyncChangeV1,
+  DocSyncConflictV1,
+  DocSyncForbiddenTouchV1,
+  DocSyncSubmitRequestV1,
+  DocSyncSubmitResultV1,
+  DocSyncValidationResult
+} from "./doc-sync.ts";
 export type {
   RuntimeEventAppendInput,
   RuntimeEventExportPort,

@@ -4,12 +4,15 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { deriveDocmapManifest, writeDerivedDocmapManifest } from "./docmap-generate.ts";
+import { buildDocSyncStatusResult, buildDocSyncDryRunResult } from "./doc-sync.ts";
 
-type DocAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "doc-list" | "doc-map" | "doc-generate" }>;
+type DocAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "doc-list" | "doc-map" | "doc-generate" | "doc-status" | "doc-sync-dry-run" }>;
 
 export const runDocCommand: CommandRunner = (context, command) => Effect.gen(function* () {
   const action = command.action as DocAction;
   try {
+    if (action.kind === "doc-status") return buildDocSyncStatusResult(context.layoutInput);
+    if (action.kind === "doc-sync-dry-run") return buildDocSyncDryRunResult(context.layoutInput);
     if (action.kind === "doc-generate") {
       const result = action.write
         ? yield* writeDerivedDocmapManifest(context.layoutInput, context.makeWriteCoordinator({ kind: "agent", id: "docmap-generate" }))

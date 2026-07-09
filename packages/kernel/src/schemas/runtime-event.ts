@@ -22,12 +22,22 @@ const RuntimeEventActorSchema = Schema.Struct({
   })
 });
 
+const RuntimeEventActorAxesSchema = Schema.Struct({
+  principal: Schema.NullOr(RuntimeEventActorSchema),
+  executor: Schema.NullOr(Schema.Struct({
+    runtime: Schema.Union(CurrentSessionRuntimeSchema, Schema.Literal("unknown")),
+    sessionId: OptionalString
+  })),
+  responsibleHuman: Schema.NullOr(RuntimeEventActorSchema)
+});
+
 export const RuntimeEventRecordSchema = Schema.Struct({
   schema: Schema.Literal("runtime-event/v1"),
   eventId: Schema.String.pipe(Schema.pattern(/^evt_[A-Za-z0-9._-]{8,96}$/u)),
   recordedAt: Schema.String,
   kind: Schema.Literal(...runtimeEventKinds),
   actor: Schema.optional(RuntimeEventActorSchema),
+  actorAxes: Schema.optional(RuntimeEventActorAxesSchema),
   session: Schema.Struct({
     sessionId: Schema.String,
     runtime: Schema.Union(CurrentSessionRuntimeSchema, Schema.Literal("unknown")),

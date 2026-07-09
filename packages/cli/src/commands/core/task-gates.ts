@@ -8,6 +8,7 @@ import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCo
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import { runDistillCommand } from "./distill.ts";
+import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
 import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 
@@ -32,7 +33,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     Effect.map((result): CliResult => {
       const output = taskLifecycleResultToCliResult("task-complete", result);
       if (!output.ok) return output;
-      return { ...output, warnings: taskTreeSoftGateWarnings(context, action.taskId) };
+      return { ...output, warnings: [...(taskTreeSoftGateWarnings(context, action.taskId) ?? []), ...(docSyncDirtyWarnings(context.layoutInput) ?? [])] };
     }),
     Effect.flatMap((output) => output.ok ? queueCloseoutDistillCandidate(context, command, action, output) : Effect.succeed(output))
   );
