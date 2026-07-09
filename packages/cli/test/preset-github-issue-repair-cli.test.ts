@@ -82,7 +82,7 @@ test("CLI github issue repair preset accepts a deterministic single issueJson in
     writeFile(rootDir, "harness/tasks/task-github-issue/artifacts/issue-496.json", JSON.stringify({
       number: 496,
       title: "github-issue-repair preset should create repair intake",
-      state: "open",
+      state: "OPEN",
       html_url: "https://github.com/FairladyZ625/harness-anything/issues/496",
       user: { login: "maintainer" },
       labels: [{ name: "bug" }],

@@ -73,7 +73,7 @@ export function parseDecisionDocument(documentBody: string): DecisionDocumentPay
   if (!frontmatter) throw new Error("decision document missing frontmatter");
   return {
     decision: parseDecisionFrontmatter(frontmatter),
-    body: documentBody.replace(/^---\n[\s\S]*?\n---\n?/u, "")
+    body: documentBody.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/u, "")
   };
 }
 

@@ -439,7 +439,7 @@ function normalizeIssue(raw) {
   return {
     number: Number(raw.number),
     title: String(raw.title ?? ""),
-    state: String(raw.state ?? "open"),
+    state: String(raw.state ?? "open").toLowerCase(),
     url: String(raw.html_url ?? raw.url ?? ""),
     author: String(raw.user?.login ?? raw.author ?? ""),
     labels: Array.isArray(raw.labels) ? raw.labels.map((label) => typeof label === "string" ? label : String(label?.name ?? "")).filter(Boolean) : [],

@@ -1,0 +1,57 @@
+name: issue-intake
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  issues: write
+
+jobs:
+  require-source-triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || "";
+            const requiredHeadings = [
+              "### Issue type",
+              "### Expected behavior",
+              "### Actual behavior",
+              "### Reproduction steps",
+              "### Command output or logs",
+              "### Reporter environment",
+              "### Source-level triage target",
+              "### Source-level hypothesis",
+              "### Suggested repair target",
+              "### Evidence boundary",
+              "### Stop condition or acceptance criteria",
+              "### Public issue checklist"
+            ];
+            const missing = requiredHeadings.filter((heading) => !body.includes(heading));
+            if (missing.length === 0) return;
+
+            const issue = context.payload.issue;
+            const message = [
+              "This issue was closed because it does not use the required source-triaged issue form.",
+              "",
+              "Please open a new issue through the repository issue form and include the required source-level triage fields.",
+              "",
+              "Missing required sections:",
+              ...missing.map((heading) => `- ${heading.replace(/^### /, "")}`)
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: message
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              state: "closed",
+              state_reason: "not_planned"
+            });
