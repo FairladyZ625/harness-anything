@@ -2211,6 +2211,69 @@
       }
     },
     {
+      "id": "check-github-required-contexts",
+      "command": "npm run harness:check-github-required-contexts",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "GET /repos/{owner}/{repo}/rules/branches/main",
+        "tools/gate-manifest.json",
+        "decision:dec_mrdk63q3"
+      ],
+      "consumerScope": [
+        "GitHub branch rules must require exactly the same contexts as the gate manifest branch-protection surface"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries"
+        ],
+        "nodeVersions": [
+          24
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "GitHub required-context reconciliation is fail-closed and has no allowlist or local skip branch."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-github-required-contexts.mjs",
+          "package.json:scripts.harness:check-github-required-contexts",
+          ".github/workflows/rewrite-ci.yml:jobs.boundaries",
+          "tools/gate-manifest.json",
+          "decision:dec_mrdk63q3"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "harness:check-github-required-contexts"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        }
+      }
+    },
+    {
       "id": "check-docs-release-map",
       "command": "npm run harness:check-docs-release-map",
       "category": "local-consistency",
