@@ -88,8 +88,14 @@ npx harness-anything init
 
 → **[architecture/](architecture/zh/00-overview.md)**
 
-## 运行团队 daemon 服务器
+## 检查发布状态边界
 
-把 canonical 仓库放到常驻 daemon 后面，安装服务模板，拒绝直推，并暴露只读镜像用于批量 fetch。
+在公开文档里使用 release、GUI、daemon、remote、adapter 或 packaging 相关表述之前，先检查唯一状态权威。
+
+→ **[release-posture.zh-CN.md](release-posture.zh-CN.md)**
+
+## 理解 daemon 边界
+
+daemon 文档说明当前运维形态和限制：本地 daemon 服务管理、仓库注册、direct-push 保护、只读镜像，以及 remote 边界。
 
 → **[operations-server-daemon.zh-CN.md](operations-server-daemon.zh-CN.md)**

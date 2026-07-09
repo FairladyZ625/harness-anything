@@ -93,9 +93,17 @@ and the vertical engine.
 
 → **[architecture/](architecture/en/00-overview.md)**
 
-## Run a team daemon server
+## Check the release posture
 
-Deploy a canonical repository behind a long-lived daemon, install service
-templates, reject direct pushes, and expose a read-only mirror for bulk fetches.
+Before using release, GUI, daemon, remote, adapter, or packaging language in
+public docs, check the single status authority.
+
+→ **[release-posture.md](release-posture.md)**
+
+## Understand the daemon boundary
+
+Use the daemon docs for the operations shape and its current limits: local daemon
+service management, repository registration, direct-push protection, read-only
+mirrors, and the remote boundary.
 
 → **[operations-server-daemon.md](operations-server-daemon.md)**

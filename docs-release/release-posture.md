@@ -1,52 +1,89 @@
 # Release Posture
 
-Status: single public anchor for release governance. This page merges the
-runtime/release, supply-chain/license, and product-line posture that governs
-what is shipped, what is foundation-only, and what remains planned. Executable
-gates enforce it; release artifacts are not published.
+Status: single public anchor for release governance. This page is the authority
+for what is shipped, what is implemented but not yet productized, what is only a
+foundation slice, what is experimental, and what remains planned. Other public
+docs should link here instead of restating status tables.
 
 ## Status taxonomy
 
-- Shipped: usable from this repository through public code, tests, and `npm run check`.
-- Foundation: public contract, model, or gate exists, but the end-user product
-  capability is not shipped yet.
-- Planned: owned by a later milestone or task packet.
+- Shipped: usable from this repository through documented or discoverable public
+  command surfaces, with implementation evidence and tests or gates behind it.
+- Mechanism-complete: the implementation path or gate exists in code, but the
+  user-facing workflow still lacks product documentation, usage proof, cleanup,
+  or release evidence. Treat it as real mechanism, not as a polished product.
+- Foundation: a public contract, model, build, policy, or guardrail exists, but
+  the end-user capability is not shipped yet.
+- Experimental: a narrow prototype or shim exists for one topology or session
+  shape, with known limits that prevent a general support claim.
+- Planned: not implemented as a supported capability, or explicitly owned by a
+  later milestone or task packet.
 
 ## Product line status
 
-| Area | Status | Boundary |
+| Area | Status | Boundary and evidence |
 | --- | --- | --- |
-| Minimal loop | Shipped | Local task packages, generated cache checks, and post-merge governance loop. |
-| Coding vertical | Shipped | Coding vertical and preset command surface are usable from source; package publication is still deferred. |
-| CLI dogfood and Legacy Intake | Foundation | Local workflow is usable, but remaining template/preset parity work is tracked separately before full self-host migration. |
-| M2.5 GUI/daemon foundation | Foundation | GUI workspace, daemon API, terminal, remote tunnel, and distribution policies are public contracts/foundation slices, not a complete GUI product. |
-| Runtime/release readiness | Foundation | Source checkout, Node 24/26 CI, GUI build, and CLI package smoke are executable gates; release artifacts remain unshipped. |
-| Supply-chain/license gate | Foundation | npm audit, SBOM, OSV readiness, license policy, Dependabot coverage, and AGPL release-note checklist are executable or packet-checkable gates; release artifacts remain unshipped. |
-| M3-M7 | Planned | Task hierarchy, external adapters, cross-harness product line, full GUI product, and release hardening remain future work. |
+| Source CLI write path | Shipped | CLI write commands are real repository capabilities, and all of them require explicit `HARNESS_ACTOR`, `HARNESS_GIT_AUTHOR_NAME`, and `HARNESS_GIT_AUTHOR_EMAIL`; there is no git-config actor fallback. Evidence: canon 1.1. |
+| Task hierarchy and relation semantics | Shipped | `ha task create --parent <id>`, `ha task tree <id> [--json]`, and `ha task relate <src> depends-on <tgt> --rationale <t>` exist, with depends-on cycle detection. Completing a parent does not require completing children; it emits the `open_child_tasks` warning. The `parent` field is immutable after creation. Evidence: canon 1.4. |
+| Local daemon, including single-machine multi-repo | Shipped | `ha daemon start`, `ha daemon repo register`, hot registration reconciliation, and repo-scoped CLI routing work for local daemon mode. CLI defaults to direct in-process execution unless `HARNESS_DAEMON_MODE=local` is set. Evidence: canon 1.3. |
+| Desktop GUI source surface | Foundation | The GUI can be built and run from source and can read real ledger data for several views, but status changes, review, progress append, archive, decision adjudication, terminal, presets, adapters, and parts of relations are either state-only, read-only, deferred, or mock-backed. The repository declares this as `source-checkout-and-package-smoke-only`. Evidence: canon 1.2. |
+| Remote SSH daemon mode | Experimental | Remote mode starts `ssh <host> ha daemon serve --stdio` for a single client session. It is not a persistent daemon plus concurrent SSH client topology, not GUI-to-remote-daemon, not a tunnel, not TCP, not HTTP, and not WebSocket. Evidence: canon 1.3. |
+| Runtime/release readiness | Foundation | Source checkout, Node 24 and Node 26 CI, package smoke, and GUI build checks are executable gates. Release artifacts remain unshipped. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts:50-60` and canon 1.2. |
+| Supply-chain/license gate | Foundation | npm audit, SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`. |
+| M3-M7 backlog | Planned | External adapter implementation, cross-harness product-line identity, full GUI product, and release hardening remain later work. Placeholder adapter packages, page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state. |
 
-### M2.5 GUI/daemon foundation
+## Mechanism-complete ledger
 
-The GUI/daemon track has public foundation slices for:
+These mechanisms are implemented enough to be real, but this page does not treat
+them as polished product surface until the missing documentation, evidence, or
+workflow work is closed.
 
-- daemon API contract registry and service mappability;
-- terminal session metadata and durable backend policy;
-- remote daemon tunnel control-plane policy;
-- workspace shell pane model;
-- distribution/update policy for desktop app, local daemon, and remote daemon.
-
-These slices are not a claim that signed installers, auto-update, cloud relay, or
-a finished GUI product are available. They are the implementation boundary that
-later packaging, security, and product tasks must reuse.
-
-### Next milestone ownership
-
-| Milestone | Owns | Must not inherit as accidental state |
+| Capability | Status | Boundary and evidence |
 | --- | --- | --- |
-| M3 | Task hierarchy and relation semantics | Workspace pane state or terminal session state as lifecycle truth. |
-| M4 | External adapter implementation | Placeholder GitHub Issues or Linear packages as shipped integrations. |
-| M5 | Cross-harness product-line identity | Cloud database or relay assumptions from local GUI work. |
-| M6 | Full GUI product surface | Page-only GUI assumptions or duplicate CLI/daemon business logic. |
-| M7 | Release hardening | Unsigned production, unreviewed license/SBOM gaps, or auto-update without signing/update-feed tests. |
+| Subtask expansion preset | Mechanism-complete | `ha preset action subtask-expansion plan --task <id> --allow-scripts` produces a `subtask-plan/v1` artifact and command strings. It is a planner, not an automatic expander; a user must execute the generated task-create commands. Evidence: canon 1.4. |
+| Decision-document CAS writes | Mechanism-complete | Decision document writes use optimistic concurrency and can return `cas_watermark_mismatch`, surfaced through the CLI as `write_rejected`. Evidence: canon 1.4. |
+| Append-delta idempotency | Mechanism-complete | Byte-identical duplicate fact records are now idempotent no-ops instead of rejections. Evidence: canon 1.4. |
+| Claim-check blob store | Mechanism-complete | Session bodies can be stored as content-addressed blobs under `harness/objects/sha256/...`; v0 has no garbage collection or chunking. Evidence: canon 1.4. |
+| Code-doc reconciliation gate | Mechanism-complete | `ha task complete` hard-fails unless hand-authored `harness/tasks/<id>/code-doc-anchors.json` exists; task creation does not generate it. Evidence: canon 1.4. |
+| Distill loop | Mechanism-complete | `ha task complete` schedules distill candidates, and `ha distill candidate` / `ha distill promote` exist. Public release docs still need a real distill workflow. Evidence: canon 1.4. |
+| Create-milestone preset | Mechanism-complete | `ha preset action create-milestone <scaffold|render-html|check> --task <id> --allow-scripts --input ...` exists. There is no top-level `ha create-milestone` command. Evidence: canon 1.4. |
+| Task archive | Shipped | `ha task archive <id> --reason <r>` supports single and batch forms, including `--ids`, `--filter state:<s>`, and `--before`. Evidence: canon 1.4. |
+| Graph panorama flags | Shipped | `ha graph` supports `--out`, `--focus`, `--projection`, `--include-archived`, and `--json`; callers need the projection database precondition. Evidence: canon 1.4. |
+
+## M2.5 GUI/daemon foundation
+
+The GUI/daemon track has real foundation slices:
+
+- local daemon reads and writes through the method registry;
+- local daemon repo registration and multi-repo routing;
+- GUI source checkout that reads real ledger data in the supported read paths;
+- graph topology backed by real relation projection in graph-oriented views;
+- build, runtime, and distribution policy checks for source checkout and package
+  smoke.
+
+The same track also has explicit non-capabilities:
+
+- no signed installers, notarization, published release artifacts, or
+  auto-update;
+- no GUI task management write path;
+- no GUI decision adjudication;
+- no GUI connection to a daemon on another machine;
+- no working remote tunnel, attach-token transport, TCP listener, HTTP API,
+  WebSocket server, live notification subscription, or enforced RBAC when no
+  `harness/people.yaml` roster exists.
+
+These boundaries are why the GUI is foundation state, not a full desktop
+product.
+
+## Next milestone ownership
+
+| Milestone band | Owns | Must not inherit as accidental state |
+| --- | --- | --- |
+| Near-term hardening | Documentation and workflow proof for shipped and mechanism-complete CLI surfaces. | Old docs that call shipped hierarchy work planned, or docs that hide attribution requirements for write commands. |
+| Adapter work | External adapter implementation and proof. | Placeholder GitHub Issues or Linear packages as shipped integrations. |
+| Cross-harness product line | Product identity across multiple harness workspaces. | Cloud database or relay assumptions from local GUI work. |
+| Full GUI product | Persisted GUI writes, decision actions, real relations everywhere, non-mock terminal/adapters/presets, and supported distribution. | Page-only GUI assumptions, duplicate CLI/daemon business logic, or state-only drag/drop behavior as lifecycle truth. |
+| Release hardening | Signed artifacts, notarization, update feeds, release artifact SBOMs, and publication evidence. | Unsigned production, unreviewed license/SBOM gaps, or auto-update without signing, update-feed, rollback, and security tests. |
 
 ## Runtime and release readiness
 
@@ -106,15 +143,16 @@ notarized build, or release artifact.
 Harness Anything GUI is validated from source and package smoke tests. Desktop
 installers, daemon installers, signing, notarization, and update feeds are future
 release implementation tasks. Desktop app, local daemon, and remote daemon must
-be modeled separately, and M2.5 permits manual update planning only: auto-update
-requires a later implementation packet with signing, update feed, rollback, and
-security tests. Unsigned artifacts are development-only.
+be modeled separately, and the current policy permits manual update planning
+only: auto-update requires a later implementation packet with signing, update
+feed, rollback, and security tests. Unsigned artifacts are development-only.
 
 ### Runtime release boundary
 
 Current release boundaries are intentionally conservative:
 
-- Only `@harness-anything/cli` is public-ready for npm publish dry-run preflight at version `0.1.0`.
+- Only `@harness-anything/cli` is public-ready for npm publish dry-run preflight
+  at version `0.1.0`.
 - All non-CLI workspace packages remain private and at version `0.0.0`.
 - No real npm package release is claimed.
 - signed installers, notarized builds, auto-update, release feeds, and published
@@ -189,9 +227,9 @@ Harness Anything remains licensed as AGPL-3.0-or-later. The supply-chain gate
 checks the root package, every workspace package, lockfile dependency license
 metadata, and SBOM component licenses against the current release policy.
 
-Allowed dependency license identifiers are intentionally narrow for M2.5:
-`0BSD`, `Apache-2.0`, `BlueOak-1.0.0`, `BSD-2-Clause`, `BSD-3-Clause`,
-`ISC`, `MIT`, and `MPL-2.0`.
+Allowed dependency license identifiers are intentionally narrow for this phase:
+`0BSD`, `Apache-2.0`, `BlueOak-1.0.0`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`,
+`MIT`, and `MPL-2.0`.
 
 ### AGPL network-service release note checklist
 
@@ -206,8 +244,9 @@ Future hosted or network-service release packets must explicitly confirm:
 ### Release artifact SBOM boundary
 
 A release artifact SBOM is required before future desktop, daemon, installer, or
-published package artifacts can be distributed. M2.5 does not publish those
-artifacts, so this page defines the gate rather than providing artifact SBOMs.
+published package artifacts can be distributed. The current phase does not
+publish those artifacts, so this page defines the gate rather than providing
+artifact SBOMs.
 
 ### Dependabot and Electron upgrades
 
