@@ -17,6 +17,7 @@ export interface CliDaemonRuntime {
     readonly ops: ReadonlyArray<QueuedWriteOp>;
     readonly actor?: QueuedJournalActor;
     readonly commitAuthor?: QueuedGitCommitAuthor;
+    readonly sessionId?: string;
   }) => Promise<{
     readonly flush: FlushReport;
   }>;
@@ -28,7 +29,7 @@ export interface CliDaemonRuntime {
 export function makeDaemonQueuedWriteCoordinator(
   runtime: CliDaemonRuntime,
   commandId: string,
-  options: { readonly actor?: QueuedJournalActor; readonly commitAuthor?: QueuedGitCommitAuthor } = {}
+  options: { readonly actor?: QueuedJournalActor; readonly commitAuthor?: QueuedGitCommitAuthor; readonly sessionId?: string } = {}
 ): WriteCoordinator {
   const pending: Array<QueuedWriteOp> = [];
   return {
@@ -46,7 +47,8 @@ export function makeDaemonQueuedWriteCoordinator(
           commandId,
           ops,
           ...(options.actor ? { actor: options.actor } : {}),
-          ...(options.commitAuthor ? { commitAuthor: options.commitAuthor } : {})
+          ...(options.commitAuthor ? { commitAuthor: options.commitAuthor } : {}),
+          ...(options.sessionId ? { sessionId: options.sessionId } : {})
         });
         return receipt.flush;
       },

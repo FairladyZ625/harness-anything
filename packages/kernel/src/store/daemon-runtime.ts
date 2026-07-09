@@ -337,7 +337,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
 
   private makeStartedCoordinator(
     started: ReturnType<DaemonRepoRuntimeContext["requireAttached"]>,
-    request?: { readonly actor?: JournalActor; readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"] }
+    request?: { readonly actor?: JournalActor; readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"]; readonly sessionId?: string }
   ) {
     return makeJournaledWriteCoordinator({
       rootDir: this.rootDir,
@@ -346,6 +346,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       lockTtlMs: this.lockTtlMs,
       heldGlobalLock: started.lock,
       autoMaterialize: false,
+      ...(request?.sessionId ? { sessionId: request.sessionId } : {}),
       ...(request?.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
     });
   }

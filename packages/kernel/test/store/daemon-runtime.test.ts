@@ -126,6 +126,32 @@ test("daemon materializer producer runs bounded batches under the lifetime globa
   });
 });
 
+test("daemon interactive writes route sessionId commits to authored session branches", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initAuthoredGit(rootDir);
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      interactiveMicroBatchMs: 0
+    });
+    await runtime.start();
+
+    const receipt = await runtime.enqueueInteractiveWrite({
+      commandId: "cmd-session-routed",
+      sessionId: "daemon-session-1",
+      ops: [docWrite("op-daemon-session", "task-daemon-session", "note.md", "session routed\n")]
+    });
+
+    assert.equal(receipt.flush.watermark, "op-daemon-session");
+    assert.equal(git(rootDir, "rev-parse", "--abbrev-ref", "HEAD"), "master");
+    assert.equal(git(rootDir, "branch", "--list", "sessions/daemon-session-1"), "sessions/daemon-session-1");
+    assert.match(git(rootDir, "log", "master..sessions/daemon-session-1", "--oneline"), /op-daemon-session/u);
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-daemon-session/note.md")), false);
+
+    await runtime.stop();
+  });
+});
+
 test("daemon interactive queue does not mix different git authors in one commit", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initAuthoredGit(rootDir);

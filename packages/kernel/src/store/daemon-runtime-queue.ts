@@ -12,6 +12,7 @@ export interface InteractiveWriteRequest {
   readonly deadlineMs?: number;
   readonly actor?: JournalActor;
   readonly commitAuthor?: GitCommitAuthor;
+  readonly sessionId?: string;
 }
 
 export interface InteractiveWriteReceipt {
@@ -41,6 +42,7 @@ interface InteractiveQueueItem {
   readonly ops: ReadonlyArray<WriteOp>;
   readonly actor?: JournalActor;
   readonly commitAuthor?: GitCommitAuthor;
+  readonly sessionId?: string;
   readonly enqueuedAt: number;
   started: boolean;
   timeout?: ReturnType<typeof setTimeout>;
@@ -67,7 +69,7 @@ export class DaemonWriteQueue {
   private running = false;
   private closed = false;
   private idleWaiters: Array<() => void> = [];
-  private coordinatorFor: ((batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => JournaledWriteCoordinator) | undefined;
+  private coordinatorFor: ((batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string }) => JournaledWriteCoordinator) | undefined;
   private readonly maxInteractiveOpsPerCommit: number;
   private readonly interactiveMicroBatchMs: number;
 
@@ -81,7 +83,7 @@ export class DaemonWriteQueue {
 
   enqueueInteractive(
     request: InteractiveWriteRequest,
-    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => JournaledWriteCoordinator
+    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string }) => JournaledWriteCoordinator
   ): Promise<InteractiveWriteReceipt> {
     if (this.closed) return Promise.reject({ _tag: "JournalUnavailable", cause: new Error("daemon write queue is closed") } satisfies WriteError);
     this.coordinatorFor = coordinatorFor;
@@ -92,6 +94,7 @@ export class DaemonWriteQueue {
         ops: request.ops,
         ...(request.actor ? { actor: request.actor } : {}),
         ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {}),
+        ...(request.sessionId ? { sessionId: request.sessionId } : {}),
         enqueuedAt: Date.now(),
         started: false,
         resolve,
@@ -171,7 +174,7 @@ export class DaemonWriteQueue {
   }
 
   private async drainInteractive(
-    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor }) => JournaledWriteCoordinator
+    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string }) => JournaledWriteCoordinator
   ): Promise<void> {
     if (this.interactiveMicroBatchMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.interactiveMicroBatchMs));
@@ -250,16 +253,18 @@ export class DaemonWriteQueue {
   }
 }
 
-function attributionFor(item: InteractiveQueueItem | undefined): { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor } {
+function attributionFor(item: InteractiveQueueItem | undefined): { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string } {
   return {
     ...(item?.actor ? { actor: item.actor } : {}),
-    ...(item?.commitAuthor ? { commitAuthor: item.commitAuthor } : {})
+    ...(item?.commitAuthor ? { commitAuthor: item.commitAuthor } : {}),
+    ...(item?.sessionId ? { sessionId: item.sessionId } : {})
   };
 }
 
 function sameAttribution(left: InteractiveQueueItem, right: InteractiveQueueItem): boolean {
   return actorKey(left.actor) === actorKey(right.actor)
-    && authorKey(left.commitAuthor) === authorKey(right.commitAuthor);
+    && authorKey(left.commitAuthor) === authorKey(right.commitAuthor)
+    && sessionKey(left.sessionId) === sessionKey(right.sessionId);
 }
 
 function actorKey(actor: JournalActor | undefined): string {
@@ -268,6 +273,10 @@ function actorKey(actor: JournalActor | undefined): string {
 
 function authorKey(author: GitCommitAuthor | undefined): string {
   return author ? `${author.name}\0${author.email}` : "";
+}
+
+function sessionKey(sessionId: string | undefined): string {
+  return sessionId?.trim() ?? "";
 }
 
 function toWriteError(error: unknown): WriteError {
