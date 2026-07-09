@@ -9,9 +9,13 @@ queue_rules:
       - check-success = boundaries
       - check-success = package-policy
       - check-success = "typecheck (24)"
-      - check-success = "typecheck (26)"
       - check-success = fast-contract
-      - check-success = integration
+      - check-success = "integration-shard (1)"
+      - check-success = "integration-shard (2)"
+      - check-success = "integration-shard (3)"
+      - check-success = "integration-shard (4)"
+      - check-success = "integration-shard (5)"
+      - check-success = "integration-shard (6)"
       - check-success = supply-chain
       - check-success = gui-build
       - check-success = node26-compatibility
