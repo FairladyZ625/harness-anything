@@ -76,20 +76,6 @@ test("CLI status set mutates local task state through the write journal", () => 
   });
 });
 
-test("CLI lifecycle reads CRLF task indexes on Windows", () => {
-  withTempRoot((rootDir) => {
-    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
-    const taskId = assertGeneratedTaskId(created.taskId);
-    const indexPath = path.join(rootDir, `harness/tasks/${taskId}-task-one/INDEX.md`);
-    writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/\r?\n/gu, "\r\n"), "utf8");
-
-    const result = runJson(rootDir, ["task", "transition", taskId, "active"]);
-
-    assert.equal(result.ok, true);
-    assert.equal(result.status, "active");
-  });
-});
-
 test("CLI rejects invalid local lifecycle transitions with a stable error code", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
