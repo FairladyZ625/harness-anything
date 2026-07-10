@@ -157,8 +157,15 @@ test("GUI bridge projects a hermetic decision-task-fact ledger into renderer dat
     });
 
     assert.deepEqual(projection.decisions.map((decision) => decision.decisionId), ["dec_gui"]);
+    assert.deepEqual(projection.decisions[0]?.riskTier, "medium");
+    assert.deepEqual(projection.decisions[0]?.urgency, "medium");
+    assert.deepEqual(projection.decisions[0]?.proposedBy, { kind: "agent", id: "codex" });
+    assert.deepEqual(projection.decisions[0]?.arbiter, { kind: "human", id: "ZeyuLi" });
+    assert.deepEqual(projection.decisions[0]?.provenance, [{ runtime: "codex", sessionId: "session-gui", boundAt: "2026-07-10T00:00:00.000Z" }]);
     assert.deepEqual(projection.facts.map((fact) => fact.anchor), ["task-1/F-12345678"]);
     assert.deepEqual(projection.facts.map((fact) => fact.confidence), ["high"]);
+    assert.deepEqual(projection.facts[0]?.source, "test");
+    assert.deepEqual(projection.facts[0]?.provenance, [{ runtime: "codex", sessionId: "session-gui", boundAt: "2026-07-10T00:00:00.000Z" }]);
     assert.deepEqual(projection.factAnchors.map((anchor) => anchor.factRef), ["fact/task-1/F-12345678"]);
     assert.deepEqual(projection.coverageRows.map((row) => row.coveringFactRef), ["fact/task-1/F-12345678"]);
     assert.deepEqual(projection.relations.map((relation) => relation.kind).sort(), [
@@ -174,6 +181,14 @@ test("GUI bridge projects a hermetic decision-task-fact ledger into renderer dat
     await waitForDaemonIdle();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("renderer adapter contains no decision placeholder defaults", () => {
+  const adapter = readFileSync(path.join(import.meta.dirname, "../src/renderer/triadic-data.ts"), "utf8");
+
+  assert.doesNotMatch(adapter, /riskTier:\s*["']medium["']/u);
+  assert.doesNotMatch(adapter, /proposedBy:\s*\{\s*kind:\s*["']system["']/u);
+  assert.doesNotMatch(adapter, /id:\s*["']projection["']/u);
 });
 
 test("GUI service bridge preserves document results and daemon-side validation shape", async () => {

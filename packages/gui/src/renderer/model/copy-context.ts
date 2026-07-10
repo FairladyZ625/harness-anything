@@ -80,7 +80,7 @@ export function buildFactTriageContext(
   } else {
     for (const dec of citingDecisions) {
       lines.push(
-        `- \`decision/${dec.decisionId}\` — ${dec.title} [state: ${dec.state}, risk: ${dec.riskTier}]`,
+        `- \`decision/${dec.decisionId}\` — ${dec.title} [state: ${dec.state}, risk: ${dec.riskTier ?? "未知"}]`,
       );
       lines.push(`  - Q: ${dec.question}`);
     }

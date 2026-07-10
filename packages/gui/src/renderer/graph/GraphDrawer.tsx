@@ -159,7 +159,7 @@ export function GraphDrawer({
                     <span className="rounded bg-accent px-1.5 py-0.5 text-accent-fg">
                       {dec.state}
                     </span>
-                    <span className="text-text-muted">{dec.riskTier} risk · {dec.urgency} urgency</span>
+                    <span className="text-text-muted">{dec.riskTier ?? "未知"} risk · {dec.urgency ?? "未知"} urgency</span>
                   </div>
                   <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
                     <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">

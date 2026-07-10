@@ -69,7 +69,7 @@ export function DecisionsView({
       const [rb, ub] = sortKey(b);
       if (ra !== rb) return ra - rb;
       if (ua !== ub) return ua - ub;
-      return a.proposedAt.localeCompare(b.proposedAt);
+      return (a.proposedAt ?? "").localeCompare(b.proposedAt ?? "");
     });
     return [...sorted(active), ...sorted(skippedOnes)];
   }, [decisions, skipped]);
@@ -256,7 +256,7 @@ export function DecisionsView({
                     <button
                       key={d.decisionId}
                       onClick={() => setCursor(i)}
-                      title={`${d.decisionId} · ${d.riskTier}/${d.urgency}`}
+                      title={`${d.decisionId} · ${d.riskTier ?? "未知"}/${d.urgency ?? "未知"}`}
                       className={`flex shrink-0 items-center gap-1 rounded px-2 py-1 font-mono text-[10px] ${
                         i === idx
                           ? "bg-accent text-accent-fg"

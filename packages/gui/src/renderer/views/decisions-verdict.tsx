@@ -169,7 +169,7 @@ function buildConflictRejection(d: DecisionRow): { code: string; reason: string;
  * 返回元组,lexicographic 比较即"先按 riskTier,同级再按 urgency"。
  * high=0 / medium=1 / low=2 —— 承重决策优先承重,承重同级里紧急优先。
  */
-const axisRank = (v: "high" | "medium" | "low") => (v === "high" ? 0 : v === "medium" ? 1 : 2);
+const axisRank = (v?: "high" | "medium" | "low") => (v === "high" ? 0 : v === "medium" ? 1 : v === "low" ? 2 : 3);
 export const sortKey = (d: DecisionRow): readonly [number, number] =>
   [axisRank(d.riskTier), axisRank(d.urgency)] as const;
 
@@ -306,7 +306,7 @@ export function VerdictCard({
   readOnly?: boolean;
 }) {
   const cov = coverageOf(d, facts);
-  const selfArb = d.proposedBy.id === d.arbiter?.id;
+  const selfArb = d.proposedBy?.id === d.arbiter?.id;
   const derived = derivedTasks(d, relations, tasks);
   const chain = supersedeChain(d, relations);
   // 评审深度提示:riskTier 驱动(E50 防意外:GUI 只提示不强拦)
@@ -418,7 +418,7 @@ export function VerdictCard({
       {/* 提议/批准者 + proposer≠arbiter 自证警示(actorClass 审计性展示,INV-7 已删 → 不再强拒 agent) */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
         <span>
-          proposedBy <span className="font-mono text-text-muted">{d.proposedBy.kind}:{d.proposedBy.id}</span>
+          proposedBy <span className="font-mono text-text-muted">{d.proposedBy ? `${d.proposedBy.kind}:${d.proposedBy.id}` : "未知/—"}</span>
         </span>
         <span>
           arbiter <span className="font-mono text-text-muted">{d.arbiter ? `${d.arbiter.kind}:${d.arbiter.id}` : "待决策批准"}</span>
@@ -485,7 +485,7 @@ export function VerdictCard({
       {/* ⑤ provenance 三字段 + 原文追溯入口 */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="text-text-faint">provenance:</span>
-        {d.provenance.map((p) => (
+        {d.provenance?.map((p) => (
           <button
             key={p.sessionId}
             onClick={() => onTrace(p.sessionId)}

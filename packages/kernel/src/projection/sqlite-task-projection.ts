@@ -5,7 +5,7 @@ import { resolveHarnessLayout } from "../layout/index.ts";
 import { buildCheckReport, hardFail, runPostMergeChecks, warning } from "./post-merge-checks.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
-import { queryDecisionProjectionRows, queryTaskChildrenRows, queryTaskProjectionRows, queryTaskSubtreeRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
+import { projectionVersion, queryDecisionProjectionRows, queryTaskChildrenRows, queryTaskProjectionRows, queryTaskSubtreeRows, readRelationGraphRows, writeProjectionDatabase, tryReadProjectionDatabase } from "./sqlite-projection-store.ts";
 import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRows } from "./sqlite-decision-source.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
@@ -92,6 +92,17 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "projection_tampered",
       "Projection cache could not be read and has been rebuilt from markdown.",
       "Discard the generated cache and rebuild it from authored markdown; do not merge generated projection edits."
+    ));
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
+    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+  }
+
+  if (existing.meta.version !== projectionVersion) {
+    warnings.push(warning(
+      "generated-cache",
+      "projection_stale",
+      "Projection cache schema version was stale and has been rebuilt from markdown.",
+      "Run harness-anything governance rebuild after upgrading projection schema."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };

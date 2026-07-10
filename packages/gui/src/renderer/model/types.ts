@@ -65,7 +65,7 @@ export interface TaskRow {
   /** 该 task 由哪条 decision 派生（生成式派生时必填；顶层独立 task 可空） */
   spawningDecision?: string;
   /** entity 原文溯源（⚠️ 与 RelationEdge.provenance 同名不同义） */
-  provenance?: ProvenanceEntry[];
+  provenance?: ReadonlyArray<ProvenanceEntry>;
   /**
    * 直接父任务（task 树层级，来自 projection frontmatter `parent` 字段）。
    * 与 spawningDecision 不同:这是 task→task 的层级关系,不是 decision 派生。
@@ -132,22 +132,22 @@ export interface DecisionRow {
   decisionId: string;
   title: string;
   state: DecisionState;
-  riskTier: RiskTier; // 风险/重要性 → 评审 pipeline 深度（低 risk 自动过，不进人队列）
-  urgency: Urgency; // 紧急 → 决策队列排队顺序（与 riskTier 正交）
-  vertical: string;
-  preset: string;
-  proposedBy: { kind: "agent" | "human" | "system"; id: string };
+  riskTier?: RiskTier; // 缺失即未知；不得以 UI 默认值合成风险等级
+  urgency?: Urgency; // 缺失即未知；不得以 UI 默认值合成紧急等级
+  vertical?: string;
+  preset?: string;
+  proposedBy?: { kind: "agent" | "human" | "system"; id: string };
   /** arbiter 必须 ≠ proposedBy（防自证） */
   arbiter?: { kind: "agent" | "human" | "system"; id: string };
-  proposedAt: string;
+  proposedAt?: string;
   decidedAt?: string;
   question: string; // 这条决策回答的问题（复现当时场景）
   chosen: DecisionClaim[]; // 决定了什么策略
   rejected: DecisionClaim[]; // ⚠️ 必填非空，每条带 evidence + why_not（否决比选择更重要）
   claims: { id: string; text: string }[]; // 承重论点（覆盖度查询的锚点）
   /** entity 原文溯源（⚠️ 与 RelationEdge.provenance 同名不同义） */
-  provenance: ProvenanceEntry[];
-  lastChangedAt: string;
+  provenance?: ReadonlyArray<ProvenanceEntry>;
+  lastChangedAt?: string;
   /**
    * 决策就绪信号灯(41 §3.1a)。evidence 活性 / 覆盖度由 relation/fact
    * 投影推导；其余可选信号由后续专用投影提供。
@@ -177,6 +177,10 @@ export interface FactRef {
   at: string;
   /** Immutable observation confidence from task-fact-row/v1. */
   confidence: "low" | "medium" | "high";
+  /** Authored fact source, passed through from task-fact-row/v1. */
+  source?: string;
+  /** Authored fact provenance, passed through from task-fact-row/v1. */
+  provenance?: ReadonlyArray<ProvenanceEntry>;
   /** 是否已被 invalidated-by/supersedes-fact 边标记失效（由图投影推得） */
   invalidated?: boolean;
 }

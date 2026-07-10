@@ -13,7 +13,7 @@ import type {
   TaskProjectionRow
 } from "./types.ts";
 
-const projectionVersion = "entity-projection/d4-v1";
+export const projectionVersion = "entity-projection/d4-v2";
 const baseTaskProjectionColumns = [
   "task_id",
   "title",
@@ -105,6 +105,14 @@ export function writeProjectionDatabase(
         path TEXT NOT NULL,
         module_keys_json TEXT NOT NULL,
         product_line_keys_json TEXT NOT NULL,
+        risk_tier TEXT,
+        urgency TEXT,
+        vertical TEXT,
+        preset TEXT,
+        proposed_by_json TEXT,
+        proposed_at TEXT,
+        arbiter_json TEXT,
+        provenance_json TEXT,
         decided_at TEXT
       )
     `;
@@ -253,6 +261,7 @@ function readProjectionDatabase(
     const decisionRecords = yield* sql.unsafe<DecisionRecord>("SELECT * FROM decision_projection ORDER BY COALESCE(legacy_number, 1000000000), decision_id");
     return {
       meta: {
+        version: meta.get("version"),
         sourceHash: meta.get("sourceHash") ?? "",
         rowsHash: meta.get("rowsHash") ?? "",
         decisionRowsHash: meta.get("decisionRowsHash") ?? ""
@@ -318,11 +327,14 @@ export function insertDecisionRow(sql: SqlClient.SqlClient, row: DecisionProject
   return sql`
     INSERT OR REPLACE INTO decision_projection (
       decision_id, legacy_id, legacy_number, state, title, question, chosen_json,
-      rejected_json, path, module_keys_json, product_line_keys_json, decided_at
+      rejected_json, path, module_keys_json, product_line_keys_json, risk_tier, urgency,
+      vertical, preset, proposed_by_json, proposed_at, arbiter_json, provenance_json, decided_at
     ) VALUES (
       ${row.decisionId}, ${row.legacyId ?? null}, ${row.legacyId ? legacyNumberFromLabel(row.legacyId) ?? null : null},
       ${row.state}, ${row.title}, ${row.question}, ${JSON.stringify(row.chosen)}, ${JSON.stringify(row.rejected)},
-      ${row.path}, ${JSON.stringify(row.moduleKeys)}, ${JSON.stringify(row.productLineKeys)}, ${row.decidedAt ?? null}
+      ${row.path}, ${JSON.stringify(row.moduleKeys)}, ${JSON.stringify(row.productLineKeys)}, ${row.riskTier ?? null}, ${row.urgency ?? null},
+      ${row.vertical ?? null}, ${row.preset ?? null}, ${row.proposedBy ? JSON.stringify(row.proposedBy) : null}, ${row.proposedAt ?? null},
+      ${row.arbiter ? JSON.stringify(row.arbiter) : null}, ${row.provenance ? JSON.stringify(row.provenance) : null}, ${row.decidedAt ?? null}
     )
   `;
 }
@@ -386,6 +398,14 @@ interface DecisionRecord {
   readonly path: string;
   readonly module_keys_json: string;
   readonly product_line_keys_json: string;
+  readonly risk_tier: string | null;
+  readonly urgency: string | null;
+  readonly vertical: string | null;
+  readonly preset: string | null;
+  readonly proposed_by_json: string | null;
+  readonly proposed_at: string | null;
+  readonly arbiter_json: string | null;
+  readonly provenance_json: string | null;
   readonly decided_at: string | null;
 }
 
@@ -437,6 +457,14 @@ function recordToDecisionRow(record: DecisionRecord): DecisionProjectionRow {
     path: record.path,
     moduleKeys: JSON.parse(record.module_keys_json) as ReadonlyArray<string>,
     productLineKeys: JSON.parse(record.product_line_keys_json) as ReadonlyArray<string>,
+    ...(record.risk_tier ? { riskTier: record.risk_tier as DecisionProjectionRow["riskTier"] } : {}),
+    ...(record.urgency ? { urgency: record.urgency as DecisionProjectionRow["urgency"] } : {}),
+    ...(record.vertical ? { vertical: record.vertical } : {}),
+    ...(record.preset ? { preset: record.preset } : {}),
+    ...(record.proposed_by_json ? { proposedBy: JSON.parse(record.proposed_by_json) as NonNullable<DecisionProjectionRow["proposedBy"]> } : {}),
+    ...(record.proposed_at ? { proposedAt: record.proposed_at } : {}),
+    ...(record.arbiter_json ? { arbiter: JSON.parse(record.arbiter_json) as NonNullable<DecisionProjectionRow["arbiter"]> } : {}),
+    ...(record.provenance_json ? { provenance: JSON.parse(record.provenance_json) as NonNullable<DecisionProjectionRow["provenance"]> } : {}),
     ...(record.decided_at ? { decidedAt: record.decided_at } : {})
   };
 }

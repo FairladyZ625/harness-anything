@@ -59,6 +59,14 @@ function decisionDocumentToProjectionRow(rootDir: string, documentPath: string):
     path: relativeSourcePath(rootDir, documentPath),
     moduleKeys: decision.applies_to.modules,
     productLineKeys: decision.applies_to.productLines,
+    ...(decision.riskTier ? { riskTier: decision.riskTier } : {}),
+    ...(decision.urgency ? { urgency: decision.urgency } : {}),
+    ...(decision.vertical ? { vertical: decision.vertical } : {}),
+    ...(decision.preset ? { preset: decision.preset } : {}),
+    ...(decision.proposedBy ? { proposedBy: decision.proposedBy } : {}),
+    ...(decision.proposedAt ? { proposedAt: decision.proposedAt } : {}),
+    ...(decision.arbiter ? { arbiter: decision.arbiter } : {}),
+    ...(decision.provenance ? { provenance: decision.provenance } : {}),
     ...(decision.decidedAt ? { decidedAt: decision.decidedAt } : {})
   };
 }
@@ -152,6 +160,14 @@ function canonicalDecisionProjectionRow(row: DecisionProjectionRow): DecisionPro
     path: row.path,
     moduleKeys: [...row.moduleKeys],
     productLineKeys: [...row.productLineKeys],
+    ...(row.riskTier ? { riskTier: row.riskTier } : {}),
+    ...(row.urgency ? { urgency: row.urgency } : {}),
+    ...(row.vertical ? { vertical: row.vertical } : {}),
+    ...(row.preset ? { preset: row.preset } : {}),
+    ...(row.proposedBy ? { proposedBy: { ...row.proposedBy } } : {}),
+    ...(row.proposedAt ? { proposedAt: row.proposedAt } : {}),
+    ...(row.arbiter ? { arbiter: { ...row.arbiter } } : {}),
+    ...(row.provenance ? { provenance: row.provenance.map((entry) => ({ ...entry })) } : {}),
     ...(row.decidedAt ? { decidedAt: row.decidedAt } : {})
   };
 }

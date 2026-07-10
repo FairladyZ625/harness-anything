@@ -283,6 +283,37 @@ describe("fact-triage signal metadata", () => {
 });
 
 describe("cross-entity navigation projection", () => {
+  it("keeps absent decision DTO fields explicit instead of synthesizing placeholders", () => {
+    const rendered = buildTriadicRendererData({
+      graph: { ok: true, edges: [], coverageRows: [], factAnchors: [], warnings: [] },
+      decisions: {
+        ok: true,
+        decisions: [{
+          schema: "d4-decision-row/v1",
+          decisionId: "dec_missing",
+          state: "proposed",
+          title: "Missing fields stay unknown",
+          question: "Q?",
+          chosen: [],
+          rejected: [],
+          path: "harness/decisions/decision-dec_missing/decision.md",
+          moduleKeys: [],
+          productLineKeys: []
+        }],
+        warnings: []
+      },
+      factResults: []
+    });
+
+    expect(rendered.decisions[0]).toMatchObject({
+      decisionId: "dec_missing",
+      riskTier: undefined,
+      urgency: undefined,
+      proposedBy: undefined,
+      provenance: undefined
+    });
+  });
+
   it("derives the TaskDetail decision source from the real relation graph", () => {
     const relations = [
       edge("decision/dec_parent", "task/task_a", "derives"),

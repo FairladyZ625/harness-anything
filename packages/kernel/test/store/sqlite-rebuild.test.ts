@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Option } from "effect";
-import { checkTaskProjection, hashTaskProjectionRows, readTaskProjection, rebuildTaskProjection } from "../../src/index.ts";
+import { checkTaskProjection, hashTaskProjectionRows, queryDecisionProjection, readTaskProjection, rebuildTaskProjection } from "../../src/index.ts";
 import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
@@ -99,13 +99,42 @@ test("SQLite projection rebuild materializes decision rows for query readers", (
     const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath, { readOnly: true });
     try {
-      const row = db.prepare("SELECT decision_id, legacy_id, state FROM decision_projection WHERE legacy_id = ?").get("E72") as Record<string, unknown>;
+      const row = db.prepare("SELECT decision_id, legacy_id, state, risk_tier, urgency, vertical, preset, proposed_by_json, proposed_at, arbiter_json, provenance_json FROM decision_projection WHERE legacy_id = ?").get("E72") as Record<string, unknown>;
       assert.equal(row.decision_id, "dec_M5_E72_SELFHOST");
       assert.equal(row.legacy_id, "E72");
       assert.equal(row.state, "active");
+      assert.equal(row.risk_tier, "medium");
+      assert.equal(row.urgency, "medium");
+      assert.equal(row.vertical, "software/coding");
+      assert.equal(row.preset, "architecture-decision");
+      assert.deepEqual(JSON.parse(String(row.proposed_by_json)), { kind: "agent", id: "test" });
+      assert.equal(row.proposed_at, "2026-07-04T00:00:00.000Z");
+      assert.deepEqual(JSON.parse(String(row.arbiter_json)), { kind: "human", id: "ZeyuLi" });
+      assert.deepEqual(JSON.parse(String(row.provenance_json)), [{ runtime: "human", sessionId: "human-cli-1", boundAt: "2026-07-04T00:00:00.000Z" }]);
     } finally {
       db.close();
     }
+  });
+});
+
+test("SQLite projection rebuilds stale schema versions before serving decision DTO rows", () => {
+  withTempStore((rootDir) => {
+    writeIndex(rootDir, "task-1", "Task One", "active");
+    writeDecision(rootDir, "dec_M5_E72_SELFHOST", "wm-1");
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const db = new DatabaseSync(projectionPath);
+    try {
+      db.prepare("UPDATE projection_meta SET value = ? WHERE key = 'version'").run("entity-projection/d4-v1");
+    } finally {
+      db.close();
+    }
+
+    const result = queryDecisionProjection({ rootDir, filters: {} });
+
+    assert.equal(result.warnings.some((warning) => warning.code === "projection_stale"), true);
+    assert.deepEqual(result.rows[0]?.proposedBy, { kind: "agent", id: "test" });
+    assert.deepEqual(result.rows[0]?.provenance, [{ runtime: "human", sessionId: "human-cli-1", boundAt: "2026-07-04T00:00:00.000Z" }]);
   });
 });
 

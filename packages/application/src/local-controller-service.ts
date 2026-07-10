@@ -161,7 +161,8 @@ function toFactProjectionRow(taskId: string, fact: FactRecord): FactProjectionRo
     observedAt: fact.observedAt,
     confidence: fact.confidence,
     memoryClass: fact.memoryClass,
-    memoryTags: fact.memoryTags
+    memoryTags: fact.memoryTags,
+    provenance: fact.provenance
   };
 }
 

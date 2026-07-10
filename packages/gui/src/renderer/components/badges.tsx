@@ -203,8 +203,8 @@ const RISK_META: Record<RiskTier, { label: string; cls: string }> = {
   low: { label: "低风险", cls: "text-text-muted" },
 };
 
-export function RiskTierBadge({ tier }: { tier: RiskTier }) {
-  const m = RISK_META[tier];
+export function RiskTierBadge({ tier }: { tier?: RiskTier }) {
+  const m = tier ? RISK_META[tier] : { label: "未知", cls: "text-text-faint" };
   return (
     <span className={`inline-flex items-center gap-1 font-mono text-[12px] ${m.cls}`} title="风险/重要性 → 评审深度">
       <Scales weight="bold" className="text-[12px]" />
@@ -219,8 +219,8 @@ const URGENCY_META: Record<Urgency, { label: string; cls: string }> = {
   low: { label: "不急", cls: "text-text-faint" },
 };
 
-export function UrgencyBadge({ urgency }: { urgency: Urgency }) {
-  const m = URGENCY_META[urgency];
+export function UrgencyBadge({ urgency }: { urgency?: Urgency }) {
+  const m = urgency ? URGENCY_META[urgency] : { label: "未知", cls: "text-text-faint" };
   return (
     <span className={`inline-flex items-center gap-1 font-mono text-[12px] ${m.cls}`} title="紧急 → 队列排队">
       <Lightning weight="bold" className="text-[12px]" />

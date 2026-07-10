@@ -51,12 +51,16 @@ test("local controller service reads projection and writes through injected task
     const decisions = service.getDecisions();
     assert.equal(decisions.ok, true);
     assert.deepEqual(decisions.decisions.map((decision) => decision.decisionId), ["dec_test"]);
+    assert.deepEqual(decisions.decisions[0]?.proposedBy, { kind: "agent", id: "codex" });
+    assert.deepEqual(decisions.decisions[0]?.arbiter, { kind: "human", id: "ZeyuLi" });
+    assert.deepEqual(decisions.decisions[0]?.provenance, [{ runtime: "codex", sessionId: "session-1", boundAt: "2026-07-07T00:00:00.000Z" }]);
     const decisionDetail = service.getDecisionDetail({ decisionId: "dec_test" });
     assert.equal(decisionDetail.ok, true);
     assert.equal(decisionDetail.decision.title, "Projection Decision");
     const facts = await service.getTaskFacts({ taskId: "task-1" });
     assert.equal(facts.ok, true);
     assert.deepEqual(facts.facts.map((fact) => fact.ref), ["fact/task-1/F-12345678"]);
+    assert.deepEqual(facts.facts[0]?.provenance, [{ runtime: "codex", sessionId: "session-1", boundAt: "2026-07-07T00:00:00.000Z" }]);
     assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "C:\\Users\\name\\secret.md" }), {
       ok: false,
       error: {
