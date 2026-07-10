@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { TaskProjectionRow } from "../../kernel/src/index.ts";
 import {
   buildGuiViewModelFromTaskProjection,
@@ -8,6 +10,7 @@ import {
   toGuiCommandFeedback
 } from "../src/api/view-model.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
+import { GraphView } from "../src/renderer/views/GraphView.tsx";
 
 describe("renderer app model", () => {
   it("keeps the renderer capability model privilege-free", () => {
@@ -133,6 +136,15 @@ describe("renderer app model", () => {
       hint: "bad status",
       warnings: ["ignored by default display"]
     });
+  });
+
+  it("renders an explicit empty state when the triadic ledger has no entities", () => {
+    const markup = renderToStaticMarkup(
+      createElement(GraphView, { tasks: [], decisions: [], facts: [], relations: [] })
+    );
+
+    expect(markup).toContain("triadic-graph-empty-state");
+    expect(markup).toContain("暂无三元语关系数据");
   });
 });
 

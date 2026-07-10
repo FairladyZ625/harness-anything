@@ -100,8 +100,7 @@ export async function computeGraphLayout(
   inLoopEdges: Set<string>,
   filters?: { modules: Set<string>; types: Set<string> }
 ): Promise<{ nodes: Node[]; edges: Edge[]; cycleWarning: { count: number; cycles: string[][] } }> {
-  const taskIds = new Set(tasks.map((t) => t.taskId));
-  const validEdges = relations.filter((e) => parseEndpoint(e.from, taskIds) && parseEndpoint(e.to, taskIds));
+  const validEdges = relations.filter((e) => parseEndpoint(e.from) && parseEndpoint(e.to));
 
   // Collect entities that survive the filter, tagged with their owning module.
   const placed: PlacedEntity[] = [];
@@ -151,8 +150,8 @@ export async function computeGraphLayout(
   // Populate edges (claim anchors collapse onto the base decision node).
   const normalizedEdges: { from: string; to: string; raw: RelationEdge }[] = [];
   validEdges.forEach((e, i) => {
-    let from = parseEndpoint(e.from, taskIds)!.id;
-    let to = parseEndpoint(e.to, taskIds)!.id;
+    let from = parseEndpoint(e.from)!.id;
+    let to = parseEndpoint(e.to)!.id;
     if (e.from.startsWith("decision/")) from = e.from.split("/").slice(0, 2).join("/");
     if (e.to.startsWith("decision/")) to = e.to.split("/").slice(0, 2).join("/");
     if (!allNodeIds.has(from) || !allNodeIds.has(to)) return;
@@ -226,8 +225,8 @@ export async function computeGraphLayout(
     const rawEdge = label.raw;
     const isLoop = inLoopEdges.has(`${rawEdge.from}|${rawEdge.to}`);
 
-    let fromId = parseEndpoint(rawEdge.from, taskIds)!.id;
-    let toId = parseEndpoint(rawEdge.to, taskIds)!.id;
+    let fromId = parseEndpoint(rawEdge.from)!.id;
+    let toId = parseEndpoint(rawEdge.to)!.id;
     if (rawEdge.from.startsWith("decision/")) fromId = rawEdge.from.split("/").slice(0, 2).join("/");
     if (rawEdge.to.startsWith("decision/")) toId = rawEdge.to.split("/").slice(0, 2).join("/");
 
@@ -261,7 +260,7 @@ export async function computeGraphLayout(
         strokeDasharray:
           cycleHit
             ? "5 3"
-            : rawEdge.kind === "references"
+            : rawEdge.kind === "relates"
               ? "4 3"
               : rawEdge.kind === "invalidated-by" || rawEdge.kind === "supersedes-fact"
                 ? "3 2"

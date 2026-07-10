@@ -16,7 +16,7 @@ import {
 } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import {
-  MOCK_RELATIONS,
+  MOCK_TASK_RELATIONS,
   MOCK_PRESETS,
   MOCK_ADAPTERS,
   MOCK_EVENTS,
@@ -389,7 +389,7 @@ function AppShell() {
               <TaskDetailView
                 task={selected}
                 tasks={tasks}
-                relations={MOCK_RELATIONS}
+                relations={MOCK_TASK_RELATIONS}
                 decisions={decisions}
                 onBack={() => setSelectedId(null)}
                 onUpdate={updateTask}
@@ -428,7 +428,7 @@ function AppShell() {
                 onSelect={openTaskPreview}
                 onUpdate={updateTask}
                 drill={drill}
-                relations={MOCK_RELATIONS}
+                relations={MOCK_TASK_RELATIONS}
                 favorites={favorites}
                 onToggleFavorite={toggleFavorite}
               />
@@ -481,7 +481,7 @@ function AppShell() {
       <TaskPreviewDrawer
         task={previewTask}
         tasks={projectTasks}
-        relations={MOCK_RELATIONS}
+        relations={MOCK_TASK_RELATIONS}
         events={projectEvents}
         onClose={() => setPreviewId(null)}
         onOpenDetail={openTaskDetail}

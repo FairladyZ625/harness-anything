@@ -175,7 +175,7 @@ function GraphViewInner({
   const focusNode = focusId && !focusId.startsWith('e_') ? nodes.find(n => n.id === focusId) : null;
   const focusEdge = focusId && focusId.startsWith('e_') ? edges.find(e => e.id === focusId) : null;
 
-  // Create mock maps for drawer compatibility
+  // Index rendered entities for drawer navigation.
   const drawerNodesMap = useMemo(() => {
     const map = new Map();
     nodes.forEach(n => {
@@ -198,6 +198,20 @@ function GraphViewInner({
       <div className="flex h-full items-center justify-center bg-red-50 p-8">
         <div className="text-red-700 whitespace-pre-wrap font-mono text-sm">
           {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (tasks.length === 0 && (decisions?.length ?? 0) === 0 && (facts?.length ?? 0) === 0) {
+    return (
+      <div
+        data-testid="triadic-graph-empty-state"
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
+      >
+        <div className="text-[14px] font-semibold text-text">暂无三元语关系数据</div>
+        <div className="max-w-md text-[12px] leading-relaxed text-text-faint">
+          当前 ledger 没有可投影的 task、decision 或 fact。记录出现后，关系图会自动显示真实节点与 kernel relation 边。
         </div>
       </div>
     );

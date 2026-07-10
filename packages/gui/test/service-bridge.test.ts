@@ -17,6 +17,13 @@ import {
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget
 } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { deriveRelationId, formatFactFlowRecord, formatRelationFlowRecord } from "../../kernel/src/index.ts";
+import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
+import type {
+  DecisionListSuccess,
+  RelationGraphSuccess,
+  TaskFactListSuccess
+} from "../src/renderer/api-client.ts";
 
 test("GUI daemon autostart resolves system Node instead of Electron runtime", () => {
   const electronExecPath = "/Applications/Harness Anything.app/Contents/MacOS/Harness Anything";
@@ -129,6 +136,43 @@ test("GUI service bridge reaches application service through the daemon client",
   }
 });
 
+test("GUI bridge projects a hermetic decision-task-fact ledger into renderer data", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-triadic-"));
+  try {
+    writeTriadicLedger(rootDir);
+    const bridge = createLocalGuiServiceBridge(rootDir);
+    const projection = await withGuiDaemonEnv(rootDir, async () => {
+      const graph = await bridge.invoke("getRelationGraph", null);
+      const decisions = await bridge.invoke("getDecisions", null);
+      const facts = await bridge.invoke("getTaskFacts", { taskId: "task-1" });
+      assert.equal((graph as { readonly ok?: unknown }).ok, true, JSON.stringify(graph));
+      assert.equal((decisions as { readonly ok?: unknown }).ok, true, JSON.stringify(decisions));
+      assert.equal((facts as { readonly ok?: unknown }).ok, true, JSON.stringify(facts));
+      assert.equal((facts as { readonly facts?: ReadonlyArray<unknown> }).facts?.length, 1, JSON.stringify(facts));
+      return buildTriadicRendererData({
+        graph: graph as RelationGraphSuccess,
+        decisions: decisions as DecisionListSuccess,
+        factResults: [facts as TaskFactListSuccess]
+      });
+    });
+
+    assert.deepEqual(projection.decisions.map((decision) => decision.decisionId), ["dec_gui"]);
+    assert.deepEqual(projection.facts.map((fact) => fact.anchor), ["task-1/F-12345678"]);
+    assert.deepEqual(projection.relations.map((relation) => relation.kind).sort(), [
+      "derives",
+      "evidenced-by",
+      "produces"
+    ]);
+    assert.equal(
+      projection.relations.some((relation) => relation.from.startsWith("fact/") && relation.to.startsWith("task/")),
+      false
+    );
+  } finally {
+    await waitForDaemonIdle();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("GUI service bridge preserves document results and daemon-side validation shape", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-bridge-"));
   try {
@@ -222,7 +266,7 @@ test("GUI service bridge refuses custom authored root when an existing daemon la
       daemonPid = daemonPidFromStatus(status);
       assert.equal(typeof daemonPid, "number");
       return customBridge.invoke("getTasks", null);
-    }, { idleMs: "0" }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+    }, { idleMs: "1500" }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
     assert.equal(customList.ok, false);
     assert.equal(customList.error?.code, "daemon_layout_conflict");
     assert.match(customList.error?.hint ?? "", /layout/u);
@@ -310,6 +354,99 @@ function writeHarnessConfig(rootDir: string, authoredRoot = "harness"): void {
     "layout:",
     `  authoredRoot: ${authoredRoot}`,
     "  localRoot: .harness",
+    ""
+  ].join("\n"), "utf8");
+}
+
+function writeTriadicLedger(rootDir: string): void {
+  writeTaskIndex(rootDir, "task-1", "Triadic GUI task", "active");
+  const taskDir = path.join(rootDir, "harness/tasks/task-1");
+  const taskIndexPath = path.join(taskDir, "INDEX.md");
+  const taskIndex = readFileSync(taskIndexPath, "utf8");
+  writeFileSync(taskIndexPath, taskIndex.replace(/---\n$/u, [
+    "relations:",
+    `  ${formatRelationFlowRecord({
+      relation_id: deriveRelationId({ source: "task/task-1", target: "fact/task-1/F-12345678", type: "produces", direction: "directed" }),
+      source: "task/task-1",
+      target: "fact/task-1/F-12345678",
+      type: "produces",
+      strength: "strong",
+      direction: "directed",
+      origin: "declared",
+      rationale: "Task completion produced the fact",
+      state: "active"
+    })}`,
+    "---",
+    ""
+  ].join("\n")), "utf8");
+  writeFileSync(path.join(taskDir, "facts.md"), [
+    formatFactFlowRecord({
+      fact_id: "F-12345678",
+      statement: "Renderer projection fact",
+      source: "test",
+      observedAt: "2026-07-10T00:00:00.000Z",
+      confidence: "high",
+      memoryClass: "semantic",
+      memoryTags: ["pattern"],
+      provenance: [{ runtime: "codex", sessionId: "session-gui", boundAt: "2026-07-10T00:00:00.000Z" }]
+    }),
+    ""
+  ].join("\n"), "utf8");
+
+  const decisionDir = path.join(rootDir, "harness/decisions/decision-dec_gui");
+  mkdirSync(decisionDir, { recursive: true });
+  writeFileSync(path.join(decisionDir, "decision.md"), [
+    "---",
+    "schema: decision-package/v1",
+    "decision_id: dec_gui",
+    "_coordinatorWatermark: gui-test",
+    "title: \"Use the triadic GUI projection\"",
+    "state: active",
+    "riskTier: medium",
+    "urgency: medium",
+    "vertical: \"software/coding\"",
+    "preset: \"architecture-decision\"",
+    "applies_to:",
+    "  modules: [\"gui\"]",
+    "  productLines: []",
+    "proposedBy: { kind: \"agent\", id: \"codex\" }",
+    "proposedAt: \"2026-07-10T00:00:00.000Z\"",
+    "arbiter: { kind: \"human\", id: \"ZeyuLi\" }",
+    "decidedAt: \"2026-07-10T01:00:00.000Z\"",
+    "provenance:",
+    "  - { runtime: \"codex\", sessionId: \"session-gui\", boundAt: \"2026-07-10T00:00:00.000Z\" }",
+    "question: \"Expose the relation graph to the renderer?\"",
+    "chosen:",
+    "  - { id: \"CH1\", text: \"Use the public projection path\" }",
+    "rejected: []",
+    "claims:",
+    "  - { id: \"C1\", text: \"The renderer consumes kernel relation names\", load_bearing: false }",
+    "relations:",
+    `  ${formatRelationFlowRecord({
+      relation_id: deriveRelationId({ source: "decision/dec_gui", target: "task/task-1", type: "derives", direction: "directed" }),
+      source: "decision/dec_gui",
+      target: "task/task-1",
+      type: "derives",
+      strength: "strong",
+      direction: "directed",
+      origin: "declared",
+      rationale: "Decision derived the GUI task",
+      state: "active"
+    })}`,
+    `  ${formatRelationFlowRecord({
+      relation_id: deriveRelationId({ source: "decision/dec_gui/CH1", target: "fact/task-1/F-12345678", type: "evidenced-by", direction: "directed" }),
+      source: "decision/dec_gui/CH1",
+      target: "fact/task-1/F-12345678",
+      type: "evidenced-by",
+      strength: "strong",
+      direction: "directed",
+      origin: "declared",
+      rationale: "Fact evidences the chosen path",
+      state: "active"
+    })}`,
+    "---",
+    "",
+    "# Use the triadic GUI projection",
     ""
   ].join("\n"), "utf8");
 }

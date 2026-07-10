@@ -7,7 +7,6 @@ import {
   FreshnessTag,
 } from "../components/badges";
 import { isExternal } from "../model/types";
-import { DOC_CONTENT, SAMPLE_MARKDOWN } from "../model/mock";
 import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
 import type { NodePos } from "./endpoint";
 import { endpointToNodeId } from "./endpoint";
@@ -15,23 +14,6 @@ import type { DecisionRow, FactRef } from "../model/types";
 
 const truncate = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, n - 1)}…` : s;
-
-/** 从任务 contract.md 提取摘要信息 */
-function extractContractDigest(md: string) {
-  const lines = md.split("\n");
-  let goal = "";
-  const goalIdx = lines.findIndex((l) => /^##\s*目标/.test(l));
-  if (goalIdx >= 0) {
-    for (let i = goalIdx + 1; i < lines.length; i++) {
-      const t = lines[i].trim();
-      if (t.startsWith("#")) break;
-      if (t) goal += (goal ? " " : "") + t;
-    }
-  }
-  const boxes = md.match(/- \[[ x]\]/g) ?? [];
-  const done = md.match(/- \[x\]/g)?.length ?? 0;
-  return { goal, acceptTotal: boxes.length, acceptDone: done };
-}
 
 interface Props {
   focusNode?: NodePos;
@@ -160,44 +142,6 @@ export function GraphDrawer({
               <span>module: {focusTask.module}</span>
               <span>raw: {focusTask.rawStatus}</span>
             </div>
-            {(() => {
-              const digest = extractContractDigest(DOC_CONTENT["contract.md"] ?? SAMPLE_MARKDOWN);
-              const missingRequired = focusTask.docs.filter((d) => d.required && !d.present);
-              return (
-                <div className="flex flex-col gap-1.5 rounded-md border border-border bg-surface-raised px-2.5 py-2">
-                  <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                    契约摘要 · contract.md
-                  </span>
-                  {digest.goal && (
-                    <p className="text-xs leading-relaxed text-text-muted">
-                      {digest.goal.length > 110 ? `${digest.goal.slice(0, 109)}…` : digest.goal}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px]">
-                    {digest.acceptTotal > 0 && (
-                      <span className={digest.acceptDone === digest.acceptTotal ? "text-text-muted" : "text-stale"}>
-                        验收 {digest.acceptDone}/{digest.acceptTotal}
-                      </span>
-                    )}
-                    <span className="text-text-muted">
-                      文档 {focusTask.docs.filter((d) => d.present).length}/{focusTask.docs.length}
-                    </span>
-                    {missingRequired.length > 0 && (
-                      <span className="text-danger">缺必需 {missingRequired.map((d) => d.title).join("、")}</span>
-                    )}
-                  </div>
-                  {focusTask.gates.length > 0 && (
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px]">
-                      {focusTask.gates.map((g) => (
-                        <span key={g.name} className={g.ok ? "text-text-muted" : "text-danger"} title={g.detail}>
-                          {g.ok ? "✓" : "✗"} {g.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
           </>
         ) : focusNode.entity === "decision" ? (
           <div className="flex flex-col gap-3">

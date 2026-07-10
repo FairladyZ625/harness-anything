@@ -8,6 +8,7 @@ export type {
   DecisionProjectionRow,
   DomainStatus,
   ProjectionWarning,
+  RelationType,
   TaskProjectionRow
 } from "../../../kernel/src/index.ts";
 export type {

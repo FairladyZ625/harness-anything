@@ -1,4 +1,3 @@
-/* Mock 数据聚合桶：按职责拆分见 mock-work / mock-triadic-data / mock-catalog */
+/* Mock 数据聚合桶：真实三元语数据不在此导出。 */
 export * from "./mock-work";
-export * from "./mock-triadic-data";
 export * from "./mock-catalog";

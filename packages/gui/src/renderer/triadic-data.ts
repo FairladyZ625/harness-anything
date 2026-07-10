@@ -6,7 +6,13 @@ import type {
   RelationGraphEdgeRow
 } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
-import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge, RelationKind } from "./model/types.ts";
+import type {
+  DecisionListSuccess,
+  RelationGraphSuccess,
+  TaskFactListSuccess
+} from "./api-client.ts";
+import { KIND_LABEL } from "./graph/constants.ts";
+import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 
 export const triadicQueryKeys = {
   all: ["harness", "triadic"] as const,
@@ -36,37 +42,79 @@ export function useTriadicProjectionQuery() {
     }))
   });
 
-  const factRows = factQueries.flatMap((query) => query.data?.facts ?? []);
-  const relationRows = graph.data?.edges ?? [];
-  const coverageRows = graph.data?.coverageRows ?? [];
-  const facts = adaptFactRows(factRows, relationRows);
-  const relations = adaptRelationRows(relationRows);
-  const adaptedDecisions = adaptDecisionRows(decisions.data?.decisions ?? [], relationRows, coverageRows);
+  const rendererData = buildTriadicRendererData({
+    graph: graph.data ?? emptyRelationGraph,
+    decisions: decisions.data ?? emptyDecisionList,
+    factResults: factQueries.flatMap((query) => query.data ? [query.data] : [])
+  });
   const isLoading = graph.isLoading || decisions.isLoading || factQueries.some((query) => query.isLoading);
   const isError = graph.isError || decisions.isError || factQueries.some((query) => query.isError);
 
   return {
     isLoading,
     isError,
-    decisions: adaptedDecisions,
-    facts,
-    relations,
-    warnings: [
-      ...(graph.data?.warnings ?? []),
-      ...(decisions.data?.warnings ?? []),
-      ...factQueries.flatMap((query) => query.data ? [] : [])
-    ]
+    ...rendererData
   };
 }
 
+export interface TriadicRendererData {
+  readonly decisions: DecisionRow[];
+  readonly facts: FactRef[];
+  readonly relations: RelationEdge[];
+  readonly warnings: unknown[];
+}
+
+/**
+ * Converts the public GUI bridge DTOs into the renderer's triadic model.
+ * Keeping this pure makes the complete ledger -> bridge -> renderer path
+ * testable without adding a second read path beside the daemon service.
+ */
+export function buildTriadicRendererData(input: {
+  readonly graph: RelationGraphSuccess;
+  readonly decisions: DecisionListSuccess;
+  readonly factResults: ReadonlyArray<TaskFactListSuccess>;
+}): TriadicRendererData {
+  const relationRows = input.graph.edges;
+  const factRows = input.factResults.flatMap((result) => result.facts);
+  return {
+    decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
+    facts: adaptFactRows(factRows, relationRows),
+    relations: adaptRelationRows(relationRows),
+    warnings: [...input.graph.warnings, ...input.decisions.warnings]
+  };
+}
+
+const emptyRelationGraph: RelationGraphSuccess = {
+  ok: true,
+  edges: [],
+  coverageRows: [],
+  factAnchors: [],
+  warnings: []
+};
+
+const emptyDecisionList: DecisionListSuccess = {
+  ok: true,
+  decisions: [],
+  warnings: []
+};
+
 function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationEdge[] {
-  return rows.map((row) => ({
-    from: row.sourceRef,
-    to: row.targetRef,
-    kind: row.relationType as RelationKind,
-    provenance: row.origin === "imported_snapshot" ? "external-engine" : "local-document",
-    rationale: row.rationale
-  }));
+  const edges: RelationEdge[] = [];
+  for (const row of rows) {
+    if (!isKernelRelationKind(row.relationType)) continue;
+    edges.push({
+      from: row.sourceRef,
+      to: row.targetRef,
+      kind: row.relationType,
+      provenance: row.origin === "imported_snapshot" ? "external-engine" : "local-document",
+      rationale: row.rationale
+    });
+  }
+  return edges;
+}
+
+function isKernelRelationKind(value: string): value is RelationEdge["kind"] {
+  return Object.hasOwn(KIND_LABEL, value);
 }
 
 function adaptFactRows(

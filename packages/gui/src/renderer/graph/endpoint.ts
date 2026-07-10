@@ -21,12 +21,8 @@ export interface NodePos {
  *   decision/<id>        → { id: "decision/<id>", entity: "decision" }
  *   fact/<task>/<anchor> → { id: "fact/<task>/<anchor>", entity: "fact" }
  *   task/<id>            → { id: "<id>", entity: "task" }
- *   裸 id（兼容旧 mock）：仅当是已知 task id 时认作 task
  */
-export function parseEndpoint(
-  raw: string,
-  taskIds: Set<string>,
-): { id: string; entity: EntityKind } | null {
+export function parseEndpoint(raw: string): { id: string; entity: EntityKind } | null {
   if (raw.startsWith("decision/")) {
     const parts = raw.split("/");
     const cleanId = `${parts[0]}/${parts[1]}`;
@@ -37,7 +33,6 @@ export function parseEndpoint(
     const id = raw.slice(5).split("/")[0];
     return { id, entity: "task" };
   }
-  if (taskIds.has(raw)) return { id: raw, entity: "task" };
   return null;
 }
 

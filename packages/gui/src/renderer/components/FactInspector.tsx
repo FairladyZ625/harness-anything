@@ -109,7 +109,7 @@ export function FactInspector({
                   <span className="font-mono text-[12px] text-text">{fact.taskId}</span>
                 )}
                 <span className="min-w-0 truncate text-[12px] text-text-muted">
-                  {task?.title ?? "宿主 task 不在当前 mock 投影"}
+                  {task?.title ?? "宿主 task 不在当前 task 投影"}
                 </span>
               </div>
               {task && (
@@ -133,7 +133,7 @@ export function FactInspector({
                 </div>
               ) : (
                 <p className="mt-1 text-[12px] text-text-faint">
-                  mock task 未携带 entity provenance；真实版读取宿主 task 包 provenance。
+                  当前 task 投影未携带 entity provenance；后续由宿主 task 包投影补齐。
                 </p>
               )}
             </div>

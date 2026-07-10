@@ -10,9 +10,6 @@ export const PAD = 24;
 export const SWIM_GAP = 70;
 
 export const KIND_LABEL: Record<RelationKind, string> = {
-  depends_on: "依赖",
-  parent_of: "父子",
-  references: "引用",
   supports: "支撑",
   supersedes: "推翻",
   refines: "细化",
@@ -30,9 +27,6 @@ export const KIND_LABEL: Record<RelationKind, string> = {
 };
 
 export const KIND_LABEL_IN: Record<string, string> = {
-  depends_on: "被依赖",
-  parent_of: "子任务",
-  references: "被引用",
   supports: "支撑→",
   supersedes: "被推翻",
   refines: "被细化",

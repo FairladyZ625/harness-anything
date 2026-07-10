@@ -1,3 +1,5 @@
+import type { RelationType } from "../../api/renderer-dto.ts";
+
 export type CanonicalStatus =
   | "planned"
   | "active"
@@ -78,38 +80,21 @@ export interface TaskRow {
   rootTitle?: string;
 }
 
-export type RelationKind =
-  | "depends_on"
-  | "parent_of"
-  | "references"
-  // 三元语扩展（entity-relations/v1）：边可跨 task/decision/fact
-  | "supports" // decision 的承重论点 → 支撑 fact（覆盖度查可达）
-  | "supersedes" // decision 推翻 decision（含 task 收尾派生）
-  | "refines"
-  | "narrows"
-  | "derives" // decision 派生出 task
-  | "blocks"
-  | "relates"
-  | "implements"
-  | "depends-on"
-  | "produces"
-  | "evidences"
-  | "evidenced-by"
-  | "invalidated-by"
-  | "supersedes-fact";
+/** GUI relation names are the kernel entity-relations/v1 vocabulary verbatim. */
+export type RelationKind = RelationType;
 
 export interface RelationEdge {
   /**
    * from/to 形如 <entity>/<id>[/anchor]，实体 ∈ task|decision|fact。
    * 例：task/task_x、decision/dec_y、fact/task_x/F-a3f2、decision/dec_y/C1（锚到 claim）。
-   * 语义：from --kind--> to（如 decision/dec_y/C1 supports fact/task_x/F-a3f2）。
+   * 语义：from --kind--> to（如 decision/dec_y/C1 evidenced-by fact/task_x/F-a3f2）。
    */
   from: string;
   to: string;
   kind: RelationKind;
   /** ⚠️ 同名陷阱消歧：这是「边的来源」标量；entity 顶层的 provenance 是 session 原文溯源数组（见 DecisionRow/TaskRow），同名不同义 */
   provenance: "local-document" | "external-engine";
-  /** 强 relation 的 rationale 必填非空（INV-5）；supports/derives/supersedes 承重边在此给决策卡证据栏展示 */
+  /** 强 relation 的 rationale 必填非空（INV-5）；evidenced-by/derives/supersedes 承重边在此给决策卡证据栏展示 */
   rationale?: string;
 }
 
@@ -164,9 +149,8 @@ export interface DecisionRow {
   provenance: ProvenanceEntry[];
   lastChangedAt: string;
   /**
-   * 决策就绪信号灯(41 §3.1a)。⚠️ mock 捷径:evidence 活性 / 覆盖度在原型里由 relation/fact
-   * 推导(见 DecisionsView 的 computeReadinessSignals),真实版为 RelationGraphProjection 查询;
-   * applies_to 漂移 / 冲突标记 / 需回写在此显式给出(真实为 boundAt×git log / findConflictMarkers)。
+   * 决策就绪信号灯(41 §3.1a)。evidence 活性 / 覆盖度由 relation/fact
+   * 投影推导；其余可选信号由后续专用投影提供。
    */
   readinessSignals?: {
     /** 黄:propose 后(boundAt 起)applies_to 文档有 commit 触碰。命中给摘要(哪些文档、何时)。 */
@@ -191,7 +175,7 @@ export interface FactRef {
   category: "finding" | "progress" | "lesson";
   text: string;
   at: string;
-  /** 是否已被 invalidated-by/supersedes-fact 边标记失效（由图查询推得，原型 mock 直接给） */
+  /** 是否已被 invalidated-by/supersedes-fact 边标记失效（由图投影推得） */
   invalidated?: boolean;
 }
 

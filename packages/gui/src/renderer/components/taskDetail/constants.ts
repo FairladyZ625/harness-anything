@@ -12,9 +12,6 @@ export const LOCAL_TRANSITIONS: CanonicalStatus[] = [
 export const STEP_FLOW: CanonicalStatus[] = ["planned", "active", "in_review", "done"];
 
 export const OUT_LABEL: Record<RelationKind, string> = {
-  depends_on: "依赖",
-  parent_of: "父任务 of",
-  references: "引用",
   supports: "支撑",
   supersedes: "推翻",
   refines: "细化",
@@ -32,9 +29,6 @@ export const OUT_LABEL: Record<RelationKind, string> = {
 };
 
 export const IN_LABEL: Record<RelationKind, string> = {
-  depends_on: "被依赖",
-  parent_of: "子任务",
-  references: "被引用",
   supports: "支撑→",
   supersedes: "被推翻",
   refines: "被细化",
