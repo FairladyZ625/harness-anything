@@ -70,8 +70,8 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "session-export",
-    "usage": "session export [--session <id> --runtime claude-code|codex|zcode|antigravity] [--source runtime|manual] [--detected-at <iso>] [--user <name>] [--json]",
-    "options": [{"flag":"--session","description":"Set the runtime session id."},{"flag":"--runtime","description":"Set the observed runtime kind."},{"flag":"--source","description":"Set the observed source label for explicit session export."},{"flag":"--detected-at","description":"Set the detected session timestamp for explicit session export."},{"flag":"--user","description":"Set the user label for explicit session export."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "session export [--session <id> --runtime claude-code|codex|zcode|antigravity] [--source runtime|manual] [--detected-at <iso>] [--user <name>] [--transcript-file <path>] [--json]",
+    "options": [{"flag":"--session","description":"Set the runtime session id."},{"flag":"--runtime","description":"Set the observed runtime kind."},{"flag":"--source","description":"Set the observed source label for explicit session export."},{"flag":"--detected-at","description":"Set the detected session timestamp for explicit session export."},{"flag":"--user","description":"Set the user label for explicit session export."},{"flag":"--transcript-file","description":"Read the selected runtime session from an explicit JSONL transcript file."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Export the current or specified runtime session into the managed harness sessions directory.",
     "examples": ["harness-anything session export --json"],
     "parse": parseSessionArgs,

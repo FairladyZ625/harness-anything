@@ -84,6 +84,7 @@ export type {
   ProvenanceSessionBackfillResult,
   ProvenanceSessionDocument,
   ProvenanceSessionExporter,
+  ProvenanceSessionExportOptions,
   ProvenanceSessionExporterOptions,
   ProvenanceSessionExporterRejected,
   ProvenanceSessionExportResult

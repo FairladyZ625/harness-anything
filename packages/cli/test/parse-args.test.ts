@@ -103,7 +103,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "event list", argv: ["event", "list", "--session", "codex-session-1"], kind: "runtime-event-list", fields: { sessionId: "codex-session-1" } },
   { name: "materializer run", argv: ["materializer", "run", "--dry-run"], kind: "materializer-run", fields: { dryRun: true } },
   { name: "session export current", argv: ["session", "export"], kind: "session-export", fields: { sessionId: undefined, runtime: undefined } },
-  { name: "session export explicit", argv: ["session", "export", "--session", "codex-thread", "--runtime", "codex", "--source", "manual", "--detected-at", "2026-07-04T00:00:00.000Z", "--user", "Zeyu"], kind: "session-export", fields: { sessionId: "codex-thread", runtime: "codex", source: "manual", detectedAt: "2026-07-04T00:00:00.000Z", user: "Zeyu" } },
+  { name: "session export explicit", argv: ["session", "export", "--session", "codex-thread", "--runtime", "codex", "--source", "manual", "--detected-at", "2026-07-04T00:00:00.000Z", "--user", "Zeyu", "--transcript-file", "/tmp/codex-thread.jsonl"], kind: "session-export", fields: { sessionId: "codex-thread", runtime: "codex", source: "manual", detectedAt: "2026-07-04T00:00:00.000Z", user: "Zeyu", transcriptFile: "/tmp/codex-thread.jsonl" } },
   { name: "session backfill", argv: ["session", "backfill", "--runtime", "codex", "--limit", "5"], kind: "session-backfill", fields: { runtime: "codex", limit: 5 } },
   { name: "session sync", argv: ["session", "sync"], kind: "session-sync", fields: {} },
   { name: "doc list", argv: ["doc", "list", "--module", "m4-loadbearing", "--product-line", "kernel"], kind: "doc-list", fields: { filters: { moduleKey: "m4-loadbearing", productLine: "kernel" } } },

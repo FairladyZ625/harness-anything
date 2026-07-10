@@ -7,6 +7,7 @@ import type { ProvenanceSessionBackfillOptions, ProvenanceSessionDocument } from
 export interface RuntimeLogOptions {
   readonly homeDir?: string;
   readonly runtimeLogRoots?: Partial<Record<CurrentSessionRuntime, ReadonlyArray<string>>>;
+  readonly transcriptFile?: string;
 }
 
 export interface RuntimeConversationMessage {
@@ -109,6 +110,7 @@ async function findRuntimeLogPath(
   options: RuntimeLogOptions,
   warnings: string[]
 ): Promise<string | undefined> {
+  if (options.transcriptFile) return options.transcriptFile;
   const configuredRoots = options.runtimeLogRoots?.[session.runtime];
   const roots = configuredRoots ?? defaultRuntimeLogRoots(session.runtime, options.homeDir);
   if (roots.length === 0) {

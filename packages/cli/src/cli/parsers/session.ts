@@ -39,7 +39,8 @@ export function parseSessionArgs(args: ReadonlyArray<string>, rootDir: string, j
         runtime,
         source,
         detectedAt: readOption(args, "--detected-at"),
-        user: readOption(args, "--user")
+        user: readOption(args, "--user"),
+        transcriptFile: readOption(args, "--transcript-file")
       }
     }
   };

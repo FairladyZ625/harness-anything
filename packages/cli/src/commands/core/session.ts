@@ -53,9 +53,10 @@ function runSessionExport(
   if (action.sessionId && !action.runtime) {
     return Effect.succeed(sessionError("session-export", "Use session export --session <id> --runtime <runtime>."));
   }
+  const exportOptions = action.transcriptFile ? { transcriptFile: action.transcriptFile } : undefined;
   const exportEffect = action.sessionId
-    ? context.provenanceSessionExporter.exportSession(toExplicitSession(action))
-    : context.provenanceSessionExporter.exportCurrentSession();
+    ? context.provenanceSessionExporter.exportSession(toExplicitSession(action), exportOptions)
+    : context.provenanceSessionExporter.exportCurrentSession(exportOptions);
   return exportEffect.pipe(
     Effect.map((result) => {
       const git = journalGitReport(true, [result.path], true);

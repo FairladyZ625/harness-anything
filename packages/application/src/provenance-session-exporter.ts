@@ -29,6 +29,10 @@ export interface ProvenanceSessionExportResult {
   readonly path: string;
 }
 
+export interface ProvenanceSessionExportOptions {
+  readonly transcriptFile?: string;
+}
+
 export interface ProvenanceSessionBackfillOptions {
   readonly runtime?: Exclude<CurrentSessionRuntime, "human">;
   readonly limit?: number;
@@ -43,12 +47,13 @@ export interface ProvenanceSessionBackfillResult {
 export interface ProvenanceSessionExporterRejected {
   readonly _tag: "ProvenanceSessionExporterRejected";
   readonly sessionId: string;
+  readonly code: "transcript_unavailable" | "session_not_found" | "read_failed" | "write_failed";
   readonly reason: string;
 }
 
 export interface ProvenanceSessionExporter {
-  readonly exportSession: (session: CurrentSessionRef) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
-  readonly exportCurrentSession: () => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
+  readonly exportSession: (session: CurrentSessionRef, options?: ProvenanceSessionExportOptions) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
+  readonly exportCurrentSession: (options?: ProvenanceSessionExportOptions) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
   readonly backfillRuntimeSessions: (options?: ProvenanceSessionBackfillOptions) => Effect.Effect<ProvenanceSessionBackfillResult, ProvenanceSessionExporterRejected>;
   readonly readById: (sessionId: string) => Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected>;
 }
@@ -59,11 +64,12 @@ const safeSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export function makeProvenanceSessionExporter(options: ProvenanceSessionExporterOptions): ProvenanceSessionExporter {
   const timestamp = () => options.now?.() ?? new Date().toISOString();
-  const exportSession = (session: CurrentSessionRef) => writeSessionDocument(options.rootInput, options, toSessionDocument(session, timestamp()));
+  const exportSession = (session: CurrentSessionRef, exportOptions: ProvenanceSessionExportOptions = {}) =>
+    writeSessionDocument(options.rootInput, options, toSessionDocument(session, timestamp()), exportOptions);
   return {
     exportSession,
-    exportCurrentSession: () => options.currentSessionProbe.currentSession.pipe(
-      Effect.flatMap(exportSession)
+    exportCurrentSession: (exportOptions = {}) => options.currentSessionProbe.currentSession.pipe(
+      Effect.flatMap((session) => exportSession(session, exportOptions))
     ),
     backfillRuntimeSessions: (backfillOptions = {}) => backfillRuntimeSessions(options.rootInput, options, backfillOptions, timestamp),
     readById: (sessionId) => readSessionDocument(options.rootInput, options, sessionId)
@@ -85,15 +91,33 @@ function toSessionDocument(session: CurrentSessionRef, exportedAt: string): Prov
 function writeSessionDocument(
   rootInput: HarnessLayoutInput,
   options: ProvenanceSessionExporterOptions,
-  session: ProvenanceSessionDocument
+  session: ProvenanceSessionDocument,
+  exportOptions: ProvenanceSessionExportOptions = {}
 ): Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected> {
   return Effect.gen(function* () {
     const target = resolveSessionPath(rootInput, session.sessionId);
-    const conversation = yield* resolveRuntimeConversation(session, options);
+    if (session.runtime === "human" && exportOptions.transcriptFile) {
+      return yield* Effect.fail(sessionRejection(
+        session.sessionId,
+        "An explicit transcript file requires a non-human runtime session.",
+        "transcript_unavailable"
+      ));
+    }
+    const conversation = yield* resolveRuntimeConversation(session, {
+      ...options,
+      ...(exportOptions.transcriptFile ? { transcriptFile: exportOptions.transcriptFile } : {})
+    });
+    if (session.runtime !== "human" && conversation.messages.length === 0) {
+      return yield* Effect.fail(sessionRejection(
+        session.sessionId,
+        conversation.warnings.join(" ") || `No conversation text could be extracted for ${session.runtime} session ${session.sessionId}.`,
+        "transcript_unavailable"
+      ));
+    }
     const body = renderSessionMarkdown(session, conversation);
     const bodyRef = yield* Effect.try({
       try: () => writeContentAddressedBlob(rootInput, body, sessionMediaType),
-      catch: (cause) => sessionRejection(session.sessionId, cause instanceof Error ? cause.message : String(cause))
+      catch: (cause) => sessionRejection(session.sessionId, cause instanceof Error ? cause.message : String(cause), "write_failed")
     });
     return yield* writeCoordinatedPayload(options.coordinator, stablePayloadHash, {
       entityId: moduleEntityId("provenance-session"),
@@ -109,7 +133,7 @@ function writeSessionDocument(
         session,
         path: target.authoredRelativePath
       })),
-      Effect.mapError((error) => sessionRejection(session.sessionId, writeErrorMessage(error)))
+      Effect.mapError((error) => sessionRejection(session.sessionId, writeErrorMessage(error), "write_failed"))
     );
   });
 }
@@ -122,15 +146,28 @@ function readSessionDocument(
   return Effect.gen(function* () {
     const target = resolveSessionPath(rootInput, sessionId);
     return yield* options.artifactStore.readAuthoredDocument(target.authoredRelativePath).pipe(
-      Effect.map((document) => {
-        const body = document.body;
-        const session = parseSessionMarkdown(body, sessionId);
-        return {
-          session,
-          path: target.authoredRelativePath
-        };
-      }),
-      Effect.mapError((error) => sessionRejection(sessionId, error._tag === "ArtifactReadFailed" ? `session not found: ${sessionId}` : "session read failed"))
+      Effect.mapError((error) => sessionRejection(
+        sessionId,
+        error._tag === "ArtifactReadFailed" ? `session not found: ${sessionId}` : "session read failed",
+        error._tag === "ArtifactReadFailed" ? "session_not_found" : "read_failed"
+      )),
+      Effect.flatMap((document) => Effect.try({
+        try: () => {
+          const body = document.body;
+          const session = parseSessionMarkdown(body, sessionId);
+          if (session.runtime !== "human" && !/^### (?:User|Assistant|Summary)(?: \(|$)/mu.test(body)) {
+            throw new Error(`session transcript unavailable: ${sessionId}`);
+          }
+          return {
+            session,
+            path: target.authoredRelativePath
+          };
+        },
+        catch: (cause) => {
+          const reason = cause instanceof Error ? cause.message : "session read failed";
+          return sessionRejection(sessionId, reason, reason.startsWith("session transcript unavailable:") ? "transcript_unavailable" : "read_failed");
+        }
+      }))
     );
   });
 }
@@ -266,10 +303,15 @@ function sanitizeScalar(value: string): string {
   return value.replace(/[\r\n]+/gu, " ").trim();
 }
 
-function sessionRejection(sessionId: string, reason: string): ProvenanceSessionExporterRejected {
+function sessionRejection(
+  sessionId: string,
+  reason: string,
+  code: ProvenanceSessionExporterRejected["code"] = "read_failed"
+): ProvenanceSessionExporterRejected {
   return {
     _tag: "ProvenanceSessionExporterRejected",
     sessionId,
+    code,
     reason
   };
 }

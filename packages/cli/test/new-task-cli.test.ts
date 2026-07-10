@@ -16,6 +16,7 @@ const noAgentRuntimeEnv = {
   ZCODE_SESSION_ID: "",
   ANTIGRAVITY_SESSION_ID: ""
 };
+const testActorEnv = { HARNESS_ACTOR: "agent:new-task-cli-test" } as const;
 
 test("CLI init dogfoods coding vertical defaults for new tasks", () => {
   withTempRoot((rootDir) => {
@@ -70,7 +71,7 @@ test("CLI task create persists work kind and priority metadata", () => {
   });
 });
 
-test("CLI task create commits automatically exported runtime session provenance", () => {
+test("CLI task create keeps runtime provenance without fabricating a missing transcript", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
     const sessionId = "019f32b3-0c38-7720-841d-b41048092cc8";
@@ -87,16 +88,16 @@ test("CLI task create commits automatically exported runtime session provenance"
       "standard-task"
     ], true, {
       ...noAgentRuntimeEnv,
-      CODEX_THREAD_ID: sessionId
+      CODEX_THREAD_ID: sessionId,
+      HOME: path.join(rootDir, "home")
     });
     const taskId = assertGeneratedTaskId(result.taskId);
     const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-runtime-provenance/INDEX.md`), "utf8");
     const sessionPath = path.join(harnessRoot, "sessions", `${sessionId}.md`);
 
     assert.match(index, new RegExp(`sessionId: "${sessionId}"`, "u"));
-    assert.match(readFileSync(sessionPath, "utf8"), new RegExp(`sessionId: ${sessionId}`, "u"));
-    execFileSync("git", ["-C", harnessRoot, "ls-files", "--error-unmatch", `sessions/${sessionId}.md`], { stdio: "ignore" });
-    assert.match(gitLog(harnessRoot), new RegExp(`session-export-${sessionId}-[a-f0-9]{16}`, "u"));
+    assert.equal(existsSync(sessionPath), false);
+    assert.doesNotMatch(gitLog(harnessRoot), new RegExp(`session-export-${sessionId}-[a-f0-9]{16}`, "u"));
     assert.equal(gitStatus(harnessRoot), "");
   });
 });
@@ -127,7 +128,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: { ...process.env, ...testActorEnv, ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
@@ -141,6 +142,7 @@ function runText(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
       encoding: "utf8",
+      env: { ...process.env, ...testActorEnv },
       stdio: ["ignore", "pipe", "pipe"]
     });
     return stdout;

@@ -21,7 +21,10 @@ export function bindCreateProvenance(
       return options.provenanceSessionExporter.readById(session.sessionId).pipe(
         Effect.catchAll(() => options.provenanceSessionExporter!.exportSession(session)),
         Effect.flatMap((result) => options.syncExportedSession ? options.syncExportedSession(result) : Effect.void),
-        Effect.as(provenance)
+        Effect.as(provenance),
+        Effect.catchAll((error) => error.code === "transcript_unavailable"
+          ? Effect.succeed(provenance)
+          : Effect.fail(error))
       );
     })
   );

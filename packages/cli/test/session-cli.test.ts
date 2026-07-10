@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,14 +15,24 @@ const cleanRuntimeEnv = {
   ZCODE_SESSION_ID: "",
   ANTIGRAVITY_SESSION_ID: ""
 } as const;
+const testActorEnv = { HARNESS_ACTOR: "agent:session-cli-test" } as const;
 
 test("CLI session export binds CODEX_THREAD_ID and writes managed session markdown through the journal", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
+    const transcriptFile = path.join(rootDir, "desktop-thread.jsonl");
     mkdirSync(harnessRoot, { recursive: true });
     initHarnessGit(harnessRoot);
+    writeFileSync(transcriptFile, [
+      JSON.stringify({
+        timestamp: "2026-07-04T00:00:00.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "Desktop transcript passed explicitly." }
+      }),
+      ""
+    ].join("\n"));
 
-    const exported = runJson(rootDir, ["session", "export"], true, {
+    const exported = runJson(rootDir, ["session", "export", "--transcript-file", transcriptFile], true, {
       CODEX_THREAD_ID: "019f28de-f7f6-7223-a2a8-b2968686fe21",
       CODEX_SESSION_ID: "legacy-session-id"
     });
@@ -33,9 +43,32 @@ test("CLI session export binds CODEX_THREAD_ID and writes managed session markdo
     assert.equal(exported.report.session.sessionId, "019f28de-f7f6-7223-a2a8-b2968686fe21");
     assert.equal(exported.report.git.committed, true);
     assert.equal(exported.report.git.coordinator, "write-journal");
-    assert.match(readFileSync(path.join(rootDir, exported.paths.primary), "utf8"), /sessionId: 019f28de-f7f6-7223-a2a8-b2968686fe21/u);
+    const body = readFileSync(path.join(rootDir, exported.paths.primary), "utf8");
+    assert.match(body, /sessionId: 019f28de-f7f6-7223-a2a8-b2968686fe21/u);
+    assert.match(body, /Desktop transcript passed explicitly\./u);
     assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
     assert.match(writeWatermarkBody(rootDir), /session-export-019f28de-f7f6-7223-a2a8-b2968686fe21/u);
+    assert.equal(gitStatus(harnessRoot), "");
+  });
+});
+
+test("CLI session export fails closed without writing when a runtime transcript is unavailable", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    mkdirSync(harnessRoot, { recursive: true });
+    initHarnessGit(harnessRoot);
+
+    const exported = runJson(rootDir, [
+      "session", "export",
+      "--session", "missing-desktop-thread",
+      "--runtime", "codex",
+      "--source", "runtime"
+    ], false);
+
+    assert.equal(exported.ok, false);
+    assert.equal(exported.error?.code, "session_export_failed");
+    assert.match(exported.error?.hint ?? "", /No runtime JSONL log found for codex session missing-desktop-thread/u);
+    assert.equal(existsSync(path.join(harnessRoot, "sessions", "missing-desktop-thread.md")), false);
     assert.equal(gitStatus(harnessRoot), "");
   });
 });
@@ -154,7 +187,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...cleanRuntimeEnv, ...env }
+      env: { ...process.env, ...cleanRuntimeEnv, ...testActorEnv, ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

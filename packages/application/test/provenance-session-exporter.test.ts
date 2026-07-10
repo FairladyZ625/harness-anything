@@ -4,7 +4,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
-import { makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
+import { bindCreateProvenance, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
 import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, moduleEntityId, type CurrentSessionRef, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
 import type { ProvenanceSessionExporterOptions } from "../src/index.ts";
 import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
@@ -138,6 +138,68 @@ test("provenance session exporter renders Codex JSONL conversation text", async 
   }
 });
 
+test("provenance session exporter accepts an explicit runtime transcript file", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const transcriptFile = path.join(rootDir, "desktop-thread.jsonl");
+    writeFileSync(transcriptFile, [
+      JSON.stringify({
+        timestamp: "2026-07-03T00:00:00.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "Export this Desktop transcript explicitly." }
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-03T00:00:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "The explicit transcript was archived." }]
+        }
+      }),
+      ""
+    ].join("\n"));
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "desktop-thread-explicit",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      runtimeLogRoots: { codex: [path.join(rootDir, "missing-runtime-logs")] },
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const exported = await runEffect(exporter.exportCurrentSession({ transcriptFile }));
+    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    assert.match(body, /Export this Desktop transcript explicitly\./u);
+    assert.match(body, /The explicit transcript was archived\./u);
+    assert.match(body, new RegExp(`Runtime log: ${transcriptFile.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter rejects an explicit transcript file for a human fallback session", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const transcriptFile = path.join(rootDir, "unbound-transcript.jsonl");
+    writeFileSync(transcriptFile, `${JSON.stringify({ role: "user", text: "Do not ignore this file." })}\n`);
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe: makeHumanFallbackSessionProbe({
+        now: () => "2026-07-03T00:00:00.000Z"
+      })
+    });
+
+    const result = await runEffectExit(exporter.exportCurrentSession({ transcriptFile }));
+    assert.equal(result._tag, "Failure");
+    assert.match(String(result.cause), /explicit transcript file requires a non-human runtime session/u);
+    assert.equal(existsSync(path.join(rootDir, "harness", "sessions", "human-cli-1783036800000.md")), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("provenance session exporter dedupes identical claim-check blobs and verifies corruption", async () => {
   const rootDir = createHarnessRoot();
   try {
@@ -198,6 +260,16 @@ test("provenance session exporter dedupes identical claim-check blobs and verifi
 test("provenance session exporter preserves daemon lock owner guidance", async () => {
   const rootDir = createHarnessRoot();
   try {
+    const logsRoot = path.join(rootDir, "runtime-logs", "codex");
+    mkdirSync(logsRoot, { recursive: true });
+    writeFileSync(path.join(logsRoot, "rollout-codex-session-locked.jsonl"), [
+      JSON.stringify({
+        timestamp: "2026-07-03T00:00:00.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "Preserve the write conflict owner." }
+      }),
+      ""
+    ].join("\n"));
     const owner = ".harness/locks/global.lock (held by daemon pid 123; write through daemon via the daemon-backed ha client/API instead of direct WriteCoordinator writes)";
     const error = { _tag: "GlobalWriteConflict", owner } satisfies WriteError;
     const coordinator = failingCoordinator(error);
@@ -211,6 +283,7 @@ test("provenance session exporter preserves daemon lock owner guidance", async (
         source: "runtime",
         detectedAt: "2026-07-03T00:00:00.000Z"
       }),
+      runtimeLogRoots: { codex: [logsRoot] },
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
@@ -365,7 +438,7 @@ test("provenance session exporter backfills ZCode runtime logs by discovered ses
   }
 });
 
-test("provenance session exporter writes visible warning when runtime log is missing", async () => {
+test("provenance session exporter fails closed without writing when runtime log is missing", async () => {
   const rootDir = createHarnessRoot();
   try {
     const exporter = makeTestProvenanceSessionExporter(rootDir, {
@@ -379,11 +452,10 @@ test("provenance session exporter writes visible warning when runtime log is mis
       now: () => "2026-07-03T00:01:00.000Z"
     });
 
-    const exported = await runEffect(exporter.exportCurrentSession());
-    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
-    assert.match(body, /## Export Warnings/u);
-    assert.match(body, /No runtime JSONL log found for codex session missing-codex-session/u);
-    assert.match(body, /_No conversation text extracted\._/u);
+    const exported = await runEffectExit(exporter.exportCurrentSession());
+    assert.equal(exported._tag, "Failure");
+    assert.match(String(exported.cause), /No runtime JSONL log found for codex session missing-codex-session/u);
+    assert.equal(existsSync(path.join(rootDir, "harness", "sessions", "missing-codex-session.md")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -403,6 +475,70 @@ test("provenance session exporter fails visibly for missing or unsafe session id
     const unsafe = await runEffectExit(exporter.readById("../escape"));
     assert.equal(unsafe._tag, "Failure");
     assert.equal(String(unsafe.cause).includes("invalid session id: ../escape"), true);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter rejects an existing runtime session without conversation text", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const sessionsRoot = path.join(rootDir, "harness", "sessions");
+    mkdirSync(sessionsRoot, { recursive: true });
+    writeFileSync(path.join(sessionsRoot, "empty-runtime-session.md"), [
+      "---",
+      "schema: provenance-session/v1",
+      "sessionId: empty-runtime-session",
+      "runtime: codex",
+      "source: runtime",
+      "detectedAt: 2026-07-03T00:00:00.000Z",
+      "exportedAt: 2026-07-03T00:01:00.000Z",
+      "---",
+      "",
+      "# Session empty-runtime-session",
+      "",
+      "## Conversation",
+      "",
+      "_No conversation text extracted._",
+      ""
+    ].join("\n"));
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe: makeHumanFallbackSessionProbe()
+    });
+
+    const result = await runEffectExit(exporter.readById("empty-runtime-session"));
+    assert.equal(result._tag, "Failure");
+    assert.match(String(result.cause), /session transcript unavailable: empty-runtime-session/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("automatic provenance binding keeps the session pointer when the transcript is unavailable", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const currentSessionProbe = fixedSessionProbe({
+      runtime: "codex",
+      sessionId: "desktop-ephemeral-session",
+      source: "runtime",
+      detectedAt: "2026-07-03T00:00:00.000Z"
+    });
+    const provenanceSessionExporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe,
+      runtimeLogRoots: { codex: [path.join(rootDir, "missing-runtime-logs")] }
+    });
+
+    const provenance = await runEffect(bindCreateProvenance({
+      currentSessionProbe,
+      provenanceSessionExporter
+    }, "2026-07-03T00:01:00.000Z"));
+
+    assert.deepEqual(provenance, {
+      runtime: "codex",
+      sessionId: "desktop-ephemeral-session",
+      boundAt: "2026-07-03T00:01:00.000Z"
+    });
+    assert.equal(existsSync(path.join(rootDir, "harness", "sessions", "desktop-ephemeral-session.md")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

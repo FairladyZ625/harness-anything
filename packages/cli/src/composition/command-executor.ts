@@ -287,8 +287,10 @@ function failingWriteCoordinator(
   requestedActor: { readonly kind: "agent" | "human" | "system"; readonly id: string }
 ): WriteCoordinator {
   const fail = () => Effect.fail({
-    _tag: "JournalUnavailable" as const,
-    cause: new Error(`${message} Requested writer: ${requestedActor.kind}:${requestedActor.id}.`)
+    _tag: "WriteRejected" as const,
+    reason: `${message} Requested writer: ${requestedActor.kind}:${requestedActor.id}.`,
+    code: "identity_required",
+    retryable: false
   });
   return {
     enqueue: () => fail(),
