@@ -134,9 +134,12 @@ the same `global.lock`.
 The local Unix socket is the real access boundary. The daemon creates the socket
 directory as `0700` and the socket file as `0600`.
 
-The Unix transport does not perform kernel peer credential validation such as
-`SO_PEERCRED`. The recorded peer credential is derived from the daemon process
-owner (`process.getuid()` / `process.getgid()`), not from the connecting client.
+The Unix transport does not inspect the connected process identity. It records
+`unix-socket-owner-boundary`, whose subject is the socket file owner's
+`stat.uid`. Every accepted client is attributed to that owner solely because
+the `0700` directory and `0600` socket permit only the owner to connect. Widening
+either permission invalidates this boundary and requires a different identity
+source.
 
 `harness/people.yaml` enables roster-based authorization when it exists. Without
 that roster, local connections are trusted by the transport boundary.
