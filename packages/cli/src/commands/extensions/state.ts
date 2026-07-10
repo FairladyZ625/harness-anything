@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { Effect, Schema } from "effect";
 import {
@@ -132,35 +133,37 @@ function safePresetSourcePath(sourcePath: string): string {
 }
 
 function readLayerPresetEntries(rootInput: HarnessLayoutInput, layer: "project" | "user"): ReadonlyArray<PresetResolutionEntry> {
-  const layerRoot = presetLayerRoot(rootInput, layer);
-  if (!existsSync(layerRoot)) return [];
-  return readdirSync(layerRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .flatMap((entry): ReadonlyArray<PresetResolutionEntry> => {
-      const presetPath = path.join(layerRoot, entry.name, "preset.json");
-      if (!existsSync(presetPath)) {
-        return [{
-          id: entry.name,
-          layer,
-          sourcePath: presetPath,
-          issues: [extensionIssue("preset_path_id_mismatch", `Preset directory ${entry.name} is missing preset.json.`, "preset.json")]
-        }];
-      }
-      const decoded = decodePresetManifestFileResult(presetPath);
-      if (decoded.ok && decoded.value.id !== entry.name) {
-        const invalid = {
-          layer,
-          sourcePath: presetPath,
-          issues: [extensionIssue("preset_path_id_mismatch", `Preset manifest id ${decoded.value.id} must match directory ${entry.name}.`, "id")]
-        };
-        return [
-          { ...invalid, id: entry.name, directoryId: entry.name },
-          { ...invalid, id: decoded.value.id, directoryId: entry.name }
-        ];
-      }
-      return decoded.ok
-        ? [{ manifest: decoded.value, layer, sourcePath: presetPath }]
-        : [{ id: entry.name, layer, sourcePath: presetPath, issues: decoded.issues }];
+  return presetLayerRoots(rootInput, layer)
+    .flatMap((layerRoot) => {
+      if (!existsSync(layerRoot)) return [];
+      return readdirSync(layerRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry): ReadonlyArray<PresetResolutionEntry> => {
+          const presetPath = path.join(layerRoot, entry.name, "preset.json");
+          if (!existsSync(presetPath)) {
+            return [{
+              id: entry.name,
+              layer,
+              sourcePath: presetPath,
+              issues: [extensionIssue("preset_path_id_mismatch", `Preset directory ${entry.name} is missing preset.json.`, "preset.json")]
+            }];
+          }
+          const decoded = decodePresetManifestFileResult(presetPath);
+          if (decoded.ok && decoded.value.id !== entry.name) {
+            const invalid = {
+              layer,
+              sourcePath: presetPath,
+              issues: [extensionIssue("preset_path_id_mismatch", `Preset manifest id ${decoded.value.id} must match directory ${entry.name}.`, "id")]
+            };
+            return [
+              { ...invalid, id: entry.name, directoryId: entry.name },
+              { ...invalid, id: decoded.value.id, directoryId: entry.name }
+            ];
+          }
+          return decoded.ok
+            ? [{ manifest: decoded.value, layer, sourcePath: presetPath }]
+            : [{ id: entry.name, layer, sourcePath: presetPath, issues: decoded.issues }];
+        });
     });
 }
 
@@ -260,7 +263,24 @@ function presetLayerRoot(rootInput: HarnessLayoutInput, layer: "project" | "user
   const layout = resolveHarnessLayout(rootInput);
   return layer === "project"
     ? path.join(layout.localRoot, "presets")
-    : path.join(layout.localRoot, "user-presets");
+    : path.join(presetUserHomeRoot(), "presets");
+}
+
+function presetLayerRoots(rootInput: HarnessLayoutInput, layer: "project" | "user"): ReadonlyArray<string> {
+  const layout = resolveHarnessLayout(rootInput);
+  return layer === "project"
+    ? [path.join(layout.localRoot, "presets")]
+    : [path.join(layout.localRoot, "user-presets"), path.join(presetUserHomeRoot(), "presets")];
+}
+
+function presetUserHomeRoot(): string {
+  // Default lives under ~/.harness so the cross-project layer never claims a
+  // bare directory in the OS home; HARNESS_USER_HOME points at that root.
+  return path.resolve(
+    process.env.HARNESS_USER_HOME && process.env.HARNESS_USER_HOME.length > 0
+      ? process.env.HARNESS_USER_HOME
+      : path.join(os.homedir(), ".harness")
+  );
 }
 
 export function presetManifestPath(rootInput: HarnessLayoutInput, layer: "project" | "user", presetId: string): string {

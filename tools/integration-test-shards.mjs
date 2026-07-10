@@ -35,6 +35,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/preset-github-issue-repair-cli.test.ts": 2819.6,
   "packages/cli/test/preset-milestone-closeout-cli.test.ts": 2414.0,
   "packages/cli/test/preset-module-cli.test.ts": 22821.6,
+  "packages/cli/test/preset-user-root-cli.test.ts": 3000.0,
   "packages/cli/test/preset-script-cli.test.ts": 21150.1,
   "packages/cli/test/preset-script-imports-cli.test.ts": 1132.0,
   "packages/cli/test/preset-subtask-expansion-cli.test.ts": 17807.0,
@@ -173,6 +174,7 @@ export const integrationTestShards = Object.freeze([
     id: 6,
     files: Object.freeze([
       "packages/cli/test/preset-module-cli.test.ts",
+      "packages/cli/test/preset-user-root-cli.test.ts",
       "packages/cli/test/migration-adopt-cli.test.ts",
       "packages/cli/test/task-archive-distill-cli.test.ts",
       "packages/cli/test/fact-cli.test.ts",

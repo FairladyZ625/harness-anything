@@ -426,22 +426,22 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@305:3",
+        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@325:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@337:5",
+        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@357:5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@338:5",
+        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@358:5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@358:3",
+        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@378:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },

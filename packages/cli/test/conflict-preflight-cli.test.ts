@@ -163,10 +163,11 @@ test("CLI conflict preflight blocks representative write commands before output"
     const cases: ReadonlyArray<{
       readonly args: ReadonlyArray<string>;
       readonly missingPath: string;
+      readonly env?: NodeJS.ProcessEnv;
     }> = [
       { args: ["init"], missingPath: "harness/harness.yaml" },
       { args: ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"], missingPath: "harness/modules.json" },
-      { args: ["preset", "seed"], missingPath: ".harness/user-presets" },
+      { args: ["preset", "seed"], missingPath: ".harness/presets", env: { HARNESS_USER_HOME: path.join(rootDir, ".harness") } },
       { args: ["preset", "run", "module", "check", "--task", "task-1"], missingPath: ".harness/evidence/presets/module" },
       { args: ["preset", "action", "module", "check", "--task", "task-1"], missingPath: ".harness/evidence/presets/module" },
       { args: ["script", "run", "missing-script", "--task", "task-1"], missingPath: ".harness" },
@@ -175,7 +176,7 @@ test("CLI conflict preflight blocks representative write commands before output"
     ];
 
     for (const entry of cases) {
-      const result = runJson(rootDir, entry.args);
+      const result = runJson(rootDir, entry.args, entry.env);
       assert.equal(result.ok, false, entry.args.join(" "));
       assert.equal(result.error?.code, "conflict_marker_present", entry.args.join(" "));
       assert.equal(existsSync(path.join(rootDir, entry.missingPath)), false, entry.args.join(" "));
