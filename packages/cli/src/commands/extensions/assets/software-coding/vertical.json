@@ -100,15 +100,6 @@
             "prefer": "project",
             "fallback": "en-US"
           }
-        },
-        {
-          "slot": "task.references.keep",
-          "templateRef": "template://planning/keep-file@1",
-          "materializeAs": "references/.gitkeep",
-          "localePolicy": {
-            "prefer": "project",
-            "fallback": "en-US"
-          }
         }
       ]
     },

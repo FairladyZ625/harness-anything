@@ -1,0 +1,25 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "reference-task",
+  "title": "Reference Task",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "template-content",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [{ "id": "standard-task-check", "kind": "checker", "version": "1", "required": false }],
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "standard",
+    "templateSelections": [{
+      "slot": "task.references.index",
+      "templateRef": "template://planning/references-index@1",
+      "materializeAs": "references/INDEX.md",
+      "localePolicy": {
+        "prefer": "project",
+        "fallback": "en-US"
+      }
+    }]
+  }],
+  "defaultProfile": "baseline"
+}

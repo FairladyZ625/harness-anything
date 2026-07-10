@@ -1,6 +1,7 @@
 {
   "presets": [
     "standard-task",
+    "reference-task",
     "long-running-task",
     "module",
     "subtask-expansion",

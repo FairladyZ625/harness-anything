@@ -33,10 +33,42 @@ test("CLI init dogfoods coding vertical defaults for new tasks", () => {
     assert.equal(result.report.preset, "standard-task");
     assert.equal(result.report.profile, "baseline");
     assert.equal(result.generated.includes("task_plan.md"), true);
+    assert.equal(result.generated.some((entry: string) => entry.startsWith("references/")), false);
+    assert.equal(existsSync(path.join(rootDir, result.packagePath, "references")), false);
     assert.match(index, /vertical: software\/coding/);
     assert.match(index, /preset: standard-task/);
     assert.match(index, /profile: baseline/);
     assertHumanProvenance(rootDir, index);
+  });
+});
+
+test("CLI reference-task preset materializes localized references on demand", () => {
+  withTempRoot((rootDir) => {
+    const listed = runJson(rootDir, ["preset", "list"]);
+    assert.equal(listed.presets.some((preset: Record<string, unknown>) => preset.id === "reference-task"), true);
+
+    for (const testCase of [
+      { locale: "zh-CN", title: "Chinese References", expected: /列出设计、需求、审查和外部上下文/u },
+      { locale: "en-US", title: "English References", expected: /List design, requirement, review, and external context/u }
+    ]) {
+      const result = runJson(rootDir, [
+        "task",
+        "create",
+        "--title",
+        testCase.title,
+        "--vertical",
+        "software/coding",
+        "--preset",
+        "reference-task",
+        "--locale",
+        testCase.locale
+      ], true, noAgentRuntimeEnv);
+      const referencesPath = path.join(rootDir, result.packagePath, "references", "INDEX.md");
+
+      assert.equal(result.generated.includes("references/INDEX.md"), true);
+      assert.equal(existsSync(referencesPath), true);
+      assert.match(readFileSync(referencesPath, "utf8"), testCase.expected);
+    }
   });
 });
 
