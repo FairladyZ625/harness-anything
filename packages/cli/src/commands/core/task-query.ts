@@ -7,7 +7,6 @@ import {
   readRelationGraphProjection,
   type TaskFieldExtensionProjection,
 } from "../../../../kernel/src/index.ts";
-import { commandRegistry } from "../../cli/command-registry.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -137,7 +136,7 @@ export const runTaskQueryCommand: CommandRunner = (context, command) => {
       warnings: result.warnings,
       report: result.report,
       summary: summarizeStatus(result.rows),
-      commands: commandRegistry,
+      commands: context.commandRegistry,
       projectionPath: path.relative(command.rootDir, result.projectionPath).split(path.sep).join("/"),
       error: result.ok ? undefined : cliError(CliErrorCode.StatusCheckFailed, "Harness status has warnings that require attention.")
     } satisfies CliResult;

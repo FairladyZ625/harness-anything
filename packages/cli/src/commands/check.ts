@@ -6,10 +6,9 @@ import { checkTaskProjection } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { listTaskIndexPaths, normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { readFrontmatter, readScalar } from "../../../kernel/src/index.ts";
-import { commandRegistry } from "../cli/command-registry.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { relativePath } from "../cli/path.ts";
-import type { CheckProfile, CliResult } from "../cli/types.ts";
+import type { CheckProfile, CliResult, CommandRegistryEntry } from "../cli/types.ts";
 import { buildResolvableEntityIndex } from "./check-entity-refs.ts";
 import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";
@@ -23,7 +22,8 @@ const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
 export function runCheckProfile(
   rootInput: HarnessLayoutInput,
-  action: { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
+  action: { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean },
+  commandRegistry: ReadonlyArray<CommandRegistryEntry>
 ): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;

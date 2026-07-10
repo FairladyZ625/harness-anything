@@ -1,19 +1,22 @@
-import type { ParsedCommand } from "./types.ts";
+import type { CommandParseResult } from "./command-spec/types.ts";
 import { readOption } from "./parse-options.ts";
 
 export function parseGitDiffArgs(
   args: ReadonlyArray<string>,
   rootDir: string,
   json: boolean
-): ParsedCommand | undefined {
+): CommandParseResult | null {
   const normalizedArgs = args[0] === "git" && args[1] === "diff" ? ["git-diff", ...args.slice(2)] : args;
-  if (normalizedArgs[0] !== "git-diff") return undefined;
+  if (normalizedArgs[0] !== "git-diff") return null;
   return {
-    rootDir,
-    json,
-    action: {
-      kind: "git-diff",
-      baseRef: readOption(normalizedArgs, "--base")
+    ok: true,
+    value: {
+      rootDir,
+      json,
+      action: {
+        kind: "git-diff",
+        baseRef: readOption(normalizedArgs, "--base")
+      }
     }
   };
 }

@@ -1,14 +1,17 @@
-import type { ParsedCommand } from "./types.ts";
+import type { CommandParseResult } from "./command-spec/types.ts";
 
 export function parseDoctorArgs(
   args: ReadonlyArray<string>,
   rootDir: string,
   json: boolean
-): ParsedCommand | undefined {
-  if (args[0] !== "doctor") return undefined;
+): CommandParseResult | null {
+  if (args[0] !== "doctor") return null;
   return {
-    rootDir,
-    json,
-    action: { kind: "doctor" }
+    ok: true,
+    value: {
+      rootDir,
+      json,
+      action: { kind: "doctor" }
+    }
   };
 }

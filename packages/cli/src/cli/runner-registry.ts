@@ -6,43 +6,25 @@ import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel
 import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
 import { requiresConflictMarkerPreflight, taskPrincipalRequiredForAction } from "./command-event-policy.ts";
-import type { CommandRunnerId } from "./command-registry.ts";
-import { runnerIdForAction } from "./command-registry.ts";
+import { commandSpecMap, commandSpecs, type CommandKind } from "./command-spec/index.ts";
+import type { CommandSpecDefinition } from "./command-spec/types.ts";
+import { commandDescriptors, commandRegistry } from "./command-registry.ts";
+import type { CommandDescriptor } from "./command-registry.ts";
 import { readConflictMarkerPreflight } from "./conflict-preflight.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { toCliError } from "./error-mapper.ts";
 import { actionTaskId } from "./parse-args.ts";
 import { appendCommandRuntimeEvent } from "./command-runtime-events.ts";
-import type { CliResult, MaterializerCommandReport, ParsedCommand } from "./types.ts";
+import type { CliResult, CommandRegistryEntry, MaterializerCommandReport, ParsedCommand } from "./types.ts";
 import type { CliActorAttribution } from "../composition/actor-attribution.ts";
-import {
-  runDiagnosticsCommand,
-  runCapabilitiesCommand,
-  runDecisionCommand,
-  runDistillCommand,
-  runDocCommand,
-  runExtensionRunnerCommand,
-  runFactCommand,
-  runGovernanceCommand,
-  runGuiCommand,
-  runHelpCommand,
-  runInitCommand,
-  runMaterializerCommand,
-  runMigrationCommand,
-  runNewTaskCommand,
-  runRuntimeEventCommand,
-  runSessionCommand,
-  runTaskGatesCommand,
-  runTaskLifecycleCommand,
-  runTaskQueryCommand,
-  runVersionCommand,
-  runWorktreeCommand
-} from "../commands/core/index.ts";
 
 export interface CommandRunnerContext {
   readonly rootDir: string;
   readonly layoutInput: HarnessLayoutInput;
   readonly layoutOverrides?: HarnessLayoutOverrides;
+  readonly commandSpecs: ReadonlyArray<Pick<CommandSpecDefinition, "kind" | "eventPolicy">>;
+  readonly commandDescriptors: ReadonlyArray<CommandDescriptor>;
+  readonly commandRegistry: ReadonlyArray<CommandRegistryEntry>;
   readonly engine: CommandRunnerEngine;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage" | "readAuthoredDocument">;
   readonly currentSessionProbe: CurrentSessionProbePort;
@@ -117,29 +99,7 @@ export type CommandRunner = (
   command: ParsedCommand
 ) => CommandRunnerEffect;
 
-export const runnerRegistry = {
-  help: runHelpCommand,
-  capabilities: runCapabilitiesCommand,
-  version: runVersionCommand,
-  init: runInitCommand,
-  "new-task": runNewTaskCommand,
-  decision: runDecisionCommand,
-  distill: runDistillCommand,
-  fact: runFactCommand,
-  "runtime-event": runRuntimeEventCommand,
-  materializer: runMaterializerCommand,
-  session: runSessionCommand,
-  doc: runDocCommand,
-  "task-lifecycle": runTaskLifecycleCommand,
-  "task-gates": runTaskGatesCommand,
-  "task-query": runTaskQueryCommand,
-  governance: runGovernanceCommand,
-  migration: runMigrationCommand,
-  diagnostics: runDiagnosticsCommand,
-  worktree: runWorktreeCommand,
-  extension: runExtensionRunnerCommand,
-  gui: runGuiCommand
-} satisfies Record<CommandRunnerId, CommandRunner>;
+export const runnerRegistry = commandSpecMap((spec) => spec.run) satisfies Record<CommandKind, CommandRunner>;
 
 export function runRegisteredCommand(
   command: ParsedCommand,
@@ -157,8 +117,7 @@ export function runRegisteredCommand(
   makeRuntimeEventLedgerService: () => RuntimeEventLedgerService,
   runLedgerMaterializer: (rootInput: HarnessLayoutInput, options: { readonly dryRun?: boolean }) => MaterializerCommandReport
 ): CommandRunnerEffect {
-  const runnerId = runnerIdForAction(command.action.kind);
-  const runner = runnerRegistry[runnerId];
+  const runner = runnerRegistry[command.action.kind];
   const layoutInput = createHarnessRuntimeContext(command.rootDir, command.layoutOverrides);
   const conflictMarkerResult = requiresConflictMarkerPreflight(command.action) ? readConflictMarkerPreflight(command.action.kind, layoutInput) : undefined;
   if (conflictMarkerResult?.ok === false) return Effect.succeed(conflictMarkerResult.result);
@@ -183,6 +142,9 @@ export function runRegisteredCommand(
     rootDir: command.rootDir,
     layoutInput,
     layoutOverrides: command.layoutOverrides,
+    commandSpecs,
+    commandDescriptors,
+    commandRegistry,
     get engine() {
       engine ??= makeEngine();
       return engine;

@@ -1,68 +1,19 @@
 import type { CommandRegistryEntry } from "./types.ts";
-import { commandReceiptEnvelope } from "./receipt.ts";
+import { commandReceiptEnvelope } from "../../../application/src/index.ts";
 import { commandSpecs, type CommandKind, type CommandSpec } from "./command-spec/index.ts";
-import type {
-  CommandParserId,
-  CommandReceiptContract,
-  CommandRunnerId
-} from "./command-spec/types.ts";
+import type { CommandReceiptContract } from "./command-spec/types.ts";
+import { cliCommandAlias, cliCommandName } from "./command-names.ts";
 
-export const cliCommandName = "harness-anything";
-export const cliCommandAlias = "ha";
+export { cliCommandAlias, cliCommandName };
 
 export type {
   CommandKind,
-  CommandParserId,
-  CommandReceiptContract,
-  CommandRunnerId
+  CommandReceiptContract
 };
 
-export interface CommandUsage {
-  readonly kind: CommandKind;
-  readonly usage: string;
-  readonly aliases?: ReadonlyArray<string>;
-}
+export type CommandDescriptor = CommandSpec;
 
-type RegisteredCommandKind = CommandKind;
-
-const commandUsages = commandSpecs.map((entry) => ({
-  kind: entry.kind,
-  usage: entry.usage,
-  ...("aliases" in entry ? { aliases: entry.aliases } : {})
-})) satisfies ReadonlyArray<CommandUsage>;
-
-const commandSummaries = Object.fromEntries(
-  commandSpecs.map((entry) => [entry.kind, entry.summary])
-) as Record<CommandKind, string>;
-
-const commandExamples = Object.fromEntries(
-  commandSpecs.map((entry) => [entry.kind, entry.examples])
-) as unknown as Record<CommandKind, ReadonlyArray<string>>;
-
-const commandSpecsByKind = Object.fromEntries(
-  commandSpecs.map((entry) => [entry.kind, entry])
-) as unknown as Record<CommandKind, CommandSpec>;
-
-export interface CommandDescriptor extends CommandUsage {
-  readonly parserId: CommandParserId;
-  readonly runnerId: CommandRunnerId;
-  readonly summary: string;
-  readonly examples: ReadonlyArray<string>;
-  readonly options: CommandSpec["options"];
-  readonly receiptContract: CommandReceiptContract;
-}
-
-export const commandDescriptors = commandUsages.map((entry) => ({
-  kind: entry.kind,
-  usage: entry.usage,
-  ...("aliases" in entry ? { aliases: entry.aliases } : {}),
-  parserId: commandSpecsByKind[entry.kind].parserId,
-  runnerId: commandSpecsByKind[entry.kind].runnerId,
-  summary: commandSummaries[entry.kind],
-  examples: commandExamples[entry.kind],
-  options: commandSpecsByKind[entry.kind].options,
-  receiptContract: commandSpecsByKind[entry.kind].receiptContract
-})) satisfies ReadonlyArray<CommandDescriptor>;
+export const commandDescriptors = commandSpecs;
 
 export const commandReceiptContracts = commandDescriptors.map((entry) => ({
   kind: entry.kind,
@@ -80,29 +31,15 @@ export const commandRegistry = commandDescriptors.map((entry) => {
       ...shortAliases.map((alias) => `${cliCommandAlias} ${alias}`)
     ],
     commandPath: commandPathFromUsage(entry.usage),
-    summary: commandSummaries[entry.kind],
+    summary: entry.summary,
     options: entry.options,
-    examples: commandExamples[entry.kind],
+    examples: entry.examples,
     resultEnvelope: commandReceiptEnvelope
   };
 }) satisfies ReadonlyArray<CommandRegistryEntry>;
 
-export function commandKindsForParser(parserId: CommandParserId): ReadonlyArray<RegisteredCommandKind> {
-  return commandDescriptors
-    .filter((entry) => entry.parserId === parserId)
-    .map((entry) => entry.kind);
-}
-
 export function findCommandDescriptorByKind(kind: string): CommandDescriptor | undefined {
   return commandDescriptors.find((entry) => entry.kind === kind);
-}
-
-export function runnerIdForAction(kind: CommandKind): CommandRunnerId {
-  const descriptor = findCommandDescriptorByKind(kind);
-  if (!descriptor) {
-    throw new Error(`missing command descriptor for action kind: ${kind}`);
-  }
-  return descriptor.runnerId;
 }
 
 export function findCommandByKind(kind: string): CommandRegistryEntry | undefined {

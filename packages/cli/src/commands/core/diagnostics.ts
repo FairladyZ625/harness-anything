@@ -2,7 +2,6 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
-import { commandSpecs } from "../../cli/command-spec/index.ts";
 import { runDoctor } from "../doctor.ts";
 import { runGitDiffEvidence } from "../git-diff.ts";
 import { runGraphCommand } from "../graph.ts";
@@ -14,7 +13,7 @@ export const runDiagnosticsCommand: CommandRunner = (context, command) => {
   const action = command.action as DiagnosticsAction;
   if (action.kind === "git-diff") return Effect.sync(() => runGitDiffEvidence(command.rootDir, action.baseRef));
   if (action.kind === "graph") return Effect.sync(() => runGraphCommand(command.rootDir, action));
-  if (action.kind === "diagnostics-command-usage") return Effect.sync(() => runCommandUsageDiagnostics(command.rootDir));
+  if (action.kind === "diagnostics-command-usage") return Effect.sync(() => runCommandUsageDiagnostics(command.rootDir, context.commandSpecs));
   return Effect.sync(() => runDoctor(context.layoutInput));
 };
 
@@ -31,7 +30,7 @@ interface CommandUsageRow {
 
 type CountedStatus = "succeeded" | "failed" | "cancelled" | "unknown";
 
-function runCommandUsageDiagnostics(rootDir: string) {
+function runCommandUsageDiagnostics(rootDir: string, commandSpecs: Parameters<CommandRunner>[0]["commandSpecs"]) {
   const layout = resolveHarnessLayout(rootDir);
   const ledgerRoot = layout.runtimeEventLedgerRoot;
   const warnings: string[] = [];

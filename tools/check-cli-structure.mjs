@@ -98,6 +98,11 @@ function checkFunctions(files, limits) {
 }
 
 function checkCliCommandDescriptorization() {
+  const parsedCommandKinds = collectParsedCommandKinds("packages/cli/src/cli/types.ts");
+  const descriptorFacts = collectCommandDescriptorFacts();
+  const registeredArrays = collectRegisteredDescriptorArrays("packages/cli/src/cli/command-spec/index.ts");
+  const registeredFacts = descriptorFacts.filter((fact) => registeredArrays.includes(fact.arrayName));
+  const descriptorKinds = registeredFacts.map((fact) => fact.kind);
   const commandRegistry = readSource("packages/cli/src/cli/command-registry.ts");
   const parserRegistry = readSource("packages/cli/src/cli/parser-registry.ts");
   const runnerRegistryPath = "packages/cli/src/cli/runner-registry.ts";
@@ -105,26 +110,56 @@ function checkCliCommandDescriptorization() {
   const cliEntrypoint = readSource("packages/cli/src/index.ts");
   const lifecycleExecutorPath = "packages/cli/src/commands/lifecycle.ts";
   const lifecycleExecutor = existsSync(path.join(root, lifecycleExecutorPath)) ? readSource(lifecycleExecutorPath) : "";
-  if (!/\bexport\s+const\s+commandDescriptors\b/u.test(commandRegistry)) {
-    violations.push("packages/cli/src/cli/command-registry.ts: missing exported commandDescriptors registry");
+
+  for (const arrayName of new Set(descriptorFacts.map((fact) => fact.arrayName))) {
+    const count = registeredArrays.filter((candidate) => candidate === arrayName).length;
+    if (count !== 1) {
+      violations.push(`packages/cli/src/cli/command-spec/index.ts: descriptor array ${arrayName} must be registered exactly once; found ${count}`);
+    }
   }
-  if (!/\bparserId\b/u.test(commandRegistry) || !/\brunnerId\b/u.test(commandRegistry)) {
-    violations.push("packages/cli/src/cli/command-registry.ts: command descriptors must include parserId and runnerId");
+  for (const arrayName of registeredArrays) {
+    if (!descriptorFacts.some((fact) => fact.arrayName === arrayName)) {
+      violations.push(`packages/cli/src/cli/command-spec/index.ts: registered descriptor array ${arrayName} was not found in command-spec modules`);
+    }
   }
-  if (!/\bcommandKindsForParser\b/u.test(parserRegistry)) {
-    violations.push("packages/cli/src/cli/parser-registry.ts: parser commandKinds must be derived from command descriptors");
+  for (const fact of descriptorFacts) {
+    if (!fact.hasDirectParse || !fact.hasDirectRun) {
+      violations.push(`${fact.file}:${fact.line}: descriptor ${fact.kind} must carry direct parse and run function references`);
+    }
+    if (fact.hasDispatchId) {
+      violations.push(`${fact.file}:${fact.line}: descriptor ${fact.kind} must not use parserId or runnerId indirection`);
+    }
   }
-  if (/\bcommandKinds:\s*\[/u.test(parserRegistry)) {
-    violations.push("packages/cli/src/cli/parser-registry.ts: commandKinds arrays must not be hand-authored");
+  for (const kind of new Set(descriptorKinds)) {
+    const facts = registeredFacts.filter((fact) => fact.kind === kind);
+    if (facts.length !== 1) {
+      violations.push(`packages/cli/src/cli/command-spec/index.ts: ParsedCommand kind ${kind} must have exactly one registered descriptor; found ${facts.length}`);
+    }
   }
-  if (!/\bexport\s+const\s+runnerRegistry\b/u.test(runnerRegistry)) {
-    violations.push("packages/cli/src/cli/runner-registry.ts: missing exported runnerRegistry");
+  for (const kind of parsedCommandKinds) {
+    const count = descriptorKinds.filter((candidate) => candidate === kind).length;
+    if (count !== 1) {
+      violations.push(`packages/cli/src/cli/command-spec/index.ts: ParsedCommand kind ${kind} must have exactly one registered descriptor; found ${count}`);
+    }
   }
-  if (!/\bsatisfies\s+Record<CommandRunnerId,\s*CommandRunner>/u.test(runnerRegistry)) {
-    violations.push("packages/cli/src/cli/runner-registry.ts: runnerRegistry must satisfy Record<CommandRunnerId, CommandRunner>");
+  for (const kind of new Set(descriptorKinds.filter((kind) => !parsedCommandKinds.includes(kind)))) {
+    violations.push(`packages/cli/src/cli/command-spec/index.ts: descriptor ${kind} has no ParsedCommand action kind`);
   }
-  if (!/\brunnerIdForAction\b/u.test(runnerRegistry)) {
-    violations.push("packages/cli/src/cli/runner-registry.ts: command dispatch must derive runner ids from descriptors");
+
+  if (!/\bexport\s+const\s+commandDescriptors\s*=\s*commandSpecs\b/u.test(commandRegistry)) {
+    violations.push("packages/cli/src/cli/command-registry.ts: commandDescriptors must directly alias commandSpecs");
+  }
+  if (!/\bcommandSpecs\b/u.test(parserRegistry) || !/\.parse\b/u.test(parserRegistry)) {
+    violations.push("packages/cli/src/cli/parser-registry.ts: parser registry must be derived from commandSpecs parse references");
+  }
+  if (/\bparserId\b|\bcommandKindsForParser\b/u.test(parserRegistry)) {
+    violations.push("packages/cli/src/cli/parser-registry.ts: parser registry must not use string parser ids");
+  }
+  if (!/\bcommandSpecMap\b/u.test(runnerRegistry) || !/\.run\b/u.test(runnerRegistry)) {
+    violations.push("packages/cli/src/cli/runner-registry.ts: runner registry must be derived from commandSpecs run references");
+  }
+  if (/\brunnerId\b|\brunnerIdForAction\b/u.test(runnerRegistry)) {
+    violations.push("packages/cli/src/cli/runner-registry.ts: runner registry must not use string runner ids");
   }
   if (!/\brunRegisteredCommand\b/u.test(cliEntrypoint)) {
     violations.push("packages/cli/src/index.ts: entrypoint must dispatch through runRegisteredCommand");
@@ -135,6 +170,114 @@ function checkCliCommandDescriptorization() {
   if (/\bfunction\s+runCommand\b/u.test(lifecycleExecutor)) {
     violations.push("packages/cli/src/commands/lifecycle.ts: lifecycle.ts must not contain catch-all runCommand dispatcher");
   }
+}
+
+function collectParsedCommandKinds(file) {
+  const sourceFile = parseTypeScript(file);
+  const parsedCommand = sourceFile.statements.find((statement) =>
+    ts.isInterfaceDeclaration(statement) && statement.name.text === "ParsedCommand"
+  );
+  if (!parsedCommand) {
+    violations.push(`${file}: missing ParsedCommand interface`);
+    return [];
+  }
+  const action = parsedCommand.members.find((member) =>
+    ts.isPropertySignature(member) && propertyName(member.name) === "action"
+  );
+  if (!action?.type) {
+    violations.push(`${file}: ParsedCommand must declare an action type`);
+    return [];
+  }
+  const kinds = [];
+  function visit(node) {
+    if (ts.isPropertySignature(node) && propertyName(node.name) === "kind" && node.type) {
+      collectStringLiteralTypes(node.type, kinds);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(action.type);
+  return [...new Set(kinds)];
+}
+
+function collectCommandDescriptorFacts() {
+  const files = listTsFiles("packages/cli/src/cli/command-spec")
+    .filter((file) => path.basename(file).startsWith("command-spec-"));
+  return files.flatMap((file) => {
+    const sourceFile = parseTypeScript(file);
+    const facts = [];
+    for (const statement of sourceFile.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isCallExpression(declaration.initializer)) continue;
+        if (!ts.isIdentifier(declaration.initializer.expression) || declaration.initializer.expression.text !== "defineCommandSpecs") continue;
+        const descriptors = declaration.initializer.arguments[0];
+        if (!descriptors || !ts.isArrayLiteralExpression(descriptors)) continue;
+        for (const element of descriptors.elements) {
+          if (!ts.isObjectLiteralExpression(element)) continue;
+          const properties = new Map(element.properties
+            .filter(ts.isPropertyAssignment)
+            .map((property) => [propertyName(property.name), property]));
+          const kindProperty = properties.get("kind");
+          const kind = kindProperty && ts.isStringLiteral(kindProperty.initializer) ? kindProperty.initializer.text : "<unknown>";
+          const parseProperty = properties.get("parse");
+          const runProperty = properties.get("run");
+          facts.push({
+            arrayName: declaration.name.text,
+            file,
+            line: sourceFile.getLineAndCharacterOfPosition(element.getStart(sourceFile)).line + 1,
+            kind,
+            hasDirectParse: Boolean(parseProperty && ts.isIdentifier(parseProperty.initializer)),
+            hasDirectRun: Boolean(runProperty && ts.isIdentifier(runProperty.initializer)),
+            hasDispatchId: properties.has("parserId") || properties.has("runnerId")
+          });
+        }
+      }
+    }
+    return facts;
+  });
+}
+
+function collectRegisteredDescriptorArrays(file) {
+  const sourceFile = parseTypeScript(file);
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== "commandSpecs") continue;
+      const initializer = declaration.initializer ? unwrapExpression(declaration.initializer) : undefined;
+      if (!initializer || !ts.isArrayLiteralExpression(initializer)) continue;
+      return initializer.elements
+        .filter(ts.isSpreadElement)
+        .map((element) => element.expression)
+        .filter(ts.isIdentifier)
+        .map((identifier) => identifier.text);
+    }
+  }
+  violations.push(`${file}: missing commandSpecs array registry`);
+  return [];
+}
+
+function collectStringLiteralTypes(node, values) {
+  if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) {
+    values.push(node.literal.text);
+    return;
+  }
+  ts.forEachChild(node, (child) => collectStringLiteralTypes(child, values));
+}
+
+function parseTypeScript(file) {
+  return ts.createSourceFile(file, readSource(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+
+function propertyName(name) {
+  return ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : undefined;
+}
+
+function unwrapExpression(expression) {
+  let current = expression;
+  while (ts.isAsExpression(current) || ts.isSatisfiesExpression(current) || ts.isParenthesizedExpression(current)) {
+    current = current.expression;
+  }
+  return current;
 }
 
 function checkCliUtilitySingleSource() {

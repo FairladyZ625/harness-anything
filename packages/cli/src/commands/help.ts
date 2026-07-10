@@ -1,20 +1,19 @@
-import { commandRegistry, findCommandByKind } from "../cli/command-registry.ts";
 import type { CliResult, CommandRegistryEntry, ParsedCommand } from "../cli/types.ts";
 
 type HelpAction = Extract<ParsedCommand["action"], { readonly kind: "help" }>;
 
-export function buildHelpResult(action: HelpAction): CliResult {
+export function buildHelpResult(action: HelpAction, commandRegistry: ReadonlyArray<CommandRegistryEntry>): CliResult {
   return {
     ok: true,
     command: "help",
-    commands: helpCommands(action),
+    commands: helpCommands(action, commandRegistry),
     report: helpReport(action)
   };
 }
 
-function helpCommands(action: HelpAction): ReadonlyArray<CommandRegistryEntry> {
+function helpCommands(action: HelpAction, commandRegistry: ReadonlyArray<CommandRegistryEntry>): ReadonlyArray<CommandRegistryEntry> {
   if (action.commandKind) {
-    const entry = findCommandByKind(action.commandKind);
+    const entry = commandRegistry.find((candidate) => candidate.kind === action.commandKind);
     return entry ? [entry] : [];
   }
   if (action.commandPrefix) {

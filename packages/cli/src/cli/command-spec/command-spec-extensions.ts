@@ -1,4 +1,11 @@
 import { defineCommandSpecs } from "./types.ts";
+import { parseModuleArgs } from "../parsers/extensions-module.ts";
+import { parsePresetArgs } from "../parsers/extensions-preset.ts";
+import { parseScriptArgs } from "../parsers/extensions-script.ts";
+import { parseVerticalArgs } from "../parsers/extensions-vertical.ts";
+import { parseGuiArgs } from "../parsers/gui.ts";
+import { runExtensionRunnerCommand } from "../../commands/core/extension.ts";
+import { runGuiCommand } from "../../commands/core/gui.ts";
 
 export const extensionsCommandSpecs = defineCommandSpecs([
   {
@@ -7,8 +14,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--kernel-version","description":"Validate against a kernel version."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Validate a preset manifest against the preset schema.",
     "examples": ["harness-anything preset validate preset.json --kernel-version 1.0.0"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "report"],
       "paths": []
@@ -24,8 +31,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "List installed presets from project and user layers.",
     "examples": ["harness-anything preset list --json"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["presets", "issues"],
       "paths": []
@@ -41,8 +48,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Inspect one preset manifest and public summary.",
     "examples": ["harness-anything preset inspect standard-task"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "issues"],
       "paths": []
@@ -58,8 +65,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Check one preset for validity and materialization readiness.",
     "examples": ["harness-anything preset check standard-task"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "issues"],
       "paths": []
@@ -75,8 +82,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--project","description":"Use the project preset layer."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Install a preset folder into the project or user layer.",
     "examples": ["harness-anything preset install ./preset-dir --project"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset"],
       "paths": []
@@ -92,8 +99,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Seed built-in presets into the harness workspace.",
     "examples": ["harness-anything preset seed"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["presets", "report"],
       "paths": []
@@ -109,8 +116,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Audit installed presets for validity and drift.",
     "examples": ["harness-anything preset audit --json"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["presets", "issues", "report"],
       "paths": []
@@ -126,8 +133,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--project","description":"Use the project preset layer."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Remove a preset from the project or user layer.",
     "examples": ["harness-anything preset uninstall standard-task --project"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset"],
       "paths": []
@@ -143,8 +150,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--allow-scripts","description":"Allow preset script execution."},{"flag":"--input","description":"Provide an input path or one script input as key=value; repeat for script inputs."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Run a preset entrypoint for a task package.",
     "examples": ["harness-anything preset run standard-task plan --task task_01ABC --input mode=smoke"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["taskId", "preset", "evidenceBundle", "generated", "rows", "report"],
       "paths": []
@@ -160,8 +167,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--allow-scripts","description":"Allow preset script execution."},{"flag":"--input","description":"Provide an input path or one script input as key=value; repeat for script inputs."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Run a named preset action for a task package.",
     "examples": ["harness-anything preset action standard-task scaffold --task task_01ABC --input mode=smoke"],
-    "parserId": "preset",
-    "runnerId": "extension",
+    "parse": parsePresetArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["preset", "evidenceBundle", "generated", "report"],
       "optionalData": {
@@ -181,8 +188,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--source","description":"Filter script entries by extension source: user, vertical, or preset."},{"flag":"--purpose","description":"Filter script entries by declared purpose."},{"flag":"--kind","description":"Filter script entries by script kind: action or check."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "List script-entry/v1 entries exposed by installed extensions.",
     "examples": ["harness-anything script list --source preset"],
-    "parserId": "script",
-    "runnerId": "extension",
+    "parse": parseScriptArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["scripts", "rows"],
       "paths": []
@@ -198,8 +205,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Inspect one script-entry/v1 contract.",
     "examples": ["harness-anything script inspect preset:github-issue-repair:plan"],
-    "parserId": "script",
-    "runnerId": "extension",
+    "parse": parseScriptArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["script"],
       "paths": []
@@ -215,8 +222,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--input","description":"Provide an input path or one script input as key=value; repeat for script inputs."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Run one script-entry/v1 entry through the ScriptHost permission boundary.",
     "examples": ["harness-anything script run preset:github-issue-repair:plan --task task_01ABC --input repo=owner/name"],
-    "parserId": "script",
-    "runnerId": "extension",
+    "parse": parseScriptArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["script", "runId", "evidenceBundle", "generated", "report"],
       "optionalData": {
@@ -235,8 +242,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "List registered project modules.",
     "examples": ["harness-anything module list --json"],
-    "parserId": "module",
-    "runnerId": "extension",
+    "parse": parseModuleArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["modules"],
       "paths": []
@@ -252,8 +259,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Inspect one registered module.",
     "examples": ["harness-anything module inspect kernel"],
-    "parserId": "module",
-    "runnerId": "extension",
+    "parse": parseModuleArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
       "paths": []
@@ -269,8 +276,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--scope","description":"Set the module scope."},{"flag":"--prefix","description":"Set the module id prefix."},{"flag":"--status","description":"Set the external or module status."},{"flag":"--branch","description":"Set the module branch."},{"flag":"--owner","description":"Set the module owner."},{"flag":"--current-step","description":"Set the current module step."},{"flag":"--shared","description":"Register a shared path for the module."},{"flag":"--depends-on","description":"Register a module dependency."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Register or update a project module definition.",
     "examples": ["harness-anything module register kernel --title \"Kernel\" --scope \"packages/kernel/**\""],
-    "parserId": "module",
-    "runnerId": "extension",
+    "parse": parseModuleArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
       "paths": []
@@ -286,8 +293,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Create the standard files for a registered module.",
     "examples": ["harness-anything module scaffold kernel"],
-    "parserId": "module",
-    "runnerId": "extension",
+    "parse": parseModuleArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
       "paths": ["primary", "modulePlan"]
@@ -303,8 +310,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Mark a module as unregistered.",
     "examples": ["harness-anything module unregister kernel"],
-    "parserId": "module",
-    "runnerId": "extension",
+    "parse": parseModuleArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
       "paths": []
@@ -321,8 +328,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "aliases": ["module-step <key> <step> (deprecated, use module step; retires at E77/F6 acceptance)"],
     "summary": "Update a module step state.",
     "examples": ["harness-anything module step kernel KR-01 --state done"],
-    "parserId": "module",
-    "runnerId": "extension",
+    "parse": parseModuleArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["module"],
       "paths": []
@@ -338,8 +345,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Validate a vertical definition file or built-in vertical.",
     "examples": ["harness-anything vertical validate software/coding"],
-    "parserId": "vertical",
-    "runnerId": "extension",
+    "parse": parseVerticalArgs,
+    "run": runExtensionRunnerCommand,
     "receiptContract": {
       "data": ["issues"],
       "paths": []
@@ -355,8 +362,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "options": [],
     "summary": "Launch the local desktop GUI controller.",
     "examples": ["harness-anything gui"],
-    "parserId": "gui",
-    "runnerId": "gui",
+    "parse": parseGuiArgs,
+    "run": runGuiCommand,
     "receiptContract": {
       "data": ["launchPlan"],
       "paths": []
