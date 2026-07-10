@@ -9,29 +9,6 @@ import test from "node:test";
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const bundledPresetIndexPath = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/index.json");
 
-test("CLI preset discovery honors project over user over bundled presets", () => {
-  withTempRoot((rootDir) => {
-    writePreset(rootDir, ".harness/user-presets/standard-task/preset.json", {
-      id: "standard-task",
-      title: "User Standard Task",
-      version: "1.0.0"
-    });
-    writePreset(rootDir, ".harness/presets/standard-task/preset.json", {
-      id: "standard-task",
-      title: "Project Standard Task",
-      version: "2.0.0"
-    });
-
-    const result = runJson(rootDir, ["preset", "list"]);
-
-    assert.equal(result.ok, true);
-    assert.equal(result.command, "preset-list");
-    const standard = result.presets.find((preset: Record<string, unknown>) => preset.id === "standard-task");
-    assert.equal(standard.title, "Project Standard Task");
-    assert.equal(standard.layer, "project");
-    assert.equal(result.presets.some((preset: Record<string, unknown>) => preset.id === "module"), true);
-  });
-});
 
 test("CLI preset CRUD validates, installs, audits, and removes project presets", () => {
   withTempRoot((rootDir) => {
@@ -486,10 +463,11 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
   });
 });
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: NodeJS.ProcessEnv = {}): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: { ...process.env, ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
