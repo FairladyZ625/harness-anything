@@ -153,7 +153,10 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["taskId", "preset", "evidenceBundle", "generated", "rows", "report"],
+      "data": ["taskId", "preset", "evidenceBundle", "generated", "report"],
+      "optionalData": {
+        "rows": "Only emitted when a scripted preset run writes a numeric rows value in its result."
+      },
       "paths": []
     },
     "eventPolicy": {
@@ -170,9 +173,8 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["preset", "evidenceBundle", "generated", "report"],
+      "data": ["taskId", "preset", "evidenceBundle", "generated", "report"],
       "optionalData": {
-        "taskId": "Only emitted by scripted preset actions that echo the task id in their script result.",
         "rows": "Only emitted when a scripted preset action writes a numeric rows value in its result."
       },
       "paths": []

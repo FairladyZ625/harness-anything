@@ -197,9 +197,9 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     field: "data.generated",
     reason: "Only emitted for apply/archive rebuild modes that write generated governance views."
   }, {
-    command: "preset-action",
-    field: "data.taskId",
-    reason: "Only emitted by scripted preset actions that echo the task id in their script result."
+    command: "preset-run",
+    field: "data.rows",
+    reason: "Only emitted when a scripted preset run writes a numeric rows value in its result."
   }, {
     command: "preset-action",
     field: "data.rows",

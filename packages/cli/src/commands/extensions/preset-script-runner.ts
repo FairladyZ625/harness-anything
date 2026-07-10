@@ -468,6 +468,7 @@ export function scriptCliResult(options: {
   readonly evidenceDir: string;
   readonly commandName: "preset-run" | "preset-action";
   readonly preset: unknown;
+  readonly taskId: string;
   readonly generated: ReadonlyArray<string>;
   readonly scriptedResult: Record<string, unknown>;
 }): CliResult {
@@ -477,6 +478,7 @@ export function scriptCliResult(options: {
     ok,
     command: options.commandName,
     preset: options.preset,
+    taskId: options.taskId,
     evidenceBundle: path.relative(options.rootDir, options.evidenceDir).split(path.sep).join("/"),
     generated: options.generated,
     warnings: Array.isArray(options.scriptedResult.warnings) ? options.scriptedResult.warnings : undefined,
