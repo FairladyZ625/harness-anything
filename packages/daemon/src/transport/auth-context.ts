@@ -2,11 +2,9 @@ import type { JsonObject } from "../protocol/json-rpc-types.ts";
 
 export type DaemonTransportKind = "unix-socket" | "named-pipe" | "ssh-exec" | "ssh-tunnel";
 
-export interface UnixPeerCredential {
-  readonly uid?: number;
-  readonly gid?: number;
-  readonly pid?: number;
-  readonly source: "node-process-owner" | "platform-peercred-unavailable";
+export interface UnixSocketOwnerBoundary {
+  readonly ownerUid: number;
+  readonly source: "unix-socket-filesystem-owner-boundary";
 }
 
 export interface NamedPipeClientContext {
@@ -37,16 +35,8 @@ export interface SshTunnelTokenContext {
 export interface DaemonAuthenticationContext {
   readonly transportKind: DaemonTransportKind;
   readonly endpoint?: string;
-  readonly unixPeerCredential?: UnixPeerCredential;
+  readonly unixSocketOwnerBoundary?: UnixSocketOwnerBoundary;
   readonly namedPipeClient?: NamedPipeClientContext;
   readonly sshExecUser?: SshExecUserContext;
   readonly sshTunnelToken?: SshTunnelTokenContext;
-}
-
-export function localUnixPeerCredential(): UnixPeerCredential {
-  return {
-    uid: process.getuid?.(),
-    gid: process.getgid?.(),
-    source: process.getuid || process.getgid ? "node-process-owner" : "platform-peercred-unavailable"
-  };
 }
