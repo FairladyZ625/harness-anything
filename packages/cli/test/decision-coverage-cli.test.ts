@@ -467,7 +467,8 @@ test("CLI decision amend updates only load_bearing metadata for an existing clai
 test("CLI decision conformance exempts pre-rule legacy task and claim findings", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    writeConformanceDecisionFixture(rootDir, "dec_PRE_RULE_CUTOFF", "2026-07-06T23:21:56.223Z");
+    writeDecisionConformancePolicy(rootDir);
+    writeConformanceDecisionFixture(rootDir, "dec_PRE_RULE_CUTOFF", "2026-07-06T23:59:59.999Z");
     writeConformanceDecisionFixture(rootDir, "dec_LEDGER_E123_CUTOFF");
 
     const result = runJson(rootDir, ["check", "--profile", "source-package"]);
@@ -480,7 +481,8 @@ test("CLI decision conformance exempts pre-rule legacy task and claim findings",
 test("CLI decision conformance still reports post-rule task and claim findings", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    writeConformanceDecisionFixture(rootDir, "dec_POST_RULE_CUTOFF", "2026-07-06T23:21:56.225Z");
+    writeDecisionConformancePolicy(rootDir);
+    writeConformanceDecisionFixture(rootDir, "dec_POST_RULE_CUTOFF", "2026-07-07T00:00:00.001Z");
 
     const result = runJson(rootDir, ["check", "--profile", "source-package"], false);
 
@@ -500,7 +502,8 @@ test("CLI decision conformance still reports post-rule task and claim findings",
 test("CLI decision conformance applies task and claim findings at the cutoff boundary", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    writeConformanceDecisionFixture(rootDir, "dec_RULE_BOUNDARY", "2026-07-06T23:21:56.224Z");
+    writeDecisionConformancePolicy(rootDir);
+    writeConformanceDecisionFixture(rootDir, "dec_RULE_BOUNDARY", "2026-07-07T00:00:00.000Z");
 
     const result = runJson(rootDir, ["check", "--profile", "source-package"], false);
 
@@ -529,6 +532,18 @@ function hasDecisionConformanceFinding(result: Record<string, any>, type: string
   return decisionConformanceFindings(result).some((finding: Record<string, any>) => (
     finding.type === type && finding.ref === ref
   ));
+}
+
+function writeDecisionConformancePolicy(rootDir: string): void {
+  writeFile(rootDir, "harness/policies/presets/decision-conformance.policy.json", JSON.stringify({
+    schema: "preset-policy/decision-conformance/v1",
+    presetId: "decision-conformance",
+    rules: {
+      adoptionCutoff: "2026-07-07T00:00:00.000Z",
+      legacyExemptions: [{ kind: "decided-before-cutoff" }, { kind: "missing-decided-at-with-legacy-id" }],
+      enforcement: "fail"
+    }
+  }));
 }
 
 function writeConformanceDecisionFixture(rootDir: string, decisionId: string, decidedAt?: string): void {
