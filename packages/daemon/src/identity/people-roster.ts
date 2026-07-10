@@ -5,6 +5,7 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/s
 import {
   credentialKey,
   type CredentialRef,
+  type CredentialKind,
   type DaemonCommandClass,
   type IdentityProviderFailure,
   type PeopleRoster,
@@ -13,6 +14,16 @@ import {
 } from "./types.ts";
 
 const commandClasses = new Set<DaemonCommandClass>(["admin", "repo-write", "repo-read", "arbiter"]);
+const credentialKinds = new Set<CredentialKind>([
+  "unix-socket-owner-boundary",
+  "windows-named-pipe-client",
+  "ssh-username",
+  "ssh-tunnel-token-subject",
+  "email-address",
+  "password-account",
+  "oauth-subject",
+  "api-token"
+]);
 
 export function loadPeopleRoster(rootInput: HarnessLayoutInput): PeopleRoster {
   const layout = resolveHarnessLayout(rootInput);
@@ -87,6 +98,7 @@ function validateRoster(people: ReadonlyArray<PersonProfile>, roles: ReadonlyArr
       if (!roleIds.has(roleId)) throw new Error(`person ${person.personId} references unknown role ${roleId}`);
     }
     for (const credential of person.credentials) {
+      if (!credentialKinds.has(credential.kind)) throw new Error(`unknown credential kind: ${credential.kind}`);
       const key = credentialKey(credential);
       if (credentialKeys.has(key)) throw new Error(`duplicate credential binding: ${credential.kind}:${credential.issuer}:${credential.subject}`);
       credentialKeys.add(key);
