@@ -65,9 +65,15 @@ export interface CommandEventPolicySpec {
   readonly runtimeEvent: RuntimeEventPolicy;
 }
 
+export interface CommandOptionDefinition {
+  readonly flag: string;
+  readonly description: string;
+}
+
 export interface CommandSpecDefinition {
   readonly kind: string;
   readonly usage: string;
+  readonly options: ReadonlyArray<CommandOptionDefinition>;
   readonly aliases?: ReadonlyArray<string>;
   readonly summary: string;
   readonly examples: ReadonlyArray<string>;

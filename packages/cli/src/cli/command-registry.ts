@@ -1,6 +1,5 @@
 import type { CommandRegistryEntry } from "./types.ts";
 import { commandReceiptEnvelope } from "./receipt.ts";
-import { optionDescription } from "./command-option-descriptions.ts";
 import { commandSpecs, type CommandKind, type CommandSpec } from "./command-spec/index.ts";
 import type {
   CommandParserId,
@@ -49,6 +48,7 @@ export interface CommandDescriptor extends CommandUsage {
   readonly runnerId: CommandRunnerId;
   readonly summary: string;
   readonly examples: ReadonlyArray<string>;
+  readonly options: CommandSpec["options"];
   readonly receiptContract: CommandReceiptContract;
 }
 
@@ -60,6 +60,7 @@ export const commandDescriptors = commandUsages.map((entry) => ({
   runnerId: commandSpecsByKind[entry.kind].runnerId,
   summary: commandSummaries[entry.kind],
   examples: commandExamples[entry.kind],
+  options: commandSpecsByKind[entry.kind].options,
   receiptContract: commandSpecsByKind[entry.kind].receiptContract
 })) satisfies ReadonlyArray<CommandDescriptor>;
 
@@ -80,7 +81,7 @@ export const commandRegistry = commandDescriptors.map((entry) => {
     ],
     commandPath: commandPathFromUsage(entry.usage),
     summary: commandSummaries[entry.kind],
-    options: optionsFromUsage(entry.usage),
+    options: entry.options,
     examples: commandExamples[entry.kind],
     resultEnvelope: commandReceiptEnvelope
   };
@@ -141,11 +142,6 @@ function aliasPathFromDisplay(alias: string): ReadonlyArray<string> {
     .replace(/^ha\s+/u, "");
   const withoutDeprecation = withoutBinary.replace(/\s+\(deprecated,.*$/u, "");
   return commandPathFromUsage(withoutDeprecation);
-}
-
-function optionsFromUsage(usage: string): ReadonlyArray<{ readonly flag: string; readonly description: string }> {
-  const flags = [...new Set([...usage.matchAll(/--[a-z0-9-]+/gu)].map((match) => match[0]))];
-  return flags.map((flag) => ({ flag, description: optionDescription(flag) }));
 }
 
 function samePath(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {

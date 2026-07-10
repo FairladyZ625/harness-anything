@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { commandDescriptors, commandRegistry } from "../src/cli/command-registry.ts";
@@ -254,9 +255,33 @@ test("command descriptor projections are derived from the command spec", () => {
     assert.equal(descriptor?.usage, spec.usage, spec.kind);
     assert.equal(descriptor?.summary, spec.summary, spec.kind);
     assert.deepEqual(descriptor?.examples, spec.examples, spec.kind);
+    assert.deepEqual(descriptor?.options, spec.options, spec.kind);
+    assert.deepEqual(commandRegistry.find((entry) => entry.kind === spec.kind)?.options, spec.options, spec.kind);
     assert.equal(commandParserIds[spec.kind], spec.parserId, spec.kind);
     assert.equal(commandRunnerIds[spec.kind], spec.runnerId, spec.kind);
   }
+});
+
+test("command specs own help option descriptions without a global fallback", () => {
+  for (const spec of commandSpecs) {
+    const usageFlags = new Set([...spec.usage.matchAll(/--[a-z0-9][a-z0-9-]*/gu)].map((match) => match[0]));
+    const optionsByFlag = new Map(spec.options.map((option) => [option.flag, option.description]));
+    for (const flag of usageFlags) {
+      assert.equal(optionsByFlag.has(flag), true, `${spec.kind} must describe ${flag}`);
+      assert.equal((optionsByFlag.get(flag) ?? "").length > 0, true, `${spec.kind} ${flag} needs a description`);
+    }
+  }
+
+  const taskState = commandSpecs.find((entry) => entry.kind === "task-list")?.options?.find((entry) => entry.flag === "--state")?.description;
+  const relationState = commandSpecs.find((entry) => entry.kind === "relation-list")?.options?.find((entry) => entry.flag === "--state")?.description;
+  assert.match(taskState ?? "", /task state/u);
+  assert.doesNotMatch(taskState ?? "", /relation state/u);
+  assert.match(relationState ?? "", /relation state/u);
+  assert.doesNotMatch(relationState ?? "", /task state/u);
+
+  assert.equal(existsSync(new URL("../src/cli/command-option-descriptions.ts", import.meta.url)), false);
+  const registrySource = readFileSync(new URL("../src/cli/command-registry.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(registrySource, /optionsFromUsage|optionDescription|command-option-descriptions/u);
 });
 
 test("conflict marker preflight classifies extension and migration write commands", () => {

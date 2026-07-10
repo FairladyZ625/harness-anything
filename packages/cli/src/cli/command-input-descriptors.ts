@@ -1,5 +1,4 @@
 import type { CommandKind, CommandDescriptor } from "./command-registry.ts";
-import { optionDescription } from "./command-option-descriptions.ts";
 
 export type JsonSchemaType = "string" | "number" | "boolean" | "array" | "object";
 export type ShortcutMerge = "set" | "append";
@@ -176,7 +175,7 @@ export function commandInputDescriptorFor(command: CommandDescriptor): CommandIn
   }>>)[command.kind];
   const entity = entityForCommand(command);
   const action = actionForCommand(command, entity);
-  const fallbackShortcuts = usageOptions(command.usage).map((flag) => shortcut(flag, `$.${fieldNameForFlag(flag)}`, "set", optionDescription(flag)));
+  const fallbackShortcuts = command.options.map((option) => shortcut(option.flag, `$.${fieldNameForFlag(option.flag)}`, "set", option.description));
   const fallbackProperties = Object.fromEntries(fallbackShortcuts.map((entry) => [
     jsonPathLeaf(entry.path),
     { type: "string", description: entry.description }
@@ -233,16 +232,4 @@ function fieldNameForFlag(flag: string): string {
 
 function jsonPathLeaf(path: string): string {
   return path.replace(/^\$\./u, "").split(".").at(-1) ?? path;
-}
-
-function usageOptions(usage: string): ReadonlyArray<string> {
-  const seen = new Set<string>();
-  const flags: string[] = [];
-  for (const match of usage.matchAll(/--[a-z0-9][a-z0-9-]*/gu)) {
-    const flag = match[0]!;
-    if (seen.has(flag)) continue;
-    seen.add(flag);
-    flags.push(flag);
-  }
-  return flags;
 }
