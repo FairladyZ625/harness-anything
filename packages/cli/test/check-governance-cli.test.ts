@@ -145,6 +145,11 @@ test("CLI metadata check fails closed on missing preset-selected document and an
 test("CLI metadata check enforces milestone dossier artifact and resolvable provenance refs", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
+    writeProjectMilestoneDossierPreset(rootDir);
+    const listed = runJson(rootDir, ["preset", "list"]);
+    const dossierPreset = listed.presets.find((preset: Record<string, unknown>) => preset.id === "milestone-dossier");
+    assert.equal(dossierPreset.layer, "project");
+    assert.equal(dossierPreset.valid, true);
     const created = runJson(rootDir, ["new-task", "--title", "Milestone Dossier", "--vertical", "software/coding", "--preset", "milestone-dossier"]);
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "artifacts", "dossier.scaffold.html")), true);
 
@@ -402,6 +407,37 @@ function writeRawPreset(rootDir: string, relativePath: string, manifest: Record<
   const filePath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify(manifest, null, 2), "utf8");
+}
+
+function writeProjectMilestoneDossierPreset(rootDir: string): void {
+  writeRawPreset(rootDir, ".harness/presets/milestone-dossier/preset.json", {
+    schema: "preset-manifest/v2",
+    id: "milestone-dossier",
+    title: "Aggregation-Boundary Understanding Dossier",
+    vertical: "software/coding",
+    version: "1.0.0",
+    kind: "process-action",
+    kernelVersionRange: {
+      min: "1.0.0",
+      maxExclusive: "2.0.0"
+    },
+    capabilityImports: [
+      { id: "relation-graph-projection", kind: "projection", version: "1", required: true },
+      { id: "dossier-gate-checker", kind: "checker", version: "1", required: true }
+    ],
+    profiles: [{
+      id: "baseline",
+      title: "Baseline",
+      checkerProfile: "software-coding-standard",
+      templateSelections: [{
+        slot: "dossier-shell",
+        templateRef: "template://dossier/editorial-shell@1",
+        materializeAs: "artifacts/dossier.scaffold.html",
+        localePolicy: { prefer: "project", fallback: "zh-CN" }
+      }]
+    }],
+    defaultProfile: "baseline"
+  });
 }
 
 function makePreset(overrides: {
