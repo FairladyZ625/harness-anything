@@ -5,7 +5,7 @@ export type PersonId = string;
 export type RoleId = string;
 
 export type CredentialKind =
-  | "unix-uid"
+  | "unix-socket-owner-boundary"
   | "windows-named-pipe-client"
   | "ssh-username"
   | "ssh-tunnel-token-subject"
