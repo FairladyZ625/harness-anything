@@ -1,0 +1,19 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "code-impact-analysis",
+  "title": "Code Impact Analysis",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "template-content",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "standard",
+    "templateSelections": [
+      { "slot": "task.code.impact.analysis", "templateRef": "template://analysis/code-impact@1", "materializeAs": "code-impact-analysis.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+    ]
+  }],
+  "defaultProfile": "baseline"
+}

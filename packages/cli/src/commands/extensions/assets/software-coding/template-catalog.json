@@ -12,6 +12,95 @@
   },
   "documents": [
     {
+      "id": "analysis/code-impact",
+      "version": "1",
+      "documentKind": "code-impact-analysis",
+      "slot": "task.code.impact.analysis",
+      "materializeAs": "code-impact-analysis.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Change Intent",
+        "## Affected Surfaces",
+        "## Dependency Paths",
+        "## Compatibility and Data",
+        "## Test and Verification Impact",
+        "## Risks and Unknowns",
+        "## Evidence"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Change Intent",
+            "## Affected Surfaces",
+            "## Dependency Paths",
+            "## Compatibility and Data",
+            "## Test and Verification Impact",
+            "## Risks and Unknowns",
+            "## Evidence"
+          ],
+          "bodyPath": "templates/task.code.impact.analysis/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Change Intent",
+            "## Affected Surfaces",
+            "## Dependency Paths",
+            "## Compatibility and Data",
+            "## Test and Verification Impact",
+            "## Risks and Unknowns",
+            "## Evidence"
+          ],
+          "bodyPath": "templates/task.code.impact.analysis/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "planning/worker-flow",
+      "version": "1",
+      "documentKind": "worker-flow",
+      "slot": "task.worker.flow",
+      "materializeAs": "worker-flow.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Dispatch Goal",
+        "## Scope Boundaries",
+        "## Inputs and Dependencies",
+        "## Acceptance Criteria",
+        "## Stop Conditions",
+        "## Commit and Handoff"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Dispatch Goal",
+            "## Scope Boundaries",
+            "## Inputs and Dependencies",
+            "## Acceptance Criteria",
+            "## Stop Conditions",
+            "## Commit and Handoff"
+          ],
+          "bodyPath": "templates/task.worker.flow/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Dispatch Goal",
+            "## Scope Boundaries",
+            "## Inputs and Dependencies",
+            "## Acceptance Criteria",
+            "## Stop Conditions",
+            "## Commit and Handoff"
+          ],
+          "bodyPath": "templates/task.worker.flow/en-US.md"
+        }
+      ]
+    },
+    {
       "id": "planning/milestone-task-plan",
       "version": "1",
       "documentKind": "milestone-task-plan",

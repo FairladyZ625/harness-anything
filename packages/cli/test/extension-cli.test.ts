@@ -63,7 +63,7 @@ test("CLI template commands use bundled software coding catalog by default", () 
 
   assert.equal(listed.ok, true);
   assert.equal(listed.command, "template-list");
-  assert.equal(listed.templates.length, 31);
+  assert.equal(listed.templates.length, 33);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/task-plan@1" && template.materializeAs === "task_plan.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/brief@1" && template.materializeAs === "brief.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/module-plan@1" && template.materializeAs === "module_plan.md"), true);
@@ -90,6 +90,52 @@ test("CLI bundled template render fails closed on missing template refs", () => 
   assert.equal(result.command, "template-render");
   assert.equal(result.error?.code, "template_render_failed");
   assert.equal(result.issues.some((issue) => issue.code === "missing_template"), true);
+});
+
+test("CLI bundled additive task templates render both supported locales", () => {
+  for (const templateRef of ["template://planning/worker-flow@1", "template://analysis/code-impact@1"]) {
+    const zh = runJson(["template", "render", templateRef, "--locale", "zh-CN"]);
+    const en = runJson(["template", "render", templateRef, "--locale", "en-US"]);
+
+    assert.equal(zh.document.locale, "zh-CN");
+    assert.equal(en.document.locale, "en-US");
+    assert.notEqual(zh.document.body, en.document.body);
+  }
+});
+
+test("CLI bundled additive presets discover, check, and create their extra task documents", () => {
+  const cases = [
+    { preset: "worker-dispatch", locale: "zh-CN", document: "worker-flow.md", content: /调度目标/u },
+    { preset: "code-impact-analysis", locale: "en-US", document: "code-impact-analysis.md", content: /## Affected Surfaces/u }
+  ];
+
+  for (const testCase of cases) {
+    withTempRoot((rootDir) => {
+      const listed = runRootJson(rootDir, ["preset", "list"]);
+      const inspected = runRootJson(rootDir, ["preset", "inspect", testCase.preset]);
+      const checked = runRootJson(rootDir, ["preset", "check", testCase.preset]);
+      assert.equal(listed.presets.some((preset: Record<string, unknown>) => preset.id === testCase.preset), true);
+      assert.equal(inspected.preset.manifest.schema, "preset-manifest/v2");
+      assert.equal(checked.ok, true);
+
+      writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+        "schema: harness-anything/v1",
+        "settings:",
+        "  identity:",
+        "    personId: person_test",
+        ""
+      ].join("\n"));
+      const created = runRootJson(rootDir, [
+        "new-task", "--title", "Additive Task", "--vertical", "software/coding",
+        "--preset", testCase.preset, "--locale", testCase.locale
+      ]);
+
+      assert.equal(created.generated.includes("task_plan.md"), true);
+      assert.equal(created.generated.includes(testCase.document), true);
+      assert.match(readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8"), /## Implementation Plan/u);
+      assert.match(readFileSync(path.join(rootDir, created.packagePath, testCase.document), "utf8"), testCase.content);
+    });
+  }
 });
 
 test("CLI bundled AGENTS templates surface public worktree discipline", () => {
@@ -216,6 +262,32 @@ function runJson(args: ReadonlyArray<string>, expectSuccess = true): Record<stri
     if (expectSuccess) throw error;
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
+  }
+}
+
+function runRootJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_SESSION_ID: "",
+      CODEX_THREAD_ID: "",
+      ZCODE_SESSION_ID: "",
+      ANTIGRAVITY_SESSION_ID: ""
+    }
+  });
+  return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function withTempRoot(fn: (rootDir: string) => void): void {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-extension-cli-"));
+  try {
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    fn(rootDir);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
   }
 }
 
