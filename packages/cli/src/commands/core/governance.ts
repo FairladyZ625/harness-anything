@@ -13,7 +13,7 @@ export const runGovernanceCommand: CommandRunner = (context, command) => {
   const action = command.action as GovernanceAction;
   switch (action.kind) {
     case "check":
-      return Effect.sync(() => runCheckProfile(context.layoutInput, action));
+      return Effect.sync(() => runCheckProfile(context.layoutInput, action, context.commandRegistry));
     case "governance-rebuild":
       return Effect.sync(() => runGovernanceRebuild(context.layoutInput, action.mode));
     case "lesson-promote":

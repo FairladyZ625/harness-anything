@@ -1,12 +1,17 @@
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { capabilityEntityKinds } from "../capability-entity-kinds.ts";
+import type { CommandDescriptorIdentity } from "../command-spec/types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
-const knownEntityKinds = new Set(capabilityEntityKinds);
-
-export function parseCapabilitiesArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
+export function parseCapabilitiesArgs(
+  args: ReadonlyArray<string>,
+  rootDir: string,
+  json: boolean,
+  commandDescriptors: ReadonlyArray<CommandDescriptorIdentity>
+): ParseResult | null {
+  const knownEntityKinds = new Set(capabilityEntityKinds(commandDescriptors));
   if (args[0] === "entity" && args[1] === "list") return { ok: true, value: { rootDir, json, action: { kind: "entity-list" } } };
   if (args[0] === "capabilities") {
     const entityKind = readOption(args, "--kind") ?? (args[1] && knownEntityKinds.has(args[1]) ? args[1] : undefined);

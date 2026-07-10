@@ -1,192 +1,26 @@
-import { commandKindsForParser } from "./command-registry.ts";
-import { parseDoctorArgs } from "./parse-doctor-args.ts";
-import { parseGitDiffArgs } from "./parse-git-diff-args.ts";
-import { parseMigrationArgs } from "./parse-migration-args.ts";
-import { parseCoreTaskArgs } from "./parsers/core-task.ts";
-import { parseCapabilitiesArgs } from "./parsers/capabilities.ts";
-import { parseDecisionArgs } from "./parsers/decision.ts";
-import { parseDiagnosticsArgs } from "./parsers/diagnostics.ts";
-import { parseDistillArgs } from "./parsers/distill.ts";
-import { parseDocArgs } from "./parsers/doc.ts";
-import { parseGraphArgs } from "./parsers/graph.ts";
-import { parseModuleArgs } from "./parsers/extensions-module.ts";
-import { parsePresetArgs } from "./parsers/extensions-preset.ts";
-import { parseScriptArgs } from "./parsers/extensions-script.ts";
-import { parseTemplateArgs } from "./parsers/extensions-template.ts";
-import { parseVerticalArgs } from "./parsers/extensions-vertical.ts";
-import { parseGuiArgs } from "./parsers/gui.ts";
-import { parseWorktreeArgs } from "./parsers/worktree.ts";
-import { parseMaterializerArgs } from "./parsers/materializer.ts";
-import { parseNewTaskArgs } from "./parsers/new-task.ts";
-import { parseRecordArgs } from "./parsers/record.ts";
-import { parseRelationArgs } from "./parsers/relation.ts";
-import { parseRuntimeEventArgs } from "./parsers/runtime-event.ts";
-import { parseSessionArgs } from "./parsers/session.ts";
-import { parseStatusCheckArgs } from "./parsers/status-check.ts";
-import type { CliResult, ParsedCommand } from "./types.ts";
+import { commandSpecs } from "./command-spec/index.ts";
+import type { CommandParseResult, CommandParser } from "./command-spec/types.ts";
+import type { ParsedCommand } from "./types.ts";
 
-export type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
+export type ParseResult = CommandParseResult;
 
 export interface ParserRegistryEntry {
-  readonly id: string;
   readonly commandKinds: ReadonlyArray<ParsedCommand["action"]["kind"]>;
-  readonly parse: (args: ReadonlyArray<string>, rootDir: string, json: boolean) => ParseResult | null;
+  readonly parse: CommandParser;
 }
 
-export const parserRegistry = [
-  {
-    id: "help",
-    commandKinds: commandKindsForParser("help"),
-    parse: (args, rootDir, json) => {
-      if (args.length > 0 && !["help", "--help", "-h"].includes(args[0] ?? "")) return null;
-      return { ok: true, value: { rootDir, json, action: { kind: "help" } } };
-    }
-  },
-  {
-    id: "version",
-    commandKinds: commandKindsForParser("version"),
-    parse: (args, rootDir, json) => {
-      if (args[0] !== "version" && !args.includes("--version") && !args.includes("-v")) return null;
-      return { ok: true, value: { rootDir, json, action: { kind: "version" } } };
-    }
-  },
-  {
-    id: "capabilities",
-    commandKinds: commandKindsForParser("capabilities"),
-    parse: parseCapabilitiesArgs
-  },
-  {
-    id: "core-task",
-    commandKinds: commandKindsForParser("core-task"),
-    parse: parseCoreTaskArgs
-  },
-  {
-    id: "new-task",
-    commandKinds: commandKindsForParser("new-task"),
-    parse: parseNewTaskArgs
-  },
-  {
-    id: "decision",
-    commandKinds: commandKindsForParser("decision"),
-    parse: parseDecisionArgs
-  },
-  {
-    id: "record",
-    commandKinds: commandKindsForParser("record"),
-    parse: parseRecordArgs
-  },
-  {
-    id: "relation",
-    commandKinds: commandKindsForParser("relation"),
-    parse: parseRelationArgs
-  },
-  {
-    id: "distill",
-    commandKinds: commandKindsForParser("distill"),
-    parse: parseDistillArgs
-  },
-  {
-    id: "runtime-event",
-    commandKinds: commandKindsForParser("runtime-event"),
-    parse: parseRuntimeEventArgs
-  },
-  {
-    id: "materializer",
-    commandKinds: commandKindsForParser("materializer"),
-    parse: parseMaterializerArgs
-  },
-  {
-    id: "session",
-    commandKinds: commandKindsForParser("session"),
-    parse: parseSessionArgs
-  },
-  {
-    id: "doc",
-    commandKinds: commandKindsForParser("doc"),
-    parse: parseDocArgs
-  },
-  {
-    id: "status-check",
-    commandKinds: commandKindsForParser("status-check"),
-    parse: parseStatusCheckArgs
-  },
-  {
-    id: "migration",
-    commandKinds: commandKindsForParser("migration"),
-    parse: parseMigrationArgs
-  },
-  {
-    id: "git-diff",
-    commandKinds: commandKindsForParser("git-diff"),
-    parse: (args, rootDir, json) => {
-      const parsed = parseGitDiffArgs(args, rootDir, json);
-      return parsed ? { ok: true, value: parsed } : null;
-    }
-  },
-  {
-    id: "doctor",
-    commandKinds: commandKindsForParser("doctor"),
-    parse: (args, rootDir, json) => {
-      const parsed = parseDoctorArgs(args, rootDir, json);
-      return parsed ? { ok: true, value: parsed } : null;
-    }
-  },
-  {
-    id: "diagnostics",
-    commandKinds: commandKindsForParser("diagnostics"),
-    parse: parseDiagnosticsArgs
-  },
-  {
-    id: "worktree",
-    commandKinds: commandKindsForParser("worktree"),
-    parse: parseWorktreeArgs
-  },
-  {
-    id: "graph",
-    commandKinds: commandKindsForParser("graph"),
-    parse: parseGraphArgs
-  },
-  {
-    id: "gui",
-    commandKinds: commandKindsForParser("gui"),
-    parse: (args, rootDir, json) => {
-      const parsed = parseGuiArgs(args, rootDir, json);
-      return parsed ? { ok: true, value: parsed } : null;
-    }
-  },
-  {
-    id: "template",
-    commandKinds: commandKindsForParser("template"),
-    parse: parseTemplateArgs
-  },
-  {
-    id: "preset",
-    commandKinds: commandKindsForParser("preset"),
-    parse: parsePresetArgs
-  },
-  {
-    id: "script",
-    commandKinds: commandKindsForParser("script"),
-    parse: parseScriptArgs
-  },
-  {
-    id: "module",
-    commandKinds: commandKindsForParser("module"),
-    parse: parseModuleArgs
-  },
-  {
-    id: "vertical",
-    commandKinds: commandKindsForParser("vertical"),
-    parse: (args, rootDir, json) => {
-      const parsed = parseVerticalArgs(args, rootDir, json);
-      return parsed ? { ok: true, value: parsed } : null;
-    }
-  }
-] as const satisfies ReadonlyArray<ParserRegistryEntry>;
+const registeredParsers = [...new Set(commandSpecs.map((spec) => spec.parse))];
+
+export const parserRegistry = registeredParsers.map((parse) => ({
+  parse,
+  commandKinds: commandSpecs
+    .filter((spec) => spec.parse === parse)
+    .map((spec) => spec.kind)
+})) satisfies ReadonlyArray<ParserRegistryEntry>;
 
 export function parseRegisteredCommand(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
   for (const entry of parserRegistry) {
-    const parsed = entry.parse(args, rootDir, json);
+    const parsed = entry.parse(args, rootDir, json, commandSpecs);
     if (parsed) return parsed;
   }
   return null;

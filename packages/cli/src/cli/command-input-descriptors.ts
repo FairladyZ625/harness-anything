@@ -1,4 +1,5 @@
 import type { CommandKind, CommandDescriptor } from "./command-registry.ts";
+import type { CommandDescriptorIdentity } from "./command-spec/types.ts";
 
 export type JsonSchemaType = "string" | "number" | "boolean" | "array" | "object";
 export type ShortcutMerge = "set" | "append";
@@ -195,7 +196,7 @@ export function commandInputDescriptorFor(command: CommandDescriptor): CommandIn
   };
 }
 
-export function entityForCommand(command: CommandDescriptor): string {
+export function entityForCommand(command: CommandDescriptorIdentity): string {
   const first = commandPath(command)[0] ?? command.kind.split("-")[0] ?? "command";
   if (command.kind === "decision-relation-retire" || command.kind === "decision-relation-replace") return "relation";
   if (command.kind === "new-task" || first === "task") return "task";
@@ -204,7 +205,7 @@ export function entityForCommand(command: CommandDescriptor): string {
   return first;
 }
 
-export function actionForCommand(command: CommandDescriptor, entity = entityForCommand(command)): string {
+export function actionForCommand(command: CommandDescriptorIdentity, entity = entityForCommand(command)): string {
   const path = commandPath(command);
   if (path[0] === entity && path[1]) return path.slice(1).join(" ");
   if (command.kind === "new-task") return "create";
@@ -212,7 +213,7 @@ export function actionForCommand(command: CommandDescriptor, entity = entityForC
   return path.slice(1).join(" ") || command.kind.replace(`${entity}-`, "");
 }
 
-export function commandPath(command: CommandDescriptor): ReadonlyArray<string> {
+export function commandPath(command: CommandDescriptorIdentity): ReadonlyArray<string> {
   const tokens = command.usage.split(/\s+/u);
   const pathTokens: string[] = [];
   for (const token of tokens) {

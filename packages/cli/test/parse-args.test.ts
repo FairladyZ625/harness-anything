@@ -3,10 +3,14 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { commandDescriptors, commandRegistry } from "../src/cli/command-registry.ts";
-import { commandParserIds, commandRunnerIds } from "../src/cli/command-dispatch-ids.ts";
 import { commandSpecs } from "../src/cli/command-spec/index.ts";
 import { parseArgs } from "../src/cli/parse-args.ts";
 import { parserRegistry } from "../src/cli/parser-registry.ts";
+import { parseCoreTaskArgs } from "../src/cli/parsers/core-task.ts";
+import { parseVersionArgs } from "../src/cli/parsers/meta.ts";
+import { runInitCommand } from "../src/commands/core/init.ts";
+import { runTaskLifecycleCommand } from "../src/commands/core/task-lifecycle.ts";
+import { runVersionCommand } from "../src/commands/core/version.ts";
 import { requiresConflictMarkerPreflight } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { extensionActionKinds, extensionExecutorGroups, isExtensionAction } from "../src/commands/extensions/index.ts";
@@ -257,9 +261,22 @@ test("command descriptor projections are derived from the command spec", () => {
     assert.deepEqual(descriptor?.examples, spec.examples, spec.kind);
     assert.deepEqual(descriptor?.options, spec.options, spec.kind);
     assert.deepEqual(commandRegistry.find((entry) => entry.kind === spec.kind)?.options, spec.options, spec.kind);
-    assert.equal(commandParserIds[spec.kind], spec.parserId, spec.kind);
-    assert.equal(commandRunnerIds[spec.kind], spec.runnerId, spec.kind);
+    assert.equal(descriptor?.parse, spec.parse, spec.kind);
+    assert.equal(descriptor?.run, spec.run, spec.kind);
   }
+});
+
+test("command specs can directly share parser and runner function references", () => {
+  const version = commandSpecs.find((entry) => entry.kind === "version");
+  const init = commandSpecs.find((entry) => entry.kind === "init");
+  const taskClaim = commandSpecs.find((entry) => entry.kind === "task-claim");
+
+  assert.equal(version?.parse, parseVersionArgs);
+  assert.equal(version?.run, runVersionCommand);
+  assert.equal(init?.parse, parseCoreTaskArgs);
+  assert.equal(init?.run, runInitCommand);
+  assert.equal(taskClaim?.parse, init?.parse);
+  assert.equal(taskClaim?.run, runTaskLifecycleCommand);
 });
 
 test("command specs own help option descriptions without a global fallback", () => {

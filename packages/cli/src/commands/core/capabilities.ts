@@ -1,20 +1,20 @@
 import { Effect } from "effect";
 import { entityRegistry, entityRegistryKinds } from "../../../../kernel/src/index.ts";
 import { capabilityEntityKinds, capabilityExcludedCommandKinds } from "../../cli/capability-entity-kinds.ts";
-import { cliCommandAlias, commandDescriptors, commandRegistry } from "../../cli/command-registry.ts";
+import { cliCommandAlias } from "../../cli/command-names.ts";
 import { actionForCommand, commandInputDescriptorFor, entityForCommand } from "../../cli/command-input-descriptors.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 
 export { capabilityExcludedCommandKinds };
 
-export const runCapabilitiesCommand: CommandRunner = (_context, command) => {
+export const runCapabilitiesCommand: CommandRunner = (context, command) => {
   const action = command.action as Extract<ParsedCommand["action"], { readonly kind: "entity-list" | "capabilities" }>;
-  return Effect.sync(() => action.kind === "entity-list" ? entityListResult() : capabilitiesResult(action.entityKind));
+  return Effect.sync(() => action.kind === "entity-list" ? entityListResult(context) : capabilitiesResult(context, action.entityKind));
 };
 
-function entityListResult(): CliResult {
-  const items = [...entities().values()].map((entity) => ({
+function entityListResult(context: Parameters<CommandRunner>[0]): CliResult {
+  const items = [...entities(context).values()].map((entity) => ({
     kind: entity.kind,
     storage: storageForEntity(entity.kind),
     description: descriptionForEntity(entity.kind),
@@ -24,8 +24,8 @@ function entityListResult(): CliResult {
   return { ok: true, command: "entity-list", rows: items.length, report: { schema: "entity-list/v1", items } };
 }
 
-function capabilitiesResult(entityKind: string | undefined): CliResult {
-  const all = entities();
+function capabilitiesResult(context: Parameters<CommandRunner>[0], entityKind: string | undefined): CliResult {
+  const all = entities(context);
   if (!entityKind) {
     const items = [...all.values()].map((entity) => ({ kind: entity.kind, ops: entity.ops.length, capabilitiesCommand: `${cliCommandAlias} ${entity.kind} capabilities --json` }));
     return { ok: true, command: "capabilities", rows: items.length, report: { schema: "capabilities-index/v1", items } };
@@ -40,7 +40,7 @@ function capabilitiesResult(entityKind: string | undefined): CliResult {
       kind: entity.kind,
       storage: storageForEntity(entity.kind),
       description: descriptionForEntity(entity.kind),
-      fields: fieldsForEntity(entity.kind),
+      fields: fieldsForEntity(context, entity.kind),
       anchors: entity.kind === "decision" ? [{ name: "CH/RJ/C", description: "Decision chosen/rejected/claim anchors may host relation endpoints." }] : [],
       disposition: dispositionForEntity(entity.kind),
       ops: entity.ops,
@@ -53,13 +53,13 @@ function capabilitiesResult(entityKind: string | undefined): CliResult {
   };
 }
 
-function entities(): Map<string, { readonly kind: string; readonly ops: ReadonlyArray<Record<string, unknown> & { readonly action: string; readonly examples: ReadonlyArray<string> }> }> {
+function entities(context: Parameters<CommandRunner>[0]): Map<string, { readonly kind: string; readonly ops: ReadonlyArray<Record<string, unknown> & { readonly action: string; readonly examples: ReadonlyArray<string> }> }> {
   const byEntity = new Map<string, Array<Record<string, unknown> & { readonly action: string; readonly examples: ReadonlyArray<string> }>>();
-  for (const descriptor of commandDescriptors) {
+  for (const descriptor of context.commandDescriptors) {
     if (capabilityExcludedCommandKinds.has(descriptor.kind)) continue;
     const entity = entityForCommand(descriptor);
     const input = commandInputDescriptorFor(descriptor);
-    const registryEntry = commandRegistry.find((entry) => entry.kind === descriptor.kind);
+    const registryEntry = context.commandRegistry.find((entry) => entry.kind === descriptor.kind);
     const op = {
       commandKind: descriptor.kind,
       name: input.action,
@@ -73,21 +73,21 @@ function entities(): Map<string, { readonly kind: string; readonly ops: Readonly
     };
     byEntity.set(entity, [...(byEntity.get(entity) ?? []), op]);
   }
-  for (const kind of capabilityEntityKinds) {
+  for (const kind of capabilityEntityKinds(context.commandDescriptors)) {
     if (!byEntity.has(kind)) byEntity.set(kind, []);
   }
   return new Map([...byEntity.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([kind, ops]) => [kind, { kind, ops }]));
 }
 
-function fieldsForEntity(kind: string): ReadonlyArray<Record<string, unknown>> {
+function fieldsForEntity(context: Parameters<CommandRunner>[0], kind: string): ReadonlyArray<Record<string, unknown>> {
   const fieldNames = new Set<string>();
-  for (const descriptor of commandDescriptors.filter((entry) => entityForCommand(entry) === kind)) {
+  for (const descriptor of context.commandDescriptors.filter((entry) => entityForCommand(entry) === kind)) {
     for (const property of Object.keys(commandInputDescriptorFor(descriptor).input.properties)) fieldNames.add(property);
   }
   return [...fieldNames].sort().map((name) => ({
     name,
     readable: true,
-    writableBy: commandDescriptors
+    writableBy: context.commandDescriptors
       .filter((entry) => entityForCommand(entry) === kind && commandInputDescriptorFor(entry).input.properties[name])
       .map((entry) => `${entityForCommand(entry)} ${actionForCommand(entry)}`),
     jsonPath: `$.${name}`

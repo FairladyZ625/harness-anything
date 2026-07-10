@@ -1,55 +1,21 @@
-import type { ParsedCommand } from "../types.ts";
+import type { CliResult, ParsedCommand } from "../types.ts";
+import type { CommandRunner } from "../runner-registry.ts";
 
-export type CommandParserId =
-  | "help"
-  | "version"
-  | "core-task"
-  | "relation"
-  | "new-task"
-  | "decision"
-  | "distill"
-  | "record"
-  | "runtime-event"
-  | "materializer"
-  | "session"
-  | "doc"
-  | "status-check"
-  | "migration"
-  | "git-diff"
-  | "doctor"
-  | "diagnostics"
-  | "worktree"
-  | "graph"
-  | "capabilities"
-  | "gui"
-  | "template"
-  | "preset"
-  | "script"
-  | "module"
-  | "vertical";
+export type CommandParseResult =
+  | { readonly ok: true; readonly value: ParsedCommand }
+  | { readonly ok: false; readonly error: CliResult["error"] };
 
-export type CommandRunnerId =
-  | "help"
-  | "version"
-  | "init"
-  | "new-task"
-  | "decision"
-  | "distill"
-  | "fact"
-  | "runtime-event"
-  | "materializer"
-  | "session"
-  | "doc"
-  | "task-lifecycle"
-  | "task-gates"
-  | "task-query"
-  | "governance"
-  | "migration"
-  | "diagnostics"
-  | "worktree"
-  | "extension"
-  | "capabilities"
-  | "gui";
+export interface CommandDescriptorIdentity {
+  readonly kind: string;
+  readonly usage: string;
+}
+
+export type CommandParser = (
+  args: ReadonlyArray<string>,
+  rootDir: string,
+  json: boolean,
+  commandSpecs: ReadonlyArray<CommandDescriptorIdentity>
+) => CommandParseResult | null;
 
 export type RuntimeEventPolicy = "auto" | "direct" | "none" | "deferred";
 
@@ -77,8 +43,8 @@ export interface CommandSpecDefinition {
   readonly aliases?: ReadonlyArray<string>;
   readonly summary: string;
   readonly examples: ReadonlyArray<string>;
-  readonly parserId: CommandParserId;
-  readonly runnerId: CommandRunnerId;
+  readonly parse: CommandParser;
+  readonly run: CommandRunner;
   readonly receiptContract: CommandReceiptContract;
   readonly eventPolicy: CommandEventPolicySpec;
 }
