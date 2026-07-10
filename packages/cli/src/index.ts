@@ -35,6 +35,7 @@ import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThr
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
+import { leaseEnforcementEnabled } from "./commands/settings.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
@@ -266,6 +267,7 @@ function createDaemonServiceHost(
       services: defaultRepoBinding().services,
       resolveRepoServices: (repo) => repoBindings.get(repo.repoId)?.services,
       resolveRepoAvailability: (repo) => repoAvailabilityFailure(runtime, repo),
+      leaseEnforcementEnabled: (repo) => leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
       authContext,
       ...(defaultRepoBinding().identity.identityProvider ? { identityProvider: defaultRepoBinding().identity.identityProvider } : {}),
       ...(defaultRepoBinding().identity.peopleRoster ? { peopleRoster: defaultRepoBinding().identity.peopleRoster } : {}),

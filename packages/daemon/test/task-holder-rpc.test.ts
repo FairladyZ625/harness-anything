@@ -14,6 +14,7 @@ import {
   type JsonRpcResponse,
   type PeopleRoster
 } from "../src/index.ts";
+import { leaseEnforcementEnabled } from "../../cli/src/commands/settings.ts";
 
 test("task holder RPC claims, reports collisions with holder and expiry, and releases", async () => {
   const rootDir = createHarnessRoot();
@@ -83,11 +84,11 @@ test("task holder RPC records asserted executor and responsible human in holder 
   }
 });
 
-test("task lease enforcement guards daemon task progress API writes when enabled", async () => {
+test("task lease enforcement guards daemon task progress API writes when enabled by workspace configuration", async () => {
   const previous = process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
-  const rootDir = createHarnessRoot();
+  const rootDir = createHarnessRoot(["settings:", "  tasks:", "    leaseEnforcement: true"]);
   try {
-    process.env.HARNESS_TASK_LEASE_ENFORCEMENT = "1";
+    delete process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
     let progressWrites = 0;
     const { alice, maint } = makeActorServers(rootDir, {
       ...emptyLocalController(),
@@ -117,6 +118,42 @@ test("task lease enforcement guards daemon task progress API writes when enabled
     assert.equal(denied.details.holder.principal.personId, "person_alice");
     assert.equal(denied.details.leaseExpiresAt, "2026-07-10T00:01:00.000Z");
     assert.equal(progressWrites, 0);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+    } else {
+      process.env.HARNESS_TASK_LEASE_ENFORCEMENT = previous;
+    }
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("daemon lease enforcement accepts explicit environment disable over workspace configuration", async () => {
+  const previous = process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+  const rootDir = createHarnessRoot(["settings:", "  tasks:", "    leaseEnforcement: true"]);
+  try {
+    process.env.HARNESS_TASK_LEASE_ENFORCEMENT = "0";
+    let progressWrites = 0;
+    const { maint } = makeActorServers(rootDir, {
+      ...emptyLocalController(),
+      appendTaskProgress: async () => {
+        progressWrites += 1;
+        return { ok: true };
+      }
+    });
+    await hello(maint);
+
+    const result = resultReceipt(await maint.handle({
+      jsonrpc: "2.0",
+      id: "progress-lease-env-disabled",
+      method: "repo.tasks.progress.append",
+      params: {
+        repo: { repoId: "canonical" },
+        payload: { taskId: "task_01KX19GEKWMEJNGSMRT6JJH6HY", text: "allowed by env" }
+      }
+    }));
+    assert.equal(result.ok, true);
+    assert.equal(progressWrites, 1);
   } finally {
     if (previous === undefined) {
       delete process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
@@ -165,6 +202,7 @@ function createActorServer(
       sshExecUser: { username, host: "team-host", source: "ssh-authenticated-exec" }
     },
     services,
+    leaseEnforcementEnabled: (repo) => leaseEnforcementEnabled(repo.canonicalRoot),
     appendRuntimeEvent
   });
 }
@@ -254,9 +292,9 @@ function sampleRoster(): PeopleRoster {
   ].join("\n"));
 }
 
-function createHarnessRoot(): string {
+function createHarnessRoot(settings: ReadonlyArray<string> = []): string {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-task-holder-rpc-"));
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), ["schema: harness-anything/v1", "layout:", "  authoredRoot: harness", ...settings, ""].join("\n"), "utf8");
   return rootDir;
 }

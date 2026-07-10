@@ -27,6 +27,14 @@
           },
           "additionalProperties": false
         },
+        "tasks": {
+          "type": "object",
+          "required": ["leaseEnforcement"],
+          "properties": {
+            "leaseEnforcement": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
         "customVerticals": {
           "type": "object",
           "required": ["enabled"],

@@ -73,6 +73,8 @@ export interface JsonRpcServerOptions {
   readonly services: DaemonServiceHost;
   readonly resolveRepoServices?: (repo: DaemonRepoNamespace) => DaemonServiceHost | undefined;
   readonly resolveRepoAvailability?: (repo: DaemonRepoNamespace) => DaemonRepoAvailabilityFailure | undefined;
+  /** Workspace policy resolver supplied by the CLI composition root. */
+  readonly leaseEnforcementEnabled?: (repo: DaemonRepoNamespace) => boolean;
   readonly authContext?: DaemonAuthenticationContext;
   readonly identityProvider?: IdentityProvider;
   readonly peopleRoster?: PeopleRoster;
@@ -281,7 +283,7 @@ async function callServiceMethod(
       ? successReceipt(contract.method, `completed ${contract.method}`, result as unknown as JsonObject)
       : failureReceipt(contract.method, result.code, result.reason, { data: result as unknown as JsonObject });
   }
-  const taskLeaseFailure = await validateTaskLeaseForServiceWrite(contract, payload, services, actor);
+  const taskLeaseFailure = await validateTaskLeaseForServiceWrite(contract, payload, services, actor, repo, options);
   if (taskLeaseFailure) return taskLeaseFailure;
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
@@ -344,9 +346,11 @@ async function validateTaskLeaseForServiceWrite(
   contract: JsonRpcMethodContract,
   payload: JsonObject | undefined,
   services: DaemonServiceHost,
-  actor: AuthenticatedActor | undefined
+  actor: AuthenticatedActor | undefined,
+  repo: DaemonRepoNamespace | undefined,
+  options: JsonRpcServerOptions
 ): Promise<ReturnType<typeof failureReceipt> | undefined> {
-  if (!taskLeaseEnforcementEnabled() || !taskLeaseGuardedRouteIds.has(contract.routeId ?? "")) return undefined;
+  if (!repo || !options.leaseEnforcementEnabled?.(repo) || !taskLeaseGuardedRouteIds.has(contract.routeId ?? "")) return undefined;
   const taskId = typeof payload?.taskId === "string" ? payload.taskId : undefined;
   if (!taskId) return failureReceipt(contract.method, "task_id_required", "Task lease enforcement requires payload.taskId.");
   if (!services.TaskHolderService) {
@@ -368,11 +372,6 @@ const taskLeaseGuardedRouteIds = new Set<string>([
   "tasks.status.set",
   "tasks.progress.append"
 ]);
-
-function taskLeaseEnforcementEnabled(): boolean {
-  const value = process.env.HARNESS_TASK_LEASE_ENFORCEMENT?.toLowerCase();
-  return value === "1" || value === "true";
-}
 
 function resolveServicesForRepo(
   method: string,

@@ -9,22 +9,58 @@ import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 
-test("task lease enforcement defaults off and rejects progress writes when enabled without a lease", () => {
+test("task lease enforcement defaults off without configuration or environment", () => {
   withTempRoot((rootDir) => {
-    writeHarnessIdentity(rootDir, "person_tester", "Harness Tester");
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
 
-    const defaultOff = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "discipline period write"]);
-    assert.equal(defaultOff.ok, true);
-    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8"), /discipline period write/u);
+    const write = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "default off write"]);
+    assert.equal(write.ok, true);
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8"), /default off write/u);
+  });
+});
 
-    const rejected = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "guarded write"], false, {
+test("workspace lease configuration rejects unclaimed writes and permits the claimed writer", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessLeaseEnforcement(rootDir, true);
+    const created = runJson(rootDir, ["new-task", "--title", "Configured Lease"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+
+    const rejected = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "unclaimed write"], false);
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error?.code, "write_rejected");
+    assert.match(rejected.error?.hint ?? "", /requires an active lease/u);
+
+    const claimed = runJson(rootDir, ["task", "claim", taskId]);
+    assert.equal(claimed.ok, true);
+    const accepted = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "claimed write"]);
+    assert.equal(accepted.ok, true);
+  });
+});
+
+test("explicit false environment override disables configured lease enforcement", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessLeaseEnforcement(rootDir, true);
+    const created = runJson(rootDir, ["new-task", "--title", "Environment Disabled Lease"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+
+    const write = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "env disabled write"], true, {
+      HARNESS_TASK_LEASE_ENFORCEMENT: "0"
+    });
+    assert.equal(write.ok, true);
+  });
+});
+
+test("explicit true environment override enables lease enforcement without configuration", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Environment Enabled Lease"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+
+    const rejected = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "env enabled write"], false, {
       HARNESS_TASK_LEASE_ENFORCEMENT: "1"
     });
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "write_rejected");
-    assert.match(rejected.error?.hint ?? "", /requires an active lease/u);
   });
 });
 
@@ -151,6 +187,17 @@ function writeHarnessIdentity(rootDir: string, personId: string, displayName: st
   ]);
 }
 
+function writeHarnessLeaseEnforcement(rootDir: string, enabled: boolean): void {
+  writeHarnessConfig(rootDir, [
+    "settings:",
+    "  identity:",
+    "    personId: person_tester",
+    "    displayName: Harness Tester",
+    "  tasks:",
+    `    leaseEnforcement: ${enabled}`
+  ]);
+}
+
 function writeHarnessConfig(rootDir: string, extraLines: ReadonlyArray<string> = []): void {
   const harnessRoot = path.join(rootDir, "harness");
   mkdirSync(harnessRoot, { recursive: true });
@@ -182,15 +229,20 @@ function writePeopleRoster(rootDir: string, personId: string, displayName: strin
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, any> {
   try {
+    const childEnv = {
+      ...process.env,
+      HARNESS_ACTOR: "human:tester",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
+      HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
+      ...env
+    };
+    delete childEnv.HARNESS_TASK_LEASE_ENFORCEMENT;
+    if (env.HARNESS_TASK_LEASE_ENFORCEMENT !== undefined) {
+      childEnv.HARNESS_TASK_LEASE_ENFORCEMENT = env.HARNESS_TASK_LEASE_ENFORCEMENT;
+    }
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "human:tester",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
-        HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
-        ...env
-      }
+      env: childEnv
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
