@@ -16,19 +16,19 @@ function inheritedHumanActorIssue(line: string): ReadonlyArray<ProfileValidation
   let record: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(line);
-    if (!isRecord(parsed)) return [];
+    if (!isJsonRecord(parsed)) return [];
     record = parsed;
   } catch {
     return [];
   }
 
-  const actor = isRecord(record.actor) ? record.actor : undefined;
+  const actor = isJsonRecord(record.actor) ? record.actor : undefined;
   const source = actor?.source ?? record.source;
   if (actor?.kind !== "human" || source !== "env") return [];
 
-  const actorId = stringValue(actor.id, "unknown");
-  const opId = stringValue(record.opId, "unknown-op");
-  const entityId = stringValue(record.entityId, "unknown-entity");
+  const actorId = stringOrFallback(actor.id, "unknown");
+  const opId = stringOrFallback(record.opId, "unknown-op");
+  const entityId = stringOrFallback(record.entityId, "unknown-entity");
   return [profileIssue(
     "actor-attribution-checker",
     "human_actor_from_inherited_env",
@@ -38,10 +38,10 @@ function inheritedHumanActorIssue(line: string): ReadonlyArray<ProfileValidation
   )];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stringValue(value: unknown, fallback: string): string {
+function stringOrFallback(value: unknown, fallback: string): string {
   return typeof value === "string" && value.length > 0 ? value : fallback;
 }

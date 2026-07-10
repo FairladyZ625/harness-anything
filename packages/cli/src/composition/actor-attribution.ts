@@ -76,7 +76,7 @@ export function daemonActorAttribution(actor: AuthenticatedActor): CliActorAttri
 export function readCliJournalActorFromEnv(env: NodeJS.ProcessEnv): CliJournalActor | undefined {
   const raw = readEnv(env, "HARNESS_ACTOR");
   if (!raw) return undefined;
-  const actor = parseActor(raw, "HARNESS_ACTOR");
+  const actor = parseActorToken(raw, "HARNESS_ACTOR");
   if (actor.kind === "human") {
     throw new CliActorAttributionError(
       "HARNESS_ACTOR cannot assert a human actor because environment variables are inherited by child processes. " +
@@ -88,14 +88,14 @@ export function readCliJournalActorFromEnv(env: NodeJS.ProcessEnv): CliJournalAc
 }
 
 export function readCliJournalActorFromFlag(raw: string): CliJournalActor {
-  return parseActor(raw, "--actor");
+  return parseActorToken(raw, "--actor");
 }
 
 export function journalActorWithSource(attribution: CliActorAttribution): CliJournalActor & { readonly source: CliActorAttribution["source"] } {
   return { ...attribution.actor, source: attribution.source };
 }
 
-function parseActor(raw: string, channel: "HARNESS_ACTOR" | "--actor"): CliJournalActor {
+function parseActorToken(raw: string, channel: "HARNESS_ACTOR" | "--actor"): CliJournalActor {
   const separator = raw.indexOf(":");
   if (separator <= 0 || separator === raw.length - 1) {
     throw new CliActorAttributionError(`${channel} must use kind:id form, for example ${channel === "HARNESS_ACTOR" ? "agent:codex" : "human:lizeyu"}.`);
