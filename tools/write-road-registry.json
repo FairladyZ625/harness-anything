@@ -451,7 +451,6 @@
       ],
       "presetWriteScopes": [
         "{{outputRoot}}/**",
-        "{{outputRoot}}/artifacts/**",
         "{{paths.adrRoot}}/**",
         "{{paths.milestonesRoot}}/**"
       ],

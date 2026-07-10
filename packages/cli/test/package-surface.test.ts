@@ -78,7 +78,6 @@ test("bundled software coding assets have consistent template and process-preset
     "legacy-migration",
     "create-milestone",
     "milestone-closeout",
-    "milestone-dossier",
     "decision-conformance"
   ].sort();
 

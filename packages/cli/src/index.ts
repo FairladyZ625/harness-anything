@@ -504,7 +504,6 @@ function taskCreatePresetHelp(): ReadonlyArray<string> {
     "  create-milestone        Create a milestone root task, then scaffold and check the milestone map files.",
     "  decision-conformance    Work that must prove alignment with recorded decisions.",
     "  milestone-closeout      Milestone wrap-up checks and evidence collection.",
-    "  milestone-dossier       Generate a milestone dossier from project evidence.",
     "",
     "Start here:",
     "  ha task create --title \"...\" --vertical software/coding --preset <id>",

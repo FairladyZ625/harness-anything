@@ -146,7 +146,6 @@ export const testTierManifest = {
     "packages/cli/test/preset-subtask-expansion-cli.test.ts",
     "packages/cli/test/preset-script-imports-cli.test.ts",
     "packages/cli/test/preset-script-cli.test.ts",
-    "packages/cli/test/preset-script-dossier-cli.test.ts",
     "packages/cli/test/runtime-event-cli.test.ts",
     "packages/cli/test/session-cli.test.ts",
     "packages/cli/test/settings-cli.test.ts",

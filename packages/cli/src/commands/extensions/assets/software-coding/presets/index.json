@@ -8,7 +8,6 @@
     "legacy-migration",
     "create-milestone",
     "milestone-closeout",
-    "milestone-dossier",
     "decision-conformance"
   ]
 }

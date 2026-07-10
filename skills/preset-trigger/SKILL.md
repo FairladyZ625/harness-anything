@@ -34,7 +34,6 @@ ha capabilities preset
 - `create-milestone`: Create a milestone root task, then scaffold and check the milestone map files.
 - `decision-conformance`: Work that must prove alignment with recorded decisions.
 - `milestone-closeout`: Milestone wrap-up checks and evidence collection.
-- `milestone-dossier`: Generate a milestone dossier from project evidence.
 
 ## Guardrails
 

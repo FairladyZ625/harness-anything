@@ -9,7 +9,7 @@ import {
 test("integration shard declaration is non-overlapping and complete", () => {
   const result = checkIntegrationTestShards();
   assert.equal(result.ok, true, result.errors.join("\n"));
-  assert.equal(result.fileCount, 77);
+  assert.equal(result.fileCount, 76);
   assert.deepEqual(result.workflowShards, [1, 2, 3, 4, 5, 6]);
   assert.deepEqual(result.requiredContexts, [
     "integration-shard (1)",
