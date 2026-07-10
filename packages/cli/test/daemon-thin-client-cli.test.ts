@@ -192,7 +192,7 @@ test("concurrent daemon client writes serialize into linear git history", async 
       role: "owner"
     });
     const harnessRoot = path.join(rootDir, "harness");
-    const beforeCount = Number(git(harnessRoot, "rev-list", "--count", "HEAD"));
+    const beforeHead = git(harnessRoot, "rev-parse", "HEAD");
 
     const [left, right] = await Promise.all([
       runRawJsonAsync(rootDir, ["new-task", "--title", "Concurrent Daemon Write Left"], { HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_IDLE_MS: "1500" }),
@@ -201,8 +201,18 @@ test("concurrent daemon client writes serialize into linear git history", async 
 
     assert.equal(left.ok, true);
     assert.equal(right.ok, true);
-    assert.equal(Number(git(harnessRoot, "rev-list", "--count", "HEAD")), beforeCount + 2);
-    const parentCounts = git(harnessRoot, "log", "--format=%P")
+    const leftPackagePath = receiptPath(left, "package");
+    const rightPackagePath = receiptPath(right, "package");
+    const taskIndexPaths = [leftPackagePath, rightPackagePath].map((packagePath) => {
+      const taskPath = path.relative(harnessRoot, path.resolve(rootDir, packagePath)).split(path.sep).join("/");
+      return `${taskPath}/INDEX.md`;
+    });
+    assert.equal(new Set(taskIndexPaths).size, 2);
+    for (const taskIndexPath of taskIndexPaths) {
+      assert.doesNotThrow(() => git(harnessRoot, "cat-file", "-e", `HEAD:${taskIndexPath}`));
+      assert.equal(Number(git(harnessRoot, "rev-list", "--count", `${beforeHead}..HEAD`, "--", taskIndexPath)), 1);
+    }
+    const parentCounts = git(harnessRoot, "log", "--format=%P", `${beforeHead}..HEAD`)
       .split(/\r?\n/u)
       .map((line) => line.trim().length === 0 ? 0 : line.trim().split(/\s+/u).length);
     assert.equal(parentCounts.every((count) => count <= 1), true);
@@ -654,4 +664,13 @@ function closeServer(server: net.Server): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function receiptPath(receipt: Record<string, unknown>, role: string): string {
+  const paths = receipt.paths;
+  assert.equal(Array.isArray(paths), true);
+  const value = (paths as ReadonlyArray<{ readonly role?: unknown; readonly path?: unknown }>)
+    .find((entry) => entry.role === role)?.path;
+  assert.equal(typeof value, "string");
+  return value as string;
 }
