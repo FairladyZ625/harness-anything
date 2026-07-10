@@ -365,9 +365,9 @@ function ensurePeopleRoster(filePath: string, input: {
     ...(input.primaryEmail ? [`    primaryEmail: ${input.primaryEmail}`] : []),
     `    roles: [${input.role}]`,
     "    credentials:",
-    "      - kind: ssh-username",
-    `        issuer: host:${input.sshHost}`,
-    `        subject: ${input.sshUser}`,
+    "      - kind: ssh-forced-command-person",
+    `        issuer: host:${os.hostname()}`,
+    `        subject: ${input.personId}`,
     ...(typeof uid === "number" ? [
       "      - kind: unix-socket-owner-boundary",
       `        issuer: host:${os.hostname()}`,

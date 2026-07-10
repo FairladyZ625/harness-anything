@@ -70,7 +70,9 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
   const action = stripped.args[1] ?? "status";
   const layoutOverrides = stripped.authoredRoot ? { authoredRoot: stripped.authoredRoot } : undefined;
   const daemonArgs = stripped.daemonRepoId ? [...stripped.args, "--repo", stripped.daemonRepoId] : stripped.args;
-  if (action === "connect") return runDaemonConnect(stripped.args);
+  if (action === "connect") return runDaemonConnect(stripped.args, {
+    ...(readOption(argv, "--root") ? { rootDir: stripped.rootDir } : {})
+  });
   if (action === "serve") {
     if (daemonArgs.includes("--stdio")) {
       console.error("daemon serve --stdio is disabled because it creates a competing runtime; start the persistent daemon and use 'ha daemon connect --stdio'.");

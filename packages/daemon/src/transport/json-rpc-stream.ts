@@ -15,6 +15,7 @@ export interface DaemonTransportConnection {
 export interface TransportAuthenticationSuccess {
   readonly ok: true;
   readonly authContext?: DaemonAuthenticationContext;
+  readonly forwardFrame?: boolean;
 }
 
 export interface TransportAuthenticationFailure {
@@ -92,7 +93,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       authContext = result.authContext ?? authContext;
       server = options.createProtocolServer(authContext);
       waitingForAuthentication = false;
-      return;
+      if (!result.forwardFrame) return;
     }
 
     if (!server || !isJsonRpcRequestLike(frame)) {

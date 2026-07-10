@@ -1,6 +1,4 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
-import { realpathSync } from "node:fs";
-import path from "node:path";
 import {
   isTaskHolderError,
   runtimeEventActorFromTaskHolderPrincipal,
@@ -18,6 +16,7 @@ import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMet
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
 import { readTaskHolderExecutor, readTaskHolderExecutorForEvent } from "./task-holder-payload.ts";
+import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { authorizeActorForMethod } from "../identity/authorization.ts";
 import { actorStampJson, type AuthenticatedActor, type IdentityProvider, type PeopleRoster } from "../identity/types.ts";
@@ -139,6 +138,8 @@ async function handleRequest(
   if (repoFailure) return response(failureReceipt(request.method, repoFailure.code, repoFailure.hint));
   const repo = repoForContract(contract, params, repos);
   const effectiveContract = withEffectiveCommandClass(contract, params);
+  const forcedRootFailure = validateForcedCommandRoot(effectiveContract, params, repo, options.authContext);
+  if (forcedRootFailure) return response(forcedRootFailure);
   const repoRuntimeFailure = validateRepoRuntime(effectiveContract, repo, options);
   if (repoRuntimeFailure) return response(repoRuntimeFailure);
 
@@ -255,6 +256,10 @@ async function callServiceMethod(
   repo: DaemonRepoNamespace | undefined
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
+  if (contract.method === "repo.command.run" && repo) {
+    const rootMismatch = commandRootMismatch(payload, repo, options.authContext);
+    if (rootMismatch) return rootMismatch;
+  }
   const services = repo ? resolveServicesForRepo(contract.method, repo, options) : options.services;
   if (!services) return failureReceipt(contract.method, "repo_service_unavailable", `Repo service host is not configured for ${repo?.repoId ?? "unknown"}.`);
   if (contract.method === "repo.daemon.status") {
@@ -267,8 +272,6 @@ async function callServiceMethod(
     if (!services.CliCommandService) {
       return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
     }
-    const rootMismatch = repo ? commandRootMismatch(payload, repo) : undefined;
-    if (rootMismatch) return rootMismatch;
     return services.CliCommandService.runCommand(payload, { actor, repo });
   }
   if (contract.method === "repo.task.claim" || contract.method === "repo.task.holder" || contract.method === "repo.task.release") {
@@ -382,25 +385,6 @@ function resolveServicesForRepo(
   return options.resolveRepoServices(repo) ?? (method === "repo.daemon.status" ? options.services : undefined);
 }
 
-function commandRootMismatch(payload: JsonObject | undefined, repo: DaemonRepoNamespace): ReturnType<typeof failureReceipt> | undefined {
-  const command = isJsonObject(payload?.command) ? payload.command : undefined;
-  const rootDir = typeof command?.rootDir === "string" ? command.rootDir : undefined;
-  if (!rootDir) return undefined;
-  if (realpathOrResolve(rootDir) === realpathOrResolve(repo.canonicalRoot)) return undefined;
-  return failureReceipt("repo.command.run", "repo_command_root_mismatch", "payload.command.rootDir does not match params.repo.repoId.", {
-    repo: { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot },
-    command: { rootDir }
-  });
-}
-
-function realpathOrResolve(rootDir: string): string {
-  try {
-    return realpathSync.native(rootDir);
-  } catch {
-    return path.resolve(rootDir);
-  }
-}
-
 function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: JsonObject): JsonRpcMethodContract {
   const commandClass = commandClassForJsonRpcRequest(contract, params);
   if (commandClass === contract.commandClass) return contract;
@@ -411,8 +395,17 @@ async function resolveActor(
   contract: JsonRpcMethodContract,
   options: JsonRpcServerOptions
 ): Promise<{ readonly ok: true; readonly actor: AuthenticatedActor } | Awaited<ReturnType<IdentityProvider["resolveActor"]>> | undefined> {
-  if (!options.identityProvider) return undefined;
   const authContext = options.authContext ?? { transportKind: "unix-socket" } satisfies DaemonAuthenticationContext;
+  if (!options.identityProvider) {
+    return authContext.sshForcedCommand
+      ? {
+          ok: false,
+          code: "provider_unavailable",
+          providerId: "transport-derived/v1",
+          message: "SSH forced-command authentication requires people.yaml roster validation."
+        }
+      : undefined;
+  }
   return options.identityProvider.resolveActor({
     authContext,
     command: {

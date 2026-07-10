@@ -24,6 +24,7 @@ export function createDaemonLocalTransport(
     return createNamedPipeTransportServer({
       daemonId: options.daemonId,
       pipePath: options.endpoint,
+      acceptSshForcedCommand: true,
       createProtocolServer: options.createProtocolServer,
       onConnection: options.onConnection,
       onConnectionClosed: options.onConnectionClosed
@@ -32,6 +33,7 @@ export function createDaemonLocalTransport(
   return createUnixSocketTransportServer({
     daemonId: options.daemonId,
     socketPath: options.endpoint,
+    acceptSshForcedCommand: true,
     createProtocolServer: options.createProtocolServer,
     onConnection: options.onConnection,
     onConnectionClosed: options.onConnectionClosed

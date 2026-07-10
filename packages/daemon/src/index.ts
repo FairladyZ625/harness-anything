@@ -88,9 +88,16 @@ export {
   type DaemonTransportKind,
   type NamedPipeClientContext,
   type SshExecUserContext,
+  type SshForcedCommandContext,
   type SshTunnelTokenContext,
   type UnixSocketOwnerBoundary
 } from "./transport/auth-context.ts";
+export {
+  authenticateSshForcedCommandFrame,
+  sshForcedCommandBootstrapFrame,
+  type SshForcedCommandBootstrapFrame,
+  type SshForcedCommandBootstrapInput
+} from "./transport/ssh-forced-command.ts";
 export {
   createJsonLineFrameReader,
   encodeJsonLineFrame,

@@ -18,6 +18,7 @@ const credentialKinds = new Set<CredentialKind>([
   "unix-socket-owner-boundary",
   "windows-named-pipe-client",
   "ssh-username",
+  "ssh-forced-command-person",
   "ssh-tunnel-token-subject",
   "email-address",
   "password-account",

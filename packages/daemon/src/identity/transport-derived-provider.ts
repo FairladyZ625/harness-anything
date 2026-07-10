@@ -6,6 +6,7 @@ import type { CredentialRef, IdentityProvider, IdentityProviderFailure, PeopleRo
 export interface TransportDerivedIdentityProviderOptions {
   readonly localUnixIssuer?: string;
   readonly sshExecIssuer?: string;
+  readonly sshForcedCommandIssuer?: string;
   readonly namedPipeIssuer?: string;
 }
 
@@ -34,6 +35,13 @@ function credentialFromAuthContext(
   authContext: DaemonAuthenticationContext,
   options: TransportDerivedIdentityProviderOptions
 ): CredentialRef | undefined {
+  if (authContext.sshForcedCommand?.personId) {
+    return {
+      kind: "ssh-forced-command-person",
+      issuer: options.sshForcedCommandIssuer ?? `host:${os.hostname()}`,
+      subject: authContext.sshForcedCommand.personId
+    };
+  }
   if (typeof authContext.unixSocketOwnerBoundary?.ownerUid === "number") {
     return {
       kind: "unix-socket-owner-boundary",

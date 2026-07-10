@@ -343,6 +343,34 @@ test("transport-derived provider rejects unknown credentials without anonymous f
   if (!resolved.ok) assert.equal(resolved.code, "credential_unknown");
 });
 
+test("SSH forced-command authentication fails closed when the people roster provider is unavailable", async () => {
+  const server = makeServer({
+    authContext: {
+      transportKind: "unix-socket",
+      sshForcedCommand: {
+        personId: "person_alice",
+        canonicalRoot: "/tmp/canonical",
+        source: "sshd-authorized-keys-forced-command"
+      }
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const request = commandRunRequest("version", "forced-no-roster");
+  const response = await server.handle({
+    ...request,
+    params: {
+      repo: { repoId: "canonical", canonicalRoot: "/tmp/canonical" },
+      payload: { command: { rootDir: "/tmp/canonical", json: true, action: { kind: "version" } } }
+    }
+  });
+  const receipt = resultReceipt(response);
+
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "provider_unavailable");
+  assert.match(receipt.error?.hint ?? "", /people\.yaml roster validation/iu);
+});
+
 test("mock email provider proves provider extension without daemon call-site changes", async () => {
   const roster = sampleRoster();
   const emailProvider: IdentityProvider = {

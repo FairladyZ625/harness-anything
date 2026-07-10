@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import net from "node:net";
-import { hostname } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { JsonRpcLineClient } from "../../daemon/src/index.ts";
@@ -18,6 +17,12 @@ import {
   withTempRoot,
   withTempRootAsync
 } from "./helpers/daemon-cli.ts";
+import {
+  forcedCommandRequest,
+  receiptDataString,
+  writeForcedCommandTeamRoster,
+  writePeopleRoster
+} from "./helpers/forced-command-daemon.ts";
 
 const expectedCliVersion = readCliPackageVersion();
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -67,6 +72,54 @@ test("daemon connect fails closed with startup instructions when no persistent d
     assert.match(result.stderr, /No persistent daemon is listening/iu);
     assert.match(result.stderr, /ha daemon start --service/iu);
     assert.equal(existsSync(path.join(rootDir, "harness")), false);
+  });
+});
+
+test("forced-command relay attributes two shared-account members without collapsing principal or executor", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const userRoot = defaultDaemonUserRoot(rootDir);
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    const aliceTask = runRawJson(rootDir, ["new-task", "--title", "Alice Forced Principal"], {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    const bobTask = runRawJson(rootDir, ["new-task", "--title", "Bob Forced Principal"], {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    writeForcedCommandTeamRoster(rootDir);
+
+    try {
+      runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"], { HARNESS_DAEMON_USER_ROOT: userRoot });
+      const [alice, bob] = await Promise.all([
+        forcedCommandRequest(rootDir, userRoot, "person_alice", "repo.task.claim", {
+          repo: { repoId: "canonical", canonicalRoot: rootDir },
+          payload: { taskId: receiptDataString(aliceTask, "taskId"), executor: { kind: "agent", id: "codex-alice" } }
+        }),
+        forcedCommandRequest(rootDir, userRoot, "person_bob", "repo.task.claim", {
+          repo: { repoId: "canonical", canonicalRoot: rootDir },
+          payload: { taskId: receiptDataString(bobTask, "taskId"), executor: { kind: "agent", id: "codex-bob" } }
+        })
+      ]);
+
+      assert.equal(alice.ok, true, JSON.stringify(alice));
+      assert.equal(bob.ok, true, JSON.stringify(bob));
+      const aliceHolder = (((alice.details as Record<string, unknown>).data as Record<string, unknown>).effectiveHolder as Record<string, unknown>);
+      const bobHolder = (((bob.details as Record<string, unknown>).data as Record<string, unknown>).effectiveHolder as Record<string, unknown>);
+      assert.equal((aliceHolder.principal as { personId?: string }).personId, "person_alice");
+      assert.deepEqual(aliceHolder.executor, { kind: "agent", id: "codex-alice" });
+      assert.equal((bobHolder.principal as { personId?: string }).personId, "person_bob");
+      assert.deepEqual(bobHolder.executor, { kind: "agent", id: "codex-bob" });
+
+      const wrongRoot = await forcedCommandRequest(rootDir, userRoot, "person_alice", "repo.task.holder", {
+        repo: { repoId: "canonical", canonicalRoot: path.join(rootDir, "client-selected-root") },
+        payload: { taskId: receiptDataString(aliceTask, "taskId") }
+      });
+      assert.equal(wrongRoot.ok, false);
+      assert.equal((wrongRoot.error as { code?: string }).code, "forced_command_root_mismatch");
+    } finally {
+      stopDaemonQuietly(rootDir, userRoot);
+    }
   });
 });
 
@@ -302,6 +355,7 @@ test("daemon bootstrap-server is idempotent and installs roster hooks and read-o
     assert.equal(second.ok, true);
     assert.equal(existsSync(path.join(canonicalRoot, "harness/people.yaml")), true);
     assert.match(readFileSync(path.join(canonicalRoot, "harness/people.yaml"), "utf8"), /person_alice/u);
+    assert.match(readFileSync(path.join(canonicalRoot, "harness/people.yaml"), "utf8"), /ssh-forced-command-person/u);
     assert.equal(existsSync(path.join(canonicalRoot, ".git/hooks/pre-receive")), true);
     assert.equal(existsSync(path.join(mirrorRoot, "hooks/pre-receive")), true);
     assert.equal(existsSync(reportPath), true);
@@ -555,56 +609,6 @@ function git(rootDir: string, ...args: ReadonlyArray<string>): string {
     stdio: ["ignore", "pipe", "pipe"],
     env: hermeticGitEnv(rootDir)
   }).trim();
-}
-
-function writePeopleRoster(rootDir: string, person: {
-  readonly personId: string;
-  readonly displayName: string;
-  readonly email: string;
-  readonly role: "owner" | "maintainer";
-}): void {
-  const harnessRoot = path.join(rootDir, "harness");
-  mkdirSync(harnessRoot, { recursive: true });
-  writeFileSync(path.join(harnessRoot, "people.yaml"), [
-    "schema: harness-people/v1",
-    "people:",
-    `  - personId: ${person.personId}`,
-    `    displayName: ${person.displayName}`,
-    `    primaryEmail: ${person.email}`,
-    `    roles: [${person.role}]`,
-    "    credentials:",
-    "      - kind: unix-socket-owner-boundary",
-    `        issuer: host:${hostname()}`,
-    `        subject: ${process.getuid?.() ?? 0}`,
-    "roles:",
-    "  - roleId: owner",
-    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
-    "  - roleId: maintainer",
-    "    commandClasses: [repo-write, repo-read]",
-    ""
-  ].join("\n"), "utf8");
-  commitPeopleRoster(harnessRoot);
-}
-
-function commitPeopleRoster(harnessRoot: string): void {
-  if (!existsSync(path.join(harnessRoot, ".git"))) return;
-  execFileSync("git", ["-C", harnessRoot, "add", "--", "people.yaml"], { stdio: "ignore" });
-  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure daemon people roster"], {
-    stdio: "ignore",
-    env: gitAuthorEnv(harnessRoot)
-  });
-}
-
-function gitAuthorEnv(rootDir: string): NodeJS.ProcessEnv {
-  const name = process.env.HARNESS_GIT_AUTHOR_NAME ?? "Harness Test";
-  const email = process.env.HARNESS_GIT_AUTHOR_EMAIL ?? "harness@example.test";
-  return {
-    ...hermeticGitEnv(rootDir),
-    GIT_AUTHOR_NAME: name,
-    GIT_AUTHOR_EMAIL: email,
-    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? name,
-    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? email
-  };
 }
 
 function hermeticGitEnv(rootDir: string): NodeJS.ProcessEnv {

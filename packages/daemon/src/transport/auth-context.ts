@@ -18,6 +18,12 @@ export interface SshExecUserContext {
   readonly source: "ssh-authenticated-exec";
 }
 
+export interface SshForcedCommandContext {
+  readonly personId: string;
+  readonly canonicalRoot: string;
+  readonly source: "sshd-authorized-keys-forced-command";
+}
+
 export interface AttachTokenSubject {
   readonly userId: string;
   readonly hostProfileId: string;
@@ -38,5 +44,6 @@ export interface DaemonAuthenticationContext {
   readonly unixSocketOwnerBoundary?: UnixSocketOwnerBoundary;
   readonly namedPipeClient?: NamedPipeClientContext;
   readonly sshExecUser?: SshExecUserContext;
+  readonly sshForcedCommand?: SshForcedCommandContext;
   readonly sshTunnelToken?: SshTunnelTokenContext;
 }

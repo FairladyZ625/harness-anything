@@ -146,14 +146,14 @@ async function runWithLineClient(
     await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
     if (isTaskHolderCommand(command)) {
       const response = await client.request(taskHolderMethod(command), {
-        repo: { repoId },
+        repo: { repoId, canonicalRoot: command.rootDir },
         payload: taskHolderPayload(command)
       });
       if (isCommandReceipt(response)) return normalizeTaskHolderReceipt(response, command.action.kind);
       throw new Error(`${taskHolderMethod(command)} did not return command-receipt/v2`);
     }
     const response = await client.request("repo.command.run", {
-      repo: { repoId },
+      repo: { repoId, canonicalRoot: command.rootDir },
       payload: commandRunPayload(command)
     });
     if (isCommandReceipt(response)) return response as unknown as CommandReceipt | CommandFailureReceipt;

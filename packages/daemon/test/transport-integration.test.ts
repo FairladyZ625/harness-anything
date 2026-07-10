@@ -10,6 +10,7 @@ import type { LocalControllerService } from "../../application/src/index.ts";
 import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
 import {
   attachTokenBootstrapFrame,
+  authenticateSshForcedCommandFrame,
   createInMemoryAttachTokenStore,
   createJsonRpcProtocolServer,
   createNamedPipeTransportServer,
@@ -20,6 +21,8 @@ import {
   encodeJsonLineFrame,
   makeTransportDerivedIdentityProvider,
   peopleRosterFromDocument,
+  serveJsonRpcStream,
+  sshForcedCommandBootstrapFrame,
   serveSshExecBridge,
   serveSshTunnelTokenStream,
   windowsNamedPipeIntegrationEntry,
@@ -114,6 +117,75 @@ test("unix socket auth without an owner boundary fails explicitly", async () => 
     assert.equal(resolved.code, "credential_unavailable");
     assert.equal(resolved.message, "Transport authentication context did not expose a usable credential.");
   }
+});
+
+test("forced-command credentials keep two members distinct and ignore the shared unix owner", async () => {
+  const roster = peopleRosterFromDocument([
+    "schema: harness-people/v1",
+    "people:",
+    "  - personId: person_alice",
+    "    displayName: Alice",
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: ssh-forced-command-person",
+    "        issuer: host:team-host",
+    "        subject: person_alice",
+    "  - personId: person_bob",
+    "    displayName: Bob",
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: ssh-forced-command-person",
+    "        issuer: host:team-host",
+    "        subject: person_bob",
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    ""
+  ].join("\n"));
+  const provider = makeTransportDerivedIdentityProvider(roster, { sshForcedCommandIssuer: "host:team-host" });
+
+  const resolve = (personId: string) => provider.resolveActor({
+    authContext: {
+      transportKind: "unix-socket" as const,
+      unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" as const },
+      sshForcedCommand: { personId, canonicalRoot: "/srv/canonical", source: "sshd-authorized-keys-forced-command" as const }
+    },
+    command: { method: "repo.tasks.list", namespace: "repo", requiresRepo: true }
+  });
+  const [alice, bob, unknown] = await Promise.all([resolve("person_alice"), resolve("person_bob"), resolve("person_mallory")]);
+
+  assert.equal(alice.ok && alice.actor.personId, "person_alice");
+  assert.equal(bob.ok && bob.actor.personId, "person_bob");
+  assert.equal(unknown.ok, false);
+  if (!unknown.ok) assert.equal(unknown.code, "credential_unknown");
+});
+
+test("forced-command bootstrap is consumed before JSON-RPC and becomes authContext", async () => {
+  const clientToServer = new PassThrough();
+  const serverToClient = new PassThrough();
+  let seenAuthContext: DaemonAuthenticationContext | undefined;
+  const connection = serveJsonRpcStream({
+    input: clientToServer,
+    output: serverToClient,
+    transportKind: "unix-socket",
+    authContext: {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" }
+    },
+    authenticateFirstFrame: authenticateSshForcedCommandFrame,
+    createProtocolServer: (authContext) => {
+      seenAuthContext = authContext;
+      return makeProtocolServerFactory()(authContext);
+    }
+  });
+  const client = frameClient(serverToClient, clientToServer);
+
+  client.send(sshForcedCommandBootstrapFrame({ personId: "person_alice", canonicalRoot: "/srv/canonical" }));
+  client.send(hello("forced-hello"));
+  assert.equal(resultReceipt(await client.read()).ok, true);
+  assert.equal(seenAuthContext?.sshForcedCommand?.personId, "person_alice");
+  assert.equal(seenAuthContext?.sshForcedCommand?.canonicalRoot, "/srv/canonical");
+  await connection.close();
 });
 
 test("people roster rejects legacy unix-uid credentials", () => {
