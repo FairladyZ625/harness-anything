@@ -6,24 +6,27 @@ task, a fact, and an adjudicated decision — all as Markdown inside the private
 
 ## 0. Set write attribution
 
-Local `ha` write commands require explicit attribution. Set these once in the
-shell where you run the loop:
+Local `ha` write commands require explicit attribution. For this human-run
+loop, pass the human identity as a global flag and set the commit author
+variables:
 
 ```bash
-export HARNESS_ACTOR=human:you
 export HARNESS_GIT_AUTHOR_NAME="Your Name"
 export HARNESS_GIT_AUTHOR_EMAIL="you@example.com"
+ha --actor human:you init
 ```
 
-`HARNESS_ACTOR` must use `kind:id` form; `kind` is one of `human`, `agent`, or
-`system`. Use a real person or agent identity here. The quickstart smoke demo
-uses its own demo-scoped system actor because it writes only to a throwaway
-workspace.
+Continue this loop by prefixing each write command with `ha --actor human:you`.
+Do not export `HARNESS_ACTOR=human:you`: a child process inherits environment
+variables, so it cannot prove a human was present for its write. Agent and
+system automation may use `HARNESS_ACTOR=agent:<id>` or `system:<id>` per
+command. See [Actor Attribution](../../actor-attribution.md) for the safe
+interactive wrapper and complete source matrix.
 
 ## 1. Initialize
 
 ```bash
-$ ha init
+$ ha --actor human:you init
 ok command=init path=harness/harness.yaml summary="initialized harness at harness/harness.yaml"
 ```
 
@@ -60,7 +63,7 @@ harness/
 ## 2. Create a task
 
 ```bash
-$ ha task create --title "Fix login redirect bug"
+$ ha --actor human:you task create --title "Fix login redirect bug"
 ok command="task create" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=planned
    path=harness/tasks/task_01KWPP52D...-fix-login-redirect-bug
 ```
@@ -70,7 +73,7 @@ You get a stable `task_<id>` and a task package on disk. IDs are identity; title
 ## 3. Move it through the lifecycle
 
 ```bash
-$ ha task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
+$ ha --actor human:you task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
 ok command="task transition" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
    summary="set task task_01KWPP52D062Q7BWTD8BCNDRWF to active"
 ```
@@ -82,7 +85,7 @@ Tasks move through six states: `planned → active → blocked → in_review →
 Facts are append-only observations, anchored to the task that produced them:
 
 ```bash
-$ ha fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
+$ ha --actor human:you fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
     --statement "Redirect loops when the session cookie is missing" \
     --source "manual repro" --confidence high
 ok command="fact record" task=task_01KWPP52D062Q7BWTD8BCNDRWF path=facts.md
@@ -91,18 +94,18 @@ ok command="fact record" task=task_01KWPP52D062Q7BWTD8BCNDRWF path=facts.md
 Now propose a decision — the WHY — and adjudicate it:
 
 ```bash
-$ ha decision propose --title "Use a server-side redirect guard" \
+$ ha --actor human:you decision propose --title "Use a server-side redirect guard" \
     --question "How do we stop the login redirect loop?" \
     --chosen "Add a server-side guard" \
     --rejected "Client-only fix" \
     --why-not "Client fix races with cookie set"
 ok command="decision propose" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 
-$ ha decision accept dec_mr6f3b4z --arbiter human:you
+$ ha --actor human:you decision accept dec_mr6f3b4z --arbiter human:you
 ok command="decision accept" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 ```
 
-`accept` is the adjudication checkpoint: it's where a decision's evidence relations (attach them with `--evidence-relation` on propose, or `ha decision relate` later) are validated before the decision becomes binding. This is what makes an accepted decision *trustworthy* rather than just asserted — the full fail-closed policy is covered in **[learn/](../../learn/en/00-overview.md)**.
+`accept` is the adjudication checkpoint: it's where a decision's evidence relations (attach them with `--evidence-relation` on propose, or `ha decision relate` later) are validated before the decision becomes binding. This is what makes an accepted decision _trustworthy_ rather than just asserted — the full fail-closed policy is covered in **[learn/](../../learn/en/00-overview.md)**.
 
 ## 5. Watch the structure grow
 
@@ -126,4 +129,4 @@ the decision it justified, all linked and reviewable with `git -C harness diff`.
 
 ---
 
-Next: go deeper on the *why* → **[learn/](../../learn/en/00-overview.md)**, or grab the **[daily commands cheat sheet](03-daily-commands.md)**.
+Next: go deeper on the _why_ → **[learn/](../../learn/en/00-overview.md)**, or grab the **[daily commands cheat sheet](03-daily-commands.md)**.

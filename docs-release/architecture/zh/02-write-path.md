@@ -17,11 +17,14 @@ WriteCoordinator
 
 调用方甚至不用手工构造 op。`packages/kernel/src/write-coordination/write-helpers.ts` 里的辅助函数(`writeCoordinatedTaskDocuments`、`writeCoordinatedPayload`)负责组装 op、推导它的 `opId`、入队并 flush——于是所有通往持久化存储的路径,都收束成同一个两步动作:**先 enqueue,再 flush**。
 
-本地 CLI 写入还必须带着显式的 actor 归因进门。CLI 会在创建协调器之前解析这份归因：设置
-`HARNESS_ACTOR=kind:id`，其中 `kind` 只能是 `agent`、`human` 或 `system`，并设置
-`HARNESS_GIT_AUTHOR_NAME` 与 `HARNESS_GIT_AUTHOR_EMAIL` 作为 git commit author。`HARNESS_ACTOR`
-没有 fallback，也不会从 git config 推断；它缺失或格式错误时，本地写入不能继续。daemon 写入走
-daemon 的已认证 actor 路径，并要求该身份能解析出用于 git author 的邮箱。
+本地 CLI 写入还必须带着显式的 actor 归因进门。CLI 会在创建协调器之前解析它：
+`HARNESS_ACTOR=agent:<id>` 与 `HARNESS_ACTOR=system:<id>` 仍是有效环境通道；human 身份则
+必须使用 `--actor human:<id>`，因为子进程会继承环境变量。显式 flag 优先于环境变量。
+本地写入也需要 git author 的姓名与邮箱；示例使用 `HARNESS_GIT_AUTHOR_NAME`、
+`HARNESS_GIT_AUTHOR_EMAIL`（对应的 Git author 环境变量可以 fallback）。归属或 author 数据
+缺失、格式不正确时，本地写入不能继续。journal 会记录 actor 来自 `env` 还是 `flag`。daemon
+写入走已认证的 human actor 路径，记录 `source: daemon`，并要求该身份能解析出 git author
+邮箱。详见[归属模型](../../actor-attribution.zh-CN.md)。
 
 ## Journal:先意图,后效果
 

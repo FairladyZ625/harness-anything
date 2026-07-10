@@ -5,10 +5,10 @@ one or more canonical repositories on the same machine. The CLI does not switch
 to the daemon automatically: by default it runs in-process direct mode. Set
 `HARNESS_DAEMON_MODE=local` for commands that should use the local daemon.
 
-Do not deploy the daemon as a long-lived SSH team server. The supported remote
-path is an experimental single-command SSH shim that starts `ha daemon serve
---stdio` for that one client command. It is not a persistent daemon with
-concurrent SSH clients.
+The remote path is experimental. A remote CLI command opens an SSH stdio relay
+to an already-running daemon; it does not start a daemon over SSH. Remote team
+access must use one SSH `authorized_keys` forced command per member, as described
+in [Team onboarding with SSH forced commands](#team-onboarding-with-ssh-forced-commands).
 
 ## Supported Topologies
 
@@ -17,15 +17,12 @@ concurrent SSH clients.
 - Local daemon, multiple repositories on one machine: register each repository
   in the user daemon registry, start one daemon, and route commands with
   `--repo <id>`.
-- Remote SSH shim: use `HARNESS_DAEMON_MODE=remote` for one CLI command at a
-  time. The client spawns `ssh <host> ha daemon serve --stdio ...` and exits
-  after the command completes.
+- Remote SSH relay: use `HARNESS_DAEMON_MODE=remote` for one CLI command at a
+  time. The client runs `ssh <host> ha daemon connect --stdio`; sshd's forced
+  command connects that stdio stream to the persistent local daemon.
 
 Unsupported deployments:
 
-- A persistent daemon reached by many SSH clients. Each SSH client starts its
-  own `daemon serve` process, so it can collide with the persistent service on
-  `global.lock`.
 - Binding the daemon to TCP, HTTP, or WebSocket. The implemented transports are
   the local Unix socket and the Windows named pipe.
 - Remote GUI attachment to another machine's daemon. The GUI connects to the
@@ -41,7 +38,7 @@ Unsupported deployments:
 - One or more initialized canonical repository paths writable by the daemon
   user.
 - SSH access only when using bootstrap checks, read-only mirrors, or the
-  experimental remote shim.
+  experimental remote relay.
 
 ## Bootstrap
 
@@ -106,10 +103,10 @@ HARNESS_DAEMON_MODE=local ha --repo A task list
 The running daemon reconciles the registry every second. A newly registered
 repository can attach without restarting the daemon.
 
-## Remote SSH Shim
+## Remote SSH Relay
 
-Remote mode is a single-session shim, not a client for a persistent remote
-daemon:
+Remote mode is a single-command client of a persistent remote daemon. It opens
+an SSH stdio session, which the server's forced command relays to the daemon:
 
 ```bash
 HARNESS_DAEMON_MODE=remote \
@@ -125,9 +122,81 @@ to `ha`; set it when the remote binary path is different. Set
 `HARNESS_DAEMON_REPO_ID` when the remote side should serve a registered repo id
 other than `canonical`.
 
-Do not run this against a repository already held by a persistent daemon. The
-SSH shim starts another `daemon serve` process, and that process must acquire
-the same `global.lock`.
+The client invokes `ssh <host> <remote-ha> daemon connect --stdio`. The server
+must already be running `ha daemon start --service` for the canonical root. The
+remote root is sent with each request and must match the root pinned by the
+member's forced command.
+
+## Team onboarding with SSH forced commands
+
+This experimental path authenticates a person through the server's sshd, not
+through `process.env.USER` or a client-supplied principal. Configure it on the
+daemon host, where the persistent daemon and the canonical repository live.
+
+1. Start and register the daemon for `/srv/harness/team`; the bootstrap command
+   above can create the initial roster and service. Ensure the service is
+   running with `ha --root /srv/harness/team daemon start --service`.
+2. Add each member to `harness/people.yaml`. Their entry needs a stable
+   `personId`, `displayName`, `primaryEmail`, a role whose command classes grant
+   the intended access, and an exact transport credential. Its issuer must
+   match `host:<os.hostname()>` as observed by the daemon process, not merely
+   an SSH alias used by clients. Restart the daemon service after every roster
+   edit; the running repo binding loads the roster when it starts.
+
+   ```yaml
+   - personId: person_alice
+     displayName: Alice
+     primaryEmail: alice@example.com
+     roles: [maintainer]
+     credentials:
+       - kind: ssh-forced-command-person
+         issuer: host:team-host
+         subject: person_alice
+   ```
+
+3. Add one `authorized_keys` line for that member's public key on the daemon
+   account. This example pins both Alice and `/srv/harness/team`; replace the
+   key material and comment, but keep the command arguments structurally
+   identical.
+
+   ```text
+   command="ha --root /srv/harness/team daemon connect --stdio --principal person_alice --expect-original-command 'ha daemon connect --stdio'",restrict ssh-ed25519 AAAA... alice@example.com
+   ```
+
+4. On the member's client, use the remote mode variables shown above. The
+   expected original command is exact. The example assumes the remote binary is
+   `ha`; if `HARNESS_DAEMON_REMOTE_HA` changes it, make the forced command's
+   expected string match the actual SSH command exactly.
+
+### Revocation
+
+Remove the member's `authorized_keys` line first: that immediately prevents new
+SSH sessions. Then remove the matching credential or person from
+`harness/people.yaml`, or mark the person disabled, and restart the daemon so
+the roster change applies and existing relay sessions are disconnected. Review
+and rotate a key if its custody is in doubt; changing only a display name or
+role is not key revocation.
+
+### Security boundary
+
+The following checks are mechanical:
+
+- sshd authenticates the key and runs the static forced command; the relay
+  rejects a process without a root-owned `sshd` ancestor.
+- `SSH_ORIGINAL_COMMAND` must exactly equal the authorized expected command.
+  The expected command itself rejects `--principal`, `--root`, and
+  `--expect-original-command`, so a client cannot smuggle those privileged
+  options through it.
+- The forced command pins the canonical root. A request for another root is
+  rejected, and the daemon resolves the forced principal only through the exact
+  `ssh-forced-command-person` credential in the roster.
+
+These are not substitutes for administration discipline. Administrators must
+verify public-key ownership before assigning a `personId`, protect the daemon
+account and its `authorized_keys` / roster files, grant the minimum role, and
+remove keys and credentials promptly when access ends. The mechanism proves
+which configured key path was used; it cannot prove that an administrator mapped
+the right human to that key or that the human retained sole control of it.
 
 ## Security Model
 

@@ -99,3 +99,10 @@ npx harness-anything init
 daemon 文档说明当前运维形态和限制：本地 daemon 服务管理、仓库注册、direct-push 保护、只读镜像，以及 remote 边界。
 
 → **[operations-server-daemon.zh-CN.md](operations-server-daemon.zh-CN.md)**
+
+## 正确标注每一次写入的归属
+
+human、agent、system、本地 CLI 与已认证 daemon 并不走同一条身份通道。配置 shell 或团队
+自动化之前，先读归属模型。
+
+→ **[actor-attribution.zh-CN.md](actor-attribution.zh-CN.md)**
