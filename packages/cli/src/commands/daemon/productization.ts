@@ -369,7 +369,7 @@ function ensurePeopleRoster(filePath: string, input: {
     `        issuer: host:${input.sshHost}`,
     `        subject: ${input.sshUser}`,
     ...(typeof uid === "number" ? [
-      "      - kind: unix-uid",
+      "      - kind: unix-socket-owner-boundary",
       `        issuer: host:${os.hostname()}`,
       `        subject: ${uid}`
     ] : []),
