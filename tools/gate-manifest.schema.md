@@ -8,7 +8,7 @@ policy. Changing it is a governance change under ADR-0023 D2/D5.
 - `governanceNotice`: header-equivalent notice for JSON consumers. JSON has no
   comments, so this field carries the required governance warning.
 - `schema`: stable schema id. Current value:
-  `harness-anything/gate-manifest/v1`.
+  `harness-anything/gate-manifest/v2`.
 - `schemaDocumentation`: path to this schema explanation.
 - `authorityBasis`: human-readable ADR/standard references for the schema.
 - `sourceSnapshot`: source inventory used for this version, including GitHub
@@ -28,6 +28,15 @@ Each gate entry must declare:
 - `id`: stable kebab-case gate id.
 - `aggregate`: optional boolean for aggregate gates such as `npm run check`.
 - `command`: local command or equivalent CI command sequence.
+- `deterministic`: boolean classification. `true` means the gate judges only
+  repository source/configuration with reproducible local inputs. Aggregate
+  wrappers, external-API checks, live-registry checks, wall-clock enforcement,
+  and headed-environment checks are `false` even when they contain deterministic
+  subchecks.
+- `positiveControl`: object with `status` (`covered`, `documented-gap`, or
+  `not-applicable`) and a non-empty `evidence` array. Evidence contains a fixture
+  or test path when one exists; gaps and non-applicable aggregate/control-flow
+  gates use an explicit explanation instead of inventing coverage.
 - `category`: one of `boundary`, `local-consistency`, `smoke`,
   `release-policy`, or `meta-governance`.
 - `tier`: one of `pr-required`, `main-only`, `nightly-only`, or `manual-only`.
@@ -43,7 +52,22 @@ Each gate entry must declare:
 - `bypassFixtureRequired`: `true` for boundary gates that require documented
   bypass fixture coverage under ADR-0022 D7.
 - `executionSurfaces`: machine-readable reconciliation with `package.json`,
-  `rewrite-ci.yml`, and branch protection.
+  `rewrite-ci.yml`, and branch protection. Its `classes` array uses `local`,
+  `pr`, `main-full`, `nightly`, and `manual`. `rewriteCi.scheduleOnly: true`
+  distinguishes a step inside the `full-check` job that runs only on schedule.
+
+## Graph Invariants
+
+`tools/check-gate-manifest-invariants.mjs` fails closed when:
+
+1. a `deterministic: true` gate omits `pr` from
+   `executionSurfaces.classes`; or
+2. canonical surface labels, declared workflow jobs, and the actual
+   `.github/workflows/rewrite-ci.yml` job/step graph disagree.
+
+The checker also requires the v2 classification and positive-control fields on
+every gate. Its positive-control test deliberately declares a deterministic gate
+without `pr` and asserts a red result.
 
 ## Sample Entries
 
@@ -52,6 +76,11 @@ Boundary gate sample:
 ```json
 {
   "id": "check-import-boundaries",
+  "deterministic": true,
+  "positiveControl": {
+    "status": "covered",
+    "evidence": ["tools/check-import-boundaries.test.mjs"]
+  },
   "command": "npm run harness:check-import-boundaries",
   "category": "boundary",
   "tier": "pr-required",
@@ -66,7 +95,10 @@ Boundary gate sample:
     "workflowJobs": ["boundaries"],
     "nodeVersions": [24]
   },
-  "bypassFixtureRequired": true
+  "bypassFixtureRequired": true,
+  "executionSurfaces": {
+    "classes": ["local", "pr", "main-full"]
+  }
 }
 ```
 
@@ -75,16 +107,23 @@ Local-consistency gate sample:
 ```json
 {
   "id": "check-schema-field-coverage",
+  "deterministic": true,
+  "positiveControl": {
+    "status": "covered",
+    "evidence": ["tools/check-schema-field-coverage.test.mjs"]
+  },
   "command": "npm run harness:check-schema-field-coverage",
   "category": "local-consistency",
-  "tier": "main-only",
-  "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+  "tier": "pr-required",
   "authoritySource": [
     "packages/kernel/src/entity/field-contracts.ts",
     "tools/check-schema-field-coverage.mjs"
   ],
   "consumerScope": ["entity schema field contract coverage"],
-  "bypassFixtureRequired": false
+  "bypassFixtureRequired": false,
+  "executionSurfaces": {
+    "classes": ["local", "pr", "main-full"]
+  }
 }
 ```
 
@@ -93,6 +132,11 @@ Release-policy gate sample:
 ```json
 {
   "id": "check-package-policy",
+  "deterministic": true,
+  "positiveControl": {
+    "status": "documented-gap",
+    "evidence": ["No dedicated positive-control fixture is registered for check-package-policy."]
+  },
   "command": "npm run harness:check-package-policy",
   "category": "release-policy",
   "tier": "pr-required",
@@ -107,7 +151,10 @@ Release-policy gate sample:
     "workflowJobs": ["package-policy"],
     "nodeVersions": [24]
   },
-  "bypassFixtureRequired": false
+  "bypassFixtureRequired": false,
+  "executionSurfaces": {
+    "classes": ["local", "pr", "main-full"]
+  }
 }
 ```
 
@@ -115,26 +162,20 @@ Release-policy gate sample:
 
 The registry records:
 
-- 26 `harness:*` leaf gates from `package.json`.
-- 24 `harness:*` leaf gates in `check:pr`; the omitted gates are
-  `smoke-legacy-intake` and `smoke-cli-package`.
-- 13 `harness:*` gates executed by pull-request `rewrite-ci` jobs:
-  `check-file-complexity`, `check-import-boundaries`,
-  `scan-forbidden-symbols`, `check-private-boundary`,
-  `check-integration-test-shards`, `check-mergify-queue-contexts`,
-  `check-gate-surface`, `check-runtime-release-readiness`,
-  `check-implementation-contracts`, `check-schema-contracts`,
-  `check-legacy-intake-readiness`, `check-package-policy`,
-  `check-supply-chain`, and `smoke-cli-package`.
-- 13 `harness:*` gates registered in package scripts but not executed by a
-  pull-request `rewrite-ci` job:
-  `check-cli-structure`, `check-cli-help-contract`,
-  `check-cli-error-codes`, `check-error-classification`,
-  `check-duplicate-definitions`, `check-integrity-single-source`,
-  `check-docs-release-map`, `check-docmap-fresh`,
-  `check-template-command-surface`, `check-service-mappability`,
-  `check-api-contract-registry`, `check-schema-field-coverage`, and
-  `smoke-legacy-intake`.
+- 52 gates: 43 deterministic and 9 non-deterministic/composite.
+- 37 `harness:*` leaf gates from `package.json`; 35 are in `check`, 33 are in
+  `check:pr`, and 36 execute in pull-request workflow jobs. The only
+  `harness:*` gate outside the PR workflow is the non-deterministic,
+  schedule-only `check-enforcement-debt-sunset`.
+- 12 formerly main-only deterministic gates added to the existing `boundaries`
+  required context: `check-cli-help-contract`, `check-cli-error-codes`,
+  `check-error-classification`, `check-duplicate-definitions`,
+  `check-integrity-single-source`, `check-docs-release-map`,
+  `check-docmap-fresh`, `check-template-command-surface`,
+  `check-service-mappability`, `check-api-contract-registry`,
+  `check-schema-field-coverage`, and `smoke-legacy-intake`.
+- `check-gate-manifest-invariants` executes locally, in `boundaries`, and in
+  non-PR `full-check` confirmation runs.
 - 14 GitHub branch-protection required contexts:
   `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
   `integration-shard (1)`, `integration-shard (2)`,
@@ -147,4 +188,8 @@ The registry records:
 
 Workflow helper jobs listed under
 `surfaces.rewriteCi.helperJobsNotRegisteredAsGates` are intentionally not
-registered as gates because they only feed required gate jobs.
+registered as gates. `metadata-source-proof` looks up the latest successful
+`rewrite-ci/source-validation` commit status on the exact PR head SHA and fails
+closed to full execution on absence or API error. `source-validation-proof`
+records that status only after all source-validation jobs succeed; reuse runs do
+not record a new proof.

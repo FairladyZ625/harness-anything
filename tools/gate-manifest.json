@@ -1,15 +1,16 @@
 {
   "governanceNotice": "Governance change: modifying this file changes the structured gate-policy authority. Ordinary implementation tasks must not change it without task/ADR/decision evidence.",
-  "schema": "harness-anything/gate-manifest/v1",
+  "schema": "harness-anything/gate-manifest/v2",
   "schemaDocumentation": "tools/gate-manifest.schema.md",
   "authorityBasis": [
     "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d2--gate-manifest-is-the-single-structured-authority-for-gate-policy",
     "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d4--boundary-and-local-consistency-gates-must-be-classified",
-    "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6--gate-binary-boundary-architecture-invariants-vs-local-consistency-formatlocal-coherence"
+    "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6--gate-binary-boundary-architecture-invariants-vs-local-consistency-formatlocal-coherence",
+    "decision/dec_mrepu7h7#CH1"
   ],
   "sourceSnapshot": {
-    "taskId": "task_01KWVTPHGN8VXED2MTNZJY0H5S",
-    "recordedAt": "2026-07-06",
+    "taskId": "task_01KX5HEBCHAKMA25FH5KHRWSEX",
+    "recordedAt": "2026-07-10",
     "packageScripts": "package.json",
     "workflow": ".github/workflows/rewrite-ci.yml",
     "branchProtectionDocument": ".github/branch-protection.md",
@@ -75,6 +76,7 @@
         "check-docs-release-map",
         "check-docmap-fresh",
         "check-gate-surface",
+        "check-gate-manifest-invariants",
         "check-template-command-surface",
         "check-locale-content",
         "check-catalog-schema",
@@ -117,6 +119,7 @@
         "check-docs-release-map",
         "check-docmap-fresh",
         "check-gate-surface",
+        "check-gate-manifest-invariants",
         "check-template-command-surface",
         "check-locale-content",
         "check-catalog-schema",
@@ -130,7 +133,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 31
+      "harnessLeafGateCount": 37
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -144,7 +147,10 @@
         "gui-build",
         "node26-compatibility"
       ],
-      "helperJobsNotRegisteredAsGates": [],
+      "helperJobsNotRegisteredAsGates": [
+        "metadata-source-proof",
+        "source-validation-proof"
+      ],
       "nonPullRequestGateJobs": [
         "full-check"
       ]
@@ -226,7 +232,18 @@
         "branchProtection": {
           "required": false,
           "contexts": []
-        }
+        },
+        "classes": [
+          "local",
+          "main-full"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "not-applicable",
+        "evidence": [
+          "Composite runner only; positive controls are declared by its leaf gates."
+        ]
       }
     },
     {
@@ -276,7 +293,18 @@
         "branchProtection": {
           "required": false,
           "contexts": []
-        }
+        },
+        "classes": [
+          "local",
+          "manual"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "not-applicable",
+        "evidence": [
+          "Composite runner only; positive controls are declared by its leaf gates."
+        ]
       }
     },
     {
@@ -336,7 +364,17 @@
           "contexts": [
             "pr-body-lint"
           ]
-        }
+        },
+        "classes": [
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-pr-body-bilingual.test.mjs"
+        ]
       }
     },
     {
@@ -411,12 +449,22 @@
           "contexts": [
             "pr-body-lint"
           ]
-        }
+        },
+        "classes": [
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-pr-governance.test.mjs"
+        ]
       }
     },
     {
       "id": "mergify-queue-metadata-edit-noop",
-      "command": "echo \"Mergify queue metadata edit does not change the source under test.\"",
+      "command": "echo \"Reusing successful source validation for the same head SHA.\"",
       "category": "meta-governance",
       "tier": "pr-required",
       "tierReason": null,
@@ -515,7 +563,17 @@
             "gui-build",
             "node26-compatibility"
           ]
-        }
+        },
+        "classes": [
+          "pr"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "not-applicable",
+        "evidence": [
+          "Control-flow reuse marker; it performs no source validation and may run only with same-SHA proof."
+        ]
       }
     },
     {
@@ -582,7 +640,19 @@
             "typecheck (24)",
             "node26-compatibility"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "documented-gap",
+        "evidence": [
+          "No dedicated negative TypeScript compilation fixture is registered."
+        ]
       }
     },
     {
@@ -651,7 +721,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/port-physical-io-eslint-boundary.test.mjs"
+        ]
       }
     },
     {
@@ -708,7 +790,18 @@
         "branchProtection": {
           "required": false,
           "contexts": []
-        }
+        },
+        "classes": [
+          "local",
+          "main-full"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "not-applicable",
+        "evidence": [
+          "Aggregate test runner; behavioral positive controls live in the registered Node test files."
+        ]
       }
     },
     {
@@ -773,7 +866,18 @@
             "fast-contract",
             "node26-compatibility"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/test-tier-manifest.mjs and fast-tier test assertions under packages/**/test/**"
+        ]
       }
     },
     {
@@ -844,7 +948,18 @@
             "fast-contract",
             "node26-compatibility"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/test-tier-manifest.mjs and contract-tier test assertions under packages/**/test/**"
+        ]
       }
     },
     {
@@ -915,7 +1030,18 @@
             "integration-shard (5)",
             "integration-shard (6)"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/integration-test-shards.mjs and integration-tier test assertions under packages/**/test/**"
+        ]
       }
     },
     {
@@ -979,7 +1105,19 @@
           "contexts": [
             "gui-build"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "packages/gui/test/*.test.ts"
+        ]
       }
     },
     {
@@ -1040,7 +1178,17 @@
           "contexts": [
             "gui-build"
           ]
-        }
+        },
+        "classes": [
+          "pr"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "documented-gap",
+        "evidence": [
+          "No dedicated negative GUI package-build fixture is registered."
+        ]
       }
     },
     {
@@ -1097,7 +1245,18 @@
         "branchProtection": {
           "required": false,
           "contexts": []
-        }
+        },
+        "classes": [
+          "local",
+          "manual"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/run-gui-e2e-tests.test.mjs"
+        ]
       }
     },
     {
@@ -1157,7 +1316,17 @@
           "contexts": [
             "node26-compatibility"
           ]
-        }
+        },
+        "classes": [
+          "pr"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "not-applicable",
+        "evidence": [
+          "Composite compatibility lane; positive controls belong to typecheck, fast, and contract leaf gates."
+        ]
       }
     },
     {
@@ -1219,7 +1388,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "documented-gap",
+        "evidence": [
+          "No dedicated positive-control fixture is registered for check-file-complexity."
+        ]
       }
     },
     {
@@ -1283,15 +1464,27 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-cli-structure.test.mjs"
+        ]
       }
     },
     {
       "id": "check-cli-help-contract",
       "command": "npm run harness:check-cli-help-contract",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/cli/src/cli/command-registry.ts",
         "packages/cli/src/cli/help.ts",
@@ -1301,8 +1494,11 @@
         "CLI command registry and help output contract"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -1333,23 +1529,39 @@
           "script": "harness:check-cli-help-contract"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-cli-help-contract.test.mjs"
+        ]
       }
     },
     {
       "id": "check-cli-error-codes",
       "command": "npm run harness:check-cli-error-codes",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/cli/src/cli/error-codes.ts",
         "tools/check-cli-error-codes.mjs"
@@ -1358,8 +1570,11 @@
         "CLI error code registry and CLI source usage"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -1390,23 +1605,39 @@
           "script": "harness:check-cli-error-codes"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-cli-error-codes.test.mjs"
+        ]
       }
     },
     {
       "id": "check-error-classification",
       "command": "npm run harness:check-error-classification",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/kernel/src/errors",
         "packages/cli/src/cli/error-codes.ts",
@@ -1416,8 +1647,11 @@
         "kernel and CLI error classification tables"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -1448,15 +1682,31 @@
           "script": "harness:check-error-classification"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-error-classification.test.mjs"
+        ]
       }
     },
     {
@@ -1519,7 +1769,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-import-boundaries.test.mjs"
+        ]
       }
     },
     {
@@ -1585,7 +1847,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-write-coordinator-boundary.test.mjs"
+        ]
       }
     },
     {
@@ -1651,7 +1925,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-bypass-write-boundary.test.mjs"
+        ]
       }
     },
     {
@@ -1722,7 +2008,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-write-road-registry.test.mjs"
+        ]
       }
     },
     {
@@ -1788,7 +2086,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-kernel-dead-exports.test.mjs"
+        ]
       }
     },
     {
@@ -1852,7 +2162,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-relation-cycle-substrate.test.mjs"
+        ]
       }
     },
     {
@@ -1908,12 +2230,24 @@
           "pullRequestJobs": [],
           "nonPullRequestJobs": [
             "full-check"
-          ]
+          ],
+          "scheduleOnly": true
         },
         "branchProtection": {
           "required": false,
           "contexts": []
-        }
+        },
+        "classes": [
+          "local",
+          "nightly"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-enforcement-debt-sunset.test.mjs"
+        ]
       }
     },
     {
@@ -1975,15 +2309,27 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/scan-forbidden-symbols.test.mjs"
+        ]
       }
     },
     {
       "id": "check-duplicate-definitions",
       "command": "npm run harness:check-duplicate-definitions",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/** source definitions",
         "tools/check-duplicate-definitions.mjs"
@@ -1992,8 +2338,11 @@
         "duplicate source-level definitions scanned by the checker"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -2024,23 +2373,39 @@
           "script": "harness:check-duplicate-definitions"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-duplicate-definitions.test.mjs"
+        ]
       }
     },
     {
       "id": "check-integrity-single-source",
       "command": "npm run harness:check-integrity-single-source",
       "category": "boundary",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
         "packages/kernel/src/** canonical substrate declarations"
@@ -2049,8 +2414,11 @@
         "canonical substrate and integrity single-source declarations"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -2081,15 +2449,31 @@
           "script": "harness:check-integrity-single-source"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-integrity-single-source.test.mjs"
+        ]
       }
     },
     {
@@ -2152,7 +2536,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-private-boundary.test.mjs"
+        ]
       }
     },
     {
@@ -2217,7 +2613,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-integration-test-shards.test.mjs"
+        ]
       }
     },
     {
@@ -2280,7 +2688,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-mergify-queue-contexts.test.mjs"
+        ]
       }
     },
     {
@@ -2343,15 +2763,26 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-github-required-contexts.test.mjs"
+        ]
       }
     },
     {
       "id": "check-docs-release-map",
       "command": "npm run harness:check-docs-release-map",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "docs-release/",
         "tools/check-docs-release-map.mjs"
@@ -2360,8 +2791,11 @@
         "public docs-release map"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -2392,23 +2826,39 @@
           "script": "harness:check-docs-release-map"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-docs-release-map.test.mjs"
+        ]
       }
     },
     {
       "id": "check-docmap-fresh",
       "command": "npm run harness:check-docmap-fresh",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "harness/docmap or generated docmap source declarations",
         "tools/check-docmap-fresh.mjs"
@@ -2417,8 +2867,11 @@
         "docmap generated freshness surface"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -2449,15 +2902,31 @@
           "script": "harness:check-docmap-fresh"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-docmap-fresh.test.mjs"
+        ]
       }
     },
     {
@@ -2531,15 +3000,107 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-gate-surface.test.mjs"
+        ]
+      }
+    },
+    {
+      "id": "check-gate-manifest-invariants",
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-gate-manifest-invariants.test.mjs"
+        ]
+      },
+      "command": "npm run harness:check-gate-manifest-invariants",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "decision/dec_mrepu7h7#CH1",
+        "tools/gate-manifest.schema.md",
+        ".github/workflows/rewrite-ci.yml"
+      ],
+      "consumerScope": [
+        "deterministic gate execution surfaces",
+        "rewrite-ci workflow job and step topology"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Graph invariants are fail-closed and have no exceptions."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gate-manifest.json",
+          "tools/gate-manifest.schema.md",
+          "tools/check-gate-manifest-invariants.mjs",
+          ".github/workflows/rewrite-ci.yml",
+          "package.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-gate-manifest-invariants"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
       }
     },
     {
       "id": "check-template-command-surface",
       "command": "npm run harness:check-template-command-surface",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/cli/src/cli/command-registry.ts",
         "packages/cli/src/commands/extensions/assets/software-coding/templates",
@@ -2549,8 +3110,11 @@
         "seeded task templates and current CLI command registry"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -2581,15 +3145,31 @@
           "script": "harness:check-template-command-surface"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-template-command-surface.test.mjs"
+        ]
       }
     },
     {
@@ -2652,7 +3232,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-locale-content.test.mjs"
+        ]
       }
     },
     {
@@ -2715,7 +3307,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "documented-gap",
+        "evidence": [
+          "No dedicated positive-control fixture is registered for check-catalog-schema."
+        ]
       }
     },
     {
@@ -2778,7 +3382,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-runtime-release-readiness.test.mjs"
+        ]
       }
     },
     {
@@ -2843,7 +3459,19 @@
           "contexts": [
             "package-policy"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "documented-gap",
+        "evidence": [
+          "No dedicated positive-control fixture is registered for check-package-policy."
+        ]
       }
     },
     {
@@ -2906,15 +3534,27 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "documented-gap",
+        "evidence": [
+          "No dedicated positive-control fixture is registered for check-implementation-contracts."
+        ]
       }
     },
     {
       "id": "check-service-mappability",
       "command": "npm run harness:check-service-mappability",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/application/src",
         "packages/gui/src/api",
@@ -2924,8 +3564,11 @@
         "service declarations and mappability projections"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -2956,23 +3599,39 @@
           "script": "harness:check-service-mappability"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-service-mappability.test.mjs"
+        ]
       }
     },
     {
       "id": "check-api-contract-registry",
       "command": "npm run harness:check-api-contract-registry",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/gui/src/api/api-contract-registry.ts",
         "packages/gui/src/preload/allowlist.ts",
@@ -2983,8 +3642,11 @@
         "GUI API route registry, preload allowlist, bridge handlers, and service methods"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -3017,15 +3679,31 @@
           "script": "harness:check-api-contract-registry"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-api-contract-registry.test.mjs"
+        ]
       }
     },
     {
@@ -3088,15 +3766,27 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "packages/kernel/fixtures/schemas/*/invalid.json"
+        ]
       }
     },
     {
       "id": "check-schema-field-coverage",
       "command": "npm run harness:check-schema-field-coverage",
       "category": "local-consistency",
-      "tier": "main-only",
-      "tierReason": "Registered in package.json check/check:pr but not executed by a pull_request rewrite-ci job; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/kernel/src/entity/field-contracts.ts",
         "tools/check-schema-field-coverage.mjs"
@@ -3105,8 +3795,11 @@
         "entity schema field contract coverage"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -3137,15 +3830,31 @@
           "script": "harness:check-schema-field-coverage"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-schema-field-coverage.test.mjs"
+        ]
       }
     },
     {
@@ -3208,7 +3917,19 @@
           "contexts": [
             "boundaries"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-legacy-intake-readiness.test.mjs"
+        ]
       }
     },
     {
@@ -3272,15 +3993,27 @@
           "contexts": [
             "supply-chain"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-supply-chain.test.mjs"
+        ]
       }
     },
     {
       "id": "smoke-legacy-intake",
       "command": "npm run harness:smoke-legacy-intake",
       "category": "smoke",
-      "tier": "main-only",
-      "tierReason": "Smoke gate is included in npm run check but intentionally omitted from check:pr and pull_request rewrite-ci; full-check runs it on main/schedule/manual.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "packages/cli/src/commands/legacy",
         "tools/smoke-legacy-intake.mjs"
@@ -3289,8 +4022,11 @@
         "Legacy Intake CLI smoke workflow"
       ],
       "githubContext": {
-        "requiredContexts": [],
+        "requiredContexts": [
+          "boundaries"
+        ],
         "workflowJobs": [
+          "boundaries",
           "full-check"
         ],
         "nodeVersions": [
@@ -3321,15 +4057,31 @@
           "script": "harness:smoke-legacy-intake"
         },
         "rewriteCi": {
-          "pullRequestJobs": [],
+          "pullRequestJobs": [
+            "boundaries"
+          ],
           "nonPullRequestJobs": [
             "full-check"
           ]
         },
         "branchProtection": {
-          "required": false,
-          "contexts": []
-        }
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "documented-gap",
+        "evidence": [
+          "No dedicated negative Legacy Intake smoke fixture is registered."
+        ]
       }
     },
     {
@@ -3391,7 +4143,19 @@
           "contexts": [
             "package-policy"
           ]
-        }
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/smoke-cli-package.test.mjs"
+        ]
       }
     }
   ]

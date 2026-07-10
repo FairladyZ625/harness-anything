@@ -89,6 +89,7 @@ export const testTierManifest = {
     "tools/check-enforcement-debt-sunset.test.mjs",
     "tools/check-docmap-fresh.test.mjs",
     "tools/check-error-classification.test.mjs",
+    "tools/check-gate-manifest-invariants.test.mjs",
     "tools/check-gate-surface.test.mjs",
     "tools/check-integrity-single-source.test.mjs",
     "tools/check-legacy-intake-readiness.test.mjs",
