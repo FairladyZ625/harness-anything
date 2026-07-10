@@ -198,6 +198,17 @@ export interface DecisionProjectionRejected {
   readonly whyNot: string;
 }
 
+export interface DecisionProjectionActor {
+  readonly kind: "agent" | "human" | "system";
+  readonly id: string;
+}
+
+export interface ProjectionProvenanceEntry {
+  readonly runtime: string;
+  readonly sessionId: string;
+  readonly boundAt: string;
+}
+
 export interface DecisionProjectionRow {
   readonly schema: "d4-decision-row/v1";
   readonly decisionId: string;
@@ -214,10 +225,10 @@ export interface DecisionProjectionRow {
   readonly urgency?: "low" | "medium" | "high";
   readonly vertical?: string;
   readonly preset?: string;
-  readonly proposedBy?: { readonly kind: "agent" | "human" | "system"; readonly id: string };
+  readonly proposedBy?: DecisionProjectionActor;
   readonly proposedAt?: string;
-  readonly arbiter?: { readonly kind: "agent" | "human" | "system"; readonly id: string };
-  readonly provenance?: ReadonlyArray<{ readonly runtime: string; readonly sessionId: string; readonly boundAt: string }>;
+  readonly arbiter?: DecisionProjectionActor;
+  readonly provenance?: ReadonlyArray<ProjectionProvenanceEntry>;
   readonly decidedAt?: string;
 }
 
@@ -301,7 +312,7 @@ export interface FactProjectionRow {
   readonly confidence: FactConfidence;
   readonly memoryClass: FactMemoryClass;
   readonly memoryTags: ReadonlyArray<FactMemoryTag>;
-  readonly provenance: ReadonlyArray<{ readonly runtime: string; readonly sessionId: string; readonly boundAt: string }>;
+  readonly provenance: ReadonlyArray<ProjectionProvenanceEntry>;
 }
 
 export interface TaskFactListSuccess extends LocalControllerSuccess {
