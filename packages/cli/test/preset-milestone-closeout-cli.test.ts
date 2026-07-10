@@ -36,6 +36,13 @@ test("CLI milestone-closeout preset script red-blocks task evidence missing mile
       "- [x] Implemented behavior has source evidence.",
       ""
     ].join("\n"));
+    writeFile(rootDir, "harness/decisions/decision-dec_CLOSEOUT/decision.md", decisionDocument([
+      "relations:",
+      "  - { relation_id: \"rel_closeout_scope\", source: \"decision/dec_CLOSEOUT/CH1\", target: \"task/task-closeout\", type: \"derives\", strength: \"strong\", direction: \"directed\", origin: \"declared\", rationale: \"closeout scope\", state: \"active\" }",
+      "---",
+      "# Closeout decision",
+      ""
+    ]));
 
     const unauthorized = runJson(rootDir, ["preset", "action", "milestone-closeout", "check", "--task", "task-closeout"], false);
     assert.equal(unauthorized.error.code, "preset_script_authorization_required");
@@ -74,11 +81,24 @@ test("CLI milestone-closeout preset script red-blocks task evidence missing mile
     assert.equal(passed.report.status, "passed");
     assert.equal(passed.report.summary.red, 0);
     assert.equal(passed.report.summary.green, 2);
+    assert.equal(passed.report.summary.weak, 2);
+    assert.equal(passed.report.summary.strong, 0);
+    assert.equal(passed.report.items.every((item: Record<string, unknown>) => item.evidenceStrength === "weak"), true);
+    assert.equal(passed.report.items.some((item: Record<string, unknown>) => String(item.reason).startsWith("load_bearing_decision_claim_")), false);
   });
 });
 
-test("CLI milestone-closeout preset script fails closed on uncovered load-bearing decision claims", () => {
+test("CLI milestone-closeout policy rejects checkbox-only evidence and accepts canonical typed refs", () => {
   withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/policies/presets/milestone-closeout.policy.json", JSON.stringify({
+      schema: "preset-policy/milestone-closeout/v1",
+      presetId: "milestone-closeout",
+      rules: {
+        requireLoadBearingClaimCoverage: true,
+        boundary: { kind: "root-task-subtree", rootTaskInput: "milestoneRootTaskId" },
+        evidenceMode: "typed-canonical-projection"
+      }
+    }));
     writeFile(rootDir, "harness/milestones/m2-5/feature-breakdown.md", [
       "# M2.5 Feature Breakdown",
       "",
@@ -106,23 +126,43 @@ test("CLI milestone-closeout preset script fails closed on uncovered load-bearin
     ].join("\n"));
     writeFile(rootDir, "harness/decisions/decision-dec_CLOSEOUT/decision.md", decisionDocument([
       "relations:",
+      "  - { relation_id: \"rel_closeout_scope\", source: \"decision/dec_CLOSEOUT/CH1\", target: \"task/task-closeout\", type: \"derives\", strength: \"strong\", direction: \"directed\", origin: \"declared\", rationale: \"closeout scope\", state: \"active\" }",
       "---",
       "# Closeout decision",
       ""
     ]));
 
-    const blocked = runJson(rootDir, ["preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts"], false);
+    const blocked = runJson(rootDir, [
+      "preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts",
+      "--input", "milestoneRootTaskId=task-closeout"
+    ], false);
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error.code, "milestone_closeout_blocked");
     assert.equal(blocked.report.status, "blocked");
+    assert.equal(blocked.report.items.some((item: Record<string, unknown>) => item.status === "red" && item.reason === "typed_evidence_ref_required" && item.evidenceStrength === "weak"), true);
     assert.equal(blocked.report.items.some((item: Record<string, unknown>) => item.status === "red" && item.reason === "load_bearing_decision_claim_uncovered"), true);
+
+    writeFile(rootDir, "harness/tasks/task-closeout/task_plan.md", [
+      "# Plan",
+      "",
+      "## Task Evidence",
+      "",
+      "- [x] Implemented behavior has source evidence. Evidence: fact/task-missing/F-NOTREAL",
+      ""
+    ].join("\n"));
+    const unresolved = runJson(rootDir, [
+      "preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts",
+      "--input", "milestoneRootTaskId=task-closeout"
+    ], false);
+    assert.equal(unresolved.report.items.some((item: Record<string, unknown>) => item.status === "red" && item.reason === "typed_evidence_ref_unresolved"), true);
 
     writeFile(rootDir, "harness/tasks/task-evidence/INDEX.md", [
       "---",
       "schema: task-package/v2",
       "task_id: task-evidence",
       "title: Evidence fixture",
+      "parent: task-closeout",
       "---",
       "# Evidence fixture",
       ""
@@ -137,19 +177,60 @@ test("CLI milestone-closeout preset script fails closed on uncovered load-bearin
       "statement: Covered closeout claim.",
       ""
     ].join("\n"));
+    writeFile(rootDir, "harness/tasks/task-closeout/task_plan.md", [
+      "# Plan",
+      "",
+      "## Task Evidence",
+      "",
+      "- [x] Implemented behavior has source evidence. Evidence: fact/task-evidence/F-C0VERED1",
+      ""
+    ].join("\n"));
     writeFile(rootDir, "harness/decisions/decision-dec_CLOSEOUT/decision.md", decisionDocument([
       "relations:",
+      "  - { relation_id: \"rel_closeout_scope\", source: \"decision/dec_CLOSEOUT/CH1\", target: \"task/task-closeout\", type: \"derives\", strength: \"strong\", direction: \"directed\", origin: \"declared\", rationale: \"closeout scope\", state: \"active\" }",
       "  - { relation_id: \"rel_closeout_coverage\", source: \"decision/dec_CLOSEOUT/C1\", target: \"fact/task-evidence/F-C0VERED1\", type: \"supports\", strength: \"strong\", direction: \"directed\", origin: \"declared\", rationale: \"closeout evidence\", state: \"active\" }",
       "---",
       "# Closeout decision",
       ""
     ]));
 
-    const passed = runJson(rootDir, ["preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts"]);
+    const passed = runJson(rootDir, [
+      "preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts",
+      "--input", "milestoneRootTaskId=task-closeout"
+    ]);
 
     assert.equal(passed.ok, true);
     assert.equal(passed.report.status, "passed");
+    assert.equal(passed.report.summary.strong, 2);
+    assert.equal(passed.report.summary.weak, 0);
+    assert.equal(passed.report.items.some((item: Record<string, unknown>) => item.status === "green" && item.reason === "typed_evidence_ref_resolved" && item.evidenceStrength === "strong"), true);
     assert.equal(passed.report.items.some((item: Record<string, unknown>) => item.status === "green" && item.reason === "load_bearing_decision_claim_covered"), true);
+  });
+});
+
+test("CLI milestone-closeout fails explicitly on an invalid project policy", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/policies/presets/milestone-closeout.policy.json", JSON.stringify({
+      schema: "preset-policy/milestone-closeout/v1",
+      presetId: "milestone-closeout",
+      rules: { evidenceMode: "checkbox-self-report" }
+    }));
+    writeFile(rootDir, "harness/tasks/task-closeout/INDEX.md", [
+      "---",
+      "schema: task-package/v2",
+      "task_id: task-closeout",
+      "title: Closeout fixture",
+      "---",
+      "# Closeout fixture",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, [
+      "preset", "action", "milestone-closeout", "check", "--task", "task-closeout", "--allow-scripts"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_policy_invalid");
   });
 });
 

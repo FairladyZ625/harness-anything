@@ -15,7 +15,8 @@
       "reads": ["{{outputRoot}}/**", "{{paths.milestonesRoot}}/**", "{{paths.decisionsRoot}}/**", "{{paths.tasksRoot}}/*/**"],
       "writes": ["{{outputRoot}}/**"],
       "inputs": {
-        "milestoneCriteriaRoots": "{{paths.milestonesRoot}}"
+        "milestoneCriteriaRoots": "{{paths.milestonesRoot}}",
+        "milestoneRootTaskId": ""
       }
     }
   },
