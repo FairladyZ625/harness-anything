@@ -35,7 +35,7 @@ Runtime state path: `.harness/task-holders/<taskId>.json` under `layout.localRoo
     "primaryEmail": "person@example.com",
     "providerId": "transport-derived",
     "credential": {
-      "kind": "unix-uid",
+      "kind": "unix-socket-owner-boundary",
       "issuer": "local",
       "subject": "501"
     }
