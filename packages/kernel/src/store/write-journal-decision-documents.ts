@@ -25,11 +25,11 @@ export function writeDecisionDocument(rootInput: HarnessLayoutInput, op: WriteOp
   if (!isDecisionDocumentPayload(op.payload)) {
     rejectWrite(`${op.kind} op requires decision document payload: ${op.opId}`, op.entityId);
   }
-  const payload = op.payload.writeMode?.kind === "append_relation"
+  const materialized = op.payload.writeMode?.kind === "append_relation"
     ? appendDecisionRelationPayload(targetPath, op.payload)
     : casSnapshotPayload(targetPath, op);
   mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileDurably(targetPath, serializeDecisionDocument(payload, op.opId));
+  writeFileDurably(targetPath, serializeDecisionDocument(materialized.payload, op.opId, materialized.bodyTail));
 }
 
 export function decisionDocumentTargetPath(rootInput: HarnessLayoutInput, op: Pick<WriteOp, "entityId" | "payload">): string {
@@ -41,13 +41,21 @@ export function decisionDocumentTargetPath(rootInput: HarnessLayoutInput, op: Pi
   return resolveHarnessLayout(rootInput).decisionDocumentPath(decisionId);
 }
 
-function casSnapshotPayload(targetPath: string, op: WriteOp): DecisionDocumentPayload {
+interface MaterializedDecisionDocument {
+  readonly payload: DecisionDocumentPayload;
+  readonly bodyTail?: string;
+}
+
+function casSnapshotPayload(targetPath: string, op: WriteOp): MaterializedDecisionDocument {
   if (!isDecisionDocumentPayload(op.payload)) {
     rejectWrite(`${op.kind} op requires decision document payload: ${op.opId}`, op.entityId);
   }
   const mode = op.payload.writeMode;
-  if (mode?.kind !== "snapshot" || !("expectedWatermark" in mode)) return op.payload;
-  const currentWatermark = existsSync(targetPath) ? readDecisionWatermark(readFileSync(targetPath, "utf8")) : null;
+  const currentDocument = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : null;
+  if (mode?.kind !== "snapshot" || !("expectedWatermark" in mode)) {
+    return bodyPreservingSnapshot(op.payload, currentDocument);
+  }
+  const currentWatermark = currentDocument === null ? null : readDecisionWatermark(currentDocument);
   if (currentWatermark !== (mode.expectedWatermark ?? null)) {
     rejectCasWatermarkMismatch({
       entityId: op.entityId,
@@ -55,13 +63,13 @@ function casSnapshotPayload(targetPath: string, op: WriteOp): DecisionDocumentPa
       currentWatermark
     });
   }
-  return op.payload;
+  return bodyPreservingSnapshot(op.payload, currentDocument);
 }
 
 function appendDecisionRelationPayload(
   targetPath: string,
   payload: DecisionDocumentPayload
-): DecisionDocumentPayload {
+): MaterializedDecisionDocument {
   const mode = payload.writeMode;
   if (!isDecisionDocumentPayload(payload) || mode?.kind !== "append_relation") {
     rejectWrite("append relation payload requires decision document payload");
@@ -70,18 +78,49 @@ function appendDecisionRelationPayload(
     const relations = payload.decision.relations.some((relation) => relation.relation_id === mode.relation.relation_id)
       ? payload.decision.relations
       : [...payload.decision.relations, mode.relation];
-    return { ...payload, decision: { ...payload.decision, relations } };
+    return { payload: { ...payload, decision: { ...payload.decision, relations } } };
   }
 
-  const current = parseDecisionDocument(readFileSync(targetPath, "utf8"));
+  const currentDocument = readFileSync(targetPath, "utf8");
+  const current = parseDecisionDocument(currentDocument);
+  const bodyTail = decisionBodyTail(currentDocument);
   if (current.decision.relations.some((relation) => relation.relation_id === mode.relation.relation_id)) {
-    return current;
+    return { payload: current, bodyTail };
   }
   return {
-    ...current,
-    decision: {
-      ...current.decision,
-      relations: [...current.decision.relations, mode.relation]
-    }
+    payload: {
+      ...current,
+      decision: {
+        ...current.decision,
+        relations: [...current.decision.relations, mode.relation]
+      }
+    },
+    bodyTail
   };
+}
+
+function bodyPreservingSnapshot(
+  payload: DecisionDocumentPayload,
+  currentDocument: string | null
+): MaterializedDecisionDocument {
+  if (payload.body !== undefined || currentDocument === null) return { payload };
+  const currentBodyTail = decisionBodyTail(currentDocument);
+  const appendBody = payload.writeMode?.kind === "snapshot" ? payload.writeMode.appendBody : undefined;
+  return {
+    payload,
+    bodyTail: appendBody ? appendBodySection(currentBodyTail, appendBody) : currentBodyTail
+  };
+}
+
+function decisionBodyTail(document: string): string {
+  const frontmatter = /^---\r?\n[\s\S]*?\r?\n---/u.exec(document)?.[0];
+  if (!frontmatter) rejectWrite("decision document missing frontmatter");
+  return document.slice(frontmatter.length);
+}
+
+function appendBodySection(currentBodyTail: string, section: string): string {
+  const heading = section.split(/\r?\n/u, 1)[0];
+  if (heading && currentBodyTail.split(/\r?\n/u).includes(heading)) return currentBodyTail;
+  const separator = currentBodyTail.endsWith("\n\n") ? "" : currentBodyTail.endsWith("\n") ? "\n" : "\n\n";
+  return `${currentBodyTail}${separator}${section}\n`;
 }

@@ -53,7 +53,11 @@ export function parseDecisionArgs(args: ReadonlyArray<string>, rootDir: string, 
     const arbiter = readOption(args, "--arbiter");
     if (arbiter && !isActorRef(arbiter)) return invalidActor();
     const judgmentOnlyRationale = readOption(args, "--judgment-only");
-    if (op === "accept" && args.includes("--judgment-only") && (!judgmentOnlyRationale || judgmentOnlyRationale.trim().length === 0)) {
+    if (op === "accept" && args.includes("--judgment-only") && (
+      !judgmentOnlyRationale ||
+      judgmentOnlyRationale.trim().length === 0 ||
+      judgmentOnlyRationale.trim().startsWith("--")
+    )) {
       return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use decision accept <decision-id> --judgment-only <rationale>.") };
     }
     return parsedDecision(rootDir, json, {

@@ -158,6 +158,173 @@ test("CLI decision accept records judgment-only rationale", () => {
   });
 });
 
+test("CLI decision judgment-only accept appends without changing existing body bytes", () => {
+  withTempRoot((rootDir) => {
+    const originalBody = "Original rationale.\n\n## Evidence\n\nLine two.\n";
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_JUDGMENT_BODY_PRESERVE",
+      "--title", "Judgment body preservation",
+      "--question", "Does judgment-only acceptance preserve the existing body?",
+      "--chosen", "Preserve then append",
+      "--rejected", "Replace the body",
+      "--why-not", "The existing rationale is an auditable asset",
+      "--body", originalBody
+    ]);
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_JUDGMENT_BODY_PRESERVE/decision.md");
+    const before = decisionBody(readFileSync(decisionPath, "utf8"));
+
+    const result = runJson(rootDir, [
+      "decision", "accept", "dec_JUDGMENT_BODY_PRESERVE",
+      "--arbiter", "human:ZeyuLi",
+      "--judgment-only", "The human arbiter accepts this policy choice."
+    ]);
+
+    assert.equal(result.ok, true);
+    const after = decisionBody(readFileSync(decisionPath, "utf8"));
+    assert.equal(after.slice(0, before.length), before);
+    assert.match(after.slice(before.length), /## Judgment-only acceptance\n\nThe human arbiter accepts this policy choice\./u);
+  });
+});
+
+test("CLI decision amend append leaves the existing body byte-for-byte unchanged", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_AMEND_BODY_PRESERVE",
+      "--title", "Amend body preservation",
+      "--question", "Does structured append preserve the body?",
+      "--chosen", "Preserve the body",
+      "--rejected", "Rebuild the body",
+      "--why-not", "Structured amendments do not own prose",
+      "--body", "Original rationale.\n\nSecond paragraph."
+    ]);
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_AMEND_BODY_PRESERVE/decision.md");
+    const before = decisionBody(readFileSync(decisionPath, "utf8"));
+
+    const result = runJson(rootDir, [
+      "decision", "amend", "dec_AMEND_BODY_PRESERVE",
+      "--append", "claims:{\"text\":\"A newly structured claim\"}"
+    ]);
+
+    assert.equal(result.ok, true);
+    const after = decisionBody(readFileSync(decisionPath, "utf8"));
+    assert.equal(after, before);
+  });
+});
+
+test("CLI decision amend explicit body still replaces the existing body", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_EXPLICIT_BODY_REPLACE",
+      "--title", "Explicit body replacement",
+      "--question", "Can an explicit body replace existing prose?",
+      "--chosen", "Allow explicit replacement",
+      "--rejected", "Forbid all replacement",
+      "--why-not", "The body flag is the deliberate replacement surface",
+      "--body", "Old body that should be replaced."
+    ]);
+
+    const result = runJson(rootDir, [
+      "decision", "amend", "dec_EXPLICIT_BODY_REPLACE",
+      "--body", "New body supplied explicitly."
+    ]);
+
+    assert.equal(result.ok, true);
+    const body = decisionBody(readFileSync(path.join(rootDir, "harness/decisions/decision-dec_EXPLICIT_BODY_REPLACE/decision.md"), "utf8"));
+    assert.match(body, /New body supplied explicitly\./u);
+    assert.doesNotMatch(body, /Old body that should be replaced\./u);
+  });
+});
+
+test("CLI decision accept rejects a flag-like judgment-only rationale without changing the file", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_FLAG_RATIONALE",
+      "--title", "Flag rationale validation",
+      "--question", "Should flag-like rationale tokens be rejected?",
+      "--chosen", "Reject flag-like rationale",
+      "--rejected", "Store the token literally",
+      "--why-not", "A mistyped option is not a judgment rationale",
+      "--body", "Body must survive a rejected command."
+    ]);
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_FLAG_RATIONALE/decision.md");
+    const before = readFileSync(decisionPath, "utf8");
+
+    const result = runJson(rootDir, [
+      "decision", "accept", "dec_FLAG_RATIONALE",
+      "--arbiter", "human:ZeyuLi",
+      "--judgment-only", "--note"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "missing_reason");
+    assert.equal(readFileSync(decisionPath, "utf8"), before);
+  });
+});
+
+test("CLI decision accept rejects a whitespace-prefixed flag-like rationale", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_SPACED_FLAG_RATIONALE",
+      "--title", "Spaced flag rationale validation",
+      "--question", "Should a trimmed flag-like rationale be rejected?",
+      "--chosen", "Reject after trimming",
+      "--rejected", "Store the trimmed token",
+      "--why-not", "Whitespace cannot turn an option into rationale",
+      "--body", "Body must survive a rejected command."
+    ]);
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_SPACED_FLAG_RATIONALE/decision.md");
+    const before = readFileSync(decisionPath, "utf8");
+
+    const result = runJson(rootDir, [
+      "decision", "accept", "dec_SPACED_FLAG_RATIONALE",
+      "--arbiter", "human:ZeyuLi",
+      "--judgment-only", "  --note"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "missing_reason");
+    assert.equal(readFileSync(decisionPath, "utf8"), before);
+  });
+});
+
+test("CLI repeated judgment-only accept keeps a single existing judgment section", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_REPEAT_JUDGMENT",
+      "--title", "Repeated judgment acceptance",
+      "--question", "Should repeated acceptance duplicate the judgment section?",
+      "--chosen", "Keep one section",
+      "--rejected", "Append duplicate headings",
+      "--why-not", "Repeated lifecycle writes must be body-idempotent",
+      "--body", "Original rationale."
+    ]);
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_REPEAT_JUDGMENT/decision.md");
+    runJson(rootDir, [
+      "decision", "accept", "dec_REPEAT_JUDGMENT",
+      "--arbiter", "human:ZeyuLi",
+      "--judgment-only", "Initial judgment rationale."
+    ]);
+    const afterFirstAccept = decisionBody(readFileSync(decisionPath, "utf8"));
+
+    const repeated = runJson(rootDir, [
+      "decision", "accept", "dec_REPEAT_JUDGMENT",
+      "--arbiter", "human:ZeyuLi",
+      "--judgment-only", "A later accept supplies different words."
+    ]);
+
+    assert.equal(repeated.ok, true);
+    const afterRepeatedAccept = decisionBody(readFileSync(decisionPath, "utf8"));
+    assert.equal(afterRepeatedAccept, afterFirstAccept);
+    assert.equal(afterRepeatedAccept.split("## Judgment-only acceptance").length - 1, 1);
+  });
+});
+
 test("CLI decision reckon fails closed on uncovered load-bearing claims", () => {
   withTempRoot((rootDir) => {
     const task = runJson(rootDir, ["task", "create", "--title", "Reckon Evidence"]);
@@ -421,6 +588,10 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function decisionBody(document: string): string {
+  return document.replace(/^---\r?\n[\s\S]*?\r?\n---/u, "");
 }
 
 function writeFile(rootDir: string, relativePath: string, body: string): void {

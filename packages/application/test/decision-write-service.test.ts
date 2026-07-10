@@ -52,7 +52,7 @@ test("decision write service proposes and accepts through WriteCoordinator with 
   assert.equal((enqueued[1]?.payload as { decision?: DecisionPackage }).decision?.decidedAt, "2026-07-02T00:00:00Z");
 });
 
-test("decision accept permits explicit judgment-only rationale and records it in body", () => {
+test("decision accept emits an append-only body mutation for judgment-only rationale", () => {
   const enqueued: WriteOp[] = [];
   const service = makeDecisionWriteService({
     coordinator: fakeCoordinator(enqueued),
@@ -68,9 +68,13 @@ test("decision accept permits explicit judgment-only rationale and records it in
   }));
 
   assert.deepEqual(result, { decisionId: "dec_TEST", state: "active" });
-  const payload = enqueued[0]?.payload as { readonly body?: string };
-  assert.match(payload.body ?? "", /## Judgment-only acceptance/u);
-  assert.match(payload.body ?? "", /CEO accepted this as a judgment-only policy choice/u);
+  const payload = enqueued[0]?.payload as {
+    readonly body?: string;
+    readonly writeMode?: { readonly appendBody?: string };
+  };
+  assert.equal(payload.body, undefined);
+  assert.match(payload.writeMode?.appendBody ?? "", /## Judgment-only acceptance/u);
+  assert.match(payload.writeMode?.appendBody ?? "", /CEO accepted this as a judgment-only policy choice/u);
 });
 
 test("decision write service rejects invalid arbiter and unsupported transitions", () => {

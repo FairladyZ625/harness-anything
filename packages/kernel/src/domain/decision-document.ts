@@ -11,7 +11,7 @@ export interface DecisionDocumentTaskWrite {
 }
 
 export type DecisionDocumentWriteMode =
-  | { readonly kind: "snapshot"; readonly expectedWatermark?: string | null }
+  | { readonly kind: "snapshot"; readonly expectedWatermark?: string | null; readonly appendBody?: string }
   | { readonly kind: "append_relation"; readonly relation: EntityRelationRecord };
 
 export interface DecisionDocumentPayload {
@@ -28,11 +28,11 @@ export function isDecisionDocumentPayload(payload: unknown): payload is Decision
   return candidate.body === undefined || typeof candidate.body === "string";
 }
 
-export function serializeDecisionDocument(payload: DecisionDocumentPayload, watermark: string): string {
+export function serializeDecisionDocument(payload: DecisionDocumentPayload, watermark: string, preservedBodyTail?: string): string {
   // This per-decision marker is the authoring op id. It is distinct from the
   // global write-watermark/v1 file that records committed coordinator state.
   const decision = { ...payload.decision, _coordinatorWatermark: watermark };
-  return [
+  const frontmatter = [
     "---",
     `schema: ${decision.schema}`,
     `decision_id: ${decision.decision_id}`,
@@ -61,11 +61,10 @@ export function serializeDecisionDocument(payload: DecisionDocumentPayload, wate
     ...decision.claims.map((entry) => `  - ${flowObject(entry)}`),
     "relations:",
     ...decision.relations.map((entry) => `  - ${flowObject(entry)}`),
-    "---",
-    "",
-    payload.body ?? `# ${decision.title}`,
-    ""
+    "---"
   ].join("\n");
+  if (preservedBodyTail !== undefined) return `${frontmatter}${preservedBodyTail}`;
+  return `${frontmatter}\n\n${payload.body ?? `# ${decision.title}`}\n`;
 }
 
 export function parseDecisionDocument(documentBody: string): DecisionDocumentPayload {

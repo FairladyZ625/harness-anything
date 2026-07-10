@@ -223,10 +223,18 @@ function transitionDecision(
     arbiter: request.arbiter,
     decidedAt: request.decidedAt ?? fallbackDecidedAt
   };
+  const judgmentOnlySection = kind === "decision_accept" ? judgmentOnlyBodySection(request) : undefined;
+  const explicitBody = request.body !== undefined && judgmentOnlySection
+    ? appendSectionToExplicitBody(request.body, judgmentOnlySection)
+    : request.body;
   return writeDecision(options.coordinator, hashPayload, kind, next, {
     ...request,
-    body: kind === "decision_accept" ? withJudgmentOnlyBody(request) : request.body
-  }, request.current);
+    body: explicitBody
+  }, request.current, {
+    kind: "snapshot",
+    expectedWatermark: request.current._coordinatorWatermark ?? null,
+    ...(request.body === undefined && judgmentOnlySection ? { appendBody: judgmentOnlySection } : {})
+  });
 }
 
 function acceptEvidenceFloor(decision: DecisionPackage, judgmentOnlyRationale?: string): DecisionWriteRejected | null {
@@ -240,11 +248,14 @@ function acceptEvidenceFloor(decision: DecisionPackage, judgmentOnlyRationale?: 
   return hasEvidence ? null : rejection(decision.decision_id, "decision_accept requires at least one evidence relation from a claim anchor, or --judgment-only <rationale>");
 }
 
-function withJudgmentOnlyBody(request: DecisionTransitionRequest): string | undefined {
+function judgmentOnlyBodySection(request: DecisionTransitionRequest): string | undefined {
   const rationale = request.judgmentOnlyRationale?.trim();
-  if (!rationale) return request.body;
-  const existing = request.body?.trimEnd() ?? "";
-  const section = `## Judgment-only acceptance\n\n${rationale}`;
+  return rationale ? `## Judgment-only acceptance\n\n${rationale}` : undefined;
+}
+
+function appendSectionToExplicitBody(body: string, section: string): string {
+  const existing = body.trimEnd();
+  if (existing.includes(section)) return body;
   return existing ? `${existing}\n\n${section}` : section;
 }
 
@@ -281,7 +292,7 @@ function writeDecision(
     payload: {
       decision,
       ...(request.taskWrites && request.taskWrites.length > 0 ? { taskWrites: request.taskWrites } : {}),
-      ...(request.body ? { body: request.body } : {}),
+      ...(request.body !== undefined ? { body: request.body } : {}),
       writeMode: writeMode ?? {
         kind: "snapshot",
         expectedWatermark: previous?._coordinatorWatermark ?? null
@@ -292,7 +303,7 @@ function writeDecision(
 }
 
 type DecisionDocumentWriteMode =
-  | { readonly kind: "snapshot"; readonly expectedWatermark?: string | null }
+  | { readonly kind: "snapshot"; readonly expectedWatermark?: string | null; readonly appendBody?: string }
   | { readonly kind: "append_relation"; readonly relation: EntityRelationRecord };
 
 function validateDecisionWrite(decision: DecisionPackage, previous?: DecisionPackage): DecisionWriteRejected | null {

@@ -36,6 +36,8 @@ test("decision relation append deltas from the same base snapshot both survive",
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
     Effect.runSync(coordinator.enqueue(decisionSnapshotOp("decision-base", decisionPackage({ state: "active" }), null)));
     Effect.runSync(coordinator.flush("explicit"));
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_TEST/decision.md");
+    const bodyBeforeRelations = decisionBody(readFileSync(decisionPath, "utf8"));
 
     const base = decisionPackage({ state: "active", _coordinatorWatermark: "decision-base" });
     const relationA = relationRecord("decision/dec_TEST/C1", "fact/task_fact_owner/F-AAAA1111");
@@ -45,13 +47,14 @@ test("decision relation append deltas from the same base snapshot both survive",
 
     Effect.runSync(coordinator.flush("explicit"));
 
-    const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_TEST/decision.md"), "utf8");
+    const body = readFileSync(decisionPath, "utf8");
     const decision = parseDecisionDocument(body).decision;
     assert.deepEqual(decision.relations.map((relation) => relation.relation_id).sort(), [
       relationA.relation_id,
       relationB.relation_id
     ].sort());
     assert.equal(decision._coordinatorWatermark, "relation-b");
+    assert.equal(decisionBody(body), bodyBeforeRelations);
   });
 });
 
@@ -95,6 +98,69 @@ test("stale decision snapshot CAS is rejected with retryable current watermark",
   });
 });
 
+test("decision snapshot without an explicit body preserves the existing body bytes", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const originalBody = "Original rationale.\n\n## Evidence\n\nByte-stable prose.\n";
+    Effect.runSync(coordinator.enqueue(decisionSnapshotOp(
+      "decision-base",
+      decisionPackage({ state: "proposed" }),
+      null,
+      originalBody
+    )));
+    Effect.runSync(coordinator.flush("explicit"));
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_TEST/decision.md");
+    const before = decisionBody(readFileSync(decisionPath, "utf8"));
+
+    Effect.runSync(coordinator.enqueue(decisionSnapshotOp(
+      "decision-amend",
+      decisionPackage({ state: "proposed", title: "Amended title", _coordinatorWatermark: "decision-base" }),
+      "decision-base"
+    )));
+    Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(decisionBody(readFileSync(decisionPath, "utf8")), before);
+  });
+});
+
+test("decision snapshot body append is idempotent by heading across different rationales", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const section = "## Judgment-only acceptance\n\nThe arbiter accepts this policy choice.";
+    Effect.runSync(coordinator.enqueue(decisionSnapshotOp(
+      "decision-base",
+      decisionPackage({ state: "proposed" }),
+      null,
+      "Original rationale."
+    )));
+    Effect.runSync(coordinator.flush("explicit"));
+
+    Effect.runSync(coordinator.enqueue(decisionSnapshotOp(
+      "decision-accept-one",
+      decisionPackage({ state: "active", _coordinatorWatermark: "decision-base" }),
+      "decision-base",
+      undefined,
+      section
+    )));
+    Effect.runSync(coordinator.flush("explicit"));
+    const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_TEST/decision.md");
+    const afterFirstAppend = decisionBody(readFileSync(decisionPath, "utf8"));
+
+    Effect.runSync(coordinator.enqueue(decisionSnapshotOp(
+      "decision-accept-two",
+      decisionPackage({ state: "active", _coordinatorWatermark: "decision-accept-one" }),
+      "decision-accept-one",
+      undefined,
+      "## Judgment-only acceptance\n\nA later acceptance uses different words."
+    )));
+    Effect.runSync(coordinator.flush("explicit"));
+    const afterSecondAppend = decisionBody(readFileSync(decisionPath, "utf8"));
+
+    assert.equal(afterSecondAppend, afterFirstAppend);
+    assert.equal(afterSecondAppend.split("## Judgment-only acceptance").length - 1, 1);
+  });
+});
+
 function factAppendOp(opId: string, taskId: string, record: FactRecord) {
   return {
     opId,
@@ -110,19 +176,31 @@ function factAppendOp(opId: string, taskId: string, record: FactRecord) {
   };
 }
 
-function decisionSnapshotOp(opId: string, decision: DecisionPackage, expectedWatermark: string | null) {
+function decisionSnapshotOp(
+  opId: string,
+  decision: DecisionPackage,
+  expectedWatermark: string | null,
+  body?: string,
+  appendBody?: string
+) {
   return {
     opId,
     entityId: decisionEntityId(decision.decision_id),
     kind: "decision_amend" as const,
     payload: {
       decision,
+      ...(body !== undefined ? { body } : {}),
       writeMode: {
         kind: "snapshot",
-        expectedWatermark
+        expectedWatermark,
+        ...(appendBody !== undefined ? { appendBody } : {})
       }
     }
   };
+}
+
+function decisionBody(document: string): string {
+  return document.replace(/^---\r?\n[\s\S]*?\r?\n---/u, "");
 }
 
 function decisionRelationAppendOp(opId: string, current: DecisionPackage, relation: EntityRelationRecord) {
