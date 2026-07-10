@@ -107,7 +107,7 @@ test("CLI task supersede preserves selected preset profile metadata", () => {
     assert.match(index, /vertical: software\/coding/);
     assert.match(index, /preset: profiled-task/);
     assert.match(index, /profile: extra/);
-    for (const documentPath of ["task_plan.md", "progress.md", "facts.md", "review.md", "closeout.md", "artifacts/.gitkeep", "references/.gitkeep", "extra.md"]) {
+    for (const documentPath of ["task_plan.md", "progress.md", "facts.md", "review.md", "closeout.md", "artifacts/.gitkeep", "extra.md"]) {
       assert.equal(existsSync(path.join(rootDir, superseded.packagePath, documentPath)), true, documentPath);
     }
 

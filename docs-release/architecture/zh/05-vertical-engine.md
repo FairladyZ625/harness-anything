@@ -46,7 +46,7 @@ requiredWhen    可选的键/值选择守卫
 
 语言策略就住在 `localePolicy` 里。`prefer` 是 `project`、`preset`、`explicit` 之一——引擎查找语言偏好的顺序;`fallback` 是字面量 `zh-CN` 或 `en-US`,当首选语言缺失时降级到的正文。模板正文本身住在场景合同的 `template-catalog.json` 里;目录里每份文档都列出 `zh-CN` 和 `en-US` 两个语言,各自带一个 `bodyPath`。所以一条选择声明的是 slot 和策略;真正的本地化文本由目录持有。如果首选语言没有正文,引擎会具体化 fallback,而不是产出一份残缺的文档。
 
-在 `software/coding` 场景合同里,`task` 文档包脚手架列了七条选择——`task_plan.md`、`progress.md`、`facts.md`、`review.md`、`closeout.md`,再加 `artifacts/` 和 `references/` 两个目录的 `.gitkeep` slot——每一条都首选项目语言,fallback 到 `en-US`。`decision` 文档包列的是一个空选择数组:decision 的 `INDEX.md` 由它的文档包合同具体化出来,所以场景合同不再给它添加额外的正文文档。
+在 `software/coding` 场景合同里,`task` 文档包脚手架列了六条选择——`task_plan.md`、`progress.md`、`facts.md`、`review.md`、`closeout.md`,再加 `artifacts/` 目录的 `.gitkeep` slot——每一条都首选项目语言,fallback 到 `en-US`。Reference 改为按需生成:`reference-task` preset 只在任务需要持久输入快照时,追加现有的本地化 `references/INDEX.md` 模板。`decision` 文档包列的是一个空选择数组:decision 的 `INDEX.md` 由它的文档包合同具体化出来,所以场景合同不再给它添加额外的正文文档。
 
 ## 仓库脚手架
 

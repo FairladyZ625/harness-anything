@@ -76,10 +76,12 @@ and an `en-US` locale with its own `bodyPath`. So a selection names the slot and
 the policy; the catalog holds the actual localized text. If the preferred locale
 has no body, the fallback is materialized rather than a broken document.
 
-In the `software/coding` vertical, the `task` package scaffold lists seven
+In the `software/coding` vertical, the `task` package scaffold lists six
 selections — `task_plan.md`, `progress.md`, `facts.md`, `review.md`,
-`closeout.md`, and two `.gitkeep` slots for the `artifacts/` and `references/`
-directories — each preferring the project locale and falling back to `en-US`.
+`closeout.md`, and a `.gitkeep` slot for the `artifacts/` directory — each
+preferring the project locale and falling back to `en-US`. References are
+opt-in: the `reference-task` preset adds the existing localized
+`references/INDEX.md` template only when a task needs a durable input snapshot.
 The `decision` package lists an empty selection array: a decision materializes
 its `INDEX.md` from its package contract, so the vertical adds no extra body
 documents to it.
