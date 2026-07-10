@@ -1,10 +1,9 @@
 // @slice-activation PLT-Daemon W3 transport adapters exported for daemon composition roots.
-import { mkdirSync, rmSync, chmodSync } from "node:fs";
+import { mkdirSync, rmSync, chmodSync, statSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "./auth-context.ts";
-import { localUnixPeerCredential } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
@@ -30,10 +29,16 @@ export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.()
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
   const server = net.createServer((socket) => {
+    const ownerUid = statSync(endpoint).uid;
     const authContext: DaemonAuthenticationContext = {
       transportKind: "unix-socket",
       endpoint,
-      unixPeerCredential: localUnixPeerCredential()
+      // 0700 parent + 0600 socket authorize only this filesystem owner. This
+      // identifies that access boundary; it does not observe the client process.
+      unixSocketOwnerBoundary: {
+        ownerUid,
+        source: "unix-socket-filesystem-owner-boundary"
+      }
     };
     const connection = serveJsonRpcStream({
       input: socket,
