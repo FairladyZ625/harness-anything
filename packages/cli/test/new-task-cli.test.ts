@@ -72,6 +72,30 @@ test("CLI reference-task preset materializes localized references on demand", ()
   });
 });
 
+test("CLI task readers keep existing references directories compatible", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, [
+      "task",
+      "create",
+      "--title",
+      "Legacy References",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ], true, noAgentRuntimeEnv);
+    const legacyReferencePath = path.join(rootDir, created.packagePath, "references", "legacy-input.md");
+    mkdirSync(path.dirname(legacyReferencePath), { recursive: true });
+    writeFileSync(legacyReferencePath, "# Legacy input\n", "utf8");
+
+    const shown = runJson(rootDir, ["task", "show", created.taskId]);
+
+    assert.equal(shown.report.task.taskId, created.taskId);
+    assert.equal(shown.report.task.status, "planned");
+    assert.equal(readFileSync(legacyReferencePath, "utf8"), "# Legacy input\n");
+  });
+});
+
 test("CLI creates a local task with generated identity, provenance, and stable JSON output", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["new-task", "--title", "Task One"], true, noAgentRuntimeEnv);
