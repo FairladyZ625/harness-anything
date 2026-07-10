@@ -85,8 +85,8 @@ export function rationaleFor(ref: string, relations: RelationEdge[]): string | u
   )?.rationale;
 }
 
-export const axisRank = (value: "high" | "medium" | "low") =>
-  value === "high" ? 0 : value === "medium" ? 1 : 2;
+export const axisRank = (value?: "high" | "medium" | "low") =>
+  value === "high" ? 0 : value === "medium" ? 1 : value === "low" ? 2 : 3;
 
 export function sortDecisionQueue(decisions: DecisionRow[]): DecisionRow[] {
   return [...decisions].sort((a, b) => {
@@ -94,6 +94,6 @@ export function sortDecisionQueue(decisions: DecisionRow[]): DecisionRow[] {
     if (risk !== 0) return risk;
     const urgency = axisRank(a.urgency) - axisRank(b.urgency);
     if (urgency !== 0) return urgency;
-    return a.proposedAt.localeCompare(b.proposedAt);
+    return (a.proposedAt ?? "").localeCompare(b.proposedAt ?? "");
   });
 }

@@ -138,6 +138,7 @@ export function FactInspector({
                 )}
               </div>
               <p className="mt-2 text-[13px] font-medium leading-relaxed text-text">{fact.text}</p>
+              <div className="mt-1 font-mono text-[11px] text-text-faint">source {fact.source ?? "未知/—"}</div>
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
@@ -171,9 +172,9 @@ export function FactInspector({
               <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
                 provenance
               </div>
-              {task?.provenance?.length ? (
+              {fact.provenance?.length ? (
                 <div className="mt-1 space-y-1">
-                  {task.provenance.map((entry) => (
+                  {fact.provenance.map((entry) => (
                     <div key={`${entry.sessionId}-${entry.boundAt}`} className="font-mono text-[11px] text-text-muted">
                       {entry.runtime}:{entry.sessionId.slice(0, 8)}... · {entry.boundAt.slice(0, 16).replace("T", " ")}
                     </div>
@@ -181,7 +182,7 @@ export function FactInspector({
                 </div>
               ) : (
                 <p className="mt-1 text-[12px] text-text-faint">
-                  当前 task 投影未携带 entity provenance；后续由宿主 task 包投影补齐。
+                  当前 fact 投影未携带 provenance。
                 </p>
               )}
             </div>

@@ -143,6 +143,8 @@ function adaptFactRows(
     text: row.statement,
     at: row.observedAt,
     confidence: row.confidence,
+    source: row.source,
+    provenance: row.provenance,
     invalidated: invalidated.has(row.ref)
   }));
 }
@@ -176,19 +178,20 @@ function adaptDecisionRows(
       decisionId: row.decisionId,
       title: row.title,
       state: decisionState(row.state),
-      riskTier: "medium",
-      urgency: "medium",
-      vertical: row.moduleKeys[0] ?? "software/coding",
-      preset: "decision-projection",
-      proposedBy: { kind: "system", id: "projection" },
-      proposedAt: row.decidedAt ?? "1970-01-01T00:00:00.000Z",
+      riskTier: row.riskTier,
+      urgency: row.urgency,
+      vertical: row.vertical,
+      preset: row.preset,
+      proposedBy: row.proposedBy,
+      proposedAt: row.proposedAt,
+      arbiter: row.arbiter,
       decidedAt: row.decidedAt,
       question: row.question,
       chosen,
       rejected,
       claims: [...chosen, ...rejected].map((claim) => ({ id: claim.id, text: claim.text })),
-      provenance: [],
-      lastChangedAt: row.decidedAt ?? "1970-01-01T00:00:00.000Z"
+      provenance: row.provenance,
+      lastChangedAt: row.decidedAt
     };
   });
 }
