@@ -7,7 +7,10 @@
   "kind": "process-action",
   "policyPath": "{{paths.authoredRoot}}/policies/presets/milestone-closeout.policy.json",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
-  "capabilityImports": [{ "id": "milestone-closeout-parity", "kind": "command", "version": "1", "required": false }],
+  "capabilityImports": [
+    { "id": "milestone-closeout-parity", "kind": "command", "version": "1", "required": false },
+    { "id": "policy:closeout-boundary/v1", "kind": "command", "version": "1", "required": true }
+  ],
   "entrypoints": {
     "check": {
       "type": "script",

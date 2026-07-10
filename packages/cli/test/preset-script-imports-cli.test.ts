@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { PRESET_POLICY_SCHEMA_CREATE_MILESTONE } from "../src/commands/extensions/preset-policy.ts";
 import { executeScript } from "../src/commands/extensions/script-executor.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
@@ -109,6 +110,33 @@ test("preset runner injects each strict v1 policy and runtime input cannot overr
       assert.equal(result.report.runtimePolicyPath, "ignored.json");
     });
   }
+});
+
+test("policy envelope capability can be reused by a non-native preset id", () => {
+  withCanonicalTempRoot((rootDir) => {
+    writePolicyCapturePreset(rootDir, "policy-envelope-mock", `{{paths.authoredRoot}}/policies/presets/policy-envelope-mock.policy.json`, [
+      { id: PRESET_POLICY_SCHEMA_CREATE_MILESTONE, kind: "command", version: "1", required: true }
+    ]);
+    writeFile(rootDir, "harness/policies/presets/policy-envelope-mock.policy.json", JSON.stringify({
+      schema: "preset-policy/create-milestone/v1",
+      presetId: "policy-envelope-mock",
+      rules: {
+        requiredArtifacts: [
+          { id: "overview", role: "overview", root: "milestones", path: "{{line}}/{{slug}}/00-overview.md" },
+          { id: "index", role: "index", root: "milestones", path: "00-roadmap.md" },
+          { id: "machine-summary", role: "machine-summary", root: "milestones", path: "dossier-data.md" }
+        ]
+      }
+    }));
+
+    const result = runJson(rootDir, [
+      "preset", "action", "policy-envelope-mock", "capture", "--task", "task-policy-mock", "--allow-scripts",
+      "--input", "line=platform", "--input", "slug=pilot"
+    ]);
+
+    assert.equal(result.report.policy.presetId, "policy-envelope-mock");
+    assert.equal(result.report.policy.schema, "preset-policy/create-milestone/v1");
+  });
 });
 
 test("missing policy is public-default null while malformed, unknown-key, wrong-preset, and escape fixtures fail closed", () => {
@@ -347,7 +375,25 @@ function writeFile(rootDir: string, relativePath: string, body: string): void {
   writeFileSync(target, body, "utf8");
 }
 
-function writePolicyCapturePreset(rootDir: string, id: string, policyPath = `{{paths.authoredRoot}}/policies/presets/${id}.policy.json`): void {
+type CapturePresetCapability = {
+  readonly id: string;
+  readonly kind: "checker" | "scaffold" | "projection" | "command" | "template";
+  readonly version: string;
+  readonly required: boolean;
+};
+
+const policyPresetCapabilities: Record<string, ReadonlyArray<CapturePresetCapability>> = {
+  "create-milestone": [{ id: PRESET_POLICY_SCHEMA_CREATE_MILESTONE, kind: "command", version: "1", required: true }],
+  "milestone-closeout": [{ id: "policy:closeout-boundary/v1", kind: "command", version: "1", required: true }],
+  "decision-conformance": [{ id: "policy:decision-conformance-rules/v1", kind: "command", version: "1", required: true }]
+};
+
+function writePolicyCapturePreset(
+  rootDir: string,
+  id: string,
+  policyPath = `{{paths.authoredRoot}}/policies/presets/${id}.policy.json`,
+  capabilityImports: ReadonlyArray<CapturePresetCapability> = policyPresetCapabilities[id] ?? []
+): void {
   writeFile(rootDir, `.harness/presets/${id}/preset.json`, JSON.stringify({
     schema: "preset-manifest/v2",
     id,
@@ -357,7 +403,7 @@ function writePolicyCapturePreset(rootDir: string, id: string, policyPath = `{{p
     kind: "process-action",
     policyPath,
     kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
-    capabilityImports: [],
+    capabilityImports,
     entrypoints: { capture: { type: "script", command: "scripts/capture.mjs", writes: ["{{outputRoot}}/**"] } },
     profiles: [{ id: "baseline", title: "Baseline", checkerProfile: "standard", templateSelections: [] }],
     defaultProfile: "baseline"

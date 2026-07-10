@@ -494,7 +494,7 @@ function allowsRequiredTemplateOverride(
   manifest: PresetManifest,
   selection: PresetManifest["profiles"][number]["templateSelections"][number]
 ): boolean {
-  return manifest.id === "create-milestone" &&
+  return manifest.capabilityImports.some((capability) => capability.id === "policy:template-override/task-plan/v1") &&
     selection.slot === "task.plan" &&
     selection.materializeAs === "task_plan.md" &&
     selection.templateRef === "template://planning/milestone-task-plan@1";
