@@ -49,7 +49,7 @@ const DecisionConformancePolicySchema = Schema.Struct({
       kind: Schema.Literal("decided-before-cutoff", "missing-decided-at-with-legacy-id")
     }))),
     proposedMaxAgeDays: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
-    hardFail: Schema.optional(Schema.Boolean)
+    enforcement: Schema.optional(Schema.Literal("report", "fail"))
   })
 });
 
@@ -147,7 +147,7 @@ function validateExactPolicyShape(input: unknown, presetId: string): void {
 function policyRuleKeys(presetId: string): ReadonlyArray<string> {
   if (presetId === "create-milestone") return ["charterAnchor", "requiredSections", "additionalReferences"];
   if (presetId === "milestone-closeout") return ["requireLoadBearingClaimCoverage", "boundary", "evidenceMode"];
-  if (presetId === "decision-conformance") return ["adoptionCutoff", "legacyExemptions", "proposedMaxAgeDays", "hardFail"];
+  if (presetId === "decision-conformance") return ["adoptionCutoff", "legacyExemptions", "proposedMaxAgeDays", "enforcement"];
   return [];
 }
 

@@ -87,7 +87,7 @@ test("preset runner injects each strict v1 policy and runtime input cannot overr
           adoptionCutoff: "2026-07-06T23:21:56.224Z",
           legacyExemptions: [{ kind: "decided-before-cutoff" }, { kind: "missing-decided-at-with-legacy-id" }],
           proposedMaxAgeDays: 14,
-          hardFail: true
+          enforcement: "fail"
         }
       }
     }
