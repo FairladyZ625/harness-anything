@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -152,6 +153,7 @@ function setupRegisteredRepos(workspaceRoot: string): {
   const betaRoot = path.join(workspaceRoot, "beta");
   for (const rootDir of [alphaRoot, betaRoot]) {
     mkdirSync(rootDir, { recursive: true });
+    ensureTestHarnessIdentity(rootDir);
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
     writePeopleRoster(rootDir);
   }
@@ -170,8 +172,8 @@ function writePeopleRoster(rootDir: string): void {
   writeFileSync(path.join(harnessRoot, "people.yaml"), [
     "schema: harness-people/v1",
     "people:",
-    "  - personId: person_daemon_tester",
-    "    displayName: Daemon Tester",
+    "  - personId: person_test",
+    "    displayName: Harness Test",
     "    primaryEmail: daemon-tester@example.test",
     "    roles: [owner]",
     "    credentials:",
@@ -187,16 +189,18 @@ function writePeopleRoster(rootDir: string): void {
     execFileSync("git", ["-C", harnessRoot, "add", "--", "people.yaml"], { stdio: "ignore" });
     execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure daemon people roster"], {
       stdio: "ignore",
-      env: gitAuthorEnv()
+      env: gitAuthorEnv(rootDir)
     });
   }
 }
 
-function gitAuthorEnv(): NodeJS.ProcessEnv {
+function gitAuthorEnv(rootDir: string): NodeJS.ProcessEnv {
   const name = process.env.HARNESS_GIT_AUTHOR_NAME ?? "Harness Test";
   const email = process.env.HARNESS_GIT_AUTHOR_EMAIL ?? "harness@example.test";
   return {
     ...process.env,
+    HOME: path.join(rootDir, ".home"),
+    GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_AUTHOR_NAME: name,
     GIT_AUTHOR_EMAIL: email,
     GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? name,
@@ -239,6 +243,8 @@ function runDaemonCommand(rootDir: string, args: ReadonlyArray<string>, env: Rea
 function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    HOME: path.join(rootDir, ".home"),
+    GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
     ...env
   };

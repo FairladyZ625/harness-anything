@@ -13,8 +13,6 @@ import { makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeE
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import {
   createJsonRpcProtocolServer,
-  createUnixSocketTransportServer,
-  serveSshExecBridge,
   type DaemonRepoAvailabilityFailure,
   type DaemonRepoNamespace,
   type DaemonAuthenticationContext
@@ -29,9 +27,11 @@ import {
   type DaemonConnectionStats,
   type DaemonServeHooks
 } from "./commands/daemon/productization.ts";
+import { runDaemonConnect } from "./commands/daemon/connect.ts";
+import { createDaemonLocalTransport } from "./commands/daemon/serve-transport.ts";
 import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
 import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
-import { daemonIdFromEnv, daemonUserRoot, localUserDaemonSocketPath, runCommandThroughDaemon } from "./daemon/client.ts";
+import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThroughDaemon } from "./daemon/client.ts";
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
 import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
@@ -69,7 +69,12 @@ async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<numbe
   const action = stripped.args[1] ?? "status";
   const layoutOverrides = stripped.authoredRoot ? { authoredRoot: stripped.authoredRoot } : undefined;
   const daemonArgs = stripped.daemonRepoId ? [...stripped.args, "--repo", stripped.daemonRepoId] : stripped.args;
+  if (action === "connect") return runDaemonConnect(stripped.args);
   if (action === "serve") {
+    if (daemonArgs.includes("--stdio")) {
+      console.error("daemon serve --stdio is disabled because it creates a competing runtime; start the persistent daemon and use 'ha daemon connect --stdio'.");
+      return 2;
+    }
     await runDaemonServe(stripped.rootDir, layoutOverrides, daemonArgs);
     return 0;
   }
@@ -106,30 +111,13 @@ async function runDaemonServe(
     throw new Error(`daemon did not attach any registered repo: ${startStatus.repos.map((repo) => `${repo.repoId}:${repo.lastError ?? repo.state}`).join("; ")}`);
   }
   const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
-  const stdio = args.includes("--stdio");
-  const socketPath = readOption(args, "--socket") ?? localUserDaemonSocketPath(userRoot, daemonIdFromEnv());
-  const endpoint = stdio ? "stdio" : socketPath;
+  const endpoint = readOption(args, "--socket") ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
   const connections: DaemonConnectionStats = { active: 0, total: 0 };
   const serviceHost = createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections);
   serviceHost.startRegistryReconcile(userRoot);
-  if (stdio) {
-    connections.active += 1;
-    connections.total += 1;
-    hooks.onStarted?.(serviceHost.status());
-    serveSshExecBridge({
-      username: process.env.USER,
-      host: process.env.HOSTNAME,
-      createProtocolServer: serviceHost.createProtocolServer
-    });
-    await waitForInputEnd();
-    connections.active = Math.max(0, connections.active - 1);
-    await serviceHost.stop();
-    return;
-  }
-
-  const transport = createUnixSocketTransportServer({
+  const transport = createDaemonLocalTransport({
     daemonId: serviceHost.daemonId,
-    socketPath,
+    endpoint,
     createProtocolServer: serviceHost.createProtocolServer,
     onConnection: () => {
       connections.active += 1;
@@ -436,17 +424,6 @@ async function waitForStopSignal(): Promise<void> {
     };
     process.on("SIGINT", stop);
     process.on("SIGTERM", stop);
-  });
-}
-
-async function waitForInputEnd(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    if (process.stdin.destroyed) {
-      resolve();
-      return;
-    }
-    process.stdin.once("end", resolve);
-    process.stdin.once("close", resolve);
   });
 }
 

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { JsonRpcLineClient } from "../../daemon/src/index.ts";
 import {
   defaultDaemonUserRoot,
   delay,
@@ -18,6 +20,65 @@ import {
 } from "./helpers/daemon-cli.ts";
 
 const expectedCliVersion = readCliPackageVersion();
+const cliEntry = path.resolve("packages/cli/src/index.ts");
+
+test("daemon connect relays opaque bytes without creating repository runtime state", { skip: process.platform === "win32" }, async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const endpoint = path.join(rootDir, "relay.sock");
+    const server = net.createServer((socket) => socket.pipe(socket));
+    await listen(server, endpoint);
+    try {
+      const result = await runDaemonCliProcess(rootDir, ["daemon", "connect", "--stdio", "--socket", endpoint], "opaque request\nsecond frame\n");
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(result.stdout, "opaque request\nsecond frame\n");
+      assert.equal(existsSync(path.join(rootDir, "harness")), false);
+    } finally {
+      await closeServer(server);
+    }
+  });
+});
+
+test("daemon connect reaches the already-running daemon instance", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const startStatus = runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"]);
+    const child = spawnDaemonCli(rootDir, ["daemon", "connect", "--stdio"]);
+    const client = new JsonRpcLineClient(child.stdout, child.stdin, child);
+    const hello = await client.request("protocol.hello", { protocolVersion: 1 });
+    const status = await client.request("repo.daemon.status", { repo: { repoId: "canonical" } });
+    client.close();
+
+    assert.equal(hello.ok, true);
+    const details = status.details as Record<string, unknown>;
+    const data = details.data as Record<string, unknown>;
+    assert.equal(data.daemonId, startStatus.daemonId);
+    assert.equal(data.started, true);
+  });
+});
+
+test("daemon connect fails closed with startup instructions when no persistent daemon exists", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const endpoint = process.platform === "win32"
+      ? `\\\\.\\pipe\\ha-connect-missing-${process.pid}-${Date.now()}`
+      : path.join(rootDir, "missing.sock");
+    const result = await runDaemonCliProcess(rootDir, ["daemon", "connect", "--stdio", "--socket", endpoint]);
+
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /No persistent daemon is listening/iu);
+    assert.match(result.stderr, /ha daemon start --service/iu);
+    assert.equal(existsSync(path.join(rootDir, "harness")), false);
+  });
+});
+
+test("daemon serve --stdio is rejected before runtime attachment", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const result = await runDaemonCliProcess(rootDir, ["daemon", "serve", "--stdio"]);
+
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, /daemon connect --stdio/iu);
+    assert.equal(existsSync(path.join(rootDir, "harness")), false);
+  });
+});
 
 test("daemon client mode preserves command receipt output shape against direct mode", () => {
   withTempRoot((rootDir) => {
@@ -472,15 +533,17 @@ function daemonStatusRepos(rootDir: string, userRoot: string, repoId: string): R
 }
 
 function initGitRepo(rootDir: string): void {
-  execFileSync("git", ["-C", rootDir, "init", "-b", "master"], { stdio: "ignore" });
-  execFileSync("git", ["-C", rootDir, "config", "user.name", "Harness Test"], { stdio: "ignore" });
-  execFileSync("git", ["-C", rootDir, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
+  const env = hermeticGitEnv(rootDir);
+  execFileSync("git", ["-C", rootDir, "init", "-b", "master"], { stdio: "ignore", env });
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Harness Test"], { stdio: "ignore", env });
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "harness@example.test"], { stdio: "ignore", env });
 }
 
 function git(rootDir: string, ...args: ReadonlyArray<string>): string {
   return execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    env: hermeticGitEnv(rootDir)
   }).trim();
 }
 
@@ -518,20 +581,75 @@ function commitPeopleRoster(harnessRoot: string): void {
   execFileSync("git", ["-C", harnessRoot, "add", "--", "people.yaml"], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure daemon people roster"], {
     stdio: "ignore",
-    env: gitAuthorEnv()
+    env: gitAuthorEnv(harnessRoot)
   });
 }
 
-function gitAuthorEnv(): NodeJS.ProcessEnv {
+function gitAuthorEnv(rootDir: string): NodeJS.ProcessEnv {
   const name = process.env.HARNESS_GIT_AUTHOR_NAME ?? "Harness Test";
   const email = process.env.HARNESS_GIT_AUTHOR_EMAIL ?? "harness@example.test";
   return {
-    ...process.env,
+    ...hermeticGitEnv(rootDir),
     GIT_AUTHOR_NAME: name,
     GIT_AUTHOR_EMAIL: email,
     GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? name,
     GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? email
   };
+}
+
+function hermeticGitEnv(rootDir: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: path.join(rootDir, ".home"),
+    GIT_CONFIG_GLOBAL: "/dev/null"
+  };
+}
+
+function spawnDaemonCli(rootDir: string, args: ReadonlyArray<string>) {
+  return spawn(process.execPath, [cliEntry, "--root", rootDir, ...args], {
+    env: {
+      ...process.env,
+      HOME: path.join(rootDir, ".home"),
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir)
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+}
+
+function runDaemonCliProcess(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  stdin = ""
+): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawnDaemonCli(rootDir, args);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end(stdin);
+  });
+}
+
+function listen(server: net.Server, endpoint: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(endpoint, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+function closeServer(server: net.Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

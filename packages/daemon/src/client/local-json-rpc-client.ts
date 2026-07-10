@@ -16,6 +16,7 @@ import {
 import { currentDaemonProtocolVersion } from "../protocol/method-registry.ts";
 import { type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { encodeJsonLineFrame } from "../transport/frame-codec.ts";
+import { defaultNamedPipePath } from "../transport/named-pipe.ts";
 import { defaultUnixSocketPath } from "../transport/unix-socket.ts";
 
 export const defaultDaemonAutostartTimeoutMs = 6_000;
@@ -83,6 +84,15 @@ export function localUserDaemonSocketPath(userRoot = daemonUserRoot(), daemonId 
   return defaultUnixSocketPath(daemonIdForUserRoot(userRoot, daemonId));
 }
 
+export function localUserDaemonEndpoint(
+  userRoot = daemonUserRoot(),
+  daemonId = daemonIdFromEnv(),
+  platform: NodeJS.Platform = process.platform
+): string {
+  const endpointId = daemonIdForUserRoot(userRoot, daemonId);
+  return platform === "win32" ? defaultNamedPipePath(endpointId) : defaultUnixSocketPath(endpointId);
+}
+
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_USER_ROOT") ?? path.join(os.homedir(), ".harness"));
 }
@@ -104,8 +114,8 @@ export function resolveLocalDaemonTarget(input: {
   const daemonId = input.daemonId ?? daemonIdFromEnv(env);
   const repoIdOverride = input.repoIdOverride ?? readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_REPO_ID");
   const registry = readDaemonRegistry({ userRoot });
-  const legacySocketPath = localDaemonSocketPath(input.rootDir);
-  const socketPath = localUserDaemonSocketPath(userRoot, daemonId);
+  const socketPath = localUserDaemonEndpoint(userRoot, daemonId);
+  const legacySocketPath = process.platform === "win32" ? socketPath : localDaemonSocketPath(input.rootDir);
 
   if (repoIdOverride) {
     const registered = registry.repos.find((repo) => repo.repoId === repoIdOverride && repo.state === "enabled");
@@ -183,8 +193,9 @@ export async function requestLocalDaemonJsonRpc(
   }
 
   const userRoot = path.resolve(options.userRoot ?? daemonUserRoot(options.env));
-  const socketPath = options.socketPath ?? localUserDaemonSocketPath(userRoot, options.daemonId ?? daemonIdFromEnv(options.env));
-  const socket = await connectUnixSocketWithLegacyFallback(socketPath, options.allowLegacySocket === false ? undefined : localDaemonSocketPath(rootDir), timeoutMs);
+  const socketPath = options.socketPath ?? localUserDaemonEndpoint(userRoot, options.daemonId ?? daemonIdFromEnv(options.env));
+  const legacySocketPath = process.platform === "win32" ? undefined : localDaemonSocketPath(rootDir);
+  const socket = await connectUnixSocketWithLegacyFallback(socketPath, options.allowLegacySocket === false ? undefined : legacySocketPath, timeoutMs);
   return requestWithSocket(socket, method, params);
 }
 

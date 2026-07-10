@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { ensureTestHarnessIdentity } from "./git-fixtures.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const execFileAsync = promisify(execFile);
@@ -28,6 +29,7 @@ export async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>):
 }
 
 export function runRawJson(rootDir: string, args: ReadonlyArray<string>, env: Readonly<Record<string, string>> = {}): Record<string, unknown> {
+  if (args[0] === "init") ensureTestHarnessIdentity(rootDir);
   const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
     env: daemonTestEnv(rootDir, env)
@@ -168,6 +170,8 @@ function removeTempRootSync(rootDir: string): void {
 function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    HOME: path.join(rootDir, ".home"),
+    GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir),
     ...env
   };
