@@ -38,6 +38,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/preset-user-root-cli.test.ts": 3000.0,
   "packages/cli/test/preset-script-cli.test.ts": 21150.1,
   "packages/cli/test/preset-script-imports-cli.test.ts": 1132.0,
+  "packages/cli/test/progress-evidence-cli.test.ts": 700.0,
   "packages/cli/test/preset-subtask-expansion-cli.test.ts": 17807.0,
   "packages/cli/test/projection-freshness-cli.test.ts": 1723.3,
   "packages/cli/test/runtime-event-cli.test.ts": 5222.8,
@@ -87,6 +88,7 @@ export const integrationTestShards = Object.freeze([
     id: 1,
     files: Object.freeze([
       "packages/cli/test/local-lifecycle-cli.test.ts",
+      "packages/cli/test/progress-evidence-cli.test.ts",
       "packages/cli/test/task-delete-disposition-cli.test.ts",
       "packages/cli/test/task-document-gates-cli.test.ts",
       "packages/cli/test/distill-cli.test.ts",

@@ -57,9 +57,8 @@ function runProgressAppend(
   context: CommandRunnerContext,
   action: Extract<TaskLifecycleAction, { readonly kind: "progress-append" }>
 ): Effect.Effect<CliResult, EngineError | WriteError> {
-  const text = action.evidence
-    ? `${action.text}\n\nEvidence: ${action.evidence.type}:${action.evidence.path}:${action.evidence.summary}`
-    : action.text;
+  const evidence = action.evidence?.map((entry) => `Evidence: ${entry.type}:${entry.path}:${entry.summary}`).join("\n");
+  const text = evidence ? `${action.text}\n\n${evidence}` : action.text;
   return context.engine.appendProgress({ taskId: action.taskId, text }).pipe(Effect.map((result): CliResult => ({
     ok: true,
     command: "progress-append",

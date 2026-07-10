@@ -68,7 +68,12 @@ function eventEntityRefs(
 function commandRuntimeEventActor(context: CommandRunnerContext) {
   try {
     return runtimeEventActorFromTaskHolderPrincipal(context.taskHolderPrincipal());
-  } catch {
+  } catch (error) {
+    process.stderr.write(`warning: runtime event actor attribution unavailable: ${runtimeEventActorResolutionMessage(error)}\n`);
     return undefined;
   }
+}
+
+function runtimeEventActorResolutionMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

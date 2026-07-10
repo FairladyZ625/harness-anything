@@ -44,7 +44,8 @@ test("P16 lifecycle provenance flags write auditable task notes", () => {
     const replacement = runJson(rootDir, ["new-task", "--title", "Replacement Task"]);
 
     const progress = runJson(rootDir, ["task", "progress", "append", oldTask.taskId, "--text", "Ran verification", "--evidence", "log:artifacts/check.log:passed"]);
-    assert.equal(progress.report.evidence.path, "artifacts/check.log");
+    assert.equal(progress.report.evidence.length, 1);
+    assert.equal(progress.report.evidence[0].path, "artifacts/check.log");
     assert.match(readFileSync(path.join(rootDir, oldTask.packagePath, "progress.md"), "utf8"), /Evidence: log:artifacts\/check.log:passed/);
 
     const mismatch = runJson(rootDir, ["task", "supersede", oldTask.taskId, "--by", replacement.taskId, "--confirm", "wrong"], false);

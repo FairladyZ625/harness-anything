@@ -59,7 +59,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
     kind: "status-set",
     fields: { taskId: "task_1", status: "done", force: true, reason: "verified" }
   },
-  { name: "progress append", argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "log:artifacts/run.log:passed"], kind: "progress-append", fields: { taskId: "task_1", text: "hello", evidence: { type: "log", path: "artifacts/run.log", summary: "passed" } } },
+  { name: "progress append repeated evidence", argv: ["task", "progress", "append", "task_1", "--text", "hello", "--evidence", "log:artifacts/run.log:passed", "--evidence", "test:artifacts/unit.log:green"], kind: "progress-append", fields: { taskId: "task_1", text: "hello", evidence: [{ type: "log", path: "artifacts/run.log", summary: "passed" }, { type: "test", path: "artifacts/unit.log", summary: "green" }] } },
   { name: "task amend", argv: ["task", "amend", "task_1", "--set", "taskClass:milestone"], kind: "task-amend", fields: { taskId: "task_1", patches: [{ field: "taskClass", value: "milestone" }] } },
   { name: "task archive", argv: ["task", "archive", "task_1", "--reason", "done", "--archived-by", "alice", "--archive-field", "packageDisposition"], kind: "task-archive", fields: { taskId: "task_1", reason: "done", archivedBy: "alice", archiveField: "packageDisposition" } },
   { name: "task archive ids", argv: ["task", "archive", "--ids", "task_1,task_2", "--reason", "done"], kind: "task-archive", fields: { ids: ["task_1", "task_2"], reason: "done" } },

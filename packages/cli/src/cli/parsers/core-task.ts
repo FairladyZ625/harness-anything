@@ -1,7 +1,7 @@
 import { domainStatuses, isDomainStatus } from "../../../../kernel/src/index.ts";
 import { slugifyTaskTitle } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
-import { readOption, readRequiredValueOption } from "../parse-options.ts";
+import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { parseTaskArchive } from "./core-task-archive.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
@@ -81,7 +81,7 @@ function parseProgressAppend(args: ReadonlyArray<string>, rootDir: string, json:
   if (!text) {
     return { ok: false, error: cliError(CliErrorCode.MissingText, "Use --text for progress append.") };
   }
-  const evidence = parseEvidence(readOption(args, "--evidence"));
+  const evidence = parseEvidence(readRepeatedRawOption(args, "--evidence"));
   if (!evidence.ok) return { ok: false, error: evidence.error };
   return ok(rootDir, json, {
     kind: "progress-append",
@@ -214,14 +214,20 @@ function parseTaskRelate(args: ReadonlyArray<string>, rootDir: string, json: boo
   });
 }
 
-function parseEvidence(value: string | undefined):
-  | { readonly ok: true; readonly value?: { readonly type: string; readonly path: string; readonly summary: string } }
+function parseEvidence(values: ReadonlyArray<string | undefined>):
+  | { readonly ok: true; readonly value?: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }> }
   | { readonly ok: false; readonly error: NonNullable<CliResult["error"]> } {
-  if (!value) return { ok: true };
-  const [type, evidencePath, ...summaryParts] = value.split(":");
-  return type && evidencePath && summaryParts.length > 0
-    ? { ok: true, value: { type, path: evidencePath, summary: summaryParts.join(":") } }
-    : { ok: false, error: cliError(CliErrorCode.InvalidEvidence, "Use --evidence type:PATH:summary.") };
+  if (values.length === 0) return { ok: true };
+  const evidence: Array<{ readonly type: string; readonly path: string; readonly summary: string }> = [];
+  for (const value of values) {
+    if (!value) return { ok: false, error: cliError(CliErrorCode.InvalidEvidence, "Use --evidence type:PATH:summary.") };
+    const [type, evidencePath, ...summaryParts] = value.split(":");
+    if (!type || !evidencePath || summaryParts.length === 0) {
+      return { ok: false, error: cliError(CliErrorCode.InvalidEvidence, "Use --evidence type:PATH:summary.") };
+    }
+    evidence.push({ type, path: evidencePath, summary: summaryParts.join(":") });
+  }
+  return { ok: true, value: evidence };
 }
 
 function ok(rootDir: string, json: boolean, action: ParsedCommand["action"]): ParseResult {

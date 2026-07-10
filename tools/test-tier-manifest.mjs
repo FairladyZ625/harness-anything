@@ -139,6 +139,7 @@ export const testTierManifest = {
     "packages/cli/test/p16-command-parity-cli.test.ts",
     "packages/cli/test/post-merge-check-cli.test.ts",
     "packages/cli/test/projection-freshness-cli.test.ts",
+    "packages/cli/test/progress-evidence-cli.test.ts",
     "packages/cli/test/preset-create-milestone-cli.test.ts",
     "packages/cli/test/preset-create-milestone-render-html-cli.test.ts",
     "packages/cli/test/preset-github-issue-repair-cli.test.ts",

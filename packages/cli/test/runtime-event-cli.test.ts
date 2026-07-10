@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -92,6 +92,24 @@ test("CLI task transition runtime event records dual-axis actor", () => {
     assert.equal(events[0].actor.principal.personId, "person_tester");
     assert.deepEqual(events[0].actor.executor, { kind: "agent", id: "codex-cli" });
     assert.equal(events[0].actor.responsibleHuman, "person:person_tester");
+  });
+});
+
+test("CLI warns when runtime event actor attribution cannot be resolved", () => {
+  withTempRoot((rootDir) => {
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nsettings:\n", "utf8");
+    const sessionId = "codex-runtime-event-missing-actor";
+    const output = runJsonWithStderr(rootDir, ["new-task", "--title", "Missing Actor Event"], {
+      CODEX_SESSION_ID: sessionId,
+      CODEX_THREAD_ID: ""
+    });
+    const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
+    const events = readJsonl(ledgerPath);
+
+    assert.equal(output.result.ok, true);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].actor, undefined);
+    assert.match(output.stderr, /runtime event actor attribution unavailable: Local writes require a configured person identity/u);
   });
 });
 
@@ -259,4 +277,27 @@ function runJson(
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function runJsonWithStderr(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  env: Readonly<Record<string, string>> = {}
+): { readonly result: Record<string, any>; readonly stderr: string } {
+  const child = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...cleanRuntimeEnv,
+      HARNESS_ACTOR: "agent:harness-test",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
+      HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
+      ...env
+    }
+  });
+  assert.equal(child.status, 0);
+  return {
+    result: unwrapCommandReceipt(JSON.parse(child.stdout) as Record<string, any>),
+    stderr: child.stderr
+  };
 }
