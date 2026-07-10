@@ -68,9 +68,16 @@ described as the place to manage task lifecycle or arbitrate decisions.
 
 ### Write-path integrity
 
-- Required real actor attribution for local ledger writes:
-  `HARNESS_ACTOR`, `HARNESS_GIT_AUTHOR_NAME`, and `HARNESS_GIT_AUTHOR_EMAIL`
-  are load-bearing for write commands. Representative PRs: #490.
+- Hardened actor attribution for local ledger writes: inherited
+  `HARNESS_ACTOR=human:<id>` now fails closed, while human invocation uses the
+  non-inherited global `--actor human:<id>` flag. Agent and system environment
+  channels remain available, and write journals persist attribution source.
+  `ha check` hard-fails historical human records attributed from inherited
+  environment. Representative PRs: #490, #592.
+- Added experimental SSH forced-command principal authentication for remote
+  daemon access. Each member key can pin a person and canonical root; the relay
+  verifies its sshd context and exact original command before resolving the
+  `ssh-forced-command-person` roster credential. Representative PR: #588.
 - Added optimistic concurrency checks for decision snapshots, idempotent
   byte-identical fact append behavior, and content-addressed blob storage for
   large session/export bodies. Representative PRs: #476, #482, #488.

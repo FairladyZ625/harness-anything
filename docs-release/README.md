@@ -108,3 +108,11 @@ service management, repository registration, direct-push protection, read-only
 mirrors, and the remote boundary.
 
 → **[operations-server-daemon.md](operations-server-daemon.md)**
+
+## Attribute every write correctly
+
+Human, agent, system, local CLI, and authenticated daemon writes do not use the
+same identity channel. Read the attribution model before configuring shells or
+team automation.
+
+→ **[actor-attribution.md](actor-attribution.md)**

@@ -4,22 +4,24 @@
 
 ## 0. 设置写入归属
 
-本地 `ha` 写命令要求显式归属。请在运行这个循环的 shell 里先设置一次：
+本地 `ha` 写命令要求显式归属。这个循环由人执行，因此把 human 身份作为全局 flag，并设置
+commit author 变量：
 
 ```bash
-export HARNESS_ACTOR=human:you
 export HARNESS_GIT_AUTHOR_NAME="Your Name"
 export HARNESS_GIT_AUTHOR_EMAIL="you@example.com"
+ha --actor human:you init
 ```
 
-`HARNESS_ACTOR` 必须是 `kind:id` 形式；`kind` 是 `human`、`agent` 或 `system`。
-这里要使用真实的人或 agent 身份。quickstart smoke demo 使用自己的 demo 级 system
-actor，因为它只写入临时 workspace。
+接下来的每个写命令都在前面加上 `ha --actor human:you`。不要
+`export HARNESS_ACTOR=human:you`：子进程会继承环境变量，因此它不能证明某一次写入时人
+确实在场。agent 与 system 自动化可按命令使用 `HARNESS_ACTOR=agent:<id>` 或
+`system:<id>`。完整 source 矩阵与安全交互包装见[归属模型](../../actor-attribution.zh-CN.md)。
 
 ## 1. 初始化
 
 ```bash
-$ ha init
+$ ha --actor human:you init
 ok command=init path=harness/harness.yaml summary="initialized harness at harness/harness.yaml"
 ```
 
@@ -50,7 +52,7 @@ harness/
 ## 2. 创建一个任务
 
 ```bash
-$ ha task create --title "Fix login redirect bug"
+$ ha --actor human:you task create --title "Fix login redirect bug"
 ok command="task create" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=planned
    path=harness/tasks/task_01KWPP52D...-fix-login-redirect-bug
 ```
@@ -60,7 +62,7 @@ ok command="task create" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=planned
 ## 3. 贯穿生命周期移动
 
 ```bash
-$ ha task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
+$ ha --actor human:you task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
 ok command="task transition" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
    summary="set task task_01KWPP52D062Q7BWTD8BCNDRWF to active"
 ```
@@ -72,7 +74,7 @@ ok command="task transition" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
 事实是只增不改的观察，锚定到产生它们的任务：
 
 ```bash
-$ ha fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
+$ ha --actor human:you fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
     --statement "Redirect loops when the session cookie is missing" \
     --source "manual repro" --confidence high
 ok command="fact record" task=task_01KWPP52D062Q7BWTD8BCNDRWF path=facts.md
@@ -81,14 +83,14 @@ ok command="fact record" task=task_01KWPP52D062Q7BWTD8BCNDRWF path=facts.md
 现在提议一个决策——为什么——并裁决它：
 
 ```bash
-$ ha decision propose --title "Use a server-side redirect guard" \
+$ ha --actor human:you decision propose --title "Use a server-side redirect guard" \
     --question "How do we stop the login redirect loop?" \
     --chosen "Add a server-side guard" \
     --rejected "Client-only fix" \
     --why-not "Client fix races with cookie set"
 ok command="decision propose" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 
-$ ha decision accept dec_mr6f3b4z --arbiter human:you
+$ ha --actor human:you decision accept dec_mr6f3b4z --arbiter human:you
 ok command="decision accept" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 ```
 

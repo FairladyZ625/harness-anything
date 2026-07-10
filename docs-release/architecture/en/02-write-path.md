@@ -1,8 +1,8 @@
 # The single write path
 
 [Gates and fail-closed](../../learn/en/03-gates-and-fail-closed.md) makes a
-promise: no load-bearing write slips in unchecked, and there is exactly *one
-door* through which such writes pass. This page shows the machinery behind that
+promise: no load-bearing write slips in unchecked, and there is exactly _one
+door_ through which such writes pass. This page shows the machinery behind that
 door — the write coordinator and the journal that stamps, applies, and commits
 every accepted write.
 
@@ -35,16 +35,20 @@ Callers don't even build ops by hand. The helpers in
 `packages/kernel/src/write-coordination/write-helpers.ts`
 (`writeCoordinatedTaskDocuments`, `writeCoordinatedPayload`) construct the op,
 derive its `opId`, enqueue it, and flush — so every path into durable storage
-funnels through the same two-step *enqueue then flush*.
+funnels through the same two-step _enqueue then flush_.
 
 Local CLI writes also have to enter with explicit actor attribution. The CLI
-resolves that before it creates the coordinator: set `HARNESS_ACTOR=kind:id`
-where `kind` is `agent`, `human`, or `system`, plus
-`HARNESS_GIT_AUTHOR_NAME` and `HARNESS_GIT_AUTHOR_EMAIL` for the git commit
-author. `HARNESS_ACTOR` has no fallback and is not inferred from git config; if it
-is absent or malformed, the local write cannot proceed. Daemon writes use the
-daemon's authenticated actor path instead, and require that identity to resolve to
-a git author email.
+resolves it before it creates the coordinator. `HARNESS_ACTOR=agent:<id>` and
+`HARNESS_ACTOR=system:<id>` remain valid environment channels, but a human
+identity must use `--actor human:<id>` because child processes inherit
+environment variables. The explicit flag wins over the environment value.
+Local writes also need a git author name and email; examples set
+`HARNESS_GIT_AUTHOR_NAME` and `HARNESS_GIT_AUTHOR_EMAIL` (the corresponding Git
+author variables are accepted as fallbacks). If attribution or author data is
+absent or malformed, the local write cannot proceed. The journal records whether
+the actor came from `env` or `flag`. Daemon writes use the daemon's authenticated
+human actor path, record `source: daemon`, and require that identity to resolve
+to a git author email. See [Actor Attribution](../../actor-attribution.md).
 
 ## The journal: intent, then effect
 
@@ -53,14 +57,14 @@ The concrete coordinator is the **journaled** implementation in
 (`makeJournaledWriteCoordinator`). It splits every write into two phases so that
 a crash at any point leaves a recoverable state rather than a corrupt one.
 
-**Enqueue** records *intent*. It validates the op, runs a preflight check, then
+**Enqueue** records _intent_. It validates the op, runs a preflight check, then
 appends a journal record describing the op to an append-only journal file. The
 op's payload is written out separately as a content-addressed blob, and the
 record carries a `payloadHash` so the payload can be verified byte-for-byte
 before it is ever applied. Nothing in the authored tree has changed yet — only
 the journal knows a write is coming.
 
-**Flush** produces the *effect*. Under a repository lock, it reads the durable
+**Flush** produces the _effect_. Under a repository lock, it reads the durable
 journal state, filters to records not yet applied, applies each one to disk,
 commits the touched paths to git, and finally writes a **watermark**. The
 watermark (`writeWatermarkDurably`) is the authoritative record of what has been
@@ -108,7 +112,7 @@ that trace. Two watermarks matter:
   and which need replaying.
 - A **decision watermark** (`_coordinatorWatermark`) is stamped into the
   frontmatter of every decision document the coordinator writes. Because it is
-  written *by* the single write path, its presence and uniqueness are evidence
+  written _by_ the single write path, its presence and uniqueness are evidence
   that a decision file came through the coordinator rather than being
   hand-authored or copy-pasted. The post-merge checks in
   `packages/kernel/src/projection/post-merge-checks.ts`
@@ -154,7 +158,7 @@ a retryable `cas_watermark_mismatch`, not a last-writer-wins overwrite.
 ## Crash recovery
 
 Because intent and effect are separated and both are durable, an interrupted
-write is not a lost or corrupt write — it is a *replayable* one. On startup
+write is not a lost or corrupt write — it is a _replayable_ one. On startup
 `recover` re-runs `flush` for any journal records the watermark doesn't yet
 cover, under the same lock. Two subtleties keep replay honest:
 
