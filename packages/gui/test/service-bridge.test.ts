@@ -266,7 +266,7 @@ test("GUI service bridge refuses custom authored root when an existing daemon la
       daemonPid = daemonPidFromStatus(status);
       assert.equal(typeof daemonPid, "number");
       return customBridge.invoke("getTasks", null);
-    }, { idleMs: "0" }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+    }, { idleMs: "1500" }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
     assert.equal(customList.ok, false);
     assert.equal(customList.error?.code, "daemon_layout_conflict");
     assert.match(customList.error?.hint ?? "", /layout/u);
