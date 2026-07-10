@@ -10,10 +10,6 @@ const {
   readRelationGraphProjection
 } = await importKernelProjectionApi();
 
-// conformance 规则非追溯 (dec_mra501ny): 规则前 accept 的决策豁免 task-derivation/claim-coverage。
-// cutoff = dec_GOV_MILESTONE_SCOPE_TASK_DERIVATION.decidedAt (规则确立时刻)。
-const RULE_ADOPTED_AT = Date.parse("2026-07-06T23:21:56.224Z");
-
 const contextPath = process.env.HARNESS_SCRIPT_CONTEXT;
 const resultPath = process.env.HARNESS_SCRIPT_RESULT;
 if (!contextPath || !resultPath) {
@@ -22,6 +18,14 @@ if (!contextPath || !resultPath) {
 
 const context = JSON.parse(readFileSync(contextPath, "utf8"));
 const rootDir = context.paths.rootDir;
+const policyRules = context.policy?.presetId === "decision-conformance" ? context.policy.rules : {};
+const enforcement = policyRules.enforcement === "fail" ? "fail" : "report";
+const adoptionCutoff = policyRules.adoptionCutoff ? Date.parse(policyRules.adoptionCutoff) : undefined;
+const legacyExemptions = new Set(
+  Array.isArray(policyRules.legacyExemptions)
+    ? policyRules.legacyExemptions.map((exemption) => exemption.kind)
+    : []
+);
 const decisionProjection = queryDecisionProjection({ rootDir, filters: {} });
 const taskProjection = queryTaskProjection({ rootDir, filters: { includeArchived: true } });
 const relationProjection = readRelationGraphProjection({ rootDir });
@@ -29,11 +33,11 @@ const relationProjection = readRelationGraphProjection({ rootDir });
 const decisions = decisionProjection.rows;
 const tasks = taskProjection.rows;
 const activeEdges = relationProjection.edges.filter((edge) => edge.state === "active");
-const proposedMaxAgeDays = readPositiveInteger(context.inputs?.proposedMaxAgeDays, 14);
+const proposedMaxAgeDays = readPositiveInteger(policyRules.proposedMaxAgeDays ?? context.inputs?.proposedMaxAgeDays, 14);
 const decisionIds = new Set(decisions.map((decision) => decision.decisionId));
 const taskIds = new Set(tasks.map((task) => task.taskId));
 const factRefs = new Set(relationProjection.factAnchors.map((fact) => fact.factRef));
-const findings = [];
+const violations = [];
 
 for (const decision of decisions) {
   const decisionRef = `decision/${decision.decisionId}`;
@@ -106,14 +110,17 @@ const report = {
   scriptId: context.scriptId,
   source: context.source,
   verticalId: context.verticalId,
+  enforcement,
   summary: {
     decisionCount: decisions.length,
     taskCount: tasks.length,
     relationCount: relationProjection.edges.length,
     factCount: factRefs.size,
-    findingCount: findings.length
+    violationCount: violations.length,
+    findingCount: enforcement === "fail" ? violations.length : 0
   },
-  findings,
+  violations,
+  findings: enforcement === "fail" ? violations : [],
   projectionWarnings: [
     ...decisionProjection.warnings,
     ...taskProjection.warnings,
@@ -123,8 +130,8 @@ const report = {
 
 writeFileSync(resultPath, JSON.stringify({
   schema: "script-result/v1",
-  ok: findings.length === 0,
-  rows: findings.length,
+  ok: enforcement !== "fail" || violations.length === 0,
+  rows: violations.length,
   report,
   produced: []
 }, null, 2), "utf8");
@@ -188,17 +195,15 @@ function checkEndpoint(ref, relationId, sourcePath) {
 }
 
 function finding(type, ref, message, hint) {
-  findings.push({ type, ref, message, hint });
+  violations.push({ type, ref, message, hint });
 }
 
 function isPreRuleLegacyDecision(decision) {
-  // decidedAt 早于规则确立 → 规则前, 豁免 (含全部 dec_LEDGER_E* 导入历史, 其 decidedAt 均 < cutoff)。
-  if (decision.decidedAt) {
+  if (legacyExemptions.has("decided-before-cutoff") && adoptionCutoff !== undefined && decision.decidedAt) {
     const t = Date.parse(decision.decidedAt);
-    if (Number.isFinite(t) && t < RULE_ADOPTED_AT) return true;
+    if (Number.isFinite(t) && t < adoptionCutoff) return true;
   }
-  // 兜底: 无 decidedAt 但带 legacyId 的导入历史决策同样豁免。
-  if (!decision.decidedAt && decision.legacyId) return true;
+  if (legacyExemptions.has("missing-decided-at-with-legacy-id") && !decision.decidedAt && decision.legacyId) return true;
   return false;
 }
 

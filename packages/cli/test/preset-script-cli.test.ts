@@ -44,7 +44,7 @@ test("CLI script command lists decision conformance as a vertical check script",
   });
 });
 
-test("CLI check runs decision conformance scripts and fails closed on accepted decisions without task edges", () => {
+test("CLI check reports decision conformance violations without failing when policy is absent", () => {
   withTempRoot((rootDir) => {
     ensureTestHarnessIdentity(rootDir);
     runJson(rootDir, ["init"]);
@@ -68,17 +68,22 @@ test("CLI check runs decision conformance scripts and fails closed on accepted d
       "--evidence-relation", `C1:evidenced-by:fact/${task.taskId}/F-C123ABCD:Fact covers the accepted conformance claim`
     ]);
     runJson(rootDir, ["decision", "accept", "dec_CONFORMANCE_EDGE", "--arbiter", "human:ZeyuLi"]);
-    const failed = runJson(rootDir, ["check", "--profile", "source-package"], false);
-    assert.equal(failed.ok, false);
-    assert.equal(failed.error.code, "check_profile_failed");
-    assert.equal(failed.warnings.some((warning: Record<string, unknown>) => (
+    const audited = runJson(rootDir, ["check", "--profile", "source-package"]);
+    assert.equal(audited.ok, true);
+    assert.equal(audited.warnings.some((warning: Record<string, unknown>) => (
       warning.source === "vertical-check:vertical:software-coding:decision-conformance" &&
       warning.code === "accepted-decision-missing-task-or-defer" &&
       String(warning.message).includes("decision/dec_CONFORMANCE_EDGE")
-    )), true);
-    assert.equal(failed.report.scriptChecks.some((entry: Record<string, any>) => (
+    )), false);
+    assert.equal(audited.report.scriptChecks.some((entry: Record<string, any>) => (
       entry.scriptId === "vertical:software-coding:decision-conformance" &&
-      entry.report?.summary?.findingCount > 0
+      entry.report?.enforcement === "report" &&
+      entry.report?.summary?.violationCount > 0 &&
+      entry.report?.summary?.findingCount === 0 &&
+      entry.report?.violations?.some((violation: Record<string, unknown>) => (
+        violation.type === "accepted-decision-missing-task-or-defer" &&
+        violation.ref === "decision/dec_CONFORMANCE_EDGE"
+      ))
     )), true);
 
     runJson(rootDir, [
@@ -94,6 +99,54 @@ test("CLI check runs decision conformance scripts and fails closed on accepted d
     assert.equal(passed.report.scriptChecks.some((entry: Record<string, any>) => (
       entry.scriptId === "vertical:software-coding:decision-conformance" &&
       entry.report?.summary?.findingCount === 0
+    )), true);
+  });
+});
+
+test("CLI check fails on decision conformance violations when policy enforcement is fail", () => {
+  withTempRoot((rootDir) => {
+    ensureTestHarnessIdentity(rootDir);
+    runJson(rootDir, ["init"]);
+    const task = runJson(rootDir, ["task", "create", "--title", "Governed Conformance Implementation"]);
+    runJson(rootDir, [
+      "fact", "record",
+      "--task", task.taskId,
+      "--id", "F-GATED123",
+      "--statement", "The governed conformance fixture covers the accepted decision claim.",
+      "--source", "test",
+      "--confidence", "high"
+    ]);
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_CONFORMANCE_GATED",
+      "--title", "Governed Conformance",
+      "--question", "Should policy escalate audit violations?",
+      "--chosen", "Escalate audit violations to hard-gate findings",
+      "--rejected", "Keep project policy report-only",
+      "--why-not", "The governed repository requires conformance enforcement",
+      "--evidence-relation", `C1:evidenced-by:fact/${task.taskId}/F-GATED123:Fact covers the governed conformance claim`
+    ]);
+    runJson(rootDir, ["decision", "accept", "dec_CONFORMANCE_GATED", "--arbiter", "human:ZeyuLi"]);
+    writeFile(rootDir, "harness/policies/presets/decision-conformance.policy.json", JSON.stringify({
+      schema: "preset-policy/decision-conformance/v1",
+      presetId: "decision-conformance",
+      rules: { enforcement: "fail" }
+    }));
+
+    const gated = runJson(rootDir, ["check", "--profile", "source-package"], false);
+
+    assert.equal(gated.ok, false);
+    assert.equal(gated.error.code, "check_profile_failed");
+    assert.equal(gated.warnings.some((warning: Record<string, unknown>) => (
+      warning.source === "vertical-check:vertical:software-coding:decision-conformance" &&
+      warning.code === "accepted-decision-missing-task-or-defer" &&
+      String(warning.message).includes("decision/dec_CONFORMANCE_GATED")
+    )), true);
+    assert.equal(gated.report.scriptChecks.some((entry: Record<string, any>) => (
+      entry.scriptId === "vertical:software-coding:decision-conformance" &&
+      entry.report?.enforcement === "fail" &&
+      entry.report?.summary?.violationCount > 0 &&
+      entry.report?.summary?.findingCount === entry.report?.summary?.violationCount
     )), true);
   });
 });
@@ -286,7 +339,7 @@ test("CLI script command runs with an explicit environment allowlist", () => {
   });
 });
 
-test("decision checker receives hard-fail policy only when its versioned authored ledger policy exists", () => {
+test("decision checker receives fail enforcement only when its versioned authored ledger policy exists", () => {
   withTempRoot((rootDir) => {
     const publicRun = runJson(rootDir, ["script", "run", "vertical:software-coding:decision-conformance"]);
     const publicContext = JSON.parse(readFileSync(path.join(rootDir, publicRun.evidenceBundle, "context.json"), "utf8"));
@@ -295,12 +348,28 @@ test("decision checker receives hard-fail policy only when its versioned authore
     writeFile(rootDir, "harness/policies/presets/decision-conformance.policy.json", JSON.stringify({
       schema: "preset-policy/decision-conformance/v1",
       presetId: "decision-conformance",
-      rules: { hardFail: true }
+      rules: { enforcement: "fail" }
     }));
     const governedRun = runJson(rootDir, ["script", "run", "vertical:software-coding:decision-conformance"]);
     const governedContext = JSON.parse(readFileSync(path.join(rootDir, governedRun.evidenceBundle, "context.json"), "utf8"));
-    assert.equal(governedContext.policy.rules.hardFail, true);
+    assert.equal(governedContext.policy.rules.enforcement, "fail");
     assert.equal(governedContext.policy.sourcePath, "harness/policies/presets/decision-conformance.policy.json");
+  });
+});
+
+test("decision checker rejects an invalid policy enforcement mode before audit execution", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "harness/policies/presets/decision-conformance.policy.json", JSON.stringify({
+      schema: "preset-policy/decision-conformance/v1",
+      presetId: "decision-conformance",
+      rules: { enforcement: "block" }
+    }));
+
+    const result = runJson(rootDir, ["script", "run", "vertical:software-coding:decision-conformance"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_policy_invalid");
+    assert.match(result.error.hint, /enforcement/u);
   });
 });
 
