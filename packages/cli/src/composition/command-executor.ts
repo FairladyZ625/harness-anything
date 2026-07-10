@@ -8,8 +8,9 @@ import {
   makeProvenanceSessionExporter,
   makeRuntimeEventLedgerService,
   makeTaskHolderService,
-  taskHolderPrincipalFromJournalActor,
-  type ProvenanceSessionExportResult
+  type ProvenanceSessionExportResult,
+  type TaskHolderPersonPrincipal,
+  type TaskHolderPrincipal
 } from "../../../application/src/index.ts";
 import type { WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext, findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
@@ -18,6 +19,7 @@ import { actionTaskId } from "../cli/parse-args.ts";
 import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, resolveLocalCliActorAttribution, type CliActorAttribution } from "./actor-attribution.ts";
+import { CliPrincipalResolutionError, readConfiguredLocalPrincipal, resolveCliTaskHolderPrincipal } from "./local-principal.ts";
 import {
   defaultCliAdapterProvider,
   type CliCompositionAdapterProvider
@@ -59,6 +61,11 @@ export async function runRegisteredCommandWithCliComposition(
   let actorAttributionResolved = false;
   let actorAttribution: CliActorAttribution | undefined;
   let actorAttributionError: CliActorAttributionError | undefined;
+  let configuredPrincipal: TaskHolderPersonPrincipal | undefined;
+  const getConfiguredPrincipal = () => {
+    configuredPrincipal ??= readConfiguredLocalPrincipal(layoutInput);
+    return configuredPrincipal;
+  };
   const getActorAttribution = () => {
     if (!actorAttributionResolved) {
       actorAttributionResolved = true;
@@ -68,7 +75,10 @@ export async function runRegisteredCommandWithCliComposition(
         } else if (options.requireProvidedActorAttribution) {
           throw new CliActorAttributionError(options.missingActorAttributionMessage ?? "Actor attribution is required.");
         } else {
-          actorAttribution = resolveLocalCliActorAttribution();
+          actorAttribution = resolveLocalCliActorAttribution(process.env, () => ({
+            kind: "human",
+            id: getConfiguredPrincipal().personId
+          }));
         }
       } catch (error) {
         actorAttributionError = error instanceof CliActorAttributionError
@@ -78,6 +88,11 @@ export async function runRegisteredCommandWithCliComposition(
     }
     if (actorAttributionError) throw actorAttributionError;
     return actorAttribution!;
+  };
+  let taskHolderPrincipal: TaskHolderPrincipal | undefined;
+  const getTaskHolderPrincipal = () => {
+    taskHolderPrincipal ??= resolveCliTaskHolderPrincipal(layoutInput, getActorAttribution());
+    return taskHolderPrincipal;
   };
 
   const rawMakeWriteCoordinator = options.makeWriteCoordinator ?? ((actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) =>
@@ -123,7 +138,7 @@ export async function runRegisteredCommandWithCliComposition(
       provenanceSessionExporter: makeSessionExporter(),
       syncExportedSession
     }, boundAt)
-  }), makeTaskHolder, getActorAttribution), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, getActorAttribution, () => makeDecisionWriteService({
+  }), makeTaskHolder, getTaskHolderPrincipal), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => makeDecisionWriteService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "decision-cli" }),
     currentSessionProbe: getCurrentSessionProbe(),
@@ -135,7 +150,7 @@ export async function runRegisteredCommandWithCliComposition(
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
-  }), makeTaskHolder, getActorAttribution), makeTaskHolder, () => makeRuntimeEventLedgerService({
+  }), makeTaskHolder, getTaskHolderPrincipal), makeTaskHolder, () => makeRuntimeEventLedgerService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator({ kind: "agent", id: "runtime-event-cli" })
   }), provider.runLedgerMaterializer).pipe(
@@ -158,15 +173,15 @@ export function commandRootInput(command: ParsedCommand): ReturnType<typeof crea
 type LifecycleEngine = ReturnType<CliCompositionAdapterProvider["createLifecycleEngine"]>;
 type FactWriteService = ReturnType<typeof makeFactWriteService>;
 type TaskHolderServiceFactory = () => ReturnType<typeof makeTaskHolderService>;
-type ActorAttributionFactory = () => CliActorAttribution;
+type TaskHolderPrincipalFactory = () => TaskHolderPrincipal;
 
 function withOptionalLeaseGuard(
   engine: LifecycleEngine,
   makeTaskHolder: TaskHolderServiceFactory,
-  getActorAttribution: ActorAttributionFactory
+  getTaskHolderPrincipal: TaskHolderPrincipalFactory
 ): LifecycleEngine {
   if (!leaseEnforcementEnabled()) return engine;
-  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getActorAttribution);
+  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getTaskHolderPrincipal);
   return {
     ...engine,
     setStatus: (input) => guard(input.taskId).pipe(Effect.flatMap(() => engine.setStatus(input))),
@@ -181,10 +196,10 @@ function withOptionalLeaseGuard(
 function withOptionalFactLeaseGuard(
   service: FactWriteService,
   makeTaskHolder: TaskHolderServiceFactory,
-  getActorAttribution: ActorAttributionFactory
+  getTaskHolderPrincipal: TaskHolderPrincipalFactory
 ): FactWriteService {
   if (!leaseEnforcementEnabled()) return service;
-  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getActorAttribution);
+  const guard = (taskId: string) => assertTaskLease(taskId, makeTaskHolder, getTaskHolderPrincipal);
   return {
     ...service,
     record: (request) => guard(request.ownerTaskId).pipe(Effect.flatMap(() => service.record(request))),
@@ -195,12 +210,12 @@ function withOptionalFactLeaseGuard(
 function assertTaskLease(
   taskId: string,
   makeTaskHolder: TaskHolderServiceFactory,
-  getActorAttribution: ActorAttributionFactory
+  getTaskHolderPrincipal: TaskHolderPrincipalFactory
 ): Effect.Effect<void, WriteError> {
   return Effect.tryPromise({
     try: () => makeTaskHolder().assertActiveLease({
       taskId,
-      principal: taskHolderPrincipalFromJournalActor(getActorAttribution().actor)
+      principal: getTaskHolderPrincipal()
     }),
     catch: taskLeaseWriteError
   });
@@ -213,6 +228,14 @@ function taskLeaseWriteError(error: unknown): WriteError {
       taskId: error.taskId,
       reason: error.message,
       code: error.code,
+      retryable: false
+    };
+  }
+  if (error instanceof CliPrincipalResolutionError || error instanceof CliActorAttributionError) {
+    return {
+      _tag: "WriteRejected",
+      reason: error.message,
+      code: "identity_required",
       retryable: false
     };
   }

@@ -255,16 +255,6 @@ export function taskHolderPrincipalFromActor(input: {
   return taskHolderActor(principal, options.executor ?? null);
 }
 
-export function taskHolderPrincipalFromJournalActor(input: {
-  readonly kind: "agent" | "human" | "system";
-  readonly id: string;
-}): TaskHolderPrincipal {
-  return taskHolderActor({
-    personId: input.id,
-    displayName: `${input.kind}:${input.id}`
-  }, taskHolderExecutorFromJournalActor(input));
-}
-
 export function taskHolderExecutorFromJournalActor(input: {
   readonly kind: "agent" | "human" | "system";
   readonly id: string;

@@ -323,6 +323,9 @@ test("CLI settings locale controls bundled materialization and metadata check", 
       "  defaultVertical: software/coding",
       "  defaultPreset: standard-task",
       "  defaultProfile: baseline",
+      "  identity:",
+      "    personId: person_settings_tester",
+      "    displayName: Settings Tester",
       "  customVerticals:",
       "    enabled: false",
       ""
@@ -344,7 +347,13 @@ test("CLI settings locale controls bundled materialization and metadata check", 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HARNESS_ACTOR: "human:settings-tester",
+        HARNESS_GIT_AUTHOR_NAME: "Settings Tester",
+        HARNESS_GIT_AUTHOR_EMAIL: "settings@example.test"
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

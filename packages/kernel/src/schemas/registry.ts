@@ -81,6 +81,10 @@ export const HarnessConfigSchema = Schema.Struct({
     defaultVertical: Schema.optional(ConfigIdentifierSchema),
     defaultPreset: Schema.optional(ConfigIdentifierSchema),
     defaultProfile: Schema.optional(ConfigIdentifierSchema),
+    identity: Schema.optional(Schema.Struct({
+      personId: ConfigIdentifierSchema,
+      displayName: Schema.optional(Schema.String)
+    })),
     customVerticals: Schema.optional(Schema.Struct({
       enabled: Schema.Boolean
     }))

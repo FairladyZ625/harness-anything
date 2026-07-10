@@ -42,8 +42,7 @@ export {
   runtimeEventActorFromTaskHolderPrincipal,
   taskHolderActor,
   taskHolderExecutorFromJournalActor,
-  taskHolderPrincipalFromActor,
-  taskHolderPrincipalFromJournalActor
+  taskHolderPrincipalFromActor
 } from "./local/task-holder-state.ts";
 export type {
   TaskHolderAcquiredVia,

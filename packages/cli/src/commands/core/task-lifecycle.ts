@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { isTaskHolderError, readTaskLifecyclePolicy, taskHolderPrincipalFromJournalActor } from "../../../../application/src/index.ts";
+import { isTaskHolderError, readTaskLifecyclePolicy, type TaskHolderPrincipal } from "../../../../application/src/index.ts";
 import type { DomainStatus, EngineError, WriteError } from "../../../../kernel/src/index.ts";
 import { explainStatusTransition, isTerminalStatus, queryTaskSubtree } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -266,10 +266,10 @@ function runTaskDelete(
 }
 
 function taskHolderPrincipal(context: CommandRunnerContext):
-  | { readonly ok: true; readonly value: ReturnType<typeof taskHolderPrincipalFromJournalActor> }
+  | { readonly ok: true; readonly value: TaskHolderPrincipal }
   | { readonly ok: false; readonly result: CliResult } {
   try {
-    return { ok: true, value: taskHolderPrincipalFromJournalActor(context.actorAttribution().actor) };
+    return { ok: true, value: context.taskHolderPrincipal() };
   } catch (error) {
     return {
       ok: false,

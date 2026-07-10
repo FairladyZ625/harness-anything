@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -89,9 +89,9 @@ test("CLI task transition runtime event records dual-axis actor", () => {
     assert.equal(events.length, 1);
     assert.equal(events[0].tool.toolName, "status-set");
     assert.equal(events[0].session.taskId, created.taskId);
-    assert.equal(events[0].actor.principal.personId, "codex-cli");
+    assert.equal(events[0].actor.principal.personId, "person_tester");
     assert.deepEqual(events[0].actor.executor, { kind: "agent", id: "codex-cli" });
-    assert.equal(events[0].actor.responsibleHuman, "person:codex-cli");
+    assert.equal(events[0].actor.responsibleHuman, "person:person_tester");
   });
 });
 
@@ -206,6 +206,15 @@ test("CLI event append rejects unsupported steering vocabulary", () => {
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-event-cli-"));
   try {
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  identity:",
+      "    personId: person_tester",
+      "    displayName: Harness Tester",
+      ""
+    ].join("\n"), "utf8");
     return fn(rootDir);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

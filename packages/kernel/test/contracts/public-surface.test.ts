@@ -199,7 +199,6 @@ const publicRuntimeSurface = [
   "taskHolderActor",
   "taskHolderExecutorFromJournalActor",
   "taskHolderPrincipalFromActor",
-  "taskHolderPrincipalFromJournalActor",
   "taskIdFromEntityId",
   "taskPackagePath",
   "taskWorkKinds",

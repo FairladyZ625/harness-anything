@@ -1,4 +1,5 @@
 import type { AuthenticatedActor } from "../../../daemon/src/index.ts";
+import type { TaskHolderPersonPrincipal } from "../../../application/src/index.ts";
 
 export interface CliJournalActor {
   readonly kind: "agent" | "human" | "system";
@@ -14,6 +15,7 @@ export interface CliActorAttribution {
   readonly actor: CliJournalActor;
   readonly commitAuthor: CliGitCommitAuthor;
   readonly source: "env" | "daemon";
+  readonly authenticatedPrincipal?: TaskHolderPersonPrincipal;
 }
 
 export class CliActorAttributionError extends Error {
@@ -23,12 +25,15 @@ export class CliActorAttributionError extends Error {
   }
 }
 
-export function resolveLocalCliActorAttribution(env: NodeJS.ProcessEnv = process.env): CliActorAttribution {
-  const actor = readCliJournalActorFromEnv(env);
+export function resolveLocalCliActorAttribution(
+  env: NodeJS.ProcessEnv = process.env,
+  fallbackActor?: () => CliJournalActor
+): CliActorAttribution {
+  const actor = readCliJournalActorFromEnv(env) ?? fallbackActor?.();
   const name = readEnv(env, "HARNESS_GIT_AUTHOR_NAME") ?? readEnv(env, "GIT_AUTHOR_NAME");
   const email = readEnv(env, "HARNESS_GIT_AUTHOR_EMAIL") ?? readEnv(env, "GIT_AUTHOR_EMAIL");
   const missing = [
-    actor ? undefined : "HARNESS_ACTOR=kind:id",
+    actor ? undefined : "HARNESS_ACTOR=kind:id or settings.identity.personId",
     name ? undefined : "HARNESS_GIT_AUTHOR_NAME",
     email ? undefined : "HARNESS_GIT_AUTHOR_EMAIL"
   ].filter((value): value is string => Boolean(value));
@@ -56,7 +61,14 @@ export function daemonActorAttribution(actor: AuthenticatedActor): CliActorAttri
   return {
     actor: { kind: "human", id: actor.personId },
     commitAuthor: { name: actor.displayName, email },
-    source: "daemon"
+    source: "daemon",
+    authenticatedPrincipal: {
+      personId: actor.personId,
+      displayName: actor.displayName,
+      ...(actor.primaryEmail ? { primaryEmail: actor.primaryEmail } : {}),
+      providerId: actor.providerId,
+      credential: actor.resolvedCredential
+    }
   };
 }
 

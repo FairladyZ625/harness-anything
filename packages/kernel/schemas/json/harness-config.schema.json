@@ -18,6 +18,15 @@
         "defaultVertical": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
         "defaultPreset": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
         "defaultProfile": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
+        "identity": {
+          "type": "object",
+          "required": ["personId"],
+          "properties": {
+            "personId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$" },
+            "displayName": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "customVerticals": {
           "type": "object",
           "required": ["enabled"],

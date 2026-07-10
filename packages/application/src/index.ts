@@ -24,8 +24,7 @@ export {
   runtimeEventActorFromTaskHolderPrincipal,
   taskHolderActor,
   taskHolderExecutorFromJournalActor,
-  taskHolderPrincipalFromActor,
-  taskHolderPrincipalFromJournalActor
+  taskHolderPrincipalFromActor
 } from "../../kernel/src/index.ts";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
 export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";

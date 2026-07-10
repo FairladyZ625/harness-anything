@@ -8,6 +8,18 @@ const conflictMarkerPreflightByKind = commandSpecMap((entry) => entry.eventPolic
 
 const runtimeEventPolicyByKind = commandSpecMap((entry) => entry.eventPolicy.runtimeEvent) satisfies Record<CommandKind, RuntimeEventPolicy>;
 
+const taskPrincipalRequiredKinds = new Set<CommandKind>([
+  "status-set",
+  "task-archive",
+  "task-claim",
+  "task-complete",
+  "task-delete",
+  "task-release",
+  "task-reopen",
+  "task-review",
+  "task-supersede"
+]);
+
 export function requiresConflictMarkerPreflight(action: ParsedCommand["action"] | CommandKind): boolean {
   return conflictMarkerPreflightByKind[commandKind(action)];
 }
@@ -17,6 +29,10 @@ export function runtimeEventPolicyForAction(action: ParsedCommand["action"] | Co
   const policy = runtimeEventPolicyByKind[kind];
   if (policy !== "auto") return policy;
   return typeof action === "string" || !isDryRun(action) ? "auto" : "none";
+}
+
+export function taskPrincipalRequiredForAction(action: ParsedCommand["action"] | CommandKind): boolean {
+  return taskPrincipalRequiredKinds.has(commandKind(action));
 }
 
 function commandKind(action: ParsedCommand["action"] | CommandKind): CommandKind {

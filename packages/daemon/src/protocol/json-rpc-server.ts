@@ -10,7 +10,6 @@ import {
   type DocSyncSubmitRequestV1,
   type DocSyncSubmitResultV1,
   type LocalControllerService,
-  type TaskHolderExecutor,
   type TaskHolderService
 } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
@@ -18,6 +17,7 @@ import type { TerminalSessionService } from "../../../gui/src/terminal/session-r
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
+import { readTaskHolderExecutor, readTaskHolderExecutorForEvent } from "./task-holder-payload.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { authorizeActorForMethod } from "../identity/authorization.ts";
 import { actorStampJson, type AuthenticatedActor, type IdentityProvider, type PeopleRoster } from "../identity/types.ts";
@@ -523,23 +523,6 @@ function actorAxes(
     executor: { runtime: session.runtime, sessionId: session.sessionId },
     responsibleHuman: principal
   };
-}
-
-function readTaskHolderExecutor(payload: JsonObject | undefined): TaskHolderExecutor | null {
-  const executor = payload?.executor;
-  if (executor === undefined || executor === null) return null;
-  if (!isJsonObject(executor) || executor.kind !== "agent" || typeof executor.id !== "string" || !executor.id.trim()) {
-    throw new Error("payload.executor must be null or { kind: \"agent\", id: string }.");
-  }
-  return { kind: "agent", id: executor.id.trim() };
-}
-
-function readTaskHolderExecutorForEvent(payload: JsonObject | undefined): TaskHolderExecutor | null {
-  try {
-    return readTaskHolderExecutor(payload);
-  } catch {
-    return null;
-  }
 }
 
 function commandEventDetails(params: JsonObject): { readonly toolName?: string; readonly taskId?: string } {

@@ -29,6 +29,10 @@
     "defaultVertical": "software/coding",
     "defaultPreset": "standard-task",
     "defaultProfile": "baseline",
+    "identity": {
+      "personId": "person_zeyu",
+      "displayName": "Zeyu Li"
+    },
     "customVerticals": {
       "enabled": false
     }

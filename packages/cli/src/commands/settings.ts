@@ -7,12 +7,18 @@ import type { CliResult } from "../cli/types.ts";
 
 export type HarnessLocale = "zh-CN" | "en-US";
 
+export interface ProjectHarnessIdentity {
+  readonly personId: string;
+  readonly displayName?: string;
+}
+
 export interface ProjectHarnessSettings {
   readonly present: boolean;
   readonly locale?: HarnessLocale;
   readonly defaultVertical?: string;
   readonly defaultPreset?: string;
   readonly defaultProfile?: string;
+  readonly identity?: ProjectHarnessIdentity;
   readonly customVerticalsEnabled: boolean;
 }
 
@@ -159,6 +165,7 @@ function parseSettingsDocument(body: string): { readonly present: boolean; reado
       defaultVertical: fromSettings.defaultVertical ?? decoded.vertical?.default,
       defaultPreset: fromSettings.defaultPreset ?? decoded.presets?.default,
       defaultProfile: fromSettings.defaultProfile,
+      identity: fromSettings.identity,
       customVerticals: fromSettings.customVerticals
     };
     return {
@@ -175,6 +182,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
   const settings: Record<string, unknown> = {};
   let inSettings = false;
   let inCustomVerticals = false;
+  let inIdentity = false;
   let foundSettings = false;
 
   for (const rawLine of lines) {
@@ -185,6 +193,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
     if (topLevel) {
       inSettings = topLevel[1] === "settings";
       inCustomVerticals = false;
+      inIdentity = false;
       foundSettings ||= inSettings;
       if (inSettings && topLevel[2]?.trim()) {
         throw new Error("settings must be a mapping.");
@@ -200,9 +209,15 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       if (!SETTINGS_KEY_PATTERN.test(key)) throw new Error(`Invalid settings key: ${key}`);
       const value = rawValue.trim();
       inCustomVerticals = key === "customVerticals";
+      inIdentity = key === "identity";
       if (inCustomVerticals) {
         if (value) throw new Error("settings.customVerticals must be a mapping.");
         settings.customVerticals = {};
+        continue;
+      }
+      if (inIdentity) {
+        if (value) throw new Error("settings.identity must be a mapping.");
+        settings.identity = {};
         continue;
       }
       if (!isKnownSettingsScalar(key)) throw new Error(`Unknown settings key: ${key}`);
@@ -218,6 +233,14 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
       const value = rawValue.trim();
       if (value !== "true" && value !== "false") throw new Error("settings.customVerticals.enabled must be true or false.");
       settings.customVerticals = { enabled: value === "true" };
+      continue;
+    }
+    if (inIdentity && customNested) {
+      const [, key, rawValue = ""] = customNested;
+      if (key !== "personId" && key !== "displayName") throw new Error(`Unknown settings.identity key: ${key}`);
+      const value = rawValue.trim();
+      if (!value) throw new Error(`settings.identity.${key} must be a scalar value.`);
+      settings.identity = { ...(isRecord(settings.identity) ? settings.identity : {}), [key]: unquoteScalar(value) };
       continue;
     }
 
@@ -238,6 +261,8 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
   if (!defaultPreset.ok) return invalid(command, defaultPreset.message);
   const defaultProfile = validateOptionalId("settings.defaultProfile", raw.defaultProfile);
   if (!defaultProfile.ok) return invalid(command, defaultProfile.message);
+  const identity = validateIdentity(command, raw.identity);
+  if (!identity.ok) return identity;
   const customVerticals = raw.customVerticals;
   if (customVerticals !== undefined) {
     if (!isRecord(customVerticals)) {
@@ -257,7 +282,32 @@ function validateSettings(command: string, raw: RawSettings): SettingsResult {
       defaultVertical: normalizeDefaultSentinel(defaultVertical.value),
       defaultPreset: normalizeDefaultSentinel(defaultPreset.value),
       defaultProfile: normalizeDefaultSentinel(defaultProfile.value),
+      ...(identity.value ? { identity: identity.value } : {}),
       customVerticalsEnabled: isRecord(customVerticals) ? customVerticals.enabled === true : false
+    }
+  };
+}
+
+function validateIdentity(command: string, value: unknown):
+  | { readonly ok: true; readonly value?: ProjectHarnessIdentity }
+  | Extract<SettingsResult, { readonly ok: false }> {
+  if (value === undefined) return { ok: true };
+  if (!isRecord(value)) return invalid(command, "settings.identity must be a mapping.");
+  const keys = Object.keys(value).sort();
+  if (keys.some((key) => key !== "displayName" && key !== "personId")) {
+    return invalid(command, "settings.identity supports only personId and displayName.");
+  }
+  if (typeof value.personId !== "string" || !SETTINGS_ID_PATTERN.test(value.personId)) {
+    return invalid(command, "settings.identity.personId must be a non-empty identifier.");
+  }
+  if (value.displayName !== undefined && (typeof value.displayName !== "string" || !value.displayName.trim())) {
+    return invalid(command, "settings.identity.displayName must be a non-empty string when provided.");
+  }
+  return {
+    ok: true,
+    value: {
+      personId: value.personId,
+      ...(typeof value.displayName === "string" ? { displayName: value.displayName.trim() } : {})
     }
   };
 }

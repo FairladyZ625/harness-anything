@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { runtimeEventActorFromTaskHolderPrincipal, taskHolderPrincipalFromJournalActor } from "../../../application/src/index.ts";
+import { runtimeEventActorFromTaskHolderPrincipal } from "../../../application/src/index.ts";
 import { runtimeEventPolicyForAction } from "./command-event-policy.ts";
 import { cliError, CliErrorCode } from "./error-codes.ts";
 import { actionTaskId } from "./parse-args.ts";
@@ -67,7 +67,7 @@ function eventEntityRefs(
 
 function commandRuntimeEventActor(context: CommandRunnerContext) {
   try {
-    return runtimeEventActorFromTaskHolderPrincipal(taskHolderPrincipalFromJournalActor(context.actorAttribution().actor));
+    return runtimeEventActorFromTaskHolderPrincipal(context.taskHolderPrincipal());
   } catch {
     return undefined;
   }
