@@ -363,7 +363,7 @@ function validateTemplateCatalogShape(input: unknown, path: string, issues: Exte
 }
 
 function validatePresetManifestShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
-  validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "kind", "extends", "kernelVersionRange", "capabilityImports", "entrypoints", "profiles", "defaultProfile"], issues);
+  validateObjectKeys(input, path, ["schema", "id", "title", "vertical", "version", "kind", "extends", "policyPath", "kernelVersionRange", "capabilityImports", "entrypoints", "profiles", "defaultProfile"], issues);
   if (!isRecord(input)) return;
   validateObjectKeys(input.kernelVersionRange, `${path}.kernelVersionRange`, ["min", "maxExclusive"], issues);
   validateCapabilityImportsShape(input.capabilityImports, `${path}.capabilityImports`, issues, ["id", "kind", "version", "required"]);

@@ -7,6 +7,8 @@ import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
+import { resolvePresetPolicy, type PresetPolicyResolution } from "./preset-policy.ts";
+import { discoverPresets } from "./state.ts";
 import {
   isPathInside,
   listGeneratedFiles,
@@ -15,7 +17,6 @@ import {
   resolveDeclaredWriteScopes,
   uniquePermissionPaths
 } from "./script-scope.ts";
-
 export type ScriptSource = "user" | "vertical" | "preset";
 export type ScriptPurpose = "scaffold" | "generate" | "transform" | "audit";
 export type ScriptKind = "action" | "check";
@@ -53,7 +54,6 @@ export interface ScriptHostSuccess {
 }
 
 export type ScriptHostRunResult = ScriptHostSuccess | { readonly ok: false; readonly result: CliResult };
-
 export function runScriptHost(options: {
   readonly rootInput: HarnessLayoutInput;
   readonly script: ResolvedScriptEntry;
@@ -64,8 +64,8 @@ export function runScriptHost(options: {
   readonly allowFailedScriptResult?: boolean;
 }): ScriptHostRunResult {
   const layout = resolveHarnessLayout(options.rootInput);
-  const validation = validateResolvedScript(options.script);
-  if (!validation.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptContractInvalid, validation.hint);
+  const validation = validateResolvedScript(options.script), policy = resolveScriptPolicy(options.rootInput, options.script);
+  if (!validation.ok || !policy.ok) return invalidScriptOrPolicy(options.commandName, validation, policy);
 
   const scriptPath = path.resolve(options.script.manifestRoot, options.script.entry.command);
   if (!isPathInside(options.script.manifestRoot, scriptPath) || !existsSync(scriptPath)) {
@@ -108,7 +108,7 @@ export function runScriptHost(options: {
     writeScopes: writeScope.roots,
     resultPath,
     outputRoot,
-    ...(options.script.context ?? {})
+    ...(options.script.context ?? {}), policy: policy.policy
   }, null, 2), "utf8");
 
   if (options.dryRun) {
@@ -230,6 +230,42 @@ function validateResolvedScript(script: ResolvedScriptEntry): { readonly ok: tru
     return { ok: false, hint: "Script metadata kind must be action or check." };
   }
   return { ok: true };
+}
+
+function invalidScriptOrPolicy(
+  command: string,
+  validation: { readonly ok: true } | { readonly ok: false; readonly hint: string },
+  policy: PresetPolicyResolution
+): { readonly ok: false; readonly result: CliResult } {
+  if (!validation.ok) return scriptFailure(command, CliErrorCode.ScriptContractInvalid, validation.hint);
+  if (!policy.ok) return scriptFailure(command, policy.error.code, policy.error.hint);
+  throw new Error("Script and policy validation unexpectedly succeeded.");
+}
+
+function resolveScriptPolicy(rootInput: HarnessLayoutInput, script: ResolvedScriptEntry): PresetPolicyResolution {
+  const presets = discoverPresets(rootInput);
+  if (script.entry.source === "preset") {
+    const presetId = typeof script.context?.presetId === "string" ? script.context.presetId : "";
+    const owner = presets.find((preset) => preset.manifest.id === presetId);
+    return owner ? resolvePresetPolicy(rootInput, owner) : { ok: true, policy: null };
+  }
+  if (script.entry.source !== "vertical") return { ok: true, policy: null };
+
+  const owners = presets.filter((preset) =>
+    preset.manifest.policyPath &&
+    preset.manifest.capabilityImports.some((capability) => capability.id === script.entry.id)
+  );
+  if (owners.length === 0) return { ok: true, policy: null };
+  if (owners.length > 1) {
+    return {
+      ok: false,
+      error: cliError(
+        CliErrorCode.PresetPolicyInvalid,
+        `Script ${script.entry.id} has multiple policy-owning presets: ${owners.map((owner) => owner.manifest.id).join(", ")}.`
+      )
+    };
+  }
+  return resolvePresetPolicy(rootInput, owners[0]);
 }
 
 function scriptFailure(command: string, code: CliErrorCode, hint: string, runDir?: string, rootDir?: string): { readonly ok: false; readonly result: CliResult } {

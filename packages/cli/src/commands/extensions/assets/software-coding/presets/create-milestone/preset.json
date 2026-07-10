@@ -5,6 +5,7 @@
   "vertical": "software/coding",
   "version": "1.0.0",
   "kind": "process-action",
+  "policyPath": "{{paths.authoredRoot}}/policies/presets/create-milestone.policy.json",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [
     { "id": "milestone-map-scaffold", "kind": "command", "version": "1", "required": true },

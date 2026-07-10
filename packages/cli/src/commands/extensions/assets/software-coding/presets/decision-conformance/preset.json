@@ -5,6 +5,7 @@
   "vertical": "software/coding",
   "version": "1.0.0",
   "kind": "template-content",
+  "policyPath": "{{paths.authoredRoot}}/policies/presets/decision-conformance.policy.json",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [
     { "id": "vertical:software-coding:decision-conformance", "kind": "checker", "version": "1", "required": true }

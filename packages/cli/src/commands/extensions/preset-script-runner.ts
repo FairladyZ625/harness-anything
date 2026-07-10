@@ -9,6 +9,7 @@ import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts
 import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";
 import type { ScriptEntry } from "./script-host.ts";
+import { resolvePresetPolicy, type ResolvedPresetPolicy } from "./preset-policy.ts";
 import { toSlash, writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
 import {
   isPathInside,
@@ -18,7 +19,6 @@ import {
   resolveDeclaredWriteScopes,
   uniquePermissionPaths
 } from "./script-scope.ts";
-
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 type ScriptEntrypoint = Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>;
 type ResolvedLayout = ReturnType<typeof resolveHarnessLayout>;
@@ -92,19 +92,19 @@ export function runScriptEntrypoint(
       }
     };
   }
-  const outputRoot = taskPackagePath(rootInput, taskId);
+  const outputRoot = taskPackagePath(rootInput, taskId), policy = resolvePresetPolicy(rootInput, preset);
   const writeScope = resolveDeclaredWriteScopes(entrypoint.writes, layout, outputRoot);
   const readScope = entrypoint.reads
     ? resolveDeclaredReadScopes(entrypoint.reads, layout, outputRoot)
     : { ok: true as const, roots: [], permissions: [] };
-  if (!readScope.ok) {
+  if (!policy.ok || !readScope.ok) {
     return {
       ok: false,
       result: {
         ok: false,
         command: commandName,
         preset: presetSummary,
-        error: cliError(CliErrorCode.PresetReadScopeInvalid, "Preset script reads must declare supported project-local scopes.")
+        error: policy.ok ? cliError(CliErrorCode.PresetReadScopeInvalid, "Preset script reads must declare supported project-local scopes.") : policy.error
       }
     };
   }
@@ -129,7 +129,7 @@ export function runScriptEntrypoint(
     inputs: { ...(entrypoint.inputs ?? {}), ...runtimeInputs },
     readRoots: readScope.roots,
     writeRoots: writeScope.roots,
-    outputRoot
+    outputRoot, policy: policy.policy
   }), null, 2), "utf8");
   const beforeFiles = new Set(listGeneratedFiles(outputRoot));
   const readablePaths = uniquePermissionPaths([
@@ -206,6 +206,7 @@ function buildPresetContext(options: {
   readonly readRoots: ReadonlyArray<string>;
   readonly writeRoots: ReadonlyArray<string>;
   readonly outputRoot: string;
+  readonly policy: ResolvedPresetPolicy | null;
 }): Record<string, unknown> {
   return {
     schema: "preset-context/v1",
@@ -225,6 +226,7 @@ function buildPresetContext(options: {
       localRoot: options.layout.localRoot
     },
     inputs: options.inputs,
+    policy: options.policy,
     readScopes: options.readRoots,
     writeScopes: options.writeRoots,
     outputRoot: options.outputRoot,

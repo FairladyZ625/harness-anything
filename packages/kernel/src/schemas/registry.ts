@@ -51,6 +51,7 @@ const LegacyPathSchema = Schema.String.pipe(Schema.pattern(/^harness\/legacy\/(?
 const LegacyConfidenceSchema = Schema.Literal("high", "medium", "low");
 const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
 const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
+const PresetPolicyPathSchema = Schema.String.pipe(Schema.pattern(/^\{\{paths\.authoredRoot\}\}\/policies\/presets\/[A-Za-z0-9][A-Za-z0-9._-]*\.policy\.json$/u));
 
 export const HarnessConfigSchema = Schema.Struct({
   schema: Schema.Literal("harness/v2"),
@@ -300,6 +301,7 @@ export const PresetManifestSchema = Schema.Struct({
   version: Schema.String,
   kind: Schema.optional(Schema.Literal("template-content", "process-action")),
   extends: OptionalString,
+  policyPath: Schema.optional(PresetPolicyPathSchema),
   kernelVersionRange: Schema.Struct({
     min: Schema.String,
     maxExclusive: OptionalString

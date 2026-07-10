@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -45,6 +46,7 @@ test("CLI script command lists decision conformance as a vertical check script",
 
 test("CLI check runs decision conformance scripts and fails closed on accepted decisions without task edges", () => {
   withTempRoot((rootDir) => {
+    ensureTestHarnessIdentity(rootDir);
     runJson(rootDir, ["init"]);
     const task = runJson(rootDir, ["task", "create", "--title", "Conformance Implementation"]);
     runJson(rootDir, [
@@ -281,6 +283,24 @@ test("CLI script command runs with an explicit environment allowlist", () => {
         "WINDIR"
       ].includes(key.toUpperCase()))
     ), true);
+  });
+});
+
+test("decision checker receives hard-fail policy only when its versioned authored ledger policy exists", () => {
+  withTempRoot((rootDir) => {
+    const publicRun = runJson(rootDir, ["script", "run", "vertical:software-coding:decision-conformance"]);
+    const publicContext = JSON.parse(readFileSync(path.join(rootDir, publicRun.evidenceBundle, "context.json"), "utf8"));
+    assert.equal(publicContext.policy, null);
+
+    writeFile(rootDir, "harness/policies/presets/decision-conformance.policy.json", JSON.stringify({
+      schema: "preset-policy/decision-conformance/v1",
+      presetId: "decision-conformance",
+      rules: { hardFail: true }
+    }));
+    const governedRun = runJson(rootDir, ["script", "run", "vertical:software-coding:decision-conformance"]);
+    const governedContext = JSON.parse(readFileSync(path.join(rootDir, governedRun.evidenceBundle, "context.json"), "utf8"));
+    assert.equal(governedContext.policy.rules.hardFail, true);
+    assert.equal(governedContext.policy.sourcePath, "harness/policies/presets/decision-conformance.policy.json");
   });
 });
 
