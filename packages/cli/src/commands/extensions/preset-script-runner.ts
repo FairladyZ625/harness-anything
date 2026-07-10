@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
@@ -10,10 +9,10 @@ import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";
 import type { ScriptEntry } from "./script-host.ts";
 import { resolvePresetPolicy, type ResolvedPresetPolicy } from "./preset-policy.ts";
-import { toSlash, writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
+import { toSlash } from "./machine-evidence-registry.ts";
+import { executeScript } from "./script-executor.ts";
 import {
   isPathInside,
-  listGeneratedFiles,
   permissionPathsForScope,
   resolveDeclaredReadScopes,
   resolveDeclaredWriteScopes,
@@ -119,6 +118,7 @@ export function runScriptEntrypoint(
       }
     };
   }
+
   mkdirSync(outputRoot, { recursive: true });
   const contextPath = path.join(evidenceDir, "context.json");
   writeFileSync(contextPath, JSON.stringify(buildPresetContext({
@@ -131,33 +131,33 @@ export function runScriptEntrypoint(
     writeRoots: writeScope.roots,
     outputRoot, policy: policy.policy
   }), null, 2), "utf8");
-  const beforeFiles = new Set(listGeneratedFiles(outputRoot));
   const readablePaths = uniquePermissionPaths([
     ...permissionPathsForScope(presetRoot, true),
     ...scriptRelativeImportPermissions(scriptPath, presetRoot),
     contextPath,
     ...readScope.permissions
   ]);
-  const writablePaths = uniquePermissionPaths(writeScope.permissions);
-  const result = spawnSync(process.execPath, [
-    "--permission",
-    ...readablePaths.map((allowedPath) => `--allow-fs-read=${allowedPath}`),
-    ...writablePaths.map((allowedPath) => `--allow-fs-write=${allowedPath}`),
-    scriptPath
-  ], {
+  const execution = executeScript({
+    scriptPath,
     cwd: presetRoot,
-    encoding: "utf8",
+    evidenceDir,
+    outputRoot,
+    readPermissions: readablePaths,
+    writePermissions: writeScope.permissions,
     env: {
       ...process.env,
       HARNESS_PRESET_CONTEXT: contextPath
-    }
+    },
+    artifactRoots: [outputRoot],
+    outputBoundary: { kind: "roots", roots: writeScope.roots, inspect: "all" }
   });
-  writeFileSync(path.join(evidenceDir, "stdout.txt"), result.stdout ?? "", "utf8");
-  writeFileSync(path.join(evidenceDir, "stderr.txt"), result.stderr ?? "", "utf8");
-  if (result.status !== 0) {
-    const permissionOutput = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
-    const accessDenied = permissionOutput.includes("ERR_ACCESS_DENIED");
-    const readDenied = accessDenied && permissionOutput.includes("FileSystemRead");
+
+  writeFileSync(path.join(evidenceDir, "stdout.txt"), execution.stdout, "utf8");
+  writeFileSync(path.join(evidenceDir, "stderr.txt"), execution.stderr, "utf8");
+  if (!execution.ok) {
+    const generated = execution.failure === "produced-outside-boundary"
+      ? execution.generated?.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/"))
+      : undefined;
     return {
       ok: false,
       result: {
@@ -165,34 +165,20 @@ export function runScriptEntrypoint(
         command: commandName,
         preset: presetSummary,
         evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
-        error: accessDenied
-          ? readDenied
-            ? cliError(CliErrorCode.PresetReadScopeViolation, "Preset script attempted filesystem read outside its declared permission scope.")
-            : cliError(CliErrorCode.PresetWriteScopeViolation, "Preset script attempted filesystem write outside its declared permission scope.")
-          : cliError(CliErrorCode.PresetScriptFailed, `Preset script exited with status ${result.status ?? "unknown"}.`)
+        generated,
+        error: execution.failure === "read-scope-violation"
+          ? cliError(CliErrorCode.PresetReadScopeViolation, "Preset script attempted filesystem read outside its declared permission scope.")
+          : execution.failure === "write-scope-violation"
+            ? cliError(CliErrorCode.PresetWriteScopeViolation, "Preset script attempted filesystem write outside its declared permission scope.")
+            : execution.failure === "produced-outside-boundary"
+              ? cliError(CliErrorCode.PresetWriteScopeViolation, "Preset script produced files outside its declared write scopes.")
+              : cliError(CliErrorCode.PresetScriptFailed, `Preset script exited with status ${execution.status ?? "unknown"}.`)
       }
     };
   }
-  const generatedFiles = listGeneratedFiles(outputRoot);
-  const outOfScope = generatedFiles.filter((filePath) => !writeScope.roots.some((allowedRoot) => isPathInside(allowedRoot, filePath)));
-  if (outOfScope.length > 0) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        command: commandName,
-        preset: presetSummary,
-        evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
-        generated: generatedFiles.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
-        error: cliError(CliErrorCode.PresetWriteScopeViolation, "Preset script produced files outside its declared write scopes.")
-      }
-    };
-  }
-  const generated = generatedFiles.filter((filePath) => !beforeFiles.has(filePath));
-  writeMachineEvidenceRegistry(outputRoot, generated);
   return {
     ok: true,
-    generated: generated.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
+    generated: execution.generated.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
     scriptedResult: readScriptedResult(outputRoot)
   };
 }

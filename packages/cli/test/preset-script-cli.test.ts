@@ -153,6 +153,7 @@ test("CLI check fails on decision conformance violations when policy enforcement
 
 test("CLI script command discovers and runs the vertical ADR seed scaffold", () => {
   withTempRoot((rootDir) => {
+    ensureTestHarnessIdentity(rootDir);
     runJson(rootDir, ["init"]);
     const listed = runJson(rootDir, ["script", "list", "--source", "vertical", "--purpose", "scaffold"]);
 
