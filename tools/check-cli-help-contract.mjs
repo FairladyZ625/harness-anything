@@ -1,67 +1,67 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const registryPath = "packages/cli/src/cli/command-registry.ts";
-const optionDescriptionsPath = "packages/cli/src/cli/command-option-descriptions.ts";
+const commandSpecDirPath = "packages/cli/src/cli/command-spec";
 const receiptPath = "packages/cli/src/cli/receipt.ts";
-const receiptContractsPath = "packages/cli/src/cli/receipt-contracts.ts";
 const entrypointPath = "packages/cli/src/index.ts";
+const defaultMinimumCommands = 20;
 
-export function findCliHelpContractViolations(rootDir = process.cwd()) {
-  const source = readFileSync(path.join(rootDir, registryPath), "utf8");
-  const optionDescriptionsSource = readFileSync(path.join(rootDir, optionDescriptionsPath), "utf8");
+export function findCliHelpContractViolations(rootDir = process.cwd(), options = {}) {
+  const minimumCommands = options.minimumCommands ?? defaultMinimumCommands;
+  const registrySource = readFileSync(path.join(rootDir, registryPath), "utf8");
   const receiptSource = readFileSync(path.join(rootDir, receiptPath), "utf8");
-  const receiptContractsSource = readFileSync(path.join(rootDir, receiptContractsPath), "utf8");
   const entrypointSource = readFileSync(path.join(rootDir, entrypointPath), "utf8");
-  const commandUsageSource = extractAssignedLiteral(source, "commandUsages");
-  const summarySource = extractAssignedLiteral(source, "commandSummaries");
-  const exampleSource = extractAssignedLiteral(source, "commandExamples");
-  const descriptionSource = extractAssignedLiteral(optionDescriptionsSource, "descriptions");
-  const receiptContractSource = extractAssignedLiteral(receiptContractsSource, "commandReceiptContractsByKind");
+  const specSources = readdirSync(path.join(rootDir, commandSpecDirPath))
+    .filter((name) => name.startsWith("command-spec-") && name.endsWith(".ts"))
+    .sort()
+    .map((name) => readFileSync(path.join(rootDir, commandSpecDirPath, name), "utf8"));
+
+  const entries = specSources.flatMap(extractSpecEntries);
   const violations = [];
 
-  const commandKinds = [...commandUsageSource.matchAll(/\{\s*kind:\s*"([^"]+)"/gu)].map((match) => match[1]);
-  const receiptKinds = objectKeys(receiptContractSource);
-  const expectedReceiptKinds = commandKinds;
-  const usageByKind = commandUsageByKind(commandUsageSource);
-  const summaryKinds = objectKeys(summarySource);
-  const exampleKinds = objectKeys(exampleSource);
-  const examplesByKind = objectArrayEntries(exampleSource);
-  const descriptionFlags = objectKeys(descriptionSource);
-  const usageFlags = [...new Set([...commandUsageSource.matchAll(/--[a-z0-9-]+/gu)].map((match) => match[0]))];
+  if (entries.length < minimumCommands) {
+    violations.push(
+      `checker parsed only ${entries.length} command specs (< ${minimumCommands}); the command-spec source shape changed — update tools/check-cli-help-contract.mjs instead of accepting a vacuous pass`
+    );
+  }
 
-  for (const kind of commandKinds) {
-    if (!summaryKinds.has(kind)) violations.push(`command ${kind} is missing commandSummaries entry`);
-    if (!exampleKinds.has(kind)) violations.push(`command ${kind} is missing commandExamples entry`);
+  const kinds = entries.map((entry) => entry.kind);
+  for (const kind of new Set(kinds.filter((kind, index) => kinds.indexOf(kind) !== index))) {
+    violations.push(`command ${kind} is declared more than once across command-spec files`);
   }
-  for (const kind of summaryKinds) {
-    if (!commandKinds.includes(kind)) violations.push(`commandSummaries has stale command ${kind}`);
-  }
-  for (const kind of exampleKinds) {
-    if (!commandKinds.includes(kind)) violations.push(`commandExamples has stale command ${kind}`);
-  }
-  for (const kind of expectedReceiptKinds) {
-    if (!receiptKinds.has(kind)) violations.push(`command ${kind} is missing command descriptor receipt contract`);
-  }
-  for (const kind of receiptKinds) {
-    if (!expectedReceiptKinds.includes(kind)) violations.push(`commandReceiptContracts has stale command ${kind}`);
-  }
-  for (const flag of usageFlags) {
-    if (!descriptionFlags.has(flag)) violations.push(`option ${flag} is missing help description`);
-  }
-  for (const [kind, exampleBody] of examplesByKind) {
-    const usageFlagSet = new Set(flagsFromText(usageByKind.get(kind) ?? ""));
-    for (const flag of flagsFromText(exampleBody)) {
-      if (!usageFlagSet.has(flag)) {
-        violations.push(`command ${kind} example uses ${flag} but usage does not list it`);
+
+  for (const entry of entries) {
+    if (!entry.usage) violations.push(`command ${entry.kind} is missing usage`);
+    if (!entry.summary) violations.push(`command ${entry.kind} is missing summary`);
+    if (entry.examples.length === 0) violations.push(`command ${entry.kind} is missing examples`);
+    if (!entry.hasReceiptContract) violations.push(`command ${entry.kind} is missing command descriptor receipt contract`);
+    const descriptionByFlag = new Map(entry.options.map((option) => [option.flag, option.description]));
+    const usageFlags = flagsFromText(entry.usage);
+    for (const flag of usageFlags) {
+      const description = descriptionByFlag.get(flag);
+      if (description === undefined) {
+        violations.push(`command ${entry.kind} option ${flag} is missing an options declaration`);
+      } else if (description.trim().length === 0) {
+        violations.push(`command ${entry.kind} option ${flag} has an empty description`);
+      }
+    }
+    const usageFlagSet = new Set(usageFlags);
+    for (const example of entry.examples) {
+      for (const flag of flagsFromText(example)) {
+        if (!usageFlagSet.has(flag)) {
+          violations.push(`command ${entry.kind} example uses ${flag} but usage does not list it`);
+        }
       }
     }
   }
-  if (/humanizeKind|Set this command option/u.test(`${source}\n${optionDescriptionsSource}`)) {
+
+  const specJoined = specSources.join("\n");
+  if (/humanizeKind|Set this command option/u.test(`${registrySource}\n${specJoined}`)) {
     violations.push("command help must not use generic summary or option-description fallback text");
   }
-  if (/CliResult\/v1/u.test(source) || /CliResult\/v1/u.test(receiptSource) || /CliResult\/v1/u.test(entrypointSource)) {
+  if (/CliResult\/v1/u.test(registrySource) || /CliResult\/v1/u.test(receiptSource) || /CliResult\/v1/u.test(entrypointSource)) {
     violations.push("CLI success output must use command-receipt/v2, not CliResult/v1");
   }
   if (/JSON\.stringify\(result\)/u.test(entrypointSource)) {
@@ -70,22 +70,49 @@ export function findCliHelpContractViolations(rootDir = process.cwd()) {
   return violations;
 }
 
-function extractAssignedLiteral(source, constName) {
-  const declaration = new RegExp(`\\bconst\\s+${constName}\\b[^=]*=`, "u").exec(source);
-  if (!declaration?.index) {
-    if (declaration?.index !== 0) throw new Error(`missing ${constName}`);
-  }
-  const start = declaration.index + declaration[0].length;
-  const objectStart = source.indexOf("{", start);
-  const arrayStart = source.indexOf("[", start);
-  const bodyStart = objectStart >= 0 && (arrayStart < 0 || objectStart < arrayStart) ? objectStart : arrayStart;
-  if (bodyStart < 0) throw new Error(`missing ${constName} literal`);
-  const open = source[bodyStart];
-  const close = open === "{" ? "}" : "]";
+function extractSpecEntries(source) {
+  const kindMatches = [...source.matchAll(/"kind":\s*"([^"]+)"/gu)];
+  return kindMatches.map((match, index) => {
+    const sliceStart = match.index ?? 0;
+    const sliceEnd = index + 1 < kindMatches.length ? kindMatches[index + 1].index : source.length;
+    const slice = source.slice(sliceStart, sliceEnd);
+    return {
+      kind: match[1],
+      usage: quotedField(slice, "usage"),
+      summary: quotedField(slice, "summary"),
+      examples: stringArrayField(slice, "examples"),
+      options: optionEntries(slice),
+      hasReceiptContract: /"receiptContract":\s*\{/u.test(slice)
+    };
+  });
+}
+
+function quotedField(slice, fieldName) {
+  const match = new RegExp(`"${fieldName}":\\s*"((?:[^"\\\\]|\\\\.)*)"`, "u").exec(slice);
+  return match ? match[1] : "";
+}
+
+function stringArrayField(slice, fieldName) {
+  const start = new RegExp(`"${fieldName}":\\s*\\[`, "u").exec(slice);
+  if (!start || start.index === undefined) return [];
+  const body = balancedSlice(slice, start.index + start[0].length - 1, "[", "]");
+  return [...body.matchAll(/"((?:[^"\\]|\\.)*)"/gu)].map((entry) => entry[1]);
+}
+
+function optionEntries(slice) {
+  const start = /"options":\s*\[/u.exec(slice);
+  if (!start || start.index === undefined) return [];
+  const body = balancedSlice(slice, start.index + start[0].length - 1, "[", "]");
+  return [...body.matchAll(/\{\s*"flag":\s*"([^"]+)"\s*,\s*"description":\s*"((?:[^"\\]|\\.)*)"\s*\}/gu)].map(
+    (entry) => ({ flag: entry[1], description: entry[2] })
+  );
+}
+
+function balancedSlice(source, openIndex, open, close) {
   let depth = 0;
   let quote = "";
   let escaped = false;
-  for (let index = bodyStart; index < source.length; index += 1) {
+  for (let index = openIndex; index < source.length; index += 1) {
     const char = source[index];
     if (quote) {
       if (escaped) {
@@ -99,27 +126,15 @@ function extractAssignedLiteral(source, constName) {
       if (char === quote) quote = "";
       continue;
     }
-    if (char === "\"" || char === "'" || char === "`") {
+    if (char === '"' || char === "'" || char === "`") {
       quote = char;
       continue;
     }
     if (char === open) depth += 1;
     if (char === close) depth -= 1;
-    if (depth === 0) return source.slice(bodyStart, index + 1);
+    if (depth === 0) return source.slice(openIndex, index + 1);
   }
-  throw new Error(`unterminated ${constName}`);
-}
-
-function objectKeys(source) {
-  return new Set([...source.matchAll(/"([^"]+)"\s*:/gu)].map((match) => match[1]));
-}
-
-function commandUsageByKind(source) {
-  return new Map([...source.matchAll(/\{\s*kind:\s*"([^"]+)"\s*,\s*usage:\s*"([^"]+)"/gu)].map((match) => [match[1], match[2]]));
-}
-
-function objectArrayEntries(source) {
-  return new Map([...source.matchAll(/"([^"]+)"\s*:\s*\[([\s\S]*?)\]\s*(?:,|\})/gu)].map((match) => [match[1], match[2]]));
+  throw new Error(`unterminated ${open}${close} literal`);
 }
 
 function flagsFromText(source) {

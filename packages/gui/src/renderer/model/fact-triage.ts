@@ -41,7 +41,7 @@ export const SIGNAL_LABEL: Record<FactTriageSignalKind, string> = {
   SUPERSEDED: "已被取代",
 };
 
-function normalizeDecisionId(ref: string): string | undefined {
+function decisionIdFromRef(ref: string): string | undefined {
   if (!ref.startsWith("decision/")) return undefined;
   return ref.split("/")[1];
 }
@@ -78,7 +78,7 @@ export function computeFactTriageSignals(
           (row) =>
             row.status === "covered" && row.coveringFactRef === factRef,
         )
-        .map((row) => normalizeDecisionId(row.decisionRef))
+        .map((row) => decisionIdFromRef(row.decisionRef))
         .filter((id): id is string => Boolean(id)),
   );
   for (const relation of relations) {
@@ -89,7 +89,7 @@ export function computeFactTriageSignals(
           ? relation.to
           : undefined;
     const decisionId = decisionRef
-      ? normalizeDecisionId(decisionRef)
+      ? decisionIdFromRef(decisionRef)
       : undefined;
     if (decisionId) citingDecisionIdSet.add(decisionId);
   }

@@ -1,106 +1,88 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { findCliHelpContractViolations } from "./check-cli-help-contract.mjs";
 
-test("CLI help contract gate rejects missing command help metadata", () => {
-  withTempRoot((rootDir) => {
-    writeRegistry(rootDir, `
-      const commandUsages = [
-        { kind: "new-task", usage: "new-task --title <title> --json" }
-      ] as const;
-      const commandSummaries = {} satisfies Record<CommandKind, string>;
-      const commandExamples = {} satisfies Record<CommandKind, ReadonlyArray<string>>;
-      const commandReceiptContractsByKind = { "new-task": { data: ["taskId"], paths: ["package"] } } satisfies Record<CommandKind, CommandReceiptContract>;
-      function optionDescription(flag: string): string {
-        const descriptions: Record<string, string> = { "--json": "Emit JSON." };
-        return descriptions[flag] ?? "Set this command option.";
-      }
-    `);
-
-    const violations = findCliHelpContractViolations(rootDir);
-
-    assert.equal(violations.includes("command new-task is missing commandSummaries entry"), true);
-    assert.equal(violations.includes("command new-task is missing commandExamples entry"), true);
-    assert.equal(violations.includes("option --title is missing help description"), true);
-    assert.equal(violations.includes("command help must not use generic summary or option-description fallback text"), true);
-  });
-});
-
-test("CLI help contract gate accepts complete help metadata", () => {
-  withTempRoot((rootDir) => {
-    writeRegistry(rootDir, `
-      const commandUsages = [
-        { kind: "new-task", usage: "new-task --title <title> --json" }
-      ] as const;
-      const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
-      const commandExamples = { "new-task": ["harness-anything new-task --title Example"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
-      const commandReceiptContractsByKind = { "new-task": { data: ["taskId"], paths: ["package"] } } satisfies Record<CommandKind, CommandReceiptContract>;
-      function optionDescription(flag: string): string {
-        const descriptions: Record<string, string> = { "--title": "Set the task title.", "--json": "Emit JSON." };
-        return descriptions[flag]!;
-      }
-    `);
-
-    assert.deepEqual(findCliHelpContractViolations(rootDir), []);
-  });
-});
-
-test("CLI help contract gate rejects missing receipt contracts", () => {
-  withTempRoot((rootDir) => {
-    writeRegistry(rootDir, `
-      const commandUsages = [
-        { kind: "new-task", usage: "new-task --title <title> --json" }
-      ] as const;
-      const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
-      const commandExamples = { "new-task": ["harness-anything new-task --title Example"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
-      const commandReceiptContractsByKind = {} satisfies Record<CommandKind, CommandReceiptContract>;
-      function optionDescription(flag: string): string {
-        const descriptions: Record<string, string> = { "--title": "Set the task title.", "--json": "Emit JSON." };
-        return descriptions[flag]!;
-      }
-    `);
-
-    assert.equal(findCliHelpContractViolations(rootDir).includes("command new-task is missing command descriptor receipt contract"), true);
-  });
-});
-
-test("CLI help contract gate rejects examples with undocumented flags", () => {
-  withTempRoot((rootDir) => {
-    writeRegistry(rootDir, `
-      const commandUsages = [
-        { kind: "new-task", usage: "new-task --title <title>" }
-      ] as const;
-      const commandSummaries = { "new-task": "Create a task." } satisfies Record<CommandKind, string>;
-      const commandExamples = { "new-task": ["harness-anything new-task --title Example --module billing"] } satisfies Record<CommandKind, ReadonlyArray<string>>;
-      const commandReceiptContractsByKind = { "new-task": { data: ["taskId"], paths: ["package"] } } satisfies Record<CommandKind, CommandReceiptContract>;
-      function optionDescription(flag: string): string {
-        const descriptions: Record<string, string> = { "--title": "Set the task title." };
-        return descriptions[flag]!;
-      }
-    `);
-
-    assert.equal(findCliHelpContractViolations(rootDir).includes("command new-task example uses --module but usage does not list it"), true);
-  });
-});
-
-function writeRegistry(rootDir, body, receiptBody = "") {
-  const dir = path.join(rootDir, "packages/cli/src/cli");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "command-registry.ts"), body);
-  writeFileSync(path.join(dir, "command-option-descriptions.ts"), body);
-  writeFileSync(path.join(dir, "receipt.ts"), receiptBody);
-  writeFileSync(path.join(dir, "receipt-contracts.ts"), body);
-  writeFileSync(path.join(rootDir, "packages/cli/src/index.ts"), "console.log(JSON.stringify(output));\n");
+function writeFixture(specEntrySource) {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "cli-help-contract-"));
+  mkdirSync(path.join(rootDir, "packages/cli/src/cli/command-spec"), { recursive: true });
+  writeFileSync(path.join(rootDir, "packages/cli/src/cli/command-registry.ts"), "const derived = commandSpecs.map((entry) => entry);\n");
+  writeFileSync(path.join(rootDir, "packages/cli/src/cli/receipt.ts"), "export const receipt = 1;\n");
+  writeFileSync(path.join(rootDir, "packages/cli/src/index.ts"), "export const cli = 1;\n");
+  writeFileSync(path.join(rootDir, "packages/cli/src/cli/command-spec/command-spec-fixture.ts"), specEntrySource);
+  return rootDir;
 }
 
-function withTempRoot(fn) {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-help-gate-"));
-  try {
-    fn(rootDir);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+const validEntry = `export const specs = [
+  {
+    "kind": "fixture-list",
+    "usage": "fixture list [--state <state>] [--json]",
+    "options": [{"flag":"--state","description":"Filter fixtures by state."},{"flag":"--json","description":"Emit JSON."}],
+    "summary": "List fixtures.",
+    "examples": ["harness-anything fixture list --state active --json"],
+    "receiptContract": { "data": ["rows"], "paths": [] }
   }
-}
+];
+`;
+
+test("clean fixture passes with no violations", () => {
+  const rootDir = writeFixture(validEntry);
+  assert.deepEqual(findCliHelpContractViolations(rootDir, { minimumCommands: 1 }), []);
+});
+
+test("usage flag without an options declaration is a violation", () => {
+  const rootDir = writeFixture(validEntry.replace(
+    `{"flag":"--state","description":"Filter fixtures by state."},`,
+    ""
+  ));
+  const violations = findCliHelpContractViolations(rootDir, { minimumCommands: 1 });
+  assert.ok(violations.some((entry) => entry.includes("option --state is missing an options declaration")), violations.join("\n"));
+});
+
+test("empty option description is a violation", () => {
+  const rootDir = writeFixture(validEntry.replace("Filter fixtures by state.", " "));
+  const violations = findCliHelpContractViolations(rootDir, { minimumCommands: 1 });
+  assert.ok(violations.some((entry) => entry.includes("option --state has an empty description")), violations.join("\n"));
+});
+
+test("missing summary, examples, and receipt contract are violations", () => {
+  const stripped = validEntry
+    .replace(`"summary": "List fixtures.",`, "")
+    .replace(`"examples": ["harness-anything fixture list --state active --json"],`, "")
+    .replace(`"receiptContract": { "data": ["rows"], "paths": [] }`, `"other": 1`);
+  const rootDir = writeFixture(stripped);
+  const violations = findCliHelpContractViolations(rootDir, { minimumCommands: 1 });
+  assert.ok(violations.some((entry) => entry.includes("missing summary")), violations.join("\n"));
+  assert.ok(violations.some((entry) => entry.includes("missing examples")), violations.join("\n"));
+  assert.ok(violations.some((entry) => entry.includes("missing command descriptor receipt contract")), violations.join("\n"));
+});
+
+test("example flag not present in usage is a violation", () => {
+  const rootDir = writeFixture(validEntry.replace("--state active --json", "--state active --unknown"));
+  const violations = findCliHelpContractViolations(rootDir, { minimumCommands: 1 });
+  assert.ok(violations.some((entry) => entry.includes("example uses --unknown")), violations.join("\n"));
+});
+
+test("duplicate command kinds across spec files are violations", () => {
+  const rootDir = writeFixture(validEntry);
+  writeFileSync(
+    path.join(rootDir, "packages/cli/src/cli/command-spec/command-spec-second.ts"),
+    validEntry
+  );
+  const violations = findCliHelpContractViolations(rootDir, { minimumCommands: 1 });
+  assert.ok(violations.some((entry) => entry.includes("declared more than once")), violations.join("\n"));
+});
+
+test("generic fallback text in spec sources is a violation", () => {
+  const rootDir = writeFixture(validEntry.replace("Emit JSON.", "Set this command option."));
+  const violations = findCliHelpContractViolations(rootDir, { minimumCommands: 1 });
+  assert.ok(violations.some((entry) => entry.includes("must not use generic summary or option-description fallback text")), violations.join("\n"));
+});
+
+test("vacuous parse is rejected instead of passing", () => {
+  const rootDir = writeFixture("export const specs = [];\n");
+  const violations = findCliHelpContractViolations(rootDir);
+  assert.ok(violations.some((entry) => entry.includes("vacuous")), violations.join("\n"));
+});
