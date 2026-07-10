@@ -563,7 +563,7 @@ function writePeopleRoster(rootDir: string, person: {
     `    primaryEmail: ${person.email}`,
     `    roles: [${person.role}]`,
     "    credentials:",
-    "      - kind: unix-uid",
+    "      - kind: unix-socket-owner-boundary",
     `        issuer: host:${hostname()}`,
     `        subject: ${process.getuid?.() ?? 0}`,
     "roles:",
