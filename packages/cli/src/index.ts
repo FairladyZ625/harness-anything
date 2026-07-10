@@ -374,10 +374,7 @@ function createRepoServiceBinding(
     taskWriter,
     artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
   });
-  const taskHolderService = makeTaskHolderService({
-    rootInput: { rootDir, layoutOverrides },
-    mutate: ({ source, run }) => runtime.enqueueBackgroundBatch({ source, priority: "normal", run })
-  });
+  const taskHolderService = makeTaskHolderService({ rootInput: { rootDir, layoutOverrides } });
   const cliCommandService = createCliCommandService(runtime, commandOptions);
   const docSyncService = makeDocSyncService({ rootDir, layoutOverrides });
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
