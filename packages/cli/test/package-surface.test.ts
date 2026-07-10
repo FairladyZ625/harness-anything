@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
-import { readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+
+const cliEntry = path.resolve("packages/cli/src/index.ts");
+const architectureRotRoot = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/architecture-rot-audit");
+const detectorPolicy = await import("../src/commands/extensions/assets/software-coding/presets/architecture-rot-audit/scripts/detectors/detector-policy.mjs");
+const seedDetectors = await import("../src/commands/extensions/assets/software-coding/presets/architecture-rot-audit/scripts/detectors/seed-detectors.mjs");
+const snapshotHelpers = await import("../src/commands/extensions/assets/software-coding/presets/architecture-rot-audit/scripts/snapshot.mjs");
 
 const cliPackage = JSON.parse(readFileSync("packages/cli/package.json", "utf8")) as {
   readonly name: string;
@@ -80,7 +89,8 @@ test("bundled software coding assets have consistent template and process-preset
     "milestone-closeout",
     "decision-conformance",
     "worker-dispatch",
-    "code-impact-analysis"
+    "code-impact-analysis",
+    "architecture-rot-audit"
   ].sort();
 
   assert.equal(catalog.schema, "template-catalog/v2");
@@ -133,6 +143,111 @@ test("bundled software coding assets have consistent template and process-preset
   }
 });
 
+test("architecture-rot-audit registry formalizes seven categories and fixed anchors", () => {
+  const registry = JSON.parse(readFileSync(path.join(architectureRotRoot, "registry/architecture-rot-registry.json"), "utf8")) as Record<string, any>;
+  withTempRoot((rootDir) => {
+    assert.equal(runJson(rootDir, ["preset", "check", "architecture-rot-audit"]).ok, true);
+  });
+  assert.equal(registry.records.length, 17);
+  assert.deepEqual([...new Set(registry.records.map((record: Record<string, unknown>) => record.category))].sort(), [
+    "atomicity-outsourcing",
+    "declaration-first-leak",
+    "enforcement-gap",
+    "imaginary-seam",
+    "layer-misalignment",
+    "manual-mirror",
+    "shallow-slice"
+  ]);
+  const fixed = registry.records.filter((record: Record<string, unknown>) => record.status === "fixed");
+  assert.equal(fixed.length, 3);
+  assert.equal(fixed.every((record: Record<string, unknown>) => /^[0-9a-f]{40}$/u.test(String(record.fixedCommit)) && /^PR#[0-9]+$/u.test(String(record.fixPullRequest))), true);
+  assert.equal(registry.records.every((record: Record<string, any>) => record.detection.detector === record.id), true);
+});
+
+test("architecture-rot-audit check action writes snapshot and non-blocking triage", () => {
+  withTempRoot((rootDir) => {
+    writeFixture(rootDir, "packages/cli/src/cli/command-spec/command-spec-fixture.ts", [
+      "const specs = [",
+      "  { \"kind\": \"one\", \"options\": [{\"flag\":\"--mode\",\"description\":\"First mode.\"}], \"parse\": parseOne, \"run\": runOne },",
+      "  { \"kind\": \"two\", \"options\": [{\"flag\":\"--mode\",\"description\":\"Second mode.\"}], \"parse\": parseTwo, \"run\": runTwo }",
+      "];",
+      "void specs;",
+      ""
+    ].join("\n"));
+    writeFixture(rootDir, "packages/kernel/src/local/task-holder-state.ts", [
+      "function withTaskHolderMutationLock() {}",
+      "withTaskHolderMutationLock();",
+      "withTaskHolderMutationLock();",
+      ""
+    ].join("\n"));
+    writeFixture(rootDir, "packages/cli/src/commands/extensions/script-executor.ts", "import { spawnSync } from \"node:child_process\";\nvoid spawnSync;\n");
+
+    const checked = runJson(rootDir, [
+      "preset", "action", "architecture-rot-audit", "check", "--task", "task-rot", "--allow-scripts"
+    ]);
+    const snapshotPath = path.join(rootDir, "harness/tasks/task-rot/artifacts/arch-rot.snapshot.json");
+    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as Record<string, any>;
+
+    assert.equal(checked.ok, true);
+    assert.equal(checked.report.status, "passed");
+    assert.deepEqual(snapshot.lensA.passes.sort(), ["ROT-002", "ROT-006", "ROT-008"]);
+    assert.deepEqual(snapshot.lensA.recurrences, []);
+    assert.equal(snapshot.root.sourceHead, "unverified");
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-rot/artifacts/arch-rot.triage.json")), true);
+  });
+});
+
+test("architecture rot semantics hard-fail recurrence, warn open green, and triage Lens-B", () => {
+  const records = [{ id: "ROT-900", status: "fixed" }, { id: "ROT-901", status: "open" }];
+  const fixedPass = detectorPolicy.evaluateDetectionResults([records[0]], [{ id: "ROT-900", outcome: "pass", exitCode: 0, evidence: {} }]);
+  const recurrence = detectorPolicy.evaluateDetectionResults([records[0]], [{ id: "ROT-900", outcome: "fail", exitCode: 1, evidence: {} }]);
+  const openGreen = detectorPolicy.evaluateDetectionResults([records[1]], [{ id: "ROT-901", outcome: "pass", exitCode: 0, evidence: {} }]);
+  const candidates = detectorPolicy.buildLensBCandidates(["packages/cli/src/commands/extensions/new-policy.ts"]);
+
+  assert.equal(fixedPass.ok, true);
+  assert.equal(fixedPass.items[0].severity, "none");
+  assert.equal(recurrence.ok, false);
+  assert.equal(recurrence.items[0].snapshotStatus, "recurred");
+  assert.equal(recurrence.items[0].severity, "hard-fail");
+  assert.equal(openGreen.ok, true);
+  assert.equal(openGreen.items[0].severity, "warning");
+  assert.match(openGreen.items[0].interpretation, /commit and PR anchors/u);
+  assert.equal(candidates.length > 0, true);
+  assert.equal(candidates.every((candidate: Record<string, unknown>) => candidate.blocking === false), true);
+});
+
+test("ROT-008 pure detector turns a manufactured second sandbox executor red", () => {
+  withTempRoot((rootDir) => {
+    writeFixture(rootDir, "packages/cli/src/commands/extensions/script-executor.ts", "import { spawnSync } from \"node:child_process\";\nvoid spawnSync;\n");
+    const green = seedDetectors.runSeedDetector(rootDir, "ROT-008");
+    writeFixture(rootDir, "packages/cli/src/commands/extensions/second-executor.ts", "import { spawnSync } from \"node:child_process\";\nvoid spawnSync;\n");
+    const recurrence = seedDetectors.runSeedDetector(rootDir, "ROT-008");
+    const evaluated = detectorPolicy.evaluateDetectionResults([{ id: "ROT-008", status: "fixed" }], [recurrence]);
+
+    assert.equal(green.outcome, "pass");
+    assert.equal(recurrence.outcome, "fail");
+    assert.deepEqual(recurrence.evidence.owners.sort(), ["script-executor.ts", "second-executor.ts"]);
+    assert.equal(evaluated.ok, false);
+    assert.equal(evaluated.hardFailures[0].id, "ROT-008");
+  });
+});
+
+test("architecture rot snapshots ignore bad inputs and break timestamp ties by taskId", () => {
+  withTempRoot((rootDir) => {
+    const tasksRoot = path.join(rootDir, "harness/tasks");
+    writeFixture(rootDir, "harness/tasks/task_A/artifacts/arch-rot.snapshot.json", JSON.stringify(snapshotFixture("task_A")));
+    writeFixture(rootDir, "harness/tasks/task_B/artifacts/arch-rot.snapshot.json", JSON.stringify(snapshotFixture("task_B")));
+    writeFixture(rootDir, "harness/tasks/task_CURRENT/artifacts/arch-rot.snapshot.json", JSON.stringify(snapshotFixture("task_CURRENT", "2099-01-01T00:00:00.000Z")));
+    writeFixture(rootDir, "harness/tasks/task_BAD/artifacts/arch-rot.snapshot.json", "{bad json");
+
+    const selected = snapshotHelpers.selectPriorSnapshot(tasksRoot, "task_CURRENT");
+
+    assert.equal(selected.snapshot.coordinationTaskId, "task_B");
+    assert.equal(selected.warnings.length, 1);
+    assert.match(selected.warnings[0], /Ignored invalid architecture rot snapshot/u);
+  });
+});
+
 interface TemplateSelection {
   readonly templateRef: string;
   readonly materializeAs: string;
@@ -163,4 +278,28 @@ function assertPresetScriptImportsStayInsidePackage(presetRoot: string, command:
     const relative = path.relative(path.resolve(presetRoot), target);
     assert.equal(relative.startsWith("..") || path.isAbsolute(relative), false, `${command} imports outside preset package: ${specifier}`);
   }
+}
+
+function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], { encoding: "utf8" });
+  return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
+}
+
+function withTempRoot<T>(fn: (rootDir: string) => T): T {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-rot-package-"));
+  try {
+    return fn(rootDir);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function writeFixture(rootDir: string, relativePath: string, body: string): void {
+  const filePath = path.join(rootDir, relativePath);
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, body, "utf8");
+}
+
+function snapshotFixture(taskId: string, generatedAt = "2026-07-10T10:00:00.000Z"): Record<string, unknown> {
+  return { schema: "architecture-rot-snapshot/v1", generatedAt, coordinationTaskId: taskId, fileHashes: {} };
 }

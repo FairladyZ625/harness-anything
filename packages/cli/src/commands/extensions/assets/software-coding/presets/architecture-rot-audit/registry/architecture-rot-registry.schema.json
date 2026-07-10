@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema://architecture-rot-registry/v1",
+  "title": "Architecture rot registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "registryId",
+    "generatedAt",
+    "sourceHead",
+    "records"
+  ],
+  "properties": {
+    "schema": {
+      "const": "architecture-rot-registry/v1"
+    },
+    "registryId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sourceHead": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    }
+  },
+  "$defs": {
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "title",
+        "mechanism",
+        "detection",
+        "firstSeen",
+        "status",
+        "introducedCommit",
+        "fixedCommit",
+        "fixPullRequest",
+        "lastRun"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^ROT-[0-9]{3,}$"
+        },
+        "category": {
+          "enum": [
+            "shallow-slice",
+            "manual-mirror",
+            "imaginary-seam",
+            "layer-misalignment",
+            "declaration-first-leak",
+            "atomicity-outsourcing",
+            "enforcement-gap"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mechanism": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mustBeTrue"
+          ],
+          "properties": {
+            "mustBeTrue": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "detection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "detector",
+            "command",
+            "cwd",
+            "successExitCodes"
+          ],
+          "properties": {
+            "detector": {
+              "type": "string",
+              "pattern": "^ROT-[0-9]{3,}$"
+            },
+            "command": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Human-readable reproduction command; runtime authority is the pure detector module."
+            },
+            "cwd": {
+              "const": "."
+            },
+            "successExitCodes": {
+              "const": [
+                0
+              ]
+            }
+          }
+        },
+        "firstSeen": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "report",
+                  "card",
+                  "evidence"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "report-card"
+                  },
+                  "report": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "card": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "path",
+                  "line"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "file-line"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "status": {
+          "enum": [
+            "open",
+            "fixed",
+            "recurred"
+          ]
+        },
+        "introducedCommit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "fixedCommit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "fixPullRequest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^PR#[0-9]+$"
+        },
+        "lastRun": {
+          "$ref": "#/$defs/run"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "fixed",
+                  "recurred"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fixedCommit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "fixPullRequest": {
+                "type": "string",
+                "pattern": "^PR#[0-9]+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "fixed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "lastRun": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/run"
+                  },
+                  {
+                    "properties": {
+                      "mechanismVerdict": {
+                        "const": "pass"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "recurred"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "lastRun": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/run"
+                  },
+                  {
+                    "properties": {
+                      "mechanismVerdict": {
+                        "const": "fail"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executedAt",
+        "head",
+        "executionOutcome",
+        "exitCode",
+        "stdout",
+        "stderr",
+        "mechanismVerdict",
+        "interpretation"
+      ],
+      "properties": {
+        "executedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|unverified)$"
+        },
+        "executionOutcome": {
+          "enum": [
+            "completed",
+            "unverified"
+          ]
+        },
+        "exitCode": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stdout": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stderr": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mechanismVerdict": {
+          "enum": [
+            "pass",
+            "fail",
+            "unverified"
+          ]
+        },
+        "interpretation": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

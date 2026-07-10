@@ -1,0 +1,828 @@
+{
+  "schema": "architecture-rot-registry/v1",
+  "registryId": "harness-anything-product-architecture",
+  "generatedAt": "2026-07-10T10:12:30Z",
+  "sourceHead": "da5c205837740cfa3f9078e0a851605073a08af4",
+  "records": [
+    {
+      "id": "ROT-001",
+      "category": "manual-mirror",
+      "title": "CLI command descriptors own parse and run",
+      "mechanism": {
+        "mustBeTrue": "Every command descriptor directly owns executable parse and run functions; dispatch is derived from commandSpecs rather than parserId/runnerId string registries.",
+        "scope": [
+          "packages/cli/src/cli/command-spec/**",
+          "packages/cli/src/cli/parser-registry.ts",
+          "packages/cli/src/cli/runner-registry.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-001",
+        "command": "node --input-type=module -e 'import { commandSpecs } from \"./packages/cli/src/cli/command-spec/index.ts\"; const missing=commandSpecs.filter((spec)=>typeof spec.parse!==\"function\"||typeof spec.run!==\"function\").map((spec)=>spec.kind); console.log(JSON.stringify({total:commandSpecs.length,executableDescriptors:commandSpecs.length-missing.length,missingCount:missing.length,sample:missing.slice(0,5)})); process.exit(missing.length===0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#1 / #c1",
+          "evidence": [
+            "packages/cli/src/cli/command-spec/command-spec-core.ts:86",
+            "packages/cli/src/cli/command-spec/types.ts:3-52",
+            "packages/cli/src/cli/parser-registry.ts:36-185",
+            "packages/cli/src/cli/runner-registry.ts:120-142"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"total\":100,\"executableDescriptors\":0,\"missingCount\":100,\"sample\":[\"help\",\"version\",\"entity-list\",\"capabilities\",\"init\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "All 100 descriptors still expose string parser/runner identities without executable parse/run ownership."
+      }
+    },
+    {
+      "id": "ROT-002",
+      "category": "shallow-slice",
+      "title": "Command-local option help",
+      "mechanism": {
+        "mustBeTrue": "Every command spec owns non-empty option descriptions, and reused flag spellings may carry different descriptions in different command contexts.",
+        "scope": [
+          "packages/cli/src/cli/command-spec/**",
+          "packages/cli/src/cli/command-registry.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-002",
+        "command": "node --input-type=module -e 'import { commandSpecs } from \"./packages/cli/src/cli/command-spec/index.ts\"; const malformed=commandSpecs.filter((spec)=>!Array.isArray(spec.options)||spec.options.some((option)=>typeof option.flag!==\"string\"||typeof option.description!==\"string\"||option.description.trim()===\"\")); const descriptions=new Map(); for(const spec of commandSpecs) for(const option of spec.options){const values=descriptions.get(option.flag)??new Set(); values.add(option.description); descriptions.set(option.flag,values);} const contextual=[...descriptions].filter(([,values])=>values.size>1).map(([flag])=>flag); console.log(JSON.stringify({total:commandSpecs.length,malformedCount:malformed.length,contextualFlagCount:contextual.length,contextualSample:contextual.slice(0,5)})); process.exit(malformed.length===0&&contextual.length>0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#2 / #c2",
+          "evidence": [
+            "packages/cli/src/cli/command-option-descriptions.ts:43",
+            "packages/cli/src/cli/command-option-descriptions.ts:116",
+            "packages/cli/src/cli/command-registry.ts:146-149"
+          ]
+        }
+      ],
+      "status": "fixed",
+      "introducedCommit": null,
+      "fixedCommit": "3719fd8711241a9901b58b36de56f38560749a8c",
+      "fixPullRequest": "PR#583",
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 0,
+        "stdout": "{\"total\":100,\"malformedCount\":0,\"contextualFlagCount\":6,\"contextualSample\":[\"--kind\",\"--risk-tier\",\"--urgency\",\"--source\",\"--type\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "pass",
+        "interpretation": "All 100 specs own well-formed option descriptions and six reused flags now have contextual descriptions."
+      }
+    },
+    {
+      "id": "ROT-003",
+      "category": "layer-misalignment",
+      "title": "Executable transport-neutral API contract authority",
+      "mechanism": {
+        "mustBeTrue": "Every registered API schema is an executable codec and every route resolves its input through that codec; GUI, daemon, preload, and fixtures consume the same transport-neutral contract authority.",
+        "scope": [
+          "packages/gui/src/api/api-contract-registry.ts",
+          "packages/gui/src/preload/allowlist.ts",
+          "packages/daemon/src/protocol/json-rpc-server.ts",
+          "packages/application/src/local-controller-payloads.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-003",
+        "command": "node --input-type=module -e 'import { apiSchemaContracts,apiRouteContracts } from \"./packages/gui/src/api/api-contract-registry.ts\"; const executable=(schema)=>typeof schema.decode===\"function\"||typeof schema.codec?.decode===\"function\"; const missing=apiSchemaContracts.filter((schema)=>!executable(schema)).map((schema)=>schema.id); const unresolved=apiRouteContracts.filter((route)=>!apiSchemaContracts.some((schema)=>schema.id===route.inputSchemaId&&executable(schema))).map((route)=>route.id); console.log(JSON.stringify({schemas:apiSchemaContracts.length,executableSchemas:apiSchemaContracts.length-missing.length,routes:apiRouteContracts.length,routesWithExecutableInput:apiRouteContracts.length-unresolved.length,missingSchemaSample:missing.slice(0,5)})); process.exit(missing.length===0&&unresolved.length===0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#3 / #c3",
+          "evidence": [
+            "packages/gui/src/api/api-contract-registry.ts:9",
+            "packages/daemon/src/protocol/json-rpc-server.ts:250",
+            "packages/daemon/src/protocol/json-rpc-server.ts:571",
+            "packages/gui/src/api/service-bridge.ts:52,148,188",
+            "packages/application/src/local-controller-payloads.ts:17"
+          ]
+        },
+        {
+          "kind": "report-card",
+          "report": "architecture-review-B-ci-arch-6day-20260710.html",
+          "card": "B#02 / #candidate-contract",
+          "evidence": [
+            "packages/gui/src/api/api-contract-registry.ts:39-258",
+            "packages/gui/src/preload/allowlist.ts:16-64",
+            "packages/gui/src/api/service-bridge.ts:164-206",
+            "packages/daemon/src/protocol/json-rpc-server.ts:110-182,250-293",
+            "tools/check-api-contract-registry.mjs:96-109,172-246"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"schemas\":22,\"executableSchemas\":0,\"routes\":17,\"routesWithExecutableInput\":0,\"missingSchemaSample\":[\"gui.empty/v1\",\"application.append-task-progress-payload/v1\",\"application.decision-detail-result/v1\",\"application.decision-id-payload/v1\",\"application.decision-list-result/v1\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "The registry contains 22 schema identifiers but no executable codecs; none of 17 routes has executable input decoding from the authority."
+      }
+    },
+    {
+      "id": "ROT-004",
+      "category": "manual-mirror",
+      "title": "Daemon command classes derive from command descriptors",
+      "mechanism": {
+        "mustBeTrue": "Every CLI command descriptor declares its daemon command class, and the daemon classifier is a derived projection equal to the descriptor set rather than three handwritten action Sets.",
+        "scope": [
+          "packages/cli/src/cli/command-spec/**",
+          "packages/daemon/src/protocol/method-registry.ts",
+          "packages/cli/src/daemon/command-service.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-004",
+        "command": "node --input-type=module -e 'import { commandSpecs } from \"./packages/cli/src/cli/command-spec/index.ts\"; import { repoCommandRunClassifiedActionKinds } from \"./packages/daemon/src/protocol/method-registry.ts\"; const classes=new Set([\"repo-read\",\"repo-write\",\"arbiter\"]); const missing=commandSpecs.filter((spec)=>!classes.has(spec.daemonClass)).map((spec)=>spec.kind); const derived=commandSpecs.filter((spec)=>classes.has(spec.daemonClass)).map((spec)=>spec.kind).sort(); const mirror=[...repoCommandRunClassifiedActionKinds].sort(); console.log(JSON.stringify({commands:commandSpecs.length,descriptorsWithDaemonClass:derived.length,manualMirrorMembers:mirror.length,setsEqual:JSON.stringify(derived)===JSON.stringify(mirror),missingSample:missing.slice(0,5)})); process.exit(missing.length===0&&JSON.stringify(derived)===JSON.stringify(mirror)?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#4 / #c4",
+          "evidence": [
+            "packages/daemon/src/protocol/method-registry.ts:193,236,291",
+            "packages/cli/src/daemon/command-service.ts:82",
+            "packages/daemon/test/json-rpc-protocol.test.ts:60"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"commands\":100,\"descriptorsWithDaemonClass\":0,\"manualMirrorMembers\":100,\"setsEqual\":false,\"missingSample\":[\"help\",\"version\",\"entity-list\",\"capabilities\",\"init\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "All 100 command classes remain in the daemon-side mirror and zero descriptors own the class."
+      }
+    },
+    {
+      "id": "ROT-005",
+      "category": "manual-mirror",
+      "title": "WriteOp has one transaction-plan interpreter",
+      "mechanism": {
+        "mustBeTrue": "WriteOp.kind is interpreted once into a complete transaction plan containing validation, touched paths, materialization, and replay metadata; preflight, flush, and recovery consume that plan.",
+        "scope": [
+          "packages/kernel/src/store/write-journal-operations.ts",
+          "packages/kernel/src/store/write-journal-coordinator.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-005",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const file=\"packages/kernel/src/store/write-journal-operations.ts\"; const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const interpreters=[]; const visit=(node,current)=>{let next=current; if(ts.isFunctionDeclaration(node)&&node.name) next=node.name.text; if(ts.isPropertyAccessExpression(node)&&ts.isIdentifier(node.expression)&&node.expression.text===\"op\"&&node.name.text===\"kind\"&&next) interpreters.push(next); ts.forEachChild(node,(child)=>visit(child,next));}; visit(source,null); const unique=[...new Set(interpreters)]; console.log(JSON.stringify({opKindInterpreterCount:unique.length,interpreters:unique})); process.exit(unique.length<=1?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#5 / #c5",
+          "evidence": [
+            "packages/kernel/src/store/write-journal-operations.ts:21-160",
+            "packages/kernel/src/store/write-journal-coordinator.ts:408-457",
+            "packages/kernel/src/store/write-journal-git.ts:106-168"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"opKindInterpreterCount\":9,\"interpreters\":[\"applyWriteOp\",\"writeOpTouchedPaths\",\"documentWritesForWriteOp\",\"writeModuleRegistry\",\"machineArtifactWrite\",\"machineArtifactJsonlAppend\",\"moduleScaffoldWrites\",\"toDocumentWrite\",\"documentStageWrite\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "Nine functions currently interpret op.kind, so the transaction meaning is not owned by one plan interface."
+      }
+    },
+    {
+      "id": "ROT-006",
+      "category": "atomicity-outsourcing",
+      "title": "Task-holder mutations are atomic inside the lease module",
+      "mechanism": {
+        "mustBeTrue": "The task-holder module itself guards claim and release with a task-scoped cross-process mutation lock; daemon queueing is not a correctness prerequisite.",
+        "scope": [
+          "packages/kernel/src/local/task-holder-state.ts",
+          "packages/cli/src/composition/command-executor.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-006",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const file=\"packages/kernel/src/local/task-holder-state.ts\"; const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); let helper=false,lockCalls=0; const visit=(node)=>{if(ts.isFunctionDeclaration(node)&&node.name?.text===\"withTaskHolderMutationLock\") helper=true; if(ts.isCallExpression(node)&&ts.isIdentifier(node.expression)&&node.expression.text===\"withTaskHolderMutationLock\") lockCalls++; ts.forEachChild(node,visit);}; visit(source); console.log(JSON.stringify({atomicMutationHelper:helper,guardedMutationCallsites:lockCalls})); process.exit(helper&&lockCalls>=2?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#6 / #c6",
+          "evidence": [
+            "packages/kernel/src/local/task-holder-state.ts:140-225",
+            "packages/cli/src/composition/command-executor.ts:130-135",
+            "packages/cli/src/index.ts:377-380"
+          ]
+        }
+      ],
+      "status": "fixed",
+      "introducedCommit": null,
+      "fixedCommit": "f7c40914388359e722ab95a6a9283a10be0d60fa",
+      "fixPullRequest": "PR#584",
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 0,
+        "stdout": "{\"atomicMutationHelper\":true,\"guardedMutationCallsites\":2}\n",
+        "stderr": "",
+        "mechanismVerdict": "pass",
+        "interpretation": "The module owns an atomic mutation helper and both claim/release mutation paths call it."
+      }
+    },
+    {
+      "id": "ROT-007",
+      "category": "layer-misalignment",
+      "title": "Daemon process runtime belongs to the daemon package",
+      "mechanism": {
+        "mustBeTrue": "packages/daemon exports and owns single- and multi-repository daemon runtime lifecycle; kernel/store exposes only repository write-session capabilities and does not own process hosting.",
+        "scope": [
+          "packages/daemon/src/**",
+          "packages/kernel/src/store/daemon-runtime.ts",
+          "packages/adapters/local/src/index.ts",
+          "packages/cli/src/index.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-007",
+        "command": "node --input-type=module -e 'import * as daemon from \"./packages/daemon/src/index.ts\"; import * as store from \"./packages/kernel/src/store/index.ts\"; const result={daemonOwnsRuntime:typeof daemon.createDaemonRuntime===\"function\"&&typeof daemon.createMultiRepoDaemonRuntime===\"function\",kernelStoreOwnsRuntime:typeof store.createDaemonRuntime===\"function\"||typeof store.createMultiRepoDaemonRuntime===\"function\"}; console.log(JSON.stringify(result)); process.exit(result.daemonOwnsRuntime&&!result.kernelStoreOwnsRuntime?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#7 / #c7",
+          "evidence": [
+            "packages/kernel/src/store/daemon-runtime.ts:37-379",
+            "packages/kernel/src/store/daemon-runtime-queue.ts",
+            "packages/adapters/local/src/index.ts:12,40-41",
+            "packages/cli/src/index.ts:91-138"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"daemonOwnsRuntime\":false,\"kernelStoreOwnsRuntime\":true}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "The daemon package does not export the runtime while kernel/store still does."
+      }
+    },
+    {
+      "id": "ROT-008",
+      "category": "manual-mirror",
+      "title": "One script sandbox executor",
+      "mechanism": {
+        "mustBeTrue": "Exactly one extensions module owns spawnSync and sandbox permission/error/diff/evidence behavior; script host and preset runner are thin context adapters over it.",
+        "scope": [
+          "packages/cli/src/commands/extensions/script-executor.ts",
+          "packages/cli/src/commands/extensions/script-host.ts",
+          "packages/cli/src/commands/extensions/preset-script-runner.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-008",
+        "command": "node --input-type=module -e 'import { readFileSync,readdirSync } from \"node:fs\"; import path from \"node:path\"; const dir=\"packages/cli/src/commands/extensions\"; const owners=readdirSync(dir).filter((name)=>name.endsWith(\".ts\")).filter((name)=>readFileSync(path.join(dir,name),\"utf8\").includes(\"spawnSync\")); console.log(JSON.stringify({spawnSyncOwnerCount:owners.length,owners})); process.exit(owners.length===1&&owners[0]===\"script-executor.ts\"?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#8 / #c8",
+          "evidence": [
+            "packages/cli/src/commands/extensions/script-host.ts:57-199",
+            "packages/cli/src/commands/extensions/preset-script-runner.ts:69-198"
+          ]
+        }
+      ],
+      "status": "fixed",
+      "introducedCommit": null,
+      "fixedCommit": "a69d064e07e5b09a6ea8e11fe28df53cc2bb7f9a",
+      "fixPullRequest": "PR#586",
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 0,
+        "stdout": "{\"spawnSyncOwnerCount\":1,\"owners\":[\"script-executor.ts\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "pass",
+        "interpretation": "script-executor.ts is the sole extensions module that owns spawnSync."
+      }
+    },
+    {
+      "id": "ROT-009",
+      "category": "declaration-first-leak",
+      "title": "CLI core does not know preset IDs",
+      "mechanism": {
+        "mustBeTrue": "Preset policy and template privileges are interpreted through a generic declaration envelope; extension core contains no exact preset-ID dispatch literals.",
+        "scope": [
+          "packages/cli/src/commands/extensions/preset-policy.ts",
+          "packages/cli/src/commands/extensions/state.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-009",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const ids=new Set([\"create-milestone\",\"milestone-closeout\",\"decision-conformance\"]); const files=[\"packages/cli/src/commands/extensions/preset-policy.ts\",\"packages/cli/src/commands/extensions/state.ts\"]; const hits=[]; for(const file of files){const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const visit=(node)=>{if(ts.isStringLiteral(node)&&ids.has(node.text)) hits.push({file,value:node.text,line:source.getLineAndCharacterOfPosition(node.getStart()).line+1}); ts.forEachChild(node,visit);}; visit(source);} console.log(JSON.stringify({presetIdLiteralHits:hits.length,hits})); process.exit(hits.length===0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#9 / #c9",
+          "evidence": [
+            "packages/cli/src/commands/extensions/preset-policy.ts:16-60,101-152",
+            "packages/cli/src/commands/extensions/state.ts:493-501"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"presetIdLiteralHits\":13,\"hits\":[{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"create-milestone\",\"line\":25},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"milestone-closeout\",\"line\":40},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"decision-conformance\",\"line\":53},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"create-milestone\",\"line\":109},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"create-milestone\",\"line\":112},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"decision-conformance\",\"line\":115},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"create-milestone\",\"line\":138},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"milestone-closeout\",\"line\":146},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"decision-conformance\",\"line\":152},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"create-milestone\",\"line\":160},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"milestone-closeout\",\"line\":161},{\"file\":\"packages/cli/src/commands/extensions/preset-policy.ts\",\"value\":\"decision-conformance\",\"line\":162},{\"file\":\"packages/cli/src/commands/extensions/state.ts\",\"value\":\"create-milestone\",\"line\":497}]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "The two extension-core files contain 13 exact literals for three preset IDs."
+      }
+    },
+    {
+      "id": "ROT-010",
+      "category": "manual-mirror",
+      "title": "Relation authored sources have one catalog",
+      "mechanism": {
+        "mustBeTrue": "Relation graph collection and projection freshness consume one authored-source catalog; source-kind literals are not independently redeclared in both consumers.",
+        "scope": [
+          "packages/kernel/src/projection/relation-graph-projection.ts",
+          "packages/kernel/src/projection/sqlite-task-source.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-010",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const domain=new Set([\"task-index\",\"task-facts\",\"decision-document\"]); const values=(file)=>{const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const found=new Set(); const visit=(node)=>{if(ts.isStringLiteral(node)&&domain.has(node.text)) found.add(node.text); ts.forEachChild(node,visit);}; visit(source); return found;}; const graph=values(\"packages/kernel/src/projection/relation-graph-projection.ts\"); const hash=values(\"packages/kernel/src/projection/sqlite-task-source.ts\"); const duplicated=[...graph].filter((value)=>hash.has(value)).sort(); console.log(JSON.stringify({graphKinds:[...graph].sort(),hashKinds:[...hash].sort(),manuallyDuplicatedKinds:duplicated})); process.exit(duplicated.length===0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#10 / #c10",
+          "evidence": [
+            "packages/kernel/src/projection/relation-graph-projection.ts:153-206",
+            "packages/kernel/src/projection/sqlite-task-source.ts:202-236",
+            "packages/kernel/test/contracts/relation-source-hash-inputs.test.ts"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"graphKinds\":[\"decision-document\",\"task-facts\",\"task-index\"],\"hashKinds\":[\"decision-document\",\"task-facts\",\"task-index\"],\"manuallyDuplicatedKinds\":[\"decision-document\",\"task-facts\",\"task-index\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "All three relation authored-source kinds are still independently present in both consumers."
+      }
+    },
+    {
+      "id": "ROT-011",
+      "category": "imaginary-seam",
+      "title": "Code-doc reconciliation uses the canonical VCS port",
+      "mechanism": {
+        "mustBeTrue": "VersionControlSystem owns the path-at-ref query needed by code-doc reconciliation, and application code does not declare a second GitRunner seam.",
+        "scope": [
+          "packages/kernel/src/ports/version-control-system.ts",
+          "packages/application/src/code-doc-reconciliation.ts",
+          "packages/cli/src/commands/core/task-gates.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-011",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const members=(file,name)=>{const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); const found=[]; for(const statement of source.statements) if(ts.isInterfaceDeclaration(statement)&&statement.name.text===name) for(const member of statement.members) if(member.name&&ts.isIdentifier(member.name)) found.push(member.name.text); return found;}; const vcs=members(\"packages/kernel/src/ports/version-control-system.ts\",\"VersionControlSystem\"); const app=members(\"packages/application/src/code-doc-reconciliation.ts\",\"GitRunner\"); const pathAtRef=vcs.includes(\"pathExistsAtCommit\")||vcs.includes(\"pathExistsAtRef\"); console.log(JSON.stringify({vcsSupportsPathAtRef:pathAtRef,applicationGitRunnerMembers:app})); process.exit(pathAtRef&&app.length===0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-A-fable-4way-20260710.html",
+          "card": "A#11 / #c11",
+          "evidence": [
+            "packages/application/src/code-doc-reconciliation.ts:50",
+            "packages/cli/src/commands/core/task-gates.ts:140",
+            "packages/kernel/src/ports/version-control-system.ts:8-28"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"vcsSupportsPathAtRef\":false,\"applicationGitRunnerMembers\":[\"commitExists\",\"pathExistsAtCommit\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "The canonical VCS port lacks path-at-ref support while application still declares the two-method GitRunner seam."
+      }
+    },
+    {
+      "id": "ROT-012",
+      "category": "enforcement-gap",
+      "title": "Deterministic checks execute before PR admission",
+      "mechanism": {
+        "mustBeTrue": "Every non-aggregate gate declared in check:pr and executed by main full-check has at least one pull-request workflow job before merge.",
+        "scope": [
+          "tools/gate-manifest.json",
+          ".github/workflows/rewrite-ci.yml",
+          "tools/check-gate-surface.mjs"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-012",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; const manifest=JSON.parse(readFileSync(\"tools/gate-manifest.json\",\"utf8\")); const gaps=manifest.gates.filter((gate)=>gate.aggregate!==true&&gate.executionSurfaces?.packageJson?.checkPr===true&&(gate.executionSurfaces?.rewriteCi?.pullRequestJobs?.length??0)===0&&(gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs??[]).includes(\"full-check\")).map((gate)=>gate.id); console.log(JSON.stringify({prDeclaredButNotRunBeforeMerge:gaps.length,gates:gaps})); process.exit(gaps.length===0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-B-ci-arch-6day-20260710.html",
+          "card": "B#01 / #candidate-ci-admission",
+          "evidence": [
+            ".github/workflows/rewrite-ci.yml:13-248",
+            "tools/gate-manifest.json:1293-3099",
+            "tools/check-gate-surface.mjs:163-236",
+            "tools/check-duplicate-definitions.mjs:1-44"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"prDeclaredButNotRunBeforeMerge\":11,\"gates\":[\"check-cli-help-contract\",\"check-cli-error-codes\",\"check-error-classification\",\"check-duplicate-definitions\",\"check-integrity-single-source\",\"check-docs-release-map\",\"check-docmap-fresh\",\"check-template-command-surface\",\"check-service-mappability\",\"check-api-contract-registry\",\"check-schema-field-coverage\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "Eleven non-aggregate checks are declared in check:pr but have no pull-request workflow job and first run in full-check."
+      }
+    },
+    {
+      "id": "ROT-013",
+      "category": "manual-mirror",
+      "title": "Task write-route policy is declared once",
+      "mechanism": {
+        "mustBeTrue": "Each Task write route declares its command class in the route authority, including tasks.review as arbiter; daemon enforcement and governance projections derive from that declaration.",
+        "scope": [
+          "tools/write-road-registry.json",
+          "packages/gui/src/api/api-contract-registry.ts",
+          "packages/daemon/src/protocol/method-registry.ts",
+          "packages/daemon/src/protocol/json-rpc-server.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-013",
+        "command": "node --input-type=module -e 'import { apiRouteContracts } from \"./packages/gui/src/api/api-contract-registry.ts\"; const writes=apiRouteContracts.filter((route)=>route.id.startsWith(\"tasks.\")&&![\"GET\",\"WS\"].includes(route.method)); const missing=writes.filter((route)=>![\"repo-write\",\"arbiter\"].includes(route.commandClass)).map((route)=>route.id); const review=writes.find((route)=>route.id===\"tasks.review\"); console.log(JSON.stringify({taskWriteRoutes:writes.length,declarativeCommandClasses:writes.length-missing.length,missing,reviewClass:review?.commandClass??null})); process.exit(missing.length===0&&review?.commandClass===\"arbiter\"?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-B-ci-arch-6day-20260710.html",
+          "card": "B#03 / #candidate-lease",
+          "evidence": [
+            "tools/write-road-registry.json:30-59",
+            "packages/daemon/src/protocol/json-rpc-server.ts:345-374",
+            "packages/daemon/src/protocol/method-registry.ts:166-184",
+            "packages/application/src/local-controller-service.ts:95-110",
+            "packages/daemon/test/task-holder-rpc.test.ts:87-129"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"taskWriteRoutes\":3,\"declarativeCommandClasses\":0,\"missing\":[\"tasks.status.set\",\"tasks.review\",\"tasks.progress.append\"],\"reviewClass\":null}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "All three Task write routes lack a declarative command class and tasks.review has no authority-owned arbiter classification."
+      }
+    },
+    {
+      "id": "ROT-014",
+      "category": "manual-mirror",
+      "title": "Renderer Task server state has one owner",
+      "mechanism": {
+        "mustBeTrue": "TanStack Query is the sole owner of Task server state; optimistic overlay, rollback, refetch, and domain failure handling live in the query/mutation module rather than a second App useState mirror.",
+        "scope": [
+          "packages/gui/src/renderer/App.tsx",
+          "packages/gui/src/renderer/task-data.ts",
+          "packages/gui/src/renderer/api-client.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-014",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const file=\"packages/gui/src/renderer/App.tsx\"; const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX); let queryOwner=false,localTaskOwners=0; const visit=(node)=>{if(ts.isCallExpression(node)&&ts.isIdentifier(node.expression)&&node.expression.text===\"useTasksQuery\") queryOwner=true; if(ts.isVariableDeclaration(node)&&ts.isArrayBindingPattern(node.name)&&node.name.elements[0]&&ts.isBindingElement(node.name.elements[0])&&ts.isIdentifier(node.name.elements[0].name)&&node.name.elements[0].name.text===\"tasks\"&&node.initializer&&ts.isCallExpression(node.initializer)&&ts.isIdentifier(node.initializer.expression)&&node.initializer.expression.text===\"useState\") localTaskOwners++; ts.forEachChild(node,visit);}; visit(source); const owners=(queryOwner?1:0)+localTaskOwners; console.log(JSON.stringify({queryOwner,localTaskOwners,totalServerStateOwners:owners})); process.exit(queryOwner&&owners===1?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-B-ci-arch-6day-20260710.html",
+          "card": "B#04 / #candidate-renderer-state",
+          "evidence": [
+            "packages/gui/src/renderer/App.tsx:97-109,161-167",
+            "packages/gui/src/renderer/task-data.ts:42-70",
+            "packages/gui/src/renderer/api-client.ts:93-119",
+            "packages/gui/src/renderer/views/TaskDetailView.tsx:498-510"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"queryOwner\":true,\"localTaskOwners\":1,\"totalServerStateOwners\":2}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "App owns a mutable Task useState mirror in addition to the query owner."
+      }
+    },
+    {
+      "id": "ROT-015",
+      "category": "shallow-slice",
+      "title": "Canonical projection preserves domain vocabulary",
+      "mechanism": {
+        "mustBeTrue": "The kernel projection exposes the complete Decision/Task/fact vocabulary and application consumes those types directly; application does not redeclare projection-row interfaces or widen domain unions to strings.",
+        "scope": [
+          "packages/kernel/src/projection/types.ts",
+          "packages/application/src/index.ts",
+          "packages/application/src/local-controller-service.ts",
+          "packages/gui/src/renderer/triadic-data.ts"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-015",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import ts from \"typescript\"; const names=(file)=>{const source=ts.createSourceFile(file,readFileSync(file,\"utf8\"),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS); return new Set(source.statements.filter(ts.isInterfaceDeclaration).map((node)=>node.name.text));}; const kernel=names(\"packages/kernel/src/projection/types.ts\"); const application=names(\"packages/application/src/index.ts\"); const duplicated=[...kernel].filter((name)=>application.has(name)).sort(); console.log(JSON.stringify({duplicatedProjectionInterfaces:duplicated.length,names:duplicated})); process.exit(duplicated.length===0?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-B-ci-arch-6day-20260710.html",
+          "card": "B#05 / #candidate-projection",
+          "evidence": [
+            "packages/kernel/src/projection/types.ts:98-111",
+            "packages/kernel/src/projection/relation-graph-projection.ts:12-40",
+            "packages/kernel/src/projection/sqlite-decision-source.ts:42-70",
+            "packages/application/src/index.ts:185-245",
+            "packages/application/src/local-controller-service.ts:59-78",
+            "packages/gui/src/renderer/triadic-data.ts:18-161"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"duplicatedProjectionInterfaces\":1,\"names\":[\"DecisionProjectionRow\"]}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "DecisionProjectionRow is still independently declared in kernel projection and application. This detector covers the authority duplication; renderer-invented defaults remain supporting evidence for the same open mechanism."
+      }
+    },
+    {
+      "id": "ROT-016",
+      "category": "enforcement-gap",
+      "title": "Physical-I/O debt is narrow, owned, expiring, and bypass-tested",
+      "mechanism": {
+        "mustBeTrue": "Every physical-I/O exception is narrower than a whole file and carries owner plus expiry; the boundary gate requires documented bypass fixtures.",
+        "scope": [
+          "eslint.config.mjs",
+          "tools/port-physical-io-boundary-known-debt.mjs",
+          "tools/port-physical-io-eslint-boundary.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-016",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; import { portPhysicalIoBoundaryKnownDebt as debt } from \"./tools/port-physical-io-boundary-known-debt.mjs\"; const manifest=JSON.parse(readFileSync(\"tools/gate-manifest.json\",\"utf8\")); const lint=manifest.gates.find((gate)=>gate.id===\"lint\"); const governed=debt.filter((entry)=>typeof entry.owner===\"string\"&&entry.owner&&typeof entry.expiresAt===\"string\"&&entry.expiresAt&&(Array.isArray(entry.symbols)||Array.isArray(entry.imports))); console.log(JSON.stringify({debtEntries:debt.length,entriesWithOwnerExpiryAndNarrowScope:governed.length,bypassFixtureRequired:lint?.bypassFixtureRequired??null})); process.exit(governed.length===debt.length&&lint?.bypassFixtureRequired===true?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-B-ci-arch-6day-20260710.html",
+          "card": "B#06 / #candidate-physical-io",
+          "evidence": [
+            "eslint.config.mjs:267-282",
+            "tools/port-physical-io-boundary-known-debt.mjs:1-123",
+            "tools/port-physical-io-eslint-boundary.test.mjs:10-55",
+            "tools/gate-manifest.json:588-634",
+            "harness/adr/ADR-0026-plt-bedrock-port-discipline-enforcement-surface.md:49-110"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:12:30Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"debtEntries\":22,\"entriesWithOwnerExpiryAndNarrowScope\":0,\"bypassFixtureRequired\":false}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "All 22 exceptions are file-level entries without owner/expiry/narrow scope, and the manifest does not require bypass fixtures."
+      }
+    },
+    {
+      "id": "ROT-017",
+      "category": "enforcement-gap",
+      "title": "Metadata-only PR fast paths prove the same source SHA",
+      "mechanism": {
+        "mustBeTrue": "Every Mergify metadata-only fast-path acceptance step consumes the PR head SHA and executes a verifier proving that the same source SHA already completed source checks; an echo-only green path is not proof.",
+        "scope": [
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "detection": {
+        "detector": "ROT-017",
+        "command": "node --input-type=module -e 'import { readFileSync } from \"node:fs\"; const lines=readFileSync(\".github/workflows/rewrite-ci.yml\",\"utf8\").split(/\\r?\\n/u); const starts=lines.map((line,index)=>line.trim()===\"- name: Accept Mergify queue metadata edit\"?index:-1).filter((index)=>index>=0); const blocks=starts.map((start)=>{let end=start+1; while(end<lines.length&&!(lines[end].startsWith(\"      - \"))) end++; return lines.slice(start,end).join(\"\\n\");}); const verified=blocks.filter((block)=>(block.includes(\"PR_HEAD_SHA\")||block.includes(\"github.event.pull_request.head.sha\"))&&block.includes(\"run:\")&&!block.includes(\"run: echo\")); console.log(JSON.stringify({metadataFastPathSteps:blocks.length,stepsWithSameShaVerification:verified.length,unverifiedSteps:blocks.length-verified.length})); process.exit(blocks.length>0&&verified.length===blocks.length?0:1);'",
+        "cwd": ".",
+        "successExitCodes": [
+          0
+        ]
+      },
+      "firstSeen": [
+        {
+          "kind": "report-card",
+          "report": "architecture-review-B-ci-arch-6day-20260710.html",
+          "card": "B#01 / #candidate-ci-admission",
+          "evidence": [
+            ".github/workflows/rewrite-ci.yml:13-248",
+            "tools/gate-manifest.json:418-468"
+          ]
+        }
+      ],
+      "status": "open",
+      "introducedCommit": null,
+      "fixedCommit": null,
+      "fixPullRequest": null,
+      "lastRun": {
+        "executedAt": "2026-07-10T10:22:33Z",
+        "head": "da5c205837740cfa3f9078e0a851605073a08af4",
+        "executionOutcome": "completed",
+        "exitCode": 1,
+        "stdout": "{\"metadataFastPathSteps\":9,\"stepsWithSameShaVerification\":0,\"unverifiedSteps\":9}\n",
+        "stderr": "",
+        "mechanismVerdict": "fail",
+        "interpretation": "All nine metadata-only acceptance steps are echo-only paths with no same-SHA verifier."
+      }
+    }
+  ]
+}

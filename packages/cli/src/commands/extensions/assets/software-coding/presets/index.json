@@ -10,6 +10,7 @@
     "milestone-closeout",
     "decision-conformance",
     "worker-dispatch",
-    "code-impact-analysis"
+    "code-impact-analysis",
+    "architecture-rot-audit"
   ]
 }

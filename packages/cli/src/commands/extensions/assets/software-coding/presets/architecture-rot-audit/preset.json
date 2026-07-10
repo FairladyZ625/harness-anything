@@ -1,0 +1,50 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "architecture-rot-audit",
+  "title": "Product Architecture Rot Audit",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": {
+    "min": "1.0.0",
+    "maxExclusive": "2.0.0"
+  },
+  "capabilityImports": [
+    {
+      "id": "architecture-rot-detector",
+      "kind": "checker",
+      "version": "1",
+      "required": true
+    }
+  ],
+  "entrypoints": {
+    "check": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "reads": [
+        "{{paths.rootDir}}",
+        "{{paths.rootDir}}/package.json",
+        "{{paths.rootDir}}/tsconfig*.json",
+        "{{paths.rootDir}}/.git/**",
+        "{{paths.rootDir}}/.github/**",
+        "{{paths.rootDir}}/packages/**",
+        "{{paths.rootDir}}/tools/**",
+        "{{paths.tasksRoot}}",
+        "{{paths.tasksRoot}}/*/artifacts/arch-rot.snapshot.json"
+      ],
+      "writes": [
+        "{{outputRoot}}/**"
+      ],
+      "inputs": {}
+    }
+  },
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "checkerProfile": "software-coding-standard",
+      "templateSelections": []
+    }
+  ],
+  "defaultProfile": "baseline"
+}
