@@ -8,6 +8,8 @@
     "legacy-migration",
     "create-milestone",
     "milestone-closeout",
-    "decision-conformance"
+    "decision-conformance",
+    "worker-dispatch",
+    "code-impact-analysis"
   ]
 }

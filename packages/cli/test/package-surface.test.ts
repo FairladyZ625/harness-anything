@@ -78,7 +78,9 @@ test("bundled software coding assets have consistent template and process-preset
     "legacy-migration",
     "create-milestone",
     "milestone-closeout",
-    "decision-conformance"
+    "decision-conformance",
+    "worker-dispatch",
+    "code-impact-analysis"
   ].sort();
 
   assert.equal(catalog.schema, "template-catalog/v2");
