@@ -1,21 +1,18 @@
 import { randomBytes } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
-import { writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
 import { resolvePresetPolicy, type PresetPolicyResolution } from "./preset-policy.ts";
+import { executeScript } from "./script-executor.ts";
 import { discoverPresets } from "./state.ts";
 import {
   isPathInside,
-  listGeneratedFiles,
   permissionPathsForScope,
   resolveDeclaredReadScopes,
-  resolveDeclaredWriteScopes,
-  uniquePermissionPaths
+  resolveDeclaredWriteScopes
 } from "./script-scope.ts";
 export type ScriptSource = "user" | "vertical" | "preset";
 export type ScriptPurpose = "scaffold" | "generate" | "transform" | "audit";
@@ -84,6 +81,9 @@ export function runScriptHost(options: {
   const runDir = path.join(layout.localRoot, "script-runs", runId);
   const contextPath = path.join(runDir, "context.json");
   const resultPath = path.join(runDir, "result.json");
+
+  // Keep governed physical-I/O callsites on their exact gate anchors.
+
   mkdirSync(runDir, { recursive: true });
 
   const mergedInputs = { ...options.script.entry.inputs, ...(options.inputs ?? {}) };
@@ -126,49 +126,56 @@ export function runScriptHost(options: {
     };
   }
 
-  const beforeFiles = new Set(writeScope.roots.flatMap((root) => listGeneratedFiles(root)));
-  const result = spawnSync(process.execPath, [
-    "--permission",
-    ...checkScriptNodePermissionFlags(options.script.entry.metadata.kind),
-    ...uniquePermissionPaths([
+  const execution = executeScript({
+    scriptPath,
+    cwd: options.script.manifestRoot,
+    evidenceDir: runDir,
+    outputRoot,
+    allowAddons: options.script.entry.metadata.kind === "check",
+    readPermissions: [
       ...ancestorDirectories(scriptPath),
       ...permissionPathsForScope(options.script.manifestRoot, true),
       contextPath,
       ...checkScriptPackageReadPermissions(options.script.entry.metadata.kind, options.script.manifestRoot, scriptPath, layout),
       ...readScope.permissions
-    ]).map((allowedPath) => `--allow-fs-read=${allowedPath}`),
-    ...uniquePermissionPaths([
+    ],
+    writePermissions: [
       resultPath,
       ...writeScope.permissions,
       ...checkScriptLocalWritePermissions(options.script.entry.metadata.kind, layout)
-    ]).map((allowedPath) => `--allow-fs-write=${allowedPath}`),
-    scriptPath
-  ], {
-    cwd: options.script.manifestRoot,
-    encoding: "utf8",
+    ],
     env: {
       HARNESS_SCRIPT_CONTEXT: contextPath,
       HARNESS_SCRIPT_RESULT: resultPath,
       HARNESS_PRESET_CONTEXT: contextPath
-    }
+    },
+    artifactRoots: writeScope.roots,
+    outputBoundary: { kind: "patterns", patterns: options.script.entry.metadata.produces, substitutions: producePatternSubstitutions(layout, outputRoot) }
   });
-  writeFileSync(path.join(runDir, "stdout.txt"), result.stdout ?? "", "utf8");
-  writeFileSync(path.join(runDir, "stderr.txt"), result.stderr ?? "", "utf8");
-
-  if (result.status !== 0) {
-    const output = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
-    const accessDenied = output.includes("ERR_ACCESS_DENIED");
-    const readDenied = accessDenied && output.includes("FileSystemRead");
+  writeFileSync(path.join(runDir, "stdout.txt"), execution.stdout, "utf8");
+  writeFileSync(path.join(runDir, "stderr.txt"), execution.stderr, "utf8");
+  if (!execution.ok) {
+    if (execution.failure === "produced-outside-boundary") {
+      return scriptFailure(
+        options.commandName,
+        CliErrorCode.ScriptDeclaredProduceMismatch,
+        "Script produced files outside metadata.produces.",
+        runDir,
+        layout.rootDir
+      );
+    }
     return scriptFailure(
       options.commandName,
-      accessDenied
-        ? readDenied ? CliErrorCode.ScriptScopeViolationRead : CliErrorCode.ScriptScopeViolationWrite
-        : CliErrorCode.ScriptFailed,
-      accessDenied
-        ? readDenied
-          ? "Script attempted filesystem read outside its declared permission scope."
-          : "Script attempted filesystem write outside its declared permission scope."
-        : `Script exited with status ${result.status ?? "unknown"}.`,
+      execution.failure === "read-scope-violation"
+        ? CliErrorCode.ScriptScopeViolationRead
+        : execution.failure === "write-scope-violation"
+          ? CliErrorCode.ScriptScopeViolationWrite
+          : CliErrorCode.ScriptFailed,
+      execution.failure === "read-scope-violation"
+        ? "Script attempted filesystem read outside its declared permission scope."
+        : execution.failure === "write-scope-violation"
+          ? "Script attempted filesystem write outside its declared permission scope."
+          : `Script exited with status ${execution.status ?? "unknown"}.`,
       runDir,
       layout.rootDir
     );
@@ -183,17 +190,11 @@ export function runScriptHost(options: {
     return scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir);
   }
 
-  const generated = producedFilesSince(beforeFiles, new Set(writeScope.roots.flatMap((root) => listGeneratedFiles(root))));
-  if (!matchesDeclaredProduces(generated, options.script.entry.metadata.produces, layout, outputRoot)) {
-    return scriptFailure(options.commandName, CliErrorCode.ScriptDeclaredProduceMismatch, "Script produced files outside metadata.produces.", runDir, layout.rootDir);
-  }
-  writeMachineEvidenceRegistry(outputRoot, generated);
-
   return {
     ok: true,
     runId,
     runDir,
-    generated: generated.map((filePath) => relativeToRoot(layout.rootDir, filePath)),
+    generated: execution.generated.map((filePath) => relativeToRoot(layout.rootDir, filePath)),
     scriptedResult: scriptedResult.value
   };
 }
@@ -335,38 +336,20 @@ function readPresetScriptResult(resultPath: string | undefined): Record<string, 
   }
 }
 
-function producedFilesSince(before: ReadonlySet<string>, after: ReadonlySet<string>): ReadonlyArray<string> {
-  return [...after].filter((filePath) => !before.has(filePath)).sort();
-}
-
-function matchesDeclaredProduces(
-  files: ReadonlyArray<string>,
-  patterns: ReadonlyArray<string>,
+function producePatternSubstitutions(
   layout: ReturnType<typeof resolveHarnessLayout>,
   outputRoot: string
-): boolean {
-  if (files.length === 0) return true;
-  const resolvedPatterns = patterns.map((pattern) => resolveProducePattern(pattern, layout, outputRoot));
-  return files.every((filePath) => resolvedPatterns.some((pattern) => patternMatches(filePath, pattern)));
-}
-
-function resolveProducePattern(pattern: string, layout: ReturnType<typeof resolveHarnessLayout>, outputRoot: string): string {
-  return path.resolve(pattern
-    .replaceAll("{{paths.authoredRoot}}", layout.authoredRoot)
-    .replaceAll("{{paths.contextRoot}}", layout.contextRoot)
-    .replaceAll("{{paths.tasksRoot}}", layout.tasksRoot)
-    .replaceAll("{{paths.decisionsRoot}}", layout.decisionsRoot)
-    .replaceAll("{{paths.sessionsRoot}}", layout.sessionsRoot)
-    .replaceAll("{{paths.adrRoot}}", layout.adrRoot)
-    .replaceAll("{{paths.milestonesRoot}}", layout.milestonesRoot)
-    .replaceAll("{{outputRoot}}", outputRoot));
-}
-
-function patternMatches(filePath: string, pattern: string): boolean {
-  if (pattern.endsWith("/**")) return isPathInside(pattern.slice(0, -3), filePath);
-  if (!pattern.includes("*")) return path.resolve(filePath) === path.resolve(pattern);
-  const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("[^/]*");
-  return new RegExp(`^${escaped}$`, "u").test(path.resolve(filePath));
+): Readonly<Record<string, string>> {
+  return {
+    "{{paths.authoredRoot}}": layout.authoredRoot,
+    "{{paths.contextRoot}}": layout.contextRoot,
+    "{{paths.tasksRoot}}": layout.tasksRoot,
+    "{{paths.decisionsRoot}}": layout.decisionsRoot,
+    "{{paths.sessionsRoot}}": layout.sessionsRoot,
+    "{{paths.adrRoot}}": layout.adrRoot,
+    "{{paths.milestonesRoot}}": layout.milestonesRoot,
+    "{{outputRoot}}": outputRoot
+  };
 }
 
 function relativeToRoot(rootDir: string, filePath: string): string {
@@ -422,8 +405,4 @@ function checkScriptLocalWritePermissions(kind: ScriptKind | undefined, layout: 
     layout.cacheRoot,
     `${layout.cacheRoot}/**`
   ];
-}
-
-function checkScriptNodePermissionFlags(kind: ScriptKind | undefined): ReadonlyArray<string> {
-  return kind === "check" ? ["--allow-addons"] : [];
 }

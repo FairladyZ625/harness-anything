@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { executeScript } from "../src/commands/extensions/script-executor.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -150,6 +151,137 @@ test("missing policy is public-default null while malformed, unknown-key, wrong-
     const result = runJson(rootDir, ["preset", "action", "create-milestone", "capture", "--task", "task-escape", "--allow-scripts"], false);
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "preset_manifest_invalid");
+  });
+});
+
+test("ScriptExecutor classifies a filesystem read outside its permission scope", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const evidenceDir = path.join(rootDir, "evidence");
+    const outputRoot = path.join(rootDir, "output");
+    const forbiddenPath = path.join(rootDir, "forbidden.txt");
+    const scriptPath = path.join(rootDir, "read-outside.cjs");
+    mkdirSync(evidenceDir, { recursive: true });
+    mkdirSync(outputRoot, { recursive: true });
+    writeFileSync(forbiddenPath, "private\n", "utf8");
+    writeFileSync(scriptPath, [
+      "const { readFileSync } = require('node:fs');",
+      `readFileSync(${JSON.stringify(forbiddenPath)}, 'utf8');`,
+      ""
+    ].join("\n"), "utf8");
+
+    const result = executeScript({
+      scriptPath,
+      cwd: rootDir,
+      evidenceDir,
+      outputRoot,
+      readPermissions: [scriptPath],
+      writePermissions: [outputRoot],
+      env: {},
+      artifactRoots: [outputRoot],
+      outputBoundary: { kind: "roots", roots: [outputRoot], inspect: "generated" }
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.failure, "read-scope-violation");
+  });
+});
+
+test("ScriptExecutor classifies a filesystem write outside its permission scope", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const evidenceDir = path.join(rootDir, "evidence");
+    const outputRoot = path.join(rootDir, "output");
+    const forbiddenPath = path.join(rootDir, "escaped.txt");
+    const scriptPath = path.join(rootDir, "write-outside.cjs");
+    mkdirSync(evidenceDir, { recursive: true });
+    mkdirSync(outputRoot, { recursive: true });
+    writeFileSync(scriptPath, [
+      "const { writeFileSync } = require('node:fs');",
+      `writeFileSync(${JSON.stringify(forbiddenPath)}, 'escaped', 'utf8');`,
+      ""
+    ].join("\n"), "utf8");
+
+    const result = executeScript({
+      scriptPath,
+      cwd: rootDir,
+      evidenceDir,
+      outputRoot,
+      readPermissions: [scriptPath],
+      writePermissions: [outputRoot],
+      env: {},
+      artifactRoots: [outputRoot],
+      outputBoundary: { kind: "roots", roots: [outputRoot], inspect: "generated" }
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.failure, "write-scope-violation");
+  });
+});
+
+test("ScriptExecutor diffs generated artifacts and registers machine evidence", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const evidenceDir = path.join(rootDir, "evidence");
+    const outputRoot = path.join(rootDir, "output");
+    const artifactsRoot = path.join(outputRoot, "artifacts");
+    const scriptPath = path.join(rootDir, "write-evidence.cjs");
+    const evidencePath = path.join(artifactsRoot, "evidence.json");
+    mkdirSync(evidenceDir, { recursive: true });
+    mkdirSync(artifactsRoot, { recursive: true });
+    writeFileSync(path.join(artifactsRoot, "existing.json"), "{}\n", "utf8");
+    writeFileSync(scriptPath, [
+      "const { writeFileSync } = require('node:fs');",
+      "const path = require('node:path');",
+      "writeFileSync(path.join(process.env.OUTPUT_ROOT, 'artifacts/evidence.json'), '{\"ok\":true}\\n', 'utf8');",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = executeScript({
+      scriptPath,
+      cwd: rootDir,
+      evidenceDir,
+      outputRoot,
+      readPermissions: [scriptPath],
+      writePermissions: [outputRoot, `${outputRoot}/**`],
+      env: { OUTPUT_ROOT: outputRoot },
+      artifactRoots: [outputRoot],
+      outputBoundary: { kind: "roots", roots: [outputRoot], inspect: "generated" }
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.generated, [evidencePath]);
+    const registry = JSON.parse(readFileSync(path.join(artifactsRoot, ".machine-evidence.registry.json"), "utf8"));
+    assert.deepEqual(registry.entries.map((entry: Record<string, unknown>) => entry.path), ["artifacts/evidence.json"]);
+  });
+});
+
+test("ScriptExecutor rejects generated files outside the declared output boundary", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const evidenceDir = path.join(rootDir, "evidence");
+    const outputRoot = path.join(rootDir, "output");
+    const allowedRoot = path.join(outputRoot, "allowed");
+    const scriptPath = path.join(rootDir, "write-undeclared.cjs");
+    mkdirSync(evidenceDir, { recursive: true });
+    mkdirSync(allowedRoot, { recursive: true });
+    writeFileSync(scriptPath, [
+      "const { writeFileSync } = require('node:fs');",
+      "const path = require('node:path');",
+      "writeFileSync(path.join(process.env.OUTPUT_ROOT, 'undeclared.json'), '{}\\n', 'utf8');",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = executeScript({
+      scriptPath,
+      cwd: rootDir,
+      evidenceDir,
+      outputRoot,
+      readPermissions: [scriptPath],
+      writePermissions: [outputRoot, `${outputRoot}/**`],
+      env: { OUTPUT_ROOT: outputRoot },
+      artifactRoots: [outputRoot],
+      outputBoundary: { kind: "roots", roots: [allowedRoot], inspect: "generated" }
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.failure, "produced-outside-boundary");
   });
 });
 
