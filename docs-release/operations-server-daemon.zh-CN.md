@@ -119,9 +119,10 @@ id 时，设置 `HARNESS_DAEMON_REPO_ID`。
 本地 Unix socket 才是真实访问边界。daemon 会用 `0700` 创建 socket 目录，并把
 socket 文件设为 `0600`。
 
-Unix transport 没有做 `SO_PEERCRED` 这类内核 peer credential 校验。记录的 peer
-credential 来自 daemon 进程所有者（`process.getuid()` / `process.getgid()`），不是
-连接进来的客户端。
+Unix transport 不读取连接进程的身份。它记录
+`unix-socket-owner-boundary`，subject 是 socket 文件属主的 `stat.uid`。每个成功连接
+的客户端之所以归属该 owner，只因为 `0700` 目录与 `0600` socket 仅允许 owner
+连接。放宽任一权限都会使这个边界失效，届时必须改用其他身份来源。
 
 存在 `harness/people.yaml` 时会启用基于 roster 的授权。没有这份 roster 时，本地连接
 完全信任 transport 边界。
