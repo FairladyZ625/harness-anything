@@ -1,9 +1,7 @@
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { Effect } from "effect";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleResult } from "../../../../application/src/index.ts";
-import type { GitRunner } from "../../../../application/src/index.ts";
-import { taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { makeLocalVersionControlSystem, taskDocumentPath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -22,7 +20,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     taskWriter: context.engine,
     artifactStore: context.artifactStore,
     documentPlaceholderPolicy: bundledTaskDocumentPlaceholderPolicy(),
-    codeDocGit: localGitRunner(context.rootDir)
+    codeDocVersionControlSystem: makeLocalVersionControlSystem()
   });
   if (action.kind === "task-review") {
     return orchestrator.reviewTask({ taskId: action.taskId, reviewerId: action.reviewerId }).pipe(
@@ -135,22 +133,6 @@ function taskGateHint(code: string, hint: string, taskId: string): string {
     hint,
     `To make closeoutReadiness ready/passed, run ha task transition ${taskId} in_review, replace closeout.md placeholder content with real Summary/Verification/Residual Risk, run ha fact record --task ${taskId} --statement "..." --source "..." for evidence, run ha task review ${taskId}, then run ha task complete ${taskId} --ci passed.`
   ].join(" ");
-}
-
-function localGitRunner(rootDir: string): GitRunner {
-  return {
-    commitExists: (sha) => runGit(rootDir, ["cat-file", "-e", `${sha}^{commit}`]),
-    pathExistsAtCommit: (sha, relativePath) => runGit(rootDir, ["cat-file", "-e", `${sha}:${relativePath}`])
-  };
-}
-
-function runGit(rootDir: string, args: ReadonlyArray<string>): boolean {
-  try {
-    execFileSync("git", ["-C", rootDir, ...args], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function cliErrorCode(code: string): CliErrorCodeValue {

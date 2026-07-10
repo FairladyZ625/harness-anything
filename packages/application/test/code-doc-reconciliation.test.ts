@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { VersionControlSystem } from "../../kernel/src/index.ts";
 import {
   CODE_DOC_RECONCILIATION_DOCUMENT,
-  evaluateCodeDocReconciliationGate,
-  type GitRunner
+  evaluateCodeDocReconciliationGate
 } from "../src/code-doc-reconciliation.ts";
 
 const goodSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -13,7 +13,7 @@ test("code-doc reconciliation accepts commit and path anchors and warns on PR st
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
-    git: gitRunner({ commits: [goodSha], paths: [`${goodSha}:packages/app.ts`] }),
+    versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [`${goodSha}:packages/app.ts`] }),
     documents: documents([{
       id: "A4-001",
       ledgerPath: "closeout.md",
@@ -36,7 +36,7 @@ test("code-doc reconciliation rejects fabricated shas", () => {
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
-    git: gitRunner({ commits: [goodSha], paths: [] }),
+    versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [] }),
     documents: documents([{
       id: "A4-001",
       ledgerPath: "closeout.md",
@@ -53,7 +53,7 @@ test("code-doc reconciliation rejects missing evidence paths at an existing comm
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
-    git: gitRunner({ commits: [goodSha], paths: [] }),
+    versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [] }),
     documents: documents([{
       id: "A4-001",
       ledgerPath: "closeout.md",
@@ -70,7 +70,7 @@ test("code-doc reconciliation ignores unrelated package documents but requires t
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
-    git: gitRunner({ commits: [goodSha], paths: [] }),
+    versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [] }),
     documents: [{ path: "closeout.md", body: "# Closeout" }]
   });
 
@@ -92,11 +92,11 @@ function documents(records: ReadonlyArray<Record<string, unknown>>) {
   ];
 }
 
-function gitRunner(input: { readonly commits: ReadonlyArray<string>; readonly paths: ReadonlyArray<string> }): GitRunner {
+function versionControlSystem(input: { readonly commits: ReadonlyArray<string>; readonly paths: ReadonlyArray<string> }): Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit"> {
   const commits = new Set(input.commits);
   const paths = new Set(input.paths);
   return {
-    commitExists: (sha) => commits.has(sha),
-    pathExistsAtCommit: (sha, relativePath) => paths.has(`${sha}:${relativePath}`)
+    commitExists: (_repoRoot, sha) => commits.has(sha),
+    pathExistsAtCommit: (_repoRoot, sha, relativePath) => paths.has(`${sha}:${relativePath}`)
   };
 }

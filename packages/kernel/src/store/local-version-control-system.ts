@@ -59,6 +59,22 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
         return false;
       }
     },
+    commitExists: (repoRoot, sha) => {
+      try {
+        runGit(repoRoot, "cat-file", "-e", `${sha}^{commit}`);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    pathExistsAtCommit: (repoRoot, sha, relativePath) => {
+      try {
+        runGit(repoRoot, "cat-file", "-e", `${sha}:${relativePath}`);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     checkout: (repoRoot, ref) => {
       runGit(repoRoot, "checkout", ref);
     },

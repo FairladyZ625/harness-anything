@@ -422,6 +422,8 @@ function fakeVersionControlSystem(repoRoot: string): VersionControlSystem {
     currentBranch: () => "main",
     originHeadBranch: () => null,
     refExists: (_repoRoot, ref) => ref === "refs/heads/main" || ref === "main",
+    commitExists: () => true,
+    pathExistsAtCommit: () => true,
     checkout: () => undefined,
     createBranch: () => undefined,
     mergeNoFf: () => undefined,

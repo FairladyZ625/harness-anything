@@ -481,7 +481,6 @@
         { "file": "packages/adapters/local/src/git-diff-evidence.ts", "command": "git" },
         { "file": "packages/adapters/local/src/index.ts", "command": "git" },
         { "file": "packages/cli/src/commands/core/authored-git.ts", "command": "git" },
-        { "file": "packages/cli/src/commands/core/task-gates.ts", "command": "git" },
         { "file": "packages/cli/src/commands/doctor.ts", "command": "git" },
         { "file": "packages/kernel/src/projection/post-merge-checks.ts", "command": "git" },
         { "file": "packages/kernel/src/store/local-version-control-system.ts", "command": "git" }

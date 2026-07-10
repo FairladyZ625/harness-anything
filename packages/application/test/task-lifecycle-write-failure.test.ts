@@ -4,8 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { makeMarkdownArtifactStore, type ArtifactStore, type EngineError, type TaskPackageRead, type WriteError } from "../../kernel/src/index.ts";
-import type { GitRunner } from "../src/code-doc-reconciliation.ts";
+import { makeMarkdownArtifactStore, type ArtifactStore, type EngineError, type TaskPackageRead, type VersionControlSystem, type WriteError } from "../../kernel/src/index.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
@@ -54,7 +53,7 @@ for (const { name, error, code } of writeFailureCases) {
         rootDir,
         taskWriter: failingWriter(error),
         artifactStore: makeMarkdownArtifactStore({ rootDir }),
-        codeDocGit: codeDocGit(),
+        codeDocVersionControlSystem: codeDocVersionControlSystem(),
         now: () => "2026-06-13T00:00:00.000Z"
       });
 
@@ -124,7 +123,7 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
       documentPlaceholderPolicy: {
         closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
       },
-      codeDocGit: codeDocGit(),
+      codeDocVersionControlSystem: codeDocVersionControlSystem(),
       now: () => "2026-06-13T00:00:00.000Z"
     });
 
@@ -242,9 +241,9 @@ function validCodeDocAnchors(): string {
   }, null, 2)}\n`;
 }
 
-function codeDocGit(): GitRunner {
+function codeDocVersionControlSystem(): Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit"> {
   return {
-    commitExists: (sha) => sha === codeDocSha,
+    commitExists: (_repoRoot, sha) => sha === codeDocSha,
     pathExistsAtCommit: () => true
   };
 }

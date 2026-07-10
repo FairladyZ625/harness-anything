@@ -1,11 +1,10 @@
 import { Effect } from "effect";
-import type { ArtifactStore, DomainStatus, EngineError, TaskId, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactStore, DomainStatus, EngineError, TaskId, VersionControlSystem, WriteError } from "../../kernel/src/index.ts";
 import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
 import { parseFactFlowRecords } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 import { readFrontmatter, readScalar } from "../../kernel/src/index.ts";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
-import type { GitRunner } from "./code-doc-reconciliation.ts";
 import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 
@@ -41,7 +40,7 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly taskWriter: TaskLifecycleWriter;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
   readonly documentPlaceholderPolicy?: TaskDocumentPlaceholderPolicy;
-  readonly codeDocGit?: GitRunner;
+  readonly codeDocVersionControlSystem?: Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit">;
   readonly now?: () => string;
 }
 
@@ -142,7 +141,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const documentPlaceholder = yield* validateCompletionDocumentPlaceholders(options.artifactStore, payload.taskId, options.documentPlaceholderPolicy);
       if (documentPlaceholder) return documentPlaceholder;
 
-      const codeDocReconciliation = yield* validateCodeDocReconciliation(options.artifactStore, options.rootDir, payload.taskId, options.codeDocGit);
+      const codeDocReconciliation = yield* validateCodeDocReconciliation(options.artifactStore, options.rootDir, payload.taskId, options.codeDocVersionControlSystem);
       if (codeDocReconciliation) return codeDocReconciliation;
 
       const completionGate = evaluateCompletionGate({
@@ -234,7 +233,7 @@ function validateCodeDocReconciliation(
   artifactStore: Pick<ArtifactStore, "readTaskPackage">,
   rootDir: string,
   taskId: string,
-  git: GitRunner | undefined
+  versionControlSystem: Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit"> | undefined
 ): Effect.Effect<TaskLifecycleFailure | null> {
   return Effect.gen(function* () {
     const taskPackage = yield* artifactStore.readTaskPackage(taskId as TaskId).pipe(
@@ -247,7 +246,7 @@ function validateCodeDocReconciliation(
       taskId,
       rootDir,
       documents: taskPackage.documents,
-      git
+      versionControlSystem
     });
     if (gate.ok) return null;
     return {

@@ -16,6 +16,8 @@ export interface VersionControlSystem {
   readonly currentBranch: (repoRoot: string) => string | null;
   readonly originHeadBranch: (repoRoot: string) => string | null;
   readonly refExists: (repoRoot: string, ref: string) => boolean;
+  readonly commitExists: (repoRoot: string, sha: string) => boolean;
+  readonly pathExistsAtCommit: (repoRoot: string, sha: string, relativePath: string) => boolean;
   readonly checkout: (repoRoot: string, ref: string) => void;
   readonly createBranch: (repoRoot: string, branch: string) => void;
   readonly mergeNoFf: (repoRoot: string, branch: string, message: string) => void;
