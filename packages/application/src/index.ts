@@ -10,7 +10,7 @@ import type {
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 export { commandReceiptEnvelope } from "./command-receipt.ts";
 export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
-export { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
+export { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, renderCodeDocReconciliationDraft } from "./code-doc-reconciliation.ts";
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
 export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
@@ -40,7 +40,7 @@ export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts"
 export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";
 export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
 export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";
-export type { CodeDocDocument, CodeDocReconciliationInput, CodeDocReconciliationIssue, CodeDocReconciliationResult, CodeDocReconciliationWarning } from "./code-doc-reconciliation.ts";
+export type { CodeDocDocument, CodeDocReconciliationDraft, CodeDocReconciliationDraftInput, CodeDocReconciliationInput, CodeDocReconciliationIssue, CodeDocReconciliationResult, CodeDocReconciliationWarning } from "./code-doc-reconciliation.ts";
 export type { EnvironmentCurrentSessionProbeOptions, HumanFallbackSessionProbeOptions, RuntimeSessionEnvCandidate } from "./current-session-probe.ts";
 export type { ProvenanceBindingOptions } from "./provenance-binding.ts";
 export type {

@@ -3,11 +3,38 @@ import test from "node:test";
 import type { VersionControlSystem } from "../../kernel/src/index.ts";
 import {
   CODE_DOC_RECONCILIATION_DOCUMENT,
-  evaluateCodeDocReconciliationGate
+  evaluateCodeDocReconciliationGate,
+  renderCodeDocReconciliationDraft
 } from "../src/code-doc-reconciliation.ts";
 
 const goodSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const missingSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+test("code-doc reconciliation draft derives canonical ledger records and anchors", () => {
+  const draft = renderCodeDocReconciliationDraft({
+    taskId: "task-1",
+    sha: goodSha,
+    paths: ["packages/z.ts", "packages/a.ts", "packages/a.ts"],
+    prRef: "https://github.com/example/repo/pull/1",
+    documents: [
+      { path: "closeout.md", body: "# Closeout" },
+      { path: "review.md", body: "# Review" },
+      { path: "facts.md", body: "# Facts" }
+    ]
+  });
+
+  assert.deepEqual(draft.recordIds, ["closeout", "review"]);
+  const parsed = JSON.parse(draft.body) as {
+    readonly records: ReadonlyArray<{ readonly anchors: ReadonlyArray<Record<string, string>> }>;
+  };
+  assert.equal(parsed.records.length, 2);
+  assert.deepEqual(parsed.records[0]?.anchors, [
+    { kind: "commit", sha: goodSha },
+    { kind: "path", sha: goodSha, path: "packages/a.ts" },
+    { kind: "path", sha: goodSha, path: "packages/z.ts" },
+    { kind: "pr", ref: "https://github.com/example/repo/pull/1", sha: goodSha }
+  ]);
+});
 
 test("code-doc reconciliation accepts commit and path anchors and warns on PR status", () => {
   const result = evaluateCodeDocReconciliationGate({

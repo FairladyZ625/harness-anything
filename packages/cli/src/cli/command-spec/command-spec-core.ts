@@ -323,6 +323,23 @@ export const coreCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "task-code-doc-reconcile",
+    "usage": "task code-doc reconcile <id> --commit <full-sha> [--path <repo-path>]... [--pr <url>] [--force]",
+    "options": [{"flag":"--commit","description":"Set the required full commit SHA used by every generated ledger record."},{"flag":"--path","description":"Add a repository-relative path anchor; repeat for multiple paths."},{"flag":"--pr","description":"Add an optional PR reference anchored to the same commit."},{"flag":"--force","description":"Replace an existing code-doc-anchors.json instead of refusing to overwrite it."}],
+    "summary": "Generate and validate code-doc-anchors.json from task ledgers without hand-authoring JSON.",
+    "examples": ["harness-anything task code-doc reconcile task_01ABC --commit 0123456789abcdef0123456789abcdef01234567 --path packages/cli/src/index.ts"],
+    "parse": parseCoreTaskArgs,
+    "run": runTaskGatesCommand,
+    "receiptContract": {
+      "data": ["taskId", "report"],
+      "paths": ["primary"]
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": true,
+      "runtimeEvent": "auto"
+    }
+  },
+  {
     "kind": "task-review",
     "usage": "task review <id> [--reviewer <id>]",
     "options": [{"flag":"--reviewer","description":"Set the reviewer id."}],

@@ -4,6 +4,7 @@ import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { parseTaskArchive } from "./core-task-archive.ts";
+import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
 import { parseTaskList } from "./core-task-list.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -29,6 +30,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "supersede" && args[2]) return parseTaskSupersede(args, rootDir, json);
   if (args[0] === "task" && args[1] === "delete") return parseTaskDelete(args, rootDir, json);
   if (args[0] === "task" && args[1] === "reopen" && args[2]) return parseTaskReopen(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "code-doc" && args[2] === "reconcile" && args[3]) return parseTaskCodeDocReconcile(args, rootDir, json);
   if (args[0] === "task" && args[1] === "review" && args[2]) return parseTaskReview(["task-review", ...args.slice(2)], rootDir, json);
   if (args[0] === "task-review" && args[1]) return parseTaskReview(args, rootDir, json);
   if (args[0] === "task" && args[1] === "complete" && args[2]) return parseTaskComplete(["task-complete", ...args.slice(2)], rootDir, json);

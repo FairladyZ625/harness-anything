@@ -4,6 +4,7 @@
   "taskWriteRoutePolicy": "packages/application/src/task-write-route-policy.ts",
   "authorityBasis": [
     "task_01KX19G7VXRHSEH6YE7GHYMJYP",
+    "task_01KX69SACPDC93JAP373PM2979",
     "dec_mrcda9kw",
     "dec_mrcu2kud",
     "ADR-0022"
@@ -87,13 +88,13 @@
       "channel": { "pathClass": "doc-sync-allowed", "zoneClass": "task-authored-prose-or-stage" },
       "entry": ["cli", "daemon-rpc", "internal", "gui-review"],
       "writeKinds": ["doc_write", "doc_stage", "task_tree_stage"],
-      "cliActions": ["task-amend", "task-relate"],
+      "cliActions": ["task-amend", "task-code-doc-reconcile", "task-relate"],
       "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
       "directWrites": [
         { "file": "packages/cli/src/daemon/doc-sync-service.ts" },
         { "file": "packages/cli/src/daemon/doc-sync-service.ts", "command": "git" }
       ],
-      "evidence": ["packages/adapters/local/src/index.ts:224", "packages/adapters/local/src/task-writes.ts:67", "packages/application/src/task-lifecycle-orchestrator.ts:115", "packages/cli/src/daemon/doc-sync-service.ts:166"],
+      "evidence": ["packages/adapters/local/src/index.ts:224", "packages/adapters/local/src/task-writes.ts:67", "packages/application/src/task-lifecycle-orchestrator.ts:115", "packages/cli/src/commands/core/task-gates.ts:93", "packages/cli/src/daemon/doc-sync-service.ts:166"],
       "freshness": "doc-sync-submit-cas-post-apply"
     },
     {

@@ -12,6 +12,7 @@ const taskPrincipalRequiredKinds = new Set<CommandKind>([
   "status-set",
   "task-archive",
   "task-claim",
+  "task-code-doc-reconcile",
   "task-complete",
   "task-delete",
   "task-release",

@@ -195,6 +195,7 @@ export interface ParsedCommand {
     | { readonly kind: "task-supersede"; readonly oldTaskId: string; readonly title?: string; readonly slug?: string; readonly reason: string; readonly byTaskId?: string; readonly confirm?: string; readonly allowOpenFindings: boolean; readonly deletedBy?: string }
     | { readonly kind: "task-delete"; readonly taskId: string; readonly mode: "soft" | "hard"; readonly reason: string; readonly confirm?: string; readonly deletedBy?: string }
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
+    | { readonly kind: "task-code-doc-reconcile"; readonly taskId: string; readonly sha: string; readonly paths: ReadonlyArray<string>; readonly prRef?: string; readonly force: boolean }
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
     | { readonly kind: "task-show"; readonly taskId: string }

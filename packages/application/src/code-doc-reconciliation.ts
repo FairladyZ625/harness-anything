@@ -16,6 +16,19 @@ export interface CodeDocDocument {
   readonly body: string;
 }
 
+export interface CodeDocReconciliationDraftInput {
+  readonly taskId: string;
+  readonly documents: ReadonlyArray<CodeDocDocument>;
+  readonly sha: string;
+  readonly paths?: ReadonlyArray<string>;
+  readonly prRef?: string;
+}
+
+export interface CodeDocReconciliationDraft {
+  readonly body: string;
+  readonly recordIds: ReadonlyArray<string>;
+}
+
 export interface CodeDocReconciliationIssue {
   readonly code:
     | "code_doc_anchors_missing"
@@ -66,6 +79,32 @@ type CodeDocAnchor =
   | { readonly kind: "commit"; readonly sha: string }
   | { readonly kind: "path"; readonly sha: string; readonly path: string }
   | { readonly kind: "pr"; readonly ref: string; readonly sha?: string };
+
+const authoredLedgerRecords: ReadonlyArray<Pick<CodeDocRecord, "id" | "ledgerPath" | "kind">> = [
+  { id: "closeout", ledgerPath: "closeout.md", kind: "closeout" },
+  { id: "review", ledgerPath: "review.md", kind: "review" }
+];
+
+export function renderCodeDocReconciliationDraft(input: CodeDocReconciliationDraftInput): CodeDocReconciliationDraft {
+  const documentPaths = new Set(input.documents.map((document) => document.path));
+  const paths = [...new Set(input.paths ?? [])].sort();
+  const anchors: CodeDocAnchor[] = [
+    { kind: "commit", sha: input.sha },
+    ...paths.map((anchorPath): CodeDocAnchor => ({ kind: "path", sha: input.sha, path: anchorPath })),
+    ...(input.prRef ? [{ kind: "pr" as const, ref: input.prRef, sha: input.sha }] : [])
+  ];
+  const records: CodeDocRecord[] = authoredLedgerRecords
+    .filter((record) => documentPaths.has(record.ledgerPath))
+    .map((record) => ({ ...record, anchors }));
+  return {
+    body: `${JSON.stringify({
+      schema: "code-doc-reconciliation/v1",
+      taskId: input.taskId,
+      records
+    }, null, 2)}\n`,
+    recordIds: records.map((record) => record.id)
+  };
+}
 
 export function evaluateCodeDocReconciliationGate(input: CodeDocReconciliationInput): CodeDocReconciliationResult {
   const document = input.documents.find((item) => item.path === CODE_DOC_RECONCILIATION_DOCUMENT);
