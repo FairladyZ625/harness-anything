@@ -83,14 +83,13 @@ export type {
   JsonRpcSuccessResponse
 } from "./protocol/json-rpc-types.ts";
 export {
-  localUnixPeerCredential,
   type AttachTokenSubject,
   type DaemonAuthenticationContext,
   type DaemonTransportKind,
   type NamedPipeClientContext,
   type SshExecUserContext,
   type SshTunnelTokenContext,
-  type UnixPeerCredential
+  type UnixSocketOwnerBoundary
 } from "./transport/auth-context.ts";
 export {
   createJsonLineFrameReader,
