@@ -7,6 +7,7 @@ export {
   defaultDaemonIdleExitMs,
   JsonRpcLineClient,
   localDaemonSocketPath,
+  localUserDaemonEndpoint,
   localUserDaemonSocketPath,
   requestLocalDaemonJsonRpc,
   requestLocalDaemonJsonRpcForTarget,

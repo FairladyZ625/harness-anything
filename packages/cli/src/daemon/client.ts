@@ -30,6 +30,7 @@ export {
   daemonIdFromEnv,
   daemonUserRoot,
   localDaemonSocketPath,
+  localUserDaemonEndpoint,
   localUserDaemonSocketPath,
   requestLocalDaemonJsonRpc,
   resolveLocalDaemonTarget,
@@ -87,7 +88,7 @@ export async function runCommandThroughDaemon(
     if (error instanceof CliActorAttributionError) {
       return daemonActorAttributionReceipt(command, error);
     }
-    return daemonUnavailableReceipt(command, error);
+    return daemonUnavailableReceipt(command, error, config.mode === "remote" ? config.remote : undefined);
   }
 }
 
@@ -126,17 +127,7 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
 }
 
 async function runRemoteCommand(command: ParsedCommand, remote: RemoteDaemonConfig): Promise<CommandReceipt | CommandFailureReceipt> {
-  const child = spawn("ssh", [
-    remote.host,
-    remote.remoteHaPath,
-    "daemon",
-    "serve",
-    "--stdio",
-    "--repo",
-    remote.repoId,
-    "--root",
-    remote.remoteRoot
-  ], {
+  const child = spawn("ssh", remoteDaemonSshArgs(remote), {
     stdio: ["pipe", "pipe", "pipe"]
   });
   const remoteCommand = {
@@ -172,13 +163,16 @@ async function runWithLineClient(
   }
 }
 
-function daemonUnavailableReceipt(command: ParsedCommand, error: unknown): CommandFailureReceipt {
+function daemonUnavailableReceipt(command: ParsedCommand, error: unknown, remote?: RemoteDaemonConfig): CommandFailureReceipt {
+  const unavailableHint = remote
+    ? remoteDaemonUnavailableHint(remote)
+    : "Daemon unavailable. Start the daemon with 'ha daemon start --service' or check 'ha daemon status'.";
   const receipt = toCommandReceipt({
     ok: false,
     command: command.action.kind,
     error: cliError(
       CliErrorCode.JournalUnavailable,
-      `Daemon unavailable. Start the daemon with 'ha daemon start' or check 'ha daemon status'. Cause: ${error instanceof Error ? error.message : String(error)}`
+      `${unavailableHint} Cause: ${error instanceof Error ? error.message : String(error)}`
     )
   });
   if (receipt.ok) throw new Error("daemon unavailable receipt unexpectedly succeeded");
@@ -198,6 +192,14 @@ function daemonActorAttributionReceipt(command: ParsedCommand, error: CliActorAt
 function readMode(value: string | undefined): DaemonClientMode {
   if (value === "direct" || value === "local" || value === "remote") return value;
   return "direct";
+}
+
+export function remoteDaemonSshArgs(remote: RemoteDaemonConfig): ReadonlyArray<string> {
+  return [remote.host, remote.remoteHaPath, "daemon", "connect", "--stdio"];
+}
+
+export function remoteDaemonUnavailableHint(remote: RemoteDaemonConfig): string {
+  return `Remote daemon unavailable. Start the persistent daemon on ${remote.host} with '${remote.remoteHaPath} daemon start --service' and verify '${remote.remoteHaPath} daemon status'.`;
 }
 
 function commandForTarget(command: ParsedCommand, target: LocalDaemonTarget): ParsedCommand {
