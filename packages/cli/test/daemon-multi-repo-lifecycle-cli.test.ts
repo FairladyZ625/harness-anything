@@ -177,7 +177,7 @@ function writePeopleRoster(rootDir: string): void {
     "    primaryEmail: daemon-tester@example.test",
     "    roles: [owner]",
     "    credentials:",
-    "      - kind: unix-uid",
+    "      - kind: unix-socket-owner-boundary",
     `        issuer: host:${hostname()}`,
     `        subject: ${process.getuid?.() ?? 0}`,
     "roles:",
