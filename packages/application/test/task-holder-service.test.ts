@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createInterface, type Interface } from "node:readline";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   TaskClaimCollisionError,
   TaskLeaseRequiredError,
@@ -17,6 +20,32 @@ const alice = taskHolderActor({ personId: "alice", displayName: "Alice" }, null)
 const aliceCodex = taskHolderActor({ personId: "alice", displayName: "Alice" }, { kind: "agent", id: "codex" }) satisfies TaskHolderPrincipal;
 const aliceClaude = taskHolderActor({ personId: "alice", displayName: "Alice" }, { kind: "agent", id: "claude-code" }) satisfies TaskHolderPrincipal;
 const bob = taskHolderActor({ personId: "bob", displayName: "Bob" }, null) satisfies TaskHolderPrincipal;
+
+test("independent task holder services atomically claim the same task", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-holder-race-"));
+  const aliceWorker = startClaimWorker(rootDir, "alice");
+  const bobWorker = startClaimWorker(rootDir, "bob");
+  try {
+    await Promise.all([aliceWorker.next(), bobWorker.next()]);
+    const suffixes = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    for (const suffix of suffixes) {
+      const racedTaskId = `task_01KX19GEKWMEJNGSMRT6JJH6H${suffix}`;
+      aliceWorker.send(racedTaskId);
+      bobWorker.send(racedTaskId);
+      const results = await Promise.all([aliceWorker.next(), bobWorker.next()]);
+
+      assert.equal(results.filter((result) => result.ok).length, 1, JSON.stringify(results));
+      assert.deepEqual(
+        results.filter((result) => !result.ok).map((result) => result.code),
+        ["task_claim_collision"]
+      );
+    }
+  } finally {
+    aliceWorker.close();
+    bobWorker.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("claim collision exposes current holder and lease expiry", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-holder-"));
@@ -148,3 +177,40 @@ test("holder record stays in local runtime state with acquiredVia claim", async 
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+interface ClaimWorkerMessage {
+  readonly ready?: boolean;
+  readonly taskId?: string;
+  readonly ok?: boolean;
+  readonly code?: string;
+}
+
+function startClaimWorker(rootDir: string, personId: string): {
+  readonly send: (taskId: string) => void;
+  readonly next: () => Promise<ClaimWorkerMessage>;
+  readonly close: () => void;
+} {
+  const workerPath = fileURLToPath(new URL("./fixtures/task-holder-claim-worker.ts", import.meta.url));
+  const child = spawn(process.execPath, [workerPath, rootDir, personId], {
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  const lines = createInterface({ input: child.stdout, crlfDelay: Number.POSITIVE_INFINITY });
+  const iterator = lines[Symbol.asyncIterator]();
+  return {
+    send: (taskId) => child.stdin.write(`${JSON.stringify({ taskId })}\n`),
+    next: async () => {
+      const result = await iterator.next();
+      if (!result.done) return JSON.parse(result.value) as ClaimWorkerMessage;
+      throw workerExitError(child, lines);
+    },
+    close: () => {
+      lines.close();
+      child.kill();
+    }
+  };
+}
+
+function workerExitError(process: ChildProcessWithoutNullStreams, lines: Interface): Error {
+  lines.close();
+  return new Error(`task-holder claim worker exited before responding (exitCode=${process.exitCode ?? "running"})`);
+}
