@@ -34,11 +34,11 @@ function credentialFromAuthContext(
   authContext: DaemonAuthenticationContext,
   options: TransportDerivedIdentityProviderOptions
 ): CredentialRef | undefined {
-  if (typeof authContext.unixPeerCredential?.uid === "number") {
+  if (typeof authContext.unixSocketOwnerBoundary?.ownerUid === "number") {
     return {
-      kind: "unix-uid",
+      kind: "unix-socket-owner-boundary",
       issuer: options.localUnixIssuer ?? `host:${os.hostname()}`,
-      subject: String(authContext.unixPeerCredential.uid)
+      subject: String(authContext.unixSocketOwnerBoundary.ownerUid)
     };
   }
   if (authContext.sshExecUser?.username) {

@@ -18,13 +18,16 @@ import {
   defaultNamedPipePath,
   defaultUnixSocketPath,
   encodeJsonLineFrame,
+  makeTransportDerivedIdentityProvider,
+  peopleRosterFromDocument,
   serveSshExecBridge,
   serveSshTunnelTokenStream,
   windowsNamedPipeIntegrationEntry,
   type DaemonAuthenticationContext,
   type JsonRpcProtocolServer,
   type JsonRpcRequest,
-  type JsonRpcResponse
+  type JsonRpcResponse,
+  type PeopleRoster
 } from "../src/index.ts";
 
 test("unix socket transport uses single-user path and permissions on POSIX", async (t) => {
@@ -43,18 +46,92 @@ test("unix socket transport uses single-user path and permissions on POSIX", asy
   });
 
   await transport.start();
+  const directoryMode = statSync(path.dirname(socketPath)).mode & 0o777;
   const mode = statSync(socketPath).mode & 0o777;
+  assert.equal(directoryMode, 0o700);
   assert.equal(mode, 0o600);
   assert.equal(defaultUnixSocketPath("daemon test").includes(`daemon-${process.getuid?.() ?? 0}-daemon-test.sock`), true);
 
   const socket = net.createConnection(socketPath);
+  t.after(() => socket.destroy());
   const client = frameClient(socket, socket);
   client.send(hello("unix-hello"));
   const response = await client.read();
   assert.equal(resultReceipt(response).ok, true);
   assert.equal(seenAuthContexts[0]?.transportKind, "unix-socket");
-  assert.equal(seenAuthContexts[0]?.unixPeerCredential?.uid, process.getuid?.());
+  assert.equal(seenAuthContexts[0]?.unixSocketOwnerBoundary?.ownerUid, process.getuid?.());
+  assert.equal(
+    seenAuthContexts[0]?.unixSocketOwnerBoundary?.source,
+    "unix-socket-filesystem-owner-boundary"
+  );
   socket.end();
+});
+
+test("unix socket owner boundary credential resolves to its roster person", async () => {
+  const provider = makeTransportDerivedIdentityProvider(localBoundaryRoster(), { localUnixIssuer: "host:team-host" });
+  const resolved = await provider.resolveActor({
+    authContext: {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" }
+    },
+    command: { method: "repo.tasks.list", namespace: "repo", requiresRepo: true }
+  });
+
+  assert.equal(resolved.ok, true);
+  if (resolved.ok) {
+    assert.equal(resolved.actor.personId, "person_socket_owner");
+    assert.equal(resolved.actor.resolvedCredential.kind, "unix-socket-owner-boundary");
+    assert.equal(resolved.actor.resolvedCredential.subject, "501");
+  }
+});
+
+test("legacy unix peer-shaped auth context cannot mint a transport credential", async () => {
+  const provider = makeTransportDerivedIdentityProvider(localBoundaryRoster());
+  const resolved = await provider.resolveActor({
+    authContext: {
+      transportKind: "unix-socket",
+      unixPeerCredential: { uid: 501, gid: 20, source: "node-process-owner" }
+    } as unknown as DaemonAuthenticationContext,
+    command: { method: "repo.tasks.list", namespace: "repo", requiresRepo: true }
+  });
+
+  assert.equal(resolved.ok, false);
+  if (!resolved.ok) {
+    assert.equal(resolved.code, "credential_unavailable");
+    assert.equal(resolved.message, "Transport authentication context did not expose a usable credential.");
+  }
+});
+
+test("unix socket auth without an owner boundary fails explicitly", async () => {
+  const provider = makeTransportDerivedIdentityProvider(localBoundaryRoster());
+  const resolved = await provider.resolveActor({
+    authContext: { transportKind: "unix-socket" },
+    command: { method: "repo.tasks.list", namespace: "repo", requiresRepo: true }
+  });
+
+  assert.equal(resolved.ok, false);
+  if (!resolved.ok) {
+    assert.equal(resolved.code, "credential_unavailable");
+    assert.equal(resolved.message, "Transport authentication context did not expose a usable credential.");
+  }
+});
+
+test("people roster rejects legacy unix-uid credentials", () => {
+  assert.throws(() => peopleRosterFromDocument([
+    "schema: harness-people/v1",
+    "people:",
+    "  - personId: person_legacy",
+    "    displayName: Legacy Owner",
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: unix-uid",
+    "        issuer: host:team-host",
+    "        subject: 501",
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin]",
+    ""
+  ].join("\n")), /unknown credential kind: unix-uid/u);
 });
 
 test("Windows named pipe transport path and local test entry are declared", () => {
@@ -305,4 +382,22 @@ function sequenceId(): (prefix: string) => string {
 
 function fixedTime(value: string): () => string {
   return () => value;
+}
+
+function localBoundaryRoster(): PeopleRoster {
+  return peopleRosterFromDocument([
+    "schema: harness-people/v1",
+    "people:",
+    "  - personId: person_socket_owner",
+    "    displayName: Socket Owner",
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: unix-socket-owner-boundary",
+    "        issuer: host:team-host",
+    "        subject: 501",
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    ""
+  ].join("\n"));
 }
