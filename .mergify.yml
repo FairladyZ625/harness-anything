@@ -27,7 +27,6 @@ pull_request_rules:
     conditions:
       - base = main
       - label = merge-queue
-      - "-label = dequeued"
     actions:
       queue:
         name: default
