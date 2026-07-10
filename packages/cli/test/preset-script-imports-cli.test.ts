@@ -421,3 +421,55 @@ function writePolicyCapturePreset(
     ""
   ].join("\n"));
 }
+
+test("CLI preset run scripted success emits a contract-complete receipt", () => {
+  withCanonicalTempRoot((rootDir) => {
+    writeProcessPreset(rootDir, "run-receipt", "Run Receipt", "scripts/preset-action.mjs");
+    writeFile(rootDir, ".harness/presets/run-receipt/scripts/preset-action.mjs", [
+      "#!/usr/bin/env node",
+      "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+      "import path from 'node:path';",
+      "const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, 'utf8'));",
+      "mkdirSync(path.join(context.outputRoot, 'artifacts'), { recursive: true });",
+      "writeFileSync(path.join(context.outputRoot, 'artifacts/preset-result.json'), JSON.stringify({",
+      "  schema: 'script-result/v1',",
+      "  ok: true,",
+      "  rows: 2,",
+      "  report: { schema: 'run-receipt-report/v1' }",
+      "}), 'utf8');",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, ["preset", "run", "run-receipt", "scaffold", "--task", "task-1", "--allow-scripts"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.taskId, "task-1");
+    assert.equal(result.rows, 2);
+    assert.equal(result.report.schema, "run-receipt-report/v1");
+  });
+});
+
+test("CLI preset run scripted success without rows still passes the receipt contract", () => {
+  withCanonicalTempRoot((rootDir) => {
+    writeProcessPreset(rootDir, "run-no-rows", "Run No Rows", "scripts/preset-action.mjs");
+    writeFile(rootDir, ".harness/presets/run-no-rows/scripts/preset-action.mjs", [
+      "#!/usr/bin/env node",
+      "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+      "import path from 'node:path';",
+      "const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, 'utf8'));",
+      "mkdirSync(path.join(context.outputRoot, 'artifacts'), { recursive: true });",
+      "writeFileSync(path.join(context.outputRoot, 'artifacts/preset-result.json'), JSON.stringify({",
+      "  schema: 'script-result/v1',",
+      "  ok: true,",
+      "  report: { schema: 'run-no-rows-report/v1' }",
+      "}), 'utf8');",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, ["preset", "run", "run-no-rows", "scaffold", "--task", "task-1", "--allow-scripts"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.taskId, "task-1");
+    assert.equal(result.rows, undefined);
+  });
+});

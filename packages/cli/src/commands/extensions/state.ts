@@ -348,6 +348,7 @@ export function runPresetEntrypoint(
         evidenceDir,
         commandName,
         preset: presetSummary,
+        taskId,
         generated,
         scriptedResult: scriptResult.scriptedResult
       });
@@ -380,6 +381,7 @@ export function runPresetEntrypoint(
     ok: true,
     command: commandName,
     preset: publicPresetSummary(preset),
+    taskId,
     evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
     generated,
     report: evidence
