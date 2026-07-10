@@ -28,7 +28,8 @@ writeFileSync(path.join(artifactsDir, "preset-result.json"), `${JSON.stringify({
 }, null, 2)}\n`, "utf8");
 
 function normalizeInputs(raw) {
-  const repo = stringInput(raw.repo || "FairladyZ625/harness-anything");
+  const repo = stringInput(raw.repo);
+  if (!repo) fail("repo_required", "Input repo is required.");
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repo)) {
     fail("invalid_repo", "Input repo must be owner/name.");
   }

@@ -185,7 +185,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "kind": "script-inspect",
     "usage": "script inspect <id> [--json]",
     "summary": "Inspect one script-entry/v1 contract.",
-    "examples": ["harness-anything script inspect preset:publish-standard:scaffold"],
+    "examples": ["harness-anything script inspect preset:github-issue-repair:plan"],
     "parserId": "script",
     "runnerId": "extension",
     "receiptContract": {
@@ -201,7 +201,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "kind": "script-run",
     "usage": "script run <id> [--task <id>] [--input key=value] [--dry-run] [--json]",
     "summary": "Run one script-entry/v1 entry through the ScriptHost permission boundary.",
-    "examples": ["harness-anything script run preset:publish-standard:scaffold --task task_01ABC --input mode=smoke"],
+    "examples": ["harness-anything script run preset:github-issue-repair:plan --task task_01ABC --input repo=owner/name"],
     "parserId": "script",
     "runnerId": "extension",
     "receiptContract": {

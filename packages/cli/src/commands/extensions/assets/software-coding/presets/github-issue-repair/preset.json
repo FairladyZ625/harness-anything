@@ -14,7 +14,6 @@
       "reads": ["{{outputRoot}}/**"],
       "writes": ["{{outputRoot}}/**"],
       "inputs": {
-        "repo": "FairladyZ625/harness-anything",
         "state": "open",
         "limit": "10",
         "labels": "",

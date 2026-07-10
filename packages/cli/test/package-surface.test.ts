@@ -69,32 +69,18 @@ test("bundled software coding assets have consistent template and process-preset
   };
   const catalogIds = new Set(catalog.documents.map((document) => document.id));
   const selectedMaterializedPaths = new Set<string>();
-  const processPresetIds = new Set([
-    "create-milestone",
-    "doc-canon-sync",
-    "dogfood-utilization-audit",
-    "gate-architecture-retrospective",
-    "github-issue-repair",
-    "legacy-migration",
-    "lesson-sedimentation",
-    "milestone-closeout",
-    "milestone-dossier",
-    "publish-standard",
-    "release-closeout",
+  const bundledPresetIds = [
+    "standard-task",
+    "long-running-task",
+    "module",
     "subtask-expansion",
-    "version-upgrade"
-  ]);
-  const implementedProcessPresetIds = new Set([
-    "create-milestone",
-    "doc-canon-sync",
-    "dogfood-utilization-audit",
-    "gate-architecture-retrospective",
     "github-issue-repair",
     "legacy-migration",
+    "create-milestone",
     "milestone-closeout",
     "milestone-dossier",
-    "subtask-expansion"
-  ]);
+    "decision-conformance"
+  ].sort();
 
   assert.equal(catalog.schema, "template-catalog/v2");
   for (const document of catalog.documents) {
@@ -120,6 +106,7 @@ test("bundled software coding assets have consistent template and process-preset
     assert.equal(selection.path, undefined, `${selection.templateRef} must use materializeAs instead of path`);
   }
   assert.equal(vertical.scripts.some((script) => script.id === "vertical:software-coding:adr-seed" && script.metadata.purpose === "scaffold"), true);
+  assert.deepEqual([...index.presets].sort(), bundledPresetIds, "bundled preset ids must match the approved public distribution list");
 
   for (const presetId of index.presets) {
     const manifest = JSON.parse(readFileSync(path.join(assetRoot, "presets", presetId, "preset.json"), "utf8")) as PresetAsset;
@@ -129,12 +116,6 @@ test("bundled software coding assets have consistent template and process-preset
         assertKnownTemplateRef(catalogIds, selection.templateRef);
         assert.equal(profilePaths.has(selection.materializeAs), false, `duplicate ${presetId} materialized path ${selection.materializeAs}`);
         profilePaths.add(selection.materializeAs);
-      }
-    }
-    if (processPresetIds.has(presetId)) {
-      assert.equal(manifest.kind, "process-action");
-      if (!implementedProcessPresetIds.has(presetId)) {
-        assert.match(manifest.title, /Capability Smoke/u);
       }
     }
     if (manifest.kind === "process-action") {

@@ -119,7 +119,8 @@ test("CLI github issue repair preset is honest when no deterministic issue sourc
     const result = runJson(rootDir, [
       "preset", "action", "github-issue-repair", "plan",
       "--task", "task-github-issue",
-      "--allow-scripts"
+      "--allow-scripts",
+      "--input", "repo=octo/example"
     ], false);
 
     assert.equal(result.ok, false);
@@ -132,6 +133,19 @@ test("CLI github issue repair preset is honest when no deterministic issue sourc
     const markdown = readFileSync(path.join(rootDir, "harness/tasks/task-github-issue/artifacts/github-issue-repair-plan.md"), "utf8");
     assert.match(markdown, /## Intake Blocker/u);
     assert.doesNotMatch(markdown, /Agent Prompt/u);
+  });
+});
+
+test("CLI github issue repair preset requires an explicit repository input", () => {
+  withTempRoot((rootDir) => {
+    const result = runJson(rootDir, [
+      "preset", "action", "github-issue-repair", "plan",
+      "--task", "task-github-issue",
+      "--allow-scripts"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_script_failed");
   });
 });
 

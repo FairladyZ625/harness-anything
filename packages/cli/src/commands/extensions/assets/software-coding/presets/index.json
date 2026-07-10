@@ -1,21 +1,14 @@
 {
   "presets": [
     "standard-task",
-    "create-milestone",
+    "long-running-task",
     "module",
-    "legacy-migration",
-    "github-issue-repair",
-    "dogfood-utilization-audit",
-    "doc-canon-sync",
-    "milestone-closeout",
-    "lesson-sedimentation",
-    "gate-architecture-retrospective",
-    "decision-conformance",
-    "milestone-dossier",
     "subtask-expansion",
-    "version-upgrade",
-    "publish-standard",
-    "release-closeout",
-    "long-running-task"
+    "github-issue-repair",
+    "legacy-migration",
+    "create-milestone",
+    "milestone-closeout",
+    "milestone-dossier",
+    "decision-conformance"
   ]
 }

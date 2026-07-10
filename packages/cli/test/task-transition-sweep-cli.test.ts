@@ -38,7 +38,7 @@ test("CLI in_review and complete sweeps commit hand-edited closeout.md", () => {
   });
 });
 
-for (const preset of ["milestone-closeout", "lesson-sedimentation"] as const) {
+for (const preset of ["milestone-closeout"] as const) {
   test(`CLI task complete queues a distill candidate for ${preset}`, () => {
     withGitTempRoot((rootDir) => {
       const created = runJson(rootDir, [

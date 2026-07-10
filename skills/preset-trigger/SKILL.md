@@ -26,20 +26,15 @@ ha capabilities preset
 ## Available Presets
 
 - `standard-task`: General implementation or maintenance task; the default starting point.
-- `decision-conformance`: Work that must prove alignment with recorded decisions.
-- `milestone-closeout`: Milestone wrap-up checks and evidence collection.
+- `long-running-task`: Extended task that needs explicit long-running coordination.
 - `module`: Module-scoped task with registered module metadata.
 - `subtask-expansion`: Plan and fan out a parent task into concrete subtasks.
-- `long-running-task`: Extended task that needs explicit long-running coordination.
+- `github-issue-repair`: Pull a GitHub issue and prepare an evidence-backed repair plan.
 - `legacy-migration`: Legacy task intake or migration planning.
-- `dogfood-utilization-audit`: Audit whether Harness presets and artifacts are being used.
-- `doc-canon-sync`: Documentation canon synchronization work.
-- `lesson-sedimentation`: Promote useful lessons from task evidence.
-- `gate-architecture-retrospective`: Review gate architecture and enforcement posture.
+- `create-milestone`: Create a milestone root task, then scaffold and check the milestone map files.
+- `decision-conformance`: Work that must prove alignment with recorded decisions.
+- `milestone-closeout`: Milestone wrap-up checks and evidence collection.
 - `milestone-dossier`: Generate a milestone dossier from project evidence.
-- `version-upgrade`: Version upgrade planning and execution support.
-- `publish-standard`: Publish readiness and capability smoke workflow.
-- `release-closeout`: Release wrap-up and evidence checks.
 
 ## Guardrails
 

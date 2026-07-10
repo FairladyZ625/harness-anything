@@ -1,7 +1,7 @@
 ## Harness CLI (software/coding)
 
 - 通过 `ha <command>` 或 `npx harness-anything <command>` 调用。用 `ha task create --title "<title>"` 创建任务包；不要在 tasks 根下手工搭目录。
-- 创建任务前先选 preset。创建 milestone root 用 `create-milestone`，普通实现或文档修复用 `standard-task`，里程碑收尾用 `milestone-closeout`，遗留迁移用 `legacy-migration`，模块搭建用 `module`，长跑任务用 `long-running-task`，经验沉淀用 `lesson-sedimentation`，版本升级用 `version-upgrade`，发布相关用 `publish-standard` / `release-closeout`。若运营文档落后于活跃决策或 ADR，用 `doc-canon-sync` 并运行 `ha preset action doc-canon-sync check --task <id> --allow-scripts` 产出 `artifacts/doc-canon-drift.json`。拿不准就 `ha preset list`；不要什么都默认 `standard-task`。
+- 创建任务前先选 preset。普通实现或文档修复用 `standard-task`，长跑任务用 `long-running-task`，模块搭建用 `module`，拆分父任务用 `subtask-expansion`，GitHub issue intake 用 `github-issue-repair`，遗留迁移用 `legacy-migration`；`create-milestone`、`milestone-closeout`、`milestone-dossier` 与 `decision-conformance` 分别用于对应工作流。拿不准就 `ha preset list`；不要什么都默认 `standard-task`。
 - 组装写入前优先自描述：`ha <command> --help`、preset manifest、capabilities 元数据。命令支持 JSON / `--from-file` 时用结构化输入，别塞 shell 转义的长文本；不支持时用当前 flag。
 - 复核与完成：用 `ha task transition <id> in_review` 进入 review，用真实证据替换占位的 review/closeout 内容，运行 `ha task review <id>`，再 `ha task complete <id> --ci passed|failed`。缺事实、占位 review 或占位 closeout 都会 fail closed。
 - 走投影查询：`ha decision list --state active --module <key> --compact`、`ha decision show <id|E<n>>`、`ha task list --module <key>`。
