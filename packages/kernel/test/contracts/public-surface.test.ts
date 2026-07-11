@@ -19,6 +19,7 @@ const publicRuntimeSurface = [
   "DomainStatusSchema",
   "EntityRelationRecordSchema",
   "EntityRelationsSchema",
+  "ExecutionLeaseCollisionError",
   "FactRecordSchema",
   "FreshnessSchema",
   "HarnessCheckReportSchema",
@@ -95,6 +96,8 @@ const publicRuntimeSurface = [
   "entityStorageForms",
   "evaluateEntityDisposition",
   "evaluateImplicitDispositionRecommendations",
+  "executionDeclaration",
+  "executionStates",
   "explainDecisionStateTransition",
   "explainStatusTransition",
   "factConfidenceLevels",
@@ -182,6 +185,7 @@ const publicRuntimeSurface = [
   "requiredSchemaIds",
   "reservePublishIdempotencyKey",
   "resolveDaemonRepoByRoot",
+  "resolveEntityDocumentPath",
   "resolveEntityRoot",
   "resolveHarnessLayout",
   "resolveTaskSchema",
@@ -222,6 +226,7 @@ const publicRuntimeSurface = [
   "writeContentAddressedBlob",
   "writeCoordinatedPayload",
   "writeCoordinatedTaskDocuments",
+  "writeDeclaredEntityTransaction",
   "writeSessionEntity"
 ];
 

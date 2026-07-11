@@ -137,6 +137,10 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     field: "data.report",
     reason: "Only emitted when the creation path produces a structured creation report."
   }, {
+    command: "task-claim",
+    field: "data.executionId",
+    reason: "Only emitted when --execution opens a Holder V2 round."
+  }, {
     command: "status-set",
     field: "data.forced",
     reason: "Only emitted for audited terminal recovery transitions invoked with --force."
@@ -144,6 +148,14 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     command: "status-set",
     field: "data.forceAudit",
     reason: "Only emitted for audited terminal recovery transitions that append force audit evidence."
+  }, {
+    command: "status-set",
+    field: "data.executionId",
+    reason: "Only emitted for Holder V2 execution submission."
+  }, {
+    command: "status-set",
+    field: "data.report",
+    reason: "Only emitted for Holder V2 execution submission."
   }, {
     command: "status-set",
     field: "paths.primary",
