@@ -17,7 +17,7 @@ import { currentDaemonProtocolVersion } from "../protocol/method-registry.ts";
 import { type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { encodeJsonLineFrame } from "../transport/frame-codec.ts";
 import { defaultNamedPipePath } from "../transport/named-pipe.ts";
-import { defaultUnixSocketPath } from "../transport/unix-socket.ts";
+import { defaultUnixSocketPath, type UnixSocketPathOptions } from "../transport/unix-socket.ts";
 
 export const defaultDaemonAutostartTimeoutMs = 6_000;
 export const defaultDaemonIdleExitMs = 750;
@@ -80,17 +80,24 @@ export function localDaemonSocketPath(rootDir: string): string {
   return defaultUnixSocketPath(daemonIdForRoot(rootDir));
 }
 
-export function localUserDaemonSocketPath(userRoot = daemonUserRoot(), daemonId = daemonIdFromEnv()): string {
-  return defaultUnixSocketPath(daemonIdForUserRoot(userRoot, daemonId));
+export function localUserDaemonSocketPath(
+  userRoot = daemonUserRoot(),
+  daemonId = daemonIdFromEnv(),
+  pathOptions: UnixSocketPathOptions = {}
+): string {
+  return defaultUnixSocketPath(daemonIdForUserRoot(userRoot, daemonId), pathOptions);
 }
 
 export function localUserDaemonEndpoint(
   userRoot = daemonUserRoot(),
   daemonId = daemonIdFromEnv(),
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  pathOptions: Omit<UnixSocketPathOptions, "platform"> = {}
 ): string {
   const endpointId = daemonIdForUserRoot(userRoot, daemonId);
-  return platform === "win32" ? defaultNamedPipePath(endpointId) : defaultUnixSocketPath(endpointId);
+  return platform === "win32"
+    ? defaultNamedPipePath(endpointId)
+    : defaultUnixSocketPath(endpointId, { ...pathOptions, platform });
 }
 
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
