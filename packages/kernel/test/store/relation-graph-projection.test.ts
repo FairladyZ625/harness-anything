@@ -18,7 +18,7 @@ import {
 import type { EntityRelationRecord, FactRecord } from "../../src/index.ts";
 import { withTempStore } from "./helpers.ts";
 
-test("relation graph projection stores decision claim to live fact coverage in SQLite", () => {
+function assertLoadBearingCoverageProjection(): void {
   withTempStore((rootDir) => {
     writeIndex(rootDir, "task-coverage", "Task Coverage");
     writeFacts(rootDir, "task-coverage", [{
@@ -33,10 +33,12 @@ test("relation graph projection stores decision claim to live fact coverage in S
       target: "fact/task-coverage/F-DEADBEEF",
       type: "supersedes-fact"
     });
-    writeDecision(rootDir, "dec_COVER", "wm-cover", [relation]);
+    const exemptRelation = relationRecord({ source: "decision/dec_COVER/C2", target: "task/task-coverage", type: "relates" });
+    writeDecision(rootDir, "dec_COVER", "wm-cover", [relation, exemptRelation]);
 
     rebuildTaskProjection({ rootDir });
     const coverage = readDecisionFactCoverage({ rootDir, decisionId: "dec_COVER" });
+    const projection = readRelationGraphProjection({ rootDir });
 
     assert.deepEqual(coverage.rows, [{
       decisionRef: "decision/dec_COVER",
@@ -45,8 +47,11 @@ test("relation graph projection stores decision claim to live fact coverage in S
       coveringFactRef: "fact/task-coverage/F-DEADBEEF",
       relationPath: [relation.relation_id]
     }]);
+    assert.equal(projection.edges.some((edge) => edge.relationId === exemptRelation.relation_id && edge.state === "active"), true);
   });
-});
+}
+test("relation graph projection stores decision claim to live fact coverage in SQLite", assertLoadBearingCoverageProjection);
+test("claims marked load_bearing false stay out of coverage but remain valid relation endpoints", assertLoadBearingCoverageProjection);
 
 test("legacy facts without memory fields stay visible to post-merge checks and coverage", () => {
   withTempStore((rootDir) => {
@@ -657,6 +662,7 @@ function writeDecisionRelationLines(rootDir: string, decisionId: string, waterma
     "  - { id: \"O2\", title: \"Rejected\", rationale: \"Fixture\" }",
     "claims:",
     "  - { id: \"C1\", statement: \"Fixture claim\", required: true }",
+    "  - { id: \"C2\", statement: \"Non-load-bearing fixture claim\", load_bearing: false }",
     "relations:",
     ...relationLines,
     "---",

@@ -475,7 +475,11 @@ function isKnownLocalEndpoint(refText: string, refIndex: GraphRefIndex): boolean
 }
 
 function findRelationGraphDecisionAnchors(frontmatter: string): ReadonlyArray<string> {
-  return readDecisionAnchorsFromBlock(frontmatter, "claims");
+  return readFlowObjectBlock(frontmatter, "claims")
+    .split(/\r?\n/u)
+    .filter((line) => !/load_bearing:\s*false\s*\}\s*$/u.test(line))
+    .map((line) => /^\s*-\s*\{\s*id:\s*"?([A-Za-z][A-Za-z0-9_-]*)"?/u.exec(line)?.[1])
+    .filter((anchor): anchor is string => Boolean(anchor));
 }
 
 function findRelationGraphDecisionEndpointAnchors(frontmatter: string): ReadonlyArray<string> {
