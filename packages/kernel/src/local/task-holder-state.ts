@@ -6,6 +6,13 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.t
 import { localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
 import { listExecutionLeaseRefs } from "./task-holder-state-source.ts";
 import { hashExecutionLeaseToken, sameExecutionLeaseActor, sameTaskHolderPrincipal } from "./execution-lease-credential.ts";
+import {
+  ExecutionLeaseCollisionError,
+  TaskClaimCollisionError,
+  TaskLeaseRequiredError,
+  TaskReleaseNotHolderError
+} from "./task-holder-errors.ts";
+export { ExecutionLeaseCollisionError, TaskClaimCollisionError, TaskLeaseRequiredError, TaskReleaseNotHolderError } from "./task-holder-errors.ts";
 
 export type TaskHolderAcquiredVia = "claim" | "assignment";
 
@@ -94,92 +101,6 @@ export interface TaskHolderReleaseResult extends TaskHolderSnapshot {
   readonly releasedAt: string;
 }
 
-export class TaskClaimCollisionError extends Error {
-  readonly code: string = "task_claim_collision";
-  readonly taskId: string;
-  readonly holder: TaskHolderPrincipal;
-  readonly leaseExpiresAt: string;
-
-  constructor(input: { readonly taskId: string; readonly holder: TaskHolderPrincipal; readonly leaseExpiresAt: string }) {
-    super(`task ${input.taskId} is already claimed by ${input.holder.principal.personId} until ${input.leaseExpiresAt}`);
-    this.name = "TaskClaimCollisionError";
-    this.taskId = input.taskId;
-    this.holder = input.holder;
-    this.leaseExpiresAt = input.leaseExpiresAt;
-  }
-}
-
-export class ExecutionLeaseCollisionError extends TaskClaimCollisionError {
-  override readonly code = "execution_lease_collision";
-  readonly executionId: string;
-
-  constructor(input: { readonly taskId: string; readonly executionId: string; readonly holder: TaskHolderPrincipal; readonly leaseExpiresAt: string }) {
-    super(input);
-    this.name = "ExecutionLeaseCollisionError";
-    this.executionId = input.executionId;
-  }
-}
-
-export class TaskLeaseRequiredError extends Error {
-  readonly code = "task_lease_required";
-  readonly taskId: string;
-  readonly principal: TaskHolderPrincipal;
-  readonly holder: TaskHolderPrincipal | null;
-  readonly leaseExpiresAt: string | null;
-  readonly orphan: boolean;
-
-  constructor(input: {
-    readonly taskId: string;
-    readonly principal: TaskHolderPrincipal;
-    readonly holder: TaskHolderPrincipal | null;
-    readonly leaseExpiresAt: string | null;
-    readonly orphan: boolean;
-  }) {
-    const current = input.holder
-      ? `current holder ${input.holder.principal.personId} until ${input.leaseExpiresAt ?? "unknown"}`
-      : input.orphan
-        ? "current holder lease is orphaned"
-        : "no current holder";
-    super(`task ${input.taskId} requires an active lease for ${input.principal.principal.personId}; ${current}`);
-    this.name = "TaskLeaseRequiredError";
-    this.taskId = input.taskId;
-    this.principal = input.principal;
-    this.holder = input.holder;
-    this.leaseExpiresAt = input.leaseExpiresAt;
-    this.orphan = input.orphan;
-  }
-}
-
-export class TaskReleaseNotHolderError extends Error {
-  readonly code = "task_release_not_holder";
-  readonly taskId: string;
-  readonly principal: TaskHolderPrincipal;
-  readonly holder: TaskHolderPrincipal | null;
-  readonly leaseExpiresAt: string | null;
-  readonly orphan: boolean;
-
-  constructor(input: {
-    readonly taskId: string;
-    readonly principal: TaskHolderPrincipal;
-    readonly holder: TaskHolderPrincipal | null;
-    readonly leaseExpiresAt: string | null;
-    readonly orphan: boolean;
-  }) {
-    const current = input.holder
-      ? `current holder ${input.holder.principal.personId} until ${input.leaseExpiresAt ?? "unknown"}`
-      : input.orphan
-        ? "current holder lease is orphaned"
-        : "no current holder";
-    super(`task ${input.taskId} is not held by ${input.principal.principal.personId}; ${current}`);
-    this.name = "TaskReleaseNotHolderError";
-    this.taskId = input.taskId;
-    this.principal = input.principal;
-    this.holder = input.holder;
-    this.leaseExpiresAt = input.leaseExpiresAt;
-    this.orphan = input.orphan;
-  }
-}
-
 export interface TaskHolderServiceOptions {
   readonly rootInput: HarnessLayoutInput;
   readonly now?: () => Date;
@@ -213,6 +134,7 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       if (snapshot.effectiveHolder && !sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) {
         throw new TaskClaimCollisionError({
           taskId: input.taskId,
+          principal: input.principal,
           holder: snapshot.effectiveHolder,
           leaseExpiresAt: snapshot.leaseExpiresAt ?? ""
         });
@@ -242,11 +164,11 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       const at = now();
       const current = readHolderRecord(options.rootInput, input.taskId);
       const snapshot = holderSnapshot(input.taskId, current, at);
-      if (current?.schema !== "task-holder/v1" || !snapshot.effectiveHolder || !sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) {
+      if (current?.schema !== "task-holder/v1" || !current.holder || !sameTaskHolderPrincipal(current.holder, input.principal)) {
         throw new TaskReleaseNotHolderError({
           taskId: input.taskId,
           principal: input.principal,
-          holder: snapshot.effectiveHolder,
+          holder: current?.holder ?? null,
           leaseExpiresAt: snapshot.leaseExpiresAt,
           orphan: snapshot.orphan
         });
@@ -266,21 +188,34 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       return {
         ...holderSnapshot(input.taskId, record, at),
         released: true,
-        previousHolder: snapshot.effectiveHolder,
+        previousHolder: current.holder,
         releasedAt
       } satisfies TaskHolderReleaseResult;
     }),
-    assertActiveLease: async (input) => {
-      const snapshot = holderSnapshot(input.taskId, readHolderRecord(options.rootInput, input.taskId), now());
+    assertActiveLease: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
+      const at = now();
+      const current = readHolderRecord(options.rootInput, input.taskId);
+      const snapshot = holderSnapshot(input.taskId, current, at);
+      if (current?.schema === "task-holder/v1" && current.holder && sameTaskHolderPrincipal(current.holder, input.principal)) {
+        const updatedAt = at.toISOString();
+        writeHolderRecord(options.rootInput, {
+          ...current,
+          holder: input.principal,
+          leaseExpiresAt: new Date(at.getTime() + leaseDurationMs(current, ttl(undefined))).toISOString(),
+          updatedAt,
+          version: holderVersion(updatedAt)
+        });
+        return;
+      }
       if (snapshot.effectiveHolder && sameTaskHolderPrincipal(snapshot.effectiveHolder, input.principal)) return;
       throw new TaskLeaseRequiredError({
         taskId: input.taskId,
         principal: input.principal,
-        holder: snapshot.effectiveHolder,
+        holder: current?.holder ?? null,
         leaseExpiresAt: snapshot.leaseExpiresAt,
         orphan: snapshot.orphan
       });
-    },
+    }),
     reserveExecution: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
       const at = now();
       const current = readHolderRecord(options.rootInput, input.taskId);
@@ -288,6 +223,7 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       if (snapshot.effectiveHolder) {
         throw new ExecutionLeaseCollisionError({
           taskId: input.taskId,
+          principal: input.principal,
           executionId: "executionId" in current! ? current.executionId : "unknown",
           holder: snapshot.effectiveHolder,
           leaseExpiresAt: snapshot.leaseExpiresAt ?? ""
@@ -574,6 +510,12 @@ function normalizeTtlMs(value: number): number {
   return Math.floor(value);
 }
 
+function leaseDurationMs(record: TaskHolderRecord, fallback: number): number {
+  if (!record.leaseExpiresAt) return fallback;
+  const duration = Date.parse(record.leaseExpiresAt) - Date.parse(record.updatedAt);
+  return Number.isFinite(duration) && duration > 0 ? duration : fallback;
+}
+
 function requireExecutionCredential(
   record: AnyTaskHolderRecord | null,
   input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal },
@@ -587,7 +529,7 @@ function requireExecutionCredential(
   if (!valid) throw new TaskLeaseRequiredError({
     taskId: input.taskId,
     principal: input.principal,
-    holder: effectiveHolder(record, at),
+    holder: record?.holder ?? null,
     leaseExpiresAt: record?.leaseExpiresAt ?? null,
     orphan: Boolean(record?.holder && !effectiveHolder(record, at))
   });

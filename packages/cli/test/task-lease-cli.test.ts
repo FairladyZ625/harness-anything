@@ -39,6 +39,37 @@ test("workspace lease configuration rejects unclaimed writes and permits the cla
   });
 });
 
+test("configured writes recover the caller's orphaned lease but reject another principal", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessIdentityWithLeaseEnforcement(rootDir, "person_zeyu", "Zeyu Li", true);
+    const created = runJson(rootDir, ["new-task", "--title", "Recover Orphaned Lease"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+
+    runJson(rootDir, ["task", "claim", taskId, "--ttl-ms", "60000"], true, {
+      HARNESS_ACTOR: "agent:claude-code"
+    });
+    expireTaskHolder(rootDir, taskId);
+
+    const recovered = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "write recovered lease"], true, {
+      HARNESS_ACTOR: "agent:codex"
+    });
+    assert.equal(recovered.ok, true);
+    const holder = readTaskHolder(rootDir, taskId);
+    assert.equal(holder.holder.principal.personId, "person_zeyu");
+    assert.deepEqual(holder.holder.executor, { kind: "agent", id: "codex" });
+    assert.ok(Date.parse(holder.leaseExpiresAt) > Date.now());
+
+    writeHarnessIdentityWithLeaseEnforcement(rootDir, "person_alice", "Alice", true);
+    const rejected = runJson(rootDir, ["task", "progress", "append", taskId, "--text", "must not cross principal"], false, {
+      HARNESS_ACTOR: "agent:claude-code"
+    });
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error?.hint ?? "", /caller principal=person_alice, executor=agent:claude-code/u);
+    assert.match(rejected.error?.hint ?? "", /current holder principal=person_zeyu, executor=agent:codex/u);
+    assert.match(rejected.error?.hint ?? "", /lease status active/u);
+  });
+});
+
 test("explicit false environment override disables configured lease enforcement", () => {
   withTempRoot((rootDir) => {
     writeHarnessLeaseEnforcement(rootDir, true);
@@ -260,6 +291,22 @@ function writeHarnessLeaseEnforcement(rootDir: string, enabled: boolean): void {
   ]);
 }
 
+function writeHarnessIdentityWithLeaseEnforcement(
+  rootDir: string,
+  personId: string,
+  displayName: string,
+  enabled: boolean
+): void {
+  writeHarnessConfig(rootDir, [
+    "settings:",
+    "  identity:",
+    `    personId: ${personId}`,
+    `    displayName: ${displayName}`,
+    "  tasks:",
+    `    leaseEnforcement: ${enabled}`
+  ]);
+}
+
 function writeHarnessConfig(rootDir: string, extraLines: ReadonlyArray<string> = []): void {
   const harnessRoot = path.join(rootDir, "harness");
   mkdirSync(harnessRoot, { recursive: true });
@@ -279,6 +326,19 @@ function existsTaskHolder(rootDir: string, taskId: string): boolean {
   } catch {
     return false;
   }
+}
+
+function readTaskHolder(rootDir: string, taskId: string): Record<string, any> {
+  return JSON.parse(readFileSync(path.join(rootDir, ".harness/task-holders", `${taskId}.json`), "utf8")) as Record<string, any>;
+}
+
+function expireTaskHolder(rootDir: string, taskId: string): void {
+  const record = readTaskHolder(rootDir, taskId);
+  writeFileSync(path.join(rootDir, ".harness/task-holders", `${taskId}.json`), JSON.stringify({
+    ...record,
+    leaseExpiresAt: "2000-01-01T00:00:00.000Z",
+    updatedAt: "1999-12-31T23:59:00.000Z"
+  }), "utf8");
 }
 
 function writePeopleRoster(rootDir: string, personId: string, displayName: string): void {
