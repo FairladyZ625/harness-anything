@@ -43,6 +43,6 @@
     "playwright-core": "1.61.1",
     "tailwindcss": "^4.3.2",
     "vite": "8.1.4",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   }
 }
