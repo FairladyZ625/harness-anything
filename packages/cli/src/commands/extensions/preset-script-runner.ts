@@ -8,7 +8,7 @@ import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts
 import type { CliResult } from "../../cli/types.ts";
 import type { ResolvedPreset } from "./state.ts";
 import type { ScriptEntry } from "./script-host.ts";
-import { resolvePresetPolicy, type ResolvedPresetPolicy } from "./preset-policy.ts";
+import { resolveScriptPolicy, type PresetPolicyResolution, type ResolvedPresetPolicy } from "./preset-policy.ts";
 import { toSlash } from "./machine-evidence-registry.ts";
 import { executeScript } from "./script-executor.ts";
 import {
@@ -68,6 +68,7 @@ function presetScriptPurpose(entrypointName: string): ScriptEntry["metadata"]["p
 export function runScriptEntrypoint(
   rootInput: HarnessLayoutInput,
   preset: ResolvedPreset,
+  presets: ReadonlyArray<ResolvedPreset>,
   presetSummary: unknown,
   entrypoint: ScriptEntrypoint,
   entrypointName: string,
@@ -91,7 +92,7 @@ export function runScriptEntrypoint(
       }
     };
   }
-  const outputRoot = taskPackagePath(rootInput, taskId), policy = resolvePresetPolicy(rootInput, preset);
+  const outputRoot = taskPackagePath(rootInput, taskId), policy = resolveRunnerScriptPolicy(rootInput, presets, preset);
   const writeScope = resolveDeclaredWriteScopes(entrypoint.writes, layout, outputRoot);
   const readScope = entrypoint.reads
     ? resolveDeclaredReadScopes(entrypoint.reads, layout, outputRoot)
@@ -181,6 +182,26 @@ export function runScriptEntrypoint(
     generated: execution.generated.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
     scriptedResult: readScriptedResult(outputRoot)
   };
+}
+
+function resolveRunnerScriptPolicy(
+  rootInput: HarnessLayoutInput,
+  presets: ReadonlyArray<ResolvedPreset>,
+  preset: ResolvedPreset
+): PresetPolicyResolution {
+  for (const capability of preset.manifest.capabilityImports) {
+    if (!capability.id.startsWith("vertical:")) continue;
+    const verticalPolicy = resolveScriptPolicy(rootInput, presets, {
+      source: "vertical",
+      scriptId: capability.id
+    });
+    if (!verticalPolicy.ok) return verticalPolicy;
+  }
+  return resolveScriptPolicy(rootInput, presets, {
+    source: "preset",
+    scriptId: `preset:${preset.manifest.id}`,
+    presetId: preset.manifest.id
+  });
 }
 
 function buildPresetContext(options: {

@@ -139,6 +139,32 @@ test("policy envelope capability can be reused by a non-native preset id", () =>
   });
 });
 
+test("host and preset runner reject the same conflicting vertical policy owners", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const sharedCapability = "vertical:software-coding:repository-audit";
+    for (const presetId of ["policy-owner-a", "policy-owner-b"]) {
+      writePolicyCapturePreset(rootDir, presetId, undefined, [
+        { id: sharedCapability, kind: "checker", version: "1", required: true },
+        { id: PRESET_POLICY_SCHEMA_CREATE_MILESTONE, kind: "command", version: "1", required: true }
+      ]);
+      writeFile(rootDir, `harness/policies/presets/${presetId}.policy.json`, JSON.stringify({
+        schema: "preset-policy/create-milestone/v1",
+        presetId,
+        rules: {}
+      }));
+    }
+
+    const host = runJson(rootDir, ["script", "run", sharedCapability], false);
+    const runner = runJson(rootDir, [
+      "preset", "action", "policy-owner-a", "capture", "--task", "task-policy-conflict", "--allow-scripts"
+    ], false);
+
+    assert.equal(host.ok, false);
+    assert.equal(runner.ok, false);
+    assert.deepEqual(runner.error, host.error);
+  });
+});
+
 test("missing policy is public-default null while malformed, unknown-key, wrong-preset, and escape fixtures fail closed", () => {
   withCanonicalTempRoot((rootDir) => {
     writePolicyCapturePreset(rootDir, "create-milestone");
@@ -339,7 +365,8 @@ function writeProcessPreset(rootDir: string, presetId: string, title: string, co
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: { ...process.env, HARNESS_ACTOR: "agent:test" }
     });
     const parsed = JSON.parse(output) as Record<string, any>;
     if (expectSuccess) assert.equal(parsed.ok, true, output);

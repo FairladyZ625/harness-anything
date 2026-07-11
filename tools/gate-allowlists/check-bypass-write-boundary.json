@@ -595,12 +595,12 @@
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#mkdirSync@122:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#mkdirSync@123:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@124:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@125:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
@@ -610,27 +610,27 @@
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@155:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@157:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#mkdirSync@87:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#mkdirSync@92:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@155:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@160:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@156:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@161:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@90:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@95:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       }

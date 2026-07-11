@@ -339,7 +339,7 @@ export function runPresetEntrypoint(
       });
     }
     const presetSummary = publicPresetSummary(preset);
-    const scriptResult = runScriptEntrypoint(rootInput, preset, presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
+    const scriptResult = runScriptEntrypoint(rootInput, preset, discoverPresets(rootInput), presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
     if (!scriptResult.ok) return scriptResult.result;
     generated.push(...scriptResult.generated);
     if (scriptResult.scriptedResult) {

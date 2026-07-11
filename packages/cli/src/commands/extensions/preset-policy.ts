@@ -169,6 +169,36 @@ export type PresetPolicyResolution =
   | { readonly ok: true; readonly policy: ResolvedPresetPolicy | null }
   | { readonly ok: false; readonly error: CliError };
 
+export interface ScriptPolicySubject {
+  readonly source: "user" | "vertical" | "preset";
+  readonly scriptId: string;
+  readonly presetId?: string;
+}
+
+export function resolveScriptPolicy(
+  rootInput: HarnessLayoutInput,
+  presets: ReadonlyArray<ResolvedPreset>,
+  subject: ScriptPolicySubject
+): PresetPolicyResolution {
+  if (subject.source === "preset") {
+    const owner = presets.find((preset) => preset.manifest.id === subject.presetId);
+    return owner ? resolvePresetPolicy(rootInput, owner) : { ok: true, policy: null };
+  }
+  if (subject.source !== "vertical") return { ok: true, policy: null };
+
+  const owners = presets.filter((preset) =>
+    preset.manifest.policyPath &&
+    preset.manifest.capabilityImports.some((capability) => capability.id === subject.scriptId)
+  );
+  if (owners.length === 0) return { ok: true, policy: null };
+  if (owners.length > 1) {
+    return invalidPolicy(
+      `Script ${subject.scriptId} has multiple policy-owning presets: ${owners.map((owner) => owner.manifest.id).join(", ")}.`
+    );
+  }
+  return resolvePresetPolicy(rootInput, owners[0]);
+}
+
 export function resolvePresetPolicy(rootInput: HarnessLayoutInput, preset: ResolvedPreset): PresetPolicyResolution {
   const declaredPath = preset.manifest.policyPath;
   if (!declaredPath) return { ok: true, policy: null };
