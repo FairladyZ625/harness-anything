@@ -60,6 +60,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/kernel/test/store/crash-before-watermark.test.ts": 892.2,
   "packages/kernel/test/store/daemon-registry.test.ts": 190.1,
   "packages/kernel/test/store/daemon-runtime.test.ts": 2829.0,
+  "packages/kernel/test/store/entity-registry-substrate.test.ts": 500.0,
   "packages/kernel/test/store/entity-disposition.test.ts": 487.3,
   "packages/kernel/test/store/global-committer-lock.test.ts": 1579.8,
   "packages/kernel/test/store/journal-idempotency.test.ts": 574.4,
@@ -133,6 +134,7 @@ export const integrationTestShards = Object.freeze([
       "packages/cli/test/preset-script-imports-cli.test.ts",
       "packages/cli/test/diagnostics-cli.test.ts",
       "packages/kernel/test/store/entity-disposition.test.ts",
+      "packages/kernel/test/store/entity-registry-substrate.test.ts",
       "packages/kernel/test/store/daemon-registry.test.ts"
     ])
   }),

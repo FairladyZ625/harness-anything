@@ -19,7 +19,7 @@
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@162:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@181:9",
         "ref": "task_01KX68A7MK6HH9TM16T95M8ZZK",
         "reason": "P3-1 hard-delete apply relocated from coordinator to the op transaction plan; same coordinator-executed durable write path, not a bypass caller."
       },
@@ -224,27 +224,27 @@
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@367:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@418:9",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@390:3",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@441:3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@402:5",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@453:5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@370:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@421:9",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#writeFileSync@368:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#writeFileSync@419:9",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       }

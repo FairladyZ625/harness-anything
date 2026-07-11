@@ -167,6 +167,7 @@ export const testTierManifest = {
     "packages/kernel/test/store/conditional-delta-writes.test.ts",
     "packages/kernel/test/store/daemon-registry.test.ts",
     "packages/kernel/test/store/daemon-runtime.test.ts",
+    "packages/kernel/test/store/entity-registry-substrate.test.ts",
     "packages/kernel/test/store/entity-disposition.test.ts",
     "packages/kernel/test/store/global-committer-lock.test.ts",
     "packages/kernel/test/store/journal-idempotency.test.ts",

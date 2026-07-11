@@ -1,5 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import {
+  decodeEntityPathDeclaration,
+  resolveEntityDocumentPath,
+  type DeclaredEntityDocumentWritePayload
+} from "../entity/declaration.ts";
 import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 import {
@@ -48,6 +53,20 @@ export interface WriteTransactionPlan {
 }
 
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
+  if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
+    return {
+      touchedPaths: (rootInput) => [declaredEntityDocument(rootInput, op).targetPath],
+      documentWrites: () => [],
+      apply: (rootInput) => {
+        const document = declaredEntityDocument(rootInput, op);
+        writeFileDurably(document.targetPath, document.body);
+        return null;
+      },
+      validate: (rootInput) => {
+        declaredEntityDocument(rootInput, op);
+      }
+    };
+  }
   if (decisionWriteKinds.has(op.kind)) {
     const taskWrites = decisionPayloadTaskWrites(op.payload);
     return {
@@ -262,6 +281,38 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       toDocumentWrite(op);
     }
   };
+}
+
+function hasDeclaredEntityDocument(payload: unknown): payload is DeclaredEntityDocumentWritePayload {
+  return Boolean(payload && typeof payload === "object" && "entityDocument" in payload);
+}
+
+function declaredEntityDocument(
+  rootInput: HarnessLayoutInput,
+  op: WriteOp
+): { readonly targetPath: string; readonly body: string } {
+  if (!hasDeclaredEntityDocument(op.payload)) rejectWrite(`${op.kind} op requires entityDocument payload`, op.entityId);
+  const document = op.payload.entityDocument;
+  if (!document || typeof document !== "object" || typeof document.body !== "string" || !isStringRecord(document.identity)) {
+    rejectWrite(`${op.kind} op has malformed entityDocument payload`, op.entityId);
+  }
+  try {
+    const declaration = decodeEntityPathDeclaration(document.declaration);
+    if (!op.entityId.startsWith(`entity/${declaration.kind}/`)) {
+      rejectWrite(`entityDocument kind does not match write entity: ${op.entityId}`, op.entityId);
+    }
+    return {
+      targetPath: resolveEntityDocumentPath(rootInput, declaration, document.identity),
+      body: document.body
+    };
+  } catch (error) {
+    rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
+  }
+}
+
+function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string"));
 }
 
 export function validateWriteTransaction(rootInput: HarnessLayoutInput, op: WriteOp): void {
