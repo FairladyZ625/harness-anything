@@ -30,6 +30,7 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
       return runTaskRelease(context, action);
     case "status-set":
       if (action.executionSubmission) return runExecutionSubmit(context, action);
+      if (action.status === "in_review") return runExecutionAwareInReview(context, action);
       return runStatusSet(context, action.taskId, action.status, action.force, action.reason);
     case "progress-append":
       return runProgressAppend(context, action);
@@ -53,6 +54,26 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
       return runTaskRelate(context, action);
   }
 };
+
+function runExecutionAwareInReview(
+  context: CommandRunnerContext,
+  action: Extract<TaskLifecycleAction, { readonly kind: "status-set" }>
+): Effect.Effect<CliResult, EngineError | WriteError> {
+  return Effect.promise(() => context.taskHolderService.holder({ taskId: action.taskId })).pipe(
+    Effect.flatMap((snapshot) => snapshot.holder?.schema === "task-holder/v2"
+      ? Effect.succeed({
+          ok: false,
+          command: "status-set",
+          taskId: action.taskId,
+          status: "in_review",
+          error: cliError(
+            CliErrorCode.WriteRejected,
+            "Active Holder V2 execution must submit through the Execution saga; provide --lease-token and --summary."
+          )
+        } satisfies CliResult)
+      : runStatusSet(context, action.taskId, action.status, action.force, action.reason))
+  );
+}
 
 function runProgressAppend(
   context: CommandRunnerContext,

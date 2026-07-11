@@ -4,6 +4,7 @@ import { hostname } from "node:os";
 import path from "node:path";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
+import { listExecutionLeaseRefs } from "./task-holder-state-source.ts";
 import { hashExecutionLeaseToken, sameExecutionLeaseActor, sameTaskHolderPrincipal } from "./execution-lease-credential.ts";
 
 export type TaskHolderAcquiredVia = "claim" | "assignment";
@@ -195,6 +196,7 @@ export interface TaskHolderService {
   readonly releaseExecution: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal }) => Promise<TaskHolderReleaseResult>;
   readonly assertExecutionLease: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
   readonly reconcileExecution: (input: { readonly taskId: string; readonly executionId: string; readonly authoredState: "active" | "submitted" | "missing" }) => Promise<void>;
+  readonly executionLeases: () => Promise<ReadonlyArray<Pick<ExecutionLeaseRecord, "taskId" | "executionId">>>;
 }
 
 const defaultTtlMs = 30 * 60 * 1_000;
@@ -339,7 +341,8 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         return;
       }
       writeHolderRecord(options.rootInput, emptyHolderRecord(input.taskId, at));
-    })
+    }),
+    executionLeases: async () => listExecutionLeaseRefs(options.rootInput)
   };
 }
 

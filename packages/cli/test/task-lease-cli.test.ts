@@ -138,21 +138,54 @@ test("execution claim and submit use Holder V2 without changing legacy task clai
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Execution Saga"]);
     const claimed = runJson(rootDir, ["task", "claim", created.taskId, "--execution"], true, {
-      HARNESS_ACTOR: "agent:test"
+      HARNESS_ACTOR: "agent:test",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "codex-primary-session",
+      CODEX_SESSION_ID: "codex-primary-session"
     });
 
     assert.match(claimed.executionId, /^exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u);
     assert.match(claimed.report.leaseToken, /^[0-9a-f]{64}$/u);
     assert.deepEqual(claimed.report.actor.executor, { kind: "agent", id: "test" });
+    const execution = JSON.parse(readFileSync(path.join(
+      rootDir,
+      `harness/tasks/${created.taskId}-execution-saga/executions/${claimed.executionId}.md`
+    ), "utf8"));
+    assert.equal(execution.session_bindings[0]?.role, "primary");
+    assert.equal(execution.session_bindings[0]?.session_ref, "session/codex-primary-session");
+    assert.equal(execution.session_bindings[0]?.archive_status, "pending");
+
+    const homeDir = path.join(rootDir, "home");
+    const codexLogs = path.join(homeDir, ".codex/sessions");
+    mkdirSync(codexLogs, { recursive: true });
+    writeFileSync(path.join(codexLogs, "codex-primary-session.jsonl"), [
+      JSON.stringify({
+        timestamp: "2026-07-11T00:00:01.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "implement F4" }
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-11T00:00:02.000Z",
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "F4 ready" }] }
+      })
+    ].join("\n"), "utf8");
 
     const submitted = runJson(rootDir, [
       "task", "transition", created.taskId, "in_review",
-      "--execution-id", claimed.executionId,
       "--lease-token", claimed.report.leaseToken,
       "--summary", "ready for review",
       "--verification", "node:test",
       "--output", "commit:abc123"
-    ], true, { HARNESS_ACTOR: "agent:test" });
+    ], true, {
+      HARNESS_ACTOR: "agent:test",
+      HOME: homeDir,
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "codex-primary-session",
+      CODEX_SESSION_ID: "codex-primary-session"
+    });
 
     assert.equal(submitted.status, "in_review");
     assert.equal(submitted.report.leaseReleased, true);

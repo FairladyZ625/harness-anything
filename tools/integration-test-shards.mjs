@@ -45,6 +45,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/runtime-event-cli.test.ts": 5222.8,
   "packages/cli/test/self-host-git-boundary-cli.test.ts": 777.2,
   "packages/cli/test/session-cli.test.ts": 3130.5,
+  "packages/cli/test/submit-lifecycle-cli.test.ts": 7202.5,
   "packages/cli/test/settings-cli.test.ts": 20342.2,
   "packages/cli/test/task-archive-distill-cli.test.ts": 15682.0,
   "packages/cli/test/task-delete-disposition-cli.test.ts": 15148.2,
@@ -175,7 +176,8 @@ export const integrationTestShards = Object.freeze([
       "tools/check-import-boundaries.test.mjs",
       "packages/cli/test/gui-cli.test.ts",
       "packages/kernel/test/store/sqlite-rebuild.test.ts",
-      "packages/kernel/test/store/relation-graph-toctou.test.ts"
+      "packages/kernel/test/store/relation-graph-toctou.test.ts",
+      "packages/cli/test/submit-lifecycle-cli.test.ts"
     ])
   }),
   Object.freeze({

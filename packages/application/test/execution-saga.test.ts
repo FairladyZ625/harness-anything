@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Effect } from "effect";
 import {
   ExecutionLeaseCollisionError,
   executionDeclaration,
   makeCoordinatedExecutionAuthoredStore,
+  makeExecutionReservationReconciler,
   makeJournaledWriteCoordinator,
   makeMarkdownArtifactStore,
   makeExecutionSagaService,
@@ -14,6 +16,7 @@ import {
   resolveEntityDocumentPath,
   taskHolderActor
 } from "../src/index.ts";
+import { writeContentAddressedBlob, writeSessionEntity } from "../../kernel/src/index.ts";
 import type { ExecutionAuthoredStore, ExecutionRecord } from "../src/index.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
@@ -100,7 +103,31 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
       now: () => "2026-07-11T00:00:00.000Z"
     });
 
-    const claimed = await saga.claim({ taskId, principal: aliceCodex });
+    const primarySession = {
+      runtime: "codex" as const,
+      sessionId: "codex-real-primary",
+      source: "runtime" as const,
+      detectedAt: "2026-07-11T00:00:00.000Z"
+    };
+    const claimed = await saga.claim({ taskId, principal: aliceCodex, primarySession });
+    const bodyRef = writeContentAddressedBlob(rootDir, "# finalized session\n", "text/markdown; charset=utf-8");
+    Effect.runSync(writeSessionEntity(coordinator, rootDir, {
+      schema: "session-entity/v1",
+      sessionId: primarySession.sessionId,
+      lifecycle: "sealed",
+      archiveStatus: "complete",
+      runtime: "codex",
+      source: "runtime",
+      detectedAt: primarySession.detectedAt,
+      exportedAt: "2026-07-11T00:00:01.000Z",
+      bodyRef: { store: "authored-cas/v1", ...bodyRef },
+      snapshot: {
+        capturedAt: "2026-07-11T00:00:01.000Z",
+        completeness: "complete",
+        captureRange: { messageCount: 1 },
+        privacyScan: { scannerVersion: "test", passed: true, findings: [] }
+      }
+    }));
     await saga.submitForReview({
       taskId,
       executionId,
@@ -148,6 +175,72 @@ test("claim releases its reservation when the authored Execution transaction fai
     await assert.rejects(saga.claim({ taskId, principal: aliceCodex }), /authored open failed/u);
     assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
     assert.equal(authored.executions.size, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("reservation reconciler converges an orphan Execution reservation without authored writes", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-startup-reconcile-"));
+  try {
+    const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-startup-reconcile`);
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    await holder.reserveExecution({ taskId, executionId, principal: aliceCodex });
+    const authored = makeCoordinatedExecutionAuthoredStore({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, actor: { kind: "system", id: "reconciler-test" } }),
+      artifactStore: makeMarkdownArtifactStore({ rootDir })
+    });
+    const reconcile = makeExecutionReservationReconciler({
+      rootInput: rootDir,
+      taskHolderService: holder,
+      authoredStore: authored
+    });
+
+    await reconcile();
+    assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
+    assert.equal(existsSync(path.join(taskRoot, "executions", `${executionId}.md`)), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("submit-for-review rejects an Execution without a finalized primary Session", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-primary-gate-"));
+  try {
+    const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-primary-gate`);
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "test" } });
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const saga = makeExecutionSagaService({
+      taskHolderService: holder,
+      authoredStore: makeCoordinatedExecutionAuthoredStore({
+        rootInput: rootDir,
+        coordinator,
+        artifactStore: makeMarkdownArtifactStore({ rootDir })
+      }),
+      generateExecutionId: () => executionId,
+      now: () => "2026-07-11T00:00:00.000Z"
+    });
+    const claimed = await saga.claim({ taskId, principal: aliceCodex });
+
+    await assert.rejects(saga.submitForReview({
+      taskId,
+      executionId,
+      leaseToken: claimed.leaseToken,
+      principal: aliceCodex,
+      submission: {
+        summary: "missing primary",
+        verification: [],
+        residualRisks: [],
+        outputs: []
+      }
+    }), /primary Session binding is required; attach the current session through ExecutionSagaService\.attachSession/u);
+    assert.equal((await holder.holder({ taskId })).holder?.schema, "task-holder/v2");
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "active");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -204,6 +297,77 @@ test("submit-for-review changes Execution and Task atomically before releasing t
   }
 });
 
+test("Execution session bindings can only be attached while the Execution is active", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-attach-"));
+  try {
+    const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-attach`);
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const authored = makeCoordinatedExecutionAuthoredStore({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "test" } }),
+      artifactStore: makeMarkdownArtifactStore({ rootDir })
+    });
+    const saga = makeExecutionSagaService({
+      taskHolderService: holder,
+      authoredStore: authored,
+      generateExecutionId: () => executionId,
+      now: () => "2026-07-11T00:00:00.000Z"
+    });
+    const claimed = await saga.claim({ taskId, principal: aliceCodex });
+
+    await saga.attachSession({
+      taskId,
+      executionId,
+      leaseToken: claimed.leaseToken,
+      principal: aliceCodex,
+      session: {
+        runtime: "codex",
+        sessionId: "codex-primary-session",
+        source: "runtime",
+        detectedAt: "2026-07-11T00:00:00.000Z"
+      },
+      role: "primary"
+    });
+    const executionPath = path.join(taskRoot, "executions", `${executionId}.md`);
+    const activeExecution = JSON.parse(readFileSync(executionPath, "utf8")) as ExecutionRecord;
+    assert.deepEqual(activeExecution.session_bindings, [{
+      binding_id: "primary:codex-primary-session",
+      session_ref: "session/codex-primary-session",
+      role: "primary",
+      archive_status: "pending",
+      attached_at: "2026-07-11T00:00:00.000Z",
+      session: {
+        runtime: "codex",
+        sessionId: "codex-primary-session",
+        source: "runtime",
+        detectedAt: "2026-07-11T00:00:00.000Z"
+      }
+    }]);
+
+    writeFileSync(executionPath, `${JSON.stringify({
+      ...activeExecution,
+      state: "submitted",
+      submitted_at: "2026-07-11T00:01:00.000Z"
+    }, null, 2)}\n`, "utf8");
+    await assert.rejects(authored.attachSession({
+      taskId,
+      executionId,
+      binding: {
+        binding_id: "subagent:late-session",
+        session_ref: "session/late-session",
+        role: "subagent",
+        archive_status: "pending",
+        attached_at: "2026-07-11T00:01:00.000Z",
+        session: null
+      }
+    }), /execution is not active/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {}): ExecutionAuthoredStore & {
   readonly executions: Map<string, ExecutionRecord>;
   taskStatus: "planned" | "active" | "in_review";
@@ -220,6 +384,14 @@ function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {}): Exe
       if (executions.has(input.execution.execution_id)) throw new Error("execution already exists");
       executions.set(input.execution.execution_id, input.execution);
       store.taskStatus = "active";
+    },
+    attachSession: async (input) => {
+      const current = executions.get(input.executionId);
+      if (!current || current.state !== "active") throw new Error("execution is not active");
+      executions.set(input.executionId, {
+        ...current,
+        session_bindings: [...current.session_bindings, input.binding]
+      });
     },
     submitForReview: async (input) => {
       if (store.failSubmit) throw new Error("authored submit failed");
