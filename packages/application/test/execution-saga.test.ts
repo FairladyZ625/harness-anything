@@ -9,9 +9,11 @@ import {
   executionDeclaration,
   makeCoordinatedExecutionAuthoredStore,
   makeExecutionReservationReconciler,
+  makeExecutionCompletionService,
   makeJournaledWriteCoordinator,
   makeMarkdownArtifactStore,
   makeExecutionSagaService,
+  makeReviewExecutionService,
   makeTaskHolderService,
   resolveEntityDocumentPath,
   taskHolderActor
@@ -22,6 +24,8 @@ import type { ExecutionAuthoredStore, ExecutionRecord } from "../src/index.ts";
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
 const executionId = "exe_01KX7H00000000000000000001";
 const secondExecutionId = "exe_01KX7H00000000000000000002";
+const firstReviewId = "rev_01KX7H00000000000000000001";
+const secondReviewId = "rev_01KX7H00000000000000000002";
 const aliceCodex = taskHolderActor(
   { personId: "alice", displayName: "Alice" },
   { kind: "agent", id: "codex" }
@@ -146,8 +150,27 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
     assert.deepEqual(stored.outputs, [{ kind: "commit", ref: "abc123" }]);
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
 
-    writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), `${JSON.stringify({ ...stored, state: "changes_requested" }, null, 2)}\n`, "utf8");
-    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("active"), "utf8");
+    const review = makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      generateReviewId: () => firstReviewId,
+      now: () => "2026-07-11T00:02:00.000Z"
+    });
+    await review.reviewExecution({
+      taskId,
+      executionId,
+      reviewer: aliceClaude,
+      reviewerSession: {
+        runtime: "claude-code",
+        sessionId: "review-rework",
+        source: "runtime",
+        detectedAt: "2026-07-11T00:02:00.000Z"
+      },
+      findings: "The submitted round requires changes.",
+      verdict: "changes_requested",
+      archiveWarningsAcknowledged: false
+    });
     const rework = await saga.claim({ taskId, principal: aliceCodex });
 
     assert.equal(rework.execution.execution_id, secondExecutionId);
@@ -363,6 +386,156 @@ test("Execution session bindings can only be attached while the Execution is act
         session: null
       }
     }), /execution is not active/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Review rounds append, require archive-warning acknowledgement, and dismissed leaves lifecycle state unchanged", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-rounds-"));
+  try {
+    const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+    mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("in_review"), "utf8");
+    writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), `${JSON.stringify({
+      schema: "execution/v1",
+      execution_id: executionId,
+      task_ref: `task/${taskId}`,
+      state: "submitted",
+      primary_actor: aliceCodex,
+      claimed_at: "2026-07-11T00:00:00.000Z",
+      submitted_at: "2026-07-11T00:01:00.000Z",
+      closed_at: null,
+      session_bindings: [{ role: "primary", archive_status: "partial" }],
+      outputs: [],
+      submission: { summary: "round one", verification: [], residual_risks: [] }
+    }, null, 2)}\n`, "utf8");
+    const reviewIds = [firstReviewId, secondReviewId];
+    const service = makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator: makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "reviewer" } }),
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      generateReviewId: () => reviewIds.shift()!,
+      now: () => "2026-07-11T00:02:00.000Z"
+    });
+    const session = { runtime: "claude-code" as const, sessionId: "review-session", source: "runtime" as const, detectedAt: "2026-07-11T00:02:00.000Z" };
+
+    await assert.rejects(service.reviewExecution({
+      taskId,
+      executionId,
+      reviewer: aliceCodex,
+      reviewerSession: session,
+      findings: "Self review is not allowed.",
+      verdict: "approved",
+      archiveWarningsAcknowledged: true
+    }), /executor cannot review its own delivery/u);
+
+    await assert.rejects(service.reviewExecution({
+      taskId,
+      executionId,
+      reviewer: aliceClaude,
+      reviewerSession: session,
+      findings: "Archive is partial.",
+      verdict: "dismissed",
+      archiveWarningsAcknowledged: false
+    }), /archive warnings must be explicitly acknowledged/u);
+
+    const dismissed = await service.reviewExecution({
+      taskId,
+      executionId,
+      reviewer: aliceClaude,
+      reviewerSession: session,
+      findings: "This review round is void.",
+      verdict: "dismissed",
+      archiveWarningsAcknowledged: true
+    });
+    const approved = await service.reviewExecution({
+      taskId,
+      executionId,
+      reviewer: aliceClaude,
+      reviewerSession: session,
+      findings: "The delivery is acceptable.",
+      verdict: "approved",
+      archiveWarningsAcknowledged: true
+    });
+
+    assert.equal(dismissed.review.review_id, firstReviewId);
+    assert.equal(approved.review.review_id, secondReviewId);
+    assert.equal(existsSync(path.join(taskRoot, "reviews", `${firstReviewId}.md`)), true);
+    assert.equal(existsSync(path.join(taskRoot, "reviews", `${secondReviewId}.md`)), true);
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "submitted");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Execution completion requires an approved Review, rejects the executor, and accepts atomically", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-complete-"));
+  try {
+    const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+    mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("in_review"), "utf8");
+    writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), `${JSON.stringify({
+      schema: "execution/v1",
+      execution_id: executionId,
+      task_ref: `task/${taskId}`,
+      state: "submitted",
+      primary_actor: aliceCodex,
+      claimed_at: "2026-07-11T00:00:00.000Z",
+      submitted_at: "2026-07-11T00:01:00.000Z",
+      closed_at: null,
+      session_bindings: [{ role: "primary", archive_status: "complete" }],
+      outputs: [],
+      submission: { summary: "round one", verification: ["tests passed"], residual_risks: [] }
+    }, null, 2)}\n`, "utf8");
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "commander" } });
+    const artifactStore = makeMarkdownArtifactStore({ rootDir });
+    const completion = makeExecutionCompletionService({ rootInput: rootDir, coordinator, artifactStore, now: () => "2026-07-11T00:03:00.000Z" });
+
+    await assert.rejects(completion.completeTaskExecution({ taskId, actor: aliceClaude }), /approved Review/u);
+    const reviewIds = [firstReviewId, secondReviewId];
+    const reviews = makeReviewExecutionService({
+      rootInput: rootDir,
+      coordinator,
+      artifactStore,
+      generateReviewId: () => reviewIds.shift()!,
+      now: () => "2026-07-11T00:02:00.000Z"
+    });
+    await reviews.reviewExecution({
+      taskId,
+      executionId,
+      reviewer: aliceClaude,
+      reviewerSession: { runtime: "claude-code", sessionId: "review-complete", source: "runtime", detectedAt: "2026-07-11T00:02:00.000Z" },
+      findings: "Approved for completion.",
+      verdict: "approved",
+      archiveWarningsAcknowledged: false
+    });
+
+    const firstExecution = JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")) as ExecutionRecord;
+    writeFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), `${JSON.stringify({
+      ...firstExecution,
+      execution_id: secondExecutionId,
+      submitted_at: "2026-07-11T00:02:30.000Z"
+    }, null, 2)}\n`, "utf8");
+    await assert.rejects(completion.completeTaskExecution({ taskId, actor: aliceClaude }), /approved Review/u);
+    await reviews.reviewExecution({
+      taskId,
+      executionId: secondExecutionId,
+      reviewer: aliceClaude,
+      reviewerSession: { runtime: "claude-code", sessionId: "review-complete-2", source: "runtime", detectedAt: "2026-07-11T00:02:30.000Z" },
+      findings: "The latest delivery is approved.",
+      verdict: "approved",
+      archiveWarningsAcknowledged: false
+    });
+
+    await assert.rejects(completion.completeTaskExecution({ taskId, actor: aliceCodex }), /executor cannot complete/u);
+    const result = await completion.completeTaskExecution({ taskId, actor: aliceClaude });
+
+    assert.deepEqual(result, { executionId: secondExecutionId });
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "submitted");
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), "utf8")).state, "accepted");
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

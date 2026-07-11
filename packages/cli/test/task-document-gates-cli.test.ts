@@ -2,14 +2,19 @@ import assert from "node:assert/strict";
 import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const executionTaskId = "task_01KX7H00000000000000000000";
+const executionId = "exe_01KX7H00000000000000000001";
+// Execution role checks compare the CLI actor's executor against the execution's
+// executor; pin the actor instead of inheriting whatever the invoking shell has.
+const testActorEnv = { HARNESS_ACTOR: "agent:test" };
 
-test("CLI task-complete rejects template closeout placeholders and passes after real closeout text", () => {
+test("CLI task-complete without Execution preserves its legacy receipt and byte-exact INDEX transition", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1");
@@ -33,10 +38,14 @@ test("CLI task-complete rejects template closeout placeholders and passes after 
     assert.equal(blocked.error?.code, "closeout_placeholder");
 
     writeRealCloseout(rootDir, "task-1");
+    const indexPath = path.join(rootDir, "harness/tasks/task-1/INDEX.md");
+    const before = readFileSync(indexPath, "utf8");
 
     const passed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
     assert.equal(passed.ok, true);
     assert.equal(passed.data?.status ?? passed.status, "done");
+    assert.equal(JSON.stringify(passed).includes("executionId"), false);
+    assert.equal(readFileSync(indexPath, "utf8"), before.replace(/^(  status:\s*).+$/mu, "$1done"));
   });
 });
 
@@ -237,6 +246,88 @@ test("CLI task-complete preserves the fact gate failure instead of masking it as
   });
 });
 
+test("CLI Review verdict rejects unknown values before writing", () => {
+  withTempRoot((rootDir) => {
+    const blocked = runJson(rootDir, [
+      "task", "review-execution", executionTaskId,
+      "--execution-id", executionId,
+      "--verdict", "direction_changed",
+      "--findings", "Change direction."
+    ], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "invalid_task_metadata");
+    assert.match(blocked.error?.hint ?? "", /approved, changes_requested, dismissed/u);
+  });
+});
+
+test("CLI complete consumes an approved Execution Review and preserves the legacy document gates", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, executionTaskId, "Execution Complete", "in_review");
+    writeReview(rootDir, executionTaskId);
+    writeFact(rootDir, executionTaskId);
+    writeRealCloseout(rootDir, executionTaskId);
+    writeExecution(rootDir, executionTaskId, executionId, "worker-agent");
+
+    const missingReview = runJson(rootDir, ["task", "complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, testActorEnv);
+    assert.equal(missingReview.ok, false);
+    assert.match(missingReview.error?.hint ?? "", /approved Review/u);
+
+    const reviewed = runJson(rootDir, [
+      "task", "review-execution", executionTaskId,
+      "--execution-id", executionId,
+      "--verdict", "approved",
+      "--findings", "All acceptance checks passed."
+    ], true, testActorEnv);
+    assert.equal(reviewed.ok, true);
+    assert.equal(reviewed.executionId, executionId);
+    assert.match(String(reviewed.reviewId), /^rev_/u);
+
+    writeExecution(rootDir, executionTaskId, executionId, "test");
+    const selfComplete = runJson(rootDir, ["task", "complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, testActorEnv);
+    assert.match(selfComplete.error?.hint ?? "", /executor cannot complete/u);
+    writeExecution(rootDir, executionTaskId, executionId, "worker-agent");
+
+    const completed = runJson(rootDir, ["task", "complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, testActorEnv);
+    assert.equal(completed.ok, true);
+    assert.equal(completed.executionId, executionId);
+    assert.equal(completed.status, "done");
+    const taskRoot = path.join(rootDir, "harness/tasks", executionTaskId);
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "accepted");
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+  });
+});
+
+test("CLI rejects executor self-review and changes_requested opens a fresh claim round", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, executionTaskId, "Execution Rework", "in_review");
+    writeExecution(rootDir, executionTaskId, executionId, "test");
+    const selfReview = runJson(rootDir, [
+      "task", "review-execution", executionTaskId,
+      "--execution-id", executionId,
+      "--verdict", "approved",
+      "--findings", "Self approved."
+    ], false, testActorEnv);
+    assert.match(selfReview.error?.hint ?? "", /executor cannot review/u);
+
+    writeExecution(rootDir, executionTaskId, executionId, "worker-agent");
+    const requested = runJson(rootDir, [
+      "task", "review-execution", executionTaskId,
+      "--execution-id", executionId,
+      "--verdict", "changes_requested",
+      "--findings", "Add the missing regression test."
+    ], true, testActorEnv);
+    assert.equal(requested.ok, true);
+    const taskRoot = path.join(rootDir, "harness/tasks", executionTaskId);
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "changes_requested");
+    assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: active$/mu);
+
+    const claimed = runJson(rootDir, ["task", "claim", executionTaskId, "--execution"], true, testActorEnv);
+    assert.notEqual(claimed.executionId, executionId);
+    assert.equal(existsSync(path.join(taskRoot, "executions", `${claimed.executionId}.md`)), true);
+  });
+});
+
 function writeIndex(
   rootDir: string,
   directoryName: string,
@@ -321,6 +412,28 @@ function writeCloseout(rootDir: string, directoryName: string, lines: ReadonlyAr
   writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "closeout.md"), ["# Closeout", "", ...lines, ""].join("\n"), "utf8");
 }
 
+function writeExecution(rootDir: string, taskId: string, id: string, executorId: string): void {
+  const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+  mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
+  writeFileSync(path.join(taskRoot, "executions", `${id}.md`), `${JSON.stringify({
+    schema: "execution/v1",
+    execution_id: id,
+    task_ref: `task/${taskId}`,
+    state: "submitted",
+    primary_actor: {
+      principal: { personId: "worker" },
+      executor: { kind: "agent", id: executorId },
+      responsibleHuman: "worker"
+    },
+    claimed_at: "2026-07-11T00:00:00.000Z",
+    submitted_at: "2026-07-11T00:01:00.000Z",
+    closed_at: null,
+    session_bindings: [{ role: "primary", archive_status: "complete" }],
+    outputs: [],
+    submission: { summary: "submitted", verification: ["tests passed"], residual_risks: [] }
+  }, null, 2)}\n`, "utf8");
+}
+
 function writeCodeDocAnchors(rootDir: string, directoryName: string, sha = ensureAnchorCommit(rootDir)): void {
   runJson(rootDir, [
     "task", "code-doc", "reconcile", directoryName,
@@ -373,11 +486,11 @@ function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Record<string, string> = {}): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, HARNESS_SKIP_NPM_INSTALL: "1" },
+      env: { ...process.env, HARNESS_SKIP_NPM_INSTALL: "1", ...env },
       stdio: ["ignore", "pipe", "pipe"]
     });
     const result = JSON.parse(stdout) as Record<string, any>;

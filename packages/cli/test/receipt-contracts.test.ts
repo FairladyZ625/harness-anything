@@ -205,6 +205,10 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     field: "data.report",
     reason: "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate."
   }, {
+    command: "task-complete",
+    field: "data.executionId",
+    reason: "Only emitted when completion accepts a submitted Execution."
+  }, {
     command: "governance-rebuild",
     field: "data.generated",
     reason: "Only emitted for apply/archive rebuild modes that write generated governance views."

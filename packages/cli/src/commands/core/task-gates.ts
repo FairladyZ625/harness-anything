@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Effect } from "effect";
-import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, type TaskLifecycleResult } from "../../../../application/src/index.ts";
+import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, type TaskLifecycleResult } from "../../../../application/src/index.ts";
 import { makeLocalVersionControlSystem, taskDocumentPath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -9,26 +9,33 @@ import { runDistillCommand } from "./distill.ts";
 import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
 import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
+import { runExecutionReview } from "./task-execution-review.ts";
 
-type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-complete" }>;
+type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-review-execution" | "task-complete" }>;
 
 export const runTaskGatesCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskGateAction;
   if (action.kind === "task-code-doc-reconcile") return runTaskCodeDocReconcile(context, action);
+  if (action.kind === "task-review-execution") return runExecutionReview(context, action);
   const orchestrator = makeTaskLifecycleOrchestrator({
     rootDir: context.rootDir,
     layoutOverrides: context.layoutOverrides,
     taskWriter: context.engine,
     artifactStore: context.artifactStore,
     documentPlaceholderPolicy: bundledTaskDocumentPlaceholderPolicy(),
-    codeDocVersionControlSystem: makeLocalVersionControlSystem()
+    codeDocVersionControlSystem: makeLocalVersionControlSystem(),
+    executionCompletionService: makeExecutionCompletionService({
+      rootInput: context.layoutInput,
+      coordinator: context.makeWriteCoordinator(context.actorAttribution().actor),
+      artifactStore: context.artifactStore
+    })
   });
   if (action.kind === "task-review") {
     return orchestrator.reviewTask({ taskId: action.taskId, reviewerId: action.reviewerId }).pipe(
       Effect.map((result): CliResult => taskLifecycleResultToCliResult("task-review", result))
     );
   }
-  return orchestrator.completeTask({ taskId: action.taskId, reviewerId: action.reviewerId, ciGate: action.ciGate }).pipe(
+  return orchestrator.completeTask({ taskId: action.taskId, reviewerId: action.reviewerId, ciGate: action.ciGate, actor: context.taskHolderPrincipal() }).pipe(
     Effect.map((result): CliResult => {
       const output = taskLifecycleResultToCliResult("task-complete", result);
       if (!output.ok) return output;
@@ -117,6 +124,7 @@ function taskLifecycleResultToCliResult(command: "task-review" | "task-complete"
       ok: true,
       command,
       taskId: result.taskId,
+      executionId: result.executionId,
       status: result.status,
       report: result.report,
       reviewContract: result.reviewContract,

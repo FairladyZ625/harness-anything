@@ -285,6 +285,7 @@ const arbiterCliActionKinds = new Set<string>([
   "decision-reject",
   "decision-retire",
   "decision-supersede",
+  "task-review-execution",
 ]);
 
 export const repoCommandRunClassifiedActionKinds = [

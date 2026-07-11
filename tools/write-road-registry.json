@@ -35,7 +35,7 @@
       "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
       "entry": ["cli", "daemon-rpc", "gui-bridge"],
       "writeKinds": ["transition_local", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard"],
-      "cliActions": ["status-set", "task-archive", "task-delete", "task-reopen", "task-supersede", "task-complete", "task-review"],
+      "cliActions": ["status-set", "task-archive", "task-delete", "task-reopen", "task-supersede", "task-complete", "task-review", "task-review-execution"],
       "apiRoutes": ["tasks.status.set", "tasks.review"],
       "guiBridgeMethods": ["setTaskStatus", "reviewTask"],
       "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],

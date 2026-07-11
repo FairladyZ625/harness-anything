@@ -16,6 +16,10 @@ export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
 export { makeExecutionReservationReconciler, makeExecutionSagaService } from "./execution-saga-service.ts";
 export { makeCoordinatedExecutionAuthoredStore } from "./coordinated-execution-authored-store.ts";
+export { makeReviewExecutionService } from "./review-execution-service.ts";
+export type { ReviewExecutionService } from "./review-execution-service.ts";
+export { makeExecutionCompletionService } from "./execution-completion-service.ts";
+export type { ExecutionCompletionService } from "./execution-completion-service.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export {
   taskWriteApiRoutePolicies,

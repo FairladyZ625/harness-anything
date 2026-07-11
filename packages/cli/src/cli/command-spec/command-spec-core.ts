@@ -364,6 +364,23 @@ export const coreCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "task-review-execution",
+    "usage": "task review-execution <id> --execution-id <execution-id> --verdict approved|changes_requested|dismissed --findings <text> [--acknowledge-archive-warnings]",
+    "options": [{"flag":"--execution-id","description":"Review the exact submitted Execution."},{"flag":"--verdict","description":"Set approved, changes_requested, or dismissed."},{"flag":"--findings","description":"Record findings for this Review round."},{"flag":"--acknowledge-archive-warnings","description":"Explicitly acknowledge partial or unavailable Session archives."}],
+    "summary": "Create an immutable Review round for one submitted Execution.",
+    "examples": ["harness-anything task review-execution task_01ABC --execution-id exe_01ABC --verdict approved --findings \"Acceptance checks passed\""],
+    "parse": parseCoreTaskArgs,
+    "run": runTaskGatesCommand,
+    "receiptContract": {
+      "data": ["taskId", "executionId", "reviewId", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": true,
+      "runtimeEvent": "auto"
+    }
+  },
+  {
     "kind": "task-complete",
     "usage": "task complete <id> --ci passed|failed [--reviewer <id>]",
     "options": [{"flag":"--ci","description":"Set the completion CI gate result."},{"flag":"--reviewer","description":"Set the reviewer id."}],
@@ -375,7 +392,8 @@ export const coreCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "status", "reviewContract", "completionGate"],
       "optionalData": {
-        "report": "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate."
+        "report": "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate.",
+        "executionId": "Only emitted when completion accepts a submitted Execution."
       },
       "paths": []
     },

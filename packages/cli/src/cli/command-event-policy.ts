@@ -18,6 +18,7 @@ const taskPrincipalRequiredKinds = new Set<CommandKind>([
   "task-release",
   "task-reopen",
   "task-review",
+  "task-review-execution",
   "task-supersede"
 ]);
 

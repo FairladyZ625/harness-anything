@@ -1,5 +1,4 @@
-import { domainStatuses, isDomainStatus } from "../../../../kernel/src/index.ts";
-import { slugifyTaskTitle } from "../../../../kernel/src/index.ts";
+import { domainStatuses, isDomainStatus, slugifyTaskTitle } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
@@ -7,7 +6,7 @@ import { parseTaskArchive } from "./core-task-archive.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
 import { parseExecutionSubmissionOptions } from "./core-task-execution.ts";
 import { parseTaskList } from "./core-task-list.ts";
-
+import { parseTaskReviewExecution } from "./core-task-review-execution.ts";
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
 export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult | null {
@@ -33,6 +32,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "reopen" && args[2]) return parseTaskReopen(args, rootDir, json);
   if (args[0] === "task" && args[1] === "code-doc" && args[2] === "reconcile" && args[3]) return parseTaskCodeDocReconcile(args, rootDir, json);
   if (args[0] === "task" && args[1] === "review" && args[2]) return parseTaskReview(["task-review", ...args.slice(2)], rootDir, json);
+  if (args[0] === "task" && args[1] === "review-execution" && args[2]) return parseTaskReviewExecution(args, rootDir, json);
   if (args[0] === "task-review" && args[1]) return parseTaskReview(args, rootDir, json);
   if (args[0] === "task" && args[1] === "complete" && args[2]) return parseTaskComplete(["task-complete", ...args.slice(2)], rootDir, json);
   if (args[0] === "task-complete" && args[1]) return parseTaskComplete(args, rootDir, json);

@@ -9,6 +9,7 @@ import type {
   RuntimeEventKind,
   RuntimeEventRuntime,
   RuntimeEventResultStatus,
+  ReviewVerdict,
   TaskWorkKind
 } from "../../../kernel/src/index.ts";
 import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/index.ts";
@@ -100,6 +101,7 @@ export interface CliResult {
   readonly taskId?: string;
   readonly decisionId?: string;
   readonly executionId?: string;
+  readonly reviewId?: string;
   readonly factId?: string;
   readonly factRef?: string;
   readonly decisionState?: string;
@@ -198,6 +200,7 @@ export interface ParsedCommand {
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-code-doc-reconcile"; readonly taskId: string; readonly sha: string; readonly paths: ReadonlyArray<string>; readonly prRef?: string; readonly force: boolean }
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
+    | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly archiveWarningsAcknowledged: boolean }
     | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
     | { readonly kind: "task-show"; readonly taskId: string }
     | { readonly kind: "task-tree"; readonly taskId: string }

@@ -190,6 +190,8 @@ const publicRuntimeSurface = [
   "resolveHarnessLayout",
   "resolveTaskSchema",
   "reviewArtifactStatuses",
+  "reviewDeclaration",
+  "reviewVerdicts",
   "runPostMergeChecks",
   "runtimeEventActorFromTaskHolderPrincipal",
   "runtimeEventApprovalDecisions",
