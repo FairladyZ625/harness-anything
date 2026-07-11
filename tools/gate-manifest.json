@@ -971,11 +971,13 @@
       "tierReason": null,
       "authoritySource": [
         "tools/test-tier-manifest.mjs",
+        "tools/integration-test-shards.mjs",
         "tools/run-node-tests.mjs",
         "package.json:scripts.test:integration"
       ],
       "consumerScope": [
-        "node:test suites classified as integration"
+        "all disk-discovered node:test suites not explicitly classified as fast or contract",
+        "deterministically derived integration shard execution sets"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -994,16 +996,18 @@
         ]
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/test-tier-manifest.mjs",
+        "allowed": false,
+        "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Tier registration is explicit and fail-closed."
+        "notes": "Integration is the fail-safe default for disk-discovered tests; fast and contract remain explicitly registered."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/test-tier-manifest.mjs",
+          "tools/integration-test-shards.mjs",
+          "tools/run-node-tests.mjs",
           "package.json:scripts.test:integration"
         ]
       },
@@ -1040,7 +1044,8 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/integration-test-shards.mjs and integration-tier test assertions under packages/**/test/**"
+          "tools/run-node-tests.test.mjs",
+          "tools/check-integration-test-shards.test.mjs"
         ]
       }
     },
@@ -1872,7 +1877,8 @@
         "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
         "task_01KWW58383X74ZK28Y068CQ2TG",
         "dec_mr9acuxm",
-        "dec_GATE_DEFENSE_ROOT_CAUSE"
+        "dec_GATE_DEFENSE_ROOT_CAUSE",
+        "tools/migrate-bypass-write-anchors.mjs"
       ],
       "consumerScope": [
         "AST-classified fs write calls in packages/kernel/src/store, packages/adapters/local/src, and packages/cli/src/commands",
@@ -1900,6 +1906,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-bypass-write-boundary.mjs",
+          "tools/migrate-bypass-write-anchors.mjs",
           "tools/gate-allowlists/check-bypass-write-boundary.json",
           "package.json:scripts.harness:check-bypass-write-boundary",
           "tools/gate-manifest.json"
@@ -2560,10 +2567,13 @@
       "authoritySource": [
         "tools/test-tier-manifest.mjs",
         "tools/integration-test-shards.mjs",
-        "tools/check-integration-test-shards.mjs"
+        "tools/check-integration-test-shards.mjs",
+        "tools/gate-allowlists/check-integration-test-shards.json"
       ],
       "consumerScope": [
-        "integration shard declaration must cover every integration test file exactly once"
+        "disk-derived integration shards must cover every integration test file exactly once",
+        "integration test count decreases must fail unless every deleted path has a new repository confirmation",
+        "workflow shards and required contexts must remain aligned"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -2577,10 +2587,10 @@
         ]
       },
       "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "The shard checker is fail-closed and has no allowlist."
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-integration-test-shards.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Entries name exact intentionally deleted test paths; only confirmations newly added relative to the Git baseline can authorize the matching deletion."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -2589,6 +2599,7 @@
           "tools/test-tier-manifest.mjs",
           "tools/integration-test-shards.mjs",
           "tools/check-integration-test-shards.mjs",
+          "tools/gate-allowlists/check-integration-test-shards.json",
           "package.json:scripts.harness:check-integration-test-shards",
           "tools/gate-manifest.json"
         ]

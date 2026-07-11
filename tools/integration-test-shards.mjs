@@ -1,7 +1,8 @@
-import { testTierManifest } from "./test-tier-manifest.mjs";
-
 export const integrationShardCount = 6;
+export const defaultIntegrationTestWeightMs = 1000;
 
+// Optional balancing overrides. New tests need no entry: they receive the
+// deterministic default weight and are placed into the lightest shard.
 export const integrationTestFileWeightsMs = Object.freeze({
   "packages/adapters/multica/test/multica-readonly-adopt.test.ts": 782.5,
   "packages/application/test/local-controller-service.test.ts": 507.0,
@@ -87,201 +88,66 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "tools/relation-weathering-spike.test.mjs": 182.9
 });
 
-export const integrationTestShards = Object.freeze([
-  Object.freeze({
-    id: 1,
-    files: Object.freeze([
-      "packages/cli/test/local-lifecycle-cli.test.ts",
-      "packages/cli/test/progress-evidence-cli.test.ts",
-      "packages/cli/test/task-delete-disposition-cli.test.ts",
-      "packages/cli/test/task-document-gates-cli.test.ts",
-      "packages/cli/test/distill-cli.test.ts",
-      "packages/cli/test/attribution-diff-cli.test.ts",
-      "packages/cli/test/write-lock-retry-cli.test.ts",
-      "packages/cli/test/graph-cli.test.ts",
-      "packages/cli/test/projection-freshness-cli.test.ts",
-      "packages/kernel/test/store/crash-before-watermark.test.ts",
-      "packages/cli/test/self-host-git-boundary-cli.test.ts",
-      "packages/kernel/test/store/relation-cascade-direction.test.ts"
-    ])
-  }),
-  Object.freeze({
-    id: 2,
-    files: Object.freeze([
-      "packages/cli/test/daemon-thin-client-cli.test.ts",
-      "packages/cli/test/anchor-backfill-cli.test.ts",
-      "packages/cli/test/post-merge-check-cli.test.ts",
-      "packages/cli/test/task-show-relation-list-cli.test.ts",
-      "tools/quickstart-demo.test.mjs",
-      "packages/cli/test/conflict-preflight-cli.test.ts",
-      "packages/cli/test/local-lifecycle-crlf-cli.test.ts",
-      "tools/check-kernel-dead-exports.test.mjs",
-      "tools/check-runtime-release-readiness.test.mjs",
-      "tools/check-docs-release-map.test.mjs",
-      "packages/application/test/local-controller-service.test.ts",
-      "packages/application/test/execution-saga.test.ts",
-      "packages/kernel/test/store/portable-path-collision.test.ts"
-    ])
-  }),
-  Object.freeze({
-    id: 3,
-    files: Object.freeze([
-      "packages/cli/test/check-governance-cli.test.ts",
-      "packages/cli/test/preset-subtask-expansion-cli.test.ts",
-      "packages/cli/test/decision-task-metadata-cli.test.ts",
-      "tools/check-supply-chain.test.mjs",
-      "packages/cli/test/init-cli.test.ts",
-      "packages/cli/test/docmap-cli.test.ts",
-      "packages/cli/test/actor-attribution-cli.test.ts",
-      "packages/cli/test/preset-milestone-closeout-cli.test.ts",
-      "packages/kernel/test/store/global-committer-lock.test.ts",
-      "packages/cli/test/preset-script-imports-cli.test.ts",
-      "packages/cli/test/diagnostics-cli.test.ts",
-      "packages/kernel/test/store/entity-disposition.test.ts",
-      "packages/kernel/test/store/entity-registry-substrate.test.ts",
-      "packages/kernel/test/store/session-entity.test.ts",
-      "packages/kernel/test/store/daemon-registry.test.ts"
-    ])
-  }),
-  Object.freeze({
-    id: 4,
-    files: Object.freeze([
-      "packages/cli/test/decision-coverage-cli.test.ts",
-      "packages/cli/test/settings-cli.test.ts",
-      "packages/cli/test/decision-cli.test.ts",
-      "packages/cli/test/task-tree-cli.test.ts",
-      "packages/cli/test/extension-cli.test.ts",
-      "packages/kernel/test/store/sqlite-incremental-projection.test.ts",
-      "packages/cli/test/preset-create-milestone-cli.test.ts",
-      "packages/cli/test/doctor-cli.test.ts",
-      "packages/cli/test/worktree-cli.test.ts",
-      "packages/kernel/test/store/ledger-materializer.test.ts",
-      "packages/kernel/test/store/conditional-delta-writes.test.ts",
-      "packages/kernel/test/store/journal-idempotency.test.ts",
-      "packages/kernel/test/store/payload-hash.test.ts",
-      "packages/daemon/test/transport-integration.test.ts"
-    ])
-  }),
-  Object.freeze({
-    id: 5,
-    files: Object.freeze([
-      "packages/cli/test/task-transition-sweep-cli.test.ts",
-      "packages/cli/test/preset-script-cli.test.ts",
-      "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
-      "packages/cli/test/p16-command-parity-cli.test.ts",
-      "packages/kernel/test/store/same-task-fifo.test.ts",
-      "packages/cli/test/new-task-cli.test.ts",
-      "packages/cli/test/preset-create-milestone-render-html-cli.test.ts",
-      "packages/kernel/test/store/daemon-runtime.test.ts",
-      "tools/check-import-boundaries.test.mjs",
-      "packages/cli/test/gui-cli.test.ts",
-      "packages/kernel/test/store/sqlite-rebuild.test.ts",
-      "packages/kernel/test/store/relation-graph-toctou.test.ts",
-      "packages/cli/test/submit-lifecycle-cli.test.ts"
-    ])
-  }),
-  Object.freeze({
-    id: 6,
-    files: Object.freeze([
-      "packages/cli/test/preset-module-cli.test.ts",
-      "packages/cli/test/preset-user-root-cli.test.ts",
-      "packages/cli/test/migration-adopt-cli.test.ts",
-      "packages/cli/test/task-archive-distill-cli.test.ts",
-      "packages/cli/test/fact-cli.test.ts",
-      "packages/cli/test/runtime-event-cli.test.ts",
-      "packages/cli/test/task-list-cli.test.ts",
-      "packages/cli/test/session-cli.test.ts",
-      "packages/cli/test/preset-github-issue-repair-cli.test.ts",
-      "packages/kernel/test/store/progress-append-delta.test.ts",
-      "packages/kernel/test/store/relation-graph-projection.test.ts",
-      "packages/cli/test/task-lease-cli.test.ts",
-      "packages/adapters/multica/test/multica-readonly-adopt.test.ts",
-      "tools/graph-panorama.test.mjs",
-      "tools/relation-weathering-spike.test.mjs"
-    ])
-  })
-]);
+export function assignIntegrationTestShards(
+  manifestFiles,
+  weightOverrides = integrationTestFileWeightsMs,
+  shardCount = integrationShardCount,
+  defaultWeightMs = defaultIntegrationTestWeightMs
+) {
+  const shards = Array.from({ length: shardCount }, (_, index) => ({ id: index + 1, files: [], estimatedMs: 0 }));
+  const weightedFiles = [...new Set(manifestFiles)]
+    .map((file) => ({ file, weight: weightOverrides[file] ?? defaultWeightMs }))
+    .sort((left, right) => right.weight - left.weight || left.file.localeCompare(right.file));
 
-export function parseIntegrationShardId(value) {
+  for (const { file, weight } of weightedFiles) {
+    const lightest = [...shards].sort((left, right) => left.estimatedMs - right.estimatedMs || left.id - right.id)[0];
+    lightest.files.push(file);
+    lightest.estimatedMs += weight;
+  }
+
+  return shards.map(({ id, files }) => ({ id, files: files.sort() }));
+}
+
+export function parseIntegrationShardId(value, shardCount = integrationShardCount) {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > integrationShardCount) {
-    throw new Error(`--shard must be an integer from 1 to ${integrationShardCount}`);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > shardCount) {
+    throw new Error(`--shard must be an integer from 1 to ${shardCount}`);
   }
   return parsed;
 }
 
-export function selectIntegrationShardFiles(shardValue) {
-  const validation = validateIntegrationTestShards();
-  if (!validation.ok) {
-    throw new Error(`integration shard declaration is invalid:\n${validation.errors.join("\n")}`);
-  }
-  const shardId = parseIntegrationShardId(shardValue);
-  const shard = integrationTestShards.find((candidate) => candidate.id === shardId);
-  if (!shard) {
-    throw new Error(`integration shard ${shardId} is not declared`);
-  }
-  return [...shard.files].sort();
+export function selectIntegrationShardFiles(shardValue, manifestFiles) {
+  const shards = assignIntegrationTestShards(manifestFiles);
+  const shardId = parseIntegrationShardId(shardValue, shards.length);
+  return [...shards[shardId - 1].files];
 }
 
-export function integrationShardSummaries() {
-  return integrationTestShards.map((shard) => ({
+export function integrationShardSummaries(manifestFiles, weightOverrides = integrationTestFileWeightsMs) {
+  return assignIntegrationTestShards(manifestFiles, weightOverrides).map((shard) => ({
     id: shard.id,
     files: shard.files.length,
-    estimatedMs: shard.files.reduce((sum, file) => sum + (integrationTestFileWeightsMs[file] ?? 0), 0)
+    estimatedMs: shard.files.reduce(
+      (sum, file) => sum + (weightOverrides[file] ?? defaultIntegrationTestWeightMs),
+      0
+    )
   }));
 }
 
-export function validateIntegrationTestShards(manifestFiles = testTierManifest.integration) {
+export function validateIntegrationTestShards(manifestFiles, weightOverrides = integrationTestFileWeightsMs) {
   const errors = [];
   const manifestSet = new Set(manifestFiles);
-  const shardIds = new Set();
-  const seen = new Map();
+  const shards = assignIntegrationTestShards(manifestFiles, weightOverrides);
+  const assigned = shards.flatMap((shard) => shard.files);
 
-  for (const shard of integrationTestShards) {
-    if (!Number.isInteger(shard.id) || shard.id < 1 || shard.id > integrationShardCount) {
-      errors.push(`invalid integration shard id: ${String(shard.id)}`);
-    }
-    if (shardIds.has(shard.id)) {
-      errors.push(`duplicate integration shard id: ${shard.id}`);
-    }
-    shardIds.add(shard.id);
-    if (!Array.isArray(shard.files) || shard.files.length === 0) {
-      errors.push(`integration shard ${shard.id} is empty`);
-      continue;
-    }
-    for (const file of shard.files) {
-      if (!manifestSet.has(file)) {
-        errors.push(`integration shard ${shard.id} references non-integration file: ${file}`);
-      }
-      const previous = seen.get(file);
-      if (previous !== undefined) {
-        errors.push(`integration file appears in multiple shards: ${file} (${previous}, ${shard.id})`);
-      }
-      seen.set(file, shard.id);
-    }
+  if (manifestSet.size !== manifestFiles.length) errors.push("integration manifest contains duplicate files");
+  if (assigned.length !== manifestSet.size || assigned.some((file) => !manifestSet.has(file))) {
+    errors.push("derived integration shards do not exactly cover the integration manifest");
   }
-
-  for (let id = 1; id <= integrationShardCount; id += 1) {
-    if (!shardIds.has(id)) {
-      errors.push(`missing integration shard id: ${id}`);
-    }
+  for (const [file, weight] of Object.entries(weightOverrides)) {
+    if (!manifestSet.has(file)) errors.push(`integration weight references non-integration file: ${file}`);
+    if (!Number.isFinite(weight) || weight <= 0) errors.push(`integration file has invalid weight: ${file}`);
   }
+  if (shards.some((shard) => shard.files.length === 0)) errors.push("derived integration shard is empty");
 
-  for (const file of manifestFiles) {
-    if (!seen.has(file)) {
-      errors.push(`integration file missing from shards: ${file}`);
-    }
-    const weight = integrationTestFileWeightsMs[file];
-    if (!Number.isFinite(weight) || weight <= 0) {
-      errors.push(`integration file has no positive weight: ${file}`);
-    }
-  }
-
-  for (const file of Object.keys(integrationTestFileWeightsMs)) {
-    if (!manifestSet.has(file)) {
-      errors.push(`integration weight references non-integration file: ${file}`);
-    }
-  }
-
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, shards };
 }

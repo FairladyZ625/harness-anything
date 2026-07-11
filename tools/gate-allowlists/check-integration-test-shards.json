@@ -1,0 +1,7 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-integration-test-shards",
+  "entries": {
+    "intentionalTestDeletions": []
+  }
+}

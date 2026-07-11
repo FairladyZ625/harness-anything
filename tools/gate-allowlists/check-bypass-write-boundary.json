@@ -4,633 +4,633 @@
   "entries": {
     "coordinatedCore": [
       {
-        "value": "packages/kernel/src/store/markdown-artifact-store.ts#mkdirSync@68:3",
+        "value": "packages/kernel/src/store/markdown-artifact-store.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/markdown-artifact-store.ts#renameSync@72:3",
+        "value": "packages/kernel/src/store/markdown-artifact-store.ts#renameSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/markdown-artifact-store.ts#writeFileSync@71:3",
+        "value": "packages/kernel/src/store/markdown-artifact-store.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@185:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@1",
         "ref": "task_01KX68A7MK6HH9TM16T95M8ZZK",
         "reason": "P3-1 hard-delete apply relocated from coordinator to the op transaction plan; same coordinator-executed durable write path, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@25:3",
+        "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@1",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
         "reason": "PLT-Bedrock W2 local LockRegistry implementation for external adopt claim directories; callers acquire through the LockRegistry port."
       },
       {
-        "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@26:3",
+        "value": "packages/kernel/src/store/local-lock-registry.ts#mkdirSync@2",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
         "reason": "PLT-Bedrock W2 local LockRegistry implementation for external adopt claim directories; callers acquire through the LockRegistry port."
       },
       {
-        "value": "packages/kernel/src/store/local-lock-registry.ts#rmSync@30:9",
+        "value": "packages/kernel/src/store/local-lock-registry.ts#rmSync@1",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
         "reason": "PLT-Bedrock W2 local LockRegistry implementation for external adopt claim release; callers release through the LockRegistry lease."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-decision-documents.ts#mkdirSync@31:3",
+        "value": "packages/kernel/src/store/write-journal-decision-documents.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@115:5",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@144:5",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@156:5",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#closeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@113:5",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@142:5",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@154:5",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#fsyncSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#mkdirSync@109:3",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#mkdirSync@132:3",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@110:14",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@134:14",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@152:14",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#openSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#renameSync@146:3",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#renameSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@112:5",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@137:7",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@140:7",
+        "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@178:7",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@229:5",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@254:5",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#closeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@176:7",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@227:5",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@252:5",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#fsyncSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#mkdirSync@125:3",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@160:12",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@224:14",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@237:10",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#openSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@153:7",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@194:7",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@294:3",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#renameSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@187:30",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@188:28",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@192:28",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@275:3",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#rmSync@4",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#unlinkSync@203:47",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#unlinkSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@168:7",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@226:5",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@245:5",
+        "value": "packages/kernel/src/store/write-journal-locks.ts#writeSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@437:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@460:3",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@472:5",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#mkdirSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@440:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#rmSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
-        "value": "packages/kernel/src/store/write-journal-operations.ts#writeFileSync@438:9",
+        "value": "packages/kernel/src/store/write-journal-operations.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       }
     ],
     "exemptHumanOrBootstrap": [
       {
-        "value": "packages/cli/src/commands/core/init.ts#mkdirSync@108:3",
+        "value": "packages/cli/src/commands/core/init.ts#mkdirSync@1",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init Configure-Verify smoke package bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/core/init.ts#rmSync@42:7",
+        "value": "packages/cli/src/commands/core/init.ts#rmSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/core/init.ts#rmSync@50:7",
+        "value": "packages/cli/src/commands/core/init.ts#rmSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/core/init.ts#writeFileSync@109:3",
+        "value": "packages/cli/src/commands/core/init.ts#writeFileSync@1",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init Configure-Verify smoke package bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@275:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@276:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@277:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#cpSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@274:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@338:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@345:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@358:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@4",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@391:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@394:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@6",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@403:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#mkdirSync@7",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@339:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@360:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@396:5",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@398:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@4",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@412:3",
+        "value": "packages/cli/src/commands/daemon/productization.ts#writeFileSync@5",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C4 daemon bootstrap/productization write: service templates, people roster bootstrap, hook install, mirror/report setup; only valid during explicit daemon bootstrap/install commands and not an active projection or decision authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/module-registry-view.ts#mkdirSync@9:3",
+        "value": "packages/cli/src/commands/extensions/module-registry-view.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/module-registry-view.ts#writeFileSync@13:3",
+        "value": "packages/cli/src/commands/extensions/module-registry-view.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset.ts#mkdirSync@157:3",
+        "value": "packages/cli/src/commands/extensions/preset.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset.ts#mkdirSync@170:7",
+        "value": "packages/cli/src/commands/extensions/preset.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset.ts#rmSync@210:3",
+        "value": "packages/cli/src/commands/extensions/preset.ts#rmSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset.ts#writeFileSync@158:3",
+        "value": "packages/cli/src/commands/extensions/preset.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset.ts#writeFileSync@171:7",
+        "value": "packages/cli/src/commands/extensions/preset.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@28:33",
+        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@31:38",
+        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@49:5",
+        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@92:3",
+        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#mkdirSync@4",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#writeFileSync@114:3",
+        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#writeFileSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#writeFileSync@50:5",
+        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#writeFileSync@93:3",
+        "value": "packages/cli/src/commands/extensions/repository-scaffold.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/shared.ts#mkdirSync@72:3",
+        "value": "packages/cli/src/commands/extensions/shared.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/shared.ts#writeFileSync@73:3",
+        "value": "packages/cli/src/commands/extensions/shared.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@325:3",
+        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@358:5",
+        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@359:5",
+        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@379:3",
+        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/governance.ts#mkdirSync@62:3",
+        "value": "packages/cli/src/commands/governance.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/governance.ts#mkdirSync@79:3",
+        "value": "packages/cli/src/commands/governance.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/governance.ts#writeFileSync@63:3",
+        "value": "packages/cli/src/commands/governance.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/governance.ts#writeFileSync@80:3",
+        "value": "packages/cli/src/commands/governance.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/graph-panorama.ts#mkdirSync@49:3",
+        "value": "packages/cli/src/commands/graph-panorama.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/graph-panorama.ts#writeFileSync@50:3",
+        "value": "packages/cli/src/commands/graph-panorama.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#mkdirSync@31:5",
+        "value": "packages/cli/src/commands/init.ts#mkdirSync@1",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init local directory bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#mkdirSync@289:5",
+        "value": "packages/cli/src/commands/init.ts#mkdirSync@2",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init harness.yaml bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@53:5",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@1",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init optional package.json script bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@290:5",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@2",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init harness.yaml bootstrap write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@299:3",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@3",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init harness.yaml name update write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/init.ts#writeFileSync@306:3",
+        "value": "packages/cli/src/commands/init.ts#writeFileSync@4",
         "ref": "task_01KWY3JAVQRKW19VB21EZKHQHK",
         "reason": "Init outer .gitignore bootstrap isolation write; governed by dec_mraja5we task scope and not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/lesson.ts#mkdirSync@17:5",
+        "value": "packages/cli/src/commands/lesson.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/lesson.ts#writeFileSync@18:5",
+        "value": "packages/cli/src/commands/lesson.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       }
     ],
     "legacyArchive": [
       {
-        "value": "packages/cli/src/commands/migration-collision.ts#mkdirSync@63:3",
+        "value": "packages/cli/src/commands/migration-collision.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration-collision.ts#writeFileSync@64:3",
+        "value": "packages/cli/src/commands/migration-collision.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration-scan.ts#mkdirSync@272:5",
+        "value": "packages/cli/src/commands/migration-scan.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration-scan.ts#mkdirSync@278:3",
+        "value": "packages/cli/src/commands/migration-scan.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration-scan.ts#writeFileSync@279:3",
+        "value": "packages/cli/src/commands/migration-scan.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration.ts#mkdirSync@175:5",
+        "value": "packages/cli/src/commands/migration.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration.ts#mkdirSync@385:3",
+        "value": "packages/cli/src/commands/migration.ts#mkdirSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration.ts#mkdirSync@496:3",
+        "value": "packages/cli/src/commands/migration.ts#mkdirSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration.ts#writeFileSync@176:5",
+        "value": "packages/cli/src/commands/migration.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration.ts#writeFileSync@386:3",
+        "value": "packages/cli/src/commands/migration.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       },
       {
-        "value": "packages/cli/src/commands/migration.ts#writeFileSync@498:3",
+        "value": "packages/cli/src/commands/migration.ts#writeFileSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C5 legacy archive/intake artifact write; boundary is harness/legacy or compatibility session evidence, not active projection authority."
       }
     ],
     "freshGateRegistry": [
       {
-        "value": "packages/cli/src/commands/core/worktree.ts#mkdirSync@185:3",
+        "value": "packages/cli/src/commands/core/worktree.ts#mkdirSync@1",
         "ref": "task_01KWY3Z4VEVP6FNT28ZFA809GW",
         "reason": "C11 generated worktree binding registry write; stores rebuildable local .harness/generated binding state, not authored task truth."
       },
       {
-        "value": "packages/cli/src/commands/core/worktree.ts#writeFileSync@186:3",
+        "value": "packages/cli/src/commands/core/worktree.ts#writeFileSync@1",
         "ref": "task_01KWY3Z4VEVP6FNT28ZFA809GW",
         "reason": "C11 generated worktree binding registry write; stores rebuildable local .harness/generated binding state, not authored task truth."
       },
       {
-        "value": "packages/cli/src/commands/extensions/machine-evidence-registry.ts#writeFileSync@23:3",
+        "value": "packages/cli/src/commands/extensions/machine-evidence-registry.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-evidence.ts#writeFileSync@27:3",
+        "value": "packages/cli/src/commands/extensions/preset-evidence.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#mkdirSync@123:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@125:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@156:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@157:3",
+        "value": "packages/cli/src/commands/extensions/preset-script-runner.ts#writeFileSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#mkdirSync@92:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#mkdirSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@160:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@2",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@161:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@3",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       },
       {
-        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@95:3",
+        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       }

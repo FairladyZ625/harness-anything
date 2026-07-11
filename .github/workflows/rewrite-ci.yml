@@ -94,6 +94,8 @@ jobs:
         node-version: [24, 26]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -139,6 +141,8 @@ jobs:
         run: echo "Reusing successful source validation for the same head SHA."
       - uses: actions/checkout@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         with:
@@ -186,6 +190,8 @@ jobs:
         run: echo "Reusing successful source validation for the same head SHA."
       - uses: actions/checkout@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         with:
@@ -284,6 +290,8 @@ jobs:
         run: echo "Reusing successful source validation for the same head SHA."
       - uses: actions/checkout@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         with:

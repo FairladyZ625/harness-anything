@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import test from "node:test";
 import { collectSlowTests, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
-import { testTierManifest, testTierNames } from "./test-tier-manifest.mjs";
+import { deriveTestTierManifest, discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
+
+const repoRoot = path.resolve(import.meta.dirname, "..");
 
 test("parseRunnerArgs accepts tier and slow summary options", () => {
   assert.deepEqual(parseRunnerArgs(["--tier", "fast", "--slow-threshold-ms", "250", "--slow-limit=3"], testTierNames), {
@@ -105,7 +109,30 @@ test("validateManifest rejects duplicates and missing manifest entries", () => {
   ]);
 });
 
-test("selectTestFiles returns sorted tier files from the repository manifest", () => {
+test("unregistered test files default to the integration tier", () => {
+  const manifest = deriveTestTierManifest(
+    ["fast.test.ts", "contract.test.ts", "new.test.ts"],
+    { fast: ["fast.test.ts"], contract: ["contract.test.ts"] }
+  );
+  assert.deepEqual(manifest, {
+    fast: ["fast.test.ts"],
+    contract: ["contract.test.ts"],
+    integration: ["new.test.ts"]
+  });
+});
+
+test("integration discovery equals the files executed by the CI runner", () => {
+  const manifest = discoverTestTierManifest(repoRoot);
+  const result = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--tier", "integration", "--list"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/u), manifest.integration);
+});
+
+test("selectTestFiles returns sorted tier files from the derived repository manifest", () => {
+  const testTierManifest = discoverTestTierManifest(repoRoot);
   const allFiles = Object.values(testTierManifest).flat().sort();
   const result = selectTestFiles(allFiles, testTierManifest, "fast");
   assert.deepEqual(result.errors, []);

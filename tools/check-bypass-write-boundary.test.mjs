@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { migrateBypassWriteAnchors } from "./migrate-bypass-write-anchors.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-bypass-write-boundary.mjs");
@@ -19,7 +20,29 @@ test("bypass write boundary accepts explicitly governed fs write calls", () => {
       "  writeFileSync('harness/generated-human.md', 'ok', 'utf8');",
       "}"
     ]);
-    writeAllowlist(policyRoot, "packages/kernel/src/store/fixture.ts#writeFileSync@3:3");
+    writeAllowlist(policyRoot, "packages/kernel/src/store/fixture.ts#writeFileSync@1");
+
+    const result = runChecker(root, policyRoot);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Bypass write boundary check passed/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
+test("bypass write boundary stable anchors survive unrelated leading lines", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    writeStore(root, [
+      "// unrelated leading line",
+      "import { writeFileSync } from 'node:fs';",
+      "export function apply() {",
+      "  writeFileSync('harness/generated-human.md', 'ok', 'utf8');",
+      "}"
+    ]);
+    writeAllowlist(policyRoot, "packages/kernel/src/store/fixture.ts#writeFileSync@1");
 
     const result = runChecker(root, policyRoot);
     assert.equal(result.status, 0, result.stderr);
@@ -44,11 +67,43 @@ test("bypass write boundary rejects new fs writes outside the allowlist", () => 
 
     const result = runChecker(root, policyRoot);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/kernel\/src\/store\/fixture\.ts#writeFileSync@3:3/u);
+    assert.match(result.stderr, /packages\/kernel\/src\/store\/fixture\.ts#writeFileSync@1/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(policyRoot, { recursive: true, force: true });
   }
+});
+
+test("bypass write boundary rejects stale stable anchors", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    writeStore(root, ["export function noWrites() {}"]);
+    writeAllowlist(policyRoot, "packages/kernel/src/store/fixture.ts#writeFileSync@1");
+    const result = runChecker(root, policyRoot);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /allowlist entry is stale and should be removed/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
+test("bypass write anchor migration converts legacy positions mechanically", () => {
+  const source = {
+    schema: "harness-anything/gate-allowlist/v1",
+    gateId: "check-bypass-write-boundary",
+    entries: {
+      coordinatedCore: [{ value: "a.ts#writeFileSync@4:3", ref: "task_X", reason: "fixture" }]
+    }
+  };
+  const result = migrateBypassWriteAnchors(source, [{
+    legacyKey: "a.ts#writeFileSync@4:3",
+    key: "a.ts#writeFileSync@1"
+  }]);
+  assert.equal(result.migratedCount, 1);
+  assert.equal(result.allowlist.entries.coordinatedCore[0].value, "a.ts#writeFileSync@1");
+  assert.equal(source.entries.coordinatedCore[0].value, "a.ts#writeFileSync@4:3");
 });
 
 function makeFixtureRoot() {

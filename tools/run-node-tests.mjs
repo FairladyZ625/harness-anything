@@ -4,11 +4,10 @@ import { spawn } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { resolve } from "node:path";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
-import { collectSlowTests, collectTestFiles, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
-import { testTierManifest, testTierNames } from "./test-tier-manifest.mjs";
+import { collectSlowTests, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
+import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const roots = ["packages", "tools"];
 
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
@@ -28,7 +27,8 @@ try {
   process.exit(2);
 }
 
-const testFiles = await collectTestFiles(repoRoot, roots);
+const testTierManifest = discoverTestTierManifest(repoRoot);
+const testFiles = Object.values(testTierManifest).flat().sort();
 const selection = selectTestFiles(testFiles, testTierManifest, options.tier);
 
 if (selection.errors.length > 0) {
@@ -39,7 +39,7 @@ if (selection.errors.length > 0) {
 }
 
 if (options.shard !== undefined) {
-  selection.files = selectIntegrationShardFiles(options.shard);
+  selection.files = selectIntegrationShardFiles(options.shard, selection.files);
 }
 
 if (selection.files.length === 0) {

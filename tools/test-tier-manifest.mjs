@@ -1,4 +1,10 @@
-export const testTierManifest = {
+import { existsSync, readdirSync } from "node:fs";
+import path from "node:path";
+
+const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
+const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
+
+export const explicitTestTierManifest = {
   fast: [
     "packages/adapters/local/test/task-writes.test.ts",
     "packages/cli/test/doc-sync-service.test.ts",
@@ -108,91 +114,44 @@ export const testTierManifest = {
     "tools/skill-contracts.test.mjs",
     "tools/smoke-cli-package.test.mjs",
     "tools/scan-forbidden-symbols.test.mjs"
-  ],
-  integration: [
-    "packages/adapters/multica/test/multica-readonly-adopt.test.ts",
-    "packages/application/test/execution-saga.test.ts",
-    "packages/application/test/local-controller-service.test.ts",
-    "packages/daemon/test/transport-integration.test.ts",
-    "packages/cli/test/actor-attribution-cli.test.ts",
-    "packages/cli/test/anchor-backfill-cli.test.ts",
-    "packages/cli/test/attribution-diff-cli.test.ts",
-    "packages/cli/test/check-governance-cli.test.ts",
-    "packages/cli/test/conflict-preflight-cli.test.ts",
-    "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
-    "packages/cli/test/daemon-thin-client-cli.test.ts",
-    "packages/cli/test/diagnostics-cli.test.ts",
-    "packages/cli/test/decision-cli.test.ts",
-    "packages/cli/test/decision-coverage-cli.test.ts",
-    "packages/cli/test/decision-task-metadata-cli.test.ts",
-    "packages/cli/test/docmap-cli.test.ts",
-    "packages/cli/test/distill-cli.test.ts",
-    "packages/cli/test/doctor-cli.test.ts",
-    "packages/cli/test/extension-cli.test.ts",
-    "packages/cli/test/fact-cli.test.ts",
-    "packages/cli/test/gui-cli.test.ts",
-    "packages/cli/test/graph-cli.test.ts",
-    "packages/cli/test/init-cli.test.ts",
-    "packages/cli/test/local-lifecycle-crlf-cli.test.ts",
-    "packages/cli/test/local-lifecycle-cli.test.ts",
-    "packages/cli/test/task-lease-cli.test.ts",
-    "packages/cli/test/migration-adopt-cli.test.ts",
-    "packages/cli/test/new-task-cli.test.ts",
-    "packages/cli/test/p16-command-parity-cli.test.ts",
-    "packages/cli/test/post-merge-check-cli.test.ts",
-    "packages/cli/test/projection-freshness-cli.test.ts",
-    "packages/cli/test/progress-evidence-cli.test.ts",
-    "packages/cli/test/preset-create-milestone-cli.test.ts",
-    "packages/cli/test/preset-create-milestone-render-html-cli.test.ts",
-    "packages/cli/test/preset-github-issue-repair-cli.test.ts",
-    "packages/cli/test/preset-milestone-closeout-cli.test.ts",
-    "packages/cli/test/preset-module-cli.test.ts",
-    "packages/cli/test/preset-user-root-cli.test.ts",
-    "packages/cli/test/preset-subtask-expansion-cli.test.ts",
-    "packages/cli/test/preset-script-imports-cli.test.ts",
-    "packages/cli/test/preset-script-cli.test.ts",
-    "packages/cli/test/runtime-event-cli.test.ts",
-    "packages/cli/test/session-cli.test.ts",
-    "packages/cli/test/submit-lifecycle-cli.test.ts",
-    "packages/cli/test/settings-cli.test.ts",
-    "packages/cli/test/self-host-git-boundary-cli.test.ts",
-    "packages/cli/test/task-archive-distill-cli.test.ts",
-    "packages/cli/test/task-delete-disposition-cli.test.ts",
-    "packages/cli/test/task-document-gates-cli.test.ts",
-    "packages/cli/test/task-list-cli.test.ts",
-    "packages/cli/test/task-show-relation-list-cli.test.ts",
-    "packages/cli/test/task-transition-sweep-cli.test.ts",
-    "packages/cli/test/task-tree-cli.test.ts",
-    "packages/cli/test/worktree-cli.test.ts",
-    "packages/cli/test/write-lock-retry-cli.test.ts",
-    "packages/kernel/test/store/crash-before-watermark.test.ts",
-    "packages/kernel/test/store/conditional-delta-writes.test.ts",
-    "packages/kernel/test/store/daemon-registry.test.ts",
-    "packages/kernel/test/store/daemon-runtime.test.ts",
-    "packages/kernel/test/store/entity-registry-substrate.test.ts",
-    "packages/kernel/test/store/entity-disposition.test.ts",
-    "packages/kernel/test/store/global-committer-lock.test.ts",
-    "packages/kernel/test/store/journal-idempotency.test.ts",
-    "packages/kernel/test/store/ledger-materializer.test.ts",
-    "packages/kernel/test/store/payload-hash.test.ts",
-    "packages/kernel/test/store/portable-path-collision.test.ts",
-    "packages/kernel/test/store/progress-append-delta.test.ts",
-    "packages/kernel/test/store/relation-cascade-direction.test.ts",
-    "packages/kernel/test/store/relation-graph-projection.test.ts",
-    "packages/kernel/test/store/relation-graph-toctou.test.ts",
-    "packages/kernel/test/store/same-task-fifo.test.ts",
-    "packages/kernel/test/store/session-entity.test.ts",
-    "packages/kernel/test/store/sqlite-incremental-projection.test.ts",
-    "packages/kernel/test/store/sqlite-rebuild.test.ts",
-    "tools/check-docs-release-map.test.mjs",
-    "tools/check-import-boundaries.test.mjs",
-    "tools/check-kernel-dead-exports.test.mjs",
-    "tools/quickstart-demo.test.mjs",
-    "tools/check-runtime-release-readiness.test.mjs",
-    "tools/check-supply-chain.test.mjs",
-    "tools/graph-panorama.test.mjs",
-    "tools/relation-weathering-spike.test.mjs"
   ]
 };
 
-export const testTierNames = Object.freeze(Object.keys(testTierManifest));
+export const testTierNames = Object.freeze(["fast", "contract", "integration"]);
+
+export function deriveTestTierManifest(testFiles, explicitManifest = explicitTestTierManifest) {
+  const explicitlyClassified = new Set(Object.values(explicitManifest).flat());
+  return {
+    fast: [...(explicitManifest.fast ?? [])],
+    contract: [...(explicitManifest.contract ?? [])],
+    integration: [...testFiles].filter((file) => !explicitlyClassified.has(file)).sort()
+  };
+}
+
+export function discoverTestFiles(repoRoot, roots = ["packages", "tools"]) {
+  const files = [];
+  for (const root of roots) {
+    walk(path.join(repoRoot, root), repoRoot, files);
+  }
+  return files.sort();
+}
+
+export function discoverTestTierManifest(repoRoot, options = {}) {
+  return deriveTestTierManifest(
+    discoverTestFiles(repoRoot, options.roots),
+    options.explicitManifest ?? explicitTestTierManifest
+  );
+}
+
+function walk(directory, repoRoot, files) {
+  if (!existsSync(directory)) return;
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      walk(entryPath, repoRoot, files);
+    } else if (entry.isFile() && testFilePattern.test(entry.name)) {
+      files.push(path.relative(repoRoot, entryPath).split(path.sep).join("/"));
+    }
+  }
+}
