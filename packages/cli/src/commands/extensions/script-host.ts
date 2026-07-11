@@ -5,7 +5,7 @@ import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
-import { resolvePresetPolicy, type PresetPolicyResolution } from "./preset-policy.ts";
+import { resolveScriptPolicy, type PresetPolicyResolution } from "./preset-policy.ts";
 import { executeScript } from "./script-executor.ts";
 import { discoverPresets } from "./state.ts";
 import {
@@ -61,7 +61,12 @@ export function runScriptHost(options: {
   readonly allowFailedScriptResult?: boolean;
 }): ScriptHostRunResult {
   const layout = resolveHarnessLayout(options.rootInput);
-  const validation = validateResolvedScript(options.script), policy = resolveScriptPolicy(options.rootInput, options.script);
+  const validation = validateResolvedScript(options.script);
+  const policy = resolveScriptPolicy(options.rootInput, discoverPresets(options.rootInput), {
+    source: options.script.entry.source,
+    scriptId: options.script.entry.id,
+    presetId: typeof options.script.context?.presetId === "string" ? options.script.context.presetId : undefined
+  });
   if (!validation.ok || !policy.ok) return invalidScriptOrPolicy(options.commandName, validation, policy);
 
   const scriptPath = path.resolve(options.script.manifestRoot, options.script.entry.command);
@@ -241,32 +246,6 @@ function invalidScriptOrPolicy(
   if (!validation.ok) return scriptFailure(command, CliErrorCode.ScriptContractInvalid, validation.hint);
   if (!policy.ok) return scriptFailure(command, policy.error.code, policy.error.hint);
   throw new Error("Script and policy validation unexpectedly succeeded.");
-}
-
-function resolveScriptPolicy(rootInput: HarnessLayoutInput, script: ResolvedScriptEntry): PresetPolicyResolution {
-  const presets = discoverPresets(rootInput);
-  if (script.entry.source === "preset") {
-    const presetId = typeof script.context?.presetId === "string" ? script.context.presetId : "";
-    const owner = presets.find((preset) => preset.manifest.id === presetId);
-    return owner ? resolvePresetPolicy(rootInput, owner) : { ok: true, policy: null };
-  }
-  if (script.entry.source !== "vertical") return { ok: true, policy: null };
-
-  const owners = presets.filter((preset) =>
-    preset.manifest.policyPath &&
-    preset.manifest.capabilityImports.some((capability) => capability.id === script.entry.id)
-  );
-  if (owners.length === 0) return { ok: true, policy: null };
-  if (owners.length > 1) {
-    return {
-      ok: false,
-      error: cliError(
-        CliErrorCode.PresetPolicyInvalid,
-        `Script ${script.entry.id} has multiple policy-owning presets: ${owners.map((owner) => owner.manifest.id).join(", ")}.`
-      )
-    };
-  }
-  return resolvePresetPolicy(rootInput, owners[0]);
 }
 
 function scriptFailure(command: string, code: CliErrorCode, hint: string, runDir?: string, rootDir?: string): { readonly ok: false; readonly result: CliResult } {
