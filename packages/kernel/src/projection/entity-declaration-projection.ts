@@ -63,6 +63,7 @@ function discoverDeclaredEntityRows(
     resolveEntityDocumentPath(rootInput, declaration, identity);
     const documentPath = path.join(layout.authoredRoot, relativePath);
     const raw = declaration.documentCodec.decode(localLayoutFileSystem.readText(documentPath));
+    if (raw === undefined) continue;
     const decoded = Schema.decodeUnknownSync(declaration.schema)(raw) as Readonly<Record<string, unknown>>;
     rows.push(projectRow(decoded, declaration.projection.columns));
   }

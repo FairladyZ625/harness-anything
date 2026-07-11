@@ -274,16 +274,16 @@
       "id": "session.provenance.claim-check",
       "sourceInventoryRows": [16],
       "road": "B",
-      "bearing": "machine-artifact",
+      "bearing": "session-composite-manifest-blob",
       "leaseRequired": false,
-      "channel": { "pathClass": "claim-check", "zoneClass": "session-provenance" },
+      "channel": { "pathClass": "declared-manifest-plus-claim-check", "zoneClass": "session-provenance" },
       "entry": ["cli", "internal"],
-      "writeKinds": ["machine_artifact_write"],
+      "writeKinds": ["doc_write", "machine_artifact_write"],
       "machineArtifactBoundaries": ["provenance-session"],
       "cliActions": ["session-backfill", "session-export", "session-sync"],
-      "callsiteFiles": ["packages/application/src/provenance-session-exporter.ts"],
-      "evidence": ["packages/application/src/provenance-session-exporter.ts:85", "packages/kernel/src/store/content-addressed-blob-store.ts:15"],
-      "freshness": "content-addressed-blob-ref"
+      "callsiteFiles": ["packages/cli/src/commands/core/session.ts"],
+      "evidence": ["packages/application/src/provenance-session-exporter.ts:135", "packages/kernel/src/entity/declaration.ts:103", "packages/cli/src/commands/core/session.ts:114"],
+      "freshness": "coordinated-manifest-plus-content-addressed-blob-ref"
     },
     {
       "id": "runtime-event.coordinated-jsonl",

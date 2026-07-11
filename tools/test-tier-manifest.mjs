@@ -179,6 +179,7 @@ export const testTierManifest = {
     "packages/kernel/test/store/relation-graph-projection.test.ts",
     "packages/kernel/test/store/relation-graph-toctou.test.ts",
     "packages/kernel/test/store/same-task-fifo.test.ts",
+    "packages/kernel/test/store/session-entity.test.ts",
     "packages/kernel/test/store/sqlite-incremental-projection.test.ts",
     "packages/kernel/test/store/sqlite-rebuild.test.ts",
     "tools/check-docs-release-map.test.mjs",

@@ -72,6 +72,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/kernel/test/store/relation-graph-projection.test.ts": 850.9,
   "packages/kernel/test/store/relation-graph-toctou.test.ts": 473.9,
   "packages/kernel/test/store/same-task-fifo.test.ts": 7647.4,
+  "packages/kernel/test/store/session-entity.test.ts": 500.0,
   "packages/kernel/test/store/sqlite-incremental-projection.test.ts": 4800.3,
   "packages/kernel/test/store/sqlite-rebuild.test.ts": 734.2,
   "tools/check-docs-release-map.test.mjs": 590.0,
@@ -135,6 +136,7 @@ export const integrationTestShards = Object.freeze([
       "packages/cli/test/diagnostics-cli.test.ts",
       "packages/kernel/test/store/entity-disposition.test.ts",
       "packages/kernel/test/store/entity-registry-substrate.test.ts",
+      "packages/kernel/test/store/session-entity.test.ts",
       "packages/kernel/test/store/daemon-registry.test.ts"
     ])
   }),

@@ -13,6 +13,7 @@ import {
   projectDeclaredEntities,
   readDeclaredProjectionRows
 } from "../../src/projection/entity-declaration-projection.ts";
+import { entityRegistry } from "../../src/entity/registry.ts";
 import { stablePayloadHash } from "../../src/integrity/stable-hash.ts";
 import { writeContentAddressedBlob } from "../../src/store/content-addressed-blob-store.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
@@ -202,4 +203,17 @@ test("fixture declarations resolve, coordinate writes, and project hosted and co
     )) as { readonly bodyRef?: unknown };
     assert.deepEqual(manifest.bodyRef, bodyRef);
   });
+});
+
+test("entity registry declares the five-tuple surface for decision task fact relation and session", () => {
+  assert.deepEqual(Object.keys(entityRegistry).sort(), ["decision", "fact", "relation", "session", "task"]);
+  assert.equal(entityRegistry.session.storageForm, "composite-manifest-blob");
+  assert.equal(entityRegistry.decision.storageForm, "lifecycle");
+  assert.equal(entityRegistry.task.storageForm, "lifecycle");
+  assert.equal(entityRegistry.fact.storageForm, "schema");
+  assert.equal(entityRegistry.relation.storageForm, "host_frontmatter");
+  assert.equal(entityRegistry.decision.dispositionMatrix.entries["hard-delete"].supported, false);
+  assert.equal(entityRegistry.fact.dispositionMatrix.entries.invalidate.supported, true);
+  assert.equal(entityRegistry.fact.dispositionMatrix.entries["hard-delete"].supported, false);
+  assert.equal(Object.keys(entityRegistry.fact.mutabilityContract).includes("statement"), true);
 });

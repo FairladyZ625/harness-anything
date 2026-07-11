@@ -55,7 +55,7 @@ export interface WriteTransactionPlan {
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
     return {
-      touchedPaths: (rootInput) => [declaredEntityDocument(rootInput, op).targetPath],
+      touchedPaths: (rootInput) => declaredEntityTouchedPaths(rootInput, op),
       documentWrites: () => [],
       apply: (rootInput) => {
         const document = declaredEntityDocument(rootInput, op);
@@ -290,7 +290,7 @@ function hasDeclaredEntityDocument(payload: unknown): payload is DeclaredEntityD
 function declaredEntityDocument(
   rootInput: HarnessLayoutInput,
   op: WriteOp
-): { readonly targetPath: string; readonly body: string } {
+): { readonly targetPath: string; readonly body: string; readonly blobPath?: string } {
   if (!hasDeclaredEntityDocument(op.payload)) rejectWrite(`${op.kind} op requires entityDocument payload`, op.entityId);
   const document = op.payload.entityDocument;
   if (!document || typeof document !== "object" || typeof document.body !== "string" || !isStringRecord(document.identity)) {
@@ -303,7 +303,7 @@ function declaredEntityDocument(
     }
     return {
       targetPath: resolveEntityDocumentPath(rootInput, declaration, document.identity),
-      body: document.body
+      body: document.body, ...(document.blobRef ? { blobPath: resolveContentAddressedBlobPath(rootInput, document.blobRef) } : {})
     };
   } catch (error) {
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
@@ -461,3 +461,8 @@ export type MachineArtifactBoundary =
   | "distill-candidate"
   | "legacy-forward"
   | "preset-evidence-registry";
+
+function declaredEntityTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {
+  const document = declaredEntityDocument(rootInput, op);
+  return [document.targetPath, ...(document.blobPath ? [document.blobPath] : [])];
+}

@@ -34,7 +34,15 @@ export interface DeclaredEntityDocumentWritePayload {
     readonly declaration: EntityPathDeclaration;
     readonly identity: Readonly<Record<string, string>>;
     readonly body: string;
+    readonly blobRef?: DeclaredContentAddressedBlobRef;
   };
+}
+
+export interface DeclaredContentAddressedBlobRef {
+  readonly ref: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
 }
 
 export function decodeEntityDeclaration(input: unknown): EntityDeclaration {
@@ -99,11 +107,14 @@ export function writeDeclaredEntity(
   hashPayload: PayloadHasher,
   declaration: EntityDeclaration,
   identity: Readonly<Record<string, string>>,
-  value: unknown
+  value: unknown,
+  options: { readonly flush?: boolean; readonly opIdPrefix?: string } = {}
 ): Effect.Effect<void, WriteError> {
   const decoded = Schema.decodeUnknownSync(declaration.schema)(value) as Readonly<Record<string, unknown>>;
+  const bodyRef = declaration.storageForm === "composite-manifest-blob"
+    ? readField(decoded, declaration.blob!.referenceField)
+    : undefined;
   if (declaration.storageForm === "composite-manifest-blob") {
-    const bodyRef = readField(decoded, declaration.blob!.referenceField);
     if (!isContentAddressedBlobReference(bodyRef)) throw new Error(`composite manifest is missing a valid ${declaration.blob!.referenceField}`);
   }
   const identityKey = declaration.rootResolver.identity.at(-1)!;
@@ -111,6 +122,7 @@ export function writeDeclaredEntity(
   return writeCoordinatedPayload(coordinator, hashPayload, {
     entityId,
     kind: "doc_write",
+    ...(options.opIdPrefix ? { opIdPrefix: options.opIdPrefix } : {}),
     payload: {
       entityDocument: {
         declaration: {
@@ -119,10 +131,11 @@ export function writeDeclaredEntity(
           rootResolver: declaration.rootResolver
         },
         identity,
-        body: declaration.documentCodec.encode(decoded)
+        body: declaration.documentCodec.encode(decoded),
+        ...(isContentAddressedBlobReference(bodyRef) ? { blobRef: bodyRef } : {})
       }
     } satisfies DeclaredEntityDocumentWritePayload
-  });
+  }, { flush: options.flush });
 }
 
 function validateRootResolver(rootResolver: EntityRootResolverDeclaration | undefined, storageForm: EntityStorageForm): void {
@@ -206,7 +219,7 @@ export function readField(entity: Readonly<Record<string, unknown>>, field: stri
   ), entity);
 }
 
-function isContentAddressedBlobReference(value: unknown): boolean {
+function isContentAddressedBlobReference(value: unknown): value is DeclaredContentAddressedBlobRef {
   if (!value || typeof value !== "object") return false;
   const ref = value as Record<string, unknown>;
   return typeof ref.ref === "string" && typeof ref.sha256 === "string" && /^[0-9a-f]{64}$/u.test(ref.sha256) &&

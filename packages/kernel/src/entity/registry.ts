@@ -10,8 +10,9 @@ import {
   type RelationFieldKey,
   type TaskFieldKey
 } from "./field-contracts.ts";
+import { sessionEntityRegistration } from "./session-declaration.ts";
 
-export type KernelEntityKind = "decision" | "task" | "fact" | "relation";
+export type KernelEntityKind = "decision" | "task" | "fact" | "relation" | "session";
 export const entityStorageForms = [
   "lifecycle",
   "schema",
@@ -103,6 +104,7 @@ export type EntityRegistryShape = {
   readonly task: EntityRegistration<TaskFieldKey>;
   readonly fact: EntityRegistration<FactFieldKey>;
   readonly relation: EntityRegistration<RelationFieldKey>;
+  readonly session: typeof sessionEntityRegistration;
 };
 
 export const entityRegistry = {
@@ -181,7 +183,8 @@ export const entityRegistry = {
       unsupported("D4", "hard-delete", "relation records are provenance-bearing and are not physically deleted")
     ]),
     storageForm: "host_frontmatter"
-  }
+  },
+  session: sessionEntityRegistration
 } satisfies EntityRegistryShape;
 
 export const entityRegistryKinds = Object.keys(entityRegistry) as ReadonlyArray<KernelEntityKind>;

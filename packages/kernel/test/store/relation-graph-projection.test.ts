@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   checkTaskProjection,
   deriveRelationId,
-  entityRegistry,
   evaluateEntityDisposition,
   evaluateImplicitDispositionRecommendations,
   formatFactFlowRecord,
@@ -179,18 +178,6 @@ test("relation graph coverage treats invalidated facts as not live", () => {
       relationPath: []
     }]);
   });
-});
-
-test("entity registry declares the five-tuple surface for decision task fact and relation", () => {
-  assert.deepEqual(Object.keys(entityRegistry).sort(), ["decision", "fact", "relation", "task"]);
-  assert.equal(entityRegistry.decision.storageForm, "lifecycle");
-  assert.equal(entityRegistry.task.storageForm, "lifecycle");
-  assert.equal(entityRegistry.fact.storageForm, "schema");
-  assert.equal(entityRegistry.relation.storageForm, "host_frontmatter");
-  assert.equal(entityRegistry.decision.dispositionMatrix.entries["hard-delete"].supported, false);
-  assert.equal(entityRegistry.fact.dispositionMatrix.entries.invalidate.supported, true);
-  assert.equal(entityRegistry.fact.dispositionMatrix.entries["hard-delete"].supported, false);
-  assert.equal(Object.keys(entityRegistry.fact.mutabilityContract).includes("statement"), true);
 });
 
 test("entity disposition lower-bound blocks D3 and D4 when active incoming relations exist", () => {

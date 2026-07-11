@@ -154,10 +154,12 @@ const publicRuntimeSurface = [
   "parseWriteEntityId",
   "planTemplateMaterialization",
   "priorityTiers",
+  "privateTextScannerVersion",
   "queryDecisionProjection",
   "queryTaskChildren",
   "queryTaskProjection",
   "queryTaskSubtree",
+  "readContentAddressedTextBlob",
   "readDaemonRegistry",
   "readDecisionFactCoverage",
   "readDocmapManifest",
@@ -167,6 +169,7 @@ const publicRuntimeSurface = [
   "readRelationGraphAuthoredSourceKinds",
   "readRelationGraphProjection",
   "readScalar",
+  "readSessionEntityDocument",
   "readTaskProjection",
   "rebuildTaskProjection",
   "registerDaemonRepo",
@@ -189,6 +192,7 @@ const publicRuntimeSurface = [
   "runtimeEventInterruptActions",
   "runtimeEventKinds",
   "runtimeEventResultStatuses",
+  "scanPrivateText",
   "schemaRegistry",
   "sha256Text",
   "slugifyTaskTitle",
@@ -217,7 +221,8 @@ const publicRuntimeSurface = [
   "warning",
   "writeContentAddressedBlob",
   "writeCoordinatedPayload",
-  "writeCoordinatedTaskDocuments"
+  "writeCoordinatedTaskDocuments",
+  "writeSessionEntity"
 ];
 
 test("kernel public runtime surface matches the golden snapshot", () => {

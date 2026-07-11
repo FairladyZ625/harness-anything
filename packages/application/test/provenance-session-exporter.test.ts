@@ -4,12 +4,12 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
-import { bindCreateProvenance, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter } from "../src/index.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, moduleEntityId, type CurrentSessionRef, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
+import { bindCreateProvenance, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, readSessionEntity } from "../src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type CurrentSessionRef, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
 import type { ProvenanceSessionExporterOptions } from "../src/index.ts";
 import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
 
-test("provenance session exporter writes human fallback markdown and reads it by id", async () => {
+test("provenance session exporter writes a compact manifest and reads its immutable body by id", async () => {
   const rootDir = createHarnessRoot();
   try {
     const exporter = makeTestProvenanceSessionExporter(rootDir, {
@@ -34,11 +34,15 @@ test("provenance session exporter writes human fallback markdown and reads it by
 
     const sessionPath = path.join(rootDir, "harness", exported.path);
     assert.equal(existsSync(sessionPath), true);
-    const body = readFileSync(sessionPath, "utf8");
-    assert.match(body, /^schema: provenance-session\/v1$/m);
-    assert.match(body, /^sessionId: human-cli-1783036800000$/m);
-    assert.match(body, /^runtime: human$/m);
-    assert.match(body, /^source: manual$/m);
+    const manifestBody = readFileSync(sessionPath, "utf8");
+    assert.equal(manifestBody.includes("## Conversation"), false);
+    const stored = readSessionEntity(rootDir, "human-cli-1783036800000");
+    assert.equal(stored.format, "manifest");
+    if (stored.format !== "manifest") assert.fail("expected a Session Entity manifest");
+    assert.equal(stored.manifest.schema, "session-entity/v1");
+    assert.equal(stored.manifest.sessionId, "human-cli-1783036800000");
+    assert.equal(stored.manifest.bodyRef.store, "authored-cas/v1");
+    assert.match(stored.body, /## Conversation/u);
 
     const readBack = await runEffect(exporter.readById("human-cli-1783036800000"));
     assert.deepEqual(readBack, exported);
@@ -77,7 +81,7 @@ test("provenance session exporter renders Claude Code JSONL conversation text", 
     });
 
     const exported = await runEffect(exporter.exportCurrentSession());
-    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    const body = readSessionEntity(rootDir, exported.session.sessionId).body;
     assert.match(body, /## Conversation/u);
     assert.match(body, /Claude user original line/u);
     assert.match(body, /Claude assistant original line/u);
@@ -120,17 +124,15 @@ test("provenance session exporter renders Codex JSONL conversation text", async 
     });
 
     const exported = await runEffect(exporter.exportCurrentSession());
-    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    const stored = readSessionEntity(rootDir, exported.session.sessionId);
+    const body = stored.body;
     assert.match(body, /## Conversation/u);
     assert.match(body, /Codex user original line/u);
     assert.match(body, /Codex assistant original line/u);
 
-    const payload = readOnlyJournalPayload(rootDir);
-    assert.equal(payload.boundary, "provenance-session");
-    assert.equal(payload.path, "harness/sessions/codex-session-1.md");
-    assert.equal("body" in payload, false);
-    assert.equal(JSON.stringify(payload).includes("Codex user original line"), false);
-    const bodyRef = assertContentAddressedBlobRef(payload.bodyRef);
+    assert.equal(stored.format, "manifest");
+    if (stored.format !== "manifest") assert.fail("expected a Session Entity manifest");
+    const bodyRef = stored.manifest.bodyRef;
     assert.equal(bodyRef.mediaType, "text/markdown; charset=utf-8");
     assert.equal(readFileSync(path.join(rootDir, bodyRef.ref), "utf8"), body);
   } finally {
@@ -171,10 +173,43 @@ test("provenance session exporter accepts an explicit runtime transcript file", 
     });
 
     const exported = await runEffect(exporter.exportCurrentSession({ transcriptFile }));
-    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    const body = readSessionEntity(rootDir, exported.session.sessionId).body;
     assert.match(body, /Export this Desktop transcript explicitly\./u);
     assert.match(body, /The explicit transcript was archived\./u);
     assert.match(body, new RegExp(`Runtime log: ${transcriptFile.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("provenance session exporter records privacy scan findings in the manifest without blocking capture", async () => {
+  const rootDir = createHarnessRoot();
+  try {
+    const transcriptFile = path.join(rootDir, "private-thread.jsonl");
+    writeFileSync(transcriptFile, JSON.stringify({
+      timestamp: "2026-07-03T00:00:00.000Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "API_KEY=captured-in-private-ledger" }
+    }), "utf8");
+    const exporter = makeTestProvenanceSessionExporter(rootDir, {
+      currentSessionProbe: fixedSessionProbe({
+        runtime: "codex",
+        sessionId: "private-session",
+        source: "runtime",
+        detectedAt: "2026-07-03T00:00:00.000Z"
+      }),
+      now: () => "2026-07-03T00:01:00.000Z"
+    });
+
+    const result = await runEffectExit(exporter.exportCurrentSession({ transcriptFile }));
+
+    assert.equal(result._tag, "Success");
+    const manifest = JSON.parse(readFileSync(path.join(rootDir, "harness/sessions/private-session.md"), "utf8")) as {
+      snapshot: { privacyScan: { passed: boolean; findings: ReadonlyArray<{ ruleId: string }> } };
+    };
+    assert.equal(manifest.snapshot.privacyScan.passed, false);
+    assert.equal(manifest.snapshot.privacyScan.findings.some((finding) => finding.ruleId === "env-secret-marker"), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/objects")), true);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -227,31 +262,18 @@ test("provenance session exporter dedupes identical claim-check blobs and verifi
     await runEffect(exporter.exportCurrentSession());
     await runEffect(exporter.exportCurrentSession());
 
-    const payload = readOnlyJournalPayload(rootDir);
-    const bodyRef = assertContentAddressedBlobRef(payload.bodyRef);
+    const stored = readSessionEntity(rootDir, "codex-session-1");
+    assert.equal(stored.format, "manifest");
+    if (stored.format !== "manifest") assert.fail("expected a Session Entity manifest");
+    const bodyRef = stored.manifest.bodyRef;
     assert.deepEqual(listObjectFiles(rootDir), [bodyRef.ref]);
     assert.match(readFileSync(path.join(rootDir, bodyRef.ref), "utf8"), /Deduped Codex user line/u);
 
     writeFileSync(path.join(rootDir, bodyRef.ref), "corrupted blob", "utf8");
-    const corruptCoordinator = makeJournaledWriteCoordinator({ rootDir });
-    const corruptResult = await runEffect(Effect.either(Effect.gen(function* () {
-      yield* corruptCoordinator.enqueue({
-        opId: "session-export-corrupt-blob",
-        entityId: moduleEntityId("provenance-session"),
-        kind: "machine_artifact_write",
-        payload: {
-          boundary: "provenance-session",
-          path: "harness/sessions/corrupt.md",
-          bodyRef
-        }
-      });
-      yield* corruptCoordinator.flush("explicit");
-    })));
-    assert.equal(corruptResult._tag, "Left");
-    if (corruptResult._tag === "Left") {
-      assert.equal(corruptResult.left._tag, "JournalUnavailable");
-      assert.match(corruptResult.left.cause instanceof Error ? corruptResult.left.cause.message : String(corruptResult.left.cause), /content-addressed blob sha256 mismatch/u);
-    }
+    assert.throws(
+      () => readSessionEntity(rootDir, "codex-session-1"),
+      /content-addressed blob sha256 mismatch/u
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -354,7 +376,7 @@ test("provenance session exporter renders ZCode model I/O JSONL conversation tex
     });
 
     const exported = await runEffect(exporter.exportCurrentSession());
-    const body = readFileSync(path.join(rootDir, "harness", exported.path), "utf8");
+    const body = readSessionEntity(rootDir, exported.session.sessionId).body;
     assert.match(body, /## Conversation/u);
     assert.match(body, /ZCode user original line/u);
     assert.match(body, /ZCode assistant original line/u);
@@ -393,7 +415,7 @@ test("provenance session exporter backfills Codex runtime logs by discovered ses
 
     assert.equal(result.schema, "provenance-session-backfill/v1");
     assert.deepEqual(result.exported.map((entry) => entry.session.sessionId), ["codex-thread-1"]);
-    const body = readFileSync(path.join(rootDir, "harness", "sessions", "codex-thread-1.md"), "utf8");
+    const body = readSessionEntity(rootDir, "codex-thread-1").body;
     assert.match(body, /Backfilled Codex user line/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -430,7 +452,7 @@ test("provenance session exporter backfills ZCode runtime logs by discovered ses
 
     assert.equal(result.schema, "provenance-session-backfill/v1");
     assert.deepEqual(result.exported.map((entry) => entry.session.sessionId), ["sess_zcode-thread-1"]);
-    const body = readFileSync(path.join(rootDir, "harness", "sessions", "sess_zcode-thread-1.md"), "utf8");
+    const body = readSessionEntity(rootDir, "sess_zcode-thread-1").body;
     assert.match(body, /Backfilled ZCode user line/u);
     assert.match(body, /Backfilled ZCode assistant line/u);
   } finally {
@@ -575,32 +597,6 @@ function createHarnessRoot(): string {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness", "harness.yaml"), "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n", "utf8");
   return rootDir;
-}
-
-function readOnlyJournalPayload(rootDir: string): Record<string, unknown> {
-  const payloadRoot = path.join(rootDir, ".harness", "write-journal", "payloads");
-  const payloadFiles = readdirSync(payloadRoot).filter((entry) => entry.endsWith(".json"));
-  assert.equal(payloadFiles.length, 1);
-  return JSON.parse(readFileSync(path.join(payloadRoot, payloadFiles[0]!), "utf8")) as Record<string, unknown>;
-}
-
-interface TestContentAddressedBlobRef {
-  readonly ref: string;
-  readonly sha256: string;
-  readonly size: number;
-  readonly mediaType: string;
-}
-
-function assertContentAddressedBlobRef(value: unknown): TestContentAddressedBlobRef {
-  assert.equal(Boolean(value && typeof value === "object"), true);
-  const candidate = value as Partial<TestContentAddressedBlobRef>;
-  assert.equal(typeof candidate.ref, "string");
-  assert.equal(typeof candidate.sha256, "string");
-  assert.equal(typeof candidate.size, "number");
-  assert.equal(typeof candidate.mediaType, "string");
-  assert.match(candidate.sha256!, /^[0-9a-f]{64}$/u);
-  assert.equal(candidate.ref, `harness/objects/sha256/${candidate.sha256!.slice(0, 2)}/${candidate.sha256!.slice(2)}`);
-  return candidate as TestContentAddressedBlobRef;
 }
 
 function listObjectFiles(rootDir: string): ReadonlyArray<string> {

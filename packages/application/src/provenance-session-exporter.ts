@@ -1,8 +1,9 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, WriteCoordinator, WriteError } from "../../kernel/src/index.ts";
-import { moduleEntityId, readFrontmatter, readScalar, resolveHarnessLayout, stablePayloadHash, writeContentAddressedBlob, writeCoordinatedPayload, type HarnessLayoutInput } from "../../kernel/src/index.ts";
+import type { ArtifactStore, CurrentSessionProbePort, CurrentSessionRef, CurrentSessionRuntime, CurrentSessionSource, SessionManifest, WriteCoordinator, WriteError } from "../../kernel/src/index.ts";
+import { privateTextScannerVersion, resolveHarnessLayout, scanPrivateText, writeContentAddressedBlob, writeSessionEntity, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation, type RuntimeConversation, type RuntimeConversationMessage } from "./runtime-session-logs.ts";
+import { readSessionEntity } from "./session-entity-reader.ts";
 
 export interface ProvenanceSessionExporterOptions {
   readonly rootInput: HarnessLayoutInput;
@@ -114,20 +115,24 @@ function writeSessionDocument(
         "transcript_unavailable"
       ));
     }
+    // Capture is report-only: sessions land in the private ledger (system of record),
+    // so findings are recorded honestly in the manifest and enforcement stays at the
+    // publish boundary (buildPublishableProjection fails closed there).
+    const privacyFindings = [
+      ...scanPrivateText(JSON.stringify(session), "manifest"),
+      ...conversation.messages.flatMap((message, index) => scanPrivateText(message.text, `snapshot.messages.${index}`))
+    ];
     const body = renderSessionMarkdown(session, conversation);
     const bodyRef = yield* Effect.try({
-      try: () => writeContentAddressedBlob(rootInput, body, sessionMediaType),
+      try: () => ({
+        store: "authored-cas/v1" as const,
+        ...writeContentAddressedBlob(rootInput, body, sessionMediaType)
+      }),
       catch: (cause) => sessionRejection(session.sessionId, cause instanceof Error ? cause.message : String(cause), "write_failed")
     });
-    return yield* writeCoordinatedPayload(options.coordinator, stablePayloadHash, {
-      entityId: moduleEntityId("provenance-session"),
-      kind: "machine_artifact_write",
-      opIdPrefix: `session-export-${session.sessionId}`,
-      payload: {
-        boundary: "provenance-session",
-        path: target.rootRelativePath,
-        bodyRef
-      }
+    const manifest = toSessionManifest(session, conversation, bodyRef, privacyFindings);
+    return yield* writeSessionEntity(options.coordinator, rootInput, manifest, {
+      opIdPrefix: `session-export-${session.sessionId}`
     }).pipe(
       Effect.map(() => ({
         session,
@@ -140,35 +145,38 @@ function writeSessionDocument(
 
 function readSessionDocument(
   rootInput: HarnessLayoutInput,
-  options: Pick<ProvenanceSessionExporterOptions, "artifactStore">,
+  _options: Pick<ProvenanceSessionExporterOptions, "artifactStore">,
   sessionId: string
 ): Effect.Effect<ProvenanceSessionExportResult, ProvenanceSessionExporterRejected> {
-  return Effect.gen(function* () {
-    const target = resolveSessionPath(rootInput, sessionId);
-    return yield* options.artifactStore.readAuthoredDocument(target.authoredRelativePath).pipe(
-      Effect.mapError((error) => sessionRejection(
-        sessionId,
-        error._tag === "ArtifactReadFailed" ? `session not found: ${sessionId}` : "session read failed",
-        error._tag === "ArtifactReadFailed" ? "session_not_found" : "read_failed"
-      )),
-      Effect.flatMap((document) => Effect.try({
-        try: () => {
-          const body = document.body;
-          const session = parseSessionMarkdown(body, sessionId);
-          if (session.runtime !== "human" && !/^### (?:User|Assistant|Summary)(?: \(|$)/mu.test(body)) {
-            throw new Error(`session transcript unavailable: ${sessionId}`);
-          }
-          return {
-            session,
-            path: target.authoredRelativePath
-          };
+  return Effect.try({
+    try: () => {
+      const target = resolveSessionPath(rootInput, sessionId);
+      const result = readSessionEntity(rootInput, sessionId);
+      const metadata = result.format === "manifest" ? result.manifest : result.metadata;
+      assertRuntime(metadata.runtime);
+      assertSource(metadata.source);
+      return {
+        session: {
+          schema: sessionSchema,
+          sessionId: metadata.sessionId,
+          runtime: metadata.runtime,
+          source: metadata.source,
+          detectedAt: metadata.detectedAt,
+          exportedAt: metadata.exportedAt,
+          ...(metadata.user ? { user: metadata.user } : {})
         },
-        catch: (cause) => {
-          const reason = cause instanceof Error ? cause.message : "session read failed";
-          return sessionRejection(sessionId, reason, reason.startsWith("session transcript unavailable:") ? "transcript_unavailable" : "read_failed");
-        }
-      }))
-    );
+        path: target.authoredRelativePath
+      };
+    },
+    catch: (cause) => {
+      const reason = cause instanceof Error ? cause.message : "session read failed";
+      const missing = isMissingFileError(cause);
+      return sessionRejection(
+        sessionId,
+        missing ? `session not found: ${sessionId}` : reason,
+        missing ? "session_not_found" : reason.startsWith("session transcript unavailable:") ? "transcript_unavailable" : "read_failed"
+      );
+    }
   });
 }
 
@@ -207,29 +215,6 @@ function resolveSessionPath(rootInput: HarnessLayoutInput, sessionId: string): {
   };
 }
 
-function parseSessionMarkdown(body: string, expectedSessionId: string): ProvenanceSessionDocument {
-  const frontmatter = readFrontmatter(body);
-  if (!frontmatter) throw new Error("session markdown missing frontmatter");
-  const schema = readScalar(frontmatter, "schema", { required: true });
-  if (schema !== sessionSchema) throw new Error(`unsupported session schema: ${schema}`);
-  const sessionId = readScalar(frontmatter, "sessionId", { required: true });
-  if (sessionId !== expectedSessionId) throw new Error(`session id mismatch: ${sessionId}`);
-  const runtime = readScalar(frontmatter, "runtime", { required: true });
-  const source = readScalar(frontmatter, "source", { required: true });
-  assertRuntime(runtime);
-  assertSource(source);
-  const user = readScalar(frontmatter, "user");
-  return {
-    schema,
-    sessionId,
-    runtime,
-    source,
-    detectedAt: readScalar(frontmatter, "detectedAt", { required: true }),
-    exportedAt: readScalar(frontmatter, "exportedAt", { required: true }),
-    ...(user ? { user } : {})
-  };
-}
-
 function renderSessionMarkdown(session: ProvenanceSessionDocument, conversation: RuntimeConversation): string {
   return [
     "---",
@@ -257,6 +242,42 @@ function renderSessionMarkdown(session: ProvenanceSessionDocument, conversation:
     ...renderConversationMessages(conversation.messages),
     ""
   ].join("\n");
+}
+
+function toSessionManifest(
+  session: ProvenanceSessionDocument,
+  conversation: RuntimeConversation,
+  bodyRef: SessionManifest["bodyRef"],
+  privacyFindings: SessionManifest["snapshot"]["privacyScan"]["findings"]
+): SessionManifest {
+  const timestamps = conversation.messages.flatMap((message) => message.timestamp ? [message.timestamp] : []);
+  const complete = session.runtime === "human" || conversation.warnings.length === 0;
+  return {
+    schema: "session-entity/v1",
+    sessionId: session.sessionId,
+    lifecycle: complete ? "sealed" : "partial",
+    archiveStatus: complete ? "complete" : "partial",
+    runtime: session.runtime,
+    source: session.source,
+    detectedAt: session.detectedAt,
+    exportedAt: session.exportedAt,
+    ...(session.user ? { user: session.user } : {}),
+    bodyRef,
+    snapshot: {
+      capturedAt: session.exportedAt,
+      completeness: complete ? "complete" : "partial",
+      captureRange: {
+        messageCount: conversation.messages.length,
+        ...(timestamps[0] ? { firstMessageAt: timestamps[0] } : {}),
+        ...(timestamps.at(-1) ? { lastMessageAt: timestamps.at(-1) } : {})
+      },
+      privacyScan: {
+        scannerVersion: privateTextScannerVersion,
+        passed: !privacyFindings.some((finding) => finding.severity === "error"),
+        findings: privacyFindings
+      }
+    }
+  };
 }
 
 function renderWarnings(warnings: ReadonlyArray<string>): ReadonlyArray<string> {
@@ -321,4 +342,8 @@ function writeErrorMessage(error: WriteError): string {
   if (error._tag === "WriteConflict") return error.owner ? `write conflict for ${error.taskId}: ${error.owner}` : `write conflict for ${error.taskId}`;
   if (error._tag === "GlobalWriteConflict") return error.owner ? `global write conflict: ${error.owner}` : "global write conflict";
   return error.cause instanceof Error ? error.cause.message : "session export failed";
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }

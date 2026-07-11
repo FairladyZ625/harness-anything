@@ -166,7 +166,10 @@ function assertHumanProvenance(rootDir: string, index: string): void {
   assert.match(index, /provenance:\n  - \{runtime: "human", sessionId: "human-cli-\d+", boundAt: "\d{4}-\d{2}-\d{2}T/u);
   const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(index)?.[1];
   assert.ok(sessionId);
-  assert.match(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8"), new RegExp(`sessionId: ${sessionId}`, "u"));
+  const sessionManifest = JSON.parse(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8")) as { schema: string; sessionId: string; runtime: string };
+  assert.equal(sessionManifest.schema, "session-entity/v1");
+  assert.equal(sessionManifest.sessionId, sessionId);
+  assert.equal(sessionManifest.runtime, "human");
 }
 
 function assertGeneratedTaskId(value: unknown): string {

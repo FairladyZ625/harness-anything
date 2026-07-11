@@ -37,6 +37,8 @@ export {
   taskHolderPrincipalFromActor
 } from "../../kernel/src/index.ts";
 export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
+export { readSessionEntity } from "./session-entity-reader.ts";
+export type { SessionEntityReadResult } from "./session-entity-reader.ts";
 export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";
 export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
 export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";

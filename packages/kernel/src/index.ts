@@ -4,6 +4,11 @@ export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
+export {
+  readSessionEntityDocument,
+  writeSessionEntity
+} from "./entity/session.ts";
+export type { SessionManifest } from "./schemas/session-manifest.ts";
 export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export * from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
@@ -23,6 +28,7 @@ export {
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,
+  readContentAddressedTextBlob,
   writeContentAddressedBlob
 } from "./composition/index.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";

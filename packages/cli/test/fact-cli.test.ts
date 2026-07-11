@@ -42,7 +42,9 @@ test("CLI record fact writes a task-local stable F-id through the coordinator", 
     assert.match(factsBody, /^- \{fact_id: F-DEADBEEF, statement: "Decision CLI has a human terminal fallback\.", source: "manual verification", observedAt: "2026-07-03T00:00:00\.000Z", confidence: high, memoryClass: semantic, memoryTags: \[tool_memory, pattern\], provenance: \[\{runtime: "human", sessionId: "human-cli-\d+", boundAt: "2026-07-03T00:00:00\.000Z"\}\]\}$/mu);
     const sessionId = /sessionId: "(human-cli-\d+)"/u.exec(factsBody)?.[1];
     assert.ok(sessionId);
-    assert.equal(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8").includes(`sessionId: ${sessionId}`), true);
+    const sessionManifest = JSON.parse(readFileSync(path.join(rootDir, "harness", "sessions", `${sessionId}.md`), "utf8")) as { schema: string; sessionId: string };
+    assert.equal(sessionManifest.schema, "session-entity/v1");
+    assert.equal(sessionManifest.sessionId, sessionId);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /write-watermark\/v1/);
   });
 });

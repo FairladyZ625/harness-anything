@@ -2,8 +2,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import type { CurrentSessionRef } from "../../../../kernel/src/index.ts";
-import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, writeContentAddressedBlob, writeCoordinatedPayload } from "../../../../kernel/src/index.ts";
+import { moduleEntityId, resolveHarnessLayout, stablePayloadHash, writeContentAddressedBlob, writeCoordinatedPayload, writeSessionEntity } from "../../../../kernel/src/index.ts";
 import type { FlushReport, WriteError } from "../../../../kernel/src/index.ts";
+import { readSessionEntity } from "../../../../application/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, SessionExportRuntime, SessionExportSource } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -116,6 +117,16 @@ function writeExistingSessionDocuments(
       const rootRelativePath = rootRelativeSessionPath(context.layoutInput, authoredRelativePath);
       const absolutePath = path.join(resolveHarnessLayout(context.layoutInput).rootDir, rootRelativePath);
       const body = readFileSync(absolutePath, "utf8");
+      if (body.trimStart().startsWith("{")) {
+        const sessionId = path.basename(authoredRelativePath, ".md");
+        const session = readSessionEntity(context.layoutInput, sessionId);
+        if (session.format !== "manifest") throw new Error(`expected Session Entity manifest: ${authoredRelativePath}`);
+        yield* writeSessionEntity(coordinator, context.layoutInput, session.manifest, {
+          flush: false,
+          opIdPrefix: `session-sync-${index}`
+        });
+        continue;
+      }
       const bodyRef = writeContentAddressedBlob(context.layoutInput, body, "text/markdown; charset=utf-8");
       yield* writeCoordinatedPayload(coordinator, stablePayloadHash, {
         entityId: moduleEntityId("provenance-session"),

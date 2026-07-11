@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeContentAddressedBlob } from "../../kernel/src/index.ts";
+import { readSessionEntity } from "../../application/src/index.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const cleanRuntimeEnv = {
@@ -43,9 +45,9 @@ test("CLI session export binds CODEX_THREAD_ID and writes managed session markdo
     assert.equal(exported.report.session.sessionId, "019f28de-f7f6-7223-a2a8-b2968686fe21");
     assert.equal(exported.report.git.committed, true);
     assert.equal(exported.report.git.coordinator, "write-journal");
-    const body = readFileSync(path.join(rootDir, exported.paths.primary), "utf8");
-    assert.match(body, /sessionId: 019f28de-f7f6-7223-a2a8-b2968686fe21/u);
-    assert.match(body, /Desktop transcript passed explicitly\./u);
+    const stored = readSessionEntity(rootDir, "019f28de-f7f6-7223-a2a8-b2968686fe21");
+    assert.equal(stored.format, "manifest");
+    assert.match(stored.body, /Desktop transcript passed explicitly\./u);
     assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
     assert.match(writeWatermarkBody(rootDir), /session-export-019f28de-f7f6-7223-a2a8-b2968686fe21/u);
     assert.equal(gitStatus(harnessRoot), "");
@@ -105,6 +107,46 @@ test("CLI session sync writes existing untracked session exports through the jou
   });
 });
 
+test("CLI session sync routes structured manifests through declared entity writes", () => {
+  withTempRoot((rootDir) => {
+    const harnessRoot = path.join(rootDir, "harness");
+    mkdirSync(path.join(harnessRoot, "sessions"), { recursive: true });
+    initHarnessGit(harnessRoot);
+    const bodyRef = {
+      store: "authored-cas/v1",
+      ...writeContentAddressedBlob(rootDir, "# Session synced-manifest\n", "text/markdown; charset=utf-8")
+    };
+    writeFileSync(path.join(harnessRoot, "sessions", "synced-manifest.md"), `${JSON.stringify({
+      schema: "session-entity/v1",
+      sessionId: "synced-manifest",
+      lifecycle: "sealed",
+      archiveStatus: "complete",
+      runtime: "codex",
+      source: "runtime",
+      detectedAt: "2026-07-04T00:00:00.000Z",
+      exportedAt: "2026-07-04T00:01:00.000Z",
+      bodyRef,
+      snapshot: {
+        capturedAt: "2026-07-04T00:01:00.000Z",
+        completeness: "complete",
+        captureRange: { messageCount: 1 },
+        privacyScan: { scannerVersion: "publish-redaction/v1", passed: true, findings: [] }
+      }
+    }, null, 2)}\n`);
+
+    const synced = runJson(rootDir, ["session", "sync"]);
+
+    assert.equal(synced.ok, true);
+    const payloadRoot = path.join(rootDir, ".harness", "write-journal", "payloads");
+    const payloadFile = readdirSync(payloadRoot).find((entry) => entry.endsWith(".json"));
+    assert.ok(payloadFile);
+    const payload = JSON.parse(readFileSync(path.join(payloadRoot, payloadFile), "utf8"));
+    assert.equal(payload.entityDocument.declaration.kind, "session");
+    assert.equal("boundary" in payload, false);
+    assert.equal(gitStatus(harnessRoot), "");
+  });
+});
+
 test("CLI session backfill discovers Codex runtime logs and writes exports through the journal", () => {
   withTempRoot((rootDir) => {
     const harnessRoot = path.join(rootDir, "harness");
@@ -131,7 +173,7 @@ test("CLI session backfill discovers Codex runtime logs and writes exports throu
     assert.equal(backfilled.report.exported[0].session.sessionId, "codex-thread-backfill");
     assert.equal(backfilled.report.git.committed, true);
     assert.equal(backfilled.report.git.coordinator, "write-journal");
-    assert.match(readFileSync(path.join(harnessRoot, "sessions", "codex-thread-backfill.md"), "utf8"), /Backfill this Codex thread/u);
+    assert.match(readSessionEntity(rootDir, "codex-thread-backfill").body, /Backfill this Codex thread/u);
     assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
     assert.match(writeWatermarkBody(rootDir), /session-export-codex-thread-backfill/u);
     assert.equal(gitStatus(harnessRoot), "");
@@ -166,8 +208,8 @@ test("CLI session backfill discovers ZCode runtime logs and writes exports throu
     assert.equal(backfilled.report.exported[0].session.sessionId, "sess_zcode-thread-backfill");
     assert.equal(backfilled.report.git.committed, true);
     assert.equal(backfilled.report.git.coordinator, "write-journal");
-    assert.match(readFileSync(path.join(harnessRoot, "sessions", "sess_zcode-thread-backfill.md"), "utf8"), /Backfill this ZCode thread/u);
-    assert.match(readFileSync(path.join(harnessRoot, "sessions", "sess_zcode-thread-backfill.md"), "utf8"), /ZCode backfill response/u);
+    assert.match(readSessionEntity(rootDir, "sess_zcode-thread-backfill").body, /Backfill this ZCode thread/u);
+    assert.match(readSessionEntity(rootDir, "sess_zcode-thread-backfill").body, /ZCode backfill response/u);
     assert.match(writeWatermarkBody(rootDir), /"schema":"write-watermark\/v1"/u);
     assert.match(writeWatermarkBody(rootDir), /session-export-sess_zcode-thread-backfill/u);
     assert.equal(gitStatus(harnessRoot), "");

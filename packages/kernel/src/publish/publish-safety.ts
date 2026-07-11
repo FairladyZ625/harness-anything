@@ -52,7 +52,7 @@ export interface PublishRedactionFinding {
   readonly path?: string;
 }
 
-const scannerVersion = "publish-redaction/v1";
+export const privateTextScannerVersion = "publish-redaction/v1";
 
 const privateTextPatterns: ReadonlyArray<{
   readonly ruleId: string;
@@ -155,7 +155,7 @@ export function buildPublishableProjection(input: PublishProjectionInput): Publi
       links,
       readiness,
       redactionReport: {
-        scannerVersion,
+        scannerVersion: privateTextScannerVersion,
         findings,
         passed: true
       },
@@ -213,6 +213,12 @@ function scanPublishInput(input: PublishProjectionInput): ReadonlyArray<PublishR
   scanText(input.summary, "summary", findings);
   scanLinks(input.links, "links", findings);
   scanLinks(input.readiness.evidenceLinks, "readiness.evidenceLinks", findings);
+  return findings;
+}
+
+export function scanPrivateText(text: string, path: string): ReadonlyArray<PublishRedactionFinding> {
+  const findings: PublishRedactionFinding[] = [];
+  scanText(text, path, findings);
   return findings;
 }
 
