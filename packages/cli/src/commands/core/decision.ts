@@ -12,7 +12,7 @@ import { runPropose } from "./decision-propose.ts";
 import { runDecisionQueryCommand } from "./decision-query.ts";
 import { runReckon } from "./decision-reckon.ts";
 import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetire } from "./decision-relate.ts";
-import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionResult, parseActor } from "./decision-shared.ts";
+import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionResult, parseActor, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
   | "decision-propose" | "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace" | "decision-retire"
@@ -53,10 +53,15 @@ function runTransition(
   action: TransitionAction
 ): Effect.Effect<CliResult, WriteError> {
   return readDecisionDocument(rootInput, action.decisionId).pipe(
-    Effect.map((document) => document.decision),
-    Effect.flatMap((current) => {
+    Effect.flatMap((document) => {
+      const current = document.decision;
       const arbiter = parseActor(action.arbiter) ?? current.arbiter;
       const request = { current, arbiter, decidedAt: action.decidedAt, judgmentOnlyRationale: action.judgmentOnlyRationale, body: action.body };
+      const withBodyWarning = (result: CliResult): CliResult => withDecisionBodyEmptyWarning(
+        result,
+        action.judgmentOnlyRationale?.trim() ? action.judgmentOnlyRationale : action.body ?? document.body,
+        current.title
+      );
       if (action.dryRun) {
         if (action.kind === "decision-accept" && current.state === "proposed" && !action.judgmentOnlyRationale?.trim() && !decisionHasAcceptEvidenceFloor(current)) {
           return Effect.succeed({
@@ -66,11 +71,12 @@ function runTransition(
             error: cliError(CliErrorCode.DecisionWriteRejected, acceptEvidenceFloorHint(current))
           } satisfies CliResult);
         }
-        return Effect.succeed(decisionResult(rootInput, action.kind, current.decision_id, transitionState(action.kind), true));
+        const result = decisionResult(rootInput, action.kind, current.decision_id, transitionState(action.kind), true);
+        return Effect.succeed(action.kind === "decision-accept" ? withBodyWarning(result) : result);
       }
       switch (action.kind) {
         case "decision-accept":
-          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error, current), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
+          return service.accept(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error, current), onSuccess: (result) => withBodyWarning(decisionResult(rootInput, action.kind, result.decisionId, result.state, false)) }));
         case "decision-reject":
           return service.reject(request).pipe(Effect.match({ onFailure: (error) => decisionFailure(action.kind, current.decision_id, error), onSuccess: (result) => decisionResult(rootInput, action.kind, result.decisionId, result.state, false) }));
         case "decision-defer":

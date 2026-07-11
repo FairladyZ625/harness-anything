@@ -32,6 +32,26 @@ export function decisionResult(rootInput: HarnessLayoutInput, command: string, d
   };
 }
 
+export function withDecisionBodyEmptyWarning(result: CliResult, body: string | undefined, title: string): CliResult {
+  if (!isDecisionBodyEmpty(body, title)) return result;
+  return {
+    ...result,
+    warnings: [
+      ...(result.warnings ?? []),
+      {
+        severity: "warning",
+        code: "decision_body_empty",
+        message: "Decision markdown body is empty. Add a human-readable narrative with background, trade-offs, and a plain-language conclusion."
+      }
+    ]
+  };
+}
+
+function isDecisionBodyEmpty(body: string | undefined, title: string): boolean {
+  const trimmed = body?.trim();
+  return !trimmed || trimmed === `# ${title}`;
+}
+
 export function decisionFailure(command: string, decisionId: string, error: DecisionWriteRejected | WriteError, current?: DecisionPackage): CliResult {
   const reason = "_tag" in error && error._tag === "DecisionWriteRejected" ? error.reason : JSON.stringify(error);
   return {

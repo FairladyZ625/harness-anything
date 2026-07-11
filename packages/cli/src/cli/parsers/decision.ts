@@ -9,15 +9,16 @@ import type { CommandJsonInput } from "../json-input.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
 import { parseDecisionAmendPatches } from "./decision-amend.ts";
+import { invalidDecisionActor, isDecisionActorRef } from "./decision-actor.ts";
+import { readDecisionBody } from "./decision-body.ts";
+import { isDecisionTransitionOp, parseDecisionTransitionArgs } from "./decision-transition.ts";
 import { parseChoiceInputs, parseClaimInputs, parseRejectedInputs } from "./decision-propose-inputs.ts";
 import { parseDecisionRelationOp } from "./decision-relation.ts";
 import { jsonBoolean, jsonPayloadFor, jsonString, jsonStringList, jsonValues, type JsonPayload } from "./json-values.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
 
-const transitionOps = new Set(["accept", "reject", "defer", "supersede", "retire"]);
 const tiers = new Set(["low", "medium", "high"]);
-const actorKinds = new Set(["agent", "human", "system"]);
 const evidenceTargetKinds = new Set(["task", "fact", "decision"]);
 
 export function parseDecisionArgs(
@@ -58,35 +59,21 @@ export function parseDecisionArgs(
       dryRun: args.includes("--dry-run")
     });
   }
-  if (transitionOps.has(op ?? "") && args[2]) {
-    const arbiter = readOption(args, "--arbiter");
-    if (arbiter && !isActorRef(arbiter)) return invalidActor();
-    const judgmentOnlyRationale = readOption(args, "--judgment-only");
-    if (op === "accept" && args.includes("--judgment-only") && (
-      !judgmentOnlyRationale ||
-      judgmentOnlyRationale.trim().length === 0 ||
-      judgmentOnlyRationale.trim().startsWith("--")
-    )) {
-      return { ok: false, error: cliError(CliErrorCode.MissingReason, "Use decision accept <decision-id> --judgment-only <rationale>.") };
-    }
-    return parsedDecision(rootDir, json, {
-      kind: `decision-${op}` as "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire",
-      decisionId: args[2]!,
-      arbiter,
-      decidedAt: readOption(args, "--decided-at"),
-      ...(op === "accept" && judgmentOnlyRationale ? { judgmentOnlyRationale } : {}),
-      body: readOption(args, "--body"),
-      dryRun: args.includes("--dry-run")
-    });
+  if (isDecisionTransitionOp(op) && args[2]) {
+    const transition = parseDecisionTransitionArgs(args, op);
+    if (!transition.ok) return transition;
+    return parsedDecision(rootDir, json, transition.value);
   }
   if (op === "amend" && args[2]) {
     const patches = parseDecisionAmendPatches(args);
     if (!patches.ok) return { ok: false, error: patches.error };
+    const body = readDecisionBody(args, readOption(args, "--body"));
+    if (!body.ok) return body;
     return parsedDecision(rootDir, json, {
       kind: "decision-amend",
       decisionId: args[2],
       title: readOption(args, "--title"),
-      body: readOption(args, "--body"),
+      body: body.value,
       patches: patches.value,
       dryRun: args.includes("--dry-run")
     });
@@ -111,8 +98,8 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
   if (!riskTier || !urgency) return { ok: false, error: cliError(CliErrorCode.InvalidDecisionTier, "Use low, medium, or high for --risk-tier and --urgency.") };
   const proposedBy = readOption(args, "--proposed-by") ?? jsonString(payload, "proposedBy");
   const arbiter = readOption(args, "--arbiter") ?? jsonString(payload, "arbiter");
-  if (proposedBy && !isActorRef(proposedBy)) return invalidActor();
-  if (arbiter && !isActorRef(arbiter)) return invalidActor();
+  if (proposedBy && !isDecisionActorRef(proposedBy)) return invalidDecisionActor();
+  if (arbiter && !isDecisionActorRef(arbiter)) return invalidDecisionActor();
   const evidenceRelations = parseEvidenceRelations(args, jsonValues(payload, "evidenceRelations"));
   if (!evidenceRelations.ok) return { ok: false, error: evidenceRelations.error };
   const hasClaimFlags = readRepeatedRawOption(args, "--claim").length > 0;
@@ -121,6 +108,12 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     ...jsonValues(payload, "claims")
   ]);
   if (!claims.ok) return { ok: false, error: claims.error };
+  const body = readDecisionBody(
+    args,
+    readOption(args, "--body") ?? jsonString(payload, "body"),
+    jsonString(payload, "bodyFile")
+  );
+  if (!body.ok) return body;
   return parsedDecision(rootDir, json, {
     kind: "decision-propose",
     decisionId: readOption(args, "--id") ?? jsonString(payload, "decisionId"),
@@ -138,7 +131,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     modules: [...jsonStringList(payload, "modules"), ...splitRepeatedList(args, "--module")],
     productLines: [...jsonStringList(payload, "productLines"), ...splitRepeatedList(args, "--product-line")],
     evidenceRelations: evidenceRelations.value,
-    body: readOption(args, "--body") ?? jsonString(payload, "body"),
+    body: body.value,
     dryRun: args.includes("--dry-run") || jsonBoolean(payload, "dryRun")
   });
 }
@@ -230,15 +223,6 @@ function splitList(value: string | undefined): ReadonlyArray<string> {
 
 function splitRepeatedList(args: ReadonlyArray<string>, name: string): ReadonlyArray<string> {
   return readRepeatedRawOption(args, name).flatMap(splitList);
-}
-
-function isActorRef(value: string): boolean {
-  const separator = value.indexOf(":");
-  return separator > 0 && separator < value.length - 1 && actorKinds.has(value.slice(0, separator));
-}
-
-function invalidActor(): ParseResult {
-  return { ok: false, error: cliError(CliErrorCode.InvalidDecisionActor, "Use actor refs as agent:<id>, human:<id>, or system:<id>.") };
 }
 
 function parsedDecision(rootDir: string, json: boolean, action: ParsedCommand["action"]): ParseResult {
