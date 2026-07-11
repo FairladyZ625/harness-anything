@@ -49,7 +49,8 @@ test("Execution claim without a detectable runtime session records a pending pri
       role: "primary",
       archive_status: "pending",
       attached_at: execution.session_bindings[0].attached_at,
-      session: null
+      session: null,
+      capture_range: execution.session_bindings[0].capture_range
     }]);
 
     const submitted = runRawJsonMaybeFail(rootDir, [

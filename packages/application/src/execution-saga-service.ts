@@ -4,15 +4,18 @@ import type {
   CurrentSessionRef,
   ExecutionLeaseContext,
   ExecutionRecord,
+  OutputEvidence,
   TaskHolderPrincipal,
   TaskHolderService
 } from "../../kernel/src/index.ts";
 
 export interface ExecutionSubmission {
-  readonly summary: string;
-  readonly verification: ReadonlyArray<string>;
+  readonly completionClaim: string;
+  readonly deliverables: ReadonlyArray<string>;
+  readonly evidence: ReadonlyArray<OutputEvidence>;
+  readonly verificationNotes: ReadonlyArray<string>;
+  readonly knownGaps: ReadonlyArray<string>;
   readonly residualRisks: ReadonlyArray<string>;
-  readonly outputs: ReadonlyArray<unknown>;
 }
 
 export type ExecutionSessionRole = "primary" | "subagent" | "reviewer_observer";
@@ -24,6 +27,13 @@ export interface ExecutionSessionBinding {
   readonly archive_status: "pending" | "complete" | "partial" | "unavailable";
   readonly attached_at: string;
   readonly session: CurrentSessionRef | null;
+  readonly capture_range: {
+    readonly range_id: string;
+    readonly coordinate: "timestamp";
+    readonly start_at: string;
+    readonly end_at: string | null;
+    readonly bounds: "inclusive";
+  } | null;
 }
 
 export interface ExecutionAuthoredStore {
@@ -96,7 +106,7 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         ttlMs: input.ttlMs
       });
       const execution: ExecutionRecord = {
-        schema: "execution/v1",
+        schema: "execution/v2",
         execution_id: executionId,
         task_ref: `task/${input.taskId}`,
         state: "active",
@@ -184,7 +194,8 @@ function sessionBinding(session: CurrentSessionRef, role: ExecutionSessionRole, 
     role,
     archive_status: "pending",
     attached_at: attachedAt,
-    session
+    session,
+    capture_range: captureRange(role, session.sessionId, attachedAt)
   };
 }
 
@@ -195,7 +206,18 @@ function pendingPrimarySessionBinding(attachedAt: string): ExecutionSessionBindi
     role: "primary",
     archive_status: "pending",
     attached_at: attachedAt,
-    session: null
+    session: null,
+    capture_range: captureRange("primary", "pending", attachedAt)
+  };
+}
+
+function captureRange(role: ExecutionSessionRole, sessionId: string, attachedAt: string): NonNullable<ExecutionSessionBinding["capture_range"]> {
+  return {
+    range_id: `${role}:${sessionId}:${attachedAt}`,
+    coordinate: "timestamp",
+    start_at: attachedAt,
+    end_at: null,
+    bounds: "inclusive"
   };
 }
 

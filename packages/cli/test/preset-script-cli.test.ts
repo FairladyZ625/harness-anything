@@ -295,6 +295,7 @@ test("CLI script command runs with an explicit environment allowlist", () => {
         id: "baseline",
         title: "Baseline",
         checkerProfile: "standard",
+        completionGates: [],
         templateSelections: []
       }],
       defaultProfile: "baseline"
@@ -393,6 +394,7 @@ test("CLI script command rejects broad authored entity write roots before execut
         id: "baseline",
         title: "Baseline",
         checkerProfile: "standard",
+        completionGates: [],
         templateSelections: []
       }],
       defaultProfile: "baseline"
@@ -425,6 +427,7 @@ test("CLI process preset script entrypoint rejects undeclared output write scope
         id: "baseline",
         title: "Baseline",
         checkerProfile: "standard",
+        completionGates: [],
         templateSelections: []
       }],
       defaultProfile: "baseline"
@@ -461,6 +464,7 @@ test("CLI process preset script entrypoint directly rejects localRoot write scop
         id: "baseline",
         title: "Baseline",
         checkerProfile: "standard",
+        completionGates: [],
         templateSelections: []
       }],
       defaultProfile: "baseline"
@@ -493,6 +497,7 @@ test("CLI process preset script entrypoint rejects repository-wide declared writ
         id: "baseline",
         title: "Baseline",
         checkerProfile: "standard",
+        completionGates: [],
         templateSelections: []
       }],
       defaultProfile: "baseline"
@@ -530,6 +535,7 @@ test("CLI process preset script entrypoint rejects repository-wide recursive rea
         id: "baseline",
         title: "Baseline",
         checkerProfile: "standard",
+        completionGates: [],
         templateSelections: []
       }],
       defaultProfile: "baseline"
@@ -562,6 +568,7 @@ test("CLI process preset script entrypoint blocks out-of-scope filesystem writes
         id: "baseline",
         title: "Baseline",
         checkerProfile: "standard",
+        completionGates: [],
         templateSelections: []
       }],
       defaultProfile: "baseline"

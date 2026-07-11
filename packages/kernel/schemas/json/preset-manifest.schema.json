@@ -56,6 +56,11 @@
           "id": { "type": "string" },
           "title": { "type": "string" },
           "checkerProfile": { "type": "string" },
+          "completionGates": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }
+          },
           "templateSelections": {
             "type": "array",
             "items": { "$ref": "#/$defs/templateSelection" }
@@ -77,6 +82,10 @@
     },
     "defaultProfile": { "type": "string" }
   },
+  "allOf": [{
+    "if": { "properties": { "schema": { "const": "preset-manifest/v2" } } },
+    "then": { "properties": { "profiles": { "items": { "required": ["completionGates"] } } } }
+  }],
   "$defs": {
     "templateSelection": {
       "type": "object",

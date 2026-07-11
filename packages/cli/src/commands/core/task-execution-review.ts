@@ -20,6 +20,8 @@ export function runExecutionReview(context: Parameters<CommandRunner>[0], action
         reviewer: context.taskHolderPrincipal(),
         reviewerSession,
         findings: action.findings,
+        evidenceChecked: action.evidenceChecked,
+        rationale: action.rationale,
         verdict: action.verdict,
         archiveWarningsAcknowledged: action.archiveWarningsAcknowledged
       }),

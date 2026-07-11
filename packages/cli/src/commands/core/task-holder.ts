@@ -9,12 +9,10 @@ import { readSessionEntityDocument } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
-
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
   { readonly kind: "task-claim" | "task-holder" | "task-release" }
 >;
-
 function runExecutionClaim(
   context: CommandRunnerContext,
   action: Extract<TaskHolderAction, { readonly kind: "task-claim" }>,
@@ -43,7 +41,6 @@ function runExecutionClaim(
     }))
   );
 }
-
 export function runExecutionSubmit(
   context: CommandRunnerContext,
   action: Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "status-set" }>
@@ -74,10 +71,16 @@ export function runExecutionSubmit(
         leaseToken: submission.leaseToken,
         principal: principal.value,
         submission: {
-          summary: submission.summary,
-          verification: submission.verification,
+          completionClaim: submission.completionClaim,
+          deliverables: submission.deliverables,
+          verificationNotes: submission.verificationNotes,
+          knownGaps: submission.knownGaps,
           residualRisks: submission.residualRisks,
-          outputs: submission.outputs.map((ref) => ({ kind: "reference", ref }))
+          evidence: submission.outputs.map((text, index) => ({
+            evidence_id: `ev_cli_${index + 1}`,
+            execution_ref: `execution/${action.taskId}/${executionId}`,
+            locator: { substrate: "inline" as const, text }
+          }))
         }
       }),
       catch: (error) => error

@@ -11,6 +11,7 @@
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
     "templateSelections": [
       { "slot": "task.worker.flow", "templateRef": "template://planning/worker-flow@1", "materializeAs": "worker-flow.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
     ]

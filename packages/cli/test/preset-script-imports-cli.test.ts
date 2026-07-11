@@ -357,6 +357,7 @@ function writeProcessPreset(rootDir: string, presetId: string, title: string, co
       id: "baseline",
       title: "Baseline",
       checkerProfile: "standard",
+        completionGates: [],
       templateSelections: []
     }],
     defaultProfile: "baseline"
@@ -433,7 +434,7 @@ function writePolicyCapturePreset(
     kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
     capabilityImports,
     entrypoints: { capture: { type: "script", command: "scripts/capture.mjs", writes: ["{{outputRoot}}/**"] } },
-    profiles: [{ id: "baseline", title: "Baseline", checkerProfile: "standard", templateSelections: [] }],
+    profiles: [{ id: "baseline", title: "Baseline", checkerProfile: "standard", completionGates: [], templateSelections: [] }],
     defaultProfile: "baseline"
   }, null, 2));
   writeFile(rootDir, `.harness/presets/${id}/scripts/capture.mjs`, [

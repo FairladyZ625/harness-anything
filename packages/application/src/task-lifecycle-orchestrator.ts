@@ -43,6 +43,11 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly codeDocVersionControlSystem?: Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit">;
   readonly now?: () => string;
   readonly executionCompletionService?: ExecutionCompletionService;
+  readonly completionGateResolver?: (input: {
+    readonly vertical?: string;
+    readonly preset?: string;
+    readonly profile?: string;
+  }) => ReadonlyArray<string>;
 }
 
 export interface TaskLifecycleError {
@@ -76,7 +81,7 @@ export interface TaskLifecycleOrchestrator {
   readonly setTaskStatus: (payload: { readonly taskId: string; readonly status: DomainStatus }) => Effect.Effect<TaskLifecycleResult>;
   readonly startTaskReview: (payload: { readonly taskId: string }) => Effect.Effect<TaskLifecycleResult>;
   readonly reviewTask: (payload: { readonly taskId: string; readonly reviewerId: string }) => Effect.Effect<TaskLifecycleResult>;
-  readonly completeTask: (payload: { readonly taskId: string; readonly reviewerId: string; readonly ciGate: "passed" | "failed"; readonly actor?: TaskHolderPrincipal }) => Effect.Effect<TaskLifecycleResult>;
+  readonly completeTask: (payload: { readonly taskId: string; readonly reviewerId: string; readonly ciGate?: "passed" | "failed"; readonly actor?: TaskHolderPrincipal }) => Effect.Effect<TaskLifecycleResult>;
 }
 
 export interface TaskLifecyclePolicy {
@@ -143,6 +148,8 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const projection = readTaskProjection({ rootDir: options.rootDir, layoutOverrides: options.layoutOverrides });
       const row = projection.rows.find((item) => item.taskId === payload.taskId);
       if (!row) return taskFailure(payload.taskId, "task_not_found", `task not found: ${payload.taskId}`);
+      const completionGates = resolveCompletionGates(options, row);
+      if (!completionGates.ok) return taskFailure(payload.taskId, "completion_contract_invalid", completionGates.message);
 
       const documentPlaceholder = yield* validateCompletionDocumentPlaceholders(
         options.artifactStore,
@@ -152,8 +159,10 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       );
       if (documentPlaceholder) return documentPlaceholder;
 
-      const codeDocReconciliation = yield* validateCodeDocReconciliation(options.artifactStore, options.rootDir, payload.taskId, options.codeDocVersionControlSystem);
-      if (codeDocReconciliation) return codeDocReconciliation;
+      if (completionGates.gates.includes("code-doc-reconciliation")) {
+        const codeDocReconciliation = yield* validateCodeDocReconciliation(options.artifactStore, options.rootDir, payload.taskId, options.codeDocVersionControlSystem);
+        if (codeDocReconciliation) return codeDocReconciliation;
+      }
 
       const completionGate = evaluateCompletionGate({
         taskId: payload.taskId,
@@ -161,7 +170,8 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         packageDisposition: row.packageDisposition,
         closeoutReadiness: row.closeoutReadiness,
         reviewGate: "passed",
-        ciGate: payload.ciGate
+        ciGate: payload.ciGate,
+        applicableGates: completionGates.gates
       });
       if (!completionGate.ok) {
         return {
@@ -233,6 +243,31 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       } satisfies TaskLifecycleResult;
     })
   };
+}
+
+const supportedCompletionGates = new Set(["ci", "code-doc-reconciliation"]);
+const legacyCompletionGates = ["ci", "code-doc-reconciliation"] as const;
+
+function resolveCompletionGates(
+  options: TaskLifecycleOrchestratorOptions,
+  row: { readonly vertical?: string; readonly preset?: string; readonly profile?: string }
+): { readonly ok: true; readonly gates: ReadonlyArray<string> } | { readonly ok: false; readonly message: string } {
+  const legacyDefaultSentinel = row.vertical === "default" && row.preset === "default" && !row.profile;
+  const hasContractMetadata = !legacyDefaultSentinel && Boolean(row.vertical || row.preset || row.profile);
+  if (!hasContractMetadata) return { ok: true, gates: legacyCompletionGates };
+  if (!row.vertical || !row.preset || !options.completionGateResolver) {
+    return { ok: false, message: "Task completion contract metadata is incomplete or no preset registry resolver is available." };
+  }
+  let gates: ReadonlyArray<string>;
+  try {
+    gates = options.completionGateResolver({ vertical: row.vertical, preset: row.preset, ...(row.profile ? { profile: row.profile } : {}) });
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+  const unknown = gates.find((gate) => !supportedCompletionGates.has(gate));
+  if (unknown) return { ok: false, message: `Unknown completion gate declared by task contract: ${unknown}` };
+  if (new Set(gates).size !== gates.length) return { ok: false, message: "Task contract declares duplicate completion gate IDs." };
+  return { ok: true, gates };
 }
 
 function taskHasExecutionDocuments(

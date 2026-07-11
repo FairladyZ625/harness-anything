@@ -10,6 +10,7 @@ import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
 import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 import { runExecutionReview } from "./task-execution-review.ts";
+import { resolvePreset, selectPresetProfile } from "../extensions/state.ts";
 
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-review-execution" | "task-complete" }>;
 
@@ -28,7 +29,18 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       rootInput: context.layoutInput,
       coordinator: context.makeWriteCoordinator(context.actorAttribution().actor),
       artifactStore: context.artifactStore
-    })
+    }),
+    completionGateResolver: ({ vertical, preset, profile }) => {
+      const resolved = resolvePreset(context.layoutInput, preset!);
+      if (!resolved) throw new Error(`Task preset is not resolvable in the current registry: ${preset}`);
+      if (resolved.manifest.vertical !== vertical) throw new Error(`Task preset ${preset} does not belong to vertical ${vertical}`);
+      if (resolved.manifest.schema !== "preset-manifest/v2") {
+        throw new Error(`Task preset ${preset} does not declare a v2 completion contract`);
+      }
+      const selected = selectPresetProfile(resolved.manifest, profile);
+      if (!selected || !("completionGates" in selected)) throw new Error(`Task preset profile is not resolvable: ${profile ?? resolved.manifest.defaultProfile}`);
+      return selected.completionGates;
+    }
   });
   if (action.kind === "task-review") {
     return orchestrator.reviewTask({ taskId: action.taskId, reviewerId: action.reviewerId }).pipe(

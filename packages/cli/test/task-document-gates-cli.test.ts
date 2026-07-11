@@ -280,7 +280,8 @@ test("CLI complete accepts an approved Execution Review without facts under dec_
       "task", "review-execution", executionTaskId,
       "--execution-id", executionId,
       "--verdict", "approved",
-      "--findings", "All acceptance checks passed."
+      "--findings", "All acceptance checks passed.",
+      "--rationale", "The submission satisfies the Task intent."
     ], true, testActorEnv);
     assert.equal(reviewed.ok, true);
     assert.equal(reviewed.executionId, executionId);
@@ -310,7 +311,8 @@ test("CLI rejects executor self-review and changes_requested opens a fresh claim
       "task", "review-execution", executionTaskId,
       "--execution-id", executionId,
       "--verdict", "approved",
-      "--findings", "Self approved."
+      "--findings", "Self approved.",
+      "--rationale", "Self review must still be rejected."
     ], false, testActorEnv);
     assert.match(selfReview.error?.hint ?? "", /executor cannot review/u);
 
@@ -319,7 +321,8 @@ test("CLI rejects executor self-review and changes_requested opens a fresh claim
       "task", "review-execution", executionTaskId,
       "--execution-id", executionId,
       "--verdict", "changes_requested",
-      "--findings", "Add the missing regression test."
+      "--findings", "Add the missing regression test.",
+      "--rationale", "The current delivery is semantically insufficient."
     ], true, testActorEnv);
     assert.equal(requested.ok, true);
     const taskRoot = path.join(rootDir, "harness/tasks", executionTaskId);
@@ -361,8 +364,8 @@ function writeIndex(
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
     "packageDisposition: active",
-    "vertical: default",
-    "preset: default",
+    "vertical: software/coding",
+    "preset: standard-task",
     ...provenance,
     "---",
     "",

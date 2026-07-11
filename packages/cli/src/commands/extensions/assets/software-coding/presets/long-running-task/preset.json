@@ -11,6 +11,7 @@
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
     "templateSelections": [
       { "slot": "task.long.running.contract", "templateRef": "template://planning/long-running-task-contract@1", "materializeAs": "long-running-task-contract.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
     ]

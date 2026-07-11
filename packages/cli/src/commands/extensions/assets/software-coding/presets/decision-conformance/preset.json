@@ -15,6 +15,7 @@
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "software-coding-decision-conformance",
+      "completionGates": ["ci", "code-doc-reconciliation"],
     "templateSelections": []
   }],
   "defaultProfile": "baseline"

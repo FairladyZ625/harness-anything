@@ -430,6 +430,7 @@ function writeProjectMilestoneDossierPreset(rootDir: string): void {
       id: "baseline",
       title: "Baseline",
       checkerProfile: "software-coding-standard",
+      completionGates: ["ci", "code-doc-reconciliation"],
       templateSelections: [{
         slot: "dossier-shell",
         templateRef: "template://dossier/editorial-shell@1",

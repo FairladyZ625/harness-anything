@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import {
   executionDeclaration,
+  validateOutputEvidence,
   readSessionEntityDocument,
   stablePayloadHash,
   writeDeclaredEntityTransaction,
@@ -38,6 +39,7 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
       const current = Schema.decodeUnknownSync(executionDeclaration.schema)(
         executionDeclaration.documentCodec.decode(document.body)
       ) as ExecutionRecord;
+      assertExecutionHost(current, request.taskId, request.executionId);
       if (current.state !== "active") throw new Error(`execution is not active: ${request.executionId}`);
       if (current.session_bindings.some((binding) => bindingId(binding) === request.binding.binding_id)) {
         throw new Error(`execution session binding already exists: ${request.binding.binding_id}`);
@@ -54,10 +56,18 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
       const current = Schema.decodeUnknownSync(executionDeclaration.schema)(
         executionDeclaration.documentCodec.decode(document.body)
       ) as ExecutionRecord;
+      assertExecutionHost(current, request.taskId, request.executionId);
       if (current.state !== "active") throw new Error(`execution is not active: ${request.executionId}`);
-      const finalizedBindings = finalizeSessionBindings(input.rootInput, current.session_bindings);
+      const finalizedBindings = finalizeSessionBindings(input.rootInput, current.session_bindings, request.submittedAt);
       assertPrimarySession(finalizedBindings);
       assertBindingsFinal(finalizedBindings);
+      const allEvidence = [...current.outputs, ...request.submission.evidence];
+      validateOutputEvidence({
+        rootInput: input.rootInput,
+        taskId: request.taskId,
+        executionId: request.executionId,
+        evidence: allEvidence
+      });
       const submitted = submittedExecution(current, finalizedBindings, request.submittedAt, request.submission);
       await writeExecutionTransaction(input, request.taskId, submitted, taskIndex(task.documents, request.taskId, ["active"], "in_review"));
     }
@@ -117,7 +127,7 @@ function taskIndex(
 
 function submittedExecution(
   current: ExecutionRecord,
-  sessionBindings: ReadonlyArray<unknown>,
+  sessionBindings: ExecutionRecord["session_bindings"],
   submittedAt: string,
   submission: ExecutionSubmission
 ): ExecutionRecord {
@@ -126,29 +136,44 @@ function submittedExecution(
     state: "submitted",
     submitted_at: submittedAt,
     session_bindings: sessionBindings,
-    outputs: [...current.outputs, ...submission.outputs],
+    outputs: [...current.outputs, ...submission.evidence],
     submission: {
-      summary: submission.summary,
-      verification: submission.verification,
+      completion_claim: submission.completionClaim,
+      deliverables: submission.deliverables,
+      evidence_refs: submission.evidence.map((evidence) => evidence.evidence_id),
+      verification_notes: submission.verificationNotes,
+      known_gaps: submission.knownGaps,
       residual_risks: submission.residualRisks
     }
   };
 }
 
-function finalizeSessionBindings(rootInput: HarnessLayoutInput, bindings: ReadonlyArray<unknown>): ReadonlyArray<unknown> {
+function finalizeSessionBindings(
+  rootInput: HarnessLayoutInput,
+  bindings: ExecutionRecord["session_bindings"],
+  endedAt: string
+): ExecutionRecord["session_bindings"] {
   return bindings.map((binding) => {
-    if (!binding || typeof binding !== "object") return binding;
-    const record = binding as { readonly role?: unknown; readonly session_ref?: unknown };
-    if (typeof record.session_ref !== "string" || !record.session_ref.startsWith("session/")) return binding;
-    const sessionId = record.session_ref.slice("session/".length);
+    if (typeof binding.session_ref !== "string" || !binding.session_ref.startsWith("session/")) return binding;
+    const sessionId = binding.session_ref.slice("session/".length);
     try {
       const session = readSessionEntityDocument(rootInput, sessionId);
-      return { ...record, archive_status: session.manifest.archiveStatus };
+      return {
+        ...binding,
+        archive_status: session.manifest.archiveStatus,
+        capture_range: binding.capture_range ? { ...binding.capture_range, end_at: endedAt } : null
+      };
     } catch (error) {
-      const prefix = record.role === "primary" ? "primary Session" : "Session";
+      const prefix = binding.role === "primary" ? "primary Session" : "Session";
       throw new Error(`${prefix} ${sessionId} snapshot is not finalized: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
+}
+
+function assertExecutionHost(current: ExecutionRecord, taskId: string, executionId: string): void {
+  if (current.execution_id !== executionId || current.task_ref !== `task/${taskId}`) {
+    throw new Error(`execution identity does not match its host path: ${executionId}`);
+  }
 }
 
 function assertPrimarySession(bindings: ReadonlyArray<unknown>): void {

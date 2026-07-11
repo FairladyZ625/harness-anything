@@ -192,7 +192,7 @@ export interface ParsedCommand {
     | { readonly kind: "task-claim"; readonly taskId: string; readonly ttlMs?: number; readonly execution?: boolean }
     | { readonly kind: "task-holder"; readonly taskId: string }
     | { readonly kind: "task-release"; readonly taskId: string }
-    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId?: string; readonly leaseToken: string; readonly summary: string; readonly verification: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
+    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId?: string; readonly leaseToken: string; readonly completionClaim: string; readonly deliverables: ReadonlyArray<string>; readonly verificationNotes: ReadonlyArray<string>; readonly knownGaps: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: ReadonlyArray<EvidenceAppendInput> }
     | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }
     | { readonly kind: "task-archive"; readonly taskId?: string; readonly ids?: ReadonlyArray<string>; readonly filter?: string; readonly before?: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }
@@ -201,8 +201,8 @@ export interface ParsedCommand {
     | { readonly kind: "task-reopen"; readonly taskId: string; readonly reason: string }
     | { readonly kind: "task-code-doc-reconcile"; readonly taskId: string; readonly sha: string; readonly paths: ReadonlyArray<string>; readonly prRef?: string; readonly force: boolean }
     | { readonly kind: "task-review"; readonly taskId: string; readonly reviewerId: string }
-    | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly archiveWarningsAcknowledged: boolean }
-    | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate: "passed" | "failed"; readonly reviewerId: string }
+    | { readonly kind: "task-review-execution"; readonly taskId: string; readonly executionId: string; readonly verdict: ReviewVerdict; readonly findings: string; readonly evidenceChecked: ReadonlyArray<string>; readonly rationale: string; readonly archiveWarningsAcknowledged: boolean }
+    | { readonly kind: "task-complete"; readonly taskId: string; readonly ciGate?: "passed" | "failed"; readonly reviewerId: string }
     | { readonly kind: "task-show"; readonly taskId: string }
     | { readonly kind: "task-tree"; readonly taskId: string }
     | { readonly kind: "task-trace"; readonly taskId: string }

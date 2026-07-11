@@ -79,6 +79,7 @@
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "software-coding-milestone",
+      "completionGates": ["ci", "code-doc-reconciliation"],
     "templateSelections": [
       {
         "slot": "task.plan",

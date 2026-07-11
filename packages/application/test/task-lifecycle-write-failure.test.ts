@@ -54,6 +54,7 @@ for (const { name, error, code } of writeFailureCases) {
         rootDir,
         taskWriter: failingWriter(error),
         artifactStore: makeMarkdownArtifactStore({ rootDir }),
+        completionGateResolver: () => ["ci", "code-doc-reconciliation"],
         codeDocVersionControlSystem: codeDocVersionControlSystem(),
         now: () => "2026-06-13T00:00:00.000Z"
       });
@@ -95,6 +96,47 @@ test("reviewTask accepts zero Facts through ArtifactStore under dec_mrg3z1we/CH4
   }
 });
 
+test("generic preset completes without CI code-doc or Facts when its contract declares no deterministic gates", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-generic-completion-"));
+  try {
+    writeIndexOnly(rootDir, "task-1", "Writing Task", "in_review", "writing/generic", "writing-task");
+    writeCloseout(rootDir, "task-1", ["## Summary", "", "The requested text is complete."]);
+    const orchestrator = makeTaskLifecycleOrchestrator({
+      rootDir,
+      taskWriter: successfulWriter(),
+      artifactStore: inMemoryTaskPackageStore("task-1", {
+        "review.md": validReview(),
+        "closeout.md": "# Closeout\n\n## Summary\n\nThe requested text is complete.\n"
+      }),
+      completionGateResolver: () => []
+    });
+    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a" }));
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.status, "done");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("software preset contract continues to require CI", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-software-completion-"));
+  try {
+    writeTaskPackage(rootDir, "task-1", "Coding Task");
+    const orchestrator = makeTaskLifecycleOrchestrator({
+      rootDir,
+      taskWriter: successfulWriter(),
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      codeDocVersionControlSystem: codeDocVersionControlSystem(),
+      completionGateResolver: () => ["ci", "code-doc-reconciliation"]
+    });
+    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a" }));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "missing_ci_gate");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("completeTask evaluates closeout and review placeholders through ArtifactStore", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
   try {
@@ -121,6 +163,7 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
           ""
         ].join("\n")
       }),
+      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
       documentPlaceholderPolicy: {
         closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
       },
@@ -157,6 +200,7 @@ test("completeTask rejects ArtifactStore closeout placeholders", async () => {
           ""
         ].join("\n")
       }),
+      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
       documentPlaceholderPolicy: {
         closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
       },
@@ -249,7 +293,14 @@ function codeDocVersionControlSystem(): Pick<VersionControlSystem, "commitExists
   };
 }
 
-function writeIndexOnly(rootDir: string, directoryName: string, title: string, status: string): void {
+function writeIndexOnly(
+  rootDir: string,
+  directoryName: string,
+  title: string,
+  status: string,
+  vertical = "default",
+  preset = "default"
+): void {
   mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
     "---",
@@ -266,8 +317,8 @@ function writeIndexOnly(rootDir: string, directoryName: string, title: string, s
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
     "packageDisposition: active",
-    "vertical: default",
-    "preset: default",
+    `vertical: ${vertical}`,
+    `preset: ${preset}`,
     "provenance:",
     "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}",
     "---",

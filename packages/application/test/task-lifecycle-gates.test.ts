@@ -155,6 +155,21 @@ test("completion gate reports readiness without mutating lifecycle axes", () => 
   assert.deepEqual(failed.issues.map((issue) => issue.code), ["review_not_passed", "closeout_not_ready"]);
 });
 
+test("non-coding contract can complete without CI while coding contract still requires it", () => {
+  const base = {
+    taskId: "task-writing",
+    coordinationStatus: "in_review",
+    packageDisposition: "active",
+    closeoutReadiness: "ready" as const,
+    reviewGate: "passed" as const
+  };
+  assert.equal(evaluateCompletionGate({ ...base, applicableGates: [] }).ok, true);
+  const coding = evaluateCompletionGate({ ...base, applicableGates: ["ci", "code-doc-reconciliation"] });
+  assert.equal(coding.ok, false);
+  assert.deepEqual(coding.issues.map((issue) => issue.code), ["missing_ci_gate"]);
+  assert.equal(evaluateCompletionGate({ ...base, applicableGates: ["ci"], ciGate: "passed" }).ok, true);
+});
+
 test("decision reckon gate fails closed on uncovered load-bearing claims", () => {
   const result = evaluateDecisionReckonGate({
     decisionId: "dec_RECKON",

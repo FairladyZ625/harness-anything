@@ -42,6 +42,8 @@ export interface ReviewProjectionRow {
   readonly reviewerActor: ProjectionJsonValue;
   readonly reviewerSessionRef: string;
   readonly findings: string;
+  readonly evidenceChecked: ReadonlyArray<string>;
+  readonly rationale: string;
   readonly archiveWarningsAcknowledged: boolean;
   readonly reviewedAt: string;
 }
@@ -297,6 +299,8 @@ function toReview(row: Record<string, unknown>): ReviewProjectionRow {
     reviewerActor: parseJson(row.reviewer_actor),
     reviewerSessionRef: String(row.reviewer_session_ref),
     findings: String(row.findings),
+    evidenceChecked: jsonArray(row.evidence_checked_json).filter((value): value is string => typeof value === "string"),
+    rationale: String(row.rationale),
     archiveWarningsAcknowledged: row.archive_warnings_acknowledged === 1,
     reviewedAt: String(row.reviewed_at)
   };

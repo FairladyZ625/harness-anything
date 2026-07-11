@@ -16,13 +16,15 @@ const actor = {
 
 function review(verdict: unknown) {
   return {
-    schema: "review/v1",
+    schema: "review/v2",
     review_id: "rev_01J00000000000000000000000",
     task_ref: "task/task_01J00000000000000000000000",
     execution_ref: "execution/task_01J00000000000000000000000/exe_01J00000000000000000000000",
     reviewer_actor: actor,
     reviewer_session_ref: "session/ses_01J00000000000000000000000",
     findings: "The submitted round satisfies the acceptance criteria.",
+    evidence_checked: [],
+    rationale: "The submitted round satisfies the acceptance criteria.",
     verdict,
     archive_warnings_acknowledged: false,
     reviewed_at: "2026-07-11T00:00:00.000Z"
@@ -47,4 +49,16 @@ test("Review is a hosted entity whose verdict schema fails closed", () => {
       path.join(rootDir, "harness/tasks", taskId, "reviews", `${reviewId}.md`)
     );
   });
+});
+
+test("review/v1 reads upgrade with reviewer rationale and malformed legacy fails closed", () => {
+  const decode = (value: unknown) => Schema.decodeUnknownSync(reviewDeclaration.schema)(
+    reviewDeclaration.documentCodec.decode(JSON.stringify(value))
+  );
+  const legacy = { ...review("approved"), schema: "review/v1" };
+  const upgraded = decode(legacy);
+  assert.equal(upgraded.schema, "review/v2");
+  assert.deepEqual(upgraded.evidence_checked, []);
+  assert.equal(upgraded.rationale, legacy.findings);
+  assert.throws(() => decode({ ...legacy, findings: "" }));
 });

@@ -165,9 +165,9 @@ test("task execution trace reads the complete task execution session review and 
     assert.equal(trace.taskId, taskId);
     assert.equal(trace.executions.length, 1);
     assert.equal(trace.executions[0]?.sessions[0]?.sessionId, "ses_projection_1");
-    assert.equal(trace.executions[0]?.sessionBindings[0]?.first_event_id, "evt_1");
+    assert.equal(trace.executions[0]?.sessionBindings[0]?.capture_range?.start_at, "2026-07-11T01:00:00.000Z");
     assert.equal(trace.executions[0]?.reviews[0]?.reviewId, "rev_01J00000000000000000000000");
-    assert.deepEqual(trace.executions[0]?.outputs, [{ kind: "commit", ref: "abc123" }]);
+    assert.equal(trace.executions[0]?.outputs[0]?.evidence_id, "ev_projection_1");
   });
 });
 
@@ -507,7 +507,7 @@ function writeProjectionEntities(rootDir: string): void {
   mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
   mkdirSync(path.join(taskRoot, "reviews"), { recursive: true });
   writeFileSync(path.join(taskRoot, "executions/exe_01J00000000000000000000000.md"), `${JSON.stringify({
-    schema: "execution/v1",
+    schema: "execution/v2",
     execution_id: "exe_01J00000000000000000000000",
     task_ref: "task/task_01J00000000000000000000000",
     state: "submitted",
@@ -525,15 +525,24 @@ function writeProjectionEntities(rootDir: string): void {
       role: "primary",
       archive_status: "complete",
       attached_at: "2026-07-11T01:00:00.000Z",
-      first_event_id: "evt_1",
-      last_event_id: "evt_9",
-      session: null
+      session: null,
+      capture_range: {
+        range_id: "primary:ses_projection_1:range",
+        coordinate: "timestamp",
+        start_at: "2026-07-11T01:00:00.000Z",
+        end_at: "2026-07-11T01:10:00.000Z",
+        bounds: "inclusive"
+      }
     }],
-    outputs: [{ kind: "commit", ref: "abc123" }],
-    submission: { summary: "ready", verification: [], residual_risks: [] }
+    outputs: [{
+      evidence_id: "ev_projection_1",
+      execution_ref: "execution/task_01J00000000000000000000000/exe_01J00000000000000000000000",
+      locator: { substrate: "inline", text: "abc123" }
+    }],
+    submission: { completion_claim: "ready", deliverables: [], evidence_refs: ["ev_projection_1"], verification_notes: [], known_gaps: [], residual_risks: [] }
   }, null, 2)}\n`);
   writeFileSync(path.join(taskRoot, "reviews/rev_01J00000000000000000000000.md"), `${JSON.stringify({
-    schema: "review/v1",
+    schema: "review/v2",
     review_id: "rev_01J00000000000000000000000",
     task_ref: "task/task_01J00000000000000000000000",
     execution_ref: "execution/task_01J00000000000000000000000/exe_01J00000000000000000000000",
@@ -544,6 +553,8 @@ function writeProjectionEntities(rootDir: string): void {
     },
     reviewer_session_ref: "session/ses_projection_1",
     findings: "ready",
+    evidence_checked: ["ev_projection_1"],
+    rationale: "The projected evidence supports approval.",
     verdict: "approved",
     archive_warnings_acknowledged: false,
     reviewed_at: "2026-07-11T01:15:00.000Z"

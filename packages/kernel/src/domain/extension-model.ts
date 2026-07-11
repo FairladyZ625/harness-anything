@@ -371,7 +371,7 @@ function validatePresetManifestShape(input: unknown, path: string, issues: Exten
   if (Array.isArray(input.profiles)) {
     for (const [index, profile] of input.profiles.entries()) {
       const profilePath = `${path}.profiles[${index}]`;
-      validateObjectKeys(profile, profilePath, ["id", "title", "checkerProfile", "templateSelections", "capabilityImports"], issues);
+      validateObjectKeys(profile, profilePath, ["id", "title", "checkerProfile", "completionGates", "templateSelections", "capabilityImports"], issues);
       if (isRecord(profile)) {
         validateTemplateSelectionsShape(profile.templateSelections, `${profilePath}.templateSelections`, issues);
         validateCapabilityImportsShape(profile.capabilityImports, `${profilePath}.capabilityImports`, issues, ["id", "version"]);

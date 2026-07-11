@@ -187,16 +187,13 @@ function parseTaskReview(args: ReadonlyArray<string>, rootDir: string, json: boo
 
 function parseTaskComplete(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
   const ciGate = readOption(args, "--ci");
-  if (!ciGate) {
-    return { ok: false, error: cliError(CliErrorCode.MissingCiGate, "task complete requires --ci passed|failed") };
-  }
-  if (ciGate !== "passed" && ciGate !== "failed") {
+  if (ciGate !== undefined && ciGate !== "passed" && ciGate !== "failed") {
     return { ok: false, error: cliError(CliErrorCode.InvalidCiGate, `Unknown CI gate: ${ciGate}. Valid CI gate values: passed, failed.`) };
   }
   return ok(rootDir, json, {
     kind: "task-complete",
     taskId: args[1],
-    ciGate,
+    ...(ciGate ? { ciGate } : {}),
     reviewerId: readOption(args, "--reviewer") ?? "local-reviewer"
   });
 }

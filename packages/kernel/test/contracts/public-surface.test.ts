@@ -226,6 +226,8 @@ const publicRuntimeSurface = [
   "unregisterDaemonRepo",
   "validateExtensionInputShape",
   "validateLifecycleBindingInvariant",
+  // dec_mrg3z1we/CH3 + ADR-0027 D6: public submit validation exposes only mechanical integrity/provenance checks.
+  "validateOutputEvidence",
   "validatePresetManifests",
   "validateRelationGraphRecords",
   "validateRelationRecordsForHost",

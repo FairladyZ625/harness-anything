@@ -1,6 +1,10 @@
 export * from "./domain/index.ts";
 export { executionStates } from "./domain/execution.ts";
-export type { ExecutionRecord, ExecutionState } from "./domain/execution.ts";
+export type {
+  ExecutionRecord,
+  ExecutionState,
+  OutputEvidence
+} from "./domain/execution.ts";
 export { executionDeclaration } from "./entity/execution-declaration.ts";
 export { reviewDeclaration } from "./entity/review-declaration.ts";
 export * from "./docmap/index.ts";
@@ -15,6 +19,7 @@ export {
 export type { SessionManifest } from "./schemas/session-manifest.ts";
 export { resolveEntityDocumentPath, writeDeclaredEntityTransaction } from "./entity/declaration.ts";
 export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
+export { validateOutputEvidence } from "./local/output-evidence-validator.ts";
 export * from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/artifact-store-writer.ts";

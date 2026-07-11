@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   ExecutionLeaseCollisionError,
   executionDeclaration,
@@ -21,6 +21,7 @@ import {
 } from "../src/index.ts";
 import { writeContentAddressedBlob, writeSessionEntity } from "../../kernel/src/index.ts";
 import type { ExecutionAuthoredStore, ExecutionRecord } from "../src/index.ts";
+import { validateOutputEvidence } from "../../kernel/src/index.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
 const executionId = "exe_01KX7H00000000000000000001";
@@ -139,16 +140,18 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
       leaseToken: claimed.leaseToken,
       principal: aliceCodex,
       submission: {
-        summary: "round one",
-        verification: ["node:test"],
+        completionClaim: "round one",
+        deliverables: [],
+        verificationNotes: ["node:test"],
+        knownGaps: [],
         residualRisks: ["review pending"],
-        outputs: [{ kind: "commit", ref: "abc123" }]
+        evidence: [{ evidence_id: "ev_round_1", execution_ref: `execution/${taskId}/${executionId}`, locator: { substrate: "inline", text: "abc123" } }]
       }
     });
 
     const stored = JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")) as ExecutionRecord;
     assert.equal(stored.state, "submitted");
-    assert.deepEqual(stored.outputs, [{ kind: "commit", ref: "abc123" }]);
+    assert.equal(stored.outputs[0]?.evidence_id, "ev_round_1");
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
 
     const review = makeReviewExecutionService({
@@ -169,6 +172,8 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
         detectedAt: "2026-07-11T00:02:00.000Z"
       },
       findings: "The submitted round requires changes.",
+      evidenceChecked: ["ev_round_1"],
+      rationale: "The delivery needs another round.",
       verdict: "changes_requested",
       archiveWarningsAcknowledged: false
     });
@@ -177,7 +182,7 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
     assert.equal(rework.execution.execution_id, secondExecutionId);
     const oldRound = JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")) as ExecutionRecord;
     assert.equal(oldRound.state, "changes_requested");
-    assert.deepEqual(oldRound.outputs, [{ kind: "commit", ref: "abc123" }]);
+    assert.equal(oldRound.outputs[0]?.evidence_id, "ev_round_1");
     assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), "utf8")).state, "active");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -257,10 +262,12 @@ test("submit-for-review rejects an Execution without a finalized primary Session
       leaseToken: claimed.leaseToken,
       principal: aliceCodex,
       submission: {
-        summary: "missing primary",
-        verification: [],
+        completionClaim: "missing primary",
+        deliverables: [],
+        verificationNotes: [],
+        knownGaps: [],
         residualRisks: [],
-        outputs: []
+        evidence: []
       }
     }), /primary Session binding is required; attach the current session through ExecutionSagaService\.attachSession/u);
     assert.equal((await holder.holder({ taskId })).holder?.schema, "task-holder/v2");
@@ -290,10 +297,12 @@ test("submit-for-review changes Execution and Task atomically before releasing t
       leaseToken: claimed.leaseToken,
       principal: aliceCodex,
       submission: {
-        summary: "ready for review",
-        verification: ["test:pass"],
+        completionClaim: "ready for review",
+        deliverables: [],
+        verificationNotes: ["test:pass"],
+        knownGaps: [],
         residualRisks: [],
-        outputs: [{ kind: "commit", ref: "abc123" }]
+        evidence: []
       }
     }), /authored submit failed/u);
     assert.equal(authored.executions.get(executionId)?.state, "active");
@@ -307,10 +316,12 @@ test("submit-for-review changes Execution and Task atomically before releasing t
       leaseToken: claimed.leaseToken,
       principal: aliceCodex,
       submission: {
-        summary: "ready for review",
-        verification: ["test:pass"],
+        completionClaim: "ready for review",
+        deliverables: [],
+        verificationNotes: ["test:pass"],
+        knownGaps: [],
         residualRisks: [],
-        outputs: [{ kind: "commit", ref: "abc123" }]
+        evidence: []
       }
     });
     assert.equal(authored.executions.get(executionId)?.state, "submitted");
@@ -367,6 +378,13 @@ test("Execution session bindings can only be attached while the Execution is act
         sessionId: "codex-primary-session",
         source: "runtime",
         detectedAt: "2026-07-11T00:00:00.000Z"
+      },
+      capture_range: {
+        range_id: "primary:codex-primary-session:2026-07-11T00:00:00.000Z",
+        coordinate: "timestamp",
+        start_at: "2026-07-11T00:00:00.000Z",
+        end_at: null,
+        bounds: "inclusive"
       }
     }]);
 
@@ -384,7 +402,8 @@ test("Execution session bindings can only be attached while the Execution is act
         role: "subagent",
         archive_status: "pending",
         attached_at: "2026-07-11T00:01:00.000Z",
-        session: null
+        session: null,
+        capture_range: null
       }
     }), /execution is not active/u);
   } finally {
@@ -407,7 +426,7 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
       claimed_at: "2026-07-11T00:00:00.000Z",
       submitted_at: "2026-07-11T00:01:00.000Z",
       closed_at: null,
-      session_bindings: [{ role: "primary", archive_status: "partial" }],
+      session_bindings: [{ binding_id: "primary:test", session_ref: "session/test", role: "primary", archive_status: "partial", attached_at: "2026-07-11T00:00:00.000Z", session: null }],
       outputs: [],
       submission: { summary: "round one", verification: [], residual_risks: [] }
     }, null, 2)}\n`, "utf8");
@@ -427,6 +446,8 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
       reviewer: aliceCodex,
       reviewerSession: session,
       findings: "Self review is not allowed.",
+      evidenceChecked: [],
+      rationale: "Self review is prohibited.",
       verdict: "approved",
       archiveWarningsAcknowledged: true
     }), /executor cannot review its own delivery/u);
@@ -437,6 +458,8 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
       reviewer: aliceClaude,
       reviewerSession: session,
       findings: "Archive is partial.",
+      evidenceChecked: [],
+      rationale: "Archive warnings remain.",
       verdict: "dismissed",
       archiveWarningsAcknowledged: false
     }), /archive warnings must be explicitly acknowledged/u);
@@ -447,6 +470,8 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
       reviewer: aliceClaude,
       reviewerSession: session,
       findings: "This review round is void.",
+      evidenceChecked: [],
+      rationale: "The round is dismissed.",
       verdict: "dismissed",
       archiveWarningsAcknowledged: true
     });
@@ -456,6 +481,8 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
       reviewer: aliceClaude,
       reviewerSession: session,
       findings: "The delivery is acceptable.",
+      evidenceChecked: [],
+      rationale: "Acceptance criteria are satisfied.",
       verdict: "approved",
       archiveWarningsAcknowledged: true
     });
@@ -486,7 +513,7 @@ test("Execution completion requires an approved Review, rejects the executor, an
       claimed_at: "2026-07-11T00:00:00.000Z",
       submitted_at: "2026-07-11T00:01:00.000Z",
       closed_at: null,
-      session_bindings: [{ role: "primary", archive_status: "complete" }],
+      session_bindings: [{ binding_id: "primary:test", session_ref: "session/test", role: "primary", archive_status: "complete", attached_at: "2026-07-11T00:00:00.000Z", session: null }],
       outputs: [],
       submission: { summary: "round one", verification: ["tests passed"], residual_risks: [] }
     }, null, 2)}\n`, "utf8");
@@ -509,6 +536,8 @@ test("Execution completion requires an approved Review, rejects the executor, an
       reviewer: aliceClaude,
       reviewerSession: { runtime: "claude-code", sessionId: "review-complete", source: "runtime", detectedAt: "2026-07-11T00:02:00.000Z" },
       findings: "Approved for completion.",
+      evidenceChecked: [],
+      rationale: "The execution is complete.",
       verdict: "approved",
       archiveWarningsAcknowledged: false
     });
@@ -526,6 +555,8 @@ test("Execution completion requires an approved Review, rejects the executor, an
       reviewer: aliceClaude,
       reviewerSession: { runtime: "claude-code", sessionId: "review-complete-2", source: "runtime", detectedAt: "2026-07-11T00:02:30.000Z" },
       findings: "The latest delivery is approved.",
+      evidenceChecked: [],
+      rationale: "The latest execution is complete.",
       verdict: "approved",
       archiveWarningsAcknowledged: false
     });
@@ -537,6 +568,47 @@ test("Execution completion requires an approved Review, rejects the executor, an
     assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "submitted");
     assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), "utf8")).state, "accepted");
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("execution/v1 reads upgrade semantically and malformed legacy records fail closed", () => {
+  const legacy = {
+    schema: "execution/v1", execution_id: executionId, task_ref: `task/${taskId}`, state: "submitted",
+    primary_actor: aliceCodex, claimed_at: "2026-07-11T00:00:00.000Z", submitted_at: "2026-07-11T00:01:00.000Z", closed_at: null,
+    session_bindings: [], outputs: [{ legacy: "deliverable" }],
+    submission: { summary: "legacy claim", verification: ["legacy check"], residual_risks: [] }
+  };
+  const decode = (value: unknown) => Schema.decodeUnknownSync(executionDeclaration.schema)(
+    executionDeclaration.documentCodec.decode(JSON.stringify(value))
+  ) as ExecutionRecord;
+  const upgraded = decode(legacy);
+  assert.equal(upgraded.schema, "execution/v2");
+  assert.equal(upgraded.submission?.completion_claim, "legacy claim");
+  assert.deepEqual(upgraded.submission?.deliverables, ['{"legacy":"deliverable"}']);
+  assert.throws(() => decode({ ...legacy, execution_id: "malformed" }));
+});
+
+test("OutputEvidence mechanical boundary rejects bad provenance while zero evidence remains legal", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-output-evidence-"));
+  try {
+    const owner = `execution/${taskId}/${executionId}`;
+    const validate = (evidence: Parameters<typeof validateOutputEvidence>[0]["evidence"]) =>
+      validateOutputEvidence({ rootInput: rootDir, taskId, executionId, evidence });
+    assert.doesNotThrow(() => validate([])); // dec_mrg3z1we/CH1: Evidence is 0..N.
+    assert.throws(() => validate([{
+      evidence_id: "ev_missing", execution_ref: owner, locator: { substrate: "file", path: "missing.txt" }
+    }]), /file does not exist/u);
+    assert.throws(() => validate([{
+      evidence_id: "ev_digest", execution_ref: owner, locator: { substrate: "inline", text: "payload" }, sha256: "0".repeat(64)
+    }]), /digest mismatch/u);
+    assert.throws(() => validate([{
+      evidence_id: "ev_foreign", execution_ref: `execution/${taskId}/${secondExecutionId}`, locator: { substrate: "inline", text: "payload" }
+    }]), /belongs to/u);
+    assert.throws(() => validate([{
+      evidence_id: "ev_target", execution_ref: owner, locator: { substrate: "inline", text: "payload" }, checker_receipt_ref: "ev_receipt"
+    }]), /checker receipt does not exist/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -575,10 +647,13 @@ function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {}): Exe
         ...current,
         state: "submitted",
         submitted_at: input.submittedAt,
-        outputs: input.submission.outputs,
+        outputs: input.submission.evidence,
         submission: {
-          summary: input.submission.summary,
-          verification: input.submission.verification,
+          completion_claim: input.submission.completionClaim,
+          deliverables: input.submission.deliverables,
+          evidence_refs: input.submission.evidence.map((evidence) => evidence.evidence_id),
+          verification_notes: input.submission.verificationNotes,
+          known_gaps: input.submission.knownGaps,
           residual_risks: input.submission.residualRisks
         }
       });

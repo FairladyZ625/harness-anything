@@ -43,6 +43,7 @@
       "id": "baseline",
       "title": "Baseline",
       "checkerProfile": "software-coding-standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
       "templateSelections": []
     }
   ],

@@ -23,6 +23,6 @@
       }
     }
   },
-  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "templateSelections": [] }],
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] }],
   "defaultProfile": "baseline"
 }

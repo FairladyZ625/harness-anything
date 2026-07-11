@@ -264,7 +264,7 @@ export const TemplateSelectionSchema = Schema.Struct({
   }))
 });
 
-export const PresetProfileSchema = Schema.Struct({
+const PresetProfileV1Schema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   checkerProfile: Schema.String,
@@ -274,7 +274,18 @@ export const PresetProfileSchema = Schema.Struct({
     version: Schema.String
   })))
 });
-
+const CompletionGateIdSchema = Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u));
+export const PresetProfileSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  checkerProfile: Schema.String,
+  completionGates: Schema.Array(CompletionGateIdSchema),
+  templateSelections: Schema.Array(TemplateSelectionSchema),
+  capabilityImports: Schema.optional(Schema.Array(Schema.Struct({
+    id: Schema.String,
+    version: Schema.String
+  })))
+});
 export const PresetEntrypointSchema = Schema.Union(
   Schema.Struct({
     type: Schema.Literal("template"),
@@ -295,9 +306,7 @@ export const PresetEntrypointSchema = Schema.Union(
     }))
   })
 );
-
-export const PresetManifestSchema = Schema.Struct({
-  schema: Schema.Union(Schema.Literal("preset-manifest/v1"), Schema.Literal("preset-manifest/v2")),
+const PresetManifestCommonFields = {
   id: Schema.String,
   title: Schema.String,
   vertical: Schema.String,
@@ -319,10 +328,20 @@ export const PresetManifestSchema = Schema.Struct({
     key: Schema.String,
     value: PresetEntrypointSchema
   })),
-  profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1)),
   defaultProfile: Schema.String
-});
-
+};
+export const PresetManifestSchema = Schema.Union(
+  Schema.Struct({
+    schema: Schema.Literal("preset-manifest/v1"),
+    ...PresetManifestCommonFields,
+    profiles: Schema.Array(PresetProfileV1Schema).pipe(Schema.minItems(1))
+  }),
+  Schema.Struct({
+    schema: Schema.Literal("preset-manifest/v2"),
+    ...PresetManifestCommonFields,
+    profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1))
+  })
+);
 export const LegacyEvidencePointerSchema = Schema.Struct({
   kind: Schema.Literal("progress", "review", "commit", "pr", "artifact", "note"),
   path: LegacyPathSchema,

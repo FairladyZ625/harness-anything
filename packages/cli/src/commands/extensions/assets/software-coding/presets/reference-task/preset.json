@@ -11,6 +11,7 @@
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
     "templateSelections": [{
       "slot": "task.references.index",
       "templateRef": "template://planning/references-index@1",

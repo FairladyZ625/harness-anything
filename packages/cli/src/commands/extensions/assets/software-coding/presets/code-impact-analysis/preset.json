@@ -11,6 +11,7 @@
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
     "templateSelections": [
       { "slot": "task.code.impact.analysis", "templateRef": "template://analysis/code-impact@1", "materializeAs": "code-impact-analysis.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
     ]

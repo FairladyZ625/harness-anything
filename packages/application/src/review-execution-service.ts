@@ -23,6 +23,8 @@ export interface ReviewExecutionService {
     readonly reviewer: TaskHolderPrincipal;
     readonly reviewerSession: CurrentSessionRef;
     readonly findings: string;
+    readonly evidenceChecked: ReadonlyArray<string>;
+    readonly rationale: string;
     readonly verdict: ReviewVerdict;
     readonly archiveWarningsAcknowledged: boolean;
   }) => Promise<{ readonly review: ReviewRecord }>;
@@ -56,6 +58,9 @@ export function makeReviewExecutionService(options: {
       if (executionHasArchiveWarnings(execution) && !input.archiveWarningsAcknowledged) {
         throw new Error("execution archive warnings must be explicitly acknowledged by the reviewer");
       }
+      const evidenceIds = new Set(execution.outputs.map((evidence) => evidence.evidence_id));
+      const unknownEvidence = input.evidenceChecked.find((evidenceId) => !evidenceIds.has(evidenceId));
+      if (unknownEvidence) throw new Error(`review evidence does not belong to execution ${input.executionId}: ${unknownEvidence}`);
 
       const reviewId = generateReviewId();
       if (task.documents.some((document) => document.path === `reviews/${reviewId}.md`)) {
@@ -63,13 +68,15 @@ export function makeReviewExecutionService(options: {
       }
       const reviewedAt = now();
       const review: ReviewRecord = {
-        schema: "review/v1",
+        schema: "review/v2",
         review_id: reviewId,
         task_ref: `task/${input.taskId}`,
         execution_ref: `execution/${input.taskId}/${input.executionId}`,
         reviewer_actor: input.reviewer,
         reviewer_session_ref: `session/${input.reviewerSession.sessionId}`,
         findings: input.findings,
+        evidence_checked: input.evidenceChecked,
+        rationale: input.rationale,
         verdict: input.verdict,
         archive_warnings_acknowledged: input.archiveWarningsAcknowledged,
         reviewed_at: reviewedAt

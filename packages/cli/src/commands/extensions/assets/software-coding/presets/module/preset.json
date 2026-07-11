@@ -11,6 +11,7 @@
     "id": "baseline",
     "title": "Baseline",
     "checkerProfile": "standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
     "templateSelections": [
       { "slot": "module.plan", "templateRef": "template://planning/module-plan@1", "materializeAs": "module_plan.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "module.brief", "templateRef": "template://planning/module-brief@1", "materializeAs": "module_brief.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },

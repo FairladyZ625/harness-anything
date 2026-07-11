@@ -180,7 +180,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "status-set",
     "usage": "task transition <id> <planned|active|blocked|in_review|done|cancelled> [--force --reason <reason>]",
-    "options": [{"flag":"--force","description":"Force the lifecycle transition with audit metadata."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--execution-id","description":"Submit the exact active Execution when transitioning to in_review."},{"flag":"--lease-token","description":"Authenticate the Holder V2 execution lease."},{"flag":"--summary","description":"Record the Execution submission summary."}],
+    "options": [{"flag":"--force","description":"Force the lifecycle transition with audit metadata."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--execution-id","description":"Submit the exact active Execution when transitioning to in_review."},{"flag":"--lease-token","description":"Authenticate the Holder V2 execution lease."},{"flag":"--completion-claim","description":"Record the required textual completion claim."},{"flag":"--deliverable","description":"Record a deliverable description; repeat as needed."},{"flag":"--output","description":"Record inline OutputEvidence text; repeat as needed."},{"flag":"--verification","description":"Record a verification note; repeat as needed."},{"flag":"--known-gap","description":"Record a known gap; repeat as needed."},{"flag":"--residual-risk","description":"Record a residual risk; repeat as needed."}],
     "aliases": ["task status set <id> <status> (deprecated, use task transition; retires at E77/F6 acceptance)"],
     "summary": "Move a local task to a new lifecycle status.",
     "examples": ["harness-anything task transition task_01ABC active --reason \"work started\""],
@@ -365,10 +365,10 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-review-execution",
-    "usage": "task review-execution <id> --execution-id <execution-id> --verdict approved|changes_requested|dismissed --findings <text> [--acknowledge-archive-warnings]",
-    "options": [{"flag":"--execution-id","description":"Review the exact submitted Execution."},{"flag":"--verdict","description":"Set approved, changes_requested, or dismissed."},{"flag":"--findings","description":"Record findings for this Review round."},{"flag":"--acknowledge-archive-warnings","description":"Explicitly acknowledge partial or unavailable Session archives."}],
+    "usage": "task review-execution <id> --execution-id <execution-id> --verdict approved|changes_requested|dismissed --findings <text> --rationale <text> [--evidence-checked <id>]... [--acknowledge-archive-warnings]",
+    "options": [{"flag":"--execution-id","description":"Review the exact submitted Execution."},{"flag":"--verdict","description":"Set approved, changes_requested, or dismissed."},{"flag":"--findings","description":"Record findings for this Review round."},{"flag":"--evidence-checked","description":"Record an inspected OutputEvidence id; repeat as needed."},{"flag":"--rationale","description":"Record the Reviewer's semantic rationale."},{"flag":"--acknowledge-archive-warnings","description":"Explicitly acknowledge partial or unavailable Session archives."}],
     "summary": "Create an immutable Review round for one submitted Execution.",
-    "examples": ["harness-anything task review-execution task_01ABC --execution-id exe_01ABC --verdict approved --findings \"Acceptance checks passed\""],
+    "examples": ["harness-anything task review-execution task_01ABC --execution-id exe_01ABC --verdict approved --findings \"Acceptance checks passed\" --rationale \"Evidence satisfies the Task intent\""],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,
     "receiptContract": {
@@ -382,10 +382,10 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-complete",
-    "usage": "task complete <id> --ci passed|failed [--reviewer <id>]",
+    "usage": "task complete <id> [--ci passed|failed] [--reviewer <id>]",
     "options": [{"flag":"--ci","description":"Set the completion CI gate result."},{"flag":"--reviewer","description":"Set the reviewer id."}],
     "aliases": ["task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)"],
-    "summary": "Evaluate the completion gate after CI has passed or failed. To make closeoutReadiness ready/passed, run task transition <id> in_review, replace closeout.md placeholder content, run task review, then run task complete --ci passed.",
+    "summary": "Evaluate completion using the Task's resolved preset/profile gate contract; --ci is required only when declared. After task transition <id> in_review, satisfy closeoutReadiness and task review; coding presets then use task complete --ci passed.",
     "examples": ["harness-anything task complete task_01ABC --ci passed --reviewer reviewer-id"],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,

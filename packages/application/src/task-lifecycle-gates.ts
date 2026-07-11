@@ -75,11 +75,12 @@ export interface CompletionGateInput {
   readonly packageDisposition: string;
   readonly closeoutReadiness: CloseoutGateReadiness;
   readonly reviewGate: ReviewGateStatus;
-  readonly ciGate: ReviewGateStatus;
+  readonly ciGate?: ReviewGateStatus;
+  readonly applicableGates?: ReadonlyArray<string>;
 }
 
 export interface CompletionGateIssue {
-  readonly code: "review_not_passed" | "ci_not_passed" | "closeout_not_ready" | "task_tree_dirty";
+  readonly code: "review_not_passed" | "missing_ci_gate" | "ci_not_passed" | "closeout_not_ready" | "task_tree_dirty";
   readonly message: string;
 }
 
@@ -237,8 +238,10 @@ export function evaluateCompletionGate(input: CompletionGateInput): {
   if (input.reviewGate !== "passed") {
     issues.push({ code: "review_not_passed", message: "Task completion requires a passed review gate." });
   }
-  if (input.ciGate !== "passed") {
-    issues.push({ code: "ci_not_passed", message: "Task completion requires a passed CI gate." });
+  if ((input.applicableGates ?? ["ci"]).includes("ci") && input.ciGate !== "passed") {
+    issues.push(input.ciGate === undefined
+      ? { code: "missing_ci_gate", message: "Task completion contract requires a CI gate result." }
+      : { code: "ci_not_passed", message: "Task completion requires a passed CI gate." });
   }
   if (input.closeoutReadiness !== "ready" && input.closeoutReadiness !== "passed") {
     issues.push({ code: "closeout_not_ready", message: "Task completion requires closeout readiness to be ready or passed." });

@@ -1,10 +1,16 @@
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
   exists: (inputPath) => existsSync(inputPath),
   readText: (inputPath) => readFileSync(inputPath, "utf8"),
   readDirents: (inputPath) => readdirSync(inputPath, { withFileTypes: true })
+};
+
+export const localEvidenceFileSystem = {
+  exists: (inputPath: string) => existsSync(inputPath),
+  readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
+  realpath: (inputPath: string) => realpathSync(inputPath)
 };
 
 export const localRuntimeStateFileSystem = {

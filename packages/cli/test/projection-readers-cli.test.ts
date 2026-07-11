@@ -70,7 +70,7 @@ function writeEntities(rootDir: string): void {
   mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
   mkdirSync(path.join(taskRoot, "reviews"), { recursive: true });
   writeFileSync(path.join(taskRoot, `executions/${executionId}.md`), `${JSON.stringify({
-    schema: "execution/v1",
+    schema: "execution/v2",
     execution_id: executionId,
     task_ref: `task/${taskId}`,
     state: "submitted",
@@ -88,15 +88,20 @@ function writeEntities(rootDir: string): void {
       role: "primary",
       archive_status: "complete",
       attached_at: "2026-07-11T01:00:00.000Z",
-      first_event_id: "evt_1",
-      last_event_id: "evt_2",
-      session: null
+      session: null,
+      capture_range: {
+        range_id: `primary:${sessionId}`,
+        coordinate: "timestamp",
+        start_at: "2026-07-11T01:00:00.000Z",
+        end_at: "2026-07-11T01:10:00.000Z",
+        bounds: "inclusive"
+      }
     }],
-    outputs: [{ kind: "commit", ref: "abc123" }],
-    submission: { summary: "ready", verification: ["tests"], residual_risks: [] }
+    outputs: [{ evidence_id: "ev_trace", execution_ref: `execution/${taskId}/${executionId}`, locator: { substrate: "inline", text: "abc123" } }],
+    submission: { completion_claim: "ready", deliverables: [], evidence_refs: ["ev_trace"], verification_notes: ["tests"], known_gaps: [], residual_risks: [] }
   }, null, 2)}\n`);
   writeFileSync(path.join(taskRoot, `reviews/${reviewId}.md`), `${JSON.stringify({
-    schema: "review/v1",
+    schema: "review/v2",
     review_id: reviewId,
     task_ref: `task/${taskId}`,
     execution_ref: `execution/${taskId}/${executionId}`,
@@ -107,6 +112,8 @@ function writeEntities(rootDir: string): void {
     },
     reviewer_session_ref: `session/${sessionId}`,
     findings: "approved",
+    evidence_checked: ["ev_trace"],
+    rationale: "The trace evidence supports approval.",
     verdict: "approved",
     archive_warnings_acknowledged: false,
     reviewed_at: "2026-07-11T01:15:00.000Z"
