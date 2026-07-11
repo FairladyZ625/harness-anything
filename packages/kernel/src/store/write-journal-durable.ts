@@ -20,8 +20,7 @@ export function readDurableState(journalPath: string, watermarkPath: string, roo
 }
 
 // Op ids whose file mutation already happened (apply-marker/v1 lines). Replay must
-// not re-run these non-idempotent writes even though the watermark does not cover
-// them yet.
+// not re-run these writes even though the global watermark does not cover them yet.
 export function readApplyMarkers(journalPath: string): ReadonlySet<string> {
   if (!existsSync(journalPath)) return new Set();
   const body = readFileSync(journalPath, "utf8").trim();

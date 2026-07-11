@@ -101,7 +101,15 @@ export function assertDirectWriteAllowed(rootDir: string, layoutInput: HarnessLa
   const relativeLockPath = `${lockRoot}/global.lock`;
   const lockPath = path.join(rootDir, relativeLockPath);
   if (!existsSync(lockPath)) return;
-  const existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
+  let existing: LockRecord;
+  try {
+    existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
+  } catch {
+    // The owner may have created the lock directory entry but not finished its
+    // durable JSON write. Enqueue remains WAL-only; flush will classify and wait
+    // on this same lock before any authored effect is applied.
+    return;
+  }
   if (existing.ownerKind === "daemon" && !isStaleLock(existing, lockTtlMs)) {
     throw lockHeld(lockOwnerMessage(relativeLockPath, existing));
   }
@@ -129,14 +137,14 @@ function acquireLock(
     recoverQuarantinedStaleLock(lockPath);
 
     if (existsSync(lockPath)) {
-      const existing = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
+      const existing = readLockRecordOrConflict(lockPath, relativeLockPath, entityId);
       if (!isStaleLock(existing, lockTtlMs)) {
         throw lockHeld(lockOwnerMessage(relativeLockPath, existing), entityId);
       }
 
       acquireTakeoverClaim(claimPath, ownerToken, entityId);
       ownsTakeoverClaim = true;
-      const current = JSON.parse(readFileSync(lockPath, "utf8")) as LockRecord;
+      const current = readLockRecordOrConflict(lockPath, relativeLockPath, entityId);
       if (current.ownerToken !== existing.ownerToken) {
         throw lockHeld(lockOwnerMessage(relativeLockPath, current), entityId, "changed-during-takeover");
       }
@@ -308,6 +316,27 @@ function isAlreadyExistsError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
 }
 
+function readLockRecordOrConflict(lockPath: string, relativeLockPath: string, entityId?: EntityId): LockRecord {
+  try {
+    const record = JSON.parse(readFileSync(lockPath, "utf8")) as Partial<LockRecord>;
+    if (
+      typeof record.pid !== "number"
+      || typeof record.hostname !== "string"
+      || typeof record.acquiredAt !== "string"
+      || typeof record.heartbeatAt !== "string"
+      || typeof record.ownerToken !== "string"
+    ) {
+      throw new Error("incomplete lock record");
+    }
+    return record as LockRecord;
+  } catch {
+    // open("wx") publishes the directory entry before the owner can write and
+    // fsync the JSON body. Treat that short visibility window as contention so
+    // bounded lock retry absorbs it instead of leaking JournalUnavailable.
+    throw lockHeld(relativeLockPath, entityId, "takeover-in-progress");
+  }
+}
+
 function lockHeld(
   owner: string,
   entityId?: EntityId,
@@ -317,6 +346,7 @@ function lockHeld(
 }
 
 function lockOwnerMessage(relativeLockPath: string, record: LockRecord): string {
-  if (record.ownerKind !== "daemon") return relativeLockPath;
-  return `${relativeLockPath} (held by daemon pid ${record.pid}; write through daemon via the daemon-backed ha client/API instead of direct WriteCoordinator writes)`;
+  const holder = `pid ${record.pid} on ${record.hostname}`;
+  if (record.ownerKind !== "daemon") return `${relativeLockPath} (held by ${holder})`;
+  return `${relativeLockPath} (held by daemon ${holder}; write through daemon via the daemon-backed ha client/API instead of direct WriteCoordinator writes)`;
 }

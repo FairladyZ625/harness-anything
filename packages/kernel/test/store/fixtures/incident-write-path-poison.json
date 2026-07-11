@@ -1,0 +1,45 @@
+{
+  "source": "incident-write-path-wedge-2026-07-11",
+  "poisonOpId": "1783768965461-3241c0c8-d19d55ee3130f3ec",
+  "decisionId": "dec_mrg9zihd",
+  "decision": {
+    "schema": "decision-package/v1",
+    "decision_id": "dec_mrg9zihd",
+    "title": "Incident replay fixture",
+    "state": "proposed",
+    "riskTier": "high",
+    "urgency": "medium",
+    "vertical": "software/coding",
+    "preset": "architecture-decision",
+    "applies_to": {
+      "modules": [],
+      "productLines": []
+    },
+    "proposedBy": {
+      "kind": "agent",
+      "id": "incident-fixture"
+    },
+    "proposedAt": "2026-07-11T11:22:45.457Z",
+    "arbiter": {
+      "kind": "human",
+      "id": "fixture-arbiter"
+    },
+    "provenance": [],
+    "question": "Can an already-applied create op be replayed safely?",
+    "chosen": [
+      {
+        "id": "CH1",
+        "text": "Replay recognizes its own entity watermark."
+      }
+    ],
+    "rejected": [],
+    "claims": [],
+    "relations": []
+  },
+  "followingOp": {
+    "opId": "incident-following-op",
+    "taskId": "task-incident-following",
+    "path": "progress.md",
+    "body": "following write survived poison recovery\n"
+  }
+}

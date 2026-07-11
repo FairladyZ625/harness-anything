@@ -34,7 +34,6 @@ import {
   applyWriteOp,
   documentWritesForWriteOp,
   readHardDeletePayload,
-  isProgressAppendDeltaPayload,
   validateWriteTransaction,
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
@@ -69,8 +68,20 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       pending.splice(0, pending.length);
-      const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
+      const pendingRecords = uniquePendingRecords(state.records, state.applied);
       return flushRecords(reason, rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
+    }, { heldGlobalLock }),
+    catch: (cause): WriteError => toJournalError(cause)
+  });
+  const recoverOnce: Effect.Effect<RecoveryReport, WriteError> = Effect.try({
+    try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
+      const state = readDurableState(journalPath, watermarkPath, rootDir);
+      const pendingRecords = uniquePendingRecords(state.records, state.applied);
+      const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
+      return {
+        replayedOps: report.opCount,
+        recoveredWatermark: report.watermark
+      };
     }, { heldGlobalLock }),
     catch: (cause): WriteError => toJournalError(cause)
   });
@@ -94,49 +105,75 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
     flush: (reason) => {
-      const effect = lockConflictRetry ? retryLockConflictFlush(() => flushOnce(reason), lockConflictRetry, Date.now(), 0) : flushOnce(reason);
-    return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem);
+      const effect = lockConflictRetry ? retryLockConflict(() => flushOnce(reason), lockConflictRetry, Date.now(), 0) : flushOnce(reason);
+      return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem);
     },
-    recover: Effect.try({
-      try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
-        const state = readDurableState(journalPath, watermarkPath, rootDir);
-        const pendingRecords = state.records.filter((record) => !state.applied.has(record.opId));
-        const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
-        return {
-          replayedOps: report.opCount,
-          recoveredWatermark: report.watermark
-        };
-      }, { heldGlobalLock }),
-      catch: (cause): WriteError => toJournalError(cause)
-    })
+    recover: lockConflictRetry
+      ? retryLockConflict(() => recoverOnce, lockConflictRetry, Date.now(), 0)
+      : recoverOnce
   };
 }
 
-function retryLockConflictFlush(
-  flushOnce: () => Effect.Effect<FlushReport, WriteError>,
+function retryLockConflict<Result>(
+  runOnce: () => Effect.Effect<Result, WriteError>,
   retry: LockConflictRetryOptions,
   startedAt: number,
   attempt: number
-): Effect.Effect<FlushReport, WriteError> {
-  return flushOnce().pipe(
+): Effect.Effect<Result, WriteError> {
+  return runOnce().pipe(
     Effect.catchAll((error) => {
       if (!isLockConflict(error)) return Effect.fail(error);
       const remainingMs = retry.maxWaitMs - (Date.now() - startedAt);
-      if (remainingMs <= 0) return Effect.fail(error);
+      if (remainingMs <= 0) return Effect.fail(lockConflictTimeout(error, retry.maxWaitMs));
       const delayMs = Math.min(
         remainingMs,
         retry.maxDelayMs ?? defaultRetryMaxDelayMs,
         (retry.initialDelayMs ?? defaultRetryInitialDelayMs) * (2 ** attempt)
       );
       return Effect.promise<void>(() => new Promise((resolve) => setTimeout(resolve, delayMs))).pipe(
-        Effect.flatMap(() => retryLockConflictFlush(flushOnce, retry, startedAt, attempt + 1))
+        Effect.flatMap(() => retryLockConflict(runOnce, retry, startedAt, attempt + 1))
       );
     })
   );
 }
 
+function lockConflictTimeout(error: WriteError, maxWaitMs: number): WriteError {
+  const suggestion = `timed out after ${maxWaitMs}ms; the holder may be committing, so retry the command or use the daemon-backed client when a daemon owns the lock`;
+  if (error._tag === "WriteConflict") {
+    return { ...error, owner: `${error.owner ?? "task write lock"}; ${suggestion}` };
+  }
+  if (error._tag === "GlobalWriteConflict") {
+    return { ...error, owner: `${error.owner ?? "global write lock"}; ${suggestion}` };
+  }
+  return error;
+}
+
 function isLockConflict(error: WriteError): boolean {
   return error._tag === "GlobalWriteConflict" || error._tag === "WriteConflict";
+}
+
+function uniquePendingRecords(
+  records: ReadonlyArray<JournalRecord>,
+  applied: ReadonlySet<string>
+): ReadonlyArray<JournalRecord> {
+  const unique = new Map<string, JournalRecord>();
+  for (const record of records) {
+    if (applied.has(record.opId)) continue;
+    const previous = unique.get(record.opId);
+    if (!previous) {
+      unique.set(record.opId, record);
+      continue;
+    }
+    if (
+      previous.entityId !== record.entityId
+      || previous.kind !== record.kind
+      || previous.payloadRef?.sha256 !== record.payloadRef?.sha256
+      || previous.payload?.payloadHash !== record.payload?.payloadHash
+    ) {
+      rejectWrite(`op id collision has divergent journal records: ${record.opId}`, record.entityId);
+    }
+  }
+  return [...unique.values()];
 }
 
 function cleanSessionId(sessionId: string | undefined): string | undefined {
@@ -155,11 +192,14 @@ function maybeAutoMaterialize(
   return effect.pipe(
     Effect.tap((report) => {
       if (report.opCount === 0 || !report.committed) return Effect.void;
-      return Effect.try({
-        try: () => {
+      return Effect.sync(() => {
+        try {
           runLedgerMaterializer(rootInput, { versionControlSystem });
-        },
-        catch: (cause): WriteError => ({ _tag: "JournalUnavailable", cause })
+        } catch {
+          // The op is already committed and covered by the durable watermark.
+          // Materialization is a separately retryable convergence step; letting
+          // its failure flip this receipt to false would invite a duplicate retry.
+        }
       });
     })
   );
@@ -258,17 +298,15 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
       reason: payload.reason
     });
   }
-  // Delta appends are not idempotent: replaying one after a crash between apply and
-  // watermark would duplicate the text/JSONL row. Mark the file mutation durably so
-  // replay skips the write while still committing and watermarking the op (ADR-0016 D2/D1).
-  if ((op.kind === "progress_append" && isProgressAppendDeltaPayload(op.payload)) || op.kind === "machine_artifact_append_jsonl") {
-    appendJsonLineDurably(journalPath, {
-      schema: "apply-marker/v1",
-      opId: record.opId,
-      entityId: record.entityId,
-      at: new Date().toISOString()
-    });
-  }
+  // Every successful file mutation is durably recognizable before commit and the
+  // global watermark. If either later step fails, replay skips the already-applied
+  // effect and continues the batch instead of turning this record into a poison op.
+  appendJsonLineDurably(journalPath, {
+    schema: "apply-marker/v1",
+    opId: record.opId,
+    entityId: record.entityId,
+    at: new Date().toISOString()
+  });
 }
 
 function createJournalRecord(rootDir: string, journalPath: string, op: {

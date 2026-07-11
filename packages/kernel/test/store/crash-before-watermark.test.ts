@@ -5,6 +5,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { checkTaskProjection, moduleEntityId } from "../../src/index.ts";
 import { decisionEntityId, type DecisionPackage } from "../../src/domain/index.ts";
+import { serializeDecisionDocument } from "../../src/domain/decision-document.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { docWrite, withTempStore } from "./helpers.ts";
 
@@ -66,6 +67,46 @@ test("WriteCoordinator recovers queued decision writes after crash before global
     const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_RECOVER/decision.md"), "utf8");
     assert.match(body, /^_coordinatorWatermark: op-decision-recover$/mu);
     assert.equal(checkTaskProjection({ rootDir, postMerge: true }).warnings.some((warning) => warning.code.startsWith("decision_watermark_")), false);
+  });
+});
+
+test("incident poison create self-heals and does not block following writes", () => {
+  withTempStore((rootDir) => {
+    const fixture = JSON.parse(readFileSync(new URL("./fixtures/incident-write-path-poison.json", import.meta.url), "utf8")) as {
+      readonly poisonOpId: string;
+      readonly decisionId: string;
+      readonly decision: DecisionPackage;
+      readonly followingOp: { readonly opId: string; readonly taskId: string; readonly path: string; readonly body: string };
+    };
+    const crashed = makeJournaledWriteCoordinator({ rootDir });
+    Effect.runSync(crashed.enqueue({
+      opId: fixture.poisonOpId,
+      entityId: decisionEntityId(fixture.decisionId),
+      kind: "decision_propose",
+      payload: {
+        decision: fixture.decision,
+        writeMode: { kind: "snapshot", expectedWatermark: null }
+      }
+    }));
+    Effect.runSync(crashed.enqueue(docWrite(
+      fixture.followingOp.opId,
+      fixture.followingOp.taskId,
+      fixture.followingOp.path,
+      fixture.followingOp.body
+    )));
+
+    const decisionPath = path.join(rootDir, `harness/decisions/decision-${fixture.decisionId}/decision.md`);
+    mkdirSync(path.dirname(decisionPath), { recursive: true });
+    writeFileSync(decisionPath, serializeDecisionDocument({ decision: fixture.decision }, fixture.poisonOpId), "utf8");
+
+    const report = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
+
+    assert.equal(report.replayedOps, 2);
+    assert.equal(report.recoveredWatermark, fixture.followingOp.opId);
+    assert.equal(readFileSync(
+      path.join(rootDir, `harness/tasks/${fixture.followingOp.taskId}/${fixture.followingOp.path}`),
+      "utf8"
+    ), fixture.followingOp.body);
   });
 });
 

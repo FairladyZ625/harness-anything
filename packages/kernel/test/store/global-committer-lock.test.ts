@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,7 +11,7 @@ import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import type { VersionControlSystem } from "../../src/ports/index.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/index.ts";
 import { makeLocalVersionControlSystem } from "../../src/store/local-version-control-system.ts";
-import { docWrite, withTempStore, withTempStoreAsync } from "./helpers.ts";
+import { docWrite, runEffect, withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -99,6 +99,65 @@ test("WriteCoordinator flush uses injected VCS port for git operations", () => {
   });
 });
 
+test("a commit failure leaves a durable apply marker that recovery automatically incorporates", () => {
+  withTempStore((rootDir) => {
+    const baseVcs = fakeVersionControlSystem(rootDir);
+    let failCommit = true;
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      versionControlSystem: {
+        ...baseVcs,
+        commit: (repoRoot, message, author) => {
+          if (failCommit) {
+            failCommit = false;
+            throw new Error("injected commit failure");
+          }
+          baseVcs.commit(repoRoot, message, author);
+        }
+      }
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-commit-recovery", "task-recovery", "notes.md", "applied once\n")));
+
+    const failure = runWriteFailure(coordinator.flush("explicit"));
+
+    assert.equal(failure._tag, "JournalUnavailable");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-recovery/notes.md"), "utf8"), "applied once\n");
+    assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"schema":"apply-marker\/v1","opId":"op-commit-recovery"/u);
+
+    const recovered = Effect.runSync(coordinator.recover);
+
+    assert.equal(recovered.replayedOps, 1);
+    assert.equal(recovered.recoveredWatermark, "op-commit-recovery");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-recovery/notes.md"), "utf8"), "applied once\n");
+  });
+});
+
+test("a post-watermark materializer failure cannot turn a committed write receipt into failure", () => {
+  withTempStore((rootDir) => {
+    const baseVcs = fakeVersionControlSystem(rootDir);
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      sessionId: "materializer-failure",
+      versionControlSystem: {
+        ...baseVcs,
+        sessionBranches: () => {
+          throw new Error("injected materializer failure");
+        }
+      }
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-materializer-receipt", "task-materializer", "notes.md", "committed\n")));
+
+    const report = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(report.committed, true);
+    assert.equal(report.watermark, "op-materializer-receipt");
+    const watermark = JSON.parse(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8")) as {
+      readonly lastCommittedOpIds: ReadonlyArray<string>;
+    };
+    assert.equal(watermark.lastCommittedOpIds.includes("op-materializer-receipt"), true);
+  });
+});
+
 test("WriteCoordinator rejects hard delete before journaling when policy payload or disposition is invalid", () => {
   withTempStore((rootDir) => {
     const coordinator = makeJournaledWriteCoordinator({ rootDir });
@@ -179,7 +238,78 @@ test("two coordinators cannot flush while the global lock is already held", () =
     const failure = runWriteFailure(blockedCoordinator.flush("explicit"));
 
     assert.equal(failure._tag, "GlobalWriteConflict");
-    assert.equal(failure.owner, ".harness/locks/global.lock");
+    assert.match(failure.owner ?? "", /\.harness\/locks\/global\.lock \(held by pid \d+ on /u);
+  });
+});
+
+test("WriteCoordinator queues behind the global lock until the holder releases it", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const lockPath = path.join(rootDir, ".harness/locks/global.lock");
+    mkdirSync(path.dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, JSON.stringify({
+      pid: process.pid,
+      hostname: hostname(),
+      acquiredAt: new Date().toISOString(),
+      heartbeatAt: new Date().toISOString(),
+      ownerToken: "short-lived-holder"
+    }), "utf8");
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      lockConflictRetry: { maxWaitMs: 500, initialDelayMs: 10, maxDelayMs: 20 }
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-queued", "task-queued", "queued.md", "queued\n")));
+    setTimeout(() => rmSync(lockPath, { force: true }), 50);
+
+    const report = await runEffect(coordinator.flush("explicit"));
+
+    assert.equal(report.watermark, "op-queued");
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-queued/queued.md"), "utf8"), "queued\n");
+  });
+});
+
+test("WriteCoordinator queues while a newly created lock record is still incomplete", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const lockPath = path.join(rootDir, ".harness/locks/global.lock");
+    mkdirSync(path.dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, "", "utf8");
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      lockConflictRetry: { maxWaitMs: 500, initialDelayMs: 5, maxDelayMs: 20 }
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-partial-lock", "task-partial", "queued.md", "queued\n")));
+    setTimeout(() => rmSync(lockPath, { force: true }), 25);
+
+    const report = await runEffect(coordinator.flush("explicit"));
+
+    assert.equal(report.watermark, "op-partial-lock");
+  });
+});
+
+test("WriteCoordinator lock queue times out with holder identity and recovery advice", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const lockPath = path.join(rootDir, ".harness/locks/global.lock");
+    mkdirSync(path.dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, JSON.stringify({
+      pid: process.pid,
+      hostname: hostname(),
+      acquiredAt: new Date().toISOString(),
+      heartbeatAt: new Date().toISOString(),
+      ownerToken: "long-lived-holder"
+    }), "utf8");
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      lockConflictRetry: { maxWaitMs: 30, initialDelayMs: 5, maxDelayMs: 10 }
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-timeout", "task-timeout", "blocked.md", "blocked\n")));
+
+    const result = await runEffect(Effect.either(coordinator.flush("explicit")));
+
+    assert.equal(result._tag, "Left");
+    if (result._tag !== "Left") throw new Error("expected lock timeout");
+    assert.equal(result.left._tag, "GlobalWriteConflict");
+    assert.match(result.left.owner ?? "", new RegExp(`held by pid ${process.pid} on ${hostname()}`, "u"));
+    assert.match(result.left.owner ?? "", /timed out after 30ms/u);
+    assert.match(result.left.owner ?? "", /retry the command or use the daemon-backed client/u);
   });
 });
 
@@ -201,7 +331,7 @@ test("entity lock conflicts preserve the scoped task id", () => {
 
     assert.equal(failure._tag, "WriteConflict");
     assert.equal(failure.taskId, "task-1");
-    assert.equal(failure.owner, `.harness/locks/entity-${sha256Text(taskEntityId("task-1"))}.lock`);
+    assert.match(failure.owner ?? "", new RegExp(`^\\.harness/locks/entity-${sha256Text(taskEntityId("task-1"))}\\.lock \\(held by pid \\d+ on `, "u"));
   });
 });
 
@@ -265,7 +395,7 @@ test("live process locks are not taken over solely because TTL expired", () => {
     const failure = runWriteFailure(coordinator.flush("explicit"));
 
     assert.equal(failure._tag, "GlobalWriteConflict");
-    assert.equal(failure.owner, ".harness/locks/global.lock");
+    assert.match(failure.owner ?? "", /\.harness\/locks\/global\.lock \(held by pid \d+ on /u);
     assert.equal(
       JSON.parse(readFileSync(path.join(rootDir, ".harness/locks/global.lock"), "utf8")).ownerToken,
       "still-live-owner"

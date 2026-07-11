@@ -25,6 +25,14 @@ export function writeDecisionDocument(rootInput: HarnessLayoutInput, op: WriteOp
   if (!isDecisionDocumentPayload(op.payload)) {
     rejectWrite(`${op.kind} op requires decision document payload: ${op.opId}`, op.entityId);
   }
+  // A decision document carries the op id that authored it. If a previous flush
+  // applied the file and then died before its global watermark, this equality is
+  // definitive replay evidence rather than a stale-CAS conflict. Keep the bytes
+  // already on disk; companion task writes (if any) are still applied by the
+  // caller so a partially applied transaction can finish converging.
+  if (existsSync(targetPath) && readDecisionWatermark(readFileSync(targetPath, "utf8")) === op.opId) {
+    return;
+  }
   const materialized = op.payload.writeMode?.kind === "append_relation"
     ? appendDecisionRelationPayload(targetPath, op.payload)
     : casSnapshotPayload(targetPath, op);
