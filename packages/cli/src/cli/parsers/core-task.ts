@@ -5,6 +5,7 @@ import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../p
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { parseTaskArchive } from "./core-task-archive.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
+import { parseExecutionSubmissionOptions } from "./core-task-execution.ts";
 import { parseTaskList } from "./core-task-list.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -54,6 +55,7 @@ function parseTaskClaim(args: ReadonlyArray<string>, rootDir: string, json: bool
   return ok(rootDir, json, {
     kind: "task-claim",
     taskId: args[2],
+    execution: args.includes("--execution"),
     ...(ttlMs !== undefined ? { ttlMs } : {})
   });
 }
@@ -67,12 +69,15 @@ function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: bool
   if (force && !reason) {
     return { ok: false, error: cliError(CliErrorCode.MissingForceReason, "Forced terminal status changes require --reason for audit evidence.") };
   }
+  const executionSubmission = parseExecutionSubmissionOptions(args, args[4]);
+  if (!executionSubmission.ok) return executionSubmission;
   return ok(rootDir, json, {
     kind: "status-set",
     taskId: args[3],
     status: args[4],
     force,
-    reason
+    reason,
+    ...(executionSubmission.value ? { executionSubmission: executionSubmission.value } : {})
   });
 }
 

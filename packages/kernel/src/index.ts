@@ -1,4 +1,7 @@
 export * from "./domain/index.ts";
+export { executionStates } from "./domain/execution.ts";
+export type { ExecutionRecord, ExecutionState } from "./domain/execution.ts";
+export { executionDeclaration } from "./entity/execution-declaration.ts";
 export * from "./docmap/index.ts";
 export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";
@@ -9,6 +12,7 @@ export {
   writeSessionEntity
 } from "./entity/session.ts";
 export type { SessionManifest } from "./schemas/session-manifest.ts";
+export { resolveEntityDocumentPath, writeDeclaredEntityTransaction } from "./entity/declaration.ts";
 export { sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export * from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
@@ -41,6 +45,7 @@ export {
 export type { DaemonRegistry, DaemonRegistryRepo } from "./daemon/registry.ts";
 export {
   TaskClaimCollisionError,
+  ExecutionLeaseCollisionError,
   TaskLeaseRequiredError,
   TaskReleaseNotHolderError,
   isTaskHolderError,
@@ -52,6 +57,9 @@ export {
 } from "./local/task-holder-state.ts";
 export type {
   TaskHolderAcquiredVia,
+  ExecutionLeaseContext,
+  ExecutionLeaseRecord,
+  ExecutionLeaseReservation,
   TaskHolderClaimResult,
   TaskHolderCredential,
   TaskHolderExecutor,

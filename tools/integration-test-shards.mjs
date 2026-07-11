@@ -5,6 +5,7 @@ export const integrationShardCount = 6;
 export const integrationTestFileWeightsMs = Object.freeze({
   "packages/adapters/multica/test/multica-readonly-adopt.test.ts": 782.5,
   "packages/application/test/local-controller-service.test.ts": 507.0,
+  "packages/application/test/execution-saga.test.ts": 1200.0,
   "packages/cli/test/actor-attribution-cli.test.ts": 3640.4,
   "packages/cli/test/anchor-backfill-cli.test.ts": 16962.1,
   "packages/cli/test/attribution-diff-cli.test.ts": 4299.9,
@@ -117,6 +118,7 @@ export const integrationTestShards = Object.freeze([
       "tools/check-runtime-release-readiness.test.mjs",
       "tools/check-docs-release-map.test.mjs",
       "packages/application/test/local-controller-service.test.ts",
+      "packages/application/test/execution-saga.test.ts",
       "packages/kernel/test/store/portable-path-collision.test.ts"
     ])
   }),

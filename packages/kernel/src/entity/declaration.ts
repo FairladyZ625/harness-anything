@@ -3,8 +3,9 @@ import { Effect, Schema } from "effect";
 import { declaredEntityId } from "../domain/entity-id.ts";
 import type { WriteError } from "../domain/index.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../layout/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout, taskPackagePath } from "../layout/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
+import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { WriteCoordinator } from "../ports/index.ts";
 import { writeCoordinatedPayload, type PayloadHasher } from "../write-coordination/write-helpers.ts";
 import {
@@ -36,6 +37,35 @@ export interface DeclaredEntityDocumentWritePayload {
     readonly body: string;
     readonly blobRef?: DeclaredContentAddressedBlobRef;
   };
+  readonly companionWrites?: ReadonlyArray<DocumentWrite>;
+}
+
+export function writeDeclaredEntityTransaction(
+  coordinator: WriteCoordinator,
+  hashPayload: PayloadHasher,
+  declaration: EntityDeclaration,
+  identity: Readonly<Record<string, string>>,
+  value: unknown,
+  companionWrites: ReadonlyArray<DocumentWrite>
+): Effect.Effect<void, WriteError> {
+  const decoded = Schema.decodeUnknownSync(declaration.schema)(value) as Readonly<Record<string, unknown>>;
+  const identityKey = declaration.rootResolver.identity.at(-1)!;
+  return writeCoordinatedPayload(coordinator, hashPayload, {
+    entityId: declaredEntityId(declaration.kind, identity[identityKey] ?? ""),
+    kind: "doc_write",
+    payload: {
+      entityDocument: {
+        declaration: {
+          kind: declaration.kind,
+          storageForm: declaration.storageForm,
+          rootResolver: declaration.rootResolver
+        },
+        identity,
+        body: declaration.documentCodec.encode(decoded)
+      },
+      companionWrites
+    } satisfies DeclaredEntityDocumentWritePayload
+  });
 }
 
 export interface DeclaredContentAddressedBlobRef {
@@ -94,10 +124,16 @@ export function resolveEntityDocumentPath(
   const resolver = declaration.rootResolver;
   if (declaration.storageForm === "hosted-entity") {
     const host = resolver.host!;
-    const hostPath = resolveDeclaredPath(layout.authoredRoot, host.pathTemplate, host.identity, identity);
+    const declaredHostPath = resolveDeclaredPath(layout.authoredRoot, host.pathTemplate, host.identity, identity);
+    const hostPath = !localLayoutFileSystem.exists(declaredHostPath) && host.entityKind === "task"
+      ? taskPackagePath(rootInput, identity[host.identity[0]!] ?? "")
+      : declaredHostPath;
     if (!localLayoutFileSystem.exists(hostPath)) {
       throw new Error(`host entity package not found: ${host.entityKind}/${identity[host.identity[0]!] ?? "unknown"}`);
     }
+    const declaredTarget = resolveDeclaredPath(layout.authoredRoot, resolver.pathTemplate, resolver.identity, identity);
+    const hostedSuffix = path.relative(declaredHostPath, declaredTarget);
+    return path.join(hostPath, hostedSuffix);
   }
   return resolveDeclaredPath(layout.authoredRoot, resolver.pathTemplate, resolver.identity, identity);
 }

@@ -99,6 +99,7 @@ export interface CliResult {
   readonly command: string;
   readonly taskId?: string;
   readonly decisionId?: string;
+  readonly executionId?: string;
   readonly factId?: string;
   readonly factRef?: string;
   readonly decisionState?: string;
@@ -185,10 +186,10 @@ export interface ParsedCommand {
   readonly action:
     | { readonly kind: "init"; readonly addNpmScripts: boolean; readonly projectName?: string }
     | { readonly kind: "new-task"; readonly taskId?: string; readonly title: string; readonly parent?: string; readonly slug: string; readonly allowManualId: boolean; readonly fromLegacyId?: string; readonly titleProvided: boolean; readonly slugProvided: boolean; readonly workKind?: TaskWorkKind; readonly riskTier?: PriorityTier; readonly urgency?: PriorityTier; readonly vertical?: string; readonly preset?: string; readonly profile?: string; readonly moduleKey?: string; readonly registerModule?: { readonly key: string; readonly title: string; readonly prefix?: string; readonly scope: string }; readonly longRunning: boolean; readonly dryRun: boolean; readonly locale?: "zh-CN" | "en-US" }
-    | { readonly kind: "task-claim"; readonly taskId: string; readonly ttlMs?: number }
+    | { readonly kind: "task-claim"; readonly taskId: string; readonly ttlMs?: number; readonly execution?: boolean }
     | { readonly kind: "task-holder"; readonly taskId: string }
     | { readonly kind: "task-release"; readonly taskId: string }
-    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string }
+    | { readonly kind: "status-set"; readonly taskId: string; readonly status: DomainStatus; readonly force: boolean; readonly reason?: string; readonly executionSubmission?: { readonly executionId: string; readonly leaseToken: string; readonly summary: string; readonly verification: ReadonlyArray<string>; readonly residualRisks: ReadonlyArray<string>; readonly outputs: ReadonlyArray<string> } }
     | { readonly kind: "progress-append"; readonly taskId: string; readonly text: string; readonly evidence?: ReadonlyArray<EvidenceAppendInput> }
     | { readonly kind: "task-amend"; readonly taskId: string; readonly patches: ReadonlyArray<{ readonly field: string; readonly value: string }> }
     | { readonly kind: "task-archive"; readonly taskId?: string; readonly ids?: ReadonlyArray<string>; readonly filter?: string; readonly before?: string; readonly reason: string; readonly archivedBy?: string; readonly archiveField?: string }

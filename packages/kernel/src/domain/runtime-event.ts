@@ -55,6 +55,8 @@ export interface RuntimeEventRecord {
     readonly sessionId: string;
     readonly runtime: RuntimeEventRuntime | "unknown";
     readonly taskId?: string;
+    readonly executionId: string | null;
+    readonly reviewId: string | null;
     readonly decisionId?: string;
     readonly factRef?: string;
   };

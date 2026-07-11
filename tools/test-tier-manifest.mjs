@@ -111,6 +111,7 @@ export const testTierManifest = {
   ],
   integration: [
     "packages/adapters/multica/test/multica-readonly-adopt.test.ts",
+    "packages/application/test/execution-saga.test.ts",
     "packages/application/test/local-controller-service.test.ts",
     "packages/daemon/test/transport-integration.test.ts",
     "packages/cli/test/actor-attribution-cli.test.ts",

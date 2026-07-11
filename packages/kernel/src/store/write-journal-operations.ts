@@ -54,12 +54,16 @@ export interface WriteTransactionPlan {
 
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
+    const companionWrites = declaredEntityCompanionWrites(op.payload);
     return {
-      touchedPaths: (rootInput) => declaredEntityTouchedPaths(rootInput, op),
-      documentWrites: () => [],
+      touchedPaths: (rootInput) => [
+        ...declaredEntityTouchedPaths(rootInput, op),
+        ...companionWrites.map((write) => documentTargetPath(rootInput, write))
+      ],
+      documentWrites: () => companionWrites,
       apply: (rootInput) => {
         const document = declaredEntityDocument(rootInput, op);
-        writeFileDurably(document.targetPath, document.body);
+        writeDocumentsAtomically(rootInput, companionWrites, document);
         return null;
       },
       validate: (rootInput) => {
@@ -287,6 +291,14 @@ function hasDeclaredEntityDocument(payload: unknown): payload is DeclaredEntityD
   return Boolean(payload && typeof payload === "object" && "entityDocument" in payload);
 }
 
+function declaredEntityCompanionWrites(payload: DeclaredEntityDocumentWritePayload): ReadonlyArray<DocumentWrite> {
+  const writes = payload.companionWrites ?? [];
+  if (!Array.isArray(writes) || writes.some((write) => !write || typeof write.path !== "string" || typeof write.body !== "string")) {
+    rejectWrite("declared entity companionWrites must be document writes");
+  }
+  return writes;
+}
+
 function declaredEntityDocument(
   rootInput: HarnessLayoutInput,
   op: WriteOp
@@ -392,8 +404,12 @@ export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./write-jou
 
 
 
-function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: ReadonlyArray<DocumentWrite>): void {
-  if (writes.length === 0) rejectWrite("batch document write requires at least one write");
+function writeDocumentsAtomically(
+  rootInput: HarnessLayoutInput,
+  writes: ReadonlyArray<DocumentWrite>,
+  declaredEntity?: { readonly targetPath: string; readonly body: string }
+): void {
+  if (writes.length === 0 && !declaredEntity) rejectWrite("batch document write requires at least one write");
   const entries = writes.map((write) => ({
     write,
     targetPath: documentTargetPath(rootInput, write)
@@ -403,14 +419,17 @@ function writeDocumentsAtomically(rootInput: HarnessLayoutInput, writes: Readonl
     if (targetPaths.has(entry.targetPath)) rejectTaskWrite(`duplicate batch write target: ${entry.write.path}`, entry.write.taskId);
     targetPaths.add(entry.targetPath);
   }
+  if (declaredEntity && targetPaths.has(declaredEntity.targetPath)) rejectWrite("declared entity transaction has duplicate targets");
 
-  const backups = entries.map((entry) => ({
-    targetPath: entry.targetPath,
-    existed: existsSync(entry.targetPath),
-    body: existsSync(entry.targetPath) ? readFileSync(entry.targetPath, "utf8") : null
+  const targets = [...(declaredEntity ? [declaredEntity.targetPath] : []), ...entries.map((entry) => entry.targetPath)];
+  const backups = targets.map((targetPath) => ({
+    targetPath,
+    existed: existsSync(targetPath),
+    body: existsSync(targetPath) ? readFileSync(targetPath, "utf8") : null
   }));
 
   try {
+    if (declaredEntity) writeFileDurably(declaredEntity.targetPath, declaredEntity.body);
     for (const entry of entries) writeDocument(rootInput, entry.write);
   } catch (error) {
     for (const backup of backups.reverse()) {
