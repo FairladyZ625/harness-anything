@@ -200,7 +200,7 @@ function normalizeIdentitySegment(value: string | undefined, key: string): strin
   return normalized;
 }
 
-function readField(entity: Readonly<Record<string, unknown>>, field: string): unknown {
+export function readField(entity: Readonly<Record<string, unknown>>, field: string): unknown {
   return field.split(".").reduce<unknown>((value, segment) => (
     value && typeof value === "object" ? (value as Record<string, unknown>)[segment] : undefined
   ), entity);

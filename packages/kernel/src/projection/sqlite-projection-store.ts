@@ -588,7 +588,7 @@ function readTaskFieldExtensionRecord(
   return Object.values(values).some((value) => value !== null) ? values : undefined;
 }
 
-function quoteIdentifier(identifier: string): string {
+export function quoteIdentifier(identifier: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(identifier)) {
     throw new Error(`Invalid SQLite identifier: ${identifier}`);
   }

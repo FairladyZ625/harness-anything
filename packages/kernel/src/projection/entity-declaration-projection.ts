@@ -4,12 +4,12 @@ import { Effect, Schema } from "effect";
 import type {
   EntityDeclaration
 } from "../entity/declaration.ts";
-import { resolveEntityDocumentPath } from "../entity/declaration.ts";
+import { readField, resolveEntityDocumentPath } from "../entity/declaration.ts";
 import type { EntityProjectionColumnDeclaration } from "../entity/registry.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { localLayoutFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { runSqlite } from "./sqlite-projection-store.ts";
+import { quoteIdentifier, runSqlite } from "./sqlite-projection-store.ts";
 
 export type DeclaredProjectionValue = string | number | null;
 export type DeclaredProjectionRow = Readonly<Record<string, DeclaredProjectionValue>>;
@@ -92,12 +92,6 @@ function projectValue(value: unknown, column: EntityProjectionColumnDeclaration)
   return value;
 }
 
-function readField(entity: Readonly<Record<string, unknown>>, field: string): unknown {
-  return field.split(".").reduce<unknown>((value, segment) => (
-    value && typeof value === "object" ? (value as Record<string, unknown>)[segment] : undefined
-  ), entity);
-}
-
 function createTableSql(declaration: EntityDeclaration): string {
   const columns = declaration.projection.columns.map((column) => {
     const primaryKey = column.primaryKey ? " PRIMARY KEY" : "";
@@ -122,11 +116,6 @@ function insertRow(
 
 function sqliteType(type: EntityProjectionColumnDeclaration["type"]): string {
   return type === "integer" || type === "boolean" ? "INTEGER" : "TEXT";
-}
-
-function quoteIdentifier(identifier: string): string {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(identifier)) throw new Error(`invalid SQLite identifier: ${identifier}`);
-  return `"${identifier}"`;
 }
 
 function templateMatcher(template: string): { readonly pattern: RegExp; readonly keys: ReadonlyArray<string> } {
