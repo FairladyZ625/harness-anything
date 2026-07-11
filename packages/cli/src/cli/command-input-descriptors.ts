@@ -81,6 +81,7 @@ const explicitInputDescriptors = {
       productLines: { type: "array", description: "Product-line keys the decision applies to.", items: { type: "string" } },
       evidenceRelations: { type: "array", description: "Typed evidence relation inputs.", items: { type: "object", properties: { anchor: { type: "string" }, type: { type: "string" }, target: { type: "string" }, rationale: { type: "string" } } } },
       body: { type: "string", description: "Optional decision body markdown." },
+      bodyFile: { type: "string", description: "Optional path to decision body markdown; mutually exclusive with body." },
       dryRun: { type: "boolean", description: "Preview the decision write without writing files." }
     },
     shortcuts: [
@@ -101,6 +102,7 @@ const explicitInputDescriptors = {
       shortcut("--product-line", "$.productLines", "append"),
       shortcut("--evidence-relation", "$.evidenceRelations", "append"),
       shortcut("--body", "$.body", "set"),
+      shortcut("--body-file", "$.bodyFile", "set"),
       shortcut("--dry-run", "$.dryRun", "set")
     ]
   },

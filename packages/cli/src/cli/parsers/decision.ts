@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   parseEntityRef,
   relationTypes,
@@ -82,11 +84,13 @@ export function parseDecisionArgs(
   if (op === "amend" && args[2]) {
     const patches = parseDecisionAmendPatches(args);
     if (!patches.ok) return { ok: false, error: patches.error };
+    const body = readDecisionBody(args, readOption(args, "--body"));
+    if (!body.ok) return body;
     return parsedDecision(rootDir, json, {
       kind: "decision-amend",
       decisionId: args[2],
       title: readOption(args, "--title"),
-      body: readOption(args, "--body"),
+      body: body.value,
       patches: patches.value,
       dryRun: args.includes("--dry-run")
     });
@@ -121,6 +125,12 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     ...jsonValues(payload, "claims")
   ]);
   if (!claims.ok) return { ok: false, error: claims.error };
+  const body = readDecisionBody(
+    args,
+    readOption(args, "--body") ?? jsonString(payload, "body"),
+    jsonString(payload, "bodyFile")
+  );
+  if (!body.ok) return body;
   return parsedDecision(rootDir, json, {
     kind: "decision-propose",
     decisionId: readOption(args, "--id") ?? jsonString(payload, "decisionId"),
@@ -138,9 +148,30 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     modules: [...jsonStringList(payload, "modules"), ...splitRepeatedList(args, "--module")],
     productLines: [...jsonStringList(payload, "productLines"), ...splitRepeatedList(args, "--product-line")],
     evidenceRelations: evidenceRelations.value,
-    body: readOption(args, "--body") ?? jsonString(payload, "body"),
+    body: body.value,
     dryRun: args.includes("--dry-run") || jsonBoolean(payload, "dryRun")
   });
+}
+
+function readDecisionBody(
+  args: ReadonlyArray<string>,
+  inlineBody: string | undefined,
+  inputBodyFile?: string
+): { readonly ok: true; readonly value: string | undefined } | { readonly ok: false; readonly error: CliResult["error"] } {
+  const bodyFile = readOption(args, "--body-file") ?? inputBodyFile;
+  if (inlineBody !== undefined && bodyFile !== undefined) {
+    return { ok: false, error: cliError(CliErrorCode.ConflictingDecisionBodyInput, "Use only one of --body or --body-file.") };
+  }
+  if (bodyFile === undefined) return { ok: true, value: inlineBody };
+  if (!bodyFile || bodyFile.startsWith("--")) {
+    return { ok: false, error: cliError(CliErrorCode.DecisionBodyFileReadFailed, "Use --body-file <path>.") };
+  }
+  try {
+    return { ok: true, value: readFileSync(path.resolve(process.cwd(), bodyFile), "utf8") };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: cliError(CliErrorCode.DecisionBodyFileReadFailed, `Could not read decision body file ${bodyFile}: ${reason}`) };
+  }
 }
 
 function parseDecisionRelate(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
