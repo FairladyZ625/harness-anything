@@ -2,9 +2,9 @@
 
 Status: not-started
 
-收口前必须写入实际复核结论；初始 not-started 且无 findings 会阻止 `ha task complete`。review 产出 task 裁决（PASS/FAIL），不是 decision 原语。若 review 暴露承重选路问题，再运行 `ha decision propose ...`。
+收口前必须写入实际复核结论；初始 not-started 且无 findings 会阻止 legacy `ha task complete`。Execution Review 产出 `approved`、`changes_requested` 或 `dismissed`，不是 decision 原语。若 review 暴露承重选路问题，再运行 `ha decision propose ...`（ADR-0027 D5）。
 
-依据 `dec_mrg3z1we/CH4`，Fact 是承重观察的 `0..N` 显式晋升，不是 review 数量门。交付证据从 Execution outputs 检查，不得为了通过 review 而复制进 Fact。
+对 Execution round，`review/v2` 要记录实际检查的 `evidence_checked` ID（可以为零）、非空语义 rationale、findings，以及 `approved`、`changes_requested`、`dismissed` 之一。locator、digest、归属与 checker receipt 检查只是机械输入，不是充分性 verdict（依据 `dec_mrg3z1we/CH3-CH4`、ADR-0027 D5-D6）。Fact 保持 `0..N` 显式晋升；不得为了通过 review 而把交付 Evidence 复制进 Fact。
 
 ## Reviewer
 

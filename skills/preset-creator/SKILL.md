@@ -55,6 +55,23 @@ Allowed top-level keys are exactly:
 
 Use `schema: "preset-manifest/v2"`. `profiles` must contain at least one profile, and `defaultProfile` must match one declared profile id. `extends` is optional; when present, the parent preset must be available to the validation context. A standalone `ha preset validate <manifest>` run validates only that one manifest, so omit `extends` in minimal examples unless you also validate through a resolved preset set.
 
+Allowed profile keys are exactly:
+
+- `id`
+- `title`
+- `checkerProfile`
+- `completionGates`
+- `templateSelections`
+- `capabilityImports`
+
+Every `preset-manifest/v2` profile must declare `completionGates`, even when the
+array is empty. Gate IDs are opaque, portable identifiers at the manifest
+boundary; the application validates which IDs it implements. A coding profile
+normally declares `ci` and `code-doc-reconciliation`, while a non-coding or
+purpose-built profile may declare a different set or none. This makes completion
+derive from the selected preset/profile contract instead of promoting CI or any
+other coding convention into a universal kernel gate (ADR-0027 D7).
+
 ## Minimal Valid Preset
 
 This example was validated with `ha preset validate preset.json`.
@@ -85,6 +102,7 @@ This example was validated with `ha preset validate preset.json`.
       "id": "baseline",
       "title": "Baseline",
       "checkerProfile": "standard",
+      "completionGates": ["ci", "code-doc-reconciliation"],
       "templateSelections": [
         {
           "slot": "example.note",
@@ -190,7 +208,9 @@ to `artifacts/preset-result.json`.
 
 - `preset.json` uses `schema: "preset-manifest/v2"`.
 - Top-level manifest keys match the v2 allowed key list.
-- `profiles` and `defaultProfile` are declared and consistent.
+- Every profile uses only the v2 allowed profile keys and explicitly declares
+  `completionGates`; `profiles` and `defaultProfile` are consistent (ADR-0027
+  D7).
 - Any `extends` parent is available to the validation path used.
 - Template bodies live in `.md` assets referenced by `template-catalog/v2` `bodyPath`.
 - No catalog or manifest example teaches inline `body`.

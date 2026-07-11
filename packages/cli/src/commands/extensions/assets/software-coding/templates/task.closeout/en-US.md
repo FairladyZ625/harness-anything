@@ -8,7 +8,10 @@ Summarize the completed behavior change.
 
 ## Verification
 
-List passing checks, CI, review result, and supporting `F-...` facts.
+List passing applicable checks, the Review result, and any explicitly promoted
+`F-...` Facts. CI belongs here only when the resolved completion contract
+declares it; Facts remain optional `0..N` promotions (dec_mrg3z1we/CH4;
+ADR-0027 D7).
 
 ## Residual Risk
 

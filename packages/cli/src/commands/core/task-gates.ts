@@ -228,7 +228,7 @@ function taskGateHint(code: string, hint: string, taskId: string): string {
   if (code !== "closeout_not_ready" && !/closeout/i.test(hint)) return hint;
   return [
     hint,
-    `To make closeoutReadiness ready/passed, run ha task transition ${taskId} in_review, replace closeout.md placeholder content with real Summary/Verification/Residual Risk, run ha task review ${taskId}, then run ha task complete ${taskId} --ci passed.`
+    `To make closeoutReadiness ready/passed, replace closeout.md placeholder content with real Summary/Verification/Residual Risk. Submit an active Execution with a six-field packet and obtain an approved review-execution with rationale, or use ha task review ${taskId} for a legacy task. Then run ha task complete ${taskId}; add --ci passed only when the resolved completionGates declares ci (dec_mrg3z1we/CH1; ADR-0027 D3, D5, D7).`
   ].join(" ");
 }
 

@@ -2,9 +2,9 @@
 
 Status: not-started
 
-Record the actual review result before closeout; initial not-started with no findings blocks `ha task complete`. Review produces a task verdict (PASS/FAIL), not a decision primitive. If review exposes a load-bearing route choice, then run `ha decision propose ...`.
+Record the actual review result before closeout; initial not-started with no findings blocks legacy `ha task complete`. An Execution Review produces `approved`, `changes_requested`, or `dismissed`, not a decision primitive. If review exposes a load-bearing route choice, run `ha decision propose ...` (ADR-0027 D5).
 
-Per `dec_mrg3z1we/CH4`, Facts are explicit `0..N` promotions of load-bearing observations, not a review quantity gate. Check delivery evidence in Execution outputs; do not copy it into Facts merely to satisfy review.
+For an Execution round, `review/v2` records the inspected `evidence_checked` IDs (possibly none), a non-empty semantic rationale, findings, and one of `approved`, `changes_requested`, or `dismissed`. Locator, digest, ownership, and checker-receipt checks are mechanical inputs, not a sufficiency verdict (dec_mrg3z1we/CH3-CH4; ADR-0027 D5-D6). Facts remain explicit `0..N` promotions; do not copy delivery Evidence into Facts to satisfy review.
 
 ## Reviewer
 

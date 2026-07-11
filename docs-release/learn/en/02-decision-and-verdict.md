@@ -8,20 +8,21 @@ machinery. Do that, and one of them quietly eats the other.
 ## Two different questions
 
 A **decision** answers *which path do we take?* — a WHY. A **verdict** answers
-*does this particular output hold?* — a PASS or FAIL.
+*does this submitted Execution hold?* — `approved`, `changes_requested`, or
+`dismissed`, with inspected Evidence IDs and a rationale (ADR-0027 D5-D6).
 
 | | Decision | Verdict |
 |---|---|---|
-| Answers | Which path do we take? (WHY) | Does this output hold? (PASS / FAIL) |
+| Answers | Which path do we take? (WHY) | Does this submitted Execution hold? |
 | Nature | a load-bearing choice | a one-shot judgment on a concrete output |
 | Relationship | the *cause* (a standing choice) | the *effect* (a check on one result) |
 | Reversible? | yes — a later decision can **supersede** it | no — it's a single ruling, and it fails closed |
-| Where it lives | a decision entity in `decisions/` | a task gate, a milestone exit, an adversarial review |
+| Where it lives | a decision entity in `decisions/` | immutable `review/v2` for one Execution |
 
 A decision is a cause: a standing commitment that shapes future work. A verdict
-is an effect: a check on one specific output, at one moment. A decision can be
-reversed by proposing a new one; a verdict is a one-time ruling that either
-passes or (by default) fails.
+is an effect: a judgment on one specific delivery round. A decision can be
+reversed by proposing a new one; a verdict is an immutable Review round
+(ADR-0027 D5).
 
 Why does keeping them apart matter so much? Because if every routine PASS/FAIL is
 funneled through the decision machinery, the decision queue — the one thing a

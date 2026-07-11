@@ -8,7 +8,9 @@
 
 ## Verification
 
-列出通过的检查、CI、review 结果和支撑的 `F-...` fact。
+列出通过的适用检查、Review 结果，以及任何显式晋升的 `F-...` Fact。只有解析出的 completion
+契约声明 CI 时才在这里列 CI；Fact 保持可选的 `0..N` 晋升（依据 `dec_mrg3z1we/CH4`、
+ADR-0027 D7）。
 
 ## Residual Risk
 

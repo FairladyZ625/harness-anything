@@ -4,17 +4,20 @@
 
 ## 两个不同的问题
 
-**decision(决策)**回答的是*我们走哪条路?*——一个 WHY。**verdict(裁决)**回答的是*这个具体的输出成立吗?*——PASS 还是 FAIL。
+**decision（决策）**回答*我们走哪条路?*——一个 WHY。**verdict（裁决）**回答*这个
+submitted Execution 成立吗?*——`approved`、`changes_requested` 或 `dismissed`，并记录
+检查过的 Evidence ID 与 rationale（ADR-0027 D5-D6）。
 
 | | Decision | Verdict |
 |---|---|---|
-| 回答的问题 | 我们走哪条路?(WHY) | 这个输出成立吗?(PASS / FAIL) |
+| 回答的问题 | 我们走哪条路?(WHY) | 这个 submitted Execution 成立吗? |
 | 性质 | 一次承重的选择 | 对某个具体输出的一次性判断 |
 | 关系 | **原因**(一个持续生效的选择) | **结果**(对某次产出的检查) |
 | 可推翻? | 可以——后来的 decision 能够**推翻(supersede)**它 | 不可以——它是单次裁定,默认 fail-closed |
-| 落在哪里 | `decisions/` 里的一个 decision 实体 | 某个 task gate、某次 milestone exit、某场对抗性评审 |
+| 落在哪里 | `decisions/` 里的一个 decision 实体 | 某个 Execution 的不可变 `review/v2` |
 
-decision 是原因:一个持续生效的承诺,塑造未来的工作。verdict 是结果:在某一时刻,对某个具体输出做的一次检查。decision 可以靠提出一个新的来推翻旧的;verdict 是一次性裁定,要么通过,要么(默认)不通过。
+decision 是原因：一个持续生效的承诺，塑造未来工作。verdict 是结果：对某一轮交付的语义
+判断。decision 可由新 decision 推翻；verdict 是不可变 Review round（ADR-0027 D5）。
 
 为什么把两者分开这么重要?因为如果每一次日常的 PASS/FAIL 都被塞进 decision 这套机制里,decision 队列——本该是唯一值得人类盯着看的东西——就会被大量逐条记账式的检查结果淹没,淹没到没人还能看清全貌,人们开始为了清空这堆积压而敷衍了事地放行。日常的 verdict 就是那场洪水;把它们挡在 decision 队列之外,才能让这个队列继续有意义。只有当一个 verdict 暴露出某种战略性的问题时(比如"这批结果说明我们可能选错了路"),它才会**触发**一个新的 decision。真正消费掉 decision 证据的时刻,是这次触发,而不是每一次例行检查。
 

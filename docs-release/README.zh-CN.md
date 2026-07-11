@@ -35,10 +35,18 @@ $ ha task transition task_01KWX5RBJQMEZ2T7AR6GFB8Q6K done
 error code=terminal_status_requires_task_complete
 ```
 
-`ha task complete` 仍要求 closeout 有实质内容、code-doc reconciliation 通过，并满足
-适用的 review 契约（带 Execution 的任务必须有 approved Review）。它不要求任何最低
-Fact 数量：依据 `dec_mrg3z1we/CH4`，Fact 是 `0..N` 的显式晋升，submit、review 或
-complete 都不会自动生成 Fact。
+一次 Execution 提交会写入六个字段：completion claim、deliverables、Evidence refs
+（`0..N`）、verification notes、known gaps 与 residual risks；只有一段文字的提交也
+合法。`OutputEvidence` 可用 inline、file、URL、object 或 entity locator。机械校验只
+检查 locator 完整性、来源/归属、可选 digest 与可选 checker receipt 的绑定；相关性与
+充分性只能由 reviewer 判断，并记录 `evidence_checked` 与 rationale（依据
+`dec_mrg3z1we/CH1-CH3`、ADR-0027 D3、D5-D6）。
+
+`ha task complete` 从 task 选中的 preset/profile 解析确定性门。内置 coding profile
+声明了 CI 与 code-doc reconciliation，所以 coding completion 传 `--ci passed`；
+`--ci` 不再是全局必填。带 Execution 的任务还必须有 approved Review。任何路径都不
+要求最低 Fact 数量：Fact 是 `0..N` 的显式晋升，submit、review 或 complete 都不会
+自动生成 Fact（依据 `dec_mrg3z1we/CH4`、ADR-0027 D7）。
 
 等 0.1 package 发布到 npm 之后，初见入口会变成：
 
@@ -55,7 +63,8 @@ npx harness-anything init
   被推翻，但不能被抹掉。
 - **task** ——做什么。一个单位工作跨越六态生命周期，`done` 被 completion
   gate 锁住。
-- **fact** ——证据。只增不改的观察，锚定到产生它的 task。
+- **fact** ——长期观察。它是可选的、只增不改的显式晋升，锚定到产生它的 task；交付
+  Evidence 留在 Execution 上（依据 `dec_mrg3z1we/CH2`、`CH4`）。
 
 `ha` CLI 把纯 Markdown 写入你的 git 仓库，并维护可重建的 SQLite 投影以快速
 查询。可以 grep，可以 diff，也可以在 PR 里 review。

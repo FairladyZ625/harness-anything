@@ -176,6 +176,7 @@ Preset overlays should reference the same catalog documents from `preset-manifes
   "id": "baseline",
   "title": "Baseline",
   "checkerProfile": "standard",
+  "completionGates": [],
   "templateSelections": [
     {
       "slot": "task.plan",
@@ -205,7 +206,9 @@ Preset overlays should reference the same catalog documents from `preset-manifes
 - Schema entities do not declare package scaffolds or repository roots.
 - Template refs exist in `template-catalog/v2` and use asset-backed `bodyPath`.
 - Required anchors match locale anchors and appear in each body asset.
-- Presets shipped with the vertical use `preset-manifest/v2`, `profiles`, and `defaultProfile`.
+- Presets shipped with the vertical use `preset-manifest/v2`, `profiles`, and
+  `defaultProfile`; every v2 profile explicitly declares `completionGates`, even
+  when empty (ADR-0027 D7).
 - Preset manifests pass `ha preset validate <manifest>`.
 - The vertical works without CLI branches keyed by vertical id.
 - Template refs exist in the catalog and materialize to stable paths.

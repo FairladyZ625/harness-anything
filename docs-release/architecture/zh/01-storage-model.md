@@ -1,4 +1,4 @@
-# 三个实体在磁盘上如何存放
+# 撰写记录如何落盘
 
 [三原语内核](../../learn/zh/01-three-primitive-kernel.md) 主张 decision、task、fact 就是整个
 内核,并且它们存储得不对称——decision 集中式、task 是容器、fact 嵌入式。这一页展示这套主张
@@ -26,7 +26,12 @@ frontmatter 不是装饰——在文件被接受之前,它会对着 `packages/ke
           ├── progress.md               叙述:进度
           ├── review.md                 叙述:判断
           ├── closeout.md               叙述:收尾
-          └── facts.md                  本地 fact 账本
+          ├── facts.md                  本地 fact 账本
+          ├── executions/exe_<ULID>.md  一轮不可变交付
+          └── reviews/rev_<ULID>.md     一轮不可变裁决
+
+  <sessions 根>/
+  └── <session-id>.md                   捕获的 Session manifest
 ```
 
 三个原语,但只有两个存储位置。**Decision** 一起住在顶级 `decisions/` 目录里——它们是唯一一个
@@ -41,6 +46,20 @@ SHA-256 摘要寻址，存成 `objects/sha256/<前两个十六进制字符>/<剩
 写入 blob store，然后 journal payload 携带 `bodyRef`，flush 时再从这个已校验的 blob 物化出手写树
 里的 session 文档。v0 没有 GC，也没有分块；大的或过期的 blob 会一直作为完整文件存在，直到后续存储
 版本定义回收策略。
+
+## 执行链
+
+每次有效 claim 都会在 Task 下创建新的 authored Execution。Execution 持有 Session
+bindings、`OutputEvidence` value objects，并在 submit 后持有六字段 packet：
+`completion_claim`、`deliverables`、`evidence_refs`、`verification_notes`、
+`known_gaps`、`residual_risks`。只有 completion claim 必须非空，其余数组均可为空，
+所以纯文字交付与零条 Evidence 都合法（依据 `dec_mrg3z1we/CH1`、ADR-0027 D1、D3）。
+
+`OutputEvidence` 不是另一种 Entity，也不是封闭的语义媒体枚举。它归 Execution
+所有，并且恰好使用一种 locator substrate：inline、仓库相对 file、可解析 URL、
+authored CAS object 或 registry entity ref。Review 是针对某个 submitted Execution 的
+独立不可变文件；`review/v2` 记录 `evidence_checked`、findings、verdict 与非空 rationale
+（依据 `dec_mrg3z1we/CH2-CH4`、ADR-0027 D5-D6）。
 
 ## decision 文件
 

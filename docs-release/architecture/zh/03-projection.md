@@ -4,7 +4,9 @@
 
 ## 源是 Markdown,SQLite 是派生物
 
-数据库里没有任何权威内容。它的每一行,都是 Markdown 文件的一个机械函数:task 的 `INDEX.md` frontmatter、decision 文档,以及那些文件里记录的类型化关系。数据库存在的唯一理由,是让读取——"哪些 task 在 review?""这个 decision 覆盖了什么?"——能用一次带索引的查询来回答,而不必重新解析整棵树。如果数据库和 Markdown 不一致,那按定义数据库就是错的,修法永远是同一个:扔掉,重建。
+数据库里没有任何权威内容。每一行都是 Markdown 文件的机械函数：Task 与 Decision 记录、
+类型化关系、Session manifest、Execution、Review。数据库只为索引读取存在；如果它与 Markdown
+不一致，按定义数据库就是错的，修法永远是扔掉再重建（ADR-0027 D1、D5）。
 
 ## 重建流程
 
@@ -31,7 +33,8 @@
 
 ## 数据库里装了什么
 
-schema 恰好是六张表,在 `packages/kernel/src/projection/sqlite-projection-store.ts` 里创建:
+投影包含 `packages/kernel/src/projection/sqlite-projection-store.ts` 创建的六张基础表，以及由
+声明派生的 Session、Execution、Review 表：
 
 | 表 | 主键 | 装的东西 |
 |---|---|---|
@@ -41,8 +44,14 @@ schema 恰好是六张表,在 `packages/kernel/src/projection/sqlite-projection-
 | `relation_edges` | `relation_id` | 每条类型化关系一行:`source_ref`、`target_ref`、`relation_type`、`direction`、`state`,以及完整的 `row_json` |
 | `relation_coverage` | `claim_ref` | 哪些 decision claim 被覆盖:`decision_ref`、`status`(`covered`/`uncovered`)、`covering_fact_ref` |
 | `task_fact_anchors` | `fact_ref` | 每个 fact 落在哪里:`task_id`、`fact_id`、`source_path` |
+| `session_projection` | `session_id` | Session lifecycle、runtime、archive status 与 snapshot 元数据 |
+| `execution_projection` | `execution_id` | Task/executor、状态、带 capture range 的 Session bindings、Submission Packet 与 OutputEvidence |
+| `review_projection` | `review_id` | 被审 Execution、reviewer、`evidence_checked`、rationale、findings 与 verdict |
 
-之上还有若干索引——task 按状态和 module key、decision 按 state、edge 按 source 与 target ref——让常见查询保持快速。但要记住的形状是:三张表镜像三个实体(task、decision、fact),两张表承载连接它们的关系图,还有一张表(`projection_meta`)记录着"怎么判断整套东西是否还新鲜"。
+之上还有若干索引，让常见查询保持快速。关键边界是：Execution binding 暴露稳定
+`range_id` 与含首尾的 timestamp interval（封存前 `end_at` 为 null）；legacy binding
+暴露 `capture_range: null`，而不是通过搜索 transcript 编造归属。Submission 与 Review
+字段会直接进入投影，但投影绝不把机械 Evidence 结果变成语义 verdict（ADR-0027 D1、D5-D6）。
 
 ## 新鲜与陈旧
 

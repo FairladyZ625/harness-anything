@@ -14,12 +14,12 @@ There are two stores, and they are not peers.
 > rebuildable projection — a fast read cache you can delete and regenerate from
 > the Markdown at any time.
 
-Every entity — decision, task, fact — is a plain Markdown file with YAML
-frontmatter, committed to git. Nothing about the system's correctness depends on
-the database file surviving. Delete it and the next read rebuilds it from the
-files on disk. The Markdown is durable and authoritative; the SQLite file is
-disposable and fast. When the two disagree, the Markdown wins by definition,
-and a freshness check exists precisely to notice the disagreement.
+The three knowledge primitives — decision, task, and fact — are authored in
+plain Markdown with YAML frontmatter. The execution chain is authored too:
+Session, Execution, and Review records preserve who performed one delivery
+round, what was submitted, and who judged it. Nothing about correctness depends
+on the database surviving; Markdown is authoritative and SQLite remains a
+disposable projection (ADR-0027 D1, D5).
 
 Hold onto that asymmetry. It is the single fact that explains why the layers are
 arranged the way they are: writes flow *down* toward Markdown and git; reads are
@@ -107,8 +107,10 @@ A write and a read travel opposite directions through the same stack.
 A **write** enters at the CLI, is shaped by the application layer's lifecycle
 rules, passes (or fails) its gates, and — if accepted — goes through the single
 write path, which validates it against a schema, stamps it, writes it atomically
-to Markdown, and commits it to git. One door in, one enforcement point, one
-durable result.
+to Markdown, and commits it to git. Claim creates one Execution; submit seals
+Session bindings and a six-field Submission Packet; Review records inspected
+Evidence and rationale for that exact Execution. These are coordinated domain
+commands, not unrelated status edits (ADR-0027 D1-D3, D5).
 
 A **read** is served from the projection. If the SQLite cache is fresh, the read
 is fast; if it is missing or stale, the projection layer rebuilds it from the

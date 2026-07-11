@@ -47,6 +47,18 @@ enqueue                          flush
                                   压实 journal(尽力而为)
 ```
 
+## Execution 命令维护跨记录不变量
+
+claim、submit、review、complete 都是领域命令，因为每个命令都要协调多条记录或多种
+substrate。claim 先保留 runtime lease，再撰写 active Execution，并收敛部分失败；submit
+校验 active holder，封存所有 Session binding 及其 capture interval，写入六字段 Submission
+Packet，在同一个 authored batch 内改变 Execution 与 Task 状态，然后才释放 lease；review
+为那一个 submitted Execution 追加不可变 Review（ADR-0027 D2-D5）。
+
+这个顺序也划定 Evidence 边界。submit 路径可以机械检查 locator 是否存在、Execution 归属、
+可选 digest 与可选 checker receipt；它不得从这些检查推导相关性、正确性、充分性或 Review
+verdict（依据 `dec_mrg3z1we/CH3`、ADR-0027 D6）。
+
 ## 落盘的原子性:先写临时文件,再改名
 
 单个文件的写入绝不会留下一个写了一半的文件。这个原语是 `packages/kernel/src/store/write-journal-durable.ts` 里的 `writeFileDurably`:它把完整内容写进一个唯一命名的临时文件(`.<pid>.<时间戳>.tmp`),`fsync`,然后用 `renameSync` 把临时文件盖到真实路径上,再 `fsync` 所在目录。因为 rename 是原子的,读取者要么看到旧文件、要么看到新文件——永远不会看到被截断的那种。journal 的追加本身用的是带 `fsync` 的追加(`appendJsonLineDurably`),所以一条记录在被算作意图之前,已经落到了稳定存储上。

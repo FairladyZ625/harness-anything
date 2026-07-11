@@ -64,42 +64,52 @@ scan every task INDEX.md
 
 ## Verdict: a judgment, not a decision entity
 
-A **verdict** is a PASS/FAIL judgment on one concrete output, produced when a task
-goes through review or completion. The machinery for it is the review gate and
-the completion gate described in
-[gates in the pipeline](04-gates-in-the-pipeline.md): the review gate emits a
-passed contract or a set of blocking findings; the completion gate lines up
-review, CI, and closeout and returns pass or a list of issues.
+A **verdict** is a Reviewer's semantic judgment on one submitted Execution.
+`review/v2` uses the closed values `approved`, `changes_requested`, and
+`dismissed`, and also requires `evidence_checked` plus a non-empty rationale.
+Mechanical locator/digest/receipt checks do not produce that verdict; the
+Reviewer reads Task intent, the six-field Submission Packet, and available
+Evidence before judging the round (dec_mrg3z1we/CH3-CH4; ADR-0027 D5-D6).
 
 The structural fact worth underlining is what a verdict is *not*. A verdict is
 **not** a decision entity. It does not get a `dec_`-style id, it does not enter
 the centralized decisions directory, and it does not go on the decision queue.
-Where does it live instead? On the task's own ledger — the review contract, the
-closeout, and the fact records the task accumulates. A verdict is recorded next to
-the work it judged, not promoted into the standing choices that shape future work.
+Where does it live instead? In an immutable Review Entity attached to the exact
+Execution it judged. A verdict is recorded next to that delivery round, not
+promoted into the standing choices that shape future work (ADR-0027 D5).
 
 | | Decision | Verdict |
 |---|---|---|
-| Question | which path? (WHY) | does this output hold? (PASS/FAIL) |
-| Where recorded | a decision entity in `decisions/` | the task's review/closeout/fact ledger |
+| Question | which path? (WHY) | does this delivery round hold? |
+| Where recorded | a decision entity in `decisions/` | immutable `review/v2` for one Execution |
 | On the decision queue? | yes | no |
 | Reversible | a later decision can supersede it | one-shot, fails closed |
+
+## Session binding capture ranges
+
+Session provenance is linked to an Execution through a binding with a stable
+`range_id`, role, and inclusive timestamp interval. `start_at` is attachment
+time; `end_at` remains null while active and is sealed at submission or review.
+The interval describes observer capture responsibility, not proof that every
+transcript event carries a timestamp. Legacy bindings expose an unspecified
+range rather than inferring ownership by searching transcript prose (ADR-0027
+D1).
 
 ## Routing is not automatic
 
 If a verdict is not a decision, when does a decision ever come out of one? Only
 when the verdict surfaces something *strategic* — "this batch of results says we
 chose the wrong path." And even then, the routing is **not automatic**. Nothing
-in the pipeline turns a FAIL into a new decision on its own. A routine failing
-verdict closes findings and blocks a transition; it does not open a decision. A
+in the pipeline turns `changes_requested` into a new decision on its own. A
+routine negative verdict blocks acceptance; it does not open a decision. A
 strategically significant verdict *prompts* a human to propose a new decision, as
 a deliberate act.
 
 This is the mechanical reason the decision queue stays meaningful. If every
-PASS/FAIL auto-created a decision, the queue would fill with per-output
-bookkeeping until no one could watch it. By keeping verdicts on the task ledger
-and requiring a deliberate step to escalate, the flood of routine verdicts never
-reaches the one queue a human is meant to see.
+routine verdict auto-created a decision, the queue would fill with per-output
+bookkeeping until no one could watch it. By keeping verdicts in Execution-bound
+Review records and requiring a deliberate step to escalate, the flood of routine
+verdicts never reaches the one queue a human is meant to see (ADR-0027 D5).
 
 ## The runtime event ledger
 

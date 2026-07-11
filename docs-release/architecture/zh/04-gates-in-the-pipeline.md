@@ -9,15 +9,16 @@
 关键性质是**从构造上就 fail-closed**。每个门函数会收集一组 **issues(问题)**。只要这个问题列表非空,迁移就不会发生——编排器返回一个携带这些问题的失败结果,task 的状态从不被写入。没有任何东西被"默认认为没问题"。一次迁移必须靠交出一个空的问题列表,才能挣得通行。
 
 ```text
-进行中的工作
-    │  ha task review <id>
+active Execution
+    │  ha task transition <id> in_review --completion-claim "..."
     ▼
-[ review 门 ] ─ 拒绝 ─▶ (状态不变)
-    │ 通过
+[ submit：封存 bindings + 六字段 packet ] ─ 拒绝 ─▶ (状态不变)
+    │ submitted
 in_review
-    │  ha task complete <id> --ci passed
+    │  ha task review-execution <id> ... --rationale "..."
+    │  ha task complete <id> [--ci passed]
     ▼
-[ closeout · code-doc · 适用的 review · completion 路径 ] ─ 拒绝 ─▶ (状态不变)
+[ approved Review · 声明的 completionGates · closeout ] ─ 拒绝 ─▶ (状态不变)
     │ 通过
 done  (终态——写入经由唯一的写协调器)
 ```
@@ -34,6 +35,18 @@ done  (终态——写入经由唯一的写协调器)
 completion。承重观察需要供未来 decision 或跨任务推理使用时，仍可显式记录为 Fact；
 它不再是通用的 task completion 数量门。
 
+## Submission 与 Evidence 检查
+
+提交 active Execution 时，completion claim 必须非空，另外五个数组字段可以为空：
+deliverables、Evidence refs、verification notes、known gaps、residual risks。这是可追溯的
+检查锚点，不是“必须有文件”的证明形状；只有文字 claim、零条 Evidence 也合法（依据
+`dec_mrg3z1we/CH1`、ADR-0027 D3）。
+
+对每条 `OutputEvidence`，机器只检查四类事实：locator 存在或形状合法、Evidence 归属于
+本 Execution、可选 SHA-256 匹配、可选 checker receipt 存在且绑定同一目标。机器不判断
+相关性、正确性或充分性；这些属于 Reviewer，并由 `review/v2` 记录检查过的 Evidence ID 与
+rationale（依据 `dec_mrg3z1we/CH2-CH4`、ADR-0027 D5-D6）。
+
 ## review 门
 
 对于 legacy task，review 门检查 task 的 `review.md`。评审发现记在一张 Markdown 表里，门把这张表解析成结构化的发现，每条带一个严重度(`P0`–`P3`)、一个 `open` 标记和一个 `blocksRelease` 标记。
@@ -44,9 +57,10 @@ completion。承重观察需要供未来 decision 或跨任务推理使用时，
 
 ## completion 门
 
-完成一个 task 是最严格的迁移，因为 `done` 是终态。`ha task complete` 会检查 task 文档、
-调和 code-doc 锚点、应用对应的 review 契约、清扫 task tree，最后才写入 `done`。legacy task
-会重新运行 `review.md` 门；带 Execution 的 task 则要求当前 Execution 已有 approved Review。
+完成一个 task 是最严格的迁移，因为 `done` 是终态。`ha task complete` 会解析选中
+preset/profile 的 `completionGates`，只执行其中声明的确定性门，同时落实适用 review 路径与
+closeout readiness，最后才写入 `done`。legacy task 会重新运行 `review.md` 门；带 Execution
+的 task 要求当前 Execution 已有 approved Review（ADR-0027 D5、D7）。
 
 | 检查 | 通过要求 | 报告的失败码或 issue |
 |---|---|
@@ -54,14 +68,15 @@ completion。承重观察需要供未来 decision 或跨任务推理使用时，
 | Execution Review | 带 Execution 的 task 必须对当前 Execution 有 approved Review | Execution completion service 报告 Review 缺失或未批准 |
 | review 占位符 | 初始 `review.md` 占位符必须被替换 | `review_placeholder` |
 | closeout 占位符 | 配置了占位符策略时，`closeout.md` 不能匹配已知模板指纹 | `closeout_placeholder` |
-| code-doc reconciliation | task 包必须包含一份手写的 `code-doc-anchors.json`，其中有合法的承重记录，且每条记录至少有一个硬 commit 或 path 锚点 | `code_doc_reconciliation_failed`，issues 里可能包含 `code_doc_anchors_missing` |
+| code-doc reconciliation | 解析出的契约声明 `code-doc-reconciliation` 时，task 包必须包含一份手写的 `code-doc-anchors.json`，其中有合法的承重记录，且每条记录至少有一个硬 commit 或 path 锚点 | `code_doc_reconciliation_failed`，issues 里可能包含 `code_doc_anchors_missing` |
 | review 门轴 | 上面的 review 门通过后，completion 函数收到的 review 必须是 `passed` | `review_not_passed` |
-| CI 门轴 | CLI 传入的 CI 门必须是 `passed` | `ci_not_passed` |
+| CI 门轴 | 解析出的契约声明 `ci` 时，CLI 传入的 CI 门必须是 `passed`；否则无需 `--ci` | `missing_ci_gate` 或 `ci_not_passed` |
 | closeout 就绪度轴 | 投影出的 closeout readiness 必须是 `ready` 或 `passed` | `closeout_not_ready` |
 | task tree dirty 检查 | 迁移清扫之后，`tasks/<id>/` 必须足够干净，让 lifecycle writer 可以提交 | `task_tree_dirty` |
 
-这份 code-doc reconciliation 文件不会由 `ha task create` 生成；它必须被手写进 task 包，路径是
-`harness/tasks/<id>/code-doc-anchors.json`。文档 schema 是 `code-doc-reconciliation/v1`，每条
+解析出的契约声明这扇门时，code-doc reconciliation 文件不会由 `ha task create` 生成；它必须被
+手写进 task 包，路径是 `harness/tasks/<id>/code-doc-anchors.json`（ADR-0027 D7）。文档 schema
+是 `code-doc-reconciliation/v1`，每条
 记录命名一个 task package `ledgerPath`、一个承重 `kind`（`closeout`、`evidence`、
 `decision-claim` 或 `review`）以及一组 anchors。commit 与 path anchor 会对着本地 git 校验；PR
 anchor 只有在同时携带 SHA 时才校验，否则只是 warning。没有任何硬 commit 或 path anchor 的记录，

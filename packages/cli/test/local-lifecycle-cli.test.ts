@@ -325,14 +325,14 @@ test("CLI capabilities text output gives cold-start agents a useful summary", ()
   });
 });
 
-test("CLI task complete help explains closeout readiness recovery", () => {
+test("CLI task complete help explains the resolved completion contract", () => {
   withTempRoot((rootDir) => {
     const output = runText(rootDir, ["task", "complete", "--help"]);
 
-    assert.match(output, /closeoutReadiness/u);
-    assert.match(output, /task transition <id> in_review/u);
-    assert.match(output, /task review/u);
-    assert.match(output, /task complete --ci passed/u);
+    assert.match(output, /submitted Execution and approved Review/u);
+    assert.match(output, /legacy tasks use document review/u);
+    assert.match(output, /Pass --ci only when the contract declares ci/u);
+    assert.match(output, /Facts are never a quantity gate/u);
   });
 });
 

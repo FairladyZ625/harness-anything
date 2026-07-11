@@ -23,6 +23,18 @@
 
 引擎从不自己编造这些东西;它读的就是 JSON 声明的内容。这一页接下来走一遍承载业务的四个部分:实体种类、模板选择、仓库脚手架,和 agents 入口。
 
+## Preset profile 声明 completion gates
+
+vertical 定义领域；选中的 preset/profile 定义某个 Task 适用哪些确定性 completion gate。
+`preset-manifest/v2` 的每个 profile 都必须携带 `completionGates`，即使它是显式空数组。
+kernel 只校验可移植的非空 gate-ID 语法；application 拥有已实现 ID，并拒绝未知或重复 gate。
+内置 coding profile 声明 `ci` 与 `code-doc-reconciliation`；其他 profile 可以两者都不声明，
+所以 `--ci` 是 coding 契约的要求，不是 CLI 的全局要求（ADR-0027 D7）。
+
+真实 Task 的 preset/profile 无法解析，或用 v1 preset 提供 completion contract 时，完成路径会
+fail closed。文档化的 legacy metadata fallback 保留旧 task 行为，但新的 v2 manifest 必须明确
+声明契约，不能依赖 fallback（ADR-0027 D7）。
+
 ## 实体种类:生命周期 vs. schema
 
 `entityKinds[]` 是一个可辨识联合(discriminated union)。每一项是两种形状之一,由 `entityType` 字段来区分:

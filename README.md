@@ -69,9 +69,13 @@ same way twice.
 
 ### “Done” that means something
 
-Agents do not get to close work by confidence alone. Facts, review, CI, and
-closeout conditions sit on the exit path. If the work cannot satisfy the gate,
-it is not done.
+Agents do not get to close work by confidence alone. A six-field Submission
+Packet gives the reviewer a traceable claim and inspection entry points; the
+reviewer records what was checked and why the round is or is not acceptable.
+Completion then applies the gates declared by the task's resolved preset/profile
+contract. Coding contracts can require CI, but the kernel requires neither CI
+nor any minimum number of Facts universally (dec_mrg3z1we/CH1, CH4; ADR-0027
+D5-D7).
 
 ## Self-Involving By Design
 

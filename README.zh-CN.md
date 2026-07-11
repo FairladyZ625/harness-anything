@@ -65,8 +65,11 @@ Harness Anything 让这些工作真正积累下来：
 
 ### “完成”终于有了含义
 
-Agent 不能只靠自信关闭任务。事实、评审、CI 和收尾条件都在出口上。
-如果工作无法通过门禁，它就还没有完成。
+Agent 不能只靠自信关闭任务。六字段 Submission Packet 先给 reviewer 留下可追溯的
+完成声明与检查入口；reviewer 再记录检查了什么，以及为什么接受或拒绝这一轮交付。
+最后，completion 只执行该 task 解析出的 preset/profile 契约所声明的门。coding 契约
+可以要求 CI，但 kernel 不会把 CI 或最低 Fact 数量提升为全局门（依据
+`dec_mrg3z1we/CH1`、`CH4` 与 ADR-0027 D5-D7）。
 
 ## Self-Involving：先用自己改造自己
 

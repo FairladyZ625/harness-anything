@@ -1,4 +1,4 @@
-# How the three entities live on disk
+# How authored records live on disk
 
 [The three-primitive kernel](../../learn/en/01-three-primitive-kernel.md) argues
 that decision, task, and fact are the whole core, and that they store
@@ -29,7 +29,12 @@ so the fields below are contracts, not conventions.
           ├── progress.md               narrative: how far
           ├── review.md                 narrative: judgment
           ├── closeout.md               narrative: the wrap-up
-          └── facts.md                  the local fact ledger
+          ├── facts.md                  the local fact ledger
+          ├── executions/exe_<ULID>.md  one immutable delivery round
+          └── reviews/rev_<ULID>.md     one immutable judgment round
+
+  <sessions root>/
+  └── <session-id>.md                   captured Session manifest
 ```
 
 Three primitives, but only two storage sites. **Decisions** live together in a
@@ -49,6 +54,22 @@ payload carries a `bodyRef` and the flush materializes the authored session
 document from that verified blob. In v0 this store has no garbage collection and
 no chunking; large or obsolete blobs remain whole files until a later storage
 version defines a collection policy.
+
+## The execution chain
+
+Each valid claim creates a new authored Execution under its Task. The Execution
+owns Session bindings, `OutputEvidence` value objects, and—once submitted—a
+six-field packet: `completion_claim`, `deliverables`, `evidence_refs`,
+`verification_notes`, `known_gaps`, and `residual_risks`. Only the claim must be
+non-empty; every array may be empty, so text-only delivery and zero Evidence are
+valid (dec_mrg3z1we/CH1; ADR-0027 D1, D3).
+
+`OutputEvidence` is not another Entity or a closed list of semantic media
+types. It is owned by its Execution and locates content through exactly one of
+five substrates: inline, repository-relative file, parseable URL, authored CAS
+object, or registry entity reference. Reviews are separate immutable files for
+one submitted Execution; `review/v2` records `evidence_checked`, findings,
+verdict, and non-empty rationale (dec_mrg3z1we/CH2-CH4; ADR-0027 D5-D6).
 
 ## The decision file
 

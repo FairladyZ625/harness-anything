@@ -85,6 +85,21 @@ enqueue                          flush
                                     compact journal (best-effort)
 ```
 
+## Execution commands preserve cross-record invariants
+
+Claim, submit, review, and complete are domain commands because each coordinates
+more than one record or substrate. Claim reserves the runtime lease before
+authoring an active Execution and reconciles partial failure. Submit validates
+the active holder, seals every Session binding and its capture interval, writes
+the six-field Submission Packet, changes Execution and Task state in one
+authored batch, and only then releases the lease. Review appends an immutable
+Review for that exact submitted Execution (ADR-0027 D2-D5).
+
+This ordering is also the Evidence boundary. The submit path may mechanically
+check locator presence, Execution ownership, an optional digest, and an optional
+checker receipt. It may not derive relevance, correctness, sufficiency, or a
+Review verdict from those checks (dec_mrg3z1we/CH3; ADR-0027 D6).
+
 ## Atomic on disk: temp file, then rename
 
 Individual file writes never leave a half-written file behind. The primitive is

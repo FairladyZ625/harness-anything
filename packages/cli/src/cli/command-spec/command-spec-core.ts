@@ -383,9 +383,9 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "task-complete",
     "usage": "task complete <id> [--ci passed|failed] [--reviewer <id>]",
-    "options": [{"flag":"--ci","description":"Set the completion CI gate result."},{"flag":"--reviewer","description":"Set the reviewer id."}],
+    "options": [{"flag":"--ci","description":"Set the CI result when the resolved preset/profile completionGates declares ci."},{"flag":"--reviewer","description":"Set the reviewer id."}],
     "aliases": ["task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)"],
-    "summary": "Evaluate completion using the Task's resolved preset/profile gate contract; --ci is required only when declared. After task transition <id> in_review, satisfy closeoutReadiness and task review; coding presets then use task complete --ci passed.",
+    "summary": "Evaluate the Task's resolved preset/profile completionGates. Execution-bearing tasks require a submitted Execution and approved Review; legacy tasks use document review. Pass --ci only when the contract declares ci; Facts are never a quantity gate (dec_mrg3z1we/CH4; ADR-0027 D5-D7).",
     "examples": ["harness-anything task complete task_01ABC --ci passed --reviewer reviewer-id"],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,

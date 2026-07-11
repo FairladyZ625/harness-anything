@@ -11,10 +11,9 @@
 > 你 git 仓库里的 Markdown 是真相的来源。SQLite 是一个可重建的投影——一个快速的读缓存,你
 > 随时可以删掉它,再从 Markdown 重新生成。
 
-每个实体——decision、task、fact——都是一份带 YAML frontmatter 的纯 Markdown 文件,提交进
-git。系统的正确性不依赖数据库文件的存活。删掉它,下一次读取就会从磁盘上的文件把它重建出来。
-Markdown 是持久且权威的;SQLite 文件是可丢弃且快速的。当两者不一致时,按定义 Markdown 说了
-算,而一个新鲜度检查的存在,正是为了发现这种不一致。
+三个知识原语——decision、task、fact——以带 YAML frontmatter 的纯 Markdown 撰写；执行链也
+会被撰写：Session、Execution 与 Review 保存谁完成了某一轮交付、提交了什么、由谁裁决。系统
+正确性不依赖数据库文件存活；Markdown 持久且权威，SQLite 仍是可丢弃的投影（ADR-0027 D1、D5）。
 
 记住这处不对称。它是解释所有层为什么这样排布的唯一事实:写入朝着 Markdown 与 git **向下**流
 动;读取则由一个**投影**来提供,任何写入都能让它失效,任何命令都能把它重建。
@@ -85,8 +84,9 @@ Markdown 是持久且权威的;SQLite 文件是可丢弃且快速的。当两者
 写和读沿着同一个栈,往相反的方向走。
 
 一次**写入**从 CLI 进入,被应用层的生命周期规则塑形,通过(或未通过)它的门,并且——如果被
-接受——走过单一写路径:对着模式校验、盖章、原子地写入 Markdown、提交进 git。一道门进,一个
-执行点,一个持久的结果。
+接受——走过单一写路径。claim 创建一轮 Execution；submit 封存 Session binding 与六字段
+Submission Packet；Review 为那一轮 Execution 记录检查过的 Evidence 与 rationale。这些是协调
+的领域命令，不是互不相干的 status edit（ADR-0027 D1-D3、D5）。
 
 一次**读取**则由投影来提供。如果 SQLite 缓存是新鲜的,读取就很快;如果它缺失或陈旧,投影层会
 先从 Markdown 把它重建出来。无论哪种方式,答案都是从文件推导出来的,绝不来自躺在聊天记录里的

@@ -35,6 +35,22 @@ The engine never invents any of these; it reads exactly what the JSON declares.
 The rest of this page walks the four parts that carry the domain: entity kinds,
 template selections, the repository scaffold, and the agents entry.
 
+## Preset profiles declare completion gates
+
+The vertical defines the domain; the selected preset/profile defines which
+deterministic completion gates apply to one Task. In `preset-manifest/v2`, every
+profile must carry `completionGates`, including an explicit empty array. The
+kernel validates portable non-empty gate-ID syntax, while the application owns
+the implemented IDs and rejects unknown or duplicate gates. Bundled coding
+profiles declare `ci` and `code-doc-reconciliation`; another profile can declare
+neither, so `--ci` is required by the coding contract rather than by the CLI
+globally (ADR-0027 D7).
+
+Completion fails closed when a real Task preset/profile cannot resolve or a v1
+preset is asked to supply a completion contract. The documented legacy metadata
+fallback preserves old tasks, but new v2 manifests must state the contract
+instead of relying on that fallback (ADR-0027 D7).
+
 ## Entity kinds: lifecycle vs. schema
 
 `entityKinds[]` is a discriminated union. Each entry is one of two shapes, and

@@ -940,8 +940,8 @@
           <span class="sec-no">04</span>
           <h3><span lang="en">Decision vs. verdict — the one confusion that matters</span><span lang="zh">决策 vs 裁决——最要紧的一个混淆</span></h3>
           <p>
-            <span lang="en">A <strong>decision</strong> answers <em>which path do we take?</em> — a load-bearing choice you can later supersede. A <strong>verdict</strong> answers <em>does this one output hold?</em> — a one-shot PASS/FAIL judgment on a concrete result, produced when a task goes through review or completion. A decision is a cause; a verdict is an effect.</span>
-            <span lang="zh"><strong>决策（decision）</strong>回答的是<em>我们走哪条路？</em>——一次承重的选择，你日后可以推翻（supersede）。<strong>裁决（verdict）</strong>回答的是<em>这个输出成立吗？</em>——在任务走 review 或 completion 时，对某个具体结果的一次性 PASS/FAIL 判断。决策是原因；裁决是结果。</span>
+            <span lang="en">A <strong>decision</strong> answers <em>which path do we take?</em> — a load-bearing choice you can later supersede. A <strong>verdict</strong> answers <em>does this submitted Execution hold?</em> — an immutable Reviewer judgment of <code>approved</code>, <code>changes_requested</code>, or <code>dismissed</code>, accompanied by inspected Evidence IDs and rationale. A decision is a cause; a verdict is an effect (ADR-0027 D5-D6).</span>
+            <span lang="zh"><strong>决策（decision）</strong>回答的是<em>我们走哪条路？</em>——一次承重的选择，你日后可以推翻（supersede）。<strong>裁决（verdict）</strong>回答的是<em>这个 submitted Execution 成立吗？</em>——Reviewer 写下的不可变判断：<code>approved</code>、<code>changes_requested</code> 或 <code>dismissed</code>，并附检查过的 Evidence ID 与 rationale。决策是原因；裁决是结果（ADR-0027 D5-D6）。</span>
           </p>
           <p>
             <span lang="en">Why keep them apart? Because if every routine PASS/FAIL is funneled through the decision machinery, the decision queue fills with per-output bookkeeping until no one can see it. Routine verdicts are the flood; keeping them out is what keeps the decision queue meaningful. A verdict does not get a <span class="idchip">dec_</span> id, does not enter the decisions directory, and does not go on the queue.</span>
@@ -969,8 +969,12 @@
             <span lang="zh">一个默认开放的系统信任"什么都没出错"。fail-closed 则<em>假设</em>"可能出错了"，要求你先证明没出错。承重写入从不直接落盘——它们经过唯一的写协调器（write coordinator），它给每次被接受的写入盖章并提交，于是只有一个地方执行规则，而每次被接受的写入都留下持久、可追溯的痕迹。</span>
           </p>
           <p>
-            <span lang="en">Completion has concrete floors: substantive closeout content, code-doc reconciliation, and the applicable review contract; Execution-bearing tasks require an approved Review. Facts remain explicit <code>0..N</code> promotions under <code>dec_mrg3z1we/CH4</code>, not a quantity gate.</span>
-            <span lang="zh">Completion 有明确底线：closeout 必须有实质内容、code-doc reconciliation 必须通过，并满足适用的 review 契约；带 Execution 的任务必须有 approved Review。依据 <code>dec_mrg3z1we/CH4</code>，Fact 保持 <code>0..N</code> 的显式晋升，不是数量门。</span>
+            <span lang="en">Submission seals a six-field packet: completion claim, deliverables, Evidence refs (<code>0..N</code>), verification notes, known gaps, and residual risks. Text-only delivery is valid. The Reviewer records inspected Evidence and rationale; locator, ownership, digest, and receipt checks never decide semantic sufficiency (<code>dec_mrg3z1we/CH1-CH4</code>; ADR-0027 D3, D5-D6).</span>
+            <span lang="zh">Submission 会封存六字段 packet：completion claim、deliverables、Evidence refs（<code>0..N</code>）、verification notes、known gaps 与 residual risks；纯文字交付合法。Reviewer 记录检查过的 Evidence 与 rationale；locator、归属、digest 与 receipt 检查绝不判断语义充分性（<code>dec_mrg3z1we/CH1-CH4</code>；ADR-0027 D3、D5-D6）。</span>
+          </p>
+          <p>
+            <span lang="en">Completion applies the deterministic gates declared by the resolved preset/profile. Bundled coding profiles declare CI and code-doc reconciliation, but <code>--ci</code> is not globally required. Execution-bearing tasks require an approved Review, while Facts remain explicit <code>0..N</code> promotions rather than a quantity gate (ADR-0027 D7; <code>dec_mrg3z1we/CH4</code>).</span>
+            <span lang="zh">Completion 只执行解析出的 preset/profile 所声明的确定性门。内置 coding profile 声明 CI 与 code-doc reconciliation，但 <code>--ci</code> 不是全局必填。带 Execution 的任务需要 approved Review；Fact 保持 <code>0..N</code> 显式晋升，不是数量门（ADR-0027 D7；<code>dec_mrg3z1we/CH4</code>）。</span>
           </p>
           <button class="chip" type="button" data-target-tab="how" data-target-id="how-gates">
             <span lang="en">See the completion checks in the pipeline</span><span lang="zh">看流水线里的 completion 检查</span>
@@ -1282,12 +1286,12 @@
                 <tr>
                   <td><span lang="en">Review gate</span><span lang="zh">Review 门</span></td>
                   <td><span lang="en">on move to <code>in_review</code></span><span lang="zh">迁到 <code>in_review</code> 时</span></td>
-                  <td><span lang="en">any finding both open &amp; release-blocking → <code>release_blocking_finding</code></span><span lang="zh">任何既 open 又阻断发布的发现 → <code>release_blocking_finding</code></span></td>
+                  <td><span lang="en">legacy document review, or immutable <code>review/v2</code> with inspected Evidence IDs, rationale, and reviewer-authored verdict</span><span lang="zh">legacy 文档 review；或不可变 <code>review/v2</code>，记录 inspected Evidence ID、rationale 与 reviewer 撰写的 verdict</span></td>
                 </tr>
                 <tr>
                   <td><span lang="en">Completion gate</span><span lang="zh">Completion 门</span></td>
                   <td><span lang="en">on move to <code>done</code></span><span lang="zh">迁到 <code>done</code> 时</span></td>
-                  <td><span lang="en">placeholder closeout, failed code-doc reconciliation, review / CI not passed, or closeout not ready; Execution-bearing tasks require an approved Review</span><span lang="zh">closeout 仍是占位内容、code-doc reconciliation 失败、review / CI 未过或收尾未就绪；带 Execution 的任务还必须有 approved Review</span></td>
+                  <td><span lang="en">approved Review and closeout readiness, plus only the deterministic gates declared by the resolved preset/profile; <code>--ci</code> is conditional</span><span lang="zh">approved Review 与 closeout readiness，再加解析出的 preset/profile 所声明的确定性门；<code>--ci</code> 是条件参数</span></td>
                 </tr>
               </tbody>
             </table>
@@ -1331,8 +1335,8 @@
             <span lang="zh">每个实体都携带一个 <code>provenance[]</code> 数组，至少有一条，于是没有任何记录会脱离一个来源而漂浮。每条（<code>ProvenanceEntrySchema</code>）恰好是三个非空字段：<code>runtime</code>（<code>human</code>、<code>claude-code</code>、<code>codex</code>、<code>zcode</code>、<code>antigravity</code> 之一）、<code>sessionId</code> 和 <code>boundAt</code>。一个实体在经过多次运行时可以累积不止一条绑定，但永远不会是零条。</span>
           </p>
           <p>
-            <span lang="en">This is the machinery that keeps decision and verdict apart. A verdict is a PASS/FAIL judgment on one concrete output, recorded next to the work it judged — it gets no <code>dec_</code>-style id, never enters the decisions directory, and never goes on the decision queue. Turning a strategically significant verdict into a new decision is a deliberate human act, never automatic.</span>
-            <span lang="zh">这正是让决策和裁决保持分开的机制。裁决是对某个具体输出的一次 PASS/FAIL 判断，被记录在它所判断的那项工作旁边——它拿不到 <code>dec_</code> 式的 id，从不进入 decisions 目录，也从不上决策队列。把一个有战略意义的裁决变成一个新决策，是人刻意的动作，从不自动发生。</span>
+            <span lang="en">This is the machinery that keeps decision and verdict apart. A verdict lives in an immutable <code>review/v2</code> record for one submitted Execution — it gets no <code>dec_</code>-style id, never enters the decisions directory, and never goes on the decision queue. Turning a strategically significant verdict into a new decision is a deliberate human act, never automatic (ADR-0027 D5).</span>
+            <span lang="zh">这正是让决策和裁决保持分开的机制。裁决住在某个 submitted Execution 的不可变 <code>review/v2</code> 记录里——它拿不到 <code>dec_</code> 式的 id，从不进入 decisions 目录，也从不上决策队列。把一个有战略意义的裁决变成新 decision，是人刻意的动作，从不自动发生（ADR-0027 D5）。</span>
           </p>
           <p>
             <span lang="en">Underneath sits the <strong>event ledger</strong> — an append-only record of what happened during a run (<code>runtime-event/v1</code>). Each event has an <code>evt_</code> id and a <code>kind</code> from a fixed set: <code>session · turn · step · tool · approval · interrupt · result · cost</code>. Its CLI surface has exactly two operations — append and list. No edit, no delete; the ledger only grows. That ledger is what the Exit Gate reads to confirm a piece of work is actually complete.</span>

@@ -11,12 +11,12 @@ always safe.
 ## The source is Markdown; SQLite is derived
 
 Nothing authoritative lives in the database. Every row in it is a mechanical
-function of the Markdown files: task `INDEX.md` frontmatter, decision documents,
-and the typed relations recorded in those files. The database exists only so
+function of the Markdown files: Task and Decision records, typed relations,
+Session manifests, Executions, and Reviews. The database exists only so
 that reads — "which tasks are in review?", "what does this decision cover?" — can
 be answered with an indexed query instead of re-parsing the whole tree. If the
 database disagrees with the Markdown, the database is wrong by definition, and
-the fix is always the same: throw it away and rebuild.
+the fix is always the same: throw it away and rebuild (ADR-0027 D1, D5).
 
 ## The rebuild flow
 
@@ -50,8 +50,9 @@ reader never sees a half-built database.
 
 ## What the database holds
 
-The schema is exactly six tables, created in
-`packages/kernel/src/projection/sqlite-projection-store.ts`:
+The projection has six base tables created in
+`packages/kernel/src/projection/sqlite-projection-store.ts`, plus declaration-
+derived tables for authored Session, Execution, and Review records:
 
 | Table | Primary key | Holds |
 |---|---|---|
@@ -61,13 +62,16 @@ The schema is exactly six tables, created in
 | `relation_edges` | `relation_id` | One row per typed relation: `source_ref`, `target_ref`, `relation_type`, `direction`, `state`, and the full `row_json` |
 | `relation_coverage` | `claim_ref` | Which decision claims are covered: `decision_ref`, `status` (`covered`/`uncovered`), `covering_fact_ref` |
 | `task_fact_anchors` | `fact_ref` | Where each fact lives: `task_id`, `fact_id`, `source_path` |
+| `session_projection` | `session_id` | Session lifecycle, runtime, archive status, and snapshot metadata |
+| `execution_projection` | `execution_id` | Task/executor identity, state, Session bindings with capture ranges, Submission Packet, and OutputEvidence |
+| `review_projection` | `review_id` | Reviewed Execution, reviewer, `evidence_checked`, rationale, findings, and verdict |
 
-A handful of indexes sit on top — by status and module key for tasks, by state
-for decisions, by source and target ref for edges — so the common queries stay
-fast. But the shape to remember is: three tables mirror the three entities
-(tasks, decisions, facts), two tables carry the relation graph that connects
-them, and one table (`projection_meta`) records how to tell whether the whole
-thing is still fresh.
+A handful of indexes sit on top so common queries stay fast. The important
+boundary is that Execution bindings expose a stable `range_id` and inclusive
+timestamp interval (`end_at` is null until sealed); legacy bindings expose
+`capture_range: null` instead of inventing ownership by transcript search.
+Submission and Review fields project directly, but projection never turns a
+mechanical Evidence result into a semantic verdict (ADR-0027 D1, D5-D6).
 
 ## Freshness and staleness
 
