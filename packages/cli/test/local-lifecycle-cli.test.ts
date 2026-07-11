@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { commandDescriptors } from "../src/cli/command-registry.ts";
 import { capabilityExcludedCommandKinds } from "../src/commands/core/capabilities.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -68,6 +69,7 @@ test("CLI status set mutates local task state through the write journal", () => 
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     const result = runJson(rootDir, ["task", "status", "set", taskId, "active"]);
 
     assert.equal(result.ok, true);
@@ -99,6 +101,7 @@ test("CLI blocks ordinary terminal status-set and requires audited force for rec
     assert.match(invalidForce.error?.hint ?? "", /active.*task complete|archive|supersede/u);
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     runJson(rootDir, ["task", "status", "set", taskId, "active"]);
 
     const doneFailure = runJson(rootDir, ["task", "status", "set", taskId, "done"], false);
@@ -234,6 +237,7 @@ test("CLI task reopen restores only non-terminal package disposition", () => {
     assert.equal(reopened.ok, true);
     assert.match(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-reopenable/INDEX.md`), "utf8"), /packageDisposition: active/);
 
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     runJson(rootDir, ["task", "status", "set", taskId, "active"]);
     runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "terminal fixture"]);
     const failure = runJson(rootDir, ["task", "reopen", taskId, "--reason", "more work"], false);

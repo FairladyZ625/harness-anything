@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -28,6 +29,7 @@ test("CLI lifecycle commands recognize task packages with Windows CRLF frontmatt
       "zh-CN"
     ]);
     const taskId = assertGeneratedTaskId(created.taskId);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     const indexPath = path.join(rootDir, String(created.packagePath), "INDEX.md");
     writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/\n/gu, "\r\n"), "utf8");
     rmSync(path.join(rootDir, ".harness/cache/projections.sqlite"), { force: true });

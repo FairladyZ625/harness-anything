@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -16,6 +17,7 @@ test("CLI migrate anchors backfills required task plan anchors and is idempotent
 
     const oldTask = runJson(rootDir, ["new-task", "--title", "Old Plan Task"]);
     const completeTask = runJson(rootDir, ["new-task", "--title", "Complete Plan Task"]);
+    writeSubstantiveTaskPlan(rootDir, String(completeTask.packagePath));
     writeDefaultTask(rootDir);
 
     const oldPlanPath = path.join(rootDir, oldTask.packagePath, "task_plan.md");

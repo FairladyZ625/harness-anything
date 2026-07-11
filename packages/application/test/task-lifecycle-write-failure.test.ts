@@ -72,6 +72,75 @@ for (const { name, error, code } of writeFailureCases) {
   });
 }
 
+test("setTaskStatus rejects a scaffold task plan before writing active status", async () => {
+  let statusWriteCount = 0;
+  const writer: TaskLifecycleWriter = {
+    ...successfulWriter(),
+    setStatus: (input) => {
+      statusWriteCount += 1;
+      return Effect.succeed({ taskId: input.taskId, status: input.status });
+    }
+  };
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: "/unused",
+    taskWriter: writer,
+    artifactStore: inMemoryTaskPackageStore("task-1", {
+      "task_plan.md": "# Plan\n\n## Goal\n\nDescribe the result.\n\n## Verification\n\nList the checks.\n"
+    }),
+    documentPlaceholderPolicy: placeholderPolicy([[
+      { anchor: "## Goal", body: "Describe the result." },
+      { anchor: "## Verification", body: "List the checks." }
+    ]])
+  });
+
+  const result = await runEffect(orchestrator.setTaskStatus({ taskId: "task-1", status: "active" }));
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "task_plan_placeholder");
+    assert.match(result.error.hint, /task_plan\.md/u);
+  }
+  assert.equal(statusWriteCount, 0);
+});
+
+test("setTaskStatus applies the task plan gate only when entering active", async () => {
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: "/unused",
+    taskWriter: successfulWriter(),
+    artifactStore: inMemoryTaskPackageStore("task-1", {
+      "task_plan.md": "# Plan\n\n## Goal\n\nDescribe the result.\n\n## Verification\n\nList the checks.\n"
+    }),
+    documentPlaceholderPolicy: placeholderPolicy([[
+      { anchor: "## Goal", body: "Describe the result." },
+      { anchor: "## Verification", body: "List the checks." }
+    ]])
+  });
+
+  const result = await runEffect(orchestrator.setTaskStatus({ taskId: "task-1", status: "in_review" }));
+
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.status, "in_review");
+});
+
+test("setTaskStatus accepts active when a scaffold section contains substantive additions", async () => {
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: "/unused",
+    taskWriter: successfulWriter(),
+    artifactStore: inMemoryTaskPackageStore("task-1", {
+      "task_plan.md": "# Plan\n\n## Goal\n\nDescribe the result.\nShip the active transition gate.\n\n## Verification\n\nList the checks.\n"
+    }),
+    documentPlaceholderPolicy: placeholderPolicy([[
+      { anchor: "## Goal", body: "Describe the result." },
+      { anchor: "## Verification", body: "List the checks." }
+    ]])
+  });
+
+  const result = await runEffect(orchestrator.setTaskStatus({ taskId: "task-1", status: "active" }));
+
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.status, "active");
+});
+
 test("reviewTask accepts zero Facts through ArtifactStore under dec_mrg3z1we/CH4", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-artifact-store-"));
   try {
@@ -165,7 +234,10 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
       }),
       completionGateResolver: () => ["ci", "code-doc-reconciliation"],
       documentPlaceholderPolicy: {
-        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
+        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."],
+        taskPlanPlaceholderFingerprintSets: [],
+        visualMapPlaceholderFingerprintSets: [],
+        lessonCandidatesPlaceholderFingerprintSets: []
       },
       codeDocVersionControlSystem: codeDocVersionControlSystem(),
       now: () => "2026-06-13T00:00:00.000Z"
@@ -202,7 +274,10 @@ test("completeTask rejects ArtifactStore closeout placeholders", async () => {
       }),
       completionGateResolver: () => ["ci", "code-doc-reconciliation"],
       documentPlaceholderPolicy: {
-        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."]
+        closeoutPlaceholderFingerprints: ["Summarize the completed behavior change."],
+        taskPlanPlaceholderFingerprintSets: [],
+        visualMapPlaceholderFingerprintSets: [],
+        lessonCandidatesPlaceholderFingerprintSets: []
       },
       now: () => "2026-06-13T00:00:00.000Z"
     });
@@ -234,6 +309,15 @@ function successfulWriter(): TaskLifecycleWriter {
     stageDocument: (input) => Effect.succeed({ taskId: input.taskId, path: input.path }),
     stageTaskTree: (input) => Effect.succeed({ taskId: input.taskId, path: "." }),
     taskTreeStatus: (taskId) => Effect.succeed({ taskId, dirty: false, entries: [] })
+  };
+}
+
+function placeholderPolicy(taskPlanPlaceholderFingerprintSets: ReadonlyArray<ReadonlyArray<{ readonly anchor: string; readonly body: string }>>) {
+  return {
+    closeoutPlaceholderFingerprints: [],
+    taskPlanPlaceholderFingerprintSets,
+    visualMapPlaceholderFingerprintSets: [],
+    lessonCandidatesPlaceholderFingerprintSets: []
   };
 }
 

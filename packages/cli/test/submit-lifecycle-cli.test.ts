@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { runRawJson, runRawJsonMaybeFail, withTempRoot } from "./helpers/daemon-cli.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const noRuntimeSession = {
   HARNESS_ACTOR: "agent:test",
@@ -21,6 +22,7 @@ test("in_review without an Execution preserves the legacy transition receipt", (
     runRawJson(rootDir, ["init"], noRuntimeSession);
     const created = unwrapCommandReceipt(runRawJson(rootDir, ["new-task", "--title", "Legacy Review"], noRuntimeSession));
     const taskId = String(created.taskId);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     runRawJson(rootDir, ["task", "transition", taskId, "active"], noRuntimeSession);
 
     const receipt = runRawJson(rootDir, ["task", "transition", taskId, "in_review"], noRuntimeSession);

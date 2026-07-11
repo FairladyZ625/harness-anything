@@ -7,26 +7,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
 test("CLI check profiles expose stable JSON and fail closed on strict task contract issues", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    writeTaskPackage(rootDir, "task-1", {
-      taskPlan: [
-        "# Plan",
-        "",
-        "Task Contract: harness-task v1",
-        "",
-        "[说明这个占位应该失败]",
-        ""
-      ].join("\n"),
-      review: validReview(),
-      visual: validVisualMap(),
-      execution: validExecutionStrategy(),
-      lessons: validLessonCandidates()
-    });
+    runJson(rootDir, ["new-task", "--title", "Scaffold Plan", "--vertical", "software/coding", "--preset", "standard-task"]);
 
     const result = runJson(rootDir, ["check", "--profile", "private-harness", "--strict"], false);
 
@@ -36,6 +24,26 @@ test("CLI check profiles expose stable JSON and fail closed on strict task contr
     assert.equal(result.error.code, "check_profile_failed");
     assert.equal(result.report.schema, "harness-check-profile-report/v1");
     assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_placeholder" && warning.severity === "hard-fail"), true);
+  });
+});
+
+test("CLI check derives visual map and lesson placeholder findings from the template catalog", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const templateRoot = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/templates");
+    writeTaskPackage(rootDir, "task-1", {
+      taskPlan: validTaskPlan(),
+      review: validReview(),
+      visual: readFileSync(path.join(templateRoot, "task.visual.map/en-US.md"), "utf8"),
+      execution: validExecutionStrategy(),
+      lessons: readFileSync(path.join(templateRoot, "task.lesson.candidates/en-US.md"), "utf8")
+    });
+
+    const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "visual_map_placeholder"), true);
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "lesson_placeholder"), true);
   });
 });
 
@@ -65,6 +73,7 @@ test("CLI metadata check validates software coding preset task documents", () =>
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
     const created = runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
 
     const result = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
 
@@ -80,6 +89,7 @@ test("CLI metadata check uses the selected persisted preset profile", () => {
     runJson(rootDir, ["init"]);
     writeRawPreset(rootDir, ".harness/presets/profiled-task/preset.json", makeMultiProfilePreset());
     const created = runJson(rootDir, ["new-task", "--title", "Profiled Task", "--vertical", "software/coding", "--preset", "profiled-task", "--profile", "extra"]);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
 
     assert.equal(created.report.profile, "extra");
     assert.equal(created.generated.includes("extra.md"), true);
@@ -101,7 +111,9 @@ test("CLI task supersede preserves selected preset profile metadata", () => {
     runJson(rootDir, ["init"]);
     writeRawPreset(rootDir, ".harness/presets/profiled-task/preset.json", makeMultiProfilePreset());
     const created = runJson(rootDir, ["new-task", "--title", "Profiled Task", "--vertical", "software/coding", "--preset", "profiled-task", "--profile", "extra"]);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     const superseded = runJson(rootDir, ["task", "supersede", created.taskId, "--title", "Replacement Profiled Task", "--reason", "scope changed"]);
+    writeSubstantiveTaskPlan(rootDir, String(superseded.packagePath));
 
     assert.equal(superseded.ok, true);
     const index = readFileSync(path.join(rootDir, superseded.packagePath, "INDEX.md"), "utf8");
@@ -124,6 +136,7 @@ test("CLI metadata check fails closed on missing preset-selected document and an
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
     const created = runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     rmSync(path.join(rootDir, created.packagePath, "progress.md"));
 
     const missingDocument = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);
@@ -133,6 +146,7 @@ test("CLI metadata check fails closed on missing preset-selected document and an
     assert.equal(missingDocument.warnings.some((warning: Record<string, unknown>) => warning.code === "metadata_document_missing" && warning.severity === "hard-fail"), true);
 
     const recreated = runJson(rootDir, ["new-task", "--title", "Anchor Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeSubstantiveTaskPlan(rootDir, String(recreated.packagePath));
     const taskPlanPath = path.join(rootDir, recreated.packagePath, "task_plan.md");
     writeFileSync(taskPlanPath, readFileSync(taskPlanPath, "utf8").replace("## Context", "## Notes"), "utf8");
 
@@ -152,6 +166,7 @@ test("CLI metadata check enforces milestone dossier artifact and resolvable prov
     assert.equal(dossierPreset.layer, "project");
     assert.equal(dossierPreset.valid, true);
     const created = runJson(rootDir, ["new-task", "--title", "Milestone Dossier", "--vertical", "software/coding", "--preset", "milestone-dossier"]);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     assert.equal(existsSync(path.join(rootDir, created.packagePath, "artifacts", "dossier.scaffold.html")), true);
 
     const missing = runJson(rootDir, ["check", "--profile", "target-project", "--strict"], false);

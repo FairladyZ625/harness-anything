@@ -125,6 +125,14 @@ export type DecisionReckonGateResult = {
 
 export interface TaskDocumentPlaceholderPolicy {
   readonly closeoutPlaceholderFingerprints: ReadonlyArray<string>;
+  readonly taskPlanPlaceholderFingerprintSets: ReadonlyArray<ReadonlyArray<TaskDocumentPlaceholderSectionFingerprint>>;
+  readonly visualMapPlaceholderFingerprintSets: ReadonlyArray<ReadonlyArray<TaskDocumentPlaceholderSectionFingerprint>>;
+  readonly lessonCandidatesPlaceholderFingerprintSets: ReadonlyArray<ReadonlyArray<TaskDocumentPlaceholderSectionFingerprint>>;
+}
+
+export interface TaskDocumentPlaceholderSectionFingerprint {
+  readonly anchor: string;
+  readonly body: string;
 }
 
 export function parseReviewMarkdown(markdown: string): ParsedReviewMarkdown {
@@ -176,6 +184,27 @@ export function isCloseoutPlaceholderMarkdown(markdown: string, fingerprints: Re
     const normalizedFingerprint = normalizeDocumentText(fingerprint);
     return normalizedFingerprint.length > 0 && normalized.includes(normalizedFingerprint);
   });
+}
+
+export function isTaskDocumentPlaceholderMarkdown(
+  markdown: string,
+  fingerprintSets: ReadonlyArray<ReadonlyArray<TaskDocumentPlaceholderSectionFingerprint>>
+): boolean {
+  return fingerprintSets.some((fingerprints) => fingerprints.length > 0 && fingerprints.every((fingerprint) => (
+    fingerprint.body.length > 0 && extractMarkdownSection(markdown, fingerprint.anchor) === fingerprint.body
+  )));
+}
+
+export function extractMarkdownSection(markdown: string, anchor: string): string {
+  const lines = markdown.split(/\r?\n/u);
+  const start = lines.findIndex((line) => line.trim() === anchor);
+  if (start < 0) return "";
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^##\s+/u.test(line.trim())) break;
+    if (line.trim().length > 0) body.push(line.trim());
+  }
+  return body.join("\n").trim();
 }
 
 export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {

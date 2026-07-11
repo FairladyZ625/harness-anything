@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -16,6 +17,7 @@ test("CLI in_review and complete sweeps commit hand-edited closeout.md", () => {
     const created = runJson(rootDir, ["new-task", "--title", "Sweep Closeout"]);
     const taskId = assertGeneratedTaskId(created.taskId);
     const taskPath = String(created.packagePath);
+    writeSubstantiveTaskPlan(rootDir, taskPath);
     const closeoutPath = path.join(rootDir, taskPath, "closeout.md");
 
     runJson(rootDir, ["task", "transition", taskId, "active"]);
@@ -54,6 +56,7 @@ for (const preset of ["milestone-closeout"] as const) {
       ]);
       const taskId = assertGeneratedTaskId(created.taskId);
       const taskPath = String(created.packagePath);
+      writeSubstantiveTaskPlan(rootDir, taskPath);
       const closeoutPath = path.join(rootDir, taskPath, "closeout.md");
       const factsPath = path.join(rootDir, taskPath, "facts.md");
 
@@ -89,6 +92,7 @@ test("CLI transition sweep commits orchestration markdown but never commits logs
     const created = runJson(rootDir, ["new-task", "--title", "Sweep Logs"]);
     const taskId = assertGeneratedTaskId(created.taskId);
     const taskPath = String(created.packagePath);
+    writeSubstantiveTaskPlan(rootDir, taskPath);
     runJson(rootDir, ["task", "transition", taskId, "active"]);
 
     const orchestrationDir = path.join(rootDir, taskPath, "artifacts/orchestration");
@@ -109,6 +113,7 @@ test("CLI task complete blocks when the task tree is dirty after the sweep", () 
     const created = runJson(rootDir, ["new-task", "--title", "Dirty Complete"]);
     const taskId = assertGeneratedTaskId(created.taskId);
     const taskPath = String(created.packagePath);
+    writeSubstantiveTaskPlan(rootDir, taskPath);
     runJson(rootDir, ["task", "transition", taskId, "active"]);
     runJson(rootDir, ["task", "transition", taskId, "in_review"]);
     writeFact(rootDir, taskPath);

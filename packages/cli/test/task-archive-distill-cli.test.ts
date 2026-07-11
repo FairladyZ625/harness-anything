@@ -8,6 +8,7 @@ import test from "node:test";
 import { deriveRelationId, formatRelationFlowRecord, type EntityRelationRecord } from "../../kernel/src/index.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -20,6 +21,7 @@ test("CLI task archive batches filtered terminal tasks through package archive w
     const firstTaskId = assertGeneratedTaskId(first.taskId);
     const secondTaskId = assertGeneratedTaskId(second.taskId);
     const activeTaskId = assertGeneratedTaskId(active.taskId);
+    for (const task of [first, second, active]) writeSubstantiveTaskPlan(rootDir, String(task.packagePath));
     for (const taskId of [firstTaskId, secondTaskId]) {
       runJson(rootDir, ["task", "status", "set", taskId, "active"]);
       runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "batch fixture"]);
@@ -110,6 +112,7 @@ test("CLI task archive preflights all batch ids before mutating any package", ()
     const second = runJson(rootDir, ["new-task", "--title", "Second Batch Archive"]);
     const firstTaskId = assertGeneratedTaskId(first.taskId);
     const secondTaskId = assertGeneratedTaskId(second.taskId);
+    for (const task of [first, second]) writeSubstantiveTaskPlan(rootDir, String(task.packagePath));
     for (const taskId of [firstTaskId, secondTaskId]) {
       runJson(rootDir, ["task", "status", "set", taskId, "active"]);
       runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "batch fixture"]);

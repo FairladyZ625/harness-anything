@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -91,6 +92,7 @@ test("CLI task readers keep existing references directories compatible", () => {
     writeFileSync(legacyReferencePath, "# Legacy input\n", "utf8");
 
     const shown = runJson(rootDir, ["task", "show", created.taskId]);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     const checked = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
 
     assert.equal(shown.report.task.taskId, created.taskId);

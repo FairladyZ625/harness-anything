@@ -6,6 +6,7 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { runTaskArchive } from "./task-archive.ts";
+import { runActiveStatusSet } from "./task-active-transition.ts";
 import { runTaskAmend } from "./task-amend.ts";
 import { runExecutionSubmit, runTaskClaim, runTaskHolder, runTaskRelease } from "./task-holder.ts";
 import { lifecycleReason } from "./task-lifecycle-shared.ts";
@@ -97,6 +98,7 @@ function runStatusSet(
   force: boolean,
   reason?: string
 ): Effect.Effect<CliResult, EngineError | WriteError> {
+  if (status === "active") return runActiveStatusSet(context, taskId);
   if (!isTerminalStatus(status)) {
     return Effect.gen(function* () {
       const result = yield* context.engine.setStatus({ taskId, status });

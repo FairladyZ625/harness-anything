@@ -1,39 +1,35 @@
-import type { TaskDocumentPlaceholderPolicy } from "../../../../application/src/index.ts";
+import { extractMarkdownSection, type TaskDocumentPlaceholderPolicy, type TaskDocumentPlaceholderSectionFingerprint } from "../../../../application/src/index.ts";
 import { bundledTemplateCatalog } from "../extensions/bundled.ts";
 import { resolveTemplateCatalogBody, type TemplateCatalog } from "../extensions/template-catalog-loader.ts";
 
 export function bundledTaskDocumentPlaceholderPolicy(): TaskDocumentPlaceholderPolicy {
   const catalog = bundledTemplateCatalog();
   return {
-    closeoutPlaceholderFingerprints: closeoutPlaceholderFingerprints(catalog)
+    closeoutPlaceholderFingerprints: documentPlaceholderFingerprintSets(catalog, "planning/closeout").flat().map((fingerprint) => fingerprint.body),
+    taskPlanPlaceholderFingerprintSets: documentPlaceholderFingerprintSets(catalog, "planning/task-plan"),
+    visualMapPlaceholderFingerprintSets: documentPlaceholderFingerprintSets(catalog, "planning/visual-map"),
+    lessonCandidatesPlaceholderFingerprintSets: documentPlaceholderFingerprintSets(catalog, "planning/lesson-candidates")
   };
 }
 
-function closeoutPlaceholderFingerprints(catalog: TemplateCatalog | undefined): ReadonlyArray<string> {
-  const closeout = catalog?.documents?.find((document) => document.id === "planning/closeout");
-  if (!catalog || !closeout) return [];
-  const anchors = closeout.requiredAnchors ?? [];
-  const fingerprints = new Set<string>();
+function documentPlaceholderFingerprintSets(
+  catalog: TemplateCatalog | undefined,
+  documentId: string
+): ReadonlyArray<ReadonlyArray<TaskDocumentPlaceholderSectionFingerprint>> {
+  const document = catalog?.documents?.find((candidate) => candidate.id === documentId);
+  if (!catalog || !document) return [];
+  const anchors = document.requiredAnchors ?? [];
+  const fingerprintSets: TaskDocumentPlaceholderSectionFingerprint[][] = [];
   const resolveBody = resolveTemplateCatalogBody(catalog);
-  const documentIndex = catalog.documents.indexOf(closeout);
-  for (const [localeIndex, locale] of closeout.locales.entries()) {
-    const body = resolveBody({ document: closeout, locale, documentIndex, localeIndex }) ?? "";
+  const documentIndex = catalog.documents.indexOf(document);
+  for (const [localeIndex, locale] of document.locales.entries()) {
+    const body = resolveBody({ document, locale, documentIndex, localeIndex }) ?? "";
+    const fingerprints: TaskDocumentPlaceholderSectionFingerprint[] = [];
     for (const anchor of anchors) {
-      const section = extractSection(body, anchor);
-      if (section.length > 0) fingerprints.add(section);
+      const section = extractMarkdownSection(body, anchor);
+      if (section.length > 0) fingerprints.push({ anchor, body: section });
     }
+    if (fingerprints.length > 0) fingerprintSets.push(fingerprints.sort((left, right) => left.anchor.localeCompare(right.anchor)));
   }
-  return [...fingerprints].sort();
-}
-
-function extractSection(markdown: string, anchor: string): string {
-  const lines = markdown.split(/\r?\n/u);
-  const start = lines.findIndex((line) => line.trim() === anchor);
-  if (start < 0) return "";
-  const body: string[] = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^##\s+/u.test(line.trim())) break;
-    if (line.trim().length > 0) body.push(line.trim());
-  }
-  return body.join("\n").trim();
+  return fingerprintSets.sort((left, right) => left[0]!.body.localeCompare(right[0]!.body));
 }

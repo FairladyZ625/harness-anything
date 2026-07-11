@@ -8,6 +8,7 @@ import test from "node:test";
 import { deriveRelationId, formatRelationFlowRecord, type EntityRelationRecord } from "../../kernel/src/index.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -83,6 +84,7 @@ test("closing a parent with open children warns without mutating child status", 
   withTempRoot((rootDir) => {
     const parent = runJson(rootDir, ["task", "create", "--title", "Parent"]);
     const child = runJson(rootDir, ["task", "create", "--title", "Child", "--parent", String(parent.taskId)]);
+    writeSubstantiveTaskPlan(rootDir, String(parent.packagePath));
 
     runJson(rootDir, ["task", "transition", String(parent.taskId), "active"]);
     const closed = runJson(rootDir, ["task", "transition", String(parent.taskId), "done", "--force", "--reason", "fixture close"]);

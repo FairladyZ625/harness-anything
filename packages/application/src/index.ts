@@ -142,8 +142,10 @@ export {
   evaluateDecisionReckonGate,
   evaluateCompletionGate,
   evaluateReviewGate,
+  extractMarkdownSection,
   isCloseoutPlaceholderMarkdown,
   isReviewPlaceholderMarkdown,
+  isTaskDocumentPlaceholderMarkdown,
   parseReviewMarkdown,
   validatePhaseRows
 } from "./task-lifecycle-gates.ts";
@@ -160,6 +162,7 @@ export type {
   ReviewGateInput,
   ReviewGateResult,
   TaskDocumentPlaceholderPolicy,
+  TaskDocumentPlaceholderSectionFingerprint,
   VerifierBackedReviewContract
 } from "./task-lifecycle-gates.ts";
 export type {

@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -396,6 +397,7 @@ test("CLI migrate-provenance backfills pre-R2 task indexes through the write jou
     const probeEnv = { CLAUDE_SESSION_ID: "claude-review-session-12345" };
     writeCurrentTaskPackage(rootDir, "task-pre-r2", "Pre R2 Task", "planned", { provenance: false });
     writeCurrentTaskPackage(rootDir, "task-with-provenance", "Existing Provenance", "planned", { provenance: true });
+    writeSubstantiveTaskPlan(rootDir, "harness/tasks/task-pre-r2");
     const existingBefore = readFileSync(path.join(rootDir, "harness/tasks/task-with-provenance/INDEX.md"), "utf8");
 
     const locked = runJson(rootDir, ["task", "status", "set", "task-pre-r2", "active"], false);

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "../../../application/src/index.ts";
+import { isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown, type TaskDocumentPlaceholderPolicy } from "../../../application/src/index.ts";
 import { findEntityRefs } from "../../../kernel/src/index.ts";
 import { checkTaskProjection } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
@@ -166,8 +166,9 @@ function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfi
   if (!settingsResult.ok) issues.push(settingsIssue(settingsResult));
   if (profile !== "source-package" || strict) {
     const taskDirs = listTaskIndexPaths(rootInput).map((indexPath) => path.dirname(indexPath));
+    const placeholderPolicy = bundledTaskDocumentPlaceholderPolicy();
     for (const taskDir of taskDirs) {
-      issues.push(...validateTaskPackageContracts(rootInput, taskDir, profile, strict, settings));
+      issues.push(...validateTaskPackageContracts(rootInput, taskDir, profile, strict, placeholderPolicy, settings));
     }
     issues.push(...validateMilestoneDossierGate(rootInput, taskDirs));
     issues.push(...validateGateArchitectureRetrospectiveGate(rootInput, taskDirs));
@@ -204,7 +205,14 @@ function validateUniqueTaskDirectoryIds(rootDir: string, tasksRoot: string): Rea
     ));
 }
 
-function validateTaskPackageContracts(rootInput: HarnessLayoutInput, taskDir: string, profile: CheckProfile, strict: boolean, settings?: ProjectHarnessSettings): ReadonlyArray<ProfileValidationIssue> {
+function validateTaskPackageContracts(
+  rootInput: HarnessLayoutInput,
+  taskDir: string,
+  profile: CheckProfile,
+  strict: boolean,
+  placeholderPolicy: TaskDocumentPlaceholderPolicy,
+  settings?: ProjectHarnessSettings
+): ReadonlyArray<ProfileValidationIssue> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const issues: ProfileValidationIssue[] = [];
   const relativeTaskDir = relativePath(rootDir, taskDir);
@@ -227,7 +235,7 @@ function validateTaskPackageContracts(rootInput: HarnessLayoutInput, taskDir: st
     if (!/Task Contract:\s*harness-task(?:\/|\s+)v1/u.test(taskPlanBody) && profile !== "source-package") {
       issues.push(profileIssue("task-plan-contract", "task_contract_marker_missing", strictSeverity(strict), `${relativeTaskDir}/task_plan.md lacks Task Contract: harness-task/v1.`, "Add the task contract marker or keep this package outside strict M2 profiles."));
     }
-    if (hasTemplatePlaceholder(taskPlanBody)) {
+    if (isTaskDocumentPlaceholderMarkdown(taskPlanBody, placeholderPolicy.taskPlanPlaceholderFingerprintSets)) {
       issues.push(profileIssue("task-plan-contract", "task_plan_placeholder", "hard-fail", `${relativeTaskDir}/task_plan.md still contains template placeholders.`, "Replace scaffold placeholders before treating the task package as implementation-ready."));
     }
   }
@@ -259,7 +267,7 @@ function validateTaskPackageContracts(rootInput: HarnessLayoutInput, taskDir: st
     if (!/\| Phase ID \| Kind \| Depends On \| State \| Completion \|/u.test(visualBody)) {
       issues.push(profileIssue("visual-map", "visual_phase_table_missing", strictSeverity(strict), `${relativeTaskDir}/visual_map.md lacks the canonical phase table.`, "Add the Visual Map Contract phase table."));
     }
-    if (hasTemplatePlaceholder(visualBody)) {
+    if (isTaskDocumentPlaceholderMarkdown(visualBody, placeholderPolicy.visualMapPlaceholderFingerprintSets)) {
       issues.push(profileIssue("visual-map", "visual_map_placeholder", "hard-fail", `${relativeTaskDir}/visual_map.md still contains template placeholders.`, "Replace scaffold placeholders in the visual map."));
     }
   } else if (profile !== "source-package" && !metadataDriven) {
@@ -277,7 +285,7 @@ function validateTaskPackageContracts(rootInput: HarnessLayoutInput, taskDir: st
   const lessonPath = path.join(taskDir, "lesson_candidates.md");
   if (existsSync(lessonPath)) {
     const lessonBody = readFileSync(lessonPath, "utf8");
-    if (hasTemplatePlaceholder(lessonBody) && !/Task-level status \| pending-review/u.test(lessonBody)) {
+    if (isTaskDocumentPlaceholderMarkdown(lessonBody, placeholderPolicy.lessonCandidatesPlaceholderFingerprintSets)) {
       issues.push(profileIssue("lesson-routing", "lesson_placeholder", strictSeverity(strict), `${relativeTaskDir}/lesson_candidates.md contains unresolved placeholders.`, "Resolve lesson candidate routing before closeout."));
     }
   }
@@ -535,10 +543,6 @@ function layoutOverridesFromInput(rootInput: HarnessLayoutInput): HarnessLayoutO
 
 function strictSeverity(strict: boolean): "warning" | "hard-fail" {
   return strict ? "hard-fail" : "warning";
-}
-
-function hasTemplatePlaceholder(body: string): boolean {
-  return /\[(?:用一句话|说明|为什么|路径|风险|owner|负责人|该产物|这份资料|标准 \d|步骤 \d|范围|未采用|什么时候必须确认)[^\]]*\]/u.test(body);
 }
 
 function summarizeValidatorIssues(issues: ReadonlyArray<ProfileValidationIssue>): ReadonlyArray<{ readonly source: string; readonly warningCount: number; readonly hardFailCount: number; readonly codes: ReadonlyArray<string> }> {

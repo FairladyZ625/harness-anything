@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -340,6 +341,8 @@ test("CLI settings locale controls bundled materialization and metadata check", 
     const replacementTaskPlan = readFileSync(path.join(rootDir, superseded.packagePath, "task_plan.md"), "utf8");
     assert.match(replacementTaskPlan, /Describe the verifiable result/);
 
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
+    writeSubstantiveTaskPlan(rootDir, String(superseded.packagePath));
     const checked = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
     assert.equal(checked.ok, true);
   });

@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const executionTaskId = "task_01KX7H00000000000000000000";
@@ -14,6 +15,80 @@ const executionId = "exe_01KX7H00000000000000000001";
 // Execution role checks compare the CLI actor's executor against the execution's
 // executor; pin the actor instead of inheriting whatever the invoking shell has.
 const testActorEnv = { HARNESS_ACTOR: "agent:test" };
+
+test("CLI active transition rejects an untouched standard-task scaffold plan", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "Scaffold Plan", "--vertical", "software/coding", "--preset", "standard-task", "--locale", "zh-CN"]);
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "task_plan.md"), "utf8"), /一句话说明任务目标与范围。/u);
+    const blocked = runJson(rootDir, ["task", "transition", created.taskId, "active"], false);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "task_plan_placeholder");
+    assert.match(blocked.error?.hint ?? "", /task_plan\.md/u);
+    assert.match(blocked.error?.hint ?? "", /substantive implementation plan/u);
+    assert.doesNotMatch(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
+  });
+});
+
+test("CLI active transition accepts a substantive task plan", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "Substantive Plan", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+
+    const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "active"]);
+
+    assert.equal(transitioned.ok, true);
+    assert.equal(transitioned.status, "active");
+  });
+});
+
+test("CLI active transition fails closed when task_plan.md is missing", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "Missing Plan", "--vertical", "software/coding", "--preset", "standard-task"]);
+    rmSync(path.join(rootDir, created.packagePath, "task_plan.md"));
+
+    const checked = runJson(rootDir, ["check", "--profile", "source-package", "--strict"], false);
+    const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "active"], false);
+
+    assert.equal(checked.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_missing"), true);
+    assert.equal(transitioned.error?.code, "task_plan_placeholder");
+    assert.match(transitioned.error?.hint ?? "", /Restore task_plan\.md/u);
+  });
+});
+
+test("CLI active transition gate does not retroactively inspect later task statuses", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "Existing Active", "--vertical", "software/coding", "--preset", "standard-task"]);
+    const taskPlanPath = path.join(rootDir, created.packagePath, "task_plan.md");
+    const scaffold = readFileSync(taskPlanPath, "utf8");
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+    runJson(rootDir, ["task", "transition", created.taskId, "active"]);
+    writeFileSync(taskPlanPath, scaffold, "utf8");
+
+    const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "in_review"]);
+
+    assert.equal(transitioned.ok, true);
+    assert.equal(transitioned.status, "in_review");
+  });
+});
+
+test("CLI check and active transition agree on scaffold and substantive task plans", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "Two-sided Plan Gate", "--vertical", "software/coding", "--preset", "standard-task"]);
+    const scaffoldCheck = runJson(rootDir, ["check", "--profile", "source-package", "--strict"], false);
+    const scaffoldTransition = runJson(rootDir, ["task", "transition", created.taskId, "active"], false);
+
+    assert.equal(scaffoldCheck.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_placeholder"), true);
+    assert.equal(scaffoldTransition.error?.code, "task_plan_placeholder");
+
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+    const substantiveCheck = runJson(rootDir, ["check", "--profile", "source-package", "--strict"]);
+    const substantiveTransition = runJson(rootDir, ["task", "transition", created.taskId, "active"]);
+
+    assert.equal(substantiveCheck.warnings.some((warning: Record<string, unknown>) => warning.code === "task_plan_placeholder"), false);
+    assert.equal(substantiveTransition.ok, true);
+  });
+});
 
 test("CLI task-complete without Execution preserves its legacy receipt and byte-exact INDEX transition", () => {
   withTempRoot((rootDir) => {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const cleanRuntimeEnv = {
@@ -77,6 +78,7 @@ test("CLI failed command results append failed command events", () => {
 test("CLI task transition runtime event records dual-axis actor", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Transition Actor Task"]);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     const sessionId = "codex-transition-actor";
     const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "active"], true, {
       CODEX_SESSION_ID: sessionId,

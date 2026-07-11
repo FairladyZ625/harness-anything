@@ -4,7 +4,7 @@ import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kern
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 import { readFrontmatter, readScalar } from "../../kernel/src/index.ts";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
-import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
+import { evaluateCompletionGate, evaluateReviewGate, isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown } from "./task-lifecycle-gates.ts";
 import type { TaskDocumentPlaceholderPolicy, VerifierBackedReviewContract } from "./task-lifecycle-gates.ts";
 import type { ExecutionCompletionService } from "./execution-completion-service.ts";
 
@@ -94,6 +94,16 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
     setTaskStatus: (payload) => Effect.gen(function* () {
       if (isTerminalStatus(payload.status)) {
         return terminalStatusFailure(payload.taskId, payload.status);
+      }
+      if (payload.status === "active") {
+        const planPlaceholder = yield* validateActiveTaskPlanPlaceholder(
+          options.artifactStore,
+          options.rootDir,
+          options.layoutOverrides,
+          payload.taskId,
+          options.documentPlaceholderPolicy
+        );
+        if (planPlaceholder) return planPlaceholder;
       }
       const status = yield* options.taskWriter.setStatus(payload).pipe(
         Effect.match({
@@ -315,6 +325,36 @@ function validateCompletionDocumentPlaceholders(
       }
     }
 
+    return null;
+  });
+}
+
+function validateActiveTaskPlanPlaceholder(
+  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
+  rootDir: string,
+  layoutOverrides: HarnessLayoutOverrides | undefined,
+  taskId: string,
+  policy: TaskDocumentPlaceholderPolicy | undefined
+): Effect.Effect<TaskLifecycleFailure | null> {
+  return Effect.gen(function* () {
+    if (!policy) return null;
+    const taskPackage = yield* artifactStore.readTaskPackage(taskId as TaskId).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    if (taskPackage === null) {
+      const taskExists = readTaskProjection({ rootDir, layoutOverrides }).rows.some((row) => row.taskId === taskId);
+      if (!taskExists) return taskFailure(taskId, "task_not_found", `task not found: ${taskId}`);
+      return taskFailure(taskId, "task_plan_placeholder", "Read task_plan.md and replace scaffold content with a substantive implementation plan before transitioning the task to active.");
+    }
+    const taskPlan = taskPackage.documents.find((document) => document.path === "task_plan.md")?.body ?? null;
+    if (taskPlan === null) {
+      return taskFailure(taskId, "task_plan_placeholder", `Restore task_plan.md and write a substantive implementation plan before transitioning the task to active. Actual task directory read: ${taskPackage.rootPath}.`);
+    }
+    if (isTaskDocumentPlaceholderMarkdown(taskPlan, policy.taskPlanPlaceholderFingerprintSets)) {
+      return taskFailure(
+        taskId,
+        "task_plan_placeholder",
+        `Replace task_plan.md scaffold content with a substantive implementation plan before transitioning the task to active. Actual task directory read: ${taskPackage?.rootPath ?? "unavailable"}.`
+      );
+    }
     return null;
   });
 }

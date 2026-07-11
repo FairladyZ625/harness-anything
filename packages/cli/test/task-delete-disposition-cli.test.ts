@@ -8,6 +8,7 @@ import test from "node:test";
 import { deriveRelationId } from "../../kernel/src/index.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -43,6 +44,7 @@ test("CLI task delete hard path is guarded by F5 disposition semantics", () => {
 
     const terminal = runJson(rootDir, ["new-task", "--title", "Done Delete"]);
     const terminalTaskId = assertGeneratedTaskId(terminal.taskId);
+    writeSubstantiveTaskPlan(rootDir, String(terminal.packagePath));
     runJson(rootDir, ["task", "status", "set", terminalTaskId, "active"]);
     runJson(rootDir, ["task", "status", "set", terminalTaskId, "done", "--force", "--reason", "terminal fixture"]);
     const terminalFailure = runJson(rootDir, ["task", "delete", "--hard", terminalTaskId, "--reason", "remove", "--confirm", terminalTaskId], false);
