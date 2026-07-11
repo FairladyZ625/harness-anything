@@ -92,7 +92,7 @@
     "@types/node": "24.13.2",
     "eslint": "10.7.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.62.1"
+    "typescript-eslint": "8.63.0"
   },
   "dependencies": {
     "effect": "3.21.4"
