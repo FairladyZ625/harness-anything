@@ -37,6 +37,7 @@ import {
   validateWriteTransaction,
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
+import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./write-journal-receipt.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
 export type { GitCommitAuthor, JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
 
@@ -105,7 +106,21 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
       catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
     flush: (reason) => {
-      const effect = lockConflictRetry ? retryLockConflict(() => flushOnce(reason), lockConflictRetry, Date.now(), 0) : flushOnce(reason);
+      const ownedOpIds = pending.map((op) => op.opId);
+      const reconcileDurable = () => reconcileDurableFlush(reason, ownedOpIds, pending, journalPath, watermarkPath, rootDir);
+      const effect = lockConflictRetry
+        ? retryLockConflict(
+          () => flushOnce(reason),
+          lockConflictRetry,
+          Date.now(),
+          0,
+          reconcileDurable,
+          (error) => shouldWaitForForeignCommitter(error, path.join(layout.locksRoot, "global.lock"))
+        )
+        : flushOnce(reason).pipe(Effect.catchAll((error) => {
+          const reconciled = isLockConflict(error) ? reconcileDurable() : undefined;
+          return reconciled ? Effect.succeed(reconciled) : Effect.fail(error);
+        }));
       return maybeAutoMaterialize(effect, runtimeContext, sessionId, autoMaterialize, versionControlSystem);
     },
     recover: lockConflictRetry
@@ -118,20 +133,44 @@ function retryLockConflict<Result>(
   runOnce: () => Effect.Effect<Result, WriteError>,
   retry: LockConflictRetryOptions,
   startedAt: number,
-  attempt: number
+  attempt: number,
+  reconcileDurable?: () => Result | undefined,
+  shouldContinueAfterTimeout?: (error: WriteError) => boolean
 ): Effect.Effect<Result, WriteError> {
   return runOnce().pipe(
     Effect.catchAll((error) => {
       if (!isLockConflict(error)) return Effect.fail(error);
+      const reconciled = reconcileDurable?.();
+      if (reconciled !== undefined) return Effect.succeed(reconciled);
       const remainingMs = retry.maxWaitMs - (Date.now() - startedAt);
-      if (remainingMs <= 0) return Effect.fail(lockConflictTimeout(error, retry.maxWaitMs));
+      if (remainingMs <= 0) {
+        if (!shouldContinueAfterTimeout?.(error)) return Effect.fail(lockConflictTimeout(error, retry.maxWaitMs));
+        const delayMs = retry.maxDelayMs ?? defaultRetryMaxDelayMs;
+        return Effect.promise<void>(() => new Promise((resolve) => setTimeout(resolve, delayMs))).pipe(
+          Effect.flatMap(() => retryLockConflict(
+            runOnce,
+            retry,
+            Date.now(),
+            0,
+            reconcileDurable,
+            shouldContinueAfterTimeout
+          ))
+        );
+      }
       const delayMs = Math.min(
         remainingMs,
         retry.maxDelayMs ?? defaultRetryMaxDelayMs,
         (retry.initialDelayMs ?? defaultRetryInitialDelayMs) * (2 ** attempt)
       );
       return Effect.promise<void>(() => new Promise((resolve) => setTimeout(resolve, delayMs))).pipe(
-        Effect.flatMap(() => retryLockConflict(runOnce, retry, startedAt, attempt + 1))
+        Effect.flatMap(() => retryLockConflict(
+          runOnce,
+          retry,
+          startedAt,
+          attempt + 1,
+          reconcileDurable,
+          shouldContinueAfterTimeout
+        ))
       );
     })
   );
