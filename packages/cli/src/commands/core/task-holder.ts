@@ -5,6 +5,7 @@ import {
   makeExecutionSagaService,
   type TaskHolderPrincipal
 } from "../../../../application/src/index.ts";
+import { readSessionEntityDocument } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
@@ -20,7 +21,13 @@ function runExecutionClaim(
   principal: TaskHolderPrincipal
 ): Effect.Effect<CliResult> {
   const saga = executionSaga(context);
-  return Effect.promise(() => saga.claim({ taskId: action.taskId, principal, ttlMs: action.ttlMs })).pipe(
+  return context.currentSessionProbe.currentSession.pipe(
+    Effect.flatMap((session) => Effect.promise(() => saga.claim({
+      taskId: action.taskId,
+      principal,
+      ttlMs: action.ttlMs,
+      primarySession: session.runtime === "human" ? null : session
+    }))),
     Effect.map((result): CliResult => ({
       ok: true,
       command: "task-claim",
@@ -45,25 +52,54 @@ export function runExecutionSubmit(
   if (!principal.ok) return Effect.succeed(principal.result);
   const saga = executionSaga(context);
   const submission = action.executionSubmission!;
-  return Effect.promise(() => saga.submitForReview({
-    taskId: action.taskId,
-    executionId: submission.executionId,
-    leaseToken: submission.leaseToken,
-    principal: principal.value,
-    submission: {
-      summary: submission.summary,
-      verification: submission.verification,
-      residualRisks: submission.residualRisks,
-      outputs: submission.outputs.map((ref) => ({ kind: "reference", ref }))
+  return Effect.gen(function* () {
+    const snapshot = submission.executionId
+      ? undefined
+      : yield* Effect.promise(() => context.taskHolderService.holder({ taskId: action.taskId }));
+    const executionId = submission.executionId ?? (snapshot?.holder?.schema === "task-holder/v2"
+      ? snapshot.holder.executionId
+      : undefined);
+    if (!executionId) {
+      return {
+        ok: false,
+        command: "status-set",
+        taskId: action.taskId,
+        error: cliError(CliErrorCode.WriteRejected, "Execution submit requires an active Holder V2 execution or an explicit --execution-id.")
+      } satisfies CliResult;
     }
-  })).pipe(Effect.map((): CliResult => ({
-    ok: true,
-    command: "status-set",
-    taskId: action.taskId,
-    executionId: submission.executionId,
-    status: "in_review",
-    report: { schema: "execution-submit-result/v1", executionId: submission.executionId, leaseReleased: true }
-  })));
+    return yield* Effect.tryPromise({
+      try: () => saga.submitForReview({
+        taskId: action.taskId,
+        executionId,
+        leaseToken: submission.leaseToken,
+        principal: principal.value,
+        submission: {
+          summary: submission.summary,
+          verification: submission.verification,
+          residualRisks: submission.residualRisks,
+          outputs: submission.outputs.map((ref) => ({ kind: "reference", ref }))
+        }
+      }),
+      catch: (error) => error
+    }).pipe(Effect.match({
+      onFailure: (error): CliResult => ({
+        ok: false,
+        command: "status-set",
+        taskId: action.taskId,
+        executionId,
+        status: "in_review",
+        error: cliError(CliErrorCode.WriteRejected, error instanceof Error ? error.message : String(error))
+      }),
+      onSuccess: (): CliResult => ({
+        ok: true,
+        command: "status-set",
+        taskId: action.taskId,
+        executionId,
+        status: "in_review",
+        report: { schema: "execution-submit-result/v1", executionId, leaseReleased: true }
+      })
+    }));
+  });
 }
 
 function executionSaga(context: CommandRunnerContext) {
@@ -74,7 +110,16 @@ function executionSaga(context: CommandRunnerContext) {
       rootInput: context.layoutInput,
       coordinator,
       artifactStore: context.artifactStore
-    })
+    }),
+    finalizeSession: async (session) => {
+      try {
+        if (readSessionEntityDocument(context.layoutInput, session.sessionId).format === "manifest") return;
+      } catch {
+        // A missing or legacy Session is finalized through the existing exporter below.
+      }
+      const exported = await Effect.runPromise(context.provenanceSessionExporter.exportSession(session));
+      await Effect.runPromise(context.syncExportedSession(exported));
+    }
   });
 }
 

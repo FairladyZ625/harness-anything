@@ -1,5 +1,7 @@
 import { generateTaskId } from "../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../kernel/src/index.ts";
 import type {
+  CurrentSessionRef,
   ExecutionLeaseContext,
   ExecutionRecord,
   TaskHolderPrincipal,
@@ -13,11 +15,27 @@ export interface ExecutionSubmission {
   readonly outputs: ReadonlyArray<unknown>;
 }
 
+export type ExecutionSessionRole = "primary" | "subagent" | "reviewer_observer";
+
+export interface ExecutionSessionBinding {
+  readonly binding_id: string;
+  readonly session_ref: string | null;
+  readonly role: ExecutionSessionRole;
+  readonly archive_status: "pending" | "complete" | "partial" | "unavailable";
+  readonly attached_at: string;
+  readonly session: CurrentSessionRef | null;
+}
+
 export interface ExecutionAuthoredStore {
   readonly readExecution: (input: { readonly taskId: string; readonly executionId: string }) => Promise<ExecutionRecord | null>;
   readonly openExecution: (input: {
     readonly taskId: string;
     readonly execution: ExecutionRecord;
+  }) => Promise<void>;
+  readonly attachSession: (input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly binding: ExecutionSessionBinding;
   }) => Promise<void>;
   readonly submitForReview: (input: {
     readonly taskId: string;
@@ -37,7 +55,16 @@ export interface ExecutionSagaService {
     readonly taskId: string;
     readonly principal: TaskHolderPrincipal;
     readonly ttlMs?: number;
+    readonly primarySession?: CurrentSessionRef | null;
   }) => Promise<ExecutionClaimResult>;
+  readonly attachSession: (input: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly leaseToken: string;
+    readonly principal: TaskHolderPrincipal;
+    readonly session: CurrentSessionRef;
+    readonly role: ExecutionSessionRole;
+  }) => Promise<void>;
   readonly submitForReview: (input: {
     readonly taskId: string;
     readonly executionId: string;
@@ -52,6 +79,7 @@ export interface ExecutionSagaServiceOptions {
   readonly authoredStore: ExecutionAuthoredStore;
   readonly generateExecutionId?: () => string;
   readonly now?: () => string;
+  readonly finalizeSession?: (session: CurrentSessionRef) => Promise<void>;
 }
 
 export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): ExecutionSagaService {
@@ -76,7 +104,11 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
         claimed_at: now(),
         submitted_at: null,
         closed_at: null,
-        session_bindings: [],
+        session_bindings: input.primarySession === undefined
+          ? []
+          : [input.primarySession
+              ? sessionBinding(input.primarySession, "primary", now())
+              : pendingPrimarySessionBinding(now())],
         outputs: [],
         submission: null
       };
@@ -99,8 +131,19 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
       });
       return { ...active, execution };
     },
+    attachSession: async (input) => {
+      await options.taskHolderService.assertExecutionLease(input);
+      await options.authoredStore.attachSession({
+        taskId: input.taskId,
+        executionId: input.executionId,
+        binding: sessionBinding(input.session, input.role, now())
+      });
+    },
     submitForReview: async (input) => {
       await options.taskHolderService.assertExecutionLease(input);
+      const execution = await options.authoredStore.readExecution({ taskId: input.taskId, executionId: input.executionId });
+      const primarySession = execution ? boundPrimarySession(execution.session_bindings) : null;
+      if (primarySession && options.finalizeSession) await options.finalizeSession(primarySession);
       await options.authoredStore.submitForReview({
         taskId: input.taskId,
         executionId: input.executionId,
@@ -110,6 +153,49 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
       await options.taskHolderService.releaseExecution(input);
     },
     reconcileTask: (taskId) => reconcileTask(options, taskId)
+  };
+}
+
+export function makeExecutionReservationReconciler(
+  options: ExecutionSagaServiceOptions & { readonly rootInput: HarnessLayoutInput }
+): () => Promise<void> {
+  const saga = makeExecutionSagaService(options);
+  return async () => {
+    for (const lease of await options.taskHolderService.executionLeases()) {
+      await saga.reconcileTask(lease.taskId);
+    }
+  };
+}
+
+function boundPrimarySession(bindings: ReadonlyArray<unknown>): CurrentSessionRef | null {
+  for (const binding of bindings) {
+    if (!binding || typeof binding !== "object") continue;
+    const record = binding as { readonly role?: unknown; readonly session?: unknown };
+    if (record.role !== "primary" || !record.session || typeof record.session !== "object") continue;
+    return record.session as CurrentSessionRef;
+  }
+  return null;
+}
+
+function sessionBinding(session: CurrentSessionRef, role: ExecutionSessionRole, attachedAt: string): ExecutionSessionBinding {
+  return {
+    binding_id: `${role}:${session.sessionId}`,
+    session_ref: `session/${session.sessionId}`,
+    role,
+    archive_status: "pending",
+    attached_at: attachedAt,
+    session
+  };
+}
+
+function pendingPrimarySessionBinding(attachedAt: string): ExecutionSessionBinding {
+  return {
+    binding_id: "primary:pending",
+    session_ref: null,
+    role: "primary",
+    archive_status: "pending",
+    attached_at: attachedAt,
+    session: null
   };
 }
 

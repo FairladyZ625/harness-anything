@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import {
   executionDeclaration,
+  readSessionEntityDocument,
   stablePayloadHash,
   writeDeclaredEntityTransaction,
   type ArtifactStore,
@@ -30,6 +31,22 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
       }
       await writeExecutionTransaction(input, request.taskId, request.execution, taskIndex(task.documents, request.taskId, ["planned", "active"], "active"));
     },
+    attachSession: async (request) => {
+      const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
+      const document = task.documents.find((candidate) => candidate.path === executionPath(request.executionId));
+      if (!document) throw new Error(`execution not found: ${request.executionId}`);
+      const current = Schema.decodeUnknownSync(executionDeclaration.schema)(
+        executionDeclaration.documentCodec.decode(document.body)
+      ) as ExecutionRecord;
+      if (current.state !== "active") throw new Error(`execution is not active: ${request.executionId}`);
+      if (current.session_bindings.some((binding) => bindingId(binding) === request.binding.binding_id)) {
+        throw new Error(`execution session binding already exists: ${request.binding.binding_id}`);
+      }
+      await writeExecutionOnlyTransaction(input, request.taskId, {
+        ...current,
+        session_bindings: [...current.session_bindings, request.binding]
+      });
+    },
     submitForReview: async (request) => {
       const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
       const document = task.documents.find((candidate) => candidate.path === executionPath(request.executionId));
@@ -38,11 +55,34 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
         executionDeclaration.documentCodec.decode(document.body)
       ) as ExecutionRecord;
       if (current.state !== "active") throw new Error(`execution is not active: ${request.executionId}`);
-      assertBindingsFinal(current.session_bindings);
-      const submitted = submittedExecution(current, request.submittedAt, request.submission);
+      const finalizedBindings = finalizeSessionBindings(input.rootInput, current.session_bindings);
+      assertPrimarySession(finalizedBindings);
+      assertBindingsFinal(finalizedBindings);
+      const submitted = submittedExecution(current, finalizedBindings, request.submittedAt, request.submission);
       await writeExecutionTransaction(input, request.taskId, submitted, taskIndex(task.documents, request.taskId, ["active"], "in_review"));
     }
   };
+}
+
+function writeExecutionOnlyTransaction(
+  input: { readonly rootInput: HarnessLayoutInput; readonly coordinator: WriteCoordinator },
+  taskId: string,
+  execution: ExecutionRecord
+): Promise<void> {
+  return Effect.runPromise(writeDeclaredEntityTransaction(
+    input.coordinator,
+    stablePayloadHash,
+    executionDeclaration,
+    { taskId, executionId: execution.execution_id },
+    execution,
+    []
+  ));
+}
+
+function bindingId(binding: unknown): unknown {
+  return binding && typeof binding === "object"
+    ? (binding as { readonly binding_id?: unknown }).binding_id
+    : undefined;
 }
 
 function writeExecutionTransaction(
@@ -75,11 +115,17 @@ function taskIndex(
   return body.replace(/^(  status:\s*).+$/mu, `$1${next}`);
 }
 
-function submittedExecution(current: ExecutionRecord, submittedAt: string, submission: ExecutionSubmission): ExecutionRecord {
+function submittedExecution(
+  current: ExecutionRecord,
+  sessionBindings: ReadonlyArray<unknown>,
+  submittedAt: string,
+  submission: ExecutionSubmission
+): ExecutionRecord {
   return {
     ...current,
     state: "submitted",
     submitted_at: submittedAt,
+    session_bindings: sessionBindings,
     outputs: [...current.outputs, ...submission.outputs],
     submission: {
       summary: submission.summary,
@@ -87,6 +133,34 @@ function submittedExecution(current: ExecutionRecord, submittedAt: string, submi
       residual_risks: submission.residualRisks
     }
   };
+}
+
+function finalizeSessionBindings(rootInput: HarnessLayoutInput, bindings: ReadonlyArray<unknown>): ReadonlyArray<unknown> {
+  return bindings.map((binding) => {
+    if (!binding || typeof binding !== "object") return binding;
+    const record = binding as { readonly role?: unknown; readonly session_ref?: unknown };
+    if (typeof record.session_ref !== "string" || !record.session_ref.startsWith("session/")) return binding;
+    const sessionId = record.session_ref.slice("session/".length);
+    try {
+      const session = readSessionEntityDocument(rootInput, sessionId);
+      if (session.format !== "manifest") {
+        throw new Error(`Session ${sessionId} has no finalized snapshot manifest`);
+      }
+      return { ...record, archive_status: session.manifest.archiveStatus };
+    } catch (error) {
+      const prefix = record.role === "primary" ? "primary Session" : "Session";
+      throw new Error(`${prefix} ${sessionId} snapshot is not finalized: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+}
+
+function assertPrimarySession(bindings: ReadonlyArray<unknown>): void {
+  const primary = bindings.find((binding) => binding && typeof binding === "object" &&
+    (binding as { readonly role?: unknown }).role === "primary" &&
+    typeof (binding as { readonly session_ref?: unknown }).session_ref === "string");
+  if (!primary) {
+    throw new Error("primary Session binding is required; attach the current session through ExecutionSagaService.attachSession");
+  }
 }
 
 function assertBindingsFinal(bindings: ReadonlyArray<unknown>): void {

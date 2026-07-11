@@ -43,6 +43,10 @@ export interface DaemonRuntimeOptions {
   readonly maxInteractiveOpsPerCommit?: number;
   readonly materializerPollMs?: number | false;
   readonly materializerMaxBranchesPerBatch?: number;
+  readonly reservationReconciler?: (input: {
+    readonly rootDir: string;
+    readonly layoutOverrides?: HarnessLayoutOverrides;
+  }) => Promise<void>;
 }
 
 export interface DaemonRuntimeStatus {
@@ -249,6 +253,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       this.lastError = undefined;
       this.lastMaterializerError = undefined;
       this.state = "attached";
+      await this.enqueueReservationReconciler();
       this.startMaterializerTimer();
       return this.status();
     } catch (error) {
@@ -357,9 +362,22 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       return;
     }
     this.materializerTimer = setInterval(() => {
+      void this.enqueueReservationReconciler().catch(() => undefined);
       void this.enqueueMaterializerBatch().catch(() => undefined);
     }, this.options.materializerPollMs);
     this.materializerTimer.unref();
+  }
+
+  private enqueueReservationReconciler(): Promise<void> {
+    if (!this.options.reservationReconciler) return Promise.resolve();
+    return this.enqueueBackgroundBatch({
+      source: "execution-reservation-reconciler",
+      priority: "background",
+      run: () => this.options.reservationReconciler!({
+        rootDir: this.rootDir,
+        ...(this.options.layoutOverrides ? { layoutOverrides: this.options.layoutOverrides } : {})
+      })
+    });
   }
 
   private stopMaterializerTimer(): void {

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../src/layout/index.ts";
+import { makeTaskHolderService, taskHolderActor } from "../../src/local/task-holder-state.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
 import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../src/store/daemon-runtime.ts";
 import { acquireDaemonGlobalLock } from "../../src/store/write-journal-locks.ts";
@@ -74,6 +75,35 @@ test("daemon runtime holds global.lock, rejects direct writes before journaling,
     assert.ok(order.includes("background-2-after-interactive"), order.join(","));
     await runtime.stop();
     assert.equal(existsSync(path.join(rootDir, ".harness/locks/global.lock")), false);
+  });
+});
+
+test("daemon runtime runs the reservation reconciler at attach and on the existing materializer timer", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    let reconciliations = 0;
+    const taskId = "task_01KX7H00000000000000000001";
+    const executionId = "exe_01KX7H00000000000000000001";
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    await holder.reserveExecution({
+      taskId,
+      executionId,
+      principal: taskHolderActor({ personId: "person_test" }, { kind: "agent", id: "test" })
+    });
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: 10,
+      reservationReconciler: async () => {
+        reconciliations += 1;
+        await holder.reconcileExecution({ taskId, executionId, authoredState: "missing" });
+      }
+    });
+
+    await runtime.start();
+    assert.equal(reconciliations, 1);
+    assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    assert.ok(reconciliations > 1, `expected periodic reconciliation, saw ${reconciliations}`);
+    await runtime.stop();
   });
 });
 

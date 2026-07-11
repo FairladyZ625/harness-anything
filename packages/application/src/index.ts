@@ -14,7 +14,7 @@ export { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, re
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
 export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
-export { makeExecutionSagaService } from "./execution-saga-service.ts";
+export { makeExecutionReservationReconciler, makeExecutionSagaService } from "./execution-saga-service.ts";
 export { makeCoordinatedExecutionAuthoredStore } from "./coordinated-execution-authored-store.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export {
@@ -27,6 +27,8 @@ export type {
   ExecutionClaimResult,
   ExecutionSagaService,
   ExecutionSagaServiceOptions,
+  ExecutionSessionBinding,
+  ExecutionSessionRole,
   ExecutionSubmission
 } from "./execution-saga-service.ts";
 export type {

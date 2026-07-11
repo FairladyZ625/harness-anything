@@ -153,6 +153,7 @@ export const testTierManifest = {
     "packages/cli/test/preset-script-cli.test.ts",
     "packages/cli/test/runtime-event-cli.test.ts",
     "packages/cli/test/session-cli.test.ts",
+    "packages/cli/test/submit-lifecycle-cli.test.ts",
     "packages/cli/test/settings-cli.test.ts",
     "packages/cli/test/self-host-git-boundary-cli.test.ts",
     "packages/cli/test/task-archive-distill-cli.test.ts",
