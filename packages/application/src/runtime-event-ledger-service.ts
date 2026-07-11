@@ -32,6 +32,8 @@ export interface RuntimeEventAppendInput {
     readonly sessionId: string;
     readonly runtime?: RuntimeEventRuntime | "unknown";
     readonly taskId?: string;
+    readonly executionId?: string | null;
+    readonly reviewId?: string | null;
     readonly decisionId?: string;
     readonly factRef?: string;
   };
@@ -116,6 +118,8 @@ function toRuntimeEventRecord(
       sessionId: input.session.sessionId,
       runtime: input.session.runtime ?? "unknown",
       ...(input.session.taskId ? { taskId: input.session.taskId } : {}),
+      executionId: input.session.executionId ?? null,
+      reviewId: input.session.reviewId ?? null,
       ...(input.session.decisionId ? { decisionId: input.session.decisionId } : {}),
       ...(input.session.factRef ? { factRef: input.session.factRef } : {})
     },
@@ -217,11 +221,16 @@ function decodeRuntimeEventLine(line: string, sessionId: string, lineNumber: num
 }
 
 function normalizeRuntimeEventRecord(value: unknown): unknown {
-  if (!isRecord(value) || !isRecord(value.actor) || isRecord(value.actor.principal)) return value;
+  if (!isRecord(value)) return value;
+  const session = isRecord(value.session)
+    ? { ...value.session, executionId: value.session.executionId ?? null, reviewId: value.session.reviewId ?? null }
+    : value.session;
+  if (!isRecord(value.actor) || isRecord(value.actor.principal)) return { ...value, session };
   const actor = value.actor;
-  if (typeof actor.personId !== "string") return value;
+  if (typeof actor.personId !== "string") return { ...value, session };
   return {
     ...value,
+    session,
     actor: {
       principal: actor,
       executor: null,

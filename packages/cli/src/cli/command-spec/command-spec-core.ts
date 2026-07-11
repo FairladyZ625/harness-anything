@@ -127,14 +127,15 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-claim",
-    "usage": "task claim <id> [--ttl-ms <ms>] [--json]",
-    "options": [{"flag":"--ttl-ms","description":"Set the task holder lease duration in milliseconds."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "task claim <id> [--execution] [--ttl-ms <ms>] [--json]",
+    "options": [{"flag":"--execution","description":"Open a new Execution round with a Holder V2 credential."},{"flag":"--ttl-ms","description":"Set the task holder lease duration in milliseconds."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Claim a task holder lease for the authenticated principal.",
     "examples": ["harness-anything task claim task_01ABC --ttl-ms 1800000"],
     "parse": parseCoreTaskArgs,
     "run": runTaskLifecycleCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
+      "optionalData": { "executionId": "Only emitted when --execution opens a Holder V2 round." },
       "paths": []
     },
     "eventPolicy": {
@@ -179,7 +180,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "status-set",
     "usage": "task transition <id> <planned|active|blocked|in_review|done|cancelled> [--force --reason <reason>]",
-    "options": [{"flag":"--force","description":"Force the lifecycle transition with audit metadata."},{"flag":"--reason","description":"Record the reason for the lifecycle change."}],
+    "options": [{"flag":"--force","description":"Force the lifecycle transition with audit metadata."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--execution-id","description":"Submit the exact active Execution when transitioning to in_review."},{"flag":"--lease-token","description":"Authenticate the Holder V2 execution lease."},{"flag":"--summary","description":"Record the Execution submission summary."}],
     "aliases": ["task status set <id> <status> (deprecated, use task transition; retires at E77/F6 acceptance)"],
     "summary": "Move a local task to a new lifecycle status.",
     "examples": ["harness-anything task transition task_01ABC active --reason \"work started\""],
@@ -189,7 +190,9 @@ export const coreCommandSpecs = defineCommandSpecs([
       "data": ["taskId", "status"],
       "optionalData": {
         "forced": "Only emitted for audited terminal recovery transitions invoked with --force.",
-        "forceAudit": "Only emitted for audited terminal recovery transitions that append force audit evidence."
+        "forceAudit": "Only emitted for audited terminal recovery transitions that append force audit evidence.",
+        "executionId": "Only emitted for Holder V2 execution submission.",
+        "report": "Only emitted for Holder V2 execution submission."
       },
       "paths": [],
       "optionalPaths": {

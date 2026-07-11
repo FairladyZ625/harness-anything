@@ -7,7 +7,7 @@ import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
 import { runTaskArchive } from "./task-archive.ts";
 import { runTaskAmend } from "./task-amend.ts";
-import { runTaskClaim, runTaskHolder, runTaskRelease } from "./task-holder.ts";
+import { runExecutionSubmit, runTaskClaim, runTaskHolder, runTaskRelease } from "./task-holder.ts";
 import { lifecycleReason } from "./task-lifecycle-shared.ts";
 import { runTaskRelate } from "./task-relations.ts";
 import { runTaskSupersede } from "./task-supersede.ts";
@@ -29,6 +29,7 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
     case "task-release":
       return runTaskRelease(context, action);
     case "status-set":
+      if (action.executionSubmission) return runExecutionSubmit(context, action);
       return runStatusSet(context, action.taskId, action.status, action.force, action.reason);
     case "progress-append":
       return runProgressAppend(context, action);

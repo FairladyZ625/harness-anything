@@ -133,6 +133,34 @@ test("configured identity supports direct human claim through --actor", () => {
   });
 });
 
+test("execution claim and submit use Holder V2 without changing legacy task claim", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
+    const created = runJson(rootDir, ["new-task", "--title", "Execution Saga"]);
+    const claimed = runJson(rootDir, ["task", "claim", created.taskId, "--execution"], true, {
+      HARNESS_ACTOR: "agent:test"
+    });
+
+    assert.match(claimed.executionId, /^exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u);
+    assert.match(claimed.report.leaseToken, /^[0-9a-f]{64}$/u);
+    assert.deepEqual(claimed.report.actor.executor, { kind: "agent", id: "test" });
+
+    const submitted = runJson(rootDir, [
+      "task", "transition", created.taskId, "in_review",
+      "--execution-id", claimed.executionId,
+      "--lease-token", claimed.report.leaseToken,
+      "--summary", "ready for review",
+      "--verification", "node:test",
+      "--output", "commit:abc123"
+    ], true, { HARNESS_ACTOR: "agent:test" });
+
+    assert.equal(submitted.status, "in_review");
+    assert.equal(submitted.report.leaseReleased, true);
+    const holder = runJson(rootDir, ["task", "holder", created.taskId]);
+    assert.equal(holder.report.effectiveHolder, null);
+  });
+});
+
 test("same configured person can renew a claim through a different agent", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");

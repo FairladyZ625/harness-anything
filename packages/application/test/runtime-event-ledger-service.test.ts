@@ -20,7 +20,8 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
       session: {
         sessionId: "codex-session-1",
         runtime: "codex",
-        taskId: "task_01KWK8Z8V1YF1N0V0H2F6R1AYW"
+        taskId: "task_01KWK8Z8V1YF1N0V0H2F6R1AYW",
+        executionId: "exe_01KX7H00000000000000000001"
       },
       actor: {
         personId: "person_zeyu",
@@ -55,6 +56,8 @@ test("runtime event ledger appends fsynced JSONL and reads schema-validated reco
     assert.equal(readBack.events[0]?.actor?.principal.personId, "person_zeyu");
     assert.equal(readBack.events[0]?.actor?.executor, null);
     assert.equal(readBack.events[0]?.actor?.responsibleHuman, "person:person_zeyu");
+    assert.equal(readBack.events[0]?.session.executionId, "exe_01KX7H00000000000000000001");
+    assert.equal(readBack.events[0]?.session.reviewId, null);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -14,6 +14,8 @@ export { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, re
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
 export { bindCreateProvenance } from "./provenance-binding.ts";
 export { makeDecisionWriteService } from "./decision-write-service.ts";
+export { makeExecutionSagaService } from "./execution-saga-service.ts";
+export { makeCoordinatedExecutionAuthoredStore } from "./coordinated-execution-authored-store.ts";
 export { makeFactWriteService } from "./fact-write-service.ts";
 export {
   taskWriteApiRoutePolicies,
@@ -21,12 +23,20 @@ export {
   taskWriteCliRoutePolicy
 } from "./task-write-route-policy.ts";
 export type {
+  ExecutionAuthoredStore,
+  ExecutionClaimResult,
+  ExecutionSagaService,
+  ExecutionSagaServiceOptions,
+  ExecutionSubmission
+} from "./execution-saga-service.ts";
+export type {
   TaskWriteApiRoutePolicy,
   TaskWriteCliRoutePolicy,
   TaskWriteCommandClass
 } from "./task-write-route-policy.ts";
 export {
   TaskClaimCollisionError,
+  ExecutionLeaseCollisionError,
   TaskLeaseRequiredError,
   TaskReleaseNotHolderError,
   isTaskHolderError,
@@ -69,6 +79,9 @@ export type {
   FactWriteServiceOptions
 } from "./fact-write-service.ts";
 export type {
+  ExecutionLeaseContext,
+  ExecutionLeaseRecord,
+  ExecutionLeaseReservation,
   TaskHolderAcquiredVia,
   TaskHolderClaimResult,
   TaskHolderCredential,
@@ -81,6 +94,9 @@ export type {
   TaskHolderServiceOptions,
   TaskHolderSnapshot
 } from "../../kernel/src/index.ts";
+export { executionDeclaration, executionStates, resolveEntityDocumentPath } from "../../kernel/src/index.ts";
+export { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
+export type { ExecutionRecord, ExecutionState } from "../../kernel/src/index.ts";
 export type {
   ProvenanceSessionBackfillOptions,
   ProvenanceSessionBackfillResult,

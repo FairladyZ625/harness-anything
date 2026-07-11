@@ -51,6 +51,8 @@ export const RuntimeEventRecordSchema = Schema.Struct({
     sessionId: Schema.String,
     runtime: Schema.Union(CurrentSessionRuntimeSchema, Schema.Literal("unknown")),
     taskId: OptionalString,
+    executionId: Schema.NullOr(Schema.String),
+    reviewId: Schema.NullOr(Schema.String),
     decisionId: OptionalString,
     factRef: OptionalString
   }),

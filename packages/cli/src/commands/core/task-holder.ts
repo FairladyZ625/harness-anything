@@ -1,5 +1,10 @@
 import { Effect } from "effect";
-import { isTaskHolderError, type TaskHolderPrincipal } from "../../../../application/src/index.ts";
+import {
+  isTaskHolderError,
+  makeCoordinatedExecutionAuthoredStore,
+  makeExecutionSagaService,
+  type TaskHolderPrincipal
+} from "../../../../application/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
@@ -9,6 +14,70 @@ type TaskHolderAction = Extract<
   { readonly kind: "task-claim" | "task-holder" | "task-release" }
 >;
 
+function runExecutionClaim(
+  context: CommandRunnerContext,
+  action: Extract<TaskHolderAction, { readonly kind: "task-claim" }>,
+  principal: TaskHolderPrincipal
+): Effect.Effect<CliResult> {
+  const saga = executionSaga(context);
+  return Effect.promise(() => saga.claim({ taskId: action.taskId, principal, ttlMs: action.ttlMs })).pipe(
+    Effect.map((result): CliResult => ({
+      ok: true,
+      command: "task-claim",
+      taskId: action.taskId,
+      executionId: result.executionId,
+      report: {
+        schema: "execution-claim-result/v1",
+        executionId: result.executionId,
+        leaseToken: result.leaseToken,
+        leaseExpiresAt: result.leaseExpiresAt,
+        actor: result.execution.primary_actor
+      }
+    }))
+  );
+}
+
+export function runExecutionSubmit(
+  context: CommandRunnerContext,
+  action: Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "status-set" }>
+): Effect.Effect<CliResult> {
+  const principal = taskHolderPrincipal(context);
+  if (!principal.ok) return Effect.succeed(principal.result);
+  const saga = executionSaga(context);
+  const submission = action.executionSubmission!;
+  return Effect.promise(() => saga.submitForReview({
+    taskId: action.taskId,
+    executionId: submission.executionId,
+    leaseToken: submission.leaseToken,
+    principal: principal.value,
+    submission: {
+      summary: submission.summary,
+      verification: submission.verification,
+      residualRisks: submission.residualRisks,
+      outputs: submission.outputs.map((ref) => ({ kind: "reference", ref }))
+    }
+  })).pipe(Effect.map((): CliResult => ({
+    ok: true,
+    command: "status-set",
+    taskId: action.taskId,
+    executionId: submission.executionId,
+    status: "in_review",
+    report: { schema: "execution-submit-result/v1", executionId: submission.executionId, leaseReleased: true }
+  })));
+}
+
+function executionSaga(context: CommandRunnerContext) {
+  const coordinator = context.makeWriteCoordinator(context.actorAttribution().actor);
+  return makeExecutionSagaService({
+    taskHolderService: context.taskHolderService,
+    authoredStore: makeCoordinatedExecutionAuthoredStore({
+      rootInput: context.layoutInput,
+      coordinator,
+      artifactStore: context.artifactStore
+    })
+  });
+}
+
 export function runTaskClaim(
   context: CommandRunnerContext,
   action: Extract<TaskHolderAction, { readonly kind: "task-claim" }>
@@ -16,6 +85,7 @@ export function runTaskClaim(
   return Effect.gen(function* () {
     const principal = taskHolderPrincipal(context);
     if (!principal.ok) return principal.result;
+    if (action.execution) return yield* runExecutionClaim(context, action, principal.value);
     return yield* Effect.tryPromise({
       try: () => context.taskHolderService.claim({ taskId: action.taskId, principal: principal.value, ttlMs: action.ttlMs }),
       catch: taskHolderCommandFailure

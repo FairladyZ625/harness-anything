@@ -22,7 +22,8 @@ export function appendCommandRuntimeEvent(
       session: {
         sessionId: session.sessionId,
         runtime: session.runtime,
-        ...entityRefs
+        ...entityRefs,
+        executionId: entityRefs.executionId ?? null
       },
       tool: {
         toolName: command.action.kind,
@@ -54,12 +55,14 @@ export function appendCommandRuntimeEvent(
 function eventEntityRefs(
   action: ParsedCommand["action"],
   result: CliResult
-): { readonly taskId?: string; readonly decisionId?: string; readonly factRef?: string } {
+): { readonly taskId?: string; readonly executionId?: string; readonly decisionId?: string; readonly factRef?: string } {
   const taskId = result.taskId ?? actionTaskId(action);
   const decisionId = result.decisionId ?? ("decisionId" in action ? action.decisionId : undefined);
   const factRef = result.factRef;
+  const executionId = result.executionId ?? ("executionSubmission" in action ? action.executionSubmission?.executionId : undefined);
   return {
     ...(taskId ? { taskId } : {}),
+    ...(executionId ? { executionId } : {}),
     ...(decisionId ? { decisionId } : {}),
     ...(factRef ? { factRef } : {})
   };

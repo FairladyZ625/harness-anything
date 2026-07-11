@@ -6,7 +6,9 @@
   "session": {
     "sessionId": "codex-session-1",
     "runtime": "codex",
-    "taskId": "task_01KWK8Z8V1YF1N0V0H2F6R1AYW"
+    "taskId": "task_01KWK8Z8V1YF1N0V0H2F6R1AYW",
+    "executionId": null,
+    "reviewId": null
   },
   "turn": null,
   "step": null,
