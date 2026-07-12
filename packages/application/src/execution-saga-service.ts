@@ -167,12 +167,28 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
 }
 
 export function makeExecutionReservationReconciler(
-  options: ExecutionSagaServiceOptions & { readonly rootInput: HarnessLayoutInput }
+  options: Omit<ExecutionSagaServiceOptions, "authoredStore"> & {
+    readonly rootInput: HarnessLayoutInput;
+    readonly authoredStore?: ExecutionAuthoredStore;
+    readonly authoredStoreForLease?: (input: {
+      readonly taskId: string;
+      readonly executionId: string;
+      readonly principal: TaskHolderPrincipal;
+    }) => ExecutionAuthoredStore;
+  }
 ): () => Promise<void> {
-  const saga = makeExecutionSagaService(options);
   return async () => {
     for (const lease of await options.taskHolderService.executionLeases()) {
-      await saga.reconcileTask(lease.taskId);
+      const snapshot = await options.taskHolderService.holder({ taskId: lease.taskId });
+      const record = snapshot.holder;
+      if (record?.schema !== "task-holder/v2" || record.executionId !== lease.executionId) continue;
+      const authoredStore = options.authoredStoreForLease?.({
+        taskId: lease.taskId,
+        executionId: lease.executionId,
+        principal: record.holder
+      }) ?? options.authoredStore;
+      if (!authoredStore) throw new Error(`reservation reconciliation store is unavailable: ${lease.executionId}`);
+      await makeExecutionSagaService({ ...options, authoredStore }).reconcileTask(lease.taskId);
     }
   };
 }

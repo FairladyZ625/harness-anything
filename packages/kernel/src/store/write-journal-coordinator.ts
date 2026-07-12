@@ -22,8 +22,7 @@ import {
 import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-incremental-projection.ts";
 import { hashTaskProjectionRows } from "../projection/sqlite-task-projection.ts";
 import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
-import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
-import { journalActorFromAttribution, journalActorFromOperationalActor } from "./write-journal-attribution.ts";
+import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./write-journal-git.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./write-journal-code-doc-policy.ts";
@@ -32,6 +31,14 @@ import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./w
 import { NonTaskWriteEntityError, taskIdForJournalRecord } from "./write-journal-entity.ts";
 import { rejectWrite, WriteRejectedError } from "./write-journal-rejection.ts";
 import {
+  assertRecordMatchesAttributedOp,
+  assertRecordMatchesOperationalOp,
+  createAttributedJournalRecord,
+  createOperationalJournalRecord,
+  decodeWriteAttribution,
+  uniquePendingRecords
+} from "./write-journal-records.ts";
+import {
   applyWriteOp,
   documentWritesForWriteOp,
   readHardDeletePayload,
@@ -39,7 +46,7 @@ import {
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
 import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./write-journal-receipt.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalRecordKind, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 export type {
   GitCommitAuthor,
   JournalActor,
@@ -117,23 +124,28 @@ function makeJournaledWriteCoordinatorInternal(
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
-        preflightWriteOp(rootDir, runtimeContext, op, versionControlSystem);
-        if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
-        const state = readDurableState(journalPath, watermarkPath, rootDir);
-        if (state.applied.has(op.opId) || state.records.some((record) => record.opId === op.opId) || pending.some((item) => item.opId === op.opId)) {
-          return { opId: op.opId, entityId: op.entityId, accepted: true };
-        }
-
+        const attribution = mode === "attributed"
+          ? decodeWriteAttribution("attribution" in options ? options.attribution : undefined, op.entityId)
+          : undefined;
         if (mode === "recovery-only") {
           rejectWrite("write coordinator requires request attribution", op.entityId);
         }
         if (mode === "operational-machine-artifact" && !op.kind.startsWith("machine_artifact_")) {
           rejectWrite("operational coordinator only accepts machine artifact writes", op.entityId);
         }
-        const recordActor = mode === "attributed" && "attribution" in options
-          ? journalActorFromAttribution(options.attribution)
-          : journalActorFromOperationalActor(operationalActor);
-        const record = createJournalRecord(rootDir, journalPath, op, recordActor);
+        preflightWriteOp(rootDir, runtimeContext, op, versionControlSystem);
+        if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
+        const state = readDurableState(journalPath, watermarkPath, rootDir);
+        const existing = state.records.find((record) => record.opId === op.opId);
+        if (existing) {
+          if (attribution) assertRecordMatchesAttributedOp(existing, op, attribution);
+          else assertRecordMatchesOperationalOp(existing, op, operationalActor);
+          return { opId: op.opId, entityId: op.entityId, accepted: true };
+        }
+        if (state.applied.has(op.opId)) return { opId: op.opId, entityId: op.entityId, accepted: true };
+        const record = attribution
+          ? createAttributedJournalRecord(rootDir, journalPath, op, attribution)
+          : createOperationalJournalRecord(rootDir, journalPath, op, operationalActor);
         appendJsonLineDurably(journalPath, record);
         pending.push(op);
         return { opId: op.opId, entityId: op.entityId, accepted: true };
@@ -224,30 +236,6 @@ function lockConflictTimeout(error: WriteError, maxWaitMs: number): WriteError {
 
 function isLockConflict(error: WriteError): boolean {
   return error._tag === "GlobalWriteConflict" || error._tag === "WriteConflict";
-}
-
-function uniquePendingRecords(
-  records: ReadonlyArray<ReadableJournalRecord>,
-  applied: ReadonlySet<string>
-): ReadonlyArray<ReadableJournalRecord> {
-  const unique = new Map<string, ReadableJournalRecord>();
-  for (const record of records) {
-    if (applied.has(record.opId)) continue;
-    const previous = unique.get(record.opId);
-    if (!previous) {
-      unique.set(record.opId, record);
-      continue;
-    }
-    if (
-      previous.entityId !== record.entityId
-      || previous.kind !== record.kind
-      || previous.payloadRef?.sha256 !== record.payloadRef?.sha256
-      || previous.payload?.payloadHash !== record.payload?.payloadHash
-    ) {
-      rejectWrite(`op id collision has divergent journal records: ${record.opId}`, record.entityId);
-    }
-  }
-  return [...unique.values()];
 }
 
 function cleanSessionId(sessionId: string | undefined): string | undefined {
@@ -383,28 +371,6 @@ function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath
   });
 }
 
-function createJournalRecord(rootDir: string, journalPath: string, op: {
-  readonly opId: string;
-  readonly entityId: EntityId;
-  readonly kind: JournalRecordKind;
-  readonly payload?: unknown;
-}, actor: JournalActor): JournalRecord {
-  const payload = toJournalPayload(op);
-  const payloadRef = writePayloadRef(rootDir, journalPath, op.opId, payload);
-  return {
-    schema: "write-journal/v1",
-    opId: op.opId,
-    entityId: op.entityId,
-    kind: op.kind,
-    actor,
-    at: new Date().toISOString(),
-    payloadRef,
-    payload: {
-      payloadHash: stablePayloadHash(payload)
-    }
-  };
-}
-
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {
   const vcs = versionControlSystem ?? makeLocalVersionControlSystem();
   const plan = assertCommitPlanAddable(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, { versionControlSystem: vcs });
@@ -427,13 +393,6 @@ function recordToOp(rootDir: string, record: ReadableJournalRecord): WriteOp {
     kind: record.kind,
     payload
   };
-}
-
-function toJournalPayload(op: { readonly opId: string; readonly payload?: unknown }): Record<string, unknown> {
-  if (op.payload === null || typeof op.payload !== "object" || Array.isArray(op.payload)) {
-    rejectWrite(`write op payload must be an object: ${op.opId}`);
-  }
-  return op.payload as Record<string, unknown>;
 }
 
 function recordTouchedPaths(rootDir: string, rootInput: HarnessLayoutInput, record: ReadableJournalRecord): ReadonlyArray<string> {

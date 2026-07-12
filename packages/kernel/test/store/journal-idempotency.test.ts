@@ -2,7 +2,7 @@
 import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { taskEntityId } from "../../src/domain/index.ts";
@@ -20,6 +20,68 @@ test("WriteCoordinator accepts duplicate op ids idempotently", () => {
     const report = Effect.runSync(coordinator.flush("explicit"));
     assert.equal(report.opCount, 1);
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/progress.md"), "utf8"), "first");
+  });
+});
+
+test("WriteCoordinator rejects an op id reused with different attribution", () => {
+  withTempStore((rootDir) => {
+    const alice = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution({ kind: "human", id: "person_alice" }),
+      rootDir
+    });
+    const bob = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution({ kind: "human", id: "person_bob" }),
+      rootDir
+    });
+    const op = docWrite("op-attribution-collision", "task-1", "progress.md", "same payload");
+
+    Effect.runSync(alice.enqueue(op));
+    const result = Effect.runSync(Effect.either(bob.enqueue(op)));
+
+    assert.equal(result._tag, "Left");
+    if (result._tag === "Left") {
+      assert.equal(result.left._tag, "WriteRejected");
+      assert.match(result.left.reason, /op id collision has divergent journal records/u);
+    }
+  });
+});
+
+test("WriteCoordinator attribution collision includes principal source evidence", () => {
+  withTempStore((rootDir) => {
+    const attribution = testWriteAttribution();
+    const original = makeJournaledWriteCoordinator({ attribution, rootDir });
+    const differentSource = makeJournaledWriteCoordinator({
+      rootDir,
+      attribution: {
+        ...attribution,
+        principalSource: {
+          kind: "local-configured",
+          authority: "harness.yaml",
+          authoritySha256: "sha256:different-source"
+        }
+      }
+    });
+    const op = docWrite("op-source-collision", "task-1", "progress.md", "same payload");
+
+    Effect.runSync(original.enqueue(op));
+    const result = Effect.runSync(Effect.either(differentSource.enqueue(op)));
+
+    assert.equal(result._tag, "Left");
+    if (result._tag === "Left") assert.match(result.left.reason, /op id collision has divergent journal records/u);
+  });
+});
+
+test("WriteCoordinator fails closed when request principal attribution is missing", () => {
+  withTempStore((rootDir) => {
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: undefined as never });
+    const result = Effect.runSync(Effect.either(coordinator.enqueue(docWrite("op-no-attribution", "task-1", "progress.md", "blocked"))));
+
+    assert.equal(result._tag, "Left");
+    if (result._tag === "Left") {
+      assert.equal(result.left._tag, "WriteRejected");
+      assert.equal(result.left.reason, "write coordinator requires valid principal attribution");
+    }
+    assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/writes.jsonl")), false);
   });
 });
 

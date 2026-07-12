@@ -11,7 +11,7 @@ import {
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
-import { makeCoordinatedExecutionAuthoredStore, makeExecutionReservationReconciler, makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService, makeTaskHolderService } from "../../application/src/index.ts";
+import { makeLocalControllerService, makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService, makeTaskHolderService } from "../../application/src/index.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
 import {
   createJsonRpcProtocolServer,
@@ -37,6 +37,7 @@ import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThr
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
+import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { leaseEnforcementEnabled } from "./commands/settings.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
@@ -104,15 +105,7 @@ async function runDaemonServe(
   const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
   const runtime = createMultiRepoDaemonRuntime({
     materializerPollMs: 5_000,
-    reservationReconciler: async (rootInput) => makeExecutionReservationReconciler({
-      rootInput,
-      taskHolderService: makeTaskHolderService({ rootInput }),
-      authoredStore: makeCoordinatedExecutionAuthoredStore({
-        rootInput,
-        coordinator: failClosedReservationReconcilerCoordinator(),
-        artifactStore: makeMarkdownArtifactStore(rootInput)
-      })
-    })(),
+    reservationReconciler: async (rootInput) => makeDaemonReservationReconciler(rootInput)(),
     repos: serveRepos.map((repo) => ({
       repoId: repo.repoId,
       rootDir: repo.canonicalRoot,

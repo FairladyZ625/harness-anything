@@ -30,8 +30,15 @@ export function commitTouchedPaths(
   });
   if (!plan) return "no-git-change";
   const forceAdd = resolveForceAddSet(rootDir, options.forceAddPaths ?? [], layoutInput, vcs);
-  const forcedPaths = plan.relativePaths.filter((relativePath) => forceAdd.has(relativePath));
-  const unforcedPaths = plan.relativePaths.filter((relativePath) => !forceAdd.has(relativePath));
+  // A failed commit can leave a hard-delete already staged while its path no
+  // longer exists in either the worktree or index. Re-adding that path fails;
+  // preserve its staged deletion and continue the recovery commit.
+  const addablePaths = plan.relativePaths.filter((relativePath) => {
+    const staged = vcs.stagedFiles(plan.repoRoot, [relativePath]).trim().length > 0;
+    return !staged || hasUnstagedChanges(vcs.workingTreeFiles(plan.repoRoot, [relativePath]));
+  });
+  const forcedPaths = addablePaths.filter((relativePath) => forceAdd.has(relativePath));
+  const unforcedPaths = addablePaths.filter((relativePath) => !forceAdd.has(relativePath));
   const sessionBranch = sessionBranchName(sessionId);
   // Resolve the trunk branch while HEAD still points at it, before checkoutSessionBranch
   // moves us onto the session branch; the finally must return to the same trunk.
@@ -165,6 +172,10 @@ function unstageLogFiles(repoRoot: string, relativePaths: ReadonlyArray<string>,
   const logPathspecs = relativePaths.flatMap((relativePath) => logPathspecsFor(relativePath));
   if (logPathspecs.length === 0) return;
   vcs.resetQuiet(repoRoot, unique(logPathspecs));
+}
+
+function hasUnstagedChanges(status: string): boolean {
+  return status.split(/\r?\n/u).some((line) => line.length >= 2 && line[1] !== " ");
 }
 
 function logPathspecsFor(relativePath: string): ReadonlyArray<string> {
