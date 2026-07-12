@@ -34,8 +34,11 @@ export interface RelationCoverageRow {
   readonly claimRef: string;
   readonly status: "covered" | "uncovered";
   readonly coveringFactRef?: string;
+  readonly refutingFactRefs?: ReadonlyArray<string>;
   readonly relationPath: ReadonlyArray<string>;
 }
+
+const coverageRelationTypes = new Set<EntityRelationRecord["type"]>(["evidenced-by"]);
 
 export interface FactAnchorRow {
   readonly factRef: string;
@@ -349,7 +352,14 @@ function buildCoverageRows(
       .filter((edge) => edge.sourceRef.startsWith("fact/") && edge.targetRef.startsWith("fact/") && (edge.relationType === "invalidated-by" || edge.relationType === "supersedes-fact"))
       .map((edge) => edge.targetRef)
   );
+  const refutingFactRefsByClaim = new Map<string, Set<string>>();
   for (const edge of activeEdges) {
+    if (edge.relationType === "refutes" && edge.sourceRef.startsWith("fact/") && edge.targetRef.startsWith("decision/")) {
+      const existing = refutingFactRefsByClaim.get(edge.targetRef) ?? new Set<string>();
+      existing.add(edge.sourceRef);
+      refutingFactRefsByClaim.set(edge.targetRef, existing);
+    }
+    if (!coverageRelationTypes.has(edge.relationType)) continue;
     const existing = graph.get(edge.sourceRef) ?? [];
     existing.push(edge);
     graph.set(edge.sourceRef, existing);
@@ -359,12 +369,17 @@ function buildCoverageRows(
   for (const decision of decisions) {
     for (const anchor of findRelationGraphDecisionAnchors(decision.frontmatter)) {
       const claimRef = `${decision.decisionRef}/${anchor}`;
-      const reachable = firstReachableLiveFact(claimRef, graph, refIndex, invalidatedFactRefs);
+      const refutingFactRefs = [...(refutingFactRefsByClaim.get(claimRef) ?? [])].sort();
+      const reachable = refutingFactRefs.length === 0
+        ? firstReachableLiveFact(claimRef, graph, refIndex, invalidatedFactRefs)
+        : null;
       rows.push({
         decisionRef: decision.decisionRef,
         claimRef,
         status: reachable ? "covered" : "uncovered",
-        ...(reachable ? { coveringFactRef: reachable.factRef, relationPath: reachable.path } : { relationPath: [] })
+        ...(reachable
+          ? { coveringFactRef: reachable.factRef, relationPath: reachable.path }
+          : { ...(refutingFactRefs.length > 0 ? { refutingFactRefs } : {}), relationPath: [] })
       });
     }
   }

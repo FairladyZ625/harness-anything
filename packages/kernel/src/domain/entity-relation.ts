@@ -15,6 +15,7 @@ export const relationTypes = [
   "produces",
   "evidences",
   "evidenced-by",
+  "refutes",
   "invalidated-by",
   "supersedes-fact"
 ] as const;
@@ -167,7 +168,9 @@ export function isAllowedRelationKindTriple(
   if (sourceKind === "task" && targetKind === "decision") return type === "implements";
   if (sourceKind === "task" && targetKind === "task") return type === "blocks" || type === "relates" || type === "depends-on";
   if (sourceKind === "task" && targetKind === "fact") return type === "produces" || type === "evidences";
-  if (sourceKind === "fact" && targetKind === "decision") return type === "supports" || type === "invalidated-by";
+  if (sourceKind === "fact" && targetKind === "decision") {
+    return type === "supports" || type === "refutes" || type === "invalidated-by";
+  }
   if (sourceKind === "fact" && targetKind === "fact") return type === "supersedes-fact";
   return false;
 }
@@ -176,6 +179,7 @@ function requiresRationale(record: EntityRelationRecord): boolean {
   return record.strength === "strong" ||
     record.type === "supports" ||
     record.type === "evidenced-by" ||
+    record.type === "refutes" ||
     record.type === "blocks" ||
     record.type === "depends-on" ||
     record.type === "supersedes" ||

@@ -31,7 +31,7 @@ function assertLoadBearingCoverageProjection(): void {
     const relation = relationRecord({
       source: "decision/dec_COVER/C1",
       target: "fact/task-coverage/F-DEADBEEF",
-      type: "supersedes-fact"
+      type: "evidenced-by"
     });
     const exemptRelation = relationRecord({ source: "decision/dec_COVER/C2", target: "task/task-coverage", type: "relates" });
     writeDecision(rootDir, "dec_COVER", "wm-cover", [relation, exemptRelation]);
@@ -63,7 +63,7 @@ test("legacy facts without memory fields stay visible to post-merge checks and c
     const relation = relationRecord({
       source: "decision/dec_LEGACY_FACT/C1",
       target: "fact/task-legacy-facts/F-DEADBEEF",
-      type: "supersedes-fact"
+      type: "evidenced-by"
     });
     writeDecision(rootDir, "dec_LEGACY_FACT", "wm-legacy-fact", [relation]);
 
@@ -119,7 +119,7 @@ test("relation graph projection resolves facts by task_id when task directory ha
     const relation = relationRecord({
       source: "decision/dec_SLUGGED/C1",
       target: `fact/${taskId}/F-DEADBEEF`,
-      type: "supersedes-fact"
+      type: "evidenced-by"
     });
     writeDecision(rootDir, "dec_SLUGGED", "wm-slugged", [relation]);
 
@@ -166,7 +166,7 @@ test("relation graph coverage treats invalidated facts as not live", () => {
     writeDecision(rootDir, "dec_INVALIDATED", "wm-invalidated", [relationRecord({
       source: "decision/dec_INVALIDATED/C1",
       target: "fact/task-invalidated/F-DEADBEEF",
-      type: "supersedes-fact"
+      type: "evidenced-by"
     })]);
 
     rebuildTaskProjection({ rootDir });
@@ -303,7 +303,7 @@ test("relation graph projection auto-rebuilds when decision relations change", (
     writeDecision(rootDir, "dec_STALE", "wm-stale", [relationRecord({
       source: "decision/dec_STALE/C1",
       target: "fact/task-stale/F-DEADBEEF",
-      type: "supersedes-fact"
+      type: "evidenced-by"
     })]);
     const coverage = readDecisionFactCoverage({ rootDir, decisionId: "dec_STALE" });
 
