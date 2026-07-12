@@ -26,6 +26,27 @@ test("daemon endpoint selection uses a named pipe on Windows and a unix socket o
   assert.equal(localUserDaemonEndpoint(userRoot, daemonId, "linux"), localUserDaemonSocketPath(userRoot, daemonId));
 });
 
+test("daemon client resolves the same Linux per-user runtime socket authority", () => {
+  const userRoot = "/srv/harness-user";
+  const daemonId = "team";
+  const runtimeDir = "/run/user/1234";
+  const pathOptions = {
+    env: { XDG_RUNTIME_DIR: runtimeDir },
+    linuxRuntimeRoot: "/missing-run-user",
+    tmpdir: "/shared-tmp",
+    uid: 1234
+  };
+
+  assert.equal(
+    localUserDaemonEndpoint(userRoot, daemonId, "linux", pathOptions),
+    localUserDaemonSocketPath(userRoot, daemonId, { ...pathOptions, platform: "linux" })
+  );
+  assert.equal(
+    localUserDaemonEndpoint(userRoot, daemonId, "linux", pathOptions).startsWith(`${runtimeDir}/harness-anything/`),
+    true
+  );
+});
+
 test("daemon serve transport wires the selected endpoint to the platform adapter", () => {
   const createProtocolServer = () => {
     throw new Error("not used by adapter selection test");

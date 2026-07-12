@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, statSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +19,7 @@ import {
   currentDaemonProtocolVersion,
   defaultNamedPipePath,
   defaultUnixSocketPath,
+  ensurePrivateUnixSocketDirectory,
   encodeJsonLineFrame,
   makeTransportDerivedIdentityProvider,
   peopleRosterFromDocument,
@@ -27,6 +28,7 @@ import {
   serveSshExecBridge,
   serveSshTunnelTokenStream,
   windowsNamedPipeIntegrationEntry,
+  unixSocketDirectory,
   type DaemonAuthenticationContext,
   type JsonRpcProtocolServer,
   type JsonRpcRequest,
@@ -69,6 +71,69 @@ test("unix socket transport uses single-user path and permissions on POSIX", asy
     "unix-socket-filesystem-owner-boundary"
   );
   socket.end();
+});
+
+test("unix socket path prefers the Linux per-user runtime directory", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-runtime-"));
+  const runtimeDir = path.join(tempDir, "runtime");
+  const endpoint = defaultUnixSocketPath("daemon test", {
+    env: { XDG_RUNTIME_DIR: runtimeDir },
+    linuxRuntimeRoot: path.join(tempDir, "run-user"),
+    platform: "linux",
+    tmpdir: path.join(tempDir, "shared-tmp"),
+    uid: 1234
+  });
+
+  assert.equal(endpoint, path.join(runtimeDir, "harness-anything", "daemon-1234-daemon-test.sock"));
+});
+
+test("unix socket shared-tmp fallback includes uid and rejects an unsafe pre-existing directory", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-shared-tmp-"));
+  const uid = process.getuid?.() ?? 0;
+  const directory = unixSocketDirectory({
+    env: {},
+    linuxRuntimeRoot: path.join(tempDir, "missing-run-user"),
+    platform: "linux",
+    tmpdir: tempDir,
+    uid
+  });
+  assert.equal(directory, path.join(tempDir, `harness-anything-${uid}`));
+
+  mkdirSync(directory, { mode: 0o700 });
+  assert.throws(
+    () => ensurePrivateUnixSocketDirectory(directory, uid + 1),
+    (error: unknown) => {
+      assert.match(String(error), /Unsafe daemon socket directory/u);
+      assert.match(String(error), new RegExp(`owner uid ${uid}`, "u"));
+      assert.match(String(error), /XDG_RUNTIME_DIR or TMPDIR/u);
+      assert.doesNotMatch(String(error), /^Error: EACCES/u);
+      return true;
+    }
+  );
+
+  chmodSync(directory, 0o777);
+  assert.throws(
+    () => ensurePrivateUnixSocketDirectory(directory, uid),
+    /mode 0777.*expected.*mode 0700/iu
+  );
+});
+
+test("unix socket transport rejects an unsafe parent before touching the socket", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-unsafe-parent-"));
+  const directory = path.join(tempDir, "harness-anything");
+  const socketPath = path.join(directory, "daemon.sock");
+  mkdirSync(directory, { mode: 0o777 });
+  chmodSync(directory, 0o777);
+  const transport = createUnixSocketTransportServer({
+    daemonId: "daemon-test",
+    socketPath,
+    createProtocolServer: makeProtocolServerFactory()
+  });
+
+  await assert.rejects(
+    transport.start(),
+    /Unsafe daemon socket directory.*mode 0777.*XDG_RUNTIME_DIR or TMPDIR/iu
+  );
 });
 
 test("unix socket owner boundary credential resolves to its roster person", async () => {
