@@ -24,6 +24,7 @@ export {
   decisionContentCanonicalization
 } from "./integrity/decision-content-digest.ts";
 export { validateOutputEvidence } from "./local/output-evidence-validator.ts";
+export { makeCodeDocGitEvidenceResolver } from "./git/code-doc-git-evidence.ts";
 export * from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/artifact-store-writer.ts";

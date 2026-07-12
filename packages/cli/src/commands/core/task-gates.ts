@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, type TaskLifecycleResult } from "../../../../application/src/index.ts";
-import { makeLocalVersionControlSystem, taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -97,6 +97,7 @@ function runTaskCodeDocReconcile(
       taskId: action.taskId,
       documents,
       rootDir: context.rootDir,
+      authoredRoot: resolveHarnessLayout(context.layoutInput).authoredRoot,
       versionControlSystem: makeLocalVersionControlSystem()
     });
     if (!evaluation.ok) {
