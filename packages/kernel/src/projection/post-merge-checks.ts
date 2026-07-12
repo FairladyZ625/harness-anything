@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { findEntityRefs, parseFactFlowRecords } from "../domain/index.ts";
-import { stablePayloadHash } from "../integrity/stable-hash.ts";
+import { sha256Text, stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
@@ -247,7 +247,29 @@ function isGeneratedArtifactCapture(tasksRoot: string, filePath: string): boolea
   const artifactIndex = parts.indexOf("artifacts");
   if (artifactIndex < 0) return false;
   const captureKind = parts[artifactIndex + 1];
-  return ["baseline", "before", "after", "captures", "snapshots", "transcripts", "raw", "orchestration"].includes(captureKind);
+  if (["baseline", "before", "after", "captures", "snapshots", "transcripts", "raw", "orchestration"].includes(captureKind)) return true;
+  const artifactsDir = path.join(tasksRoot, ...parts.slice(0, artifactIndex + 1));
+  const registryBody = readTextFileIfPresent(path.join(artifactsDir, ".machine-evidence.registry.json"));
+  const captureBody = readTextFileIfPresent(filePath);
+  if (registryBody === null || captureBody === null) return false;
+  try {
+    const registry = JSON.parse(registryBody) as {
+      readonly schema?: unknown;
+      readonly boundary?: unknown;
+      readonly entries?: unknown;
+    };
+    if (registry.schema !== "machine-evidence-registry/v1" || registry.boundary !== "preset-machine-evidence" || !Array.isArray(registry.entries)) return false;
+    const registeredPath = parts.slice(artifactIndex).join("/");
+    const registeredHash = `sha256:${sha256Text(captureBody)}`;
+    return registry.entries.some((entry: unknown) =>
+      entry !== null &&
+      typeof entry === "object" &&
+      (entry as { readonly path?: unknown }).path === registeredPath &&
+      (entry as { readonly sha256?: unknown }).sha256 === registeredHash
+    );
+  } catch {
+    return false;
+  }
 }
 
 interface EntityRefIndex {

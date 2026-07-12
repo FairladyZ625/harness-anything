@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -305,6 +305,51 @@ test("ScriptExecutor diffs generated artifacts and registers machine evidence", 
     assert.deepEqual(result.generated, [evidencePath]);
     const registry = JSON.parse(readFileSync(path.join(artifactsRoot, ".machine-evidence.registry.json"), "utf8"));
     assert.deepEqual(registry.entries.map((entry: Record<string, unknown>) => entry.path), ["artifacts/evidence.json"]);
+  });
+});
+
+test("ScriptExecutor registers overwritten machine evidence without re-registering untouched files", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const evidenceDir = path.join(rootDir, "evidence");
+    const outputRoot = path.join(rootDir, "output");
+    const artifactsRoot = path.join(outputRoot, "artifacts");
+    const scriptPath = path.join(rootDir, "write-snapshot.cjs");
+    const snapshotPath = path.join(artifactsRoot, "gate-retro.snapshot.json");
+    const registryPath = path.join(artifactsRoot, ".machine-evidence.registry.json");
+    mkdirSync(evidenceDir, { recursive: true });
+    mkdirSync(artifactsRoot, { recursive: true });
+    writeFileSync(snapshotPath, "{\"version\":1}\n", "utf8");
+    writeFileSync(scriptPath, [
+      "const { writeFileSync } = require('node:fs');",
+      "const path = require('node:path');",
+      "writeFileSync(path.join(process.env.OUTPUT_ROOT, 'artifacts/gate-retro.snapshot.json'), process.env.SNAPSHOT, 'utf8');",
+      ""
+    ].join("\n"), "utf8");
+
+    const execute = (snapshot: string) => executeScript({
+      scriptPath,
+      cwd: rootDir,
+      evidenceDir,
+      outputRoot,
+      readPermissions: [scriptPath],
+      writePermissions: [outputRoot, `${outputRoot}/**`],
+      env: { OUTPUT_ROOT: outputRoot, SNAPSHOT: snapshot },
+      artifactRoots: [outputRoot],
+      outputBoundary: { kind: "roots", roots: [outputRoot], inspect: "generated" }
+    });
+
+    const overwritten = execute("{\"version\":2}\n");
+    assert.equal(overwritten.ok, true);
+    assert.deepEqual(overwritten.generated, [snapshotPath]);
+    const registry = JSON.parse(readFileSync(registryPath, "utf8"));
+    assert.deepEqual(registry.entries.map((entry: Record<string, unknown>) => entry.path), ["artifacts/gate-retro.snapshot.json"]);
+    assert.notEqual(registry.entries[0].sha256, "sha256:missing");
+
+    utimesSync(registryPath, new Date(0), new Date(0));
+    const untouched = execute("{\"version\":2}\n");
+    assert.equal(untouched.ok, true);
+    assert.deepEqual(untouched.generated, []);
+    assert.equal(statSync(registryPath).mtimeMs, 0);
   });
 });
 

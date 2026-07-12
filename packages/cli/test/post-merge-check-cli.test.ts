@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, formatRelationFlowRecord, type EntityRelationRecord } from "../../kernel/src/index.ts";
+import { deriveRelationId, formatRelationFlowRecord, sha256Text, type EntityRelationRecord } from "../../kernel/src/index.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 
@@ -105,6 +105,20 @@ test("CLI check --post-merge hard-fails a relation to a missing decision", () =>
 test("CLI check --post-merge excludes generated artifact captures from dangling entity refs", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-a", "A", "planned");
+    const artifactsDir = path.join(rootDir, "harness/tasks/task-a/artifacts");
+    const registeredCapturePath = path.join(artifactsDir, "gate-retro.snapshot.json");
+    const registeredCapture = "{\"example\":\"decision/dec_00XYZ\"}\n";
+    mkdirSync(artifactsDir, { recursive: true });
+    writeFileSync(registeredCapturePath, registeredCapture, "utf8");
+    writeFileSync(path.join(artifactsDir, ".machine-evidence.registry.json"), `${JSON.stringify({
+      schema: "machine-evidence-registry/v1",
+      boundary: "preset-machine-evidence",
+      entries: [{
+        path: "artifacts/gate-retro.snapshot.json",
+        sha256: `sha256:${sha256Text(registeredCapture)}`,
+        recordedAt: new Date(0).toISOString()
+      }]
+    }, null, 2)}\n`, "utf8");
     const generatedCaptureDir = path.join(rootDir, "harness/tasks/task-a/artifacts/after");
     mkdirSync(generatedCaptureDir, { recursive: true });
     writeFileSync(path.join(generatedCaptureDir, "help-after.json"), "{\"example\":\"decision/dec_00XYZ\"}\n", "utf8");
@@ -118,6 +132,12 @@ test("CLI check --post-merge excludes generated artifact captures from dangling 
     const generatedResult = runJson(rootDir, ["check", "--post-merge"]);
     assert.equal(generatedResult.ok, true);
     assert.equal(generatedResult.warnings.some((warning: any) => warning.code === "dangling_entity_ref"), false);
+
+    writeFileSync(registeredCapturePath, "{\"example\":\"decision/dec_STALE\"}\n", "utf8");
+    const staleCaptureResult = runJson(rootDir, ["check", "--post-merge"], false);
+    assert.equal(staleCaptureResult.ok, false);
+    assert.equal(staleCaptureResult.warnings.some((warning: any) => warning.code === "dangling_entity_ref"), true);
+    writeFileSync(registeredCapturePath, registeredCapture, "utf8");
 
     const authoredArtifactDir = path.join(rootDir, "harness/tasks/task-a/artifacts/notes");
     mkdirSync(authoredArtifactDir, { recursive: true });

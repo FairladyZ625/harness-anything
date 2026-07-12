@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { writeMachineEvidenceRegistry } from "./machine-evidence-registry.ts";
 import { isPathInside, listGeneratedFiles, uniquePermissionPaths } from "./script-scope.ts";
@@ -41,7 +43,7 @@ export type ScriptExecutionResult =
   };
 
 export function executeScript(options: ScriptExecutorOptions): ScriptExecutionResult {
-  const beforeFiles = new Set(listArtifactFiles(options.artifactRoots));
+  const beforeFiles = snapshotArtifactFiles(options.artifactRoots);
   const result = spawnSync(process.execPath, [
     "--permission",
     ...(options.allowAddons ? ["--allow-addons"] : []),
@@ -70,10 +72,10 @@ export function executeScript(options: ScriptExecutorOptions): ScriptExecutionRe
     };
   }
 
-  const afterFiles = listArtifactFiles(options.artifactRoots);
-  const generated = afterFiles.filter((filePath) => !beforeFiles.has(filePath));
+  const afterFiles = snapshotArtifactFiles(options.artifactRoots);
+  const generated = [...afterFiles.keys()].filter((filePath) => beforeFiles.get(filePath) !== afterFiles.get(filePath));
   const boundaryCandidates = options.outputBoundary.kind === "roots" && options.outputBoundary.inspect === "all"
-    ? afterFiles
+    ? [...afterFiles.keys()]
     : generated;
   if (!boundaryCandidates.every((filePath) => isAllowedOutput(filePath, options.outputBoundary))) {
     return {
@@ -91,6 +93,13 @@ export function executeScript(options: ScriptExecutorOptions): ScriptExecutionRe
 
 function listArtifactFiles(roots: ReadonlyArray<string>): ReadonlyArray<string> {
   return [...new Set(roots.flatMap((root) => listGeneratedFiles(root)))].sort();
+}
+
+function snapshotArtifactFiles(roots: ReadonlyArray<string>): ReadonlyMap<string, string> {
+  return new Map(listArtifactFiles(roots).map((filePath) => [
+    filePath,
+    createHash("sha256").update(readFileSync(filePath)).digest("hex")
+  ]));
 }
 
 function isAllowedOutput(filePath: string, boundary: ScriptExecutorOptions["outputBoundary"]): boolean {
