@@ -34,25 +34,44 @@ interface TargetPlan {
   readonly skipReason?: "non_done_without_active_execution" | "multiple_active_executions";
 }
 
+interface ManualSelection {
+  readonly file: string;
+  readonly requestedRefs: ReadonlyArray<string>;
+  readonly candidates: ReadonlyArray<FactExecutionCandidate>;
+  readonly unresolvedRefs: ReadonlyArray<string>;
+  readonly invalidLines: ReadonlyArray<string>;
+}
+
 export function runMigrateFactExecution(
   context: CommandRunnerContext,
   rootInput: HarnessLayoutInput,
   action: MigrateFactExecutionAction
 ): Effect.Effect<CliResult, WriteError> {
   const classification = classifyFactExecutionCandidates(rootInput);
-  const planId = migrationPlanId(classification.orphans);
-  const batchCount = Math.ceil(classification.automatic.length / action.batchSize);
+  const manual = action.manualListFile ? readManualSelection(rootInput, action.manualListFile, classification.orphans) : undefined;
+  const candidates = manual?.candidates ?? classification.automatic;
+  const planId = manual ? manualMigrationPlanId(manual) : migrationPlanId(classification.orphans);
+  const batchCount = Math.ceil(candidates.length / action.batchSize);
   const start = (action.batch - 1) * action.batchSize;
-  const allTargets = classification.automatic.map((candidate) => targetPlan(rootInput, candidate, planId));
+  const allTargets = candidates.map((candidate) => targetPlan(rootInput, candidate, planId));
   const targets = allTargets.slice(start, start + action.batchSize);
   const pendingTargets = targets.filter((entry) => !entry.candidate.fact.migration && entry.target);
   const report = (appliedFacts: number, appliedTasks: number) => buildReport(
-    action, planId, batchCount, classification, allTargets, targets, appliedFacts, appliedTasks
+    action, planId, batchCount, classification, allTargets, targets, manual, appliedFacts, appliedTasks
   );
 
-  if (action.mode === "dry-run" || pendingTargets.length === 0) {
+  if (action.mode === "dry-run") {
     return Effect.succeed(migrationResult(action, report(0, 0)));
   }
+  if (manual && (manual.unresolvedRefs.length > 0 || manual.invalidLines.length > 0)) {
+    return Effect.succeed({
+      ok: false,
+      command: "migrate-fact-execution",
+      error: cliError(CliErrorCode.RefNotFound, "Manual Fact list contains invalid or unresolved refs; inspect the dry-run report."),
+      report: report(0, 0)
+    });
+  }
+  if (pendingTargets.length === 0) return Effect.succeed(migrationResult(action, report(0, 0)));
   if (action.confirmPlan !== planId) {
     return Effect.succeed({
       ok: false,
@@ -80,6 +99,7 @@ function buildReport(
   classification: ReturnType<typeof classifyFactExecutionCandidates>,
   allTargets: ReadonlyArray<TargetPlan>,
   targets: ReadonlyArray<TargetPlan>,
+  manual: ManualSelection | undefined,
   appliedFacts: number,
   appliedTasks: number
 ): Record<string, unknown> {
@@ -97,6 +117,7 @@ function buildReport(
   return {
     schema: "fact-execution-migration-report/v1",
     mode: action.mode,
+    selectionMode: manual ? "manual-list" : "automatic-intersection",
     planId,
     classifier: {
       signals: ["memoryClass=episodic", "no active evidenced-by reference", "delivery wording"],
@@ -110,8 +131,16 @@ function buildReport(
       episodicOrphans,
       deliveryWordingOrphans: wordingOrphans,
       automaticIntersection: classification.automatic.length,
-      automaticReady: allTargets.filter((entry) => entry.target && !entry.candidate.fact.migration).length,
-      automaticSkipped: allTargets.filter((entry) => !entry.target).length,
+      ...(manual ? {
+        manualRequested: manual.requestedRefs.length,
+        manualResolved: manual.candidates.length,
+        manualUnresolved: manual.unresolvedRefs.length,
+        manualReady: allTargets.filter((entry) => entry.target && !entry.candidate.fact.migration).length,
+        manualSkipped: allTargets.filter((entry) => !entry.target).length
+      } : {
+        automaticReady: allTargets.filter((entry) => entry.target && !entry.candidate.fact.migration).length,
+        automaticSkipped: allTargets.filter((entry) => !entry.target).length
+      }),
       manualDifference: classification.manual.length,
       bearingObservations: classification.bearingObservations.length,
       alreadyMigrated: classification.alreadyMigrated,
@@ -121,7 +150,7 @@ function buildReport(
       appliedFacts,
       appliedTasks
     },
-    automaticSkipReasons: Object.fromEntries([...Map.groupBy(
+    [manual ? "manualSkipReasons" : "automaticSkipReasons"]: Object.fromEntries([...Map.groupBy(
       allTargets.filter((entry) => entry.skipReason),
       (entry) => entry.skipReason!
     )].map(([reason, entries]) => [reason, entries.length])),
@@ -130,6 +159,7 @@ function buildReport(
       target: entry.target,
       ...(entry.skipReason ? { skipReason: entry.skipReason } : {})
     })),
+    ...(manual ? { manualList: { file: manual.file, unresolvedRefs: manual.unresolvedRefs, invalidLines: manual.invalidLines } } : {}),
     manualConfirmation: classification.manual.map(row),
     samples: {
       automatic: sample(classification.automatic),
@@ -140,6 +170,27 @@ function buildReport(
       strategy: "git-revert",
       note: "Each applied batch is one coordinated journal flush. Revert its generated repository commit; facts and executions are never hard-deleted by this command."
     }
+  };
+}
+
+function readManualSelection(
+  rootInput: HarnessLayoutInput,
+  listFile: string,
+  candidates: ReadonlyArray<FactExecutionCandidate>
+): ManualSelection {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const file = path.isAbsolute(listFile) ? listFile : path.join(rootDir, listFile);
+  const lines = readFileSync(file, "utf8").split(/\r?\n/u).map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+  const invalidLines = lines.filter((line) => !/^fact\/task_[0-9A-Z]+\/F-[0-9A-Z]+$/u.test(line));
+  const requestedRefs = [...new Set(lines.filter((line) => !invalidLines.includes(line)))];
+  const byRef = new Map(candidates.map((candidate) => [candidate.factRef, candidate]));
+  return {
+    file,
+    requestedRefs,
+    candidates: requestedRefs.flatMap((factRef) => byRef.get(factRef) ?? []),
+    unresolvedRefs: requestedRefs.filter((factRef) => !byRef.has(factRef)),
+    invalidLines
   };
 }
 
@@ -299,6 +350,12 @@ function migrateFactsBody(body: string, migrations: ReadonlyMap<string, FactMigr
 
 function migrationPlanId(candidates: ReadonlyArray<FactExecutionCandidate>): string {
   return `fxm_${sha256Text(candidates.map((entry) => `${entry.classification}\n${entry.factRef}\n${entry.fact.statement}`).join("\n")).slice(0, 16)}`;
+}
+
+function manualMigrationPlanId(selection: ManualSelection): string {
+  const statementByRef = new Map(selection.candidates.map((entry) => [entry.factRef, entry.fact.statement]));
+  const payload = selection.requestedRefs.map((factRef) => `${factRef}\n${statementByRef.get(factRef) ?? "unresolved"}`).join("\n");
+  return `fxm_${sha256Text(`manual-list\n${payload}`).slice(0, 16)}`;
 }
 
 function archivalExecutionId(planId: string, taskId: string): string {

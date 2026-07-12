@@ -80,6 +80,49 @@ test("fact-execution migration classifies three signals, requires plan confirmat
   });
 });
 
+test("fact-execution manual list migrates an explicitly confirmed Fact through the shared archival path", () => {
+  withTempRoot((rootDir) => {
+    writeFile(rootDir, "AGENTS.md", "# Agent Context\n");
+    writeFile(rootDir, "CLAUDE.md", "# Claude Context\n");
+    runJson(rootDir, ["init"]);
+    const created = runJson(rootDir, ["new-task", "--title", "Manual Historical Delivery"]);
+    const taskPath = String(created.packagePath);
+    const indexPath = path.join(rootDir, taskPath, "INDEX.md");
+    const taskId = readFileSync(indexPath, "utf8").match(/^task_id:\s*(\S+)/mu)?.[1];
+    assert.ok(taskId);
+    writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/^  status:\s*planned$/mu, "  status: done"), "utf8");
+    writeFile(rootDir, `${taskPath}/facts.md`, [
+      "# Facts",
+      "",
+      fact("F-MAN0A1YX", "The operator completed the historical handoff.", "semantic"),
+      ""
+    ].join("\n"));
+    writeFile(rootDir, "artifacts/manual-facts.txt", `# CEO-confirmed delivery facts\nfact/${taskId}/F-MAN0A1YX\n`);
+
+    const dryRun = runJson(rootDir, [
+      "migrate", "fact-execution", "--dry-run", "--apply-manual", "artifacts/manual-facts.txt"
+    ]);
+    assert.equal(dryRun.report.selectionMode, "manual-list");
+    assert.equal(dryRun.report.summary.manualRequested, 1);
+    assert.equal(dryRun.report.summary.manualReady, 1, JSON.stringify(dryRun.report));
+    assert.equal(dryRun.report.summary.manualSkipped, 0);
+
+    const applied = runJson(rootDir, [
+      "migrate", "fact-execution", "--apply", "--apply-manual", "artifacts/manual-facts.txt",
+      "--confirm-plan", String(dryRun.report.planId)
+    ]);
+    assert.equal(applied.report.summary.appliedFacts, 1);
+    const migrated = parseFactFlowRecords(readFileSync(path.join(rootDir, taskPath, "facts.md"), "utf8"))[0];
+    assert.equal(migrated?.migration?.schema, "fact-migration/v1");
+    assert.equal(migrated?.migration?.state, "migrated");
+    const executionId = migrated?.migration?.execution_ref.split("/").at(-1);
+    assert.ok(executionId);
+    const execution = JSON.parse(readFileSync(path.join(rootDir, taskPath, "executions", `${executionId}.md`), "utf8")) as Record<string, any>;
+    assert.equal(execution.outputs[0].locator.text, "The operator completed the historical handoff.");
+    assert.equal(execution.outputs[0].evidence_id, migrated?.migration?.evidence_id);
+  });
+});
+
 function factsBody(): string {
   return [
     "# Facts",

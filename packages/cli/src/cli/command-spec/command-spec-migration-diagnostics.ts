@@ -100,10 +100,10 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-fact-execution",
-    "usage": "migrate fact-execution [--dry-run|--apply --confirm-plan <id>] [--batch-size <n>] [--batch <n>] [--sample-size <n>] [--json]",
-    "options": [{"flag":"--dry-run","description":"Classify and preview without writing; this is the default."},{"flag":"--apply","description":"Apply only three-signal intersection candidates in the selected batch."},{"flag":"--confirm-plan","description":"Confirm the exact plan id returned by dry-run before applying."},{"flag":"--batch-size","description":"Limit each coordinated batch to 1-200 automatic candidates."},{"flag":"--batch","description":"Select the one-based batch number."},{"flag":"--sample-size","description":"Set samples per classification bucket."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Classify orphan Facts with three signals and migrate only the automatic intersection into execution outputs.",
-    "examples": ["harness-anything migrate fact-execution --dry-run --json", "harness-anything migrate fact-execution --apply --confirm-plan fxm_0123456789abcdef --batch 1"],
+    "usage": "migrate fact-execution [--dry-run|--apply --confirm-plan <id>] [--apply-manual <fact-ref-list>] [--batch-size <n>] [--batch <n>] [--sample-size <n>] [--json]",
+    "options": [{"flag":"--dry-run","description":"Classify and preview without writing; this is the default."},{"flag":"--apply","description":"Apply the selected automatic or manual-list candidates in the selected batch."},{"flag":"--apply-manual","description":"Select exact fact/<task-id>/<fact-id> refs from a root-relative list file, bypassing three-signal classification."},{"flag":"--confirm-plan","description":"Confirm the exact plan id returned by dry-run before applying."},{"flag":"--batch-size","description":"Limit each coordinated batch to 1-200 selected candidates."},{"flag":"--batch","description":"Select the one-based batch number."},{"flag":"--sample-size","description":"Set samples per classification bucket."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Migrate automatic three-signal Facts or an exact manually confirmed Fact list into execution outputs.",
+    "examples": ["harness-anything migrate fact-execution --dry-run --json", "harness-anything migrate fact-execution --dry-run --apply-manual artifacts/facts.txt --json", "harness-anything migrate fact-execution --apply --confirm-plan fxm_0123456789abcdef --batch 1"],
     "parse": parseMigrationArgs,
     "run": runMigrationCommand,
     "receiptContract": {

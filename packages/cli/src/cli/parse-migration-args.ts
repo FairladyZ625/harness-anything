@@ -1,5 +1,5 @@
 import { cliError, CliErrorCode } from "./error-codes.ts";
-import { readOption } from "./parse-options.ts";
+import { readOption, readRequiredValueOption } from "./parse-options.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] };
@@ -91,6 +91,8 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
     const batchSize = Number(readOption(migrateArgs, "--batch-size") ?? 50);
     const batch = Number(readOption(migrateArgs, "--batch") ?? 1);
     const sampleSize = Number(readOption(migrateArgs, "--sample-size") ?? 5);
+    const manualList = readRequiredValueOption(migrateArgs, "--apply-manual");
+    if (!manualList.ok) return manualList;
     if (![batchSize, batch, sampleSize].every((value) => Number.isSafeInteger(value) && value > 0) || batchSize > 200) {
       return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use positive integer batch/sample sizes; --batch-size is capped at 200.") };
     }
@@ -105,7 +107,8 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
           batchSize,
           batch,
           sampleSize,
-          confirmPlan: readOption(migrateArgs, "--confirm-plan")
+          confirmPlan: readOption(migrateArgs, "--confirm-plan"),
+          manualListFile: manualList.value
         }
       }
     };
