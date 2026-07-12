@@ -557,7 +557,12 @@ function runDaemonGit(cwd: string, args: ReadonlyArray<string>): void {
 }
 
 function productizationCliEntrypointPath(): string {
-  return realpathSync(fileURLToPath(new URL("../../index.ts", import.meta.url)));
+  const entrypointDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const found = ["index.js", "index.ts"]
+    .map((filename) => path.join(entrypointDir, filename))
+    .find((candidate) => existsSync(candidate));
+  if (!found) throw new Error(`CLI entrypoint not found in: ${entrypointDir}`);
+  return realpathSync(found);
 }
 
 function daemonAssetPath(relativePath: string): string {
