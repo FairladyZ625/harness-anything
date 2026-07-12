@@ -9,7 +9,7 @@ import {
   type HarnessLayoutInput,
   type WriteOp
 } from "../../../../kernel/src/index.ts";
-import { listGeneratedFiles } from "./script-scope.ts";
+import { listGeneratedFiles, permissionPathsForScope } from "./script-scope.ts";
 
 export interface CanonicalScriptStage {
   readonly rootInput: HarnessLayoutInput;
@@ -88,6 +88,18 @@ export function stageMirrorPath(stage: CanonicalScriptStage, realPath: string): 
   const insideAuthored = relative.length === 0 ||
     (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
   return insideAuthored ? path.join(stage.layout.authoredRoot, relative) : realPath;
+}
+
+export function remapScope(
+  stage: CanonicalScriptStage,
+  scope: { readonly ok: true; readonly roots: ReadonlyArray<string>; readonly permissions: ReadonlyArray<string> }
+) {
+  const roots = scope.roots.map((root) => stageMirrorPath(stage, root));
+  return {
+    ok: true as const,
+    roots,
+    permissions: [...scope.permissions, ...roots.flatMap((root) => permissionPathsForScope(root, true))]
+  };
 }
 
 export function scriptIngestOp(

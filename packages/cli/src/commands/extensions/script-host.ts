@@ -14,7 +14,7 @@ import {
   resolveDeclaredReadScopes,
   resolveDeclaredWriteScopes
 } from "./script-scope.ts";
-import { canonicalGeneratedPaths, canonicalizeScriptResult, createCanonicalScriptStage, scriptIngestOp, stageMirrorPath } from "./script-staging.ts";
+import { canonicalGeneratedPaths, canonicalizeScriptResult, createCanonicalScriptStage, remapScope, scriptIngestOp } from "./script-staging.ts";
 export type ScriptSource = "user" | "vertical" | "preset";
 export type ScriptPurpose = "scaffold" | "generate" | "transform" | "audit";
 export type ScriptKind = "action" | "check";
@@ -229,18 +229,6 @@ export function runScriptHost(options: {
     generated: generatedPaths.map((filePath) => relativeToRoot(layout.rootDir, filePath)),
     scriptedResult: stage ? canonicalizeScriptResult(stage, scriptedResult.value) : scriptedResult.value,
     ...(ingestOp ? { ingestOp } : {})
-  };
-}
-
-function remapScope(
-  stage: NonNullable<ReturnType<typeof createCanonicalScriptStage>>,
-  scope: { readonly ok: true; readonly roots: ReadonlyArray<string>; readonly permissions: ReadonlyArray<string> }
-) {
-  const roots = scope.roots.map((root) => stageMirrorPath(stage, root));
-  return {
-    ok: true as const,
-    roots,
-    permissions: [...scope.permissions, ...roots.flatMap((root) => permissionPathsForScope(root, true))]
   };
 }
 

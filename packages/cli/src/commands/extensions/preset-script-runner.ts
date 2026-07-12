@@ -18,7 +18,7 @@ import {
   resolveDeclaredWriteScopes,
   uniquePermissionPaths
 } from "./script-scope.ts";
-import { canonicalGeneratedPaths, canonicalizeScriptResult, createCanonicalScriptStage, scriptIngestOp, stageMirrorPath } from "./script-staging.ts";
+import { canonicalGeneratedPaths, canonicalizeScriptResult, createCanonicalScriptStage, remapScope, scriptIngestOp } from "./script-staging.ts";
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 type ScriptEntrypoint = Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>;
 type ResolvedLayout = ReturnType<typeof resolveHarnessLayout>;
@@ -191,18 +191,6 @@ export function runScriptEntrypoint(
     generated: canonicalGeneratedPaths(stage, execution.generated).map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
     ...(scriptedResult ? { scriptedResult: canonicalizeScriptResult(stage, scriptedResult) } : {}),
     ...(ingestOp ? { ingestOp } : {})
-  };
-}
-
-function remapScope(
-  stage: ReturnType<typeof createCanonicalScriptStage>,
-  scope: { readonly ok: true; readonly roots: ReadonlyArray<string>; readonly permissions: ReadonlyArray<string> }
-) {
-  const roots = scope.roots.map((root) => stageMirrorPath(stage, root));
-  return {
-    ok: true as const,
-    roots,
-    permissions: [...scope.permissions, ...roots.flatMap((root) => permissionPathsForScope(root, true))]
   };
 }
 
