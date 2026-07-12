@@ -69,6 +69,14 @@ for (const decision of decisions) {
         "Load-bearing decision claim has no reachable live fact.",
         "Relate the claim to a valid fact with evidenced-by/supporting relation flow, or mark the claim non-load-bearing when appropriate."
       );
+      if (row.refutingFactRefs?.length > 0) {
+        finding(
+          "decision-claim-refuted",
+          row.claimRef,
+          `Load-bearing decision claim is refuted by active fact evidence: ${row.refutingFactRefs.join(", ")}.`,
+          "Revise or mark the claim non-load-bearing, then retire the refutation only if later evidence resolves it."
+        );
+      }
     }
   }
 

@@ -140,6 +140,7 @@ test("relation whitelist implements the ratified physical-direction matrix", () 
   // Unrelated combinations stay rejected.
   assert.equal(isAllowedRelationKindTriple("decision", "blocks", "fact"), false);
   assert.equal(isAllowedRelationKindTriple("fact", "evidenced-by", "decision"), false);
+  assert.equal(isAllowedRelationKindTriple("fact", "refutes", "decision"), true);
 });
 
 test("type-subset whitelist only governs active relations", () => {

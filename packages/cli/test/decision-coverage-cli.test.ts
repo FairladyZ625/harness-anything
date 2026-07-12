@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -523,6 +524,57 @@ test("CLI decision conformance applies task and claim findings at the cutoff bou
       result,
       "decision-claim-uncovered",
       "decision/dec_RULE_BOUNDARY/C1"
+    ), true);
+  });
+});
+
+test("CLI decision conformance reports refuted claims independently from uncovered claims", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    writeDecisionConformancePolicy(rootDir);
+    const task = runJson(rootDir, ["task", "create", "--title", "Refutation evidence"]);
+    runJson(rootDir, [
+      "fact", "record",
+      "--task", task.taskId,
+      "--id", "F-REFATE01",
+      "--statement", "Observed behavior refutes the active claim.",
+      "--source", "test",
+      "--confidence", "high"
+    ]);
+    runJson(rootDir, [
+      "decision", "propose",
+      "--id", "dec_REFUTED_CLAIM",
+      "--title", "Refuted claim",
+      "--question", "Does the claim survive contrary evidence?",
+      "--chosen", "Keep refutations explicit",
+      "--rejected", "Treat refutation as coverage",
+      "--why-not", "Contrary evidence must not cover a claim",
+      "--evidence-relation", `C1:derives:task/${task.taskId}:The decision derives the remediation task`
+    ]);
+    runJson(rootDir, ["decision", "accept", "dec_REFUTED_CLAIM", "--arbiter", "human:ZeyuLi"]);
+
+    const taskPackage = readdirSync(path.join(rootDir, "harness/tasks"))
+      .find((entry) => entry.startsWith(task.taskId));
+    assert.ok(taskPackage);
+    const factsPath = path.join(rootDir, "harness/tasks", taskPackage, "facts.md");
+    const source = `fact/${task.taskId}/F-REFATE01`;
+    const target = "decision/dec_REFUTED_CLAIM/C1";
+    const type = "refutes";
+    const direction = "directed";
+    const relationId = `rel_${createHash("sha256").update(`${source}|${target}|${type}|${direction}`).digest("hex").slice(0, 16)}`;
+    writeFileSync(factsPath, `${readFileSync(factsPath, "utf8").trimEnd()}\n\nrelations:\n- {relation_id: ${relationId}, source: ${source}, target: ${target}, type: refutes, strength: strong, direction: directed, origin: declared, rationale: "Observed behavior contradicts the claim.", state: active}\n`, "utf8");
+
+    const result = runJson(rootDir, ["check", "--profile", "source-package"], false);
+
+    assert.equal(hasDecisionConformanceFinding(
+      result,
+      "decision-claim-uncovered",
+      target
+    ), true);
+    assert.equal(hasDecisionConformanceFinding(
+      result,
+      "decision-claim-refuted",
+      target
     ), true);
   });
 });
