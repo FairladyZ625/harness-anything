@@ -489,6 +489,8 @@ function AppShell() {
                 relations={relations}
                 decisions={decisions}
                 facts={facts}
+                coverageRows={coverageRows}
+                factAnchors={factAnchors}
                 onNavigateEntity={navigateToEntity}
                 focusRef={focusedEntityRef}
               />
