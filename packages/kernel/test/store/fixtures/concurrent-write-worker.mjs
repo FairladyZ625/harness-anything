@@ -13,7 +13,9 @@ for (let index = 0; index < 10; index += 1) {
     attribution: {
       actor: {
         principal: { kind: "person", personId: "person_test" },
-        executor: { kind: "agent", id: `concurrent-${writerId}` }
+        // Both processes retry the same logical operations, so their complete
+        // attribution must also match under the v2 op-id collision contract.
+        executor: { kind: "agent", id: "concurrent-fixture" }
       },
       principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:test" },
       executorSource: "client-asserted"

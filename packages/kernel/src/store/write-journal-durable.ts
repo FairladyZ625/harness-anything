@@ -102,7 +102,7 @@ export function readPayloadRef(rootDir: string, record: Pick<ReadableJournalReco
   return JSON.parse(body) as Record<string, unknown>;
 }
 
-export function appendJsonLineDurably(filePath: string, value: JournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord | Record<string, unknown>): void {
+export function appendJsonLineDurably(filePath: string, value: JournalRecord | JournalRecordV1 | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord | Record<string, unknown>): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
   const fd = openSync(filePath, "a");
   try {

@@ -70,9 +70,7 @@ export type NormalizedJournalRecordV1 = JournalRecordV1 & {
 
 export type ReadableJournalRecord = NormalizedJournalRecordV1 | JournalRecordV2;
 
-// Phase 1 leaves the writer on v1. Call sites that construct new WAL entries
-// continue to use this alias until the Phase 3 writer cutover.
-export type JournalRecord = JournalRecordV1;
+export type JournalRecord = JournalRecordV2;
 
 export interface LockTakeoverRecord {
   readonly schema: "lock-takeover/v1";

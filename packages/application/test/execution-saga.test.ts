@@ -219,18 +219,22 @@ test("reservation reconciler converges an orphan Execution reservation without a
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
     const holder = makeTaskHolderService({ rootInput: rootDir });
     await holder.reserveExecution({ taskId, executionId, principal: aliceCodex });
-    const authored = makeCoordinatedExecutionAuthoredStore({
-      rootInput: rootDir,
-      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution }),
-      artifactStore: makeMarkdownArtifactStore({ rootDir })
-    });
+    let reconciledPrincipal: typeof aliceCodex | undefined;
     const reconcile = makeExecutionReservationReconciler({
       rootInput: rootDir,
       taskHolderService: holder,
-      authoredStore: authored
+      authoredStoreForLease: ({ principal }) => {
+        reconciledPrincipal = principal;
+        return makeCoordinatedExecutionAuthoredStore({
+          rootInput: rootDir,
+          coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution }),
+          artifactStore: makeMarkdownArtifactStore({ rootDir })
+        });
+      }
     });
 
     await reconcile();
+    assert.deepEqual(reconciledPrincipal, aliceCodex);
     assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
     assert.equal(existsSync(path.join(taskRoot, "executions", `${executionId}.md`)), false);
   } finally {

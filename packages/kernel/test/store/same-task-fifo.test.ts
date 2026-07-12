@@ -40,12 +40,15 @@ test("WriteCoordinator journals actor person and uses explicit git authors", () 
 
     Effect.runSync(alice.enqueue(docWrite("op-alice", "task-1", "alice.md", "alice")));
     const journalBody = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
-    assert.match(journalBody, /"actor":\{"kind":"human","id":"person_alice"\}/u);
+    assert.match(journalBody, /"schema":"write-journal\/v2"/u);
+    assert.match(journalBody, /"actor":\{"principal":\{"kind":"person","personId":"person_alice"\},"executor":null\}/u);
+    assert.match(journalBody, /"principalSource":\{"kind":"local-configured","authority":"harness.yaml","authoritySha256":"sha256:test"\}/u);
+    assert.match(journalBody, /"executorSource":"none"/u);
     Effect.runSync(alice.flush("explicit"));
 
     Effect.runSync(bob.enqueue(docWrite("op-bob", "task-1", "bob.md", "bob")));
     const bobJournalBody = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
-    assert.match(bobJournalBody, /"actor":\{"kind":"human","id":"person_bob"\}/u);
+    assert.match(bobJournalBody, /"actor":\{"principal":\{"kind":"person","personId":"person_bob"\},"executor":null\}/u);
     Effect.runSync(bob.flush("explicit"));
 
     assert.deepEqual(
