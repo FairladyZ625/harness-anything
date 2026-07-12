@@ -489,10 +489,10 @@ async function appendCommandEvent(
   const eventActor = actor
     ? runtimeEventActorFromTaskHolderPrincipal(taskHolderPrincipalFromActor(actor, { executor }))
     : undefined;
+  if (!eventActor) return;
   await options.appendRuntimeEvent({
     kind: "result",
-    ...(eventActor ? { actor: eventActor } : {}),
-    actorAxes: actorAxes(session, eventActor),
+    actor: eventActor,
     session,
     tool: {
       toolName: command.toolName ?? contract.method,
@@ -504,18 +504,6 @@ async function appendCommandEvent(
       ...(errorCode ? { errorCode } : {})
     }
   }, repo ? { repo } : undefined).catch(() => undefined);
-}
-
-function actorAxes(
-  session: ReturnType<typeof runtimeSession>,
-  actor: ReturnType<typeof runtimeEventActorFromTaskHolderPrincipal> | undefined
-): RuntimeEventAppendInput["actorAxes"] {
-  const principal = actor?.principal ?? null;
-  return {
-    principal,
-    executor: { runtime: session.runtime, sessionId: session.sessionId },
-    responsibleHuman: principal
-  };
 }
 
 function commandEventDetails(params: JsonObject): { readonly toolName?: string; readonly taskId?: string } {

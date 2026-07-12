@@ -13,8 +13,10 @@ import {
   TaskReleaseNotHolderError,
   makeTaskHolderService,
   taskHolderActor,
+  taskHolderExecutorFromJournalActor,
   type TaskHolderPrincipal,
-  type TaskHolderRecord
+  type TaskHolderRecord,
+  type TaskHolderServiceOptions
 } from "../src/index.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
@@ -263,6 +265,57 @@ test("holder record stays in local runtime state with acquiredVia claim", async 
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("execution lease transitions emit replayable envelopes without credential material", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-lease-events-"));
+  type LeaseEvent = Parameters<NonNullable<TaskHolderServiceOptions["appendLeaseEvent"]>>[0];
+  const events: LeaseEvent[] = [];
+  let now = new Date("2026-07-10T00:00:00.000Z");
+  try {
+    const service = makeTaskHolderService({
+      rootInput: rootDir,
+      now: () => now,
+      appendLeaseEvent: async (event) => { events.push(event); }
+    });
+    const reserved = await service.reserveExecution({ taskId, executionId: "exe_lease_events_01", principal: aliceCodex, ttlMs: 1_000 });
+    await service.activateExecution({
+      taskId,
+      executionId: reserved.executionId,
+      leaseToken: reserved.leaseToken,
+      principal: aliceCodex
+    });
+    await service.releaseExecution({
+      taskId,
+      executionId: reserved.executionId,
+      leaseToken: reserved.leaseToken,
+      principal: aliceCodex
+    });
+
+    assert.deepEqual(events.map((event) => event.lease.action), ["reserved", "activated", "released"]);
+    assert.equal(events[0]?.lease.leaseExpiresAt, "2026-07-10T00:00:01.000Z");
+    assert.deepEqual(events[2]?.lease.previousHolder, {
+      principal: { kind: "person", personId: "alice" },
+      executor: { kind: "agent", id: "codex" }
+    });
+    assert.doesNotMatch(JSON.stringify(events), /token|hash|credential/iu);
+
+    const expiring = await service.reserveExecution({ taskId, executionId: "exe_lease_events_02", principal: aliceCodex, ttlMs: 1_000 });
+    now = new Date("2026-07-10T00:00:02.000Z");
+    await service.reconcileExecution({ taskId, executionId: expiring.executionId, authoredState: "active" });
+    assert.equal(events.at(-1)?.lease.action, "expired");
+    assert.equal(events.at(-1)?.lease.phase, "expired");
+    assert.equal((await service.holder({ taskId })).orphan, false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("system journal actors cannot be projected as direct-human lease executors", () => {
+  assert.throws(
+    () => taskHolderExecutorFromJournalActor({ kind: "system", id: "cron" }),
+    /use an agent executor with a person principal/u
+  );
 });
 
 interface ClaimWorkerMessage {

@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import type { LocalControllerService } from "../../application/src/index.ts";
-import { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "../../application/src/index.ts";
+import type { RuntimeEventAppendInput } from "../../application/src/index.ts";
 import { apiRouteContracts } from "../../gui/src/api/api-contract-registry.ts";
 import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
 import { commandSpecs } from "../../cli/src/cli/command-spec/index.ts";
@@ -412,6 +412,7 @@ test("mock email provider proves provider extension without daemon call-site cha
 
 test("RBAC rejects non-arbiter methods and records a runtime event with actor", async () => {
   const rootDir = createHarnessRoot();
+  let event: RuntimeEventAppendInput | undefined;
   try {
     const roster = sampleRoster();
     const server = makeServer({
@@ -421,11 +422,7 @@ test("RBAC rejects non-arbiter methods and records a runtime event with actor", 
         transportKind: "ssh-exec",
         sshExecUser: { username: "viewer", host: "team-host", source: "ssh-authenticated-exec" }
       },
-      appendRuntimeEvent: makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
-        rootInput: rootDir,
-        now: () => "2026-07-07T00:00:00.000Z",
-        makeEventId: () => "evt_20260707_rbacdeny"
-      }))
+      appendRuntimeEvent: async (input) => { event = input; }
     });
     await server.handle(readFixture("hello-compatible.json"));
 
@@ -444,14 +441,10 @@ test("RBAC rejects non-arbiter methods and records a runtime event with actor", 
     assert.equal(receipt.ok, false);
     assert.equal(receipt.error?.code, "rbac_forbidden");
     assert.equal((receipt.details.actor as { readonly personId?: string }).personId, "person_viewer");
-    const event = JSON.parse(readFileSync(path.join(rootDir, ".harness/generated/runtime-events/codex-session-rbac.jsonl"), "utf8")) as {
-      readonly actor?: { readonly principal?: { readonly personId?: string }; readonly executor?: unknown; readonly responsibleHuman?: string };
-      readonly result?: { readonly errorCode?: string };
-      readonly tool?: { readonly toolName?: string };
-    };
+    assert.ok(event);
     assert.equal(event.actor?.principal?.personId, "person_viewer");
     assert.equal(event.actor?.executor, null);
-    assert.equal(event.actor?.responsibleHuman, "person:person_viewer");
+    assert.equal("responsibleHuman" in event.actor, false);
     assert.equal(event.result?.errorCode, "rbac_forbidden");
     assert.equal(event.tool?.toolName, "repo.tasks.review");
   } finally {
@@ -461,7 +454,14 @@ test("RBAC rejects non-arbiter methods and records a runtime event with actor", 
 
 test("runtime event append receives the validated repo namespace", async () => {
   const eventRepos: string[] = [];
+  const roster = sampleRoster();
   const server = makeServer({
+    peopleRoster: roster,
+    identityProvider: makeTransportDerivedIdentityProvider(roster, { sshExecIssuer: "host:team-host" }),
+    authContext: {
+      transportKind: "ssh-exec",
+      sshExecUser: { username: "maint", host: "team-host", source: "ssh-authenticated-exec" }
+    },
     appendRuntimeEvent: async (_input, context) => {
       eventRepos.push(context?.repo.repoId ?? "none");
     },

@@ -4,10 +4,13 @@ import path from "node:path";
 import { Effect, Schema } from "effect";
 import {
   RuntimeEventRecordSchema,
+  RuntimeEventRecordV2Schema,
   type RuntimeEventApprovalDecision,
   type RuntimeEventInterruptAction,
   type RuntimeEventKind,
   type RuntimeEventRecord,
+  type RuntimeEventRecordDocument,
+  type RuntimeEventRecordV2,
   type RuntimeEventRuntime,
   type RuntimeEventResultStatus
 } from "../../kernel/src/index.ts";
@@ -26,8 +29,7 @@ export interface RuntimeEventAppendInput {
   readonly eventId?: string;
   readonly recordedAt?: string;
   readonly kind: RuntimeEventKind;
-  readonly actor?: RuntimeEventRecord["actor"];
-  readonly actorAxes?: RuntimeEventRecord["actorAxes"];
+  readonly actor: RuntimeEventRecordV2["actor"];
   readonly session: {
     readonly sessionId: string;
     readonly runtime?: RuntimeEventRuntime | "unknown";
@@ -56,17 +58,18 @@ export interface RuntimeEventAppendInput {
     readonly errorCode?: string;
   } | null;
   readonly cost?: RuntimeEventRecord["cost"];
+  readonly lease?: NonNullable<RuntimeEventRecordV2["lease"]>;
 }
 
 export interface RuntimeEventLedgerAppendResult {
-  readonly event: RuntimeEventRecord;
+  readonly event: RuntimeEventRecordV2;
   readonly path: string;
 }
 
 export interface RuntimeEventLedgerReadResult {
   readonly sessionId: string;
   readonly path: string;
-  readonly events: ReadonlyArray<RuntimeEventRecord>;
+  readonly events: ReadonlyArray<RuntimeEventRecordDocument>;
 }
 
 export interface RuntimeEventLedgerRejected {
@@ -76,7 +79,7 @@ export interface RuntimeEventLedgerRejected {
 }
 
 export interface RuntimeEventExportPort {
-  readonly exportEvents: (events: ReadonlyArray<RuntimeEventRecord>) => Effect.Effect<void, RuntimeEventLedgerRejected>;
+  readonly exportEvents: (events: ReadonlyArray<RuntimeEventRecordDocument>) => Effect.Effect<void, RuntimeEventLedgerRejected>;
 }
 
 export interface RuntimeEventLedgerService {
@@ -105,15 +108,14 @@ function toRuntimeEventRecord(
   input: RuntimeEventAppendInput,
   timestamp: () => string,
   eventId: () => string
-): RuntimeEventRecord {
+): RuntimeEventRecordV2 {
   const id = input.eventId ?? eventId();
   return {
-    schema: "runtime-event/v1",
+    schema: "runtime-event/v2",
     eventId: id,
     recordedAt: input.recordedAt ?? timestamp(),
     kind: input.kind,
-    ...(input.actor ? { actor: normalizeRuntimeEventActor(input.actor) } : {}),
-    ...(input.actorAxes ? { actorAxes: input.actorAxes } : {}),
+    actor: input.actor,
     session: {
       sessionId: input.session.sessionId,
       runtime: input.session.runtime ?? "unknown",
@@ -133,18 +135,19 @@ function toRuntimeEventRecord(
       ? { interruptId: input.interrupt.interruptId ?? id, action: input.interrupt.action, ...(input.interrupt.reason ? { reason: input.interrupt.reason } : {}) }
       : null,
     result: input.result ?? null,
-    cost: input.cost ?? null
+    cost: input.cost ?? null,
+    ...(input.lease ? { lease: input.lease } : {})
   };
 }
 
 function appendRuntimeEvent(
   rootInput: HarnessLayoutInput,
-  event: RuntimeEventRecord,
+  event: RuntimeEventRecordV2,
   coordinator?: WriteCoordinator
 ): Effect.Effect<RuntimeEventLedgerAppendResult, RuntimeEventLedgerRejected> {
   return Effect.try({
     try: () => {
-      const decoded = Schema.decodeUnknownSync(RuntimeEventRecordSchema)(event);
+      const decoded = Schema.decodeUnknownSync(RuntimeEventRecordV2Schema)(event);
       const target = resolveRuntimeEventLedgerPath(rootInput, decoded.session.sessionId);
       return {
         decoded,
@@ -163,8 +166,10 @@ function appendRuntimeEvent(
           path: path.relative(resolveHarnessLayout(rootInput).rootDir, target.absolutePath).split(path.sep).join("/"),
           value: decoded
         };
-      return coordinator
-        ? writeCoordinatedPayloadLocal(coordinator, {
+      if (!coordinator) {
+        return Effect.fail(runtimeEventRejection(decoded.session.sessionId, "runtime-event append requires a write coordinator"));
+      }
+      return writeCoordinatedPayloadLocal(coordinator, {
           entityId: moduleEntityId("runtime-event-ledger"),
           kind: "machine_artifact_append_jsonl",
           opIdPrefix: `runtime-event-${decoded.eventId}`,
@@ -172,15 +177,7 @@ function appendRuntimeEvent(
         }).pipe(
         Effect.map(() => result),
         Effect.mapError((error) => runtimeEventRejection(decoded.session.sessionId, runtimeLedgerWriteErrorMessage(error)))
-      )
-        : Effect.tryPromise({
-        try: async () => {
-          await fs.promises.mkdir(path.dirname(target.absolutePath), { recursive: true });
-          await appendJsonlWithFsync(target.absolutePath, decoded);
-          return result;
-        },
-        catch: (error) => runtimeEventRejection(decoded.session.sessionId, runtimeEventErrorMessage(error))
-      });
+      );
     })
   );
 }
@@ -206,14 +203,16 @@ function readRuntimeEventSession(
   });
 }
 
-function decodeRuntimeEventLine(line: string, sessionId: string, lineNumber: number): RuntimeEventRecord {
+function decodeRuntimeEventLine(line: string, sessionId: string, lineNumber: number): RuntimeEventRecordDocument {
   let parsed: unknown;
   try {
     parsed = normalizeRuntimeEventRecord(JSON.parse(line) as unknown);
   } catch (error) {
     throw new Error(`invalid JSONL line ${lineNumber}: ${runtimeEventErrorMessage(error)}`);
   }
-  const decoded = Schema.decodeUnknownSync(RuntimeEventRecordSchema)(parsed);
+  const decoded = isRecord(parsed) && parsed.schema === "runtime-event/v2"
+    ? Schema.decodeUnknownSync(RuntimeEventRecordV2Schema)(parsed)
+    : Schema.decodeUnknownSync(RuntimeEventRecordSchema)(parsed);
   if (decoded.session.sessionId !== sessionId) {
     throw new Error(`event line ${lineNumber} belongs to session ${decoded.session.sessionId}`);
   }
@@ -239,17 +238,6 @@ function normalizeRuntimeEventRecord(value: unknown): unknown {
   };
 }
 
-function normalizeRuntimeEventActor(actor: unknown): RuntimeEventRecord["actor"] | undefined {
-  if (!isRecord(actor)) return undefined;
-  if (isRecord(actor.principal)) return actor as unknown as RuntimeEventRecord["actor"];
-  if (typeof actor.personId !== "string") return undefined;
-  return {
-    principal: actor as unknown as NonNullable<RuntimeEventRecord["actor"]>["principal"],
-    executor: null,
-    responsibleHuman: `person:${actor.personId}`
-  };
-}
-
 function resolveRuntimeEventLedgerPath(rootInput: HarnessLayoutInput, sessionId: string): { readonly absolutePath: string; readonly relativePath: string } {
   const layout = resolveHarnessLayout(rootInput);
   const absolutePath = layout.runtimeEventLedgerPath(sessionId);
@@ -257,16 +245,6 @@ function resolveRuntimeEventLedgerPath(rootInput: HarnessLayoutInput, sessionId:
     absolutePath,
     relativePath: path.relative(layout.localRoot, absolutePath).split(path.sep).join("/")
   };
-}
-
-async function appendJsonlWithFsync(filePath: string, event: RuntimeEventRecord): Promise<void> {
-  const handle = await fs.promises.open(filePath, "a");
-  try {
-    await handle.writeFile(`${JSON.stringify(event)}\n`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
 }
 
 function makeRuntimeEventId(recordedAt: string): string {

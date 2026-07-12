@@ -13,11 +13,17 @@ export function appendCommandRuntimeEvent(
   if (runtimeEventPolicyForAction(command.action) !== "auto") return Effect.succeed(result);
   const entityRefs = eventEntityRefs(command.action, result);
   const errorCode = result.ok ? undefined : result.error?.code;
-  const actor = commandRuntimeEventActor(context);
   return context.currentSessionProbe.currentSession.pipe(
-    Effect.flatMap((session) => context.runtimeEventLedgerService.append({
+    Effect.flatMap((session) => Effect.try({
+      try: () => runtimeEventActorFromTaskHolderPrincipal(context.taskHolderPrincipal()),
+      catch: (error): RuntimeEventActorRejected => ({
+        _tag: "RuntimeEventActorRejected",
+        sessionId: session.sessionId,
+        reason: runtimeEventActorResolutionMessage(error)
+      })
+    }).pipe(Effect.flatMap((actor) => context.runtimeEventLedgerService.append({
       kind: "result",
-      ...(actor ? { actor } : {}),
+      actor,
       session: {
         sessionId: session.sessionId,
         runtime: session.runtime,
@@ -33,7 +39,7 @@ export function appendCommandRuntimeEvent(
         summary: `CLI command ${result.ok ? "succeeded" : "failed"}: ${command.action.kind}`,
         ...(errorCode ? { errorCode } : {})
       }
-    })),
+    })))),
     Effect.match({
       onFailure: (error): CliResult => ({
         ...result,
@@ -52,6 +58,16 @@ export function appendCommandRuntimeEvent(
   );
 }
 
+interface RuntimeEventActorRejected {
+  readonly _tag: "RuntimeEventActorRejected";
+  readonly sessionId: string;
+  readonly reason: string;
+}
+
+function runtimeEventActorResolutionMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function eventEntityRefs(
   action: ParsedCommand["action"],
   result: CliResult
@@ -66,17 +82,4 @@ function eventEntityRefs(
     ...(decisionId ? { decisionId } : {}),
     ...(factRef ? { factRef } : {})
   };
-}
-
-function commandRuntimeEventActor(context: CommandRunnerContext) {
-  try {
-    return runtimeEventActorFromTaskHolderPrincipal(context.taskHolderPrincipal());
-  } catch (error) {
-    process.stderr.write(`warning: runtime event actor attribution unavailable: ${runtimeEventActorResolutionMessage(error)}\n`);
-    return undefined;
-  }
-}
-
-function runtimeEventActorResolutionMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

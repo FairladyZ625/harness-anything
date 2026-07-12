@@ -11,8 +11,8 @@
   ],
   "rowCountReconciliation": {
     "phase1FunctionalRows": 26,
-    "registryRows": 36,
-    "difference": "Seven additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road. Two further ADR-0028 P4 rows register the attributed doc_sync_submit coordinator road and the preset script staging-mirror ingest road. One ADR-0028 P5 row registers the coordinator-owned immutable attribution event trail."
+    "registryRows": 35,
+    "difference": "Six additional rows split mixed write functions and infrastructure: module canonical/view, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road. Two further ADR-0028 P4 rows register the attributed doc_sync_submit coordinator road and the preset script staging-mirror ingest road. One ADR-0028 P5 row registers the coordinator-owned immutable attribution event trail."
   },
   "rows": [
     {
@@ -77,7 +77,7 @@
       "entry": ["daemon-rpc", "cli"],
       "cliActions": ["task-claim", "task-release"],
       "directWrites": [{ "file": "packages/kernel/src/local/local-layout-file-system.ts" }],
-      "evidence": ["packages/kernel/src/local/task-holder-state.ts:287", "packages/kernel/src/local/local-layout-file-system.ts:11"],
+      "evidence": ["packages/kernel/src/local/task-holder-state.ts:410", "packages/kernel/src/local/local-layout-file-system.ts:16"],
       "freshness": "runtime-state-cas"
     },
     {
@@ -324,20 +324,8 @@
       "machineArtifactBoundaries": ["runtime-event-ledger"],
       "cliActions": ["runtime-event-append"],
       "callsiteFiles": ["packages/application/src/runtime-event-ledger-service.ts"],
-      "evidence": ["packages/application/src/runtime-event-ledger-service.ts:133", "packages/application/src/runtime-event-ledger-service.ts:159"],
+      "evidence": ["packages/application/src/runtime-event-ledger-service.ts:145", "packages/application/src/runtime-event-ledger-service.ts:174"],
       "freshness": "append-jsonl-telemetry"
-    },
-    {
-      "id": "runtime-event.direct-fallback",
-      "sourceInventoryRows": [17],
-      "road": "D",
-      "bearing": "runtime-event-audit",
-      "leaseRequired": false,
-      "channel": { "pathClass": "generated-local", "zoneClass": "runtime-event-telemetry" },
-      "entry": ["internal-fallback"],
-      "directWrites": [{ "file": "packages/application/src/runtime-event-ledger-service.ts" }],
-      "evidence": ["packages/application/src/runtime-event-ledger-service.ts:225"],
-      "freshness": "direct-jsonl-fallback"
     },
     {
       "id": "docmap.derived-write",

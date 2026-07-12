@@ -181,6 +181,14 @@ test("default claim and submit use Holder V2 without requiring an execution id",
     assert.match(claimed.executionId, /^exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u);
     assert.match(claimed.report.leaseToken, /^[0-9a-f]{64}$/u);
     assert.deepEqual(claimed.report.actor.executor, { kind: "agent", id: "test" });
+    const leaseLedgerBody = readFileSync(path.join(
+      rootDir,
+      `.harness/generated/runtime-events/lease-${claimed.executionId}.jsonl`
+    ), "utf8");
+    const leaseEvents = leaseLedgerBody.trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(leaseEvents.map((event) => event.lease.action), ["reserved", "activated"]);
+    assert.equal(leaseEvents.every((event) => event.schema === "runtime-event/v2" && event.kind === "lease"), true);
+    assert.doesNotMatch(leaseLedgerBody, /token|hash|credential/iu);
     const execution = JSON.parse(readFileSync(path.join(
       rootDir,
       `harness/tasks/${created.taskId}-execution-saga/executions/${claimed.executionId}.md`

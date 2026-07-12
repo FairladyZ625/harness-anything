@@ -1,20 +1,37 @@
 import {
   makeCoordinatedExecutionAuthoredStore,
   makeExecutionReservationReconciler,
+  makeRuntimeEventAppendPromise,
+  makeRuntimeEventLedgerService,
   makeTaskHolderService,
   type TaskHolderPrincipal
 } from "../../../application/src/index.ts";
 import {
+  Effect,
+} from "effect";
+import {
   makeJournaledWriteCoordinator,
   makeMarkdownArtifactStore,
   type HarnessLayoutInput,
-  type WriteAttribution
+  type WriteAttribution,
+  type WriteCoordinator
 } from "../../../kernel/src/index.ts";
+import { makeDaemonQueuedOperationalWriteCoordinator, type CliDaemonRuntime } from "../daemon/queued-write-coordinator.ts";
 
-export function makeDaemonReservationReconciler(rootInput: HarnessLayoutInput): () => Promise<void> {
+export function makeDaemonReservationReconciler(rootInput: HarnessLayoutInput, runtime?: CliDaemonRuntime): () => Promise<void> {
+  const appendLeaseEvent = runtime
+    ? makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
+        rootInput,
+        coordinator: makeDaemonQueuedOperationalWriteCoordinator(runtime, "runtime-event-lease-reconcile", {
+          scope: "operational",
+          kind: "system",
+          id: "daemon-runtime"
+        })
+      }))
+    : undefined;
   return makeExecutionReservationReconciler({
     rootInput,
-    taskHolderService: makeTaskHolderService({ rootInput }),
+    taskHolderService: makeTaskHolderService({ rootInput, ...(appendLeaseEvent ? { appendLeaseEvent } : {}) }),
     authoredStoreForLease: ({ executionId, principal }) => makeCoordinatedExecutionAuthoredStore({
       rootInput,
       coordinator: makeJournaledWriteCoordinator({
@@ -30,6 +47,20 @@ export function makeDaemonReservationReconciler(rootInput: HarnessLayoutInput): 
       )
     })
   });
+}
+
+export function failClosedReservationReconcilerCoordinator(): WriteCoordinator {
+  const fail = () => Effect.fail({
+    _tag: "WriteRejected" as const,
+    reason: "Reservation reconciliation cannot author entity state without the original lease principal attribution.",
+    code: "identity_required",
+    retryable: false
+  });
+  return {
+    enqueue: () => fail(),
+    flush: () => fail(),
+    recover: fail()
+  };
 }
 
 export function reservationReconciliationAttribution(

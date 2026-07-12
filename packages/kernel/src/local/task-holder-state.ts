@@ -7,6 +7,12 @@ import { localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
 import { listExecutionLeaseRefs } from "./task-holder-state-source.ts";
 import { hashExecutionLeaseToken, sameExecutionLeaseActor, sameTaskHolderPrincipal } from "./execution-lease-credential.ts";
 import {
+  emitExecutionLeaseEvents,
+  executionLeaseRuntimeEvent,
+  type ExecutionLeaseEventSink,
+  type ExecutionLeaseRuntimeEvent
+} from "./task-holder-lease-events.ts";
+import {
   ExecutionLeaseCollisionError,
   TaskClaimCollisionError,
   TaskLeaseRequiredError,
@@ -105,6 +111,7 @@ export interface TaskHolderServiceOptions {
   readonly rootInput: HarnessLayoutInput;
   readonly now?: () => Date;
   readonly defaultTtlMs?: number;
+  readonly appendLeaseEvent?: ExecutionLeaseEventSink;
 }
 
 export interface TaskHolderService {
@@ -216,68 +223,106 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         orphan: snapshot.orphan
       });
     }),
-    reserveExecution: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
-      const at = now();
-      const current = readHolderRecord(options.rootInput, input.taskId);
-      const snapshot = holderSnapshot(input.taskId, current, at);
-      if (snapshot.effectiveHolder) {
-        throw new ExecutionLeaseCollisionError({
+    reserveExecution: async (input) => {
+      const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
+        const at = now();
+        const current = readHolderRecord(options.rootInput, input.taskId);
+        const snapshot = holderSnapshot(input.taskId, current, at);
+        if (snapshot.effectiveHolder) {
+          throw new ExecutionLeaseCollisionError({
+            taskId: input.taskId,
+            principal: input.principal,
+            executionId: "executionId" in current! ? current.executionId : "unknown",
+            holder: snapshot.effectiveHolder,
+            leaseExpiresAt: snapshot.leaseExpiresAt ?? ""
+          });
+        }
+        const acquiredAt = at.toISOString();
+        const leaseToken = randomBytes(32).toString("hex");
+        const record: ExecutionLeaseRecord = {
+          schema: "task-holder/v2",
           taskId: input.taskId,
-          principal: input.principal,
-          executionId: "executionId" in current! ? current.executionId : "unknown",
-          holder: snapshot.effectiveHolder,
-          leaseExpiresAt: snapshot.leaseExpiresAt ?? ""
-        });
-      }
-      const acquiredAt = at.toISOString();
-      const leaseToken = randomBytes(32).toString("hex");
-      const record: ExecutionLeaseRecord = {
-        schema: "task-holder/v2",
-        taskId: input.taskId,
-        executionId: input.executionId,
-        phase: "reserving",
-        holder: input.principal,
-        tokenHash: hashExecutionLeaseToken(leaseToken),
-        acquiredVia: "claim",
-        acquiredAt,
-        leaseExpiresAt: new Date(at.getTime() + ttl(input.ttlMs)).toISOString(),
-        releasedAt: null,
-        updatedAt: acquiredAt,
-        version: holderVersion(acquiredAt)
-      };
-      writeHolderRecord(options.rootInput, record);
-      return { ...holderSnapshot(input.taskId, record, at), executionId: input.executionId, leaseToken, phase: "reserving" };
-    }),
-    activateExecution: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
-      const at = now();
-      const current = requireExecutionCredential(readHolderRecord(options.rootInput, input.taskId), input, at);
-      if (current.phase !== "reserving") throw new Error(`execution lease is not reserving: ${input.executionId}`);
-      const record: ExecutionLeaseRecord = { ...current, phase: "active", updatedAt: at.toISOString(), version: holderVersion(at.toISOString()) };
-      writeHolderRecord(options.rootInput, record);
-      return { ...holderSnapshot(input.taskId, record, at), executionId: input.executionId, leaseToken: input.leaseToken, phase: "active" };
-    }),
-    releaseExecution: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
-      const at = now();
-      const current = requireExecutionCredential(readHolderRecord(options.rootInput, input.taskId), input, at);
-      const releasedAt = at.toISOString();
-      const record = emptyHolderRecord(input.taskId, releasedAt);
-      writeHolderRecord(options.rootInput, record);
-      return { ...holderSnapshot(input.taskId, record, at), released: true, previousHolder: current.holder, releasedAt };
-    }),
+          executionId: input.executionId,
+          phase: "reserving",
+          holder: input.principal,
+          tokenHash: hashExecutionLeaseToken(leaseToken),
+          acquiredVia: "claim",
+          acquiredAt,
+          leaseExpiresAt: new Date(at.getTime() + ttl(input.ttlMs)).toISOString(),
+          releasedAt: null,
+          updatedAt: acquiredAt,
+          version: holderVersion(acquiredAt)
+        };
+        writeHolderRecord(options.rootInput, record);
+        const previous = current?.schema === "task-holder/v2" && current.leaseExpiresAt && Date.parse(current.leaseExpiresAt) <= at.getTime()
+          ? current
+          : null;
+        const events: ExecutionLeaseRuntimeEvent[] = previous
+          ? [executionLeaseRuntimeEvent(previous, "expired", "expired", { previousHolder: previous.holder })]
+          : [];
+        events.push(executionLeaseRuntimeEvent(record, "reserved", "reserving", { previousHolder: previous?.holder }));
+        return {
+          result: { ...holderSnapshot(input.taskId, record, at), executionId: input.executionId, leaseToken, phase: "reserving" } as ExecutionLeaseReservation,
+          events
+        };
+      });
+      await emitExecutionLeaseEvents(options.appendLeaseEvent, mutation.events);
+      return mutation.result;
+    },
+    activateExecution: async (input) => {
+      const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
+        const at = now();
+        const current = requireExecutionCredential(readHolderRecord(options.rootInput, input.taskId), input, at);
+        if (current.phase !== "reserving") throw new Error(`execution lease is not reserving: ${input.executionId}`);
+        const record: ExecutionLeaseRecord = { ...current, phase: "active", updatedAt: at.toISOString(), version: holderVersion(at.toISOString()) };
+        writeHolderRecord(options.rootInput, record);
+        return {
+          result: { ...holderSnapshot(input.taskId, record, at), executionId: input.executionId, leaseToken: input.leaseToken, phase: "active" } as ExecutionLeaseContext,
+          events: [executionLeaseRuntimeEvent(record, "activated", "active")]
+        };
+      });
+      await emitExecutionLeaseEvents(options.appendLeaseEvent, mutation.events);
+      return mutation.result;
+    },
+    releaseExecution: async (input) => {
+      const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
+        const at = now();
+        const current = requireExecutionCredential(readHolderRecord(options.rootInput, input.taskId), input, at);
+        const releasedAt = at.toISOString();
+        const record = emptyHolderRecord(input.taskId, releasedAt);
+        writeHolderRecord(options.rootInput, record);
+        return {
+          result: { ...holderSnapshot(input.taskId, record, at), released: true, previousHolder: current.holder, releasedAt } as TaskHolderReleaseResult,
+          events: [executionLeaseRuntimeEvent(current, "released", "released", { releasedAt, previousHolder: current.holder })]
+        };
+      });
+      await emitExecutionLeaseEvents(options.appendLeaseEvent, mutation.events);
+      return mutation.result;
+    },
     assertExecutionLease: async (input) => {
       const current = requireExecutionCredential(readHolderRecord(options.rootInput, input.taskId), input, now());
       if (current.phase !== "active") throw new Error(`execution lease is not active: ${input.executionId}`);
     },
-    reconcileExecution: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
-      const current = readHolderRecord(options.rootInput, input.taskId);
-      if (current?.schema !== "task-holder/v2" || current.executionId !== input.executionId) return;
-      const at = now().toISOString();
-      if (input.authoredState === "active") {
-        if (current.phase === "reserving") writeHolderRecord(options.rootInput, { ...current, phase: "active", updatedAt: at, version: holderVersion(at) });
-        return;
-      }
-      writeHolderRecord(options.rootInput, emptyHolderRecord(input.taskId, at));
-    }),
+    reconcileExecution: async (input) => {
+      const events = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
+        const current = readHolderRecord(options.rootInput, input.taskId);
+        if (current?.schema !== "task-holder/v2" || current.executionId !== input.executionId) return [];
+        const at = now().toISOString();
+        if (Date.parse(current.leaseExpiresAt) <= Date.parse(at)) {
+          writeHolderRecord(options.rootInput, emptyHolderRecord(input.taskId, at));
+          return [executionLeaseRuntimeEvent(current, "expired", "expired", { previousHolder: current.holder })];
+        }
+        if (input.authoredState === "active") {
+          if (current.phase !== "reserving") return [];
+          const active: ExecutionLeaseRecord = { ...current, phase: "active", updatedAt: at, version: holderVersion(at) };
+          writeHolderRecord(options.rootInput, active);
+          return [executionLeaseRuntimeEvent(active, "reconciled", "active")];
+        }
+        writeHolderRecord(options.rootInput, emptyHolderRecord(input.taskId, at));
+        return [executionLeaseRuntimeEvent(current, "reconciled", "released", { releasedAt: at, previousHolder: current.holder })];
+      });
+      await emitExecutionLeaseEvents(options.appendLeaseEvent, events);
+    },
     executionLeases: async () => listExecutionLeaseRefs(options.rootInput)
   };
 }
@@ -321,14 +366,12 @@ export function taskHolderActor(
 }
 
 export function runtimeEventActorFromTaskHolderPrincipal(input: TaskHolderPrincipal): {
-  readonly principal: TaskHolderPersonPrincipal;
+  readonly principal: { readonly kind: "person"; readonly personId: string };
   readonly executor: TaskHolderExecutor | null;
-  readonly responsibleHuman: string;
 } {
   return {
-    principal: input.principal,
-    executor: input.executor,
-    responsibleHuman: input.responsibleHuman
+    principal: { kind: "person", personId: input.principal.personId },
+    executor: input.executor
   };
 }
 

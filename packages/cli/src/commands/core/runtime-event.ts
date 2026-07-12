@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { RuntimeEventLedgerRejected } from "../../../../application/src/index.ts";
+import { runtimeEventActorFromTaskHolderPrincipal, type RuntimeEventLedgerRejected } from "../../../../application/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -17,6 +17,7 @@ function runAppend(context: Parameters<CommandRunner>[0], action: RuntimeEventAp
     eventId: action.eventId,
     recordedAt: action.recordedAt,
     kind: action.eventKind,
+    actor: runtimeEventActorFromTaskHolderPrincipal(context.taskHolderPrincipal()),
     session: {
       sessionId: action.sessionId,
       runtime: action.runtime,

@@ -7,12 +7,13 @@ import {
   makeFactWriteService,
   makeProvenanceSessionExporter,
   makeRuntimeEventLedgerService,
+  makeRuntimeEventAppendPromise,
   makeTaskHolderService,
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
 } from "../../../application/src/index.ts";
 import type { OperationalActor, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
-import { createHarnessRuntimeContext, findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
+import { createHarnessRuntimeContext, findConflictMarkerWarnings, makeOperationalJournaledWriteCoordinator } from "../../../kernel/src/index.ts";
 import { toCliError } from "../cli/error-mapper.ts";
 import { actionTaskId } from "../cli/parse-args.ts";
 import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/runner-registry.ts";
@@ -28,6 +29,7 @@ import {
 export interface ParsedCommandExecutionOptions {
   readonly provider?: CliCompositionAdapterProvider;
   readonly makeWriteCoordinator?: (actor: OperationalActor) => WriteCoordinator;
+  readonly makeOperationalWriteCoordinator?: (actor: OperationalActor) => WriteCoordinator;
   readonly actorAttribution?: CliActorAttribution;
   readonly missingActorAttributionMessage?: string;
   readonly requireProvidedActorAttribution?: boolean;
@@ -122,7 +124,24 @@ export async function runRegisteredCommandWithCliComposition(
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides
   });
-  const makeTaskHolder = () => makeTaskHolderService({ rootInput: layoutInput });
+  const makeOperationalWriteCoordinator = options.makeOperationalWriteCoordinator ?? options.makeWriteCoordinator ?? ((actor: OperationalActor) =>
+    makeOperationalJournaledWriteCoordinator({
+      rootDir: command.rootDir,
+      ...(command.layoutOverrides ? { layoutOverrides: command.layoutOverrides } : {}),
+      operationalActor: actor
+    }));
+  let runtimeEventLedgerService: ReturnType<typeof makeRuntimeEventLedgerService> | undefined;
+  const getRuntimeEventLedgerService = () => {
+    runtimeEventLedgerService ??= makeRuntimeEventLedgerService({
+      rootInput: layoutInput,
+      coordinator: makeOperationalWriteCoordinator(operationalActor("runtime-event-cli"))
+    });
+    return runtimeEventLedgerService;
+  };
+  const appendLeaseEvent: ReturnType<typeof makeRuntimeEventAppendPromise> = async (event) => {
+    await makeRuntimeEventAppendPromise(getRuntimeEventLedgerService())(event);
+  };
+  const makeTaskHolder = () => makeTaskHolderService({ rootInput: layoutInput, appendLeaseEvent });
   const makeSessionExporter = () => makeProvenanceSessionExporter({
     rootInput: layoutInput,
     currentSessionProbe: getCurrentSessionProbe(),
@@ -151,10 +170,7 @@ export async function runRegisteredCommandWithCliComposition(
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
-  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeTaskHolder, () => makeRuntimeEventLedgerService({
-    rootInput: layoutInput,
-    coordinator: makeWriteCoordinator(operationalActor("runtime-event-cli"))
-  }), provider.runLedgerMaterializer).pipe(
+  }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeTaskHolder, getRuntimeEventLedgerService, provider.runLedgerMaterializer).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
         ok: false,

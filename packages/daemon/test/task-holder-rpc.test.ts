@@ -74,12 +74,12 @@ test("task holder RPC records asserted executor and responsible human in holder 
 
     const claimEvent = events.find((event) => event.tool?.toolName === "repo.task.claim");
     const releaseEvent = events.find((event) => event.tool?.toolName === "repo.task.release");
-    assert.equal(claimEvent?.actor?.principal.personId, "person_alice");
+    assert.deepEqual(claimEvent?.actor?.principal, { kind: "person", personId: "person_alice" });
     assert.deepEqual(claimEvent?.actor?.executor, executor);
-    assert.equal(claimEvent?.actor?.responsibleHuman, "person:person_alice");
-    assert.equal(releaseEvent?.actor?.principal.personId, "person_alice");
+    assert.equal("responsibleHuman" in (claimEvent?.actor ?? {}), false);
+    assert.deepEqual(releaseEvent?.actor?.principal, { kind: "person", personId: "person_alice" });
     assert.deepEqual(releaseEvent?.actor?.executor, executor);
-    assert.equal(releaseEvent?.actor?.responsibleHuman, "person:person_alice");
+    assert.equal("responsibleHuman" in (releaseEvent?.actor ?? {}), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

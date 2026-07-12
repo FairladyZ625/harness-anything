@@ -8,7 +8,7 @@ import type { ParsedCommand } from "../cli/types.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
 import { CliActorAttributionError, daemonActorAttribution } from "../composition/actor-attribution.ts";
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
-import { makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
+import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
 export interface CliCommandService {
   readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null }) => Promise<CommandReceipt | CommandFailureReceipt>;
@@ -39,7 +39,12 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
               `${command.action.kind}:${actor.kind}:${actor.id}`,
               { attribution: attribution.writeAttribution, commitAuthor: attribution.commitAuthor, ...(sessionId ? { sessionId } : {}) }
             )
-            : missingDaemonActorCoordinator(command.action.kind, actor)
+            : missingDaemonActorCoordinator(command.action.kind, actor),
+          makeOperationalWriteCoordinator: (actor) => makeDaemonQueuedOperationalWriteCoordinator(
+            runtime,
+            `${command.action.kind}:${actor.kind}:${actor.id}:operational`,
+            actor
+          )
         });
         return toCommandReceipt(result);
       } catch (error) {
