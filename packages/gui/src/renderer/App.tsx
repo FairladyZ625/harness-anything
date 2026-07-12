@@ -14,6 +14,7 @@ import {
   GitBranch,
   FirstAidKit,
   ClockCounterClockwise,
+  ClipboardText,
 } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import {
@@ -28,6 +29,7 @@ import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
 import { FactTriageView } from "./views/FactTriageView.tsx";
+import { ExecutionEvidenceView } from "./views/ExecutionEvidenceView.tsx";
 import { GraphView } from "./views/GraphView.tsx";
 import { GenealogyTimelineView } from "./views/GenealogyTimelineView.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
@@ -54,6 +56,7 @@ type ViewId =
   | "decisions"
   | "decisionPool"
   | "factTriage"
+  | "executions"
   | "graph"
   | "genealogy"
   | "presets"
@@ -68,12 +71,13 @@ const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
 ]);
 
 // W2C:列表并入看板(第三种 layout),独立「列表」入口删除。
-const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
+const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode; isNew?: true }[] = [
   { id: "overview", label: "总览", icon: <SquaresFour weight="duotone" /> },
   { id: "board", label: "看板", icon: <Kanban weight="duotone" /> },
   { id: "decisions", label: "决策批准", icon: <Scales weight="duotone" /> },
   { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
   { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
+  { id: "executions", label: "执行证据", icon: <ClipboardText weight="duotone" />, isNew: true },
   { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
   { id: "genealogy", label: "演化史", icon: <ClockCounterClockwise weight="duotone" /> },
 ];
@@ -91,6 +95,7 @@ const VIEW_LABEL: Record<ViewId, string> = {
   decisions: "决策批准",
   decisionPool: "决策池",
   factTriage: "事实分诊",
+  executions: "执行证据",
   graph: "关系图",
   genealogy: "演化史",
   presets: "Preset / Vertical",
@@ -366,6 +371,7 @@ function AppShell() {
               icon={item.icon}
               label={item.label}
               badge={item.id === "decisions" ? inboxCount : undefined}
+              isNew={item.isNew}
             />
           ))}
         </nav>
@@ -520,6 +526,8 @@ function AppShell() {
                 }
                 onFocusGraph={focusEntityInGraph}
               />
+            ) : view === "executions" ? (
+              <ExecutionEvidenceView />
             ) : view === "decisions" ? (
               <DecisionsView
                 decisions={decisions}
