@@ -1,3 +1,5 @@
+// TW-04 platform
+export * from "./platform/index.ts";
 export {
   daemonIdForRoot,
   daemonIdForUserRoot,
