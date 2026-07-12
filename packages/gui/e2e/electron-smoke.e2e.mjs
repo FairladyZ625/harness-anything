@@ -72,16 +72,49 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   );
 
   // The shipped relation graph consumes the same daemon/service bridge as the
-  // task projection. The hermetic authored ledger renders all three entity
-  // shapes and the kernel-named relation rows without a mock banner.
+  // task projection. The hermetic authored ledger exercises the focused ego
+  // graph, claim coverage, semantic-axis filters, fact expansion, and the
+  // genealogy multi-view without a renderer-side mock.
   await page.getByRole("button", { name: /关系图/u }).click();
   await page.locator(".react-flow").waitFor({ timeout: 10_000 });
-  await page.getByText(/3\s*节点\s*·\s*3\s*边/u).waitFor({ timeout: 10_000 });
+  const focusCard = page.locator(".react-flow__node-decisionFocus");
+  await focusCard.waitFor({ timeout: 10_000 });
+  await focusCard.getByText("dec_gui_smoke", { exact: true }).waitFor();
+  await focusCard.locator('[title="已佐证"]').waitFor();
+  assert.equal(await focusCard.locator('[title="无证据 (风险)"]').count(), 2);
+  await page.locator(".react-flow__node-task").waitFor();
+  await page.locator(".react-flow__node-decision").waitFor();
   assert.equal(await page.locator(".react-flow__node-task").count(), 1);
   assert.equal(await page.locator(".react-flow__node-decision").count(), 1);
-  assert.equal(await page.locator(".react-flow__node-fact").count(), 1);
-  assert.equal(await page.locator(".react-flow__edge").count(), 3);
+  assert.equal(await page.locator(".react-flow__node-fact").count(), 0, "facts start folded into claim badges");
+  assert.equal(await page.locator(".react-flow__edge").count(), 2);
   assert.equal(await page.getByText("MOCK", { exact: true }).count(), 0, "triadic views must not be mock-backed");
+
+  const assocToggle = page.getByRole("button", { name: /关联.*relates.*implements/u });
+  assert.match(await assocToggle.getAttribute("class") ?? "", /opacity-60/u, "assoc must default off");
+  await assocToggle.click();
+  await page.locator(".react-flow__node-task").nth(1).waitFor();
+  assert.equal(await page.locator(".react-flow__edge").count(), 3, "enabling assoc reveals its edge");
+  await assocToggle.click();
+  await page.locator(".react-flow__node-task").nth(1).waitFor({ state: "detached" });
+  assert.equal(await page.locator(".react-flow__edge").count(), 2, "disabling assoc hides its edge again");
+
+  await focusCard.click();
+  const expandedFact = page.locator('.react-flow__node-fact[data-id="fact/task-gui-smoke/F-ABCDEFGH"]');
+  await expandedFact.waitFor({ timeout: 10_000 });
+  assert.equal((await expandedFact.textContent())?.trim(), "F");
+  assert.equal(await page.locator(".react-flow__edge").count(), 3, "expanding a fact badge reveals its evidence edge");
+  await expandedFact.click();
+  await expandedFact.waitFor({ state: "detached" });
+
+  const viewSwitcher = page.getByText("同一实体 · 多视图", { exact: true }).locator("..");
+  await viewSwitcher.getByRole("button", { name: "演化史", exact: true }).click();
+  await page.getByRole("heading", { name: "决策演化史", exact: true }).waitFor();
+  await page.getByText(/2 决策参与谱系 · 1 条演化边/u).waitFor();
+  await page.locator("button.absolute").filter({ hasText: "Earlier GUI projection decision" }).waitFor();
+  await page.locator("button.absolute").filter({ hasText: "Expose the triadic projection to the GUI" }).waitFor();
+  await viewSwitcher.getByRole("button", { name: "关系图", exact: true }).click();
+  await page.locator(".react-flow__node-decisionFocus").waitFor();
 
   // Fact triage consumes confidence + coverageRows/factAnchors. The covered
   // low-confidence fact is a candidate (not an orphan) and its context package
@@ -108,23 +141,20 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   const inspectorClipboard = await page.evaluate(() => globalThis.__harnessCopiedText);
   assert.match(inspectorClipboard, /正在检查此 fact/u);
   await page.getByRole("button", { name: "dec_gui_smoke", exact: true }).click();
+  await page.getByRole("heading", { name: "决策池", exact: true }).waitFor();
+  const poolFilters = page.locator("select");
+  await poolFilters.nth(1).selectOption("high");
+  await poolFilters.nth(2).selectOption("high");
+  await poolFilters.nth(5).selectOption("agent");
   const focusedDecision = page.locator('#decision-card-dec_gui_smoke[data-focused="true"]');
-  await focusedDecision.waitFor({ timeout: 10_000 });
+  await focusedDecision.waitFor({ timeout: 10_000 }).catch(async (error) => {
+    throw new Error(`${error.message}\nCurrent renderer text:\n${await page.locator("body").innerText()}`);
+  });
 
-  // Entity surfaces can focus the same node in GraphView. The graph drawer can
-  // then open a task detail, where both the DecisionSourceBadge and RelationRow
-  // are live links backed by the real derives edge.
+  // Entity surfaces can focus the same decision in GraphView.
   await focusedDecision.locator('button[title="在关系图中聚焦此 decision"]').click();
   await page.locator(".react-flow").waitFor({ timeout: 10_000 });
   await page.locator("aside").getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
-  await page.locator(".react-flow__node-task").click();
-  await page.locator("aside").getByText("task-gui-smoke", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "打开", exact: true }).click();
-  await page.getByRole("button", { name: /派生自 dec_gui_smoke/u }).waitFor({ timeout: 10_000 });
-  const relationLink = page.getByRole("button", { name: "decision/dec_gui_smoke", exact: true });
-  await relationLink.waitFor();
-  await relationLink.click();
-  await page.locator('#decision-card-dec_gui_smoke[data-focused="true"]').waitFor();
 
   // The decision inbox card exposes the same paste-ready context shape.
   await page.getByRole("button", { name: /决策批准/u }).click();
@@ -139,9 +169,13 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
 
 function writeTriadicLedger(rootDir) {
   const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");
+  const assocTaskDir = path.join(rootDir, "harness/tasks/task-gui-assoc");
   const decisionDir = path.join(rootDir, "harness/decisions/decision-dec_gui_smoke");
+  const ancestorDecisionDir = path.join(rootDir, "harness/decisions/decision-dec_gui_ancestor");
   mkdirSync(taskDir, { recursive: true });
+  mkdirSync(assocTaskDir, { recursive: true });
   mkdirSync(decisionDir, { recursive: true });
+  mkdirSync(ancestorDecisionDir, { recursive: true });
   writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
     "schema: harness-anything/v1",
     "name: gui-triadic-smoke",
@@ -176,6 +210,26 @@ function writeTriadicLedger(rootDir) {
     "- {fact_id: F-ABCDEFGH, statement: \"The GUI renderer received real triadic rows through the public bridge.\", source: \"GUI E2E\", observedAt: \"2026-07-10T00:30:00.000Z\", confidence: low, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: \"codex\", sessionId: \"fg-p1-07-e2e\", boundAt: \"2026-07-10T00:30:00.000Z\"}]}",
     ""
   ].join("\n"));
+  writeFileSync(path.join(assocTaskDir, "INDEX.md"), [
+    "---",
+    "schema: task-package/v2",
+    "task_id: task-gui-assoc",
+    "title: Render optional association context",
+    "lifecycle:",
+    "  bindingSchema: lifecycle-binding/v1",
+    "  engine: local",
+    "  status: active",
+    "  ref:",
+    "  titleSnapshot: Render optional association context",
+    "  url:",
+    "  bindingCreatedAt: 2026-07-10T00:10:00.000Z",
+    "  bindingFingerprint: sha256:gui-assoc",
+    "packageDisposition: active",
+    "vertical: software/coding",
+    "preset: implementation",
+    "---",
+    ""
+  ].join("\n"));
   writeFileSync(path.join(decisionDir, "decision.md"), [
     "---",
     "schema: decision-package/v1",
@@ -198,12 +252,48 @@ function writeTriadicLedger(rootDir) {
     "question: \"Should the GUI consume the public relation graph?\"",
     "chosen:",
     "  - {id: \"CH1\", text: \"Use the existing daemon/service bridge\"}",
-    "rejected: []",
+    "  - {id: \"CH2\", text: \"Keep loose associations optional\"}",
+    "rejected:",
+    "  - {id: \"RJ1\", text: \"Keep the global hairball\", why_not: \"Focused graph is more legible\"}",
     "claims:",
     "  - {id: \"CH1\", text: \"The public path preserves kernel relation names\", load_bearing: true}",
+    "  - {id: \"CH2\", text: \"Loose associations stay optional\", load_bearing: true}",
+    "  - {id: \"RJ1\", text: \"The global hairball should remain rejected\", load_bearing: true}",
     "relations:",
     "  - {relation_id: rel_5287143733cccbd9, source: decision/dec_gui_smoke, target: task/task-gui-smoke, type: derives, strength: strong, direction: directed, origin: declared, rationale: \"Decision derived the GUI task\", state: active}",
     "  - {relation_id: rel_f0e4909f80e86478, source: decision/dec_gui_smoke/CH1, target: fact/task-gui-smoke/F-ABCDEFGH, type: evidenced-by, strength: strong, direction: directed, origin: declared, rationale: \"Fact evidences the public projection\", state: active}",
+    "  - {relation_id: rel_58f5525aa9196c13, source: decision/dec_gui_smoke/CH2, target: task/task-gui-assoc, type: relates, strength: weak, direction: directed, origin: declared, rationale: \"Optional association exercises the default-off axis\", state: active}",
+    "  - {relation_id: rel_6f844b22a6cc8a74, source: decision/dec_gui_smoke/CH2, target: decision/dec_gui_ancestor, type: refines, strength: strong, direction: directed, origin: declared, rationale: \"The focused graph refines the earlier projection\", state: active}",
+    "---",
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(ancestorDecisionDir, "decision.md"), [
+    "---",
+    "schema: decision-package/v1",
+    "decision_id: dec_gui_ancestor",
+    "_coordinatorWatermark: gui-ancestor-watermark",
+    "title: \"Earlier GUI projection decision\"",
+    "state: active",
+    "riskTier: medium",
+    "urgency: medium",
+    "vertical: \"software/coding\"",
+    "preset: \"architecture-decision\"",
+    "applies_to:",
+    "  modules: [\"gui\"]",
+    "  productLines: []",
+    "proposedBy: {kind: \"agent\", id: \"codex\"}",
+    "proposedAt: \"2026-07-01T00:00:00.000Z\"",
+    "arbiter: {kind: \"human\", id: \"ZeyuLi\"}",
+    "decidedAt: \"2026-07-02T00:00:00.000Z\"",
+    "provenance:",
+    "  - {runtime: \"codex\", sessionId: \"fg-p1-07-ancestor\", boundAt: \"2026-07-01T00:00:00.000Z\"}",
+    "question: \"How should the first GUI relation projection render?\"",
+    "chosen:",
+    "  - {id: \"CH1\", text: \"Render a single global projection\"}",
+    "rejected: []",
+    "claims:",
+    "  - {id: \"CH1\", text: \"The first projection is globally visible\", load_bearing: true}",
+    "relations: []",
     "---",
     ""
   ].join("\n"));
