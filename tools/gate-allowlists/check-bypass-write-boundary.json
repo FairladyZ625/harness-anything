@@ -104,6 +104,11 @@
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
       },
       {
+        "value": "packages/kernel/src/store/write-journal-durable.ts#rmSync@1",
+        "ref": "task_01KXBBTQAWARR3A1B2RY8T7C0F",
+        "reason": "P4 coordinator transaction rollback removes newly created canonical files durably after a failed batch apply; this is coordinator-owned recovery, not a bypass caller."
+      },
+      {
         "value": "packages/kernel/src/store/write-journal-durable.ts#writeSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
@@ -247,6 +252,16 @@
         "value": "packages/kernel/src/store/write-journal-operations.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C0 coordinator/flusher internal durable write path; this is the daemon-owned write implementation, not a bypass caller."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/script-staging.ts#mkdirSync@1",
+        "ref": "task_01KXBBTQAWARR3A1B2RY8T7C0F",
+        "reason": "P4 coordinator-governed script ingest creates an isolated local staging mirror so preset scripts cannot mutate canonical authored files before attributed enqueue and flush."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/script-staging.ts#cpSync@1",
+        "ref": "task_01KXBBTQAWARR3A1B2RY8T7C0F",
+        "reason": "P4 coordinator-governed script ingest copies authored state only into the isolated local staging mirror; canonical changes are later applied solely by attributed enqueue and flush."
       }
     ],
     "exemptHumanOrBootstrap": [

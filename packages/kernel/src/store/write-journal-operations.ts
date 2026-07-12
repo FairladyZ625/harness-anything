@@ -18,6 +18,11 @@ import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable
 import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
 import { resolveContentAddressedBlobPath } from "./content-addressed-blob-store.ts";
 import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
+import {
+  applyCanonicalAuthoredBatch,
+  canonicalAuthoredBatchPaths,
+  validateCanonicalAuthoredBatch
+} from "./canonical-authored-batch.ts";
 import { writeDocument } from "./markdown-artifact-store.ts";
 import {
   applyDocumentAppendRecord,
@@ -53,6 +58,17 @@ export interface WriteTransactionPlan {
 }
 
 export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
+  if (op.kind === "doc_sync_submit" || op.kind === "script_ingest") {
+    return {
+      touchedPaths: (rootInput) => canonicalAuthoredBatchPaths(rootInput, op),
+      documentWrites: () => [],
+      apply: (rootInput) => {
+        applyCanonicalAuthoredBatch(rootInput, op);
+        return null;
+      },
+      validate: (rootInput) => validateCanonicalAuthoredBatch(rootInput, op)
+    };
+  }
   if (op.kind === "doc_write" && hasDeclaredEntityDocument(op.payload)) {
     const companionWrites = declaredEntityCompanionWrites(op.payload);
     return {

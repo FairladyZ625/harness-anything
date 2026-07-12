@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -14,6 +14,7 @@ import {
   resolveDeclaredReadScopes,
   resolveDeclaredWriteScopes
 } from "./script-scope.ts";
+import { canonicalGeneratedPaths, canonicalizeScriptResult, createCanonicalScriptStage, remapScope, scriptIngestOp } from "./script-staging.ts";
 export type ScriptSource = "user" | "vertical" | "preset";
 export type ScriptPurpose = "scaffold" | "generate" | "transform" | "audit";
 export type ScriptKind = "action" | "check";
@@ -48,9 +49,14 @@ export interface ScriptHostSuccess {
   readonly runDir: string;
   readonly generated: ReadonlyArray<string>;
   readonly scriptedResult: Record<string, unknown>;
+  readonly ingestOp?: WriteOp;
 }
 
-export type ScriptHostRunResult = ScriptHostSuccess | { readonly ok: false; readonly result: CliResult };
+export type ScriptHostRunResult = ScriptHostSuccess | {
+  readonly ok: false;
+  readonly result: CliResult;
+  readonly ingestOp?: WriteOp;
+};
 export function runScriptHost(options: {
   readonly rootInput: HarnessLayoutInput;
   readonly script: ResolvedScriptEntry;
@@ -91,29 +97,46 @@ export function runScriptHost(options: {
 
   mkdirSync(runDir, { recursive: true });
 
+  const stage = !options.dryRun && writeScope.roots.length > 0
+    ? createCanonicalScriptStage(options.rootInput, runDir, outputRoot)
+    : undefined;
+  const executionLayout = stage?.layout ?? layout;
+  const executionOutputRoot = stage?.outputRoot ?? outputRoot;
+  const executionReadScope = stage
+    ? remapScope(stage, readScope)
+    : readScope;
+  const executionWriteScope = stage
+    ? remapScope(stage, writeScope)
+    : writeScope;
+  if (!executionReadScope.ok || !executionWriteScope.ok) {
+    return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidWrite, "Script staging scopes could not be resolved.");
+  }
+
   const mergedInputs = { ...options.script.entry.inputs, ...(options.inputs ?? {}) };
   writeFileSync(contextPath, JSON.stringify({
+    ...(options.script.context ?? {}),
     schema: options.script.entry.source === "preset" ? "preset-context/v1" : "script-context/v1",
     scriptId: options.script.entry.id,
     source: options.script.entry.source,
     runId,
     paths: {
-      rootDir: layout.rootDir,
-      authoredRoot: layout.authoredRoot,
-      tasksRoot: layout.tasksRoot,
-      decisionsRoot: layout.decisionsRoot,
-      sessionsRoot: layout.sessionsRoot,
-      adrRoot: layout.adrRoot,
-      milestonesRoot: layout.milestonesRoot,
-      generatedRoot: layout.generatedRoot,
-      localRoot: layout.localRoot
+      projectRoot: layout.rootDir,
+      rootDir: executionLayout.rootDir,
+      authoredRoot: executionLayout.authoredRoot,
+      tasksRoot: executionLayout.tasksRoot,
+      decisionsRoot: executionLayout.decisionsRoot,
+      sessionsRoot: executionLayout.sessionsRoot,
+      adrRoot: executionLayout.adrRoot,
+      milestonesRoot: executionLayout.milestonesRoot,
+      generatedRoot: executionLayout.generatedRoot,
+      localRoot: executionLayout.localRoot
     },
     inputs: mergedInputs,
-    readScopes: readScope.roots,
-    writeScopes: writeScope.roots,
+    readScopes: executionReadScope.roots,
+    writeScopes: executionWriteScope.roots,
     resultPath,
-    outputRoot,
-    ...(options.script.context ?? {}), policy: policy.policy
+    outputRoot: executionOutputRoot,
+    policy: policy.policy
   }, null, 2), "utf8");
 
   if (options.dryRun) {
@@ -135,18 +158,18 @@ export function runScriptHost(options: {
     scriptPath,
     cwd: options.script.manifestRoot,
     evidenceDir: runDir,
-    outputRoot,
+    outputRoot: executionOutputRoot,
     allowAddons: options.script.entry.metadata.kind === "check",
     readPermissions: [
       ...ancestorDirectories(scriptPath),
       ...permissionPathsForScope(options.script.manifestRoot, true),
       contextPath,
       ...checkScriptPackageReadPermissions(options.script.entry.metadata.kind, options.script.manifestRoot, scriptPath, layout),
-      ...readScope.permissions
+      ...executionReadScope.permissions
     ],
     writePermissions: [
       resultPath,
-      ...writeScope.permissions,
+      ...executionWriteScope.permissions,
       ...checkScriptLocalWritePermissions(options.script.entry.metadata.kind, layout)
     ],
     env: {
@@ -154,8 +177,8 @@ export function runScriptHost(options: {
       HARNESS_SCRIPT_RESULT: resultPath,
       HARNESS_PRESET_CONTEXT: contextPath
     },
-    artifactRoots: writeScope.roots,
-    outputBoundary: { kind: "patterns", patterns: options.script.entry.metadata.produces, substitutions: producePatternSubstitutions(layout, outputRoot) }
+    artifactRoots: executionWriteScope.roots,
+    outputBoundary: { kind: "patterns", patterns: options.script.entry.metadata.produces, substitutions: producePatternSubstitutions(executionLayout, executionOutputRoot) }
   });
   writeFileSync(path.join(runDir, "stdout.txt"), execution.stdout, "utf8");
   writeFileSync(path.join(runDir, "stderr.txt"), execution.stderr, "utf8");
@@ -186,21 +209,26 @@ export function runScriptHost(options: {
     );
   }
 
-  const scriptedResult = readScriptResult(resultPath, options.script.entry.source === "preset" ? path.join(outputRoot, "artifacts", "preset-result.json") : undefined, {
+  const scriptedResult = readScriptResult(resultPath, options.script.entry.source === "preset" ? path.join(executionOutputRoot, "artifacts", "preset-result.json") : undefined, {
     allowMissingPresetResult: options.script.entry.source === "preset",
     scriptId: options.script.entry.id
   });
   if (!scriptedResult.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptResultInvalid, scriptedResult.hint, runDir, layout.rootDir);
+  const generatedPaths = stage ? canonicalGeneratedPaths(stage, execution.generated) : execution.generated;
+  const ingestOp = stage ? scriptIngestOp(stage, executionWriteScope.roots, runId) : undefined;
   if (scriptedResult.value.ok !== true && options.allowFailedScriptResult !== true) {
-    return scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir);
+    return {
+      ...scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir),
+      ...(ingestOp ? { ingestOp } : {})
+    };
   }
-
   return {
     ok: true,
     runId,
     runDir,
-    generated: execution.generated.map((filePath) => relativeToRoot(layout.rootDir, filePath)),
-    scriptedResult: scriptedResult.value
+    generated: generatedPaths.map((filePath) => relativeToRoot(layout.rootDir, filePath)),
+    scriptedResult: stage ? canonicalizeScriptResult(stage, scriptedResult.value) : scriptedResult.value,
+    ...(ingestOp ? { ingestOp } : {})
   };
 }
 

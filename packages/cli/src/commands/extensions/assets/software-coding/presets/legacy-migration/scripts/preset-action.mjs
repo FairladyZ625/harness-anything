@@ -9,7 +9,8 @@ const context = JSON.parse(readFileSync(contextPath, "utf8"));
 const artifactsDir = path.join(context.outputRoot, "artifacts");
 mkdirSync(artifactsDir, { recursive: true });
 
-const scan = selectScan(context.paths.rootDir);
+const projectRoot = context.paths.projectRoot ?? context.paths.rootDir;
+const scan = selectScan(projectRoot, context.paths.rootDir, context.readScopes ?? []);
 const report = {
   schema: "legacy-migration-preset-plan/v1",
   taskId: context.taskId,
@@ -24,13 +25,35 @@ writeFileSync(path.join(artifactsDir, "legacy-migration-plan.json"), `${JSON.str
 writeFileSync(path.join(artifactsDir, "legacy-migration-plan.md"), renderPlan(scan), "utf8");
 writeFileSync(path.join(artifactsDir, "preset-result.json"), `${JSON.stringify({ ok: true, rows: scan.entries.length, report }, null, 2)}\n`, "utf8");
 
-function selectScan(rootDir) {
-  const rootScan = buildScan(rootDir, ".");
-  if (rootScan.entries.length > 0) return rootScan;
-  const childScan = listCandidateRoots(rootDir)
-    .map((sourcePath) => buildScan(rootDir, sourcePath))
-    .find((scan) => scan.entries.length > 0);
-  return childScan ?? rootScan;
+function selectScan(rootDir, executionRoot, readScopes) {
+  const sourcePaths = candidateSourcePaths(rootDir, executionRoot, readScopes);
+  const scans = sourcePaths.map((sourcePath) => buildScan(rootDir, sourcePath));
+  return scans.find((candidate) => candidate.summary.taskCount > 0) ?? scans[0] ?? emptyScan();
+}
+
+function candidateSourcePaths(rootDir, executionRoot, readScopes) {
+  const candidates = readScopes.flatMap((scope) => {
+    if (!existsSync(scope)) return [];
+    const basename = path.basename(scope);
+    if (!["docs", "harness", ".harness-private"].includes(basename)) return [];
+    const sourceRoot = path.dirname(scope);
+    if (path.resolve(sourceRoot) === path.resolve(executionRoot)) return [];
+    const relative = toSlash(path.relative(rootDir, sourceRoot) || ".");
+    return relative === "." || (!relative.startsWith("../") && relative !== "..") ? [relative] : [];
+  });
+  return [...new Set(candidates)].sort((left, right) => left === "." ? -1 : right === "." ? 1 : left.localeCompare(right));
+}
+
+function emptyScan() {
+  return {
+    schema: "legacy-intake-scan/v1",
+    strategy: "legacy-intake",
+    legacyRoot: "harness/legacy",
+    sourceRoot: ".",
+    entries: [],
+    summary: summarize([]),
+    deprecatedAliases: ["migrate-plan", "migrate-structure", "migrate-run", "migrate-verify"]
+  };
 }
 
 function buildScan(rootDir, sourcePath) {
@@ -180,28 +203,6 @@ function evidencePointers(fullPath, storedPath) {
       path: `${storedPath}/${fileName}`,
       label: fileName
     }));
-}
-
-function listCandidateRoots(rootDir) {
-  const roots = new Set();
-  for (const readScope of context.readScopes ?? []) {
-    const candidate = candidateRootFromReadScope(rootDir, readScope);
-    if (candidate && candidate !== ".") roots.add(candidate);
-  }
-  return [...roots]
-    .sort()
-    .filter((sourcePath) => existsSync(path.join(rootDir, sourcePath, "docs"))
-      || existsSync(path.join(rootDir, sourcePath, "harness/harness.yaml"))
-      || existsSync(path.join(rootDir, sourcePath, ".harness-private/coding-agent-harness/harness.yaml")));
-}
-
-function candidateRootFromReadScope(rootDir, readScope) {
-  const relativePath = toSlash(path.relative(rootDir, readScope));
-  if (!relativePath || relativePath.startsWith("../")) return ".";
-  const segments = relativePath.split("/");
-  const markerIndex = segments.findIndex((segment) => segment === "docs" || segment === "harness" || segment === ".harness-private");
-  if (markerIndex <= 0) return ".";
-  return segments.slice(0, markerIndex).join("/");
 }
 
 function isSafeDocPath(relativePath, requireDocsPrefix) {

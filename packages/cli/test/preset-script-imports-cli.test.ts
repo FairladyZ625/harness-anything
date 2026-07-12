@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, u
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { PRESET_POLICY_SCHEMA_CREATE_MILESTONE } from "../src/commands/extensions/preset-policy.ts";
 import { executeScript } from "../src/commands/extensions/script-executor.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
@@ -437,6 +438,7 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 function withCanonicalTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-preset-imports-"));
   try {
+    initializeNestedHarnessRepo(rootDir);
     return fn(rootDir);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

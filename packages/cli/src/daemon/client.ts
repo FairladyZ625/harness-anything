@@ -109,7 +109,12 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
   if (isDocSyncSubmitCommand(command)) {
     let request: ReturnType<typeof buildDocSyncSubmitRequest>;
     try {
-      request = buildDocSyncSubmitRequest({ rootDir: command.rootDir, layoutOverrides: command.layoutOverrides }, target.repoId, docSyncSubmitPaths(command));
+      request = buildDocSyncSubmitRequest(
+        { rootDir: command.rootDir, layoutOverrides: command.layoutOverrides },
+        target.repoId,
+        docSyncSubmitPaths(command),
+        commandExecutor(command)
+      );
     } catch (error) {
       return docSyncSubmitPreviewRejected(error);
     }
@@ -169,7 +174,7 @@ async function runWithLineClient(
     if (isDocSyncSubmitCommand(command)) {
       let request: ReturnType<typeof buildDocSyncSubmitRequest>;
       try {
-        request = buildDocSyncSubmitRequest(command.rootDir, repoId, docSyncSubmitPaths(command));
+        request = buildDocSyncSubmitRequest(command.rootDir, repoId, docSyncSubmitPaths(command), commandExecutor(command));
       } catch (error) {
         return docSyncSubmitPreviewRejected(error);
       }
@@ -306,11 +311,16 @@ function commandRunPayload(command: ParsedCommand): JsonObject {
 }
 
 function taskHolderExecutorPayload(command: ParsedCommand): JsonObject | null | undefined {
+  const executor = commandExecutor(command);
+  return executor === undefined ? undefined : taskHolderExecutorJson(executor);
+}
+
+function commandExecutor(command: ParsedCommand): TaskHolderExecutor | null | undefined {
   const actor = command.actor
     ? readCliJournalActorFromFlag(command.actor)
     : readCliJournalActorFromEnv(process.env);
   if (!actor) return undefined;
-  return taskHolderExecutorJson(taskHolderExecutorFromJournalActor(actor));
+  return taskHolderExecutorFromJournalActor(actor);
 }
 
 function taskHolderExecutorJson(executor: TaskHolderExecutor | null): JsonObject | null {

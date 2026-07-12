@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { validatePresetManifests } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import {
@@ -35,7 +35,7 @@ type PresetAction = Extract<ParsedCommand["action"], {
     | "preset-action"
 }>;
 
-export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAction): CliResult {
+export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAction, pendingOps: WriteOp[]): CliResult {
   switch (action.kind) {
     case "preset-validate":
       return runPresetValidate(action);
@@ -54,9 +54,9 @@ export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAc
     case "preset-uninstall":
       return runPresetUninstall(rootInput, action);
     case "preset-run":
-      return runPresetEntrypoint(rootInput, action.presetId, action.entrypoint, action.taskId, "preset-run", action.allowScripts, action.inputs);
+      return runPresetEntrypoint(rootInput, action.presetId, action.entrypoint, action.taskId, "preset-run", pendingOps, action.allowScripts, action.inputs);
     case "preset-action":
-      return runPresetAction(rootInput, action);
+      return runPresetAction(rootInput, action, pendingOps);
   }
 }
 
@@ -218,7 +218,7 @@ function runPresetUninstall(rootInput: HarnessLayoutInput, action: Extract<Prese
   };
 }
 
-function runPresetAction(rootInput: HarnessLayoutInput, action: Extract<PresetAction, { readonly kind: "preset-action" }>): CliResult {
+function runPresetAction(rootInput: HarnessLayoutInput, action: Extract<PresetAction, { readonly kind: "preset-action" }>, pendingOps: WriteOp[]): CliResult {
   const preset = resolvePresetEntry(rootInput, action.presetId);
   if (!preset) return presetNotFound("preset-action", action.presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-action", preset);
@@ -231,5 +231,5 @@ function runPresetAction(rootInput: HarnessLayoutInput, action: Extract<PresetAc
       error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.actionName} is not declared.`)
     };
   }
-  return runPresetEntrypoint(rootInput, action.presetId, action.actionName, action.taskId, "preset-action", action.allowScripts, action.inputs);
+  return runPresetEntrypoint(rootInput, action.presetId, action.actionName, action.taskId, "preset-action", pendingOps, action.allowScripts, action.inputs);
 }

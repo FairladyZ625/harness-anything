@@ -36,7 +36,8 @@ import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThroughDaemon } from "./daemon/client.ts";
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
-import { makeDaemonQueuedOperationalWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
+import { daemonActorAttribution } from "./composition/actor-attribution.ts";
+import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
 import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { leaseEnforcementEnabled } from "./commands/settings.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
@@ -428,18 +429,19 @@ function createRepoServiceBinding(
       DocSyncService: {
         submit: (request, context) => {
           const actor = context?.actor;
+          const attribution = actor ? daemonActorAttribution(actor, context?.executor) : undefined;
           const docSyncService = makeDocSyncService({
             rootDir,
             layoutOverrides,
-            ...(actor?.primaryEmail ? {
-              commitAuthor: { name: actor.displayName, email: actor.primaryEmail }
+            ...(attribution ? {
+              coordinator: makeDaemonQueuedWriteCoordinator(runtime, `doc-sync-submit:${request.payload.intentId}`, {
+                attribution: attribution.writeAttribution,
+                commitAuthor: attribution.commitAuthor,
+                ...(request.session?.sessionId ? { sessionId: request.session.sessionId } : {})
+              })
             } : {})
           });
-          return runtime.enqueueBackgroundBatch({
-            source: "doc-sync-submit",
-            priority: "normal",
-            run: () => docSyncService.submit(request)
-          });
+          return docSyncService.submit(request);
         }
       }
     },
