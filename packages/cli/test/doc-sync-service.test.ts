@@ -47,6 +47,21 @@ test("doc sync preview and submit validator classify same-extension prose and fr
   });
 });
 
+test("doc sync report treats a missing write-road registry as empty coverage instead of crashing", async () => {
+  // Regression for #644: consumer repos have no dogfood write-road registry, so the
+  // unguarded readFileSync in loadRegistry crashed every decision command (incl. --dry-run).
+  await withHarnessFixture(async ({ rootDir, taskRoot }) => {
+    writeFileSync(path.join(taskRoot, "task_plan.md"), "# Plan\n\nConsumer edit.\n", "utf8");
+    const report = buildDocSyncReport(rootDir);
+    // Inert: no crash, empty coverage, and no manufactured warnings/touches.
+    assert.equal(report.registry.sha256, sha256Text(""));
+    assert.equal(report.dirtyFiles.length, 0);
+    assert.deepEqual(report.forbiddenTouches, []);
+    assert.deepEqual(report.unresolvedTouches, []);
+    assert.equal(report.readyToSubmitPreview, true);
+  }, { writeRegistry: false });
+});
+
 test("doc sync submit accepts pure task prose and commits with hermetic author", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
     const service = makeDocSyncService({ rootDir, commitAuthor });
@@ -247,14 +262,16 @@ async function withHarnessFixture<T>(fn: (fixture: {
   readonly harnessRoot: string;
   readonly taskRoot: string;
   readonly taskId: string;
-}) => T | Promise<T>): Promise<T> {
+}) => T | Promise<T>, options: { readonly writeRegistry?: boolean } = {}): Promise<T> {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-sync-"));
   const harnessRoot = path.join(rootDir, "harness");
   const taskId = "task_01KX3W4V1EDPHPTGWYYBQQ2J75";
   const taskRoot = path.join(harnessRoot, "tasks", taskId);
   try {
-    mkdirSync(path.join(rootDir, "tools"), { recursive: true });
-    writeFileSync(path.join(rootDir, "tools", "write-road-registry.json"), registryBody, "utf8");
+    if (options.writeRegistry !== false) {
+      mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+      writeFileSync(path.join(rootDir, "tools", "write-road-registry.json"), registryBody, "utf8");
+    }
     mkdirSync(taskRoot, { recursive: true });
     mkdirSync(path.join(harnessRoot, "decisions"), { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex({ urgency: "medium" }), "utf8");

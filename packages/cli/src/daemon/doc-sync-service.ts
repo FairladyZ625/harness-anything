@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   resolveHarnessLayout,
   sha256Text,
@@ -47,7 +46,10 @@ export function buildDocSyncReport(rootInput: HarnessLayoutInput) {
   const layout = resolveHarnessLayout(rootInput);
   const authoredRoot = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/") || ".";
   const registry = loadRegistry(layout.rootDir);
-  const dirtyFiles = gitDirtyEntries(layout.authoredRoot);
+  // No registry ⇒ doc-sync enforcement is inactive for this repo (a consumer install):
+  // skip the authored-tree scan so we don't manufacture "resolution failed" unresolved
+  // touches for every dirty file, and so the warning layer stays silent. See issue #644.
+  const dirtyFiles = registry.present ? gitDirtyEntries(layout.authoredRoot) : [];
   const files = dirtyFiles.map((entry) => inspectDirtyFile(layout.rootDir, layout.authoredRoot, entry, registry.rows));
   const candidateBlobs = files.filter((entry) => entry.docSyncCandidate && entry.newBlobSha256);
   const forbiddenTouches = files.flatMap((entry) => entry.forbiddenTouches);
@@ -324,22 +326,26 @@ function commitDocSyncPaths(authoredRoot: string, absolutePaths: ReadonlyArray<s
   return gitText(authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
 }
 
-function loadRegistry(rootDir: string): { readonly sha256: string; readonly rows: ReadonlyArray<RegistryRow> } {
-  const body = readFileSync(registryPath(rootDir), "utf8");
+function loadRegistry(rootDir: string): { readonly present: boolean; readonly sha256: string; readonly rows: ReadonlyArray<RegistryRow> } {
+  const absolutePath = registryPath(rootDir);
+  // The write-road registry is a dogfood-internal file that is not shipped in the
+  // published package and does not exist in consumer repos. A missing registry means
+  // the doc-sync layer has no rules to enforce — treat it as absent (inert) rather than
+  // crashing the whole decision write path. See issue #644 (same dogfood-assumption
+  // class as #269's hardcoded trunk).
+  if (!existsSync(absolutePath)) {
+    return { present: false, sha256: sha256Text(""), rows: [] };
+  }
+  const body = readFileSync(absolutePath, "utf8");
   const parsed = JSON.parse(body) as { readonly schema?: string; readonly rows?: ReadonlyArray<RegistryRow> };
   if (parsed.schema !== "harness-anything/write-road-registry/v1" || !Array.isArray(parsed.rows)) {
     throw new Error("invalid write-road registry");
   }
-  return { sha256: sha256Text(body), rows: parsed.rows };
+  return { present: true, sha256: sha256Text(body), rows: parsed.rows };
 }
 
 function registryPath(rootDir: string): string {
-  const candidates = [
-    path.join(rootDir, "tools", "write-road-registry.json"),
-    path.join(process.cwd(), "tools", "write-road-registry.json"),
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../tools/write-road-registry.json")
-  ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+  return path.join(rootDir, "tools", "write-road-registry.json");
 }
 
 function gitDirtyEntries(authoredRoot: string): ReadonlyArray<DirtyEntry> {
