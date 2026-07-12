@@ -5,9 +5,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+const registryBody = readFileSync(path.join(repoRoot, "tools/write-road-registry.json"), "utf8");
 
 test("CLI doc list and map read authored docmap manifest without writing state", () => {
   withTempRoot((rootDir) => {
@@ -112,6 +115,7 @@ test("CLI doc status reports prose candidates and forbidden structured touches",
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
     mkdirSync(taskRoot, { recursive: true });
+    seedWriteRoadRegistry(rootDir);
     writeFileSync(path.join(taskRoot, "task_plan.md"), "# Plan\n\nOriginal prose.\n");
     writeFileSync(path.join(taskRoot, "facts.md"), "# Facts\n\n- fact: original\n");
     initHarnessGit(harnessRoot);
@@ -139,6 +143,7 @@ test("CLI doc status marks deletion as an explicit Phase 2 gap", () => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
     mkdirSync(taskRoot, { recursive: true });
+    seedWriteRoadRegistry(rootDir);
     const planPath = path.join(taskRoot, "task_plan.md");
     writeFileSync(planPath, "# Plan\n\nOriginal prose.\n");
     initHarnessGit(harnessRoot);
@@ -212,6 +217,14 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function seedWriteRoadRegistry(rootDir: string): void {
+  // doc-sync enforcement only activates when the write-road registry is present in the
+  // repo root. Seed it here so `doc status`/`doc sync` classify touches against real rows;
+  // without it loadRegistry treats the layer as inactive and the report is inert (see #644).
+  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+  writeFileSync(path.join(rootDir, "tools", "write-road-registry.json"), registryBody);
 }
 
 function initHarnessGit(harnessRoot: string): void {
