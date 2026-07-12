@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { relativePath } from "../cli/path.ts";
 import {
   buildRelationGraphProjection,
   listTaskIndexPaths,
@@ -117,10 +118,6 @@ export function classifyFactExecutionCandidates(rootInput: HarnessLayoutInput): 
     manual: orphans.filter((candidate) => candidate.classification === "manual"),
     bearingObservations: orphans.filter((candidate) => candidate.classification === "bearing_observation")
   };
-}
-
-function relativePath(rootDir: string, filePath: string): string {
-  return path.relative(rootDir, filePath).split(path.sep).join("/");
 }
 
 function readTaskStatus(frontmatter: string | null): string {
