@@ -373,7 +373,7 @@ function createJournalRecord(rootDir: string, journalPath: string, op: {
 function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: WriteOp, versionControlSystem?: VersionControlSystem): void {
   const vcs = versionControlSystem ?? makeLocalVersionControlSystem();
   const plan = assertCommitPlanAddable(rootDir, writeOpTouchedPaths(rootInput, op), rootInput, { versionControlSystem: vcs });
-  assertCodeDocGitEvidence(rootDir, op, vcs);
+  assertCodeDocGitEvidence(rootDir, resolveHarnessLayout(rootInput).authoredRoot, op, vcs);
   if (op.kind === "task_tree_stage" && plan) {
     assertNoUncoordinatedCodeDocChange(op, vcs.workingTreeFiles(plan.repoRoot, plan.relativePaths));
   }
