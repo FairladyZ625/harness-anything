@@ -100,10 +100,10 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "migrate-attribution",
-    "usage": "migrate attribution [--dry-run|--apply --confirm-plan <id>] [--json]",
-    "options": [{"flag":"--dry-run","description":"Produce a deterministic attribution backfill report without writing; this is the default."},{"flag":"--apply","description":"Append only the exact-match migration events from the confirmed plan."},{"flag":"--confirm-plan","description":"Confirm the exact plan id returned by dry-run before applying."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "migrate attribution [--dry-run|--apply --confirm-plan <id>] [--declare-principal <personId> --declare-authority <decision-id>] [--json]",
+    "options": [{"flag":"--dry-run","description":"Produce a deterministic attribution backfill report without writing; this is the default."},{"flag":"--apply","description":"Append the exact-match and explicitly declared migration events from the confirmed plan."},{"flag":"--confirm-plan","description":"Confirm the exact plan id returned by dry-run before applying."},{"flag":"--declare-principal","description":"One-time principal declaration; must name a person in harness/people.yaml and be paired with --declare-authority."},{"flag":"--declare-authority","description":"Decision id authorizing the one-time principal declaration; must be paired with --declare-principal."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Plan or apply immutable synthetic attribution events for honest legacy matches.",
-    "examples": ["harness-anything migrate attribution --dry-run --json", "harness-anything migrate attribution --apply --confirm-plan abf_0123456789abcdef"],
+    "examples": ["harness-anything migrate attribution --dry-run --json", "harness-anything migrate attribution --dry-run --declare-principal person_zeyu --declare-authority dec_01KXC8A0H95BW8F3J56GP5DFYN --json", "harness-anything migrate attribution --apply --confirm-plan abf_0123456789abcdef"],
     "parse": parseMigrationArgs,
     "run": runMigrationCommand,
     "receiptContract": {

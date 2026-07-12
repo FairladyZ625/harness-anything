@@ -10,6 +10,7 @@ const publicRuntimeSurface = [
   "ActorKindSchema",
   "ActorRefSchema",
   "ArtifactStore",
+  "AttributionBackfillDeclarationError",
   "CurrentSessionProbe",
   "CurrentSessionRuntimeSchema",
   "DecisionPackageSchema",

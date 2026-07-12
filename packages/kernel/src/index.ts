@@ -58,6 +58,7 @@ export * from "./schemas/task-schema-resolver.ts";
 export {
   makeJournaledWriteCoordinator,
   makeOperationalJournaledWriteCoordinator,
+  AttributionBackfillDeclarationError,
   applyAttributionBackfill,
   planAttributionBackfill,
   makeLocalLockRegistry,

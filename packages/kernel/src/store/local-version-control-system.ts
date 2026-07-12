@@ -113,6 +113,19 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
   };
 }
 
+export function firstCommitAtForPath(repoRoot: string, inputPath: string): string | null {
+  const relativePath = path.relative(repoRoot, inputPath);
+  if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) return null;
+  try {
+    return runGit(repoRoot, "log", "--reverse", "--format=%aI", "--", relativePath.split(path.sep).join("/"))
+      .split(/\r?\n/u)
+      .map((entry) => entry.trim())
+      .find(Boolean) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function gitTopLevel(inputPath: string): string | null {
   try {
     return normalizeExistingPath(runGit(inputPath, "rev-parse", "--show-toplevel").trim());
