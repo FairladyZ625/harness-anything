@@ -9,6 +9,7 @@ import type { CommandJsonInput } from "../json-input.ts";
 import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
 import { parseDecisionAmendPatches } from "./decision-amend.ts";
+import { parseClaimFulfillments } from "./decision-fulfillment.ts";
 import { invalidDecisionActor, isDecisionActorRef } from "./decision-actor.ts";
 import { readDecisionBody } from "./decision-body.ts";
 import { isDecisionTransitionOp, parseDecisionTransitionArgs } from "./decision-transition.ts";
@@ -69,11 +70,14 @@ export function parseDecisionArgs(
     if (!patches.ok) return { ok: false, error: patches.error };
     const body = readDecisionBody(args, readOption(args, "--body"));
     if (!body.ok) return body;
+    const fulfillments = parseClaimFulfillments(args);
+    if (!fulfillments.ok) return fulfillments;
     return parsedDecision(rootDir, json, {
       kind: "decision-amend",
       decisionId: args[2],
       title: readOption(args, "--title"),
       ...(args.includes("--standing-policy") ? { standingPolicy: true } : {}),
+      fulfillments: fulfillments.value,
       body: body.value,
       patches: patches.value,
       dryRun: args.includes("--dry-run")
@@ -109,6 +113,8 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     ...jsonValues(payload, "claims")
   ]);
   if (!claims.ok) return { ok: false, error: claims.error };
+  const fulfillments = parseClaimFulfillments(args, jsonValues(payload, "fulfillments"));
+  if (!fulfillments.ok) return fulfillments;
   const body = readDecisionBody(
     args,
     readOption(args, "--body") ?? jsonString(payload, "body"),
@@ -125,6 +131,7 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     claim: readOption(args, "--claim") ?? jsonString(payload, "claim"),
     claims: claims.value,
     claimLoadBearing: !args.includes("--non-load-bearing"),
+    fulfillments: fulfillments.value,
     riskTier,
     urgency,
     proposedBy,

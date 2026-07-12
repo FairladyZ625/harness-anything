@@ -105,6 +105,18 @@ test("decision package schema rejects contract-critical invalid fixtures", async
     ...base,
     decisionClass: "policy"
   }));
+  for (const fulfillment of ["evidenced", "delivered", "standing-policy"] as const) {
+    const decoded = Schema.decodeUnknownSync(DecisionPackageSchema)({
+      ...base,
+      claims: [{ ...base.claims[0], fulfillment }]
+    });
+    assert.equal(decoded.claims[0]?.fulfillment, fulfillment);
+  }
+  assert.equal(Schema.decodeUnknownSync(DecisionPackageSchema)(base).claims[0]?.fulfillment, undefined);
+  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
+    ...base,
+    claims: [{ ...base.claims[0], fulfillment: "inferred" }]
+  }));
 });
 
 test("decision package content pins are optional for legacy records and validated when present", async () => {

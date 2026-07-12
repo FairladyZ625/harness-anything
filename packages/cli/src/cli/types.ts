@@ -13,6 +13,7 @@ import type {
   TaskWorkKind
 } from "../../../kernel/src/index.ts";
 import type { DecisionAmendField, DecisionAmendOperation } from "../../../kernel/src/index.ts";
+import type { DecisionClaimFulfillment } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import type { CliError } from "./error-codes.ts";
 
@@ -75,6 +76,12 @@ export interface DecisionClaimInput {
   readonly id?: string;
   readonly text: string;
   readonly load_bearing?: boolean;
+  readonly fulfillment?: DecisionClaimFulfillment;
+}
+
+export interface DecisionClaimFulfillmentInput {
+  readonly claimId: string;
+  readonly fulfillment: DecisionClaimFulfillment;
 }
 
 export interface DecisionChoiceInput {
@@ -216,10 +223,10 @@ export interface ParsedCommand {
     | { readonly kind: "relation-list"; readonly filters: RelationListFilters }
     | { readonly kind: "decision-list"; readonly search?: string; readonly legacyId?: string; readonly legacyRange?: string; readonly state?: string; readonly moduleKey?: string; readonly productLine?: string; readonly compact?: boolean }
     | { readonly kind: "decision-show"; readonly selector: string }
-    | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: ReadonlyArray<DecisionChoiceInput>; readonly rejected: ReadonlyArray<DecisionRejectedInput>; readonly claim?: string; readonly claims: ReadonlyArray<DecisionClaimInput>; readonly claimLoadBearing: boolean; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly proposedBy?: string; readonly arbiter?: string; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly evidenceRelations: ReadonlyArray<DecisionEvidenceRelationInput>; readonly body?: string; readonly dryRun: boolean }
-    | { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire"; readonly decisionId: string; readonly arbiter?: string; readonly decidedAt?: string; readonly judgmentOnlyRationale?: string; readonly standingPolicy?: boolean; readonly body?: string; readonly dryRun: boolean }
+    | { readonly kind: "decision-propose"; readonly decisionId?: string; readonly title: string; readonly question: string; readonly chosen: ReadonlyArray<DecisionChoiceInput>; readonly rejected: ReadonlyArray<DecisionRejectedInput>; readonly claim?: string; readonly claims: ReadonlyArray<DecisionClaimInput>; readonly claimLoadBearing: boolean; readonly fulfillments: ReadonlyArray<DecisionClaimFulfillmentInput>; readonly riskTier: "low" | "medium" | "high"; readonly urgency: "low" | "medium" | "high"; readonly proposedBy?: string; readonly arbiter?: string; readonly modules: ReadonlyArray<string>; readonly productLines: ReadonlyArray<string>; readonly evidenceRelations: ReadonlyArray<DecisionEvidenceRelationInput>; readonly body?: string; readonly dryRun: boolean }
+    | { readonly kind: "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-retire"; readonly decisionId: string; readonly arbiter?: string; readonly decidedAt?: string; readonly judgmentOnlyRationale?: string; readonly standingPolicy?: boolean; readonly fulfillments: ReadonlyArray<DecisionClaimFulfillmentInput>; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-reckon"; readonly decisionId: string; readonly taskId: string; readonly dryRun: boolean }
-    | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly standingPolicy?: boolean; readonly body?: string; readonly patches: ReadonlyArray<DecisionAmendPatchInput>; readonly dryRun: boolean }
+    | { readonly kind: "decision-amend"; readonly decisionId: string; readonly title?: string; readonly standingPolicy?: boolean; readonly fulfillments: ReadonlyArray<DecisionClaimFulfillmentInput>; readonly body?: string; readonly patches: ReadonlyArray<DecisionAmendPatchInput>; readonly dryRun: boolean }
     | { readonly kind: "decision-relate"; readonly decisionId: string; readonly anchor: string; readonly relationType: RelationType; readonly target: string; readonly rationale: string; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-relation-retire"; readonly decisionId: string; readonly relationId: string; readonly body?: string; readonly dryRun: boolean }
     | { readonly kind: "decision-relation-replace"; readonly decisionId: string; readonly relationId: string; readonly anchor: string; readonly relationType: RelationType; readonly target: string; readonly rationale: string; readonly body?: string; readonly dryRun: boolean }

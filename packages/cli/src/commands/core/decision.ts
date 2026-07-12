@@ -13,6 +13,7 @@ import { runDecisionQueryCommand } from "./decision-query.ts";
 import { runReckon } from "./decision-reckon.ts";
 import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetire } from "./decision-relate.ts";
 import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionResult, parseActor, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
+import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
   | "decision-propose" | "decision-accept" | "decision-reject" | "decision-defer" | "decision-supersede" | "decision-amend" | "decision-relate" | "decision-reckon" | "decision-relation-retire" | "decision-relation-replace" | "decision-retire"
@@ -55,9 +56,12 @@ function runTransition(
   return readDecisionDocument(rootInput, action.decisionId).pipe(
     Effect.flatMap((document) => {
       const current = document.decision;
+      const fulfilled = applyClaimFulfillments(current, action.fulfillments);
+      if (!fulfilled.ok) return Effect.succeed(fulfillmentFailure(action.kind, current.decision_id, fulfilled.reason));
       const arbiter = parseActor(action.arbiter) ?? current.arbiter;
       const request = {
         current,
+        claims: fulfilled.decision.claims,
         arbiter,
         decidedAt: action.decidedAt,
         judgmentOnlyRationale: action.judgmentOnlyRationale,
@@ -111,7 +115,9 @@ function runAmend(
   return readDecisionDocument(rootInput, action.decisionId).pipe(
     Effect.map((document) => document.decision),
     Effect.flatMap((current) => {
-      const patchResult = applyDecisionAmendPatches(current, [
+      const fulfilled = applyClaimFulfillments(current, action.fulfillments);
+      if (!fulfilled.ok) return Effect.succeed(fulfillmentFailure("decision-amend", current.decision_id, fulfilled.reason));
+      const patchResult = applyDecisionAmendPatches(fulfilled.decision, [
         ...(action.title ? [{ field: "title", operation: "replace", value: action.title } satisfies DecisionAmendPatchInput] : []),
         ...(action.standingPolicy ? [{ field: "decisionClass", operation: "metadata", value: "standing-policy" } satisfies DecisionAmendPatchInput] : []),
         ...action.patches
@@ -146,4 +152,13 @@ function transitionState(kind: TransitionAction["kind"]): DecisionState {
     case "decision-retire":
       return "retired";
   }
+}
+
+function fulfillmentFailure(command: string, decisionId: string, reason: string): CliResult {
+  return {
+    ok: false,
+    command,
+    decisionId,
+    error: cliError(CliErrorCode.InvalidDecisionAmendPatch, reason)
+  };
 }

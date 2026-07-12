@@ -11,6 +11,8 @@ const DecisionRiskTierSchema = Schema.Literal("low", "medium", "high");
 const DecisionUrgencySchema = Schema.Literal("low", "medium", "high");
 const DecisionContentPinActionSchema = Schema.Literal("accept", "reject", "defer", "supersede", "retire");
 const DecisionContentDigestSchema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/u));
+export const decisionClaimFulfillments = ["evidenced", "delivered", "standing-policy"] as const;
+export type DecisionClaimFulfillment = (typeof decisionClaimFulfillments)[number];
 
 export const DecisionStateSchema = Schema.Literal(
   ...decisionStates
@@ -20,6 +22,13 @@ const DecisionAnchorSchema = Schema.Struct({
   id: AnchorIdSchema,
   text: NonBlankStringSchema,
   load_bearing: Schema.optional(Schema.Boolean)
+});
+
+const DecisionClaimSchema = Schema.Struct({
+  id: AnchorIdSchema,
+  text: NonBlankStringSchema,
+  load_bearing: Schema.optional(Schema.Boolean),
+  fulfillment: Schema.optional(Schema.Literal(...decisionClaimFulfillments))
 });
 
 const RejectedDecisionAnchorSchema = Schema.Struct({
@@ -61,7 +70,7 @@ export const DecisionPackageSchema = Schema.Struct({
   question: NonBlankStringSchema,
   chosen: Schema.Array(DecisionAnchorSchema).pipe(Schema.minItems(1)),
   rejected: Schema.Array(RejectedDecisionAnchorSchema).pipe(Schema.minItems(1)),
-  claims: Schema.Array(DecisionAnchorSchema).pipe(Schema.minItems(1)),
+  claims: Schema.Array(DecisionClaimSchema).pipe(Schema.minItems(1)),
   relations: Schema.Array(EntityRelationRecordSchema)
 }).pipe(Schema.filter((decision) => decision.proposedBy.kind !== decision.arbiter.kind || decision.proposedBy.id !== decision.arbiter.id));
 

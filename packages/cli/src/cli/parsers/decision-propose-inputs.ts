@@ -1,6 +1,7 @@
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionChoiceInput, DecisionClaimInput, DecisionRejectedInput } from "../types.ts";
+import { decisionClaimFulfillments } from "../../../../kernel/src/index.ts";
 
 export function parseChoiceInputs(args: ReadonlyArray<string>, input?: unknown):
   | { readonly ok: true; readonly value: ReadonlyArray<DecisionChoiceInput> }
@@ -117,12 +118,17 @@ function parseClaimInput(raw: unknown, defaultLoadBearing: boolean):
   try {
     const object = parseObjectInput(raw, "claim JSON must be an object");
     if (typeof object.text !== "string" || object.text.trim().length === 0) throw new Error("claim JSON requires text");
+    if (object.fulfillment !== undefined && (
+      typeof object.fulfillment !== "string" ||
+      !decisionClaimFulfillments.some((value) => value === object.fulfillment)
+    )) throw new Error("claim JSON fulfillment must be evidenced, delivered, or standing-policy");
     return {
       ok: true,
       value: {
         ...(typeof object.id === "string" && object.id.trim() ? { id: object.id } : {}),
         text: object.text,
-        ...(typeof object.load_bearing === "boolean" ? { load_bearing: object.load_bearing } : defaultLoadBearing ? {} : { load_bearing: false })
+        ...(typeof object.load_bearing === "boolean" ? { load_bearing: object.load_bearing } : defaultLoadBearing ? {} : { load_bearing: false }),
+        ...(typeof object.fulfillment === "string" ? { fulfillment: object.fulfillment as DecisionClaimInput["fulfillment"] } : {})
       }
     };
   } catch (error) {

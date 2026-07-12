@@ -2,6 +2,7 @@ import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { invalidDecisionActor, isDecisionActorRef } from "./decision-actor.ts";
+import { parseClaimFulfillments } from "./decision-fulfillment.ts";
 
 const transitionOps = new Set(["accept", "reject", "defer", "supersede", "retire"]);
 
@@ -24,6 +25,11 @@ export function parseDecisionTransitionArgs(
   const arbiter = readOption(args, "--arbiter");
   if (arbiter && !isDecisionActorRef(arbiter)) return invalidDecisionActor();
   const judgmentOnlyRationale = readOption(args, "--judgment-only");
+  const fulfillments = parseClaimFulfillments(args);
+  if (!fulfillments.ok) return fulfillments;
+  if (op !== "accept" && fulfillments.value.length > 0) {
+    return { ok: false, error: cliError(CliErrorCode.InvalidDecisionAmendPatch, "--fulfillment is supported by decision accept, not other transitions.") };
+  }
   if (op === "accept" && args.includes("--judgment-only") && (
     !judgmentOnlyRationale ||
     judgmentOnlyRationale.trim().length === 0 ||
@@ -40,6 +46,7 @@ export function parseDecisionTransitionArgs(
       decidedAt: readOption(args, "--decided-at"),
       ...(op === "accept" && judgmentOnlyRationale ? { judgmentOnlyRationale } : {}),
       ...(op === "accept" && args.includes("--standing-policy") ? { standingPolicy: true } : {}),
+      fulfillments: fulfillments.value,
       body: readOption(args, "--body"),
       dryRun: args.includes("--dry-run")
     }

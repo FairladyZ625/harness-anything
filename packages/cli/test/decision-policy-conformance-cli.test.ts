@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,15 +18,16 @@ test("CLI decision conformance requires standing-policy fulfillment instead of a
       "--evidence-relation",
       "C1:refines:decision/dec_POLICY_TARGET/C1:The standing policy refines an existing policy decision"
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_POLICY_REFINED", "--arbiter", "human:ZeyuLi", "--standing-policy"]);
+    runJson(rootDir, ["decision", "accept", "dec_POLICY_REFINED", "--arbiter", "human:ZeyuLi", "--fulfillment", "C1:standing-policy"]);
 
     propose(rootDir, "dec_POLICY_EMPTY", "Unfulfilled standing policy");
     runJson(rootDir, [
       "decision", "accept", "dec_POLICY_EMPTY",
       "--arbiter", "human:ZeyuLi",
       "--judgment-only", "Exercise the negative conformance path.",
-      "--standing-policy"
+      "--fulfillment", "C1:standing-policy"
     ]);
+    assert.match(readFileSync(path.join(rootDir, "harness/decisions/decision-dec_POLICY_REFINED/decision.md"), "utf8"), /fulfillment: "standing-policy"/u);
 
     propose(rootDir, "dec_ORDINARY_MISSING", "Ordinary unimplemented decision");
     runJson(rootDir, [
@@ -97,7 +98,10 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
-    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], { encoding: "utf8" });
+    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+      encoding: "utf8",
+      env: { ...process.env, HARNESS_ACTOR: "agent:test" }
+    });
     const parsed = unwrapCommandReceipt(JSON.parse(output) as Record<string, any>);
     if (expectSuccess) assert.equal(parsed.ok, true, output);
     return parsed;

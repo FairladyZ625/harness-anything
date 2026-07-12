@@ -15,6 +15,7 @@ import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { nextDecisionAnchorId } from "./decision-anchor-id.ts";
 import { decisionFailure, decisionResult, parseActor, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
+import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 
 type ProposeAction = Extract<ParsedCommand["action"], { readonly kind: "decision-propose" }>;
 
@@ -25,7 +26,16 @@ export function runPropose(
 ): Effect.Effect<CliResult, WriteError> {
   const now = new Date().toISOString();
   const baseDecision = proposedDecision(action, now, []);
-  const relations = decisionEvidenceRelations(baseDecision, action.evidenceRelations);
+  const fulfilled = applyClaimFulfillments(baseDecision, action.fulfillments);
+  if (!fulfilled.ok) {
+    return Effect.succeed({
+      ok: false,
+      command: "decision-propose",
+      decisionId: baseDecision.decision_id,
+      error: cliError(CliErrorCode.InvalidDecisionAmendPatch, fulfilled.reason)
+    } satisfies CliResult);
+  }
+  const relations = decisionEvidenceRelations(fulfilled.decision, action.evidenceRelations);
   if (!relations.ok) {
     return Effect.succeed({
       ok: false,
@@ -34,7 +44,7 @@ export function runPropose(
       error: cliError(CliErrorCode.InvalidDecisionEvidenceRelation, relations.reason)
     } satisfies CliResult);
   }
-  const decision = { ...baseDecision, relations: relations.records };
+  const decision = { ...fulfilled.decision, relations: relations.records };
   if (action.dryRun) return Effect.succeed(withDocSyncWarning(rootInput, action, decisionResult(rootInput, "decision-propose", decision.decision_id, decision.state, true)));
   return service.propose({ decision, body: action.body }).pipe(
     Effect.match({
@@ -106,7 +116,8 @@ function proposedClaims(action: ProposeAction): DecisionCreateInput["claims"] {
     return {
       id,
       text: claim.text,
-      ...(claim.load_bearing === false ? { load_bearing: false } : {})
+      ...(claim.load_bearing === false ? { load_bearing: false } : {}),
+      ...(claim.fulfillment ? { fulfillment: claim.fulfillment } : {})
     };
   });
 }

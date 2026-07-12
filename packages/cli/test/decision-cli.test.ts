@@ -82,6 +82,38 @@ test("CLI decision accept and amend declare standing-policy decisions", () => {
   });
 });
 
+test("CLI decision propose, accept, and amend declare claim fulfillment", () => {
+  withTempRoot((rootDir) => {
+    for (const decisionId of ["dec_FULFILL_PROPOSE", "dec_FULFILL_ACCEPT", "dec_FULFILL_AMEND"]) {
+      runJson(rootDir, [
+        "decision", "propose",
+        "--id", decisionId,
+        "--title", `${decisionId} fulfillment`,
+        "--question", "How is claim C1 fulfilled?",
+        "--chosen", "Declare it explicitly",
+        "--rejected", "Infer it",
+        "--why-not", "Inference destroys diagnostics",
+        ...(decisionId === "dec_FULFILL_PROPOSE" ? ["--fulfillment", "C1:delivered"] : [])
+      ]);
+    }
+
+    runJson(rootDir, [
+      "decision", "accept", "dec_FULFILL_ACCEPT",
+      "--arbiter", "human:ZeyuLi",
+      "--judgment-only", "The policy judgment is explicit.",
+      "--fulfillment", "C1:standing-policy"
+    ]);
+    runJson(rootDir, ["decision", "amend", "dec_FULFILL_AMEND", "--fulfillment", "C1:evidenced"]);
+
+    const proposed = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_FULFILL_PROPOSE/decision.md"), "utf8");
+    const accepted = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_FULFILL_ACCEPT/decision.md"), "utf8");
+    const amended = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_FULFILL_AMEND/decision.md"), "utf8");
+    assert.match(proposed, /id: "C1"[^\n]*fulfillment: "delivered"/u);
+    assert.match(accepted, /id: "C1"[^\n]*fulfillment: "standing-policy"/u);
+    assert.match(amended, /id: "C1"[^\n]*fulfillment: "evidenced"/u);
+  });
+});
+
 test("CLI decision propose generates distinct high-entropy ids in the same millisecond", () => {
   withTempRoot((rootDir) => {
     const clockPath = path.join(rootDir, "fixed-clock.mjs");
