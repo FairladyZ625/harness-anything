@@ -116,6 +116,9 @@ export {
 export {
   createUnixSocketTransportServer,
   defaultUnixSocketPath,
+  ensurePrivateUnixSocketDirectory,
+  unixSocketDirectory,
+  type UnixSocketPathOptions,
   type UnixSocketTransportOptions,
   type UnixSocketTransportServer
 } from "./transport/unix-socket.ts";
