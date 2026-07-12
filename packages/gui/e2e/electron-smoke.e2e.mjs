@@ -9,6 +9,22 @@ import { _electron as electron } from "playwright-core";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const guiRoot = resolve(repoRoot, "packages/gui");
+
+// dec_01KXA7811SVVT8P66HNDFZQ7DF GUI usability evidence shots. The directory
+// is a sibling of the hermetic ledger so it gets cleaned up with the test run
+// but stays readable from a developer machine. Set HARNESS_GUI_E2E_SHOTS to
+// a stable absolute path to retain shots across runs (used for closeout evidence).
+const screenshotDir = process.env.HARNESS_GUI_E2E_SHOTS
+  ? resolve(process.env.HARNESS_GUI_E2E_SHOTS)
+  : mkdtempSync(path.join(tmpdir(), "ha-gui-e2e-shots-"));
+
+async function captureGraphEvidence(page, name) {
+  const file = path.join(screenshotDir, `${name}.png`);
+  await page.screenshot({ path: file, fullPage: false }).catch((error) => {
+    console.warn(`[screenshot] ${name} failed: ${error.message}`);
+  });
+  return file;
+}
 test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async (t) => {
   const ledgerRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-e2e-"));
   writeTriadicLedger(ledgerRoot);
@@ -38,7 +54,7 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   page.on("console", (message) => {
     if (message.type() === "error") consoleFailures.push(message.text());
   });
-  page.on("pageerror", (error) => consoleFailures.push(error.message));
+  page.on("pageerror", (error) => consoleFailures.push(`${error.message}\n${error.stack ?? ""}`));
   await page.waitForLoadState("domcontentloaded");
 
   assert.equal(await page.title(), "Harness Anything");
@@ -75,7 +91,9 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // task projection. The hermetic authored ledger exercises the focused ego
   // graph, claim coverage, semantic-axis filters, fact expansion, and the
   // genealogy multi-view without a renderer-side mock.
-  await page.getByRole("button", { name: /关系图/u }).click();
+  // Scope to the workspace nav (sidebar) — the permanent multi-view switcher
+  // also exposes a 关系图 button (dec_01KXA7811SVVT8P66HNDFZQ7DF GUI usability).
+  await page.getByRole("complementary").getByRole("button", { name: "关系图" }).click();
   await page.locator(".react-flow").waitFor({ timeout: 10_000 });
   const focusCard = page.locator(".react-flow__node-decisionFocus");
   await focusCard.waitFor({ timeout: 10_000 });
@@ -89,6 +107,30 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   assert.equal(await page.locator(".react-flow__node-fact").count(), 0, "facts start folded into claim badges");
   assert.equal(await page.locator(".react-flow__edge").count(), 2);
   assert.equal(await page.getByText("MOCK", { exact: true }).count(), 0, "triadic views must not be mock-backed");
+
+  // GUI usability (dec_01KXA7811SVVT8P66HNDFZQ7DF): the renderer ships a
+  // permanent multi-view switcher (graph/genealogy), a left FocusSwitcher
+  // sidebar (search + entity list), a focus history bar with back/forward,
+  // and the ReactFlow colorMode hookup so the MiniMap inherits dark theme
+  // instead of painting a white SVG box.
+  await page.getByTestId("multi-view-switcher").waitFor();
+  const focusSwitcher = page.getByTestId("focus-switcher");
+  await focusSwitcher.waitFor();
+  await focusSwitcher.getByRole("searchbox").waitFor();
+  await focusSwitcher.getByText("Expose the triadic projection to the GUI", { exact: false }).waitFor();
+  await focusSwitcher.getByText("Render the real triadic projection", { exact: false }).waitFor();
+  const focusHistoryBar = page.getByTestId("focus-history-bar");
+  await focusHistoryBar.waitFor();
+  // Default-picked focus is on the graph but not yet in history; back/forward disabled.
+  assert.equal(await focusHistoryBar.getByRole("button", { name: "上一个焦点" }).isDisabled(), true);
+  assert.equal(await focusHistoryBar.getByRole("button", { name: "下一个焦点" }).isDisabled(), true);
+  // The MiniMap must render once colorMode flows in (regression: previously the
+  // missing colorMode prop left it painting a stark white box on dark theme).
+  await page.locator(".react-flow__minimap").waitFor({ timeout: 10_000 });
+  // Breadcrumb shows the focused decision (the layout-picked default).
+  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
+  // Evidence: default-focus graph with MiniMap and breadcrumb visible.
+  await captureGraphEvidence(page, "01-graph-default-focus-minimap");
 
   const assocToggle = page.getByRole("button", { name: /关联.*relates.*implements/u });
   assert.match(await assocToggle.getAttribute("class") ?? "", /opacity-60/u, "assoc must default off");
@@ -117,6 +159,9 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // GraphView passed `n.data` instead of `n.data.raw` to GraphDrawer, and
   // CloseoutBadge read `CLOSEOUT_META[undefined]`. Now the drawer should open
   // and render task-specific badges (status / closeout / engine).
+  // dec_01KXA7811SVVT8P66HNDFZQ7DF GUI usability: single click selects + opens
+  // the drawer WITHOUT changing the focus, so the focused decision card stays
+  // central. The drawer exposes an explicit "设为焦点" button.
   const taskNode = page.locator(".react-flow__node-task").first();
   await taskNode.click();
   const taskDrawer = page.locator("aside");
@@ -125,8 +170,74 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   await taskDrawer.getByText("Active", { exact: true }).waitFor();
   await taskDrawer.getByText("无需收口", { exact: true }).waitFor();
   await taskDrawer.getByText("local", { exact: true }).waitFor();
+  // Single click did NOT change focus: the focused decision card is still
+  // centered (the decisionFocus node stays rendered) and the breadcrumb still
+  // shows the focused decision, not the selected task.
+  await page.locator(".react-flow__node-decisionFocus").waitFor();
+  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
+  await taskDrawer.getByRole("button", { name: "设为焦点" }).waitFor();
+  // Evidence: single-click opened the drawer; breadcrumb still shows the focus.
+  await captureGraphEvidence(page, "02-click-opens-drawer-no-focus-change");
+  // Close the drawer so it does not crowd subsequent interactions; the focus
+  // must remain on dec_gui_smoke after Esc.
+  await taskDrawer.getByRole("button", { name: /退出抽屉|退出聚焦/u }).click();
 
-  const viewSwitcher = page.getByText("同一实体 · 多视图", { exact: true }).locator("..");
+  // Focus switcher: type-to-search narrows the list, and clicking a hit
+  // changes focus (driving both layout and history).
+  const switcherInput = focusSwitcher.getByRole("searchbox");
+  await switcherInput.fill("ancestor");
+  await focusSwitcher.getByText("Earlier GUI projection decision", { exact: false }).waitFor();
+  await focusSwitcher.getByText("Expose the triadic projection to the GUI", { exact: false }).waitFor({ state: "detached" });
+  // Evidence: switcher search narrows the list.
+  await captureGraphEvidence(page, "03-focus-switcher-search");
+  await switcherInput.clear();
+  // Pick the ancestor decision through the switcher (verifies setFocusId).
+  await focusSwitcher.getByRole("button").filter({ hasText: "Earlier GUI projection decision" }).click();
+  await focusHistoryBar.getByText("decision/dec_gui_ancestor", { exact: true })
+    .waitFor()
+    .catch(async () => {
+      const bodyText = await page.locator("body").innerText().catch(() => "<empty>");
+      throw new Error(
+        `breadcrumb did not show dec_gui_ancestor after switcher click.\n`
+        + `consoleFailures:\n${consoleFailures.join("\n")}\n`
+        + `bodyText (first 2000 chars):\n${bodyText.slice(0, 2000)}`,
+      );
+    });
+  // History now has [ancestor] — back stays disabled because there is nothing
+  // earlier in the user-navigated stack. Set a second focus to exercise back.
+  await focusSwitcher.getByRole("button").filter({ hasText: "Expose the triadic projection to the GUI" }).click();
+  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
+  assert.equal(await focusHistoryBar.getByRole("button", { name: "上一个焦点" }).isDisabled(), false);
+  // Evidence: history now has two entries with back/forward enabled.
+  await captureGraphEvidence(page, "04-focus-history-back-forward-enabled");
+  // Back returns to the ancestor; forward restores the smoke decision.
+  await focusHistoryBar.getByRole("button", { name: "上一个焦点" }).click();
+  await focusHistoryBar.getByText("decision/dec_gui_ancestor", { exact: true }).waitFor();
+  // Evidence: after back, breadcrumb shows the ancestor.
+  await captureGraphEvidence(page, "05-focus-history-back-to-ancestor");
+  assert.equal(await focusHistoryBar.getByRole("button", { name: "下一个焦点" }).isDisabled(), false);
+  await focusHistoryBar.getByRole("button", { name: "下一个焦点" }).click();
+  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
+
+  // Click-then-set-as-focus is the explicit keyboardless way to change focus
+  // to a non-decision node. The drawer exposes a "设为焦点" button exactly for
+  // this — equivalent to onNodeDoubleClick but discoverable.
+  await page.locator(".react-flow__node-task").first().click();
+  await page.locator("aside").getByRole("button", { name: "设为焦点" }).click();
+  await focusHistoryBar.getByText("task-gui-smoke", { exact: true })
+    .waitFor()
+    .catch(async () => {
+      const bodyText = await page.locator("body").innerText().catch(() => "<empty>");
+      throw new Error(
+        `breadcrumb did not show task after set-as-focus button.\n`
+        + `consoleFailures:\n${consoleFailures.join("\n")}\n`
+        + `bodyText (first 2000 chars):\n${bodyText.slice(0, 2000)}`,
+      );
+    });
+  // Evidence: focus switched to a task node via the explicit button.
+  await captureGraphEvidence(page, "06-set-as-focus-task");
+
+  const viewSwitcher = page.getByTestId("multi-view-switcher");
   await viewSwitcher.getByRole("button", { name: "演化史", exact: true }).click();
   await page.getByRole("heading", { name: "决策演化史", exact: true }).waitFor();
   await page.getByText(/2 决策参与谱系 · 1 条演化边/u).waitFor();

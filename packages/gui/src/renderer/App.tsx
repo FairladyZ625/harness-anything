@@ -408,10 +408,13 @@ function AppShell() {
         {showMockBanner && <MockViewBanner />}
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {!selected && (view === "graph" || view === "genealogy") && (
-              <div className="flex items-center gap-2 border-b border-border bg-surface/60 px-4 py-1.5">
+            {!selected && (
+              <div
+                data-testid="multi-view-switcher"
+                className="flex items-center gap-2 border-b border-border bg-surface/60 px-4 py-1.5"
+              >
                 <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                  同一实体 · 多视图
+                  多视图
                 </span>
                 <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
                   {([
@@ -432,7 +435,7 @@ function AppShell() {
                   ))}
                 </div>
                 <span className="text-[11px] text-text-faint">
-                  关系图看结构 · 演化史看 decision 谱系随时间的 refine/narrow/supersede
+                  常驻切换 · 关系图看结构,演化史看 decision 谱系随时间的 refine/narrow/supersede
                 </span>
               </div>
             )}

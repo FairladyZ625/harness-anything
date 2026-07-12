@@ -1,4 +1,4 @@
-import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple } from "@phosphor-icons/react";
+import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple, Crosshair } from "@phosphor-icons/react";
 import type { RelationEdge } from "../model/types";
 import {
   StatusBadge,
@@ -26,6 +26,13 @@ interface Props {
   onFocus: (id: string | null) => void;
   /** W2B 活链接:在列表/详情侧打开该 entity(task→detail, decision→pool, fact→triage) */
   onNavigateEntity?: (ref: string) => void;
+  /**
+   * 抽屉里当前展示的节点是否已经是焦点(dec_01KXA7811SVVT8P66HNDFZQ7DF — 关系图
+   * 可用性)。是 → 隐藏「设为焦点」按钮;否 → 显示,点一下显式换焦点。
+   */
+  isFocused?: boolean;
+  /** 抽屉里「设为焦点」按钮触发的回调;父组件负责推焦点历史。 */
+  onSetAsFocus?: () => void;
 }
 
 export function GraphDrawer({
@@ -38,6 +45,8 @@ export function GraphDrawer({
   onClose,
   onFocus,
   onNavigateEntity,
+  isFocused,
+  onSetAsFocus,
 }: Props) {
   if (focusEdge) {
     return (
@@ -124,9 +133,29 @@ export function GraphDrawer({
             打开
           </button>
         )}
+        {onSetAsFocus && (
+          isFocused ? (
+            <span
+              title="此节点已是焦点"
+              className="inline-flex items-center gap-1 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent"
+            >
+              <Crosshair weight="bold" className="text-[10px]" />
+              焦点
+            </span>
+          ) : (
+            <button
+              onClick={onSetAsFocus}
+              title="把这个节点设为图焦点(双击节点同效)"
+              className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-accent hover:text-accent"
+            >
+              <Crosshair weight="bold" className="text-[10px]" />
+              设为焦点
+            </button>
+          )
+        )}
         <button
           onClick={onClose}
-          title="退出聚焦 (Esc)"
+          title="退出抽屉 (Esc)"
           className="ml-auto grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
         >
           <X weight="bold" />
