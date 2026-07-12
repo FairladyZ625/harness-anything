@@ -63,7 +63,7 @@ export interface DaemonServiceHost {
     readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null; readonly repo?: DaemonRepoNamespace }) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
   readonly DocSyncService?: {
-    readonly submit: (request: DocSyncSubmitRequestV1, context?: { readonly actor?: AuthenticatedActor; readonly repo?: DaemonRepoNamespace }) => Promise<DocSyncSubmitResultV1>;
+    readonly submit: (request: DocSyncSubmitRequestV1, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null; readonly repo?: DaemonRepoNamespace }) => Promise<DocSyncSubmitResultV1>;
   };
 }
 
@@ -282,7 +282,11 @@ async function callServiceMethod(
     if (!services.DocSyncService) {
       return failureReceipt(contract.method, "doc_sync_service_unavailable", "Doc sync submit service is not configured.");
     }
-    const result = await services.DocSyncService.submit(params as unknown as DocSyncSubmitRequestV1, { actor, repo });
+    const result = await services.DocSyncService.submit(params as unknown as DocSyncSubmitRequestV1, {
+      actor,
+      executor: readTaskHolderExecutor(params as JsonObject),
+      repo
+    });
     return result.ok
       ? successReceipt(contract.method, `completed ${contract.method}`, result as unknown as JsonObject)
       : failureReceipt(contract.method, result.code, result.reason, { data: result as unknown as JsonObject });

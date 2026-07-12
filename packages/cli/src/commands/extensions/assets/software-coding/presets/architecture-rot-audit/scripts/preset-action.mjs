@@ -19,7 +19,7 @@ if (context.entrypoint !== "check") throw new Error(`Unsupported architecture-ro
 
 const presetRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const registry = JSON.parse(readFileSync(path.join(presetRoot, "registry", "architecture-rot-registry.json"), "utf8"));
-const rootDir = context.paths.rootDir;
+const rootDir = context.paths.projectRoot ?? context.paths.rootDir;
 const artifactsDir = path.join(context.outputRoot, "artifacts");
 const generatedAt = new Date().toISOString();
 const git = readGitHead(rootDir);

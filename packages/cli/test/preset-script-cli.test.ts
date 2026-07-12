@@ -178,11 +178,18 @@ test("CLI script command discovers and runs the vertical ADR seed scaffold", () 
     assert.equal(result.generated.includes("harness/adr/0000-template.md"), true);
     assert.equal(result.generated.includes("harness/adr/README.md"), false);
     assert.match(readFileSync(path.join(rootDir, "harness/adr/0000-template.md"), "utf8"), /## Decision/u);
+    assert.match(gitRead(rootDir, "log", "--format=%s"), /script-ingest/u);
+    assert.equal(gitRead(rootDir, "status", "--short"), "");
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "context.json")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
   });
 });
 
 test("CLI script command renders an ADR from a decision entity, reuses the number, and preserves the human block", () => {
   withTempRoot((rootDir) => {
+    ensureTestHarnessIdentity(rootDir);
+    runJson(rootDir, ["init"]);
     writeDecisionFixture(rootDir, "dec_ADR_RENDER_FIXTURE");
 
     const inspected = runJson(rootDir, ["script", "inspect", "vertical:software-coding:adr-render"]);
@@ -594,6 +601,8 @@ test("CLI process preset script entrypoint blocks out-of-scope filesystem writes
 
 test("CLI legacy-migration preset action plans V2 task discovery and context forward evidence", () => {
   withTempRoot((rootDir) => {
+    ensureTestHarnessIdentity(rootDir);
+    runJson(rootDir, ["init"]);
     writeFile(rootDir, "old/.harness-private/coding-agent-harness/harness.yaml", [
       "version: 2",
       "structure:",
@@ -615,13 +624,24 @@ test("CLI legacy-migration preset action plans V2 task discovery and context for
     assert.equal(contextEntry.forwardPath, "harness/context/architecture/overview.md");
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-migration/artifacts/legacy-migration-plan.json")), true);
     assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-migration/artifacts/legacy-migration-plan.md"), "utf8"), /V2 Task/u);
+    assert.match(gitRead(rootDir, "log", "--format=%s"), /script-ingest/u);
+    assert.equal(gitRead(rootDir, "status", "--short"), "");
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "context.json")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
+    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
   });
 });
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HARNESS_ACTOR: "agent:preset-script-test",
+        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
+      }
     });
     const parsed = JSON.parse(output) as Record<string, any>;
     if (expectSuccess) assert.equal(parsed.ok, true, output);
@@ -640,6 +660,13 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function gitRead(rootDir: string, ...args: ReadonlyArray<string>): string {
+  return execFileSync("git", ["-C", path.join(rootDir, "harness"), ...args], {
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" }
+  }).trimEnd();
 }
 
 function writeFile(rootDir: string, relativePath: string, body: string): void {

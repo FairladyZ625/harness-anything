@@ -11,8 +11,8 @@
   ],
   "rowCountReconciliation": {
     "phase1FunctionalRows": 26,
-    "registryRows": 33,
-    "difference": "Seven additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road."
+    "registryRows": 35,
+    "difference": "Seven additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road. Two further ADR-0028 P4 rows register the attributed doc_sync_submit coordinator road and the preset script staging-mirror ingest road."
   },
   "rows": [
     {
@@ -512,6 +512,33 @@
       "directWrites": [{ "file": "packages/cli/src/commands/core/worktree.ts" }],
       "evidence": ["packages/cli/src/commands/core/worktree.ts:183"],
       "freshness": "local-binding-cache"
+    },
+    {
+      "id": "doc.sync.submit",
+      "sourceInventoryRows": [5],
+      "road": "A",
+      "bearing": "task-document",
+      "channel": { "pathClass": "doc-sync-allowed", "zoneClass": "task-authored-prose-canonical" },
+      "entry": ["cli", "daemon-rpc"],
+      "writeKinds": ["doc_sync_submit"],
+      "evidence": ["packages/cli/src/daemon/doc-sync-service.ts:243", "packages/kernel/src/domain/write-op-kind.ts:1"],
+      "freshness": "doc-sync-submit-cas-post-apply"
+    },
+    {
+      "id": "preset.script.staging-ingest",
+      "sourceInventoryRows": [25],
+      "road": "A",
+      "bearing": "script-canonical-ingest",
+      "channel": { "pathClass": "coordinator-ingest", "zoneClass": "script-staging-mirror-to-canonical" },
+      "entry": ["cli", "preset-runner"],
+      "writeKinds": ["script_ingest"],
+      "callsiteFiles": ["packages/cli/src/commands/core/extension.ts"],
+      "directWrites": [
+        { "file": "packages/cli/src/commands/extensions/script-staging.ts", "api": "mkdirSync" },
+        { "file": "packages/cli/src/commands/extensions/script-staging.ts", "api": "cpSync" }
+      ],
+      "evidence": ["packages/cli/src/commands/extensions/script-staging.ts:32", "packages/cli/src/commands/core/extension.ts:10"],
+      "freshness": "staging-mirror-ingest"
     }
   ]
 }

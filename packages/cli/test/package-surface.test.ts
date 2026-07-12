@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
@@ -168,6 +169,7 @@ test("architecture-rot-audit registry formalizes seven categories and fixed anch
 
 test("architecture-rot-audit check action writes snapshot and non-blocking triage", () => {
   withTempRoot((rootDir) => {
+    ensureTestHarnessIdentity(rootDir);
     writeFixture(rootDir, "packages/cli/src/cli/command-spec/command-spec-fixture.ts", [
       "const specs = [",
       "  { \"kind\": \"one\", \"options\": [{\"flag\":\"--mode\",\"description\":\"First mode.\"}], \"parse\": parseOne, \"run\": runOne },",
@@ -283,7 +285,16 @@ function assertPresetScriptImportsStayInsidePackage(presetRoot: string, command:
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
-  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], { encoding: "utf8" });
+  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HARNESS_ACTOR: "agent:package-surface-test",
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+      HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
+    }
+  });
   return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
 }
 

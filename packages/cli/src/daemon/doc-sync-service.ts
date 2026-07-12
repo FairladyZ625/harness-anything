@@ -1,11 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import {
   resolveHarnessLayout,
   sha256Text,
+  type EntityId,
   type HarnessLayoutInput,
-  type HarnessLayoutOverrides
+  type HarnessLayoutOverrides,
+  type WriteCoordinator
 } from "../../../kernel/src/index.ts";
 import {
   classifyStaticZones,
@@ -24,15 +27,10 @@ import {
   type TouchedZone
 } from "../../../application/src/doc-sync.ts";
 
-interface GitCommitAuthor {
-  readonly name: string;
-  readonly email: string;
-}
-
 export interface DocSyncServiceOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
-  readonly commitAuthor?: GitCommitAuthor;
+  readonly coordinator?: WriteCoordinator;
   readonly afterApplyBeforePostCheck?: () => void | Promise<void>;
 }
 
@@ -87,7 +85,8 @@ export function buildDocSyncReport(rootInput: HarnessLayoutInput) {
 export function buildDocSyncSubmitRequest(
   rootInput: HarnessLayoutInput,
   repoId: string,
-  selectedPaths: ReadonlyArray<string> = []
+  selectedPaths: ReadonlyArray<string> = [],
+  executor?: { readonly kind: "agent"; readonly id: string } | null
 ): DocSyncSubmitRequestV1 {
   const report = buildDocSyncReport(rootInput);
   const selected = new Set(selectedPaths);
@@ -130,6 +129,7 @@ export function buildDocSyncSubmitRequest(
   });
   return {
     repo: { repoId },
+    ...(executor !== undefined ? { executor } : {}),
     payload: {
       baseLedgerSha: report.baseLedgerSha,
       intentId: `intent_${sha256Text(intentMaterial).slice(0, 24)}`,
@@ -221,23 +221,41 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
       unresolvedTouches: validation.unresolvedTouches
     });
   }
-
   const layout = resolveHarnessLayout(rootInput(options));
   const beforeFiles = snapshotFiles(layout.authoredRoot);
   const beforeRpcOnly = snapshotRpcOnlyZones(layout.rootDir, layout.authoredRoot);
+  let coordinatorStarted = false;
   try {
-    for (const change of validation.acceptedChanges) {
-      mkdirSync(path.dirname(change.absolutePath), { recursive: true });
-      writeFileSync(change.absolutePath, change.body, "utf8");
-    }
     await options.afterApplyBeforePostCheck?.();
     const postApplyViolations = changedRpcOnlyZones(layout.rootDir, layout.authoredRoot, beforeRpcOnly);
     if (postApplyViolations.length > 0) {
       restoreFiles(layout.authoredRoot, beforeFiles);
       return reject(request, "doc_sync_post_apply_bearing_changed", "Post-apply checker detected rpc-only zone changes; restored backups.", false, { postApplyViolations });
     }
-    const touchedPaths = validation.acceptedChanges.map((change) => change.absolutePath);
-    const appliedLedgerSha = commitDocSyncPaths(layout.authoredRoot, touchedPaths, `doc sync ${request.payload.intentId}`, options.commitAuthor ?? { name: "Harness Daemon", email: "daemon@harness.local" });
+    if (options.afterApplyBeforePostCheck) restoreFiles(layout.authoredRoot, beforeFiles);
+    if (validation.acceptedChanges.length > 0 && !options.coordinator) {
+      return reject(request, "doc_sync_invalid_payload", "Doc sync submit requires a trusted authenticated person principal.", false, {
+        _tag: "WriteRejected"
+      });
+    }
+    if (validation.acceptedChanges.length > 0) {
+      coordinatorStarted = true;
+      await Effect.runPromise(options.coordinator!.enqueue({
+        opId: request.payload.intentId,
+        entityId: docSyncEntityId(request.payload.intentId),
+        kind: "doc_sync_submit",
+        payload: {
+          baseLedgerSha: request.payload.baseLedgerSha,
+          writes: validation.acceptedChanges.map((change) => ({
+            path: change.path,
+            body: change.body,
+            baseBlobSha256: change.baseBlobSha256
+          }))
+        }
+      }));
+      await Effect.runPromise(options.coordinator!.flush("explicit"));
+    }
+    const appliedLedgerSha = gitText(layout.authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
     return {
       ok: true,
       schema: "daemon.doc-sync-submit-result/v1",
@@ -254,7 +272,7 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
       }))
     };
   } catch (error) {
-    restoreFiles(layout.authoredRoot, beforeFiles);
+    if (!coordinatorStarted) restoreFiles(layout.authoredRoot, beforeFiles);
     return reject(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
   }
 }
@@ -362,23 +380,8 @@ function restoreFiles(authoredRoot: string, before: ReadonlyMap<string, string>)
   }
 }
 
-function commitDocSyncPaths(authoredRoot: string, absolutePaths: ReadonlyArray<string>, message: string, author: GitCommitAuthor): string {
-  const relativePaths = absolutePaths.map((absolutePath) => path.relative(authoredRoot, absolutePath).split(path.sep).join("/"));
-  if (relativePaths.length === 0) return gitText(authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
-  execFileSync("git", ["-C", authoredRoot, "add", "--", ...relativePaths], { stdio: "ignore" });
-  const staged = gitText(authoredRoot, ["diff", "--cached", "--name-only", "--", ...relativePaths]) ?? "";
-  if (staged.trim().length === 0) return gitText(authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
-  execFileSync("git", ["-C", authoredRoot, "commit", "-m", message], {
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: author.name,
-      GIT_AUTHOR_EMAIL: author.email,
-      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? author.name,
-      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? author.email
-    }
-  });
-  return gitText(authoredRoot, ["rev-parse", "HEAD"]) ?? "no-git-head";
+function docSyncEntityId(intentId: string): EntityId {
+  return `entity/doc-sync/${sha256Text(intentId).slice(0, 32)}`;
 }
 
 function loadRegistry(rootDir: string): { readonly present: boolean; readonly sha256: string; readonly rows: ReadonlyArray<RegistryRow> } {

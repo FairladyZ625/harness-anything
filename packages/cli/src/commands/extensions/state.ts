@@ -12,7 +12,7 @@ import {
   type WriteError,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload } from "../../../../kernel/src/write-coordination/write-helpers.ts";
@@ -294,6 +294,7 @@ export function runPresetEntrypoint(
   entrypoint: string,
   taskId: string,
   commandName: "preset-run" | "preset-action",
+  pendingOps: WriteOp[],
   allowScripts = false,
   inputs: Record<string, string> = {}
 ): CliResult {
@@ -342,6 +343,7 @@ export function runPresetEntrypoint(
     const scriptResult = runScriptEntrypoint(rootInput, preset, discoverPresets(rootInput), presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
     if (!scriptResult.ok) return scriptResult.result;
     generated.push(...scriptResult.generated);
+    if (scriptResult.ingestOp) pendingOps.push(scriptResult.ingestOp);
     if (scriptResult.scriptedResult) {
       return scriptCliResult({
         rootDir,

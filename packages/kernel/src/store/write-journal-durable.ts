@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -143,6 +143,11 @@ export function durableFileExists(filePath: string): boolean {
 
 export function readFileBytes(filePath: string): Uint8Array {
   return readFileSync(filePath);
+}
+
+export function removeFileDurably(filePath: string): void {
+  rmSync(filePath, { force: true });
+  fsyncDirectory(path.dirname(filePath));
 }
 
 export function writeFileDurably(filePath: string, body: string | Uint8Array): void {
