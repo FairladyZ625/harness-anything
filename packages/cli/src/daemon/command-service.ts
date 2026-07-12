@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { AuthenticatedActor, JsonObject } from "../../../daemon/src/index.ts";
+import type { TaskHolderExecutor } from "../../../application/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
@@ -10,7 +11,7 @@ import { runRegisteredCommandWithCliComposition } from "../composition/command-e
 import { makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
 export interface CliCommandService {
-  readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor }) => Promise<CommandReceipt | CommandFailureReceipt>;
+  readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null }) => Promise<CommandReceipt | CommandFailureReceipt>;
 }
 
 export interface CliCommandServiceOptions {
@@ -26,7 +27,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       const daemonActor = context?.actor;
       const sessionId = readSessionId(payload);
       try {
-        const attribution = daemonActor ? daemonActorAttribution(daemonActor) : undefined;
+        const attribution = daemonActor ? daemonActorAttribution(daemonActor, context?.executor) : undefined;
         const result = await runRegisteredCommandWithCliComposition(command, {
           requireProvidedActorAttribution: true,
           ...(attribution ? { actorAttribution: attribution } : {

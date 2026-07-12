@@ -129,6 +129,47 @@ test("task lease enforcement guards daemon task progress API writes when enabled
   }
 });
 
+test("task progress lease refresh and orphan recovery preserve the requesting executor", async () => {
+  const previous = process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+  const rootDir = createHarnessRoot(["settings:", "  tasks:", "    leaseEnforcement: true"]);
+  let now = new Date("2026-07-10T00:00:00.000Z");
+  try {
+    delete process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+    const { alice, bob } = makeActorServers(rootDir, emptyLocalController(), undefined, () => now);
+    await hello(alice);
+    await hello(bob);
+
+    const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
+    const codex = { kind: "agent", id: "codex" } as const;
+    const claude = { kind: "agent", id: "claude-code" } as const;
+    const claimed = resultReceipt(await alice.handle(taskHolderRequest("repo.task.claim", taskId, { ttlMs: 60_000, executor: codex })));
+    assert.deepEqual(claimed.details.data.effectiveHolder.executor, codex);
+
+    now = new Date("2026-07-10T00:00:10.000Z");
+    const refreshed = resultReceipt(await alice.handle(progressRequest(taskId, codex, "refresh lease")));
+    assert.equal(refreshed.ok, true);
+    const activeHolder = resultReceipt(await alice.handle(taskHolderRequest("repo.task.holder", taskId)));
+    assert.deepEqual(activeHolder.details.data.effectiveHolder.executor, codex);
+
+    const collision = resultReceipt(await bob.handle(taskHolderRequest("repo.task.claim", taskId, { ttlMs: 60_000, executor: claude })));
+    assert.equal(collision.ok, false);
+    assert.match(collision.error?.hint ?? "", /current holder principal=person_alice, executor=agent:codex/u);
+
+    now = new Date("2026-07-10T00:02:00.000Z");
+    const recovered = resultReceipt(await alice.handle(progressRequest(taskId, claude, "recover orphan")));
+    assert.equal(recovered.ok, true);
+    const recoveredHolder = resultReceipt(await alice.handle(taskHolderRequest("repo.task.holder", taskId)));
+    assert.deepEqual(recoveredHolder.details.data.effectiveHolder.executor, claude);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
+    } else {
+      process.env.HARNESS_TASK_LEASE_ENFORCEMENT = previous;
+    }
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("task lease enforcement rejects review by an arbiter who is not the holder", async () => {
   const previous = process.env.HARNESS_TASK_LEASE_ENFORCEMENT;
   const rootDir = createHarnessRoot(["settings:", "  tasks:", "    leaseEnforcement: true"]);
@@ -211,12 +252,13 @@ test("daemon lease enforcement accepts explicit environment disable over workspa
 function makeActorServers(
   rootDir: string,
   localController: LocalControllerService = emptyLocalController(),
-  appendRuntimeEvent?: Parameters<typeof createJsonRpcProtocolServer>[0]["appendRuntimeEvent"]
+  appendRuntimeEvent?: Parameters<typeof createJsonRpcProtocolServer>[0]["appendRuntimeEvent"],
+  now: () => Date = () => new Date("2026-07-10T00:00:00.000Z")
 ) {
   const roster = sampleRoster();
   const taskHolderService = makeTaskHolderService({
     rootInput: rootDir,
-    now: () => new Date("2026-07-10T00:00:00.000Z")
+    now
   });
   const services = {
     LocalControllerService: localController,
@@ -227,6 +269,18 @@ function makeActorServers(
     alice: createActorServer(rootDir, roster, "alice", services, appendRuntimeEvent),
     bob: createActorServer(rootDir, roster, "bob", services, appendRuntimeEvent),
     maint: createActorServer(rootDir, roster, "maint", services, appendRuntimeEvent)
+  };
+}
+
+function progressRequest(taskId: string, executor: { readonly kind: "agent"; readonly id: string }, text: string): JsonRpcRequest {
+  return {
+    jsonrpc: "2.0",
+    id: `progress-${text}`,
+    method: "repo.tasks.progress.append",
+    params: {
+      repo: { repoId: "canonical" },
+      payload: { taskId, executor, text }
+    }
   };
 }
 
@@ -295,7 +349,7 @@ function emptyLocalController(): LocalControllerService {
 function resultReceipt(response: JsonRpcResponse | ReadonlyArray<JsonRpcResponse> | undefined): {
   readonly ok: boolean;
   readonly command: string;
-  readonly error?: { readonly code?: string };
+  readonly error?: { readonly code?: string; readonly hint?: string };
   readonly details: Record<string, any>;
 } {
   assert.ok(response && !Array.isArray(response));
@@ -303,7 +357,7 @@ function resultReceipt(response: JsonRpcResponse | ReadonlyArray<JsonRpcResponse
   return response.result as {
     readonly ok: boolean;
     readonly command: string;
-    readonly error?: { readonly code?: string };
+    readonly error?: { readonly code?: string; readonly hint?: string };
     readonly details: Record<string, any>;
   };
 }

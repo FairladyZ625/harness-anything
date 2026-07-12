@@ -8,6 +8,7 @@ import {
   type DocSyncSubmitRequestV1,
   type DocSyncSubmitResultV1,
   type LocalControllerService,
+  type TaskHolderExecutor,
   type TaskHolderService
 } from "../../../application/src/index.ts";
 import type { RuntimeEventAppendInput } from "../../../application/src/runtime-event-ledger-service.ts";
@@ -59,7 +60,7 @@ export interface DaemonServiceHost {
     readonly getStatus: (context?: DaemonRepoServiceContext) => JsonObject | Promise<JsonObject>;
   };
   readonly CliCommandService?: {
-    readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly repo?: DaemonRepoNamespace }) => Promise<CommandReceipt | CommandFailureReceipt>;
+    readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null; readonly repo?: DaemonRepoNamespace }) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
   readonly DocSyncService?: {
     readonly submit: (request: DocSyncSubmitRequestV1, context?: { readonly actor?: AuthenticatedActor; readonly repo?: DaemonRepoNamespace }) => Promise<DocSyncSubmitResultV1>;
@@ -272,7 +273,7 @@ async function callServiceMethod(
     if (!services.CliCommandService) {
       return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
     }
-    return services.CliCommandService.runCommand(payload, { actor, repo });
+    return services.CliCommandService.runCommand(payload, { actor, executor: readTaskHolderExecutor(payload), repo });
   }
   if (contract.method === "repo.task.claim" || contract.method === "repo.task.holder" || contract.method === "repo.task.release") {
     return callTaskHolderMethod(contract, payload, services, actor);
@@ -361,7 +362,8 @@ async function validateTaskLeaseForServiceWrite(
   }
   if (!actor) return failureReceipt(contract.method, "actor_required", "Task lease enforcement requires a per-request authenticated actor.");
   try {
-    await services.TaskHolderService.assertActiveLease({ taskId, principal: taskHolderPrincipalFromActor(actor) });
+    const executor = readTaskHolderExecutor(payload);
+    await services.TaskHolderService.assertActiveLease({ taskId, principal: taskHolderPrincipalFromActor(actor, { executor }) });
     return undefined;
   } catch (error) {
     if (isTaskHolderError(error)) {

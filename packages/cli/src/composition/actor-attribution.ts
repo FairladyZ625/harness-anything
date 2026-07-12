@@ -1,5 +1,5 @@
 import type { AuthenticatedActor } from "../../../daemon/src/index.ts";
-import type { TaskHolderPersonPrincipal } from "../../../application/src/index.ts";
+import type { TaskHolderExecutor, TaskHolderPersonPrincipal } from "../../../application/src/index.ts";
 
 export interface CliJournalActor {
   readonly kind: "agent" | "human" | "system";
@@ -16,6 +16,7 @@ export interface CliActorAttribution {
   readonly commitAuthor: CliGitCommitAuthor;
   readonly source: "env" | "flag" | "daemon";
   readonly authenticatedPrincipal?: TaskHolderPersonPrincipal;
+  readonly executor?: TaskHolderExecutor;
 }
 
 export class CliActorAttributionError extends Error {
@@ -54,7 +55,7 @@ export function resolveLocalCliActorAttribution(
   };
 }
 
-export function daemonActorAttribution(actor: AuthenticatedActor): CliActorAttribution {
+export function daemonActorAttribution(actor: AuthenticatedActor, executor: TaskHolderExecutor | null = null): CliActorAttribution {
   const email = actor.primaryEmail?.trim();
   if (!email) {
     throw new CliActorAttributionError(`Daemon actor ${actor.personId} requires primaryEmail for git author attribution.`);
@@ -63,6 +64,7 @@ export function daemonActorAttribution(actor: AuthenticatedActor): CliActorAttri
     actor: { kind: "human", id: actor.personId },
     commitAuthor: { name: actor.displayName, email },
     source: "daemon",
+    ...(executor ? { executor } : {}),
     authenticatedPrincipal: {
       personId: actor.personId,
       displayName: actor.displayName,

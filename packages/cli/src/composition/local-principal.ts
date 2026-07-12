@@ -23,7 +23,7 @@ export function resolveCliTaskHolderPrincipal(
   attribution: CliActorAttribution
 ): TaskHolderPrincipal {
   const principal = attribution.authenticatedPrincipal ?? readConfiguredLocalPrincipal(rootInput);
-  return taskHolderActor(principal, taskHolderExecutorFromJournalActor(attribution.actor));
+  return taskHolderActor(principal, attribution.executor ?? taskHolderExecutorFromJournalActor(attribution.actor));
 }
 
 export function readConfiguredLocalPrincipal(rootInput: HarnessLayoutInput): TaskHolderPersonPrincipal {
