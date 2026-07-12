@@ -39,6 +39,38 @@ export type {
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "./authority/index.ts";
+export {
+  classifyCompoundExit,
+  compoundExitCodes,
+  compoundExitDefinitions,
+  CompoundReceiptTransitionError,
+  compoundReceiptPhases,
+  compoundReceiptSchema,
+  createCompoundReceiptService,
+  isCompoundOperationReceipt
+} from "./receipt/index.ts";
+export type {
+  AppliedExactAtCut,
+  ApplyBlockedOrigin,
+  CompoundExitCode,
+  CompoundExitDefinition,
+  CompoundExitInput,
+  CompoundExitSymbol,
+  CompoundOperationReceipt,
+  CompoundReceiptPhase,
+  CompoundReceiptService,
+  CompoundReceiptServiceOptions,
+  CompoundReceiptStore,
+  CurrentLeaseState,
+  ImmutableReceiptAcknowledgement,
+  LocalConflictOrigin,
+  NonquiescentOrigin,
+  OriginResolution,
+  ReceiptDeliveryState,
+  ReceiptIdentity,
+  SupersededOrigin,
+  ViewUnavailableOrigin
+} from "./receipt/index.ts";
 export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
 export { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, renderCodeDocReconciliationDraft } from "./code-doc-reconciliation.ts";
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
