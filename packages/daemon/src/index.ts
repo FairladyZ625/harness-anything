@@ -20,6 +20,8 @@ export {
   type LocalDaemonTarget
 } from "./client/local-json-rpc-client.ts";
 export * from "./authority/index.ts";
+// TW-06 fence
+export * from "./fence/index.ts";
 export * from "./broker/index.ts";
 export * from "./resolver/index.ts";
 export {
