@@ -26,7 +26,9 @@ export function createCanonicalScriptStage(
   realOutputRoot: string
 ): CanonicalScriptStage {
   const realLayout = resolveHarnessLayout(rootInput);
-  const stageAuthoredRoot = path.join(runDir, "staging", "authored");
+  const stageRootDir = path.join(runDir, "staging");
+  const authoredRelative = path.relative(realLayout.rootDir, realLayout.authoredRoot);
+  const stageAuthoredRoot = path.join(stageRootDir, authoredRelative);
   mkdirSync(stageAuthoredRoot, { recursive: true });
   if (existsSync(realLayout.authoredRoot)) {
     cpSync(realLayout.authoredRoot, stageAuthoredRoot, {
@@ -35,9 +37,9 @@ export function createCanonicalScriptStage(
     });
   }
   const stagedRootInput = {
-    rootDir: realLayout.rootDir,
+    rootDir: stageRootDir,
     layoutOverrides: {
-      authoredRoot: path.relative(realLayout.rootDir, stageAuthoredRoot).split(path.sep).join("/")
+      authoredRoot: authoredRelative.split(path.sep).join("/")
     }
   };
   const layout = resolveHarnessLayout(stagedRootInput);
@@ -66,7 +68,7 @@ export function canonicalizeScriptResult(stage: CanonicalScriptStage, value: Rec
       if (input.startsWith(absoluteStagePrefix)) {
         return path.join(stage.realLayout.authoredRoot, path.relative(stage.layout.authoredRoot, input));
       }
-      const stageRelative = path.relative(stage.realLayout.rootDir, stage.layout.authoredRoot).split(path.sep).join("/");
+      const stageRelative = path.relative(stage.layout.rootDir, stage.layout.authoredRoot).split(path.sep).join("/");
       if (input === stageRelative || input.startsWith(`${stageRelative}/`)) {
         const realRelative = path.relative(stage.realLayout.rootDir, stage.realLayout.authoredRoot).split(path.sep).join("/");
         return `${realRelative}${input.slice(stageRelative.length)}`;

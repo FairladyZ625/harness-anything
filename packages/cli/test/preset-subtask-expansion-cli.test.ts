@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
@@ -282,7 +282,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-subtask-expansion-"));
-  ensureTestHarnessIdentity(rootDir);
+  initializeNestedHarnessRepo(rootDir);
   try {
     return fn(rootDir);
   } finally {

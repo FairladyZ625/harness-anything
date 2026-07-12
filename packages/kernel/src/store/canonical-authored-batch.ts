@@ -43,7 +43,9 @@ export function validateCanonicalAuthoredBatch(rootInput: HarnessLayoutInput, op
   for (const write of canonicalAuthoredBatchWrites(op)) {
     const targetPath = path.join(authoredRoot, write.path);
     const currentHash = durableFileExists(targetPath) ? sha256Text(readText(targetPath)) : null;
-    if (currentHash !== write.baseBlobSha256) {
+    const submittedHash = sha256Text(write.body);
+    const acceptsPreAppliedDocSync = op.kind === "doc_sync_submit" && currentHash === submittedHash;
+    if (currentHash !== write.baseBlobSha256 && !acceptsPreAppliedDocSync) {
       rejectWrite(`canonical authored base changed before ${op.kind}: ${write.path}`, op.entityId);
     }
   }

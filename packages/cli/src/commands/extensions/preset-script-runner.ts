@@ -130,6 +130,7 @@ export function runScriptEntrypoint(
   const contextPath = path.join(evidenceDir, "context.json");
   writeFileSync(contextPath, JSON.stringify(buildPresetContext({
     layout: executionLayout,
+    projectRoot: stage.realLayout.rootDir,
     preset,
     entrypointName,
     taskId,
@@ -227,6 +228,7 @@ function resolveRunnerScriptPolicy(
 
 function buildPresetContext(options: {
   readonly layout: ResolvedLayout;
+  readonly projectRoot: string;
   readonly preset: ResolvedPreset;
   readonly entrypointName: string;
   readonly taskId: string;
@@ -243,6 +245,7 @@ function buildPresetContext(options: {
     entrypoint: options.entrypointName,
     taskId: options.taskId,
     paths: {
+      projectRoot: options.projectRoot,
       rootDir: options.layout.rootDir,
       authoredRoot: options.layout.authoredRoot,
       tasksRoot: options.layout.tasksRoot,

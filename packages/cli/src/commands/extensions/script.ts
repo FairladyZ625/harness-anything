@@ -75,7 +75,10 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
     outputRoot,
     dryRun: action.dryRun
   });
-  if (!run.ok) return run.result;
+  if (!run.ok) {
+    if (run.ingestOp) pendingOps.push(run.ingestOp);
+    return run.result;
+  }
   if (run.ingestOp) pendingOps.push(run.ingestOp);
   return scriptHostCliResult({
     rootDir: layout.rootDir,

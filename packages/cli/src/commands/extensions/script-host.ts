@@ -52,7 +52,11 @@ export interface ScriptHostSuccess {
   readonly ingestOp?: WriteOp;
 }
 
-export type ScriptHostRunResult = ScriptHostSuccess | { readonly ok: false; readonly result: CliResult };
+export type ScriptHostRunResult = ScriptHostSuccess | {
+  readonly ok: false;
+  readonly result: CliResult;
+  readonly ingestOp?: WriteOp;
+};
 export function runScriptHost(options: {
   readonly rootInput: HarnessLayoutInput;
   readonly script: ResolvedScriptEntry;
@@ -110,11 +114,13 @@ export function runScriptHost(options: {
 
   const mergedInputs = { ...options.script.entry.inputs, ...(options.inputs ?? {}) };
   writeFileSync(contextPath, JSON.stringify({
+    ...(options.script.context ?? {}),
     schema: options.script.entry.source === "preset" ? "preset-context/v1" : "script-context/v1",
     scriptId: options.script.entry.id,
     source: options.script.entry.source,
     runId,
     paths: {
+      projectRoot: layout.rootDir,
       rootDir: executionLayout.rootDir,
       authoredRoot: executionLayout.authoredRoot,
       tasksRoot: executionLayout.tasksRoot,
@@ -130,7 +136,7 @@ export function runScriptHost(options: {
     writeScopes: executionWriteScope.roots,
     resultPath,
     outputRoot: executionOutputRoot,
-    ...(options.script.context ?? {}), policy: policy.policy
+    policy: policy.policy
   }, null, 2), "utf8");
 
   if (options.dryRun) {
@@ -208,12 +214,14 @@ export function runScriptHost(options: {
     scriptId: options.script.entry.id
   });
   if (!scriptedResult.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptResultInvalid, scriptedResult.hint, runDir, layout.rootDir);
-  if (scriptedResult.value.ok !== true && options.allowFailedScriptResult !== true) {
-    return scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir);
-  }
-
   const generatedPaths = stage ? canonicalGeneratedPaths(stage, execution.generated) : execution.generated;
   const ingestOp = stage ? scriptIngestOp(stage, executionWriteScope.roots, runId) : undefined;
+  if (scriptedResult.value.ok !== true && options.allowFailedScriptResult !== true) {
+    return {
+      ...scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir),
+      ...(ingestOp ? { ingestOp } : {})
+    };
+  }
   return {
     ok: true,
     runId,

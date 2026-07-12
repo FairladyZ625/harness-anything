@@ -97,6 +97,23 @@ test("doc sync submit accepts pure task prose and commits with hermetic author",
   });
 });
 
+test("doc sync submit ingests a pre-applied working-tree prose edit through the coordinator", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot, taskId }) => {
+    const nextBody = "# Plan\n\nUpdated before submit.\n";
+    writeFileSync(path.join(taskRoot, "task_plan.md"), nextBody, "utf8");
+    const service = makeDocSyncService({ rootDir, coordinator: attributedCoordinator(rootDir) });
+    const result = await service.submit(submitRequest({
+      baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
+      intentId: "intent-pre-applied-prose",
+      changes: [inlineChange(`tasks/${taskId}/task_plan.md`, "# Plan\n\nOriginal prose.\n", nextBody)]
+    }));
+
+    assert.equal(result.ok, true);
+    assert.equal(git(harnessRoot, "status", "--short"), "");
+    assert.match(readFileSync(path.join(taskRoot, "task_plan.md"), "utf8"), /Updated before submit/u);
+  });
+});
+
 test("doc sync submit fails closed before canonical mutation without a trusted principal", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
     const service = makeDocSyncService({ rootDir });
