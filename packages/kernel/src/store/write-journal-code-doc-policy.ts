@@ -2,6 +2,7 @@ import type { DocumentWrite } from "../ports/artifact-store-writer.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 import { normalizeRelativeDocumentPath } from "../layout/index.ts";
+import { makeCodeDocGitEvidenceResolver } from "../git/code-doc-git-evidence.ts";
 import { rejectWrite } from "./write-journal-rejection.ts";
 import { taskIdForWriteOp } from "./write-journal-entity.ts";
 
@@ -47,19 +48,24 @@ export function assertReservedCodeDocWrite(
 
 export function assertCodeDocGitEvidence(
   rootDir: string,
+  authoredRoot: string,
   op: WriteOp,
   versionControlSystem: VersionControlSystem
 ): void {
   if (op.kind !== "code_doc_reconcile") return;
   const document = parseAndValidateDocument(documentWrite(op), op);
-  const repoRoot = versionControlSystem.topLevel(rootDir) ?? rootDir;
+  const gitEvidence = makeCodeDocGitEvidenceResolver({ rootDir, authoredRoot }, versionControlSystem);
   for (const record of document.records) {
     for (const anchor of record.anchors) {
       if (!anchor.sha) continue;
-      if (!versionControlSystem.commitExists(repoRoot, anchor.sha)) {
+      const resolution = gitEvidence.resolve({
+        sha: anchor.sha,
+        ...(anchor.kind === "path" ? { path: anchor.path! } : {})
+      });
+      if (!resolution.ok && resolution.reason === "commit-missing") {
         rejectWrite(`code-doc anchor commit does not exist: ${anchor.sha}`, op.entityId);
       }
-      if (anchor.kind === "path" && !versionControlSystem.pathExistsAtCommit(repoRoot, anchor.sha, anchor.path!)) {
+      if (!resolution.ok) {
         rejectWrite(`code-doc anchor path does not exist at ${anchor.sha}: ${anchor.path}`, op.entityId);
       }
     }

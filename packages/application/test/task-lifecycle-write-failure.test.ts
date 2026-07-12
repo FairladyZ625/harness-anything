@@ -370,8 +370,10 @@ function validCodeDocAnchors(): string {
   }, null, 2)}\n`;
 }
 
-function codeDocVersionControlSystem(): Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit"> {
+function codeDocVersionControlSystem(): Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit"> {
   return {
+    normalizePath: (inputPath) => inputPath,
+    topLevel: (inputPath) => inputPath,
     commitExists: (_repoRoot, sha) => sha === codeDocSha,
     pathExistsAtCommit: () => true
   };

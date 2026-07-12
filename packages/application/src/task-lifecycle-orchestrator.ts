@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ArtifactStore, DomainStatus, EngineError, TaskHolderPrincipal, TaskId, VersionControlSystem, WriteError } from "../../kernel/src/index.ts";
-import { isDomainStatus, isTerminalStatus, readTaskProjection } from "../../kernel/src/index.ts";
+import { isDomainStatus, isTerminalStatus, readTaskProjection, resolveHarnessLayout } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 import { readFrontmatter, readScalar } from "../../kernel/src/index.ts";
 import { evaluateCodeDocReconciliationGate } from "./code-doc-reconciliation.ts";
@@ -40,7 +40,7 @@ export interface TaskLifecycleOrchestratorOptions {
   readonly taskWriter: TaskLifecycleWriter;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
   readonly documentPlaceholderPolicy?: TaskDocumentPlaceholderPolicy;
-  readonly codeDocVersionControlSystem?: Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit">;
+  readonly codeDocVersionControlSystem?: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit">;
   readonly now?: () => string;
   readonly executionCompletionService?: ExecutionCompletionService;
   readonly completionGateResolver?: (input: {
@@ -170,7 +170,13 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       if (documentPlaceholder) return documentPlaceholder;
 
       if (completionGates.gates.includes("code-doc-reconciliation")) {
-        const codeDocReconciliation = yield* validateCodeDocReconciliation(options.artifactStore, options.rootDir, payload.taskId, options.codeDocVersionControlSystem);
+        const codeDocReconciliation = yield* validateCodeDocReconciliation(
+          options.artifactStore,
+          options.rootDir,
+          resolveHarnessLayout({ rootDir: options.rootDir, layoutOverrides: options.layoutOverrides }).authoredRoot,
+          payload.taskId,
+          options.codeDocVersionControlSystem
+        );
         if (codeDocReconciliation) return codeDocReconciliation;
       }
 
@@ -362,8 +368,9 @@ function validateActiveTaskPlanPlaceholder(
 function validateCodeDocReconciliation(
   artifactStore: Pick<ArtifactStore, "readTaskPackage">,
   rootDir: string,
+  authoredRoot: string,
   taskId: string,
-  versionControlSystem: Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit"> | undefined
+  versionControlSystem: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit"> | undefined
 ): Effect.Effect<TaskLifecycleFailure | null> {
   return Effect.gen(function* () {
     const taskPackage = yield* artifactStore.readTaskPackage(taskId as TaskId).pipe(
@@ -375,6 +382,7 @@ function validateCodeDocReconciliation(
     const gate = evaluateCodeDocReconciliationGate({
       taskId,
       rootDir,
+      authoredRoot,
       documents: taskPackage.documents,
       versionControlSystem
     });

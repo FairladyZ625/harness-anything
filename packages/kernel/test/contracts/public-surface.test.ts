@@ -144,6 +144,7 @@ const publicRuntimeSurface = [
   "isTaskWorkKind",
   "isTerminalStatus",
   "listTaskIndexPaths",
+  "makeCodeDocGitEvidenceResolver",
   "makeJournaledWriteCoordinator",
   "makeLocalLockRegistry",
   "makeLocalVersionControlSystem",

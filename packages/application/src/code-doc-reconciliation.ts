@@ -1,4 +1,4 @@
-import type { VersionControlSystem } from "../../kernel/src/index.ts";
+import { makeCodeDocGitEvidenceResolver, type VersionControlSystem } from "../../kernel/src/index.ts";
 
 export const CODE_DOC_RECONCILIATION_DOCUMENT = "code-doc-anchors.json";
 
@@ -8,7 +8,8 @@ export interface CodeDocReconciliationInput {
   readonly taskId: string;
   readonly documents: ReadonlyArray<CodeDocDocument>;
   readonly rootDir: string;
-  readonly versionControlSystem?: Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit">;
+  readonly authoredRoot: string;
+  readonly versionControlSystem?: Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit">;
 }
 
 export interface CodeDocDocument {
@@ -136,6 +137,10 @@ export function evaluateCodeDocReconciliationGate(input: CodeDocReconciliationIn
     }]);
   }
   const versionControlSystem = input.versionControlSystem;
+  const gitEvidence = makeCodeDocGitEvidenceResolver({
+    rootDir: input.rootDir,
+    authoredRoot: input.authoredRoot
+  }, versionControlSystem);
   const warnings: CodeDocReconciliationWarning[] = [];
   const issues: CodeDocReconciliationIssue[] = [];
   let checkedAnchors = 0;
@@ -146,7 +151,7 @@ export function evaluateCodeDocReconciliationGate(input: CodeDocReconciliationIn
       checkedAnchors += 1;
       if (anchor.kind === "commit") {
         hardAnchorCount += 1;
-        if (!versionControlSystem.commitExists(input.rootDir, anchor.sha)) {
+        if (!gitEvidence.resolve({ sha: anchor.sha }).ok) {
           issues.push({
             code: "code_doc_git_ref_missing",
             recordId: record.id,
@@ -157,7 +162,8 @@ export function evaluateCodeDocReconciliationGate(input: CodeDocReconciliationIn
       }
       if (anchor.kind === "path") {
         hardAnchorCount += 1;
-        if (!versionControlSystem.commitExists(input.rootDir, anchor.sha)) {
+        const resolution = gitEvidence.resolve({ sha: anchor.sha, path: anchor.path });
+        if (!resolution.ok && resolution.reason === "commit-missing") {
           issues.push({
             code: "code_doc_git_ref_missing",
             recordId: record.id,
@@ -165,7 +171,7 @@ export function evaluateCodeDocReconciliationGate(input: CodeDocReconciliationIn
           });
           continue;
         }
-        if (!versionControlSystem.pathExistsAtCommit(input.rootDir, anchor.sha, anchor.path)) {
+        if (!resolution.ok) {
           issues.push({
             code: "code_doc_path_missing",
             recordId: record.id,
@@ -176,7 +182,7 @@ export function evaluateCodeDocReconciliationGate(input: CodeDocReconciliationIn
       }
       if (anchor.sha) {
         hardAnchorCount += 1;
-        if (!versionControlSystem.commitExists(input.rootDir, anchor.sha)) {
+        if (!gitEvidence.resolve({ sha: anchor.sha }).ok) {
           issues.push({
             code: "code_doc_git_ref_missing",
             recordId: record.id,

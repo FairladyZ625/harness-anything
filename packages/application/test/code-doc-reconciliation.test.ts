@@ -41,6 +41,7 @@ test("code-doc reconciliation accepts commit and path anchors and warns on PR st
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
+    authoredRoot: "/repo/harness",
     versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [`${goodSha}:packages/app.ts`] }),
     documents: documents([{
       id: "A4-001",
@@ -64,6 +65,7 @@ test("code-doc reconciliation rejects fabricated shas", () => {
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
+    authoredRoot: "/repo/harness",
     versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [] }),
     documents: documents([{
       id: "A4-001",
@@ -81,6 +83,7 @@ test("code-doc reconciliation rejects missing evidence paths at an existing comm
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
+    authoredRoot: "/repo/harness",
     versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [] }),
     documents: documents([{
       id: "A4-001",
@@ -98,6 +101,7 @@ test("code-doc reconciliation ignores unrelated package documents but requires t
   const result = evaluateCodeDocReconciliationGate({
     taskId: "task-1",
     rootDir: "/repo",
+    authoredRoot: "/repo/harness",
     versionControlSystem: versionControlSystem({ commits: [goodSha], paths: [] }),
     documents: [{ path: "closeout.md", body: "# Closeout" }]
   });
@@ -120,10 +124,12 @@ function documents(records: ReadonlyArray<Record<string, unknown>>) {
   ];
 }
 
-function versionControlSystem(input: { readonly commits: ReadonlyArray<string>; readonly paths: ReadonlyArray<string> }): Pick<VersionControlSystem, "commitExists" | "pathExistsAtCommit"> {
+function versionControlSystem(input: { readonly commits: ReadonlyArray<string>; readonly paths: ReadonlyArray<string> }): Pick<VersionControlSystem, "normalizePath" | "topLevel" | "commitExists" | "pathExistsAtCommit"> {
   const commits = new Set(input.commits);
   const paths = new Set(input.paths);
   return {
+    normalizePath: (inputPath) => inputPath,
+    topLevel: (inputPath) => inputPath,
     commitExists: (_repoRoot, sha) => commits.has(sha),
     pathExistsAtCommit: (_repoRoot, sha, relativePath) => paths.has(`${sha}:${relativePath}`)
   };
