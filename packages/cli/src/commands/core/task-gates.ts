@@ -10,6 +10,7 @@ import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./task-document-placeholders.ts";
 import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 import { runExecutionReview } from "./task-execution-review.ts";
+import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
 import { resolvePreset, selectPresetProfile } from "../extensions/state.ts";
 
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-review-execution" | "task-complete" }>;
@@ -47,6 +48,8 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       Effect.map((result): CliResult => taskLifecycleResultToCliResult("task-review", result))
     );
   }
+  const lineageFailure = milestoneDecisionLineageFailure(context, action.taskId);
+  if (lineageFailure) return Effect.succeed(lineageFailure);
   return orchestrator.completeTask({ taskId: action.taskId, reviewerId: action.reviewerId, ciGate: action.ciGate, actor: context.taskHolderPrincipal() }).pipe(
     Effect.map((result): CliResult => {
       const output = taskLifecycleResultToCliResult("task-complete", result);

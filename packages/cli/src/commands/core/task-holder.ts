@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import {
-  isTaskHolderError,
   makeCoordinatedExecutionAuthoredStore,
   makeExecutionSagaService,
   type TaskHolderPrincipal
@@ -9,6 +8,7 @@ import { readSessionEntityDocument } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
+import { resultForTaskHolderFailure, taskHolderCommandFailure, taskHolderPrincipal } from "./task-holder-support.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
   { readonly kind: "task-claim" | "task-holder" | "task-release" }
@@ -134,6 +134,8 @@ export function runTaskClaim(
     const principal = taskHolderPrincipal(context);
     if (!principal.ok) return principal.result;
     if (action.execution) return yield* runExecutionClaim(context, action, principal.value);
+    const session = yield* context.currentSessionProbe.currentSession;
+    if (session.runtime !== "human") return yield* runExecutionClaim(context, action, principal.value);
     return yield* Effect.tryPromise({
       try: () => context.taskHolderService.claim({ taskId: action.taskId, principal: principal.value, ttlMs: action.ttlMs }),
       catch: taskHolderCommandFailure
@@ -196,54 +198,4 @@ export function runTaskRelease(
       })
     }));
   });
-}
-
-function taskHolderPrincipal(context: CommandRunnerContext):
-  | { readonly ok: true; readonly value: TaskHolderPrincipal }
-  | { readonly ok: false; readonly result: CliResult } {
-  try {
-    return { ok: true, value: context.taskHolderPrincipal() };
-  } catch (error) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        command: "task-holder",
-        error: cliError(CliErrorCode.AuthMissing, error instanceof Error ? error.message : String(error))
-      }
-    };
-  }
-}
-
-function taskHolderCommandFailure(error: unknown): CliResult {
-  if (isTaskHolderError(error)) {
-    return {
-      ok: false,
-      command: "task-holder",
-      taskId: error.taskId,
-      error: cliError(CliErrorCode.WriteRejected, error.message),
-      report: {
-        schema: "task-holder-error/v1",
-        code: error.code,
-        taskId: error.taskId,
-        ...("holder" in error ? { holder: error.holder } : {}),
-        ...("principal" in error ? { principal: error.principal } : {}),
-        ...("leaseExpiresAt" in error ? { leaseExpiresAt: error.leaseExpiresAt } : {}),
-        ...("orphan" in error ? { orphan: error.orphan } : {})
-      }
-    };
-  }
-  return {
-    ok: false,
-    command: "task-holder",
-    error: cliError(CliErrorCode.JournalUnavailable, error instanceof Error ? error.message : String(error))
-  };
-}
-
-function resultForTaskHolderFailure(command: "task-claim" | "task-holder" | "task-release", taskId: string, result: CliResult): CliResult {
-  return {
-    ...result,
-    command,
-    taskId
-  };
 }

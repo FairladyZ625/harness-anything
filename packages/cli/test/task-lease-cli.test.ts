@@ -166,11 +166,11 @@ test("configured identity supports direct human claim through --actor", () => {
   });
 });
 
-test("execution claim and submit use Holder V2 without changing legacy task claim", () => {
+test("default claim and submit use Holder V2 without requiring an execution id", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Execution Saga"]);
-    const claimed = runJson(rootDir, ["task", "claim", created.taskId, "--execution"], true, {
+    const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, {
       HARNESS_ACTOR: "agent:test",
       CLAUDE_SESSION_ID: "",
       CLAUDE_CODE_SESSION_ID: "",
@@ -224,6 +224,52 @@ test("execution claim and submit use Holder V2 without changing legacy task clai
     assert.equal(submitted.report.leaseReleased, true);
     const holder = runJson(rootDir, ["task", "holder", created.taskId]);
     assert.equal(holder.report.effectiveHolder, null);
+  });
+});
+
+test("lease-enforced relation writes fail closed and persist after the related task is claimed", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessLeaseEnforcement(rootDir, true);
+    const source = runJson(rootDir, ["new-task", "--title", "Relation Source"]);
+    const target = runJson(rootDir, ["new-task", "--title", "Relation Target"]);
+
+    const taskRejected = runJson(rootDir, [
+      "task", "relate", source.taskId, "depends-on", target.taskId,
+      "--rationale", "Source requires target"
+    ], false);
+    assert.equal(taskRejected.ok, false);
+    assert.match(taskRejected.error?.hint ?? "", /requires an active lease/u);
+    assert.equal(runJson(rootDir, ["relation", "list", "--source", `task/${source.taskId}`]).rows, 0);
+
+    runJson(rootDir, ["task", "claim", source.taskId]);
+    const taskRelated = runJson(rootDir, [
+      "task", "relate", source.taskId, "depends-on", target.taskId,
+      "--rationale", "Source requires target"
+    ]);
+    assert.equal(taskRelated.ok, true);
+    assert.equal(runJson(rootDir, ["relation", "list", "--source", `task/${source.taskId}`]).rows, 1);
+
+    runJson(rootDir, [
+      "decision", "propose", "--id", "dec_RELATION_LEASE", "--title", "Relation lease",
+      "--question", "Should the task be derived?", "--chosen", "Derive the task",
+      "--rejected", "Leave it orphaned", "--why-not", "Lineage must be explicit",
+      "--claim", "The decision derives the task."
+    ]);
+    const decisionRejected = runJson(rootDir, [
+      "decision", "relate", "dec_RELATION_LEASE", "--anchor", "CH1", "--type", "derives",
+      "--target", `task/${target.taskId}`, "--rationale", "Decision creates target"
+    ], false);
+    assert.equal(decisionRejected.ok, false);
+    assert.match(decisionRejected.error?.hint ?? "", /requires an active lease/u);
+    assert.equal(runJson(rootDir, ["relation", "list", "--source", "decision/dec_RELATION_LEASE/CH1"]).rows, 0);
+
+    runJson(rootDir, ["task", "claim", target.taskId]);
+    const decisionRelated = runJson(rootDir, [
+      "decision", "relate", "dec_RELATION_LEASE", "--anchor", "CH1", "--type", "derives",
+      "--target", `task/${target.taskId}`, "--rationale", "Decision creates target"
+    ]);
+    assert.equal(decisionRelated.ok, true);
+    assert.equal(runJson(rootDir, ["relation", "list", "--source", "decision/dec_RELATION_LEASE/CH1"]).rows, 1);
   });
 });
 
@@ -358,6 +404,12 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
       HARNESS_ACTOR: "agent:harness-test",
       HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
       HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "",
+      CODEX_SESSION_ID: "",
+      ZCODE_SESSION_ID: "",
+      ANTIGRAVITY_SESSION_ID: "",
       ...env
     };
     delete childEnv.HARNESS_TASK_LEASE_ENFORCEMENT;
