@@ -23,6 +23,7 @@ export interface DocSyncChangeV1 {
 export interface DocSyncSubmitRequestV1 {
   readonly repo: { readonly repoId: string };
   readonly session?: { readonly sessionId?: string; readonly runtime?: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown" };
+  readonly executor?: { readonly kind: "agent"; readonly id: string } | null;
   readonly payload: {
     readonly baseLedgerSha: string;
     readonly intentId: string;

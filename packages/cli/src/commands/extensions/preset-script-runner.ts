@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import path from "node:path";
 import { Schema } from "effect";
 import { PresetManifestSchema } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar, resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -18,6 +18,7 @@ import {
   resolveDeclaredWriteScopes,
   uniquePermissionPaths
 } from "./script-scope.ts";
+import { canonicalGeneratedPaths, canonicalizeScriptResult, createCanonicalScriptStage, scriptIngestOp, stageMirrorPath } from "./script-staging.ts";
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 type ScriptEntrypoint = Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>;
 type ResolvedLayout = ReturnType<typeof resolveHarnessLayout>;
@@ -76,7 +77,7 @@ export function runScriptEntrypoint(
   evidenceDir: string,
   commandName: "preset-run" | "preset-action",
   runtimeInputs: Record<string, string> = {}
-): { readonly ok: true; readonly generated: ReadonlyArray<string>; readonly scriptedResult?: Record<string, unknown> } | { readonly ok: false; readonly result: CliResult } {
+): { readonly ok: true; readonly generated: ReadonlyArray<string>; readonly scriptedResult?: Record<string, unknown>; readonly ingestOp?: WriteOp } | { readonly ok: false; readonly result: CliResult } {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const presetRoot = path.dirname(preset.sourcePath);
@@ -120,37 +121,42 @@ export function runScriptEntrypoint(
     };
   }
 
-  mkdirSync(outputRoot, { recursive: true });
+  const stage = createCanonicalScriptStage(rootInput, evidenceDir, outputRoot);
+  const executionLayout = stage.layout;
+  const executionOutputRoot = stage.outputRoot;
+  const executionWriteScope = remapScope(stage, writeScope);
+  const executionReadScope = remapScope(stage, readScope);
+  mkdirSync(executionOutputRoot, { recursive: true });
   const contextPath = path.join(evidenceDir, "context.json");
   writeFileSync(contextPath, JSON.stringify(buildPresetContext({
-    layout,
+    layout: executionLayout,
     preset,
     entrypointName,
     taskId,
     inputs: { ...(entrypoint.inputs ?? {}), ...runtimeInputs },
-    readRoots: readScope.roots,
-    writeRoots: writeScope.roots,
-    outputRoot, policy: policy.policy
+    readRoots: executionReadScope.roots,
+    writeRoots: executionWriteScope.roots,
+    outputRoot: executionOutputRoot, policy: policy.policy
   }), null, 2), "utf8");
   const readablePaths = uniquePermissionPaths([
     ...permissionPathsForScope(presetRoot, true),
     ...scriptRelativeImportPermissions(scriptPath, presetRoot),
     contextPath,
-    ...readScope.permissions
+    ...executionReadScope.permissions
   ]);
   const execution = executeScript({
     scriptPath,
     cwd: presetRoot,
     evidenceDir,
-    outputRoot,
+    outputRoot: executionOutputRoot,
     readPermissions: readablePaths,
-    writePermissions: writeScope.permissions,
+    writePermissions: executionWriteScope.permissions,
     env: {
       ...process.env,
       HARNESS_PRESET_CONTEXT: contextPath
     },
-    artifactRoots: [outputRoot],
-    outputBoundary: { kind: "roots", roots: writeScope.roots, inspect: "all" }
+    artifactRoots: executionWriteScope.roots,
+    outputBoundary: { kind: "roots", roots: executionWriteScope.roots, inspect: "all" }
   });
 
   writeFileSync(path.join(evidenceDir, "stdout.txt"), execution.stdout, "utf8");
@@ -177,10 +183,25 @@ export function runScriptEntrypoint(
       }
     };
   }
+  const ingestOp = scriptIngestOp(stage, executionWriteScope.roots, path.basename(evidenceDir));
+  const scriptedResult = readScriptedResult(executionOutputRoot);
   return {
     ok: true,
-    generated: execution.generated.map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
-    scriptedResult: readScriptedResult(outputRoot)
+    generated: canonicalGeneratedPaths(stage, execution.generated).map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/")),
+    ...(scriptedResult ? { scriptedResult: canonicalizeScriptResult(stage, scriptedResult) } : {}),
+    ...(ingestOp ? { ingestOp } : {})
+  };
+}
+
+function remapScope(
+  stage: ReturnType<typeof createCanonicalScriptStage>,
+  scope: { readonly ok: true; readonly roots: ReadonlyArray<string>; readonly permissions: ReadonlyArray<string> }
+) {
+  const roots = scope.roots.map((root) => stageMirrorPath(stage, root));
+  return {
+    ok: true as const,
+    roots,
+    permissions: [...scope.permissions, ...roots.flatMap((root) => permissionPathsForScope(root, true))]
   };
 }
 

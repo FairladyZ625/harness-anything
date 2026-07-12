@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
@@ -12,14 +12,14 @@ type ScriptAction = Extract<ParsedCommand["action"], {
   readonly kind: "script-list" | "script-inspect" | "script-run";
 }>;
 
-export function runScriptCommand(rootInput: HarnessLayoutInput, action: ScriptAction): CliResult {
+export function runScriptCommand(rootInput: HarnessLayoutInput, action: ScriptAction, pendingOps: WriteOp[]): CliResult {
   switch (action.kind) {
     case "script-list":
       return runScriptList(rootInput, action);
     case "script-inspect":
       return runScriptInspect(rootInput, action.scriptId);
     case "script-run":
-      return runScriptRun(rootInput, action);
+      return runScriptRun(rootInput, action, pendingOps);
   }
 }
 
@@ -47,7 +47,7 @@ function runScriptInspect(rootInput: HarnessLayoutInput, scriptId: string): CliR
   };
 }
 
-function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptAction, { readonly kind: "script-run" }>): CliResult {
+function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptAction, { readonly kind: "script-run" }>, pendingOps: WriteOp[]): CliResult {
   const script = resolveScript(rootInput, action.scriptId);
   if (!script) return scriptNotFound("script-run", action.scriptId);
   const layout = resolveHarnessLayout(rootInput);
@@ -76,6 +76,7 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
     dryRun: action.dryRun
   });
   if (!run.ok) return run.result;
+  if (run.ingestOp) pendingOps.push(run.ingestOp);
   return scriptHostCliResult({
     rootDir: layout.rootDir,
     commandName: "script-run",

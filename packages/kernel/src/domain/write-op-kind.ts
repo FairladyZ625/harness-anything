@@ -5,6 +5,7 @@ export const writeOpKinds = [
   "doc_stage",
   "task_tree_stage",
   "doc_write",
+  "doc_sync_submit",
   "code_doc_reconcile",
   "package_archive",
   "package_tombstone",
@@ -24,6 +25,7 @@ export const writeOpKinds = [
   "relation_replace",
   "module_registry_write",
   "module_scaffold_write",
+  "script_ingest",
   "machine_artifact_write",
   "machine_artifact_append_jsonl"
 ] as const;

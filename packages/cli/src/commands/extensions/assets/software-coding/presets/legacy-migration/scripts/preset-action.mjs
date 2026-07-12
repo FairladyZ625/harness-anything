@@ -26,10 +26,10 @@ writeFileSync(path.join(artifactsDir, "preset-result.json"), `${JSON.stringify({
 
 function selectScan(rootDir) {
   const rootScan = buildScan(rootDir, ".");
-  if (rootScan.entries.length > 0) return rootScan;
+  if (rootScan.summary.taskCount > 0) return rootScan;
   const childScan = listCandidateRoots(rootDir)
     .map((sourcePath) => buildScan(rootDir, sourcePath))
-    .find((scan) => scan.entries.length > 0);
+    .find((scan) => scan.summary.taskCount > 0);
   return childScan ?? rootScan;
 }
 

@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { sha256Text } from "../../kernel/src/index.ts";
+import { Effect } from "effect";
+import { makeJournaledWriteCoordinator, sha256Text, type WriteCoordinator } from "../../kernel/src/index.ts";
 import {
   buildDocSyncReport,
   makeDocSyncService,
@@ -64,7 +65,8 @@ test("doc sync report treats a missing write-road registry as empty coverage ins
 
 test("doc sync submit accepts pure task prose and commits with hermetic author", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const captured: Array<Record<string, unknown>> = [];
+    const service = makeDocSyncService({ rootDir, coordinator: capturingAttributedCoordinator(rootDir, captured) });
     const baseLedgerSha = git(harnessRoot, "rev-parse", "HEAD");
     const result = await service.submit(submitRequest({
       baseLedgerSha,
@@ -80,12 +82,41 @@ test("doc sync submit accepts pure task prose and commits with hermetic author",
     assert.match(readFileSync(path.join(harnessRoot, "tasks", taskId, "task_plan.md"), "utf8"), /Updated prose/u);
     assert.equal(git(harnessRoot, "status", "--short"), "");
     assert.equal(git(harnessRoot, "log", "-1", "--format=%an <%ae>"), "Harness Test <harness@example.test>");
+    const record = captured.find((entry) => entry.kind === "doc_sync_submit");
+    assert.equal(record?.schema, "write-journal/v2");
+    assert.deepEqual(record?.actor, {
+      principal: { kind: "person", personId: "person_test" },
+      executor: { kind: "agent", id: "codex-test" }
+    });
+    assert.deepEqual(record?.principalSource, {
+      kind: "local-configured",
+      authority: "harness.yaml",
+      authoritySha256: `sha256:${"0".repeat(64)}`
+    });
+    assert.equal(record?.executorSource, "client-asserted");
+  });
+});
+
+test("doc sync submit fails closed before canonical mutation without a trusted principal", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
+    const service = makeDocSyncService({ rootDir });
+    const result = await service.submit(submitRequest({
+      baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
+      intentId: "intent-no-principal",
+      changes: [inlineChange(`tasks/${taskId}/task_plan.md`, "# Plan\n\nOriginal prose.\n", "# Plan\n\nRejected prose.\n")]
+    }));
+
+    assert.equal(result.ok, false);
+    assert.equal(result._tag, "WriteRejected");
+    assert.match(result.reason, /trusted authenticated person principal/u);
+    assert.match(readFileSync(path.join(harnessRoot, "tasks", taskId, "task_plan.md"), "utf8"), /Original prose/u);
+    assert.equal(git(harnessRoot, "status", "--short"), "");
   });
 });
 
 test("doc sync submit rejects task frontmatter markdown with a focused RPC hint", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const service = makeDocSyncService({ rootDir });
     const result = await service.submit(submitRequest({
       baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
       intentId: "intent-frontmatter",
@@ -106,7 +137,7 @@ test("doc sync submit rejects task frontmatter markdown with a focused RPC hint"
 
 test("doc sync submit rejects decision typed records", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const service = makeDocSyncService({ rootDir });
     const base = "# Decision\n\n- claim: old\n";
     const next = "# Decision\n\n- claim: new\n";
     const result = await service.submit(submitRequest({
@@ -123,7 +154,7 @@ test("doc sync submit rejects decision typed records", async () => {
 
 test("doc sync submit rejects disguised prose edits to task fact records", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const service = makeDocSyncService({ rootDir });
     const result = await service.submit(submitRequest({
       baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
       intentId: "intent-fact-disguised",
@@ -146,7 +177,7 @@ test("doc sync submit rejects stale base ledger and blob with A2 CAS shape", asy
     git(harnessRoot, "add", "tasks");
     gitCommit(harnessRoot, "concurrent edit");
 
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const service = makeDocSyncService({ rootDir });
     const result = await service.submit(submitRequest({
       baseLedgerSha,
       intentId: "intent-cas",
@@ -169,7 +200,6 @@ test("doc sync post-apply checker fails hard and rolls back rpc-only mutations",
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot, taskId }) => {
     const service = makeDocSyncService({
       rootDir,
-      commitAuthor,
       afterApplyBeforePostCheck: () => {
         writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex({ urgency: "critical" }), "utf8");
       }
@@ -194,7 +224,7 @@ test("doc sync post-apply checker fails hard and rolls back rpc-only mutations",
 
 test("doc sync submit accepts non-markdown task prose when registry bearing resolves to doc sync", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const service = makeDocSyncService({ rootDir, coordinator: attributedCoordinator(rootDir) });
     const result = await service.submit(submitRequest({
       baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
       intentId: "intent-non-md",
@@ -211,7 +241,7 @@ test("doc sync submit accepts non-markdown task prose when registry bearing reso
 test("doc sync snapshot fails closed on a broken symlink child", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
     symlinkSync("missing-target", path.join(harnessRoot, "broken-link"));
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const service = makeDocSyncService({ rootDir });
 
     await assert.rejects(
       service.submit(submitRequest({
@@ -228,7 +258,7 @@ test("doc sync snapshot preserves ENOTDIR for an ordinary-file authored root", a
   await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
     rmSync(harnessRoot, { recursive: true, force: true });
     writeFileSync(harnessRoot, "not a directory", "utf8");
-    const service = makeDocSyncService({ rootDir, commitAuthor });
+    const service = makeDocSyncService({ rootDir });
 
     await assert.rejects(
       service.submit(submitRequest({
@@ -244,7 +274,7 @@ test("doc sync snapshot preserves ENOTDIR for an ordinary-file authored root", a
 test("doc sync snapshot traverses an authored root named .git", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
     symlinkSync("missing-target", path.join(harnessRoot, ".git", "broken-link"));
-    const service = makeDocSyncService({ rootDir, layoutOverrides: { authoredRoot: "harness/.git" }, commitAuthor });
+    const service = makeDocSyncService({ rootDir, layoutOverrides: { authoredRoot: "harness/.git" } });
 
     await assert.rejects(
       service.submit(submitRequest({
@@ -358,4 +388,30 @@ function git(harnessRoot: string, ...args: ReadonlyArray<string>): string {
       GIT_CONFIG_GLOBAL: "/dev/null"
     }
   }).trimEnd();
+}
+
+function attributedCoordinator(rootDir: string): WriteCoordinator {
+  return makeJournaledWriteCoordinator({
+    rootDir,
+    attribution: {
+      actor: {
+        principal: { kind: "person", personId: "person_test" },
+        executor: { kind: "agent", id: "codex-test" }
+      },
+      principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: `sha256:${"0".repeat(64)}` },
+      executorSource: "client-asserted"
+    },
+    commitAuthor
+  });
+}
+
+function capturingAttributedCoordinator(rootDir: string, captured: Array<Record<string, unknown>>): WriteCoordinator {
+  const coordinator = attributedCoordinator(rootDir);
+  const journalPath = path.join(rootDir, ".harness", "write-journal", "writes.jsonl");
+  return {
+    ...coordinator,
+    enqueue: (op) => coordinator.enqueue(op).pipe(Effect.tap(() => Effect.sync(() => {
+      captured.push(...readFileSync(journalPath, "utf8").trim().split(/\r?\n/u).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>));
+    })))
+  };
 }
