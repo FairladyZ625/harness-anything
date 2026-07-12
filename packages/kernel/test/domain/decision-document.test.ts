@@ -79,7 +79,7 @@ test("decision documents round-trip self-contained content pins", () => {
     question: "Should this content be pinned?",
     chosen: [{ id: "CH1", text: "Pin it." }],
     rejected: [{ id: "RJ1", text: "Do not pin it.", why_not: "The signature would drift." }],
-    claims: [{ id: "C1", text: "Pins preserve signed meaning." }],
+    claims: [{ id: "C1", text: "Pins preserve signed meaning.", fulfillment: "standing-policy" }],
     relations: []
   };
 
@@ -88,6 +88,8 @@ test("decision documents round-trip self-contained content pins", () => {
 
   assert.deepEqual(parsed.decision.contentPins, decision.contentPins);
   assert.equal(parsed.decision.decisionClass, "standing-policy");
+  assert.equal(parsed.decision.claims[0]?.fulfillment, "standing-policy");
   assert.match(document, /^decisionClass: standing-policy$/mu);
+  assert.match(document, /fulfillment: "standing-policy"/u);
   assert.match(document, /^contentPins:$/mu);
 });

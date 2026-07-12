@@ -13,6 +13,7 @@ import {
 } from "./relation-source-manifest.ts";
 import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
+import { buildClaimFulfillmentRows } from "./claim-fulfillment-projection.ts";
 
 export interface RelationGraphEdgeRow {
   readonly relationId: string;
@@ -38,8 +39,6 @@ export interface RelationCoverageRow {
   readonly relationPath: ReadonlyArray<string>;
 }
 
-const coverageRelationTypes = new Set<EntityRelationRecord["type"]>(["evidenced-by"]);
-
 export interface FactAnchorRow {
   readonly factRef: string;
   readonly taskId: string;
@@ -64,6 +63,7 @@ interface DecisionSource {
 
 interface GraphRefIndex {
   readonly taskIds: ReadonlySet<string>;
+  readonly doneTaskIds: ReadonlySet<string>;
   readonly decisionIds: ReadonlySet<string>;
   readonly decisionAnchors: ReadonlySet<string>;
   readonly factRefs: ReadonlySet<string>;
@@ -99,7 +99,7 @@ export function buildRelationGraphProjection(rootInput: HarnessLayoutInput): Rel
   const edges = relationEntriesToEdges(entries, refIndex);
   return {
     edges,
-    coverageRows: buildCoverageRows(decisions.filter((decision) => decision.visible), edges, refIndex),
+    coverageRows: buildClaimFulfillmentRows({ rootInput, decisions: decisions.filter((decision) => decision.visible), edges, refIndex }),
     factAnchors: refIndex.factAnchors
   };
 }
@@ -340,76 +340,6 @@ function canonicalRelationRecord(record: EntityRelationRecord): string {
   return formatRelationFlowRecord(record);
 }
 
-function buildCoverageRows(
-  decisions: ReadonlyArray<DecisionSource>,
-  edges: ReadonlyArray<RelationGraphEdgeRow>,
-  refIndex: GraphRefIndex
-): ReadonlyArray<RelationCoverageRow> {
-  const activeEdges = edges.filter((edge) => edge.state === "active");
-  const graph = new Map<string, RelationGraphEdgeRow[]>();
-  const invalidatedFactRefs = new Set(
-    activeEdges
-      .filter((edge) => edge.sourceRef.startsWith("fact/") && edge.targetRef.startsWith("fact/") && (edge.relationType === "invalidated-by" || edge.relationType === "supersedes-fact"))
-      .map((edge) => edge.targetRef)
-  );
-  const refutingFactRefsByClaim = new Map<string, Set<string>>();
-  for (const edge of activeEdges) {
-    if (edge.relationType === "refutes" && edge.sourceRef.startsWith("fact/") && edge.targetRef.startsWith("decision/")) {
-      const existing = refutingFactRefsByClaim.get(edge.targetRef) ?? new Set<string>();
-      existing.add(edge.sourceRef);
-      refutingFactRefsByClaim.set(edge.targetRef, existing);
-    }
-    if (!coverageRelationTypes.has(edge.relationType)) continue;
-    const existing = graph.get(edge.sourceRef) ?? [];
-    existing.push(edge);
-    graph.set(edge.sourceRef, existing);
-  }
-
-  const rows: RelationCoverageRow[] = [];
-  for (const decision of decisions) {
-    for (const anchor of findRelationGraphDecisionAnchors(decision.frontmatter)) {
-      const claimRef = `${decision.decisionRef}/${anchor}`;
-      const refutingFactRefs = [...(refutingFactRefsByClaim.get(claimRef) ?? [])].sort();
-      const reachable = refutingFactRefs.length === 0
-        ? firstReachableLiveFact(claimRef, graph, refIndex, invalidatedFactRefs)
-        : null;
-      rows.push({
-        decisionRef: decision.decisionRef,
-        claimRef,
-        status: reachable ? "covered" : "uncovered",
-        ...(reachable
-          ? { coveringFactRef: reachable.factRef, relationPath: reachable.path }
-          : { ...(refutingFactRefs.length > 0 ? { refutingFactRefs } : {}), relationPath: [] })
-      });
-    }
-  }
-  return rows.sort((a, b) => a.claimRef.localeCompare(b.claimRef));
-}
-
-function firstReachableLiveFact(
-  startRef: string,
-  graph: ReadonlyMap<string, ReadonlyArray<RelationGraphEdgeRow>>,
-  refIndex: GraphRefIndex,
-  invalidatedFactRefs: ReadonlySet<string>
-): { readonly factRef: string; readonly path: ReadonlyArray<string> } | null {
-  const visited = new Set<string>();
-  const queue: Array<{ readonly ref: string; readonly path: ReadonlyArray<string> }> = [{ ref: startRef, path: [] }];
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || visited.has(current.ref)) continue;
-    visited.add(current.ref);
-    if (current.ref.startsWith("fact/") && isKnownLocalEndpoint(current.ref, refIndex) && !invalidatedFactRefs.has(current.ref)) {
-      return { factRef: current.ref, path: current.path };
-    }
-    for (const edge of graph.get(current.ref) ?? []) {
-      if (!visited.has(edge.targetRef)) {
-        queue.push({ ref: edge.targetRef, path: current.path.concat(edge.relationId) });
-      }
-    }
-  }
-  return null;
-}
-
 function readDecisionSources(rootInput: HarnessLayoutInput): ReadonlyArray<DecisionSource> {
   const layout = resolveHarnessLayout(rootInput);
   const decisions: Array<Omit<DecisionSource, "visible"> & { readonly watermark: string }> = [];
@@ -446,11 +376,13 @@ function readDecisionSources(rootInput: HarnessLayoutInput): ReadonlyArray<Decis
 function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyArray<DecisionSource>): GraphRefIndex {
   const layout = resolveHarnessLayout(rootInput);
   const taskIds = new Set<string>();
+  const doneTaskIds = new Set<string>();
   const factRefs = new Set<string>();
   const factAnchors: FactAnchorRow[] = [];
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
     const taskId = readTaskPackageId(taskDir);
     taskIds.add(taskId);
+    if (readTaskPackageStatus(taskDir) === "done") doneTaskIds.add(taskId);
     const factsPath = deriveRelationTaskAuthoredSources(taskDir)
       .find((source) => source.kind === "task-facts")?.filePath;
     if (!factsPath || !existsSync(factsPath)) continue;
@@ -477,7 +409,7 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
       decisionAnchors.add(`${decision.decisionId}/${anchor}`);
     }
   }
-  return { taskIds, decisionIds, decisionAnchors, factRefs, factAnchors: factAnchors.sort((a, b) => a.factRef.localeCompare(b.factRef)) };
+  return { taskIds, doneTaskIds, decisionIds, decisionAnchors, factRefs, factAnchors: factAnchors.sort((a, b) => a.factRef.localeCompare(b.factRef)) };
 }
 
 function isKnownLocalEndpoint(refText: string, refIndex: GraphRefIndex): boolean {
@@ -487,14 +419,6 @@ function isKnownLocalEndpoint(refText: string, refIndex: GraphRefIndex): boolean
   if (ref.kind === "decision") return refIndex.decisionIds.has(ref.id) && (!ref.anchor || refIndex.decisionAnchors.has(`${ref.id}/${ref.anchor}`));
   if (ref.kind === "fact") return Boolean(ref.ownerTaskId) && refIndex.factRefs.has(`${ref.ownerTaskId}/${ref.id}`);
   return false;
-}
-
-function findRelationGraphDecisionAnchors(frontmatter: string): ReadonlyArray<string> {
-  return readFlowObjectBlock(frontmatter, "claims")
-    .split(/\r?\n/u)
-    .filter((line) => !/load_bearing:\s*false\s*\}\s*$/u.test(line))
-    .map((line) => /^\s*-\s*\{\s*id:\s*"?([A-Za-z][A-Za-z0-9_-]*)"?/u.exec(line)?.[1])
-    .filter((anchor): anchor is string => Boolean(anchor));
 }
 
 function findRelationGraphDecisionEndpointAnchors(frontmatter: string): ReadonlyArray<string> {
@@ -532,6 +456,12 @@ function readTaskPackageId(taskDir: string): string {
   const body = readTextFileIfPresent(indexPath);
   const frontmatter = body === null ? null : readFrontmatter(body);
   return (frontmatter ? readScalar(frontmatter, "task_id") : "") || path.basename(taskDir);
+}
+
+function readTaskPackageStatus(taskDir: string): string {
+  const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md"));
+  const frontmatter = body === null ? null : readFrontmatter(body);
+  return frontmatter ? readScalar(frontmatter, "  status") : "";
 }
 
 function listTaskDirs(tasksRoot: string): ReadonlyArray<string> {

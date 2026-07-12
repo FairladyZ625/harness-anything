@@ -14,7 +14,8 @@ import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
-export { DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
+export { decisionClaimFulfillments, DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
+export type { DecisionClaimFulfillment } from "./decision-package.ts";
 export { DocmapDocumentSchema, DocmapManifestSchema } from "./docmap.ts";
 export { FactRecordSchema } from "./fact-record.ts";
 export {

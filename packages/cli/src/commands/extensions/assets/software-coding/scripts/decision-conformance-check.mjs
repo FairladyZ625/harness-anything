@@ -41,6 +41,7 @@ const violations = [];
 
 for (const decision of decisions) {
   const decisionRef = `decision/${decision.decisionId}`;
+  const standingPolicy = decision.decisionClass === "standing-policy" || hasClaimFulfillment(decision, "standing-policy");
   if (!existsSync(path.join(rootDir, decision.path))) {
     finding(
       "decision-document-missing",
@@ -51,14 +52,14 @@ for (const decision of decisions) {
   }
 
   if ((decision.state === "active" || decision.state === "deferred") && !isPreRuleLegacyDecision(decision)) {
-    if (decision.state !== "deferred" && decision.decisionClass === "standing-policy" && !hasStandingPolicyFulfillment(decision, decisionRef)) {
+    if (decision.state !== "deferred" && standingPolicy && !hasStandingPolicyFulfillment(decision, decisionRef)) {
       finding(
         "standing-policy-missing-fulfillment",
         decisionRef,
         "Standing-policy decision has no declared fulfillment surface.",
         "Add an active refines/relates decision-network edge or declare a non-empty applies_to module/product line."
       );
-    } else if (decision.decisionClass !== "standing-policy" && !hasTaskOrDeferEdge(decision, decisionRef)) {
+    } else if (!standingPolicy && !hasTaskOrDeferEdge(decision, decisionRef)) {
       finding(
         "accepted-decision-missing-task-or-defer",
         decisionRef,
@@ -75,8 +76,8 @@ for (const decision of decisions) {
       finding(
         "decision-claim-uncovered",
         row.claimRef,
-        "Load-bearing decision claim has no reachable live fact.",
-        "Relate the claim to a valid fact with evidenced-by/supporting relation flow, or mark the claim non-load-bearing when appropriate."
+        "Load-bearing decision claim does not satisfy its declared fulfillment mode.",
+        "Add the evidence, delivered task output, or standing-policy surface required by the claim's explicit fulfillment declaration."
       );
       if (row.refutingFactRefs?.length > 0) {
         finding(
@@ -173,6 +174,16 @@ function hasStandingPolicyFulfillment(decision, decisionRef) {
     ((isSameDecisionOrAnchor(edge.sourceRef, decisionRef) && edge.targetRef.startsWith("decision/")) ||
       (isSameDecisionOrAnchor(edge.targetRef, decisionRef) && edge.sourceRef.startsWith("decision/")))
   ));
+}
+
+function hasClaimFulfillment(decision, fulfillment) {
+  try {
+    const body = readFileSync(path.join(rootDir, decision.path), "utf8");
+    const claims = /^claims:\s*\n((?:[ \t]+[^\n]*\n?)*)/mu.exec(body)?.[1] ?? "";
+    return new RegExp(`(?:^|[,\\s])fulfillment:\\s*["']?${fulfillment}["']?(?:[,}\\s]|$)`, "mu").test(claims);
+  } catch {
+    return false;
+  }
 }
 
 function hasIncomingSupersedes(decisionRef) {

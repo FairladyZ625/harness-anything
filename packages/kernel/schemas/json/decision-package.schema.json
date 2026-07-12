@@ -73,7 +73,7 @@
     "claims": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/decisionAnchor" }
+      "items": { "$ref": "#/$defs/decisionClaim" }
     },
     "relations": {
       "type": "array",
@@ -120,6 +120,17 @@
         "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
         "text": { "$ref": "#/$defs/nonBlankString" },
         "load_bearing": { "type": "boolean" }
+      }
+    },
+    "decisionClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
+        "text": { "$ref": "#/$defs/nonBlankString" },
+        "load_bearing": { "type": "boolean" },
+        "fulfillment": { "enum": ["evidenced", "delivered", "standing-policy"] }
       }
     },
     "rejectedDecisionAnchor": {

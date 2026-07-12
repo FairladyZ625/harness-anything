@@ -41,6 +41,7 @@ export type DecisionCreateInput = Omit<DecisionPackage, "provenance" | "contentP
 
 export interface DecisionTransitionRequest {
   readonly current: DecisionPackage;
+  readonly claims?: DecisionPackage["claims"];
   readonly decisionClass?: DecisionPackage["decisionClass"];
   readonly arbiter: DecisionPackage["arbiter"];
   readonly decidedAt?: string;
@@ -211,9 +212,11 @@ function transitionDecision(
   to: DecisionState,
   fallbackDecidedAt: string
 ): Effect.Effect<DecisionWriteResult, DecisionWriteRejected | WriteError> {
-  const transitionCurrent: DecisionPackage = kind === "decision_accept" && request.decisionClass
-    ? { ...request.current, decisionClass: request.decisionClass }
-    : request.current;
+  const transitionCurrent: DecisionPackage = {
+    ...request.current,
+    ...(kind === "decision_accept" && request.decisionClass ? { decisionClass: request.decisionClass } : {}),
+    ...(kind === "decision_accept" && request.claims ? { claims: request.claims } : {})
+  };
   const transition = explainDecisionStateTransition(request.current.state, to);
   if (!transition.allowed) {
     return Effect.fail(rejection(request.current.decision_id, `decision state transition ${request.current.state} -> ${to} rejected: ${transition.reason}`));

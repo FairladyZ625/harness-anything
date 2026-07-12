@@ -83,6 +83,7 @@ const publicRuntimeSurface = [
   "createTaskPackagePath",
   "decisionAmendFieldSupportsOperation",
   "decisionAmendableFields",
+  "decisionClaimFulfillments",
   "decisionContentCanonicalization",
   "decisionEntityId",
   "decisionFieldContracts",
