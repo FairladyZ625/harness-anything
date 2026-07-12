@@ -390,7 +390,14 @@ function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyAr
     if (factsBody === null) continue;
     for (const record of parseFactFlowRecords(factsBody)) {
       const factKey = `${taskId}/${record.fact_id}`;
+      // Migrated facts stay in factRefs so relation records that still reference
+      // them (e.g. supersedes-fact hosted on the archived fact) keep resolving
+      // and endpoint validation stays clean. But they leave factAnchors — the
+      // triage/coverage fact universe — because they have been rehomed to their
+      // task's execution.outputs (fact-migration/v1 trace) and must not surface
+      // as live orphan facts.
       factRefs.add(factKey);
+      if (record.migration?.state === "migrated") continue;
       factAnchors.push({
         factRef: `fact/${factKey}`,
         taskId,
