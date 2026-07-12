@@ -48,3 +48,22 @@ test("fact parser still rejects present but invalid memory fields", () => {
 
   assert.deepEqual(parseFactFlowRecords(`# Facts\n\n${invalidMemoryClass}\n${invalidMemoryTag}\n`), []);
 });
+
+test("fact migration trace round-trips without deleting the original observation", () => {
+  const original = parseFactFlowRecords("- {fact_id: F-DEADBEEF, statement: \"Delivery merged.\", source: \"test\", observedAt: \"2026-07-12T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"fixture\", boundAt: \"2026-07-12T00:00:00.000Z\"}]}")[0];
+  assert.ok(original);
+  const migrated: FactRecord = {
+    ...original,
+    migration: {
+      schema: "fact-migration/v1",
+      state: "migrated",
+      plan_id: "fxm_deadbeef",
+      execution_ref: "execution/task_01ABC/exe_01ABC",
+      evidence_id: "fact-migration:fxm_deadbeef:F-DEADBEEF",
+      migrated_at: "2026-07-12T01:00:00.000Z"
+    }
+  };
+
+  assert.deepEqual(parseFactFlowRecords(formatFactFlowRecord(migrated)), [migrated]);
+  assert.equal(parseFactFlowRecords(formatFactFlowRecord(migrated))[0]?.statement, original.statement);
+});

@@ -76,7 +76,8 @@ export const factFieldContracts = {
   confidence: immutable("confidence is captured with the observation; later doubt is expressed by another fact or invalidation", show("fact.confidence")),
   memoryClass: immutable("memory class is create-time classification", show("fact.memoryClass")),
   memoryTags: immutable("memory tags are create-time classification", show("fact.memoryTags")),
-  provenance: immutable("provenance is bound by create/write services, not amended as content", show("fact.provenance"))
+  provenance: immutable("provenance is bound by create/write services, not amended as content", show("fact.provenance")),
+  migration: lifecycle("fact migration appends a durable execution/evidence trace without deleting the observation", [lifecycleWrite("fact-execution-migrate")], show("fact.migration"))
 } satisfies Record<FactFieldKey, EntityFieldContract>;
 
 export const relationFieldContracts = {

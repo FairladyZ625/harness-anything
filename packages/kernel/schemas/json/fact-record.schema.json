@@ -69,6 +69,9 @@
       "items": {
         "$ref": "#/$defs/provenanceEntry"
       }
+    },
+    "migration": {
+      "$ref": "#/$defs/factMigration"
     }
   },
   "$defs": {
@@ -98,6 +101,38 @@
           "$ref": "#/$defs/nonBlankString"
         },
         "boundAt": {
+          "$ref": "#/$defs/nonBlankString"
+        }
+      }
+    },
+    "factMigration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "state",
+        "plan_id",
+        "execution_ref",
+        "evidence_id",
+        "migrated_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "fact-migration/v1"
+        },
+        "state": {
+          "const": "migrated"
+        },
+        "plan_id": {
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "execution_ref": {
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "evidence_id": {
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "migrated_at": {
           "$ref": "#/$defs/nonBlankString"
         }
       }

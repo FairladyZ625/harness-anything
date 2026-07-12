@@ -156,6 +156,7 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "migrate plan", argv: ["migrate", "plan", "--limit", "5"], kind: "migrate-plan", fields: { limit: 5 } },
   { name: "migrate structure", argv: ["migrate", "structure", "--apply", "--confirm-plan"], kind: "migrate-structure", fields: { mode: "apply", confirmPlan: true } },
   { name: "migrate anchors", argv: ["migrate", "anchors", "--apply"], kind: "migrate-anchors", fields: { mode: "apply" } },
+  { name: "migrate fact execution", argv: ["migrate", "fact-execution", "--apply", "--confirm-plan", "fxm_123", "--batch-size", "25", "--batch", "2", "--sample-size", "3"], kind: "migrate-fact-execution", fields: { mode: "apply", confirmPlan: "fxm_123", batchSize: 25, batch: 2, sampleSize: 3 } },
   { name: "migrate provenance", argv: ["migrate", "provenance", "--apply"], kind: "migrate-provenance", fields: { mode: "apply" } },
   { name: "migrate run", argv: ["migrate", "run", "--plan-only", "--session-dir", "session", "--locale", "en-US", "--assume-locale", "zh-CN", "--allow-dirty"], kind: "migrate-run", fields: { planOnly: true, outDir: "session", sessionDir: "session", locale: "en-US", assumeLocale: "zh-CN", allowDirty: true } },
   { name: "migrate verify", argv: ["migrate", "verify", "session.json"], kind: "migrate-verify", fields: { sessionPath: "session.json", fullCutover: false } },

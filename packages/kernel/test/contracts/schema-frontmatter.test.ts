@@ -237,6 +237,7 @@ test("fact record JSON schema publishes memory classification fields", async () 
   assert.equal(jsonSchema.required?.includes("memoryTags"), true);
   assert.deepEqual(jsonSchema.properties?.memoryClass?.enum, ["semantic", "episodic", "procedural"]);
   assert.equal(jsonSchema.properties?.memoryTags?.type, "array");
+  assert.equal(Object.prototype.hasOwnProperty.call(jsonSchema.properties ?? {}, "migration"), true);
   assert.deepEqual(jsonSchema.properties?.memoryTags?.items?.enum, [
     "episode",
     "procedural",

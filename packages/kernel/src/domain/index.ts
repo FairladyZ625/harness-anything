@@ -52,7 +52,7 @@ export {
   isFactId,
   parseFactFlowRecords
 } from "./fact-record.ts";
-export type { FactConfidence, FactMemoryClass, FactMemoryTag, FactRecord } from "./fact-record.ts";
+export type { FactConfidence, FactMemoryClass, FactMemoryTag, FactMigrationTrace, FactRecord } from "./fact-record.ts";
 
 export {
   isRuntimeEventApprovalDecision,

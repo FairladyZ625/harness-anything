@@ -160,7 +160,7 @@ export const entityRegistry = {
       supported("D1", "invalidate", ["fact_invalidate"], "fact is append-only; invalidation is represented by an active invalidating relation"),
       unsupported("D1", "retire", "fact semantic exit is invalidate, not retire"),
       unsupported("D1", "supersede", "fact supersession uses a relation edge and remains an invalidation-class D1 action"),
-      unsupported("D2", "archive", "fact follows its owner task archive and is not archived singly"),
+      supported("D2", "archive", ["doc_write"], "fact-to-execution migration preserves the fact with a durable migration trace"),
       unsupported("D3", "tombstone", "fact is append-only and has no single-record tombstone semantics"),
       unsupported("D4", "hard-delete", "fact must never be physically deleted as a standalone entity")
     ]),
