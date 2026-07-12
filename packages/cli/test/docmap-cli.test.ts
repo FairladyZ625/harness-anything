@@ -11,6 +11,17 @@ import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const registryBody = readFileSync(path.join(repoRoot, "tools/write-road-registry.json"), "utf8");
+const docSyncRegistryBody = `${JSON.stringify({
+  schema: "harness-anything/write-road-registry/v1",
+  rows: [{
+    id: "task.document.write-stage",
+    bearing: "task-document",
+    channel: {
+      pathClass: "doc-sync-allowed",
+      zoneClass: "task-authored-prose-or-stage"
+    }
+  }]
+}, null, 2)}\n`;
 
 test("CLI doc list and map read authored docmap manifest without writing state", () => {
   withTempRoot((rootDir) => {
@@ -186,6 +197,7 @@ test("CLI doc sync submit commits eligible prose through the daemon", () => {
     const harnessRoot = path.join(rootDir, "harness");
     const taskRoot = path.join(harnessRoot, "tasks", "task_01KX3W4V1EDPHPTGWYYBQQ2J75");
     mkdirSync(taskRoot, { recursive: true });
+    seedDocSyncWriteRoadRegistry(rootDir);
     writeFileSync(path.join(harnessRoot, "harness.yaml"), [
       "schema: harness-anything/v1",
       "settings:",
@@ -283,6 +295,11 @@ function seedWriteRoadRegistry(rootDir: string): void {
   // without it loadRegistry treats the layer as inactive and the report is inert (see #644).
   mkdirSync(path.join(rootDir, "tools"), { recursive: true });
   writeFileSync(path.join(rootDir, "tools", "write-road-registry.json"), registryBody);
+}
+
+function seedDocSyncWriteRoadRegistry(rootDir: string): void {
+  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+  writeFileSync(path.join(rootDir, "tools", "write-road-registry.json"), docSyncRegistryBody);
 }
 
 function initHarnessGit(harnessRoot: string): void {
