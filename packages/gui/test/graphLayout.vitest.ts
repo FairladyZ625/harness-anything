@@ -153,15 +153,47 @@ describe("computeGraphLayout: ego three-lane (dec_01KXA7811SVVT8P66HNDFZQ7DF)", 
     const out = await computeGraphLayout(baseInput());
     expect(out.resolvedFocusId).toBe(`decision/${FOCUS_DECISION_ID}`);
 
-    // 6 claim 行都应被计算(CH1 应是 uncovered — 只有 assoc,assoc 还被默认关了)
+    // 6 claim 行都应被计算
+    // 修 #10 后:coverageRows 缺失时 Path B 只升级 unknown→covered,不再误降为
+    // uncovered。C3/CH1 有 evidence 时是 covered,无 evidence 则保持 unknown
+    // (灰,loading/缺数据),等 kernel coverageRows 到位再由 Path A 拍板。
     expect(out.focusClaims).toHaveLength(6);
     const byClaim = new Map(out.focusClaims.map((c) => [c.claimId, c.status]));
     expect(byClaim.get("C1")).toBe("covered");
     expect(byClaim.get("C2")).toBe("covered");
-    expect(byClaim.get("C3")).toBe("uncovered"); // 无 evidence
+    expect(byClaim.get("C3")).toBe("unknown"); // 无 evidence + coverageRows 缺 → unknown
     expect(byClaim.get("C4")).toBe("covered");
     expect(byClaim.get("C5")).toBe("covered");
-    expect(byClaim.get("CH1")).toBe("uncovered"); // 无 evidence
+    expect(byClaim.get("CH1")).toBe("unknown"); // 无 evidence + coverageRows 缺 → unknown
+  });
+
+  it("Path A 的 uncovered 是权威(kernel coverageRows 明示无证据 → 红灯)", async () => {
+    // 修 #10 回归覆盖:当 kernel 给出 coverageRows 且 status="uncovered" 时,
+    // Path A 必须把 claim 标 uncovered (风险视角),不被 Path B 拉回 unknown。
+    const uncoveredRow = (claimId: string) => ({
+      decisionRef: `decision/${FOCUS_DECISION_ID}`,
+      claimRef: `decision/${FOCUS_DECISION_ID}/${claimId}`,
+      status: "uncovered" as const,
+      relationPath: [],
+    });
+    const out = await computeGraphLayout(
+      baseInput({
+        coverageRows: [
+          uncoveredRow("C1"),
+          uncoveredRow("C2"),
+          uncoveredRow("C3"),
+          uncoveredRow("C4"),
+          uncoveredRow("C5"),
+          uncoveredRow("CH1"),
+        ],
+      }),
+    );
+    const byClaim = new Map(out.focusClaims.map((c) => [c.claimId, c.status]));
+    // 即使 chosen 里 C1/C2/C4/C5 有 evidence(kernel 反向判定 uncovered,模拟
+    // evidence 走被 invalidated-by 等渠道失活),也以 Path A 为准。
+    expect(byClaim.get("C1")).toBe("uncovered");
+    expect(byClaim.get("C3")).toBe("uncovered");
+    expect(byClaim.get("CH1")).toBe("uncovered");
   });
 
   it("渲染三个 lane 背景 + 一个 decisionFocus 节点", async () => {
@@ -239,5 +271,202 @@ describe("computeGraphLayout: ego three-lane (dec_01KXA7811SVVT8P66HNDFZQ7DF)", 
     const factRef = "fact/task_01KX2GZ3NTFARZ0WC39NXVT25K/F-PRTXCD0P";
     expect(endpointToNodeId(factRef)).toBe(factRef);
     expect(endpointToNodeId(`decision/${FOCUS_DECISION_ID}/C1`)).toBe(`decision/${FOCUS_DECISION_ID}`);
+  });
+
+  it("修 #4/#5:focus 节点 claimRows 带 factRefs 并集(coverageRows ∪ evidence 边)", async () => {
+    // C1 在 chosen 里挂了 evidence=['fact/.../F-96WH7P98'],同时 relations 里也
+    // 有直接的 C1 evidenced-by 边到同一 fact。并集后 factRefs 含 1 条去重 fact。
+    const out = await computeGraphLayout(baseInput());
+    const focus = out.nodes.find((n) => n.type === "decisionFocus");
+    const rows = (focus?.data as { claimRows: Array<{ claimId: string; factRefs?: string[] }> }).claimRows;
+    const c1 = rows.find((r) => r.claimId === "C1");
+    expect(c1?.factRefs).toBeDefined();
+    expect(c1?.factRefs).toContain("fact/task_01KX3PGD74EXEEV6DFM49ARDJ2/F-96WH7P98");
+    // CH1 无 evidence、无 coverage row(空 coverageRows)→ factRefs 为空
+    const ch1 = rows.find((r) => r.claimId === "CH1");
+    expect(ch1?.factRefs ?? []).toHaveLength(0);
+  });
+
+  it("修 #5:仅 coverageRows 给出 coveringFactRef(无直接 evidence 边)也进 factRefs", async () => {
+    // 模拟 kernel 投影里有 transitive coverage 但 relation_edges 没直接边。
+    const out = await computeGraphLayout(
+      baseInput({
+        coverageRows: [
+          {
+            decisionRef: `decision/${FOCUS_DECISION_ID}`,
+            claimRef: `decision/${FOCUS_DECISION_ID}/CH1`,
+            status: "covered" as const,
+            coveringFactRef: "fact/task_01KX3PGD74EXEEV6DFM49ARDJ2/F-COVERED",
+          },
+        ],
+      }),
+    );
+    const focus = out.nodes.find((n) => n.type === "decisionFocus");
+    const rows = (focus?.data as { claimRows: Array<{ claimId: string; factRefs?: string[] }> }).claimRows;
+    const ch1 = rows.find((r) => r.claimId === "CH1");
+    expect(ch1?.factRefs).toContain("fact/task_01KX3PGD74EXEEV6DFM49ARDJ2/F-COVERED");
+  });
+
+  it("修 #6:多 claim 派生同一 task → 只渲染一个 task 节点(去重)", async () => {
+    // C1/C2/C3/C4 都 derives 同一 task_01KX2GZ3NTFARZ0WC39NXVT25K。
+    const out = await computeGraphLayout(baseInput());
+    const taskNodes = out.nodes.filter(
+      (n) => n.id === "task_01KX2GZ3NTFARZ0WC39NXVT25K",
+    );
+    expect(taskNodes).toHaveLength(1);
+    // 4 条 derives 边仍然都在(sourceHandle 区分 claim),target 是同一节点。
+    const derivesEdges = out.edges.filter(
+      (e) => e.target === "task_01KX2GZ3NTFARZ0WC39NXVT25K" && e.sourceHandle?.startsWith("claim-"),
+    );
+    expect(derivesEdges).toHaveLength(4);
+    const handles = new Set(derivesEdges.map((e) => e.sourceHandle));
+    expect(handles.has("claim-C1")).toBe(true);
+    expect(handles.has("claim-C2")).toBe(true);
+    expect(handles.has("claim-C3")).toBe(true);
+    expect(handles.has("claim-C4")).toBe(true);
+  });
+
+  it("修 #7:聚焦后代时 lineage 边按 canonical 方向(focus→other),claim handle 保留", async () => {
+    // 真实场景:dec_focus/CH1 refines dec_ancestor。当前 focus=dec_focus
+    // (descendant),other=dec_ancestor。canonical 方向 = focus→other。
+    const focusDecision: DecisionRow = {
+      decisionId: "dec_focus",
+      title: "后代决策",
+      state: "active",
+      question: "Q?",
+      chosen: [{ id: "CH1", text: "策略", evidence: [] }],
+      rejected: [],
+      claims: [{ id: "CH1", text: "策略" }],
+    };
+    const ancestorDecision: DecisionRow = {
+      decisionId: "dec_ancestor",
+      title: "祖先决策",
+      state: "active",
+      question: "Q?",
+      chosen: [{ id: "CH1", text: "策略", evidence: [] }],
+      rejected: [],
+      claims: [{ id: "CH1", text: "策略" }],
+    };
+    const lineageRelations: RelationEdge[] = [
+      {
+        from: "decision/dec_focus/CH1",
+        to: "decision/dec_ancestor",
+        kind: "refines",
+        provenance: "local-document",
+      },
+    ];
+    const out = await computeGraphLayout({
+      tasks,
+      relations: lineageRelations,
+      decisions: [focusDecision, ancestorDecision],
+      facts,
+      coverageRows: [],
+      focusNodeId: "decision/dec_focus",
+      expandedFacts: new Set(),
+      filters: {
+        modules: new Set(["kernel"]),
+        types: new Set(["decision", "task", "fact"]),
+        axes: { authority: true, evidence: true, execution: true, assoc: false },
+      },
+      inLoopNodes: new Set(),
+      inLoopEdges: new Set(),
+    });
+    // lineage 边 source=focus(带 CH1 handle),target=ancestor
+    const lineageEdge = out.edges.find((e) => e.id.startsWith("e_lineage_"));
+    expect(lineageEdge).toBeDefined();
+    expect(lineageEdge?.source).toBe("decision/dec_focus");
+    expect(lineageEdge?.target).toBe("decision/dec_ancestor");
+    expect(lineageEdge?.sourceHandle).toBe("claim-CH1");
+  });
+
+  it("修 #8:assoc decision↔decision 边打开 assoc 轴后渲染 assoc decision 节点", async () => {
+    // dec_other 通过 relates 关联 dec_focus;之前 assoc 轴打开也看不到。
+    const otherDecision: DecisionRow = {
+      decisionId: "dec_other_assoc",
+      title: "松关联决策",
+      state: "active",
+      question: "Q?",
+      chosen: [{ id: "CH1", text: "x", evidence: [] }],
+      rejected: [],
+      claims: [{ id: "CH1", text: "x" }],
+    };
+    const assocRelations: RelationEdge[] = [
+      ...relations,
+      {
+        from: `decision/${FOCUS_DECISION_ID}/CH1`,
+        to: "decision/dec_other_assoc",
+        kind: "relates",
+        provenance: "local-document",
+      },
+    ];
+    const out = await computeGraphLayout(
+      baseInput({
+        decisions: [decision, lineageDecision, otherDecision],
+        relations: assocRelations,
+        filters: {
+          modules: new Set(["kernel"]),
+          types: new Set(["decision", "task", "fact"]),
+          axes: { authority: true, evidence: true, execution: true, assoc: true },
+        },
+      }),
+    );
+    // 至少有 dec_other_assoc 关联节点(dec_mrd7jiux 也算,baseInput 里通过 RJ3 relates)。
+    const assocDecNode = out.nodes.find(
+      (n) => typeof n.id === "string" && n.id === "decision/dec_other_assoc__assoc",
+    );
+    expect(assocDecNode).toBeDefined();
+    expect(assocDecNode?.type).toBe("decision");
+    // assoc 边至少有一条(dec_other_assoc 那条 id 唯一)
+    const assocEdges = out.edges.filter((e) => e.id.startsWith("e_assoc_decision_"));
+    expect(assocEdges.length).toBeGreaterThanOrEqual(1);
+    const otherAssocEdge = assocEdges.find((e) => e.target === "decision/dec_other_assoc__assoc");
+    expect(otherAssocEdge).toBeDefined();
+    expect(otherAssocEdge?.source).toBe(`decision/${FOCUS_DECISION_ID}`);
+  });
+});
+
+describe("computeGraphLayout: simpleEgo (task focus) filter (#9)", () => {
+  it("task focus:关闭 decision 类型 → decision 邻居被过滤,fact/task 不受影响", async () => {
+    const focusTaskId = "task_01KX2GZ3NTFARZ0WC39NXVT25K";
+    // ego 关系:fact 与 focus task 同宿主(dec→fact 的 fact.taskId = focusTaskId);
+    // 以及 decision→focus task 的 derives。
+    const factRefOfFocus = `fact/${focusTaskId}/F-PRTXCD0P`;
+    const egoRelations: RelationEdge[] = [
+      // focus task 同宿主的 fact(用 produces 表达 task→fact 邻接)
+      {
+        from: `task/${focusTaskId}`,
+        to: factRefOfFocus,
+        kind: "produces",
+        provenance: "local-document",
+      },
+      // decision → focus task (derives)
+      {
+        from: "decision/dec_mrczk07e/C1",
+        to: `task/${focusTaskId}`,
+        kind: "derives",
+        provenance: "local-document",
+      },
+    ];
+    const out = await computeGraphLayout({
+      tasks,
+      relations: egoRelations,
+      decisions: [decision],
+      facts,
+      coverageRows: [],
+      focusNodeId: focusTaskId,
+      expandedFacts: new Set(),
+      filters: {
+        modules: new Set(["kernel"]),
+        // 关 decision,留 task + fact
+        types: new Set(["task", "fact"]),
+        axes: { authority: true, evidence: true, execution: true, assoc: false },
+      },
+      inLoopNodes: new Set(),
+      inLoopEdges: new Set(),
+    });
+    const nodeTypes = new Set(out.nodes.map((n) => n.type));
+    expect(nodeTypes.has("task")).toBe(true); // focus 自身
+    expect(nodeTypes.has("fact")).toBe(true); // fact 邻居保留
+    expect(nodeTypes.has("decision")).toBe(false); // 修 #9:decision 被 types 过滤掉
   });
 });

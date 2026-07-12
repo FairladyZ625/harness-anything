@@ -7,6 +7,7 @@ import {
   collectLineage,
   computeLayout,
   decisionIdOf,
+  findGenealogyCycles,
   timeMsOf,
 } from "./genealogy/layout";
 import { DecisionDetailPanel } from "./genealogy/DecisionDetailPanel";
@@ -45,6 +46,13 @@ export function GenealogyTimelineView({
   }, [decisions]);
 
   const edges = useMemo(() => buildGenealogyEdges(relations, byId), [relations, byId]);
+
+  // 修 #11:refines/narrows/supersedes/supports 边集若成环,collectLineage 会静默
+  // 截断。cycle 警告与 focus 无关(只要边集成环就告警),独立于 layout 计算。
+  const cycleWarning = useMemo(() => {
+    const cycles = findGenealogyCycles(edges);
+    return { count: cycles.length, cycles };
+  }, [edges]);
 
   // 参与谱系（有任一谱系边）的 decision——左栏候选焦点集。
   const participants = useMemo(() => {
@@ -156,6 +164,14 @@ export function GenealogyTimelineView({
         <span className="font-mono text-[12px] text-text-faint">
           {participants.length} 决策参与谱系 · {edges.length} 条演化边
         </span>
+        {cycleWarning.count > 0 && (
+          <span
+            className="inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 font-mono text-danger"
+            title={cycleWarning.cycles.map((c) => c.join(" → ")).join("\n")}
+          >
+            谱系环警告 · {cycleWarning.count}
+          </span>
+        )}
         {focus && (
           <span className="font-mono text-[11px] text-text-faint">
             焦点谱系：{ancestorCount} 祖先 · {descendantCount} 后代

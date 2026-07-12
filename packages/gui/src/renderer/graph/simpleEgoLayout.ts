@@ -20,18 +20,23 @@ export function layoutSimpleEgo(input: SimpleEgoInput): LayoutOutput {
   const neighbors = new Map<string, "task" | "decision" | "fact">();
   const egoEdges: RelationEdge[] = [];
 
+  // 修 #9:filters.types 之前从未被读 → task/decision/fact 类型开关在 ego 布局
+  // 里完全失效。focus 自身不参与过滤(用户主动选中的实体不应被自身类型开关
+  // 抹掉),但其 1-hop 邻居按类型开关筛选。
+  const allowedTypes = input.filters.types;
+
   for (const edge of input.relations) {
     const fromId = endpointToNodeId(edge.from);
     const toId = endpointToNodeId(edge.to);
     if (fromId === input.focusId) {
       const parsed = parseEndpoint(edge.to);
-      if (parsed) {
+      if (parsed && allowedTypes.has(parsed.entity)) {
         neighbors.set(parsed.id, parsed.entity);
         egoEdges.push(edge);
       }
     } else if (toId === input.focusId) {
       const parsed = parseEndpoint(edge.from);
-      if (parsed) {
+      if (parsed && allowedTypes.has(parsed.entity)) {
         neighbors.set(parsed.id, parsed.entity);
         egoEdges.push(edge);
       }
