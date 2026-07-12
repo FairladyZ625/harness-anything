@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { CurrentSessionRuntimeSchema } from "./common.ts";
+import { ActorAxesSchema } from "./actor-attribution.ts";
 import {
   runtimeEventApprovalDecisions,
   runtimeEventInterruptActions,
@@ -40,13 +41,10 @@ const RuntimeEventActorAxesSchema = Schema.Struct({
   responsibleHuman: Schema.NullOr(RuntimeEventPersonPrincipalSchema)
 });
 
-export const RuntimeEventRecordSchema = Schema.Struct({
-  schema: Schema.Literal("runtime-event/v1"),
+const RuntimeEventFields = {
   eventId: Schema.String.pipe(Schema.pattern(/^evt_[A-Za-z0-9._-]{8,96}$/u)),
   recordedAt: Schema.String,
   kind: Schema.Literal(...runtimeEventKinds),
-  actor: Schema.optional(RuntimeEventActorSchema),
-  actorAxes: Schema.optional(RuntimeEventActorAxesSchema),
   session: Schema.Struct({
     sessionId: Schema.String,
     runtime: Schema.Union(CurrentSessionRuntimeSchema, Schema.Literal("unknown")),
@@ -94,6 +92,25 @@ export const RuntimeEventRecordSchema = Schema.Struct({
     model: OptionalString,
     amountUsd: OptionalNumber
   }))
+} as const;
+
+// V1 remains the active persistence contract until Phase 6. Its two legacy
+// actor fields are isolated here so the domain no longer publishes competing
+// actor models.
+export const RuntimeEventRecordSchema = Schema.Struct({
+  schema: Schema.Literal("runtime-event/v1"),
+  ...RuntimeEventFields,
+  actor: Schema.optional(RuntimeEventActorSchema),
+  actorAxes: Schema.optional(RuntimeEventActorAxesSchema)
 });
 
-export type RuntimeEventRecordDocument = Schema.Schema.Type<typeof RuntimeEventRecordSchema>;
+// Phase 1 publishes the v2 type/schema only. No current append path selects it.
+export const RuntimeEventRecordV2Schema = Schema.Struct({
+  schema: Schema.Literal("runtime-event/v2"),
+  ...RuntimeEventFields,
+  actor: ActorAxesSchema
+});
+
+export type RuntimeEventRecord = Schema.Schema.Type<typeof RuntimeEventRecordSchema>;
+export type RuntimeEventRecordV2 = Schema.Schema.Type<typeof RuntimeEventRecordV2Schema>;
+export type RuntimeEventRecordDocument = RuntimeEventRecord;

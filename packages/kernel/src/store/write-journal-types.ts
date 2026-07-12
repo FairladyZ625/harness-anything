@@ -2,6 +2,11 @@ import type { EntityId, TaskId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
+import type { ActorAxes, AgentRef } from "../schemas/actor-attribution.ts";
+import type {
+  JournalRecordV1Document,
+  JournalRecordV2Document
+} from "../schemas/write-journal.ts";
 
 export interface JournaledWriteCoordinatorOptions {
   readonly rootDir: string;
@@ -41,16 +46,26 @@ export interface PayloadRef {
 
 export type JournalRecordKind = WriteOp["kind"];
 
-export interface JournalRecord {
-  readonly schema: "write-journal/v1";
-  readonly opId: string;
-  readonly entityId: EntityId;
-  readonly kind: JournalRecordKind;
+export type JournalRecordV1 = JournalRecordV1Document;
+export type JournalRecordV2 = JournalRecordV2Document;
+
+export interface LegacyJournalAttribution {
+  readonly status: "unresolved";
+  readonly source: "legacy";
+  readonly principal: null;
+  readonly executor: AgentRef | null;
   readonly actor: JournalActor;
-  readonly at: string;
-  readonly payloadRef?: PayloadRef;
-  readonly payload?: Record<string, unknown>;
 }
+
+export type NormalizedJournalRecordV1 = JournalRecordV1 & {
+  readonly legacyAttribution: LegacyJournalAttribution;
+};
+
+export type ReadableJournalRecord = NormalizedJournalRecordV1 | JournalRecordV2;
+
+// Phase 1 leaves the writer on v1. Call sites that construct new WAL entries
+// continue to use this alias until the Phase 3 writer cutover.
+export type JournalRecord = JournalRecordV1;
 
 export interface LockTakeoverRecord {
   readonly schema: "lock-takeover/v1";
@@ -66,7 +81,7 @@ export interface DeleteAuditRecord {
   readonly opId: string;
   readonly taskId: TaskId;
   readonly kind: "package_delete_hard_applied";
-  readonly actor: JournalActor;
+  readonly actor: JournalActor | ActorAxes;
   readonly at: string;
   readonly reason: string;
 }

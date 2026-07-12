@@ -38,8 +38,17 @@ import {
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
 import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./write-journal-receipt.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, WriteWatermark } from "./write-journal-types.ts";
-export type { GitCommitAuthor, JournalActor, JournaledWriteCoordinatorOptions, LockConflictRetryOptions } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
+export type {
+  GitCommitAuthor,
+  JournalActor,
+  JournalRecordV1,
+  JournalRecordV2,
+  JournaledWriteCoordinatorOptions,
+  LegacyJournalAttribution,
+  LockConflictRetryOptions,
+  ReadableJournalRecord
+} from "./write-journal-types.ts";
 
 const defaultActor: JournalActor = { kind: "agent", id: "local" };
 // Flush writes the full op-id set before compaction for recovery safety, then
@@ -192,10 +201,10 @@ function isLockConflict(error: WriteError): boolean {
 }
 
 function uniquePendingRecords(
-  records: ReadonlyArray<JournalRecord>,
+  records: ReadonlyArray<ReadableJournalRecord>,
   applied: ReadonlySet<string>
-): ReadonlyArray<JournalRecord> {
-  const unique = new Map<string, JournalRecord>();
+): ReadonlyArray<ReadableJournalRecord> {
+  const unique = new Map<string, ReadableJournalRecord>();
   for (const record of records) {
     if (applied.has(record.opId)) continue;
     const previous = unique.get(record.opId);
@@ -251,7 +260,7 @@ function flushRecords(
   journalPath: string,
   watermarkPath: string,
   previousWatermark: WriteWatermark | null,
-  records: ReadonlyArray<JournalRecord>,
+  records: ReadonlyArray<ReadableJournalRecord>,
   fileApplied: ReadonlySet<string>,
   sessionId?: string,
   commitAuthor?: GitCommitAuthor,
@@ -322,7 +331,7 @@ function flushRecords(
   };
 }
 
-function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath: string, record: JournalRecord): void {
+function applyRecord(rootDir: string, rootInput: HarnessLayoutInput, journalPath: string, record: ReadableJournalRecord): void {
   const op = recordToOp(rootDir, record);
   applyWriteOp(rootInput, op);
   if (op.kind === "package_delete_hard") {
@@ -384,7 +393,7 @@ function preflightWriteOp(rootDir: string, rootInput: HarnessLayoutInput, op: Wr
   }
 }
 
-function recordToOp(rootDir: string, record: JournalRecord): WriteOp {
+function recordToOp(rootDir: string, record: ReadableJournalRecord): WriteOp {
   const payload = readVerifiedPayload(rootDir, record);
   return {
     opId: record.opId,
@@ -401,11 +410,11 @@ function toJournalPayload(op: { readonly opId: string; readonly payload?: unknow
   return op.payload as Record<string, unknown>;
 }
 
-function recordTouchedPaths(rootDir: string, rootInput: HarnessLayoutInput, record: JournalRecord): ReadonlyArray<string> {
+function recordTouchedPaths(rootDir: string, rootInput: HarnessLayoutInput, record: ReadableJournalRecord): ReadonlyArray<string> {
   return writeOpTouchedPaths(rootInput, recordToOp(rootDir, record));
 }
 
-function readVerifiedPayload(rootDir: string, record: JournalRecord): Record<string, unknown> {
+function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Record<string, unknown> {
   const payload = readPayloadRef(rootDir, record);
   const expectedHash = typeof record.payload?.payloadHash === "string" ? record.payload.payloadHash : "";
   const actualHash = stablePayloadHash(payload);
@@ -415,14 +424,14 @@ function readVerifiedPayload(rootDir: string, record: JournalRecord): Record<str
   return payload;
 }
 
-function semanticCommitMessage(rootDir: string, records: ReadonlyArray<JournalRecord>): string | undefined {
+function semanticCommitMessage(rootDir: string, records: ReadonlyArray<ReadableJournalRecord>): string | undefined {
   if (records.length === 0) return undefined;
   const summaries = records.map((record) => recordCommitSummary(rootDir, record));
   if (summaries.length === 1) return `${summaries[0]} [${records[0]?.opId}]`;
   return `harness write: ${summaries.slice(0, 3).join("; ")}${summaries.length > 3 ? `; +${summaries.length - 3} more` : ""} [${records.map((record) => record.opId).join(",")}]`;
 }
 
-function recordCommitSummary(rootDir: string, record: JournalRecord): string {
+function recordCommitSummary(rootDir: string, record: ReadableJournalRecord): string {
   const parsed = parseEntityLabel(record.entityId);
   const payload = readVerifiedPayload(rootDir, record);
   const detail = recordCommitDetail(record.kind, payload);
@@ -506,8 +515,8 @@ function compactJournalDurably(journalPath: string, coveredOpIds: ReadonlySet<st
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .filter((line) => {
-      const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord>;
-      if (parsed.schema !== "write-journal/v1" && parsed.schema !== "apply-marker/v1") return true;
+      const parsed = JSON.parse(line) as Partial<ReadableJournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord>;
+      if (parsed.schema !== "write-journal/v1" && parsed.schema !== "write-journal/v2" && parsed.schema !== "apply-marker/v1") return true;
       return typeof parsed.opId !== "string" || !coveredOpIds.has(parsed.opId);
     });
   writeFileDurably(journalPath, retained.length === 0 ? "" : `${retained.join("\n")}\n`);

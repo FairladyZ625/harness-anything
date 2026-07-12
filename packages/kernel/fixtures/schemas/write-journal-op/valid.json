@@ -1,14 +1,26 @@
 {
-  "schema": "write-journal/v1",
-  "opId": "op-2026-06-11-001",
-  "entityId": "task/2026-06-11-kr-01-harness-infrastructure",
-  "kind": "progress_append",
+  "schema": "write-journal/v2",
+  "opId": "op-2026-07-12-001",
+  "entityId": "task/task_01KXAWX9FCZARZ6W6PT670Q0WR",
+  "kind": "package_create",
   "actor": {
-    "kind": "agent",
-    "id": "codex"
+    "principal": {
+      "kind": "person",
+      "personId": "person_zeyu"
+    },
+    "executor": {
+      "kind": "agent",
+      "id": "codex"
+    }
   },
-  "at": "2026-06-11T00:01:00.000Z",
+  "principalSource": {
+    "kind": "local-configured",
+    "authority": "harness.yaml",
+    "authoritySha256": "sha256:fixture"
+  },
+  "executorSource": "client-asserted",
+  "at": "2026-07-12T00:01:00.000Z",
   "payload": {
-    "text": "Schema registry gate added."
+    "payloadHash": "sha256:fixture"
   }
 }

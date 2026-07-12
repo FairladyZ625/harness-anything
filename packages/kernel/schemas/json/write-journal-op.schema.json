@@ -1,16 +1,297 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema",
+    "opId",
+    "entityId",
+    "kind",
+    "at",
+    "actor",
+    "principalSource",
+    "executorSource"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "enum": [
+        "write-journal/v2"
+      ]
+    },
+    "opId": {
+      "type": "string"
+    },
+    "entityId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "title": "`task/${string}`",
+          "description": "a template literal",
+          "pattern": "^task\\/[\\s\\S]*?$"
+        },
+        {
+          "type": "string",
+          "title": "`decision/${string}`",
+          "description": "a template literal",
+          "pattern": "^decision\\/[\\s\\S]*?$"
+        },
+        {
+          "type": "string",
+          "title": "`module/${string}`",
+          "description": "a template literal",
+          "pattern": "^module\\/[\\s\\S]*?$"
+        },
+        {
+          "type": "string",
+          "title": "`entity/${string}/${string}`",
+          "description": "a template literal",
+          "pattern": "^entity\\/[\\s\\S]*?\\/[\\s\\S]*?$"
+        }
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "package_create",
+        "transition_local",
+        "progress_append",
+        "doc_stage",
+        "task_tree_stage",
+        "doc_write",
+        "code_doc_reconcile",
+        "package_archive",
+        "package_tombstone",
+        "package_reopen",
+        "package_supersede",
+        "package_delete_hard",
+        "decision_propose",
+        "decision_accept",
+        "decision_reject",
+        "decision_defer",
+        "decision_supersede",
+        "decision_amend",
+        "decision_relate",
+        "decision_retire",
+        "fact_invalidate",
+        "relation_retire",
+        "relation_replace",
+        "module_registry_write",
+        "module_scaffold_write",
+        "machine_artifact_write",
+        "machine_artifact_append_jsonl"
+      ]
+    },
+    "at": {
+      "type": "string"
+    },
+    "payloadRef": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "required": [],
+      "properties": {},
+      "additionalProperties": {
+        "$id": "/schemas/unknown",
+        "title": "unknown"
+      }
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "principal",
+        "executor"
+      ],
+      "properties": {
+        "principal": {
+          "type": "object",
+          "required": [
+            "kind",
+            "personId"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "person"
+              ]
+            },
+            "personId": {
+              "type": "string",
+              "description": "a string matching the pattern \\S",
+              "pattern": "\\S"
+            }
+          },
+          "additionalProperties": false
+        },
+        "executor": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "id"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "agent"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "description": "a string matching the pattern \\S",
+                  "pattern": "\\S"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "principalSource": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "providerId",
+            "credentialFingerprint"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "daemon-authenticated"
+              ]
+            },
+            "providerId": {
+              "type": "string",
+              "description": "a string matching the pattern \\S",
+              "pattern": "\\S"
+            },
+            "credentialFingerprint": {
+              "type": "string",
+              "description": "a string matching the pattern \\S",
+              "pattern": "\\S"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "authority",
+            "authoritySha256"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "local-configured"
+              ]
+            },
+            "authority": {
+              "type": "string",
+              "enum": [
+                "persons.yaml",
+                "people.yaml-legacy",
+                "harness.yaml"
+              ]
+            },
+            "authoritySha256": {
+              "type": "string",
+              "description": "a string matching the pattern \\S",
+              "pattern": "\\S"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "evidenceRef"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "migration"
+              ]
+            },
+            "evidenceRef": {
+              "type": "string",
+              "description": "a string matching the pattern \\S",
+              "pattern": "\\S"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "executorSource": {
+      "type": "string",
+      "enum": [
+        "client-asserted",
+        "none"
+      ]
+    }
+  },
+  "additionalProperties": false,
   "$id": "https://harness-anything.dev/schemas/write-journal-op.schema.json",
   "x-harness-schema-id": "write-journal-op",
-  "title": "Write Journal Op v1",
-  "type": "object",
-  "required": ["schema", "opId", "entityId", "kind", "actor", "at"],
-  "properties": {
-    "schema": { "const": "write-journal/v1" },
-    "opId": { "type": "string" },
-    "entityId": { "type": "string" },
-    "kind": { "enum": ["package_create", "transition_local", "progress_append", "task_tree_stage", "doc_write", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard", "decision_propose", "decision_accept", "decision_reject", "decision_defer", "decision_supersede", "decision_amend", "decision_retire"] },
-    "actor": { "type": "object" },
-    "at": { "type": "string" }
-  }
+  "title": "Write Journal Op v2",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "actor": {
+            "properties": {
+              "executor": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "executor"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "executorSource": {
+            "const": "none"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "executorSource": {
+            "const": "client-asserted"
+          }
+        }
+      }
+    }
+  ]
 }

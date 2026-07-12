@@ -1,10 +1,10 @@
 {
   "schema": "write-journal/v2",
-  "opId": "op-invalid-source",
-  "entityId": "task/task_invalid_source",
+  "opId": "op-invalid-principal",
+  "entityId": "task/task_invalid_principal",
   "kind": "progress_append",
   "actor": {
-    "principal": { "kind": "person", "personId": "person_zeyu" },
+    "principal": { "kind": "agent", "personId": "person_zeyu" },
     "executor": null
   },
   "principalSource": {
@@ -12,6 +12,6 @@
     "authority": "harness.yaml",
     "authoritySha256": "sha256:fixture"
   },
-  "executorSource": "client-asserted",
-  "at": "2026-07-12T00:05:00.000Z"
+  "executorSource": "none",
+  "at": "2026-07-12T00:02:00.000Z"
 }

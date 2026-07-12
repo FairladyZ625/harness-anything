@@ -1,10 +1,12 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import path from "node:path";
+import { Schema } from "effect";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, JournalRecord, LockTakeoverRecord, PayloadRef, WriteWatermark } from "./write-journal-types.ts";
+import { ReadableJournalRecordSchema } from "../schemas/write-journal.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, JournalActor, JournalRecord, JournalRecordV1, LockTakeoverRecord, NormalizedJournalRecordV1, PayloadRef, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 
 export function readDurableState(journalPath: string, watermarkPath: string, rootDir: string): {
-  readonly records: ReadonlyArray<JournalRecord>;
+  readonly records: ReadonlyArray<ReadableJournalRecord>;
   readonly watermark: WriteWatermark | null;
   readonly applied: ReadonlySet<string>;
   readonly fileApplied: ReadonlySet<string>;
@@ -36,37 +38,33 @@ export function readApplyMarkers(journalPath: string): ReadonlySet<string> {
   return markers;
 }
 
-export function readJournal(journalPath: string, rootDir: string): ReadonlyArray<JournalRecord> {
+export function readJournal(journalPath: string, rootDir: string): ReadonlyArray<ReadableJournalRecord> {
   if (!existsSync(journalPath)) return [];
   const body = readFileSync(journalPath, "utf8").trim();
   if (body.length === 0) return [];
 
-  const records: JournalRecord[] = [];
+  const records: ReadableJournalRecord[] = [];
   for (const line of body.split("\n")) {
-    const parsed = JSON.parse(line) as Partial<JournalRecord | LockTakeoverRecord | DeleteAuditRecord | ApplyMarkerRecord>;
-    if (parsed.schema === "lock-takeover/v1") continue;
-    if (parsed.schema === "delete-audit/v1") continue;
-    if (parsed.schema === "apply-marker/v1") continue;
-    if (parsed.schema !== "write-journal/v1") {
+    const parsed: unknown = JSON.parse(line);
+    const schema = journalLineSchema(parsed);
+    if (schema === "lock-takeover/v1" || schema === "delete-audit/v1" || schema === "apply-marker/v1") continue;
+    if (schema !== "write-journal/v1" && schema !== "write-journal/v2") {
       throw new Error("malformed journal record: unsupported schema");
     }
-    if (
-      typeof parsed.opId !== "string" ||
-      typeof parsed.entityId !== "string" ||
-      typeof parsed.kind !== "string" ||
-      !parsed.actor ||
-      typeof parsed.at !== "string" ||
-      !parsed.payloadRef
-    ) {
-      throw new Error("malformed journal record: missing required fields");
+    let decoded: JournalRecordV1 | ReadableJournalRecord;
+    try {
+      decoded = Schema.decodeUnknownSync(ReadableJournalRecordSchema)(parsed);
+    } catch (cause) {
+      throw new Error("malformed journal record: schema decode failed", { cause });
     }
-    readPayloadRef(rootDir, parsed as JournalRecord);
-    records.push(parsed as JournalRecord);
+    if (!decoded.payloadRef) throw new Error("malformed journal record: payloadRef is required");
+    readPayloadRef(rootDir, decoded);
+    records.push(decoded.schema === "write-journal/v1" ? normalizeLegacyRecord(decoded) : decoded);
   }
   return records;
 }
 
-export function findRecord(records: ReadonlyArray<JournalRecord>, opId: string): JournalRecord {
+export function findRecord(records: ReadonlyArray<ReadableJournalRecord>, opId: string): ReadableJournalRecord {
   const record = records.find((candidate) => candidate.opId === opId);
   if (!record) throw new Error(`journal record missing for op ${opId}`);
   return record;
@@ -93,7 +91,7 @@ export function writePayloadRef(rootDir: string, journalPath: string, opId: stri
   };
 }
 
-export function readPayloadRef(rootDir: string, record: JournalRecord): Record<string, unknown> {
+export function readPayloadRef(rootDir: string, record: Pick<ReadableJournalRecord | JournalRecord, "opId" | "payloadRef">): Record<string, unknown> {
   if (!record.payloadRef) throw new Error(`payloadRef missing for op ${record.opId}`);
   const absolutePath = path.join(rootDir, record.payloadRef.path);
   const body = readFileSync(absolutePath, "utf8");
@@ -113,6 +111,26 @@ export function appendJsonLineDurably(filePath: string, value: JournalRecord | L
   } finally {
     closeSync(fd);
   }
+}
+
+function journalLineSchema(value: unknown): unknown {
+  return typeof value === "object" && value !== null && "schema" in value
+    ? value.schema
+    : undefined;
+}
+
+function normalizeLegacyRecord(record: JournalRecordV1): NormalizedJournalRecordV1 {
+  const actor = record.actor satisfies JournalActor;
+  return {
+    ...record,
+    legacyAttribution: {
+      status: "unresolved",
+      source: "legacy",
+      principal: null,
+      executor: actor.kind === "agent" ? { kind: "agent", id: actor.id } : null,
+      actor
+    }
+  };
 }
 
 export function writeWatermarkDurably(filePath: string, watermark: WriteWatermark): void {
