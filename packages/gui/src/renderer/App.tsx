@@ -13,10 +13,10 @@ import {
   WarningCircle,
   GitBranch,
   FirstAidKit,
+  ClockCounterClockwise,
 } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import {
-  MOCK_TASK_RELATIONS,
   MOCK_PRESETS,
   MOCK_ADAPTERS,
   MOCK_EVENTS,
@@ -29,6 +29,7 @@ import { DecisionsView } from "./views/DecisionsView.tsx";
 import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
 import { FactTriageView } from "./views/FactTriageView.tsx";
 import { GraphView } from "./views/GraphView.tsx";
+import { GenealogyTimelineView } from "./views/GenealogyTimelineView.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
@@ -54,6 +55,7 @@ type ViewId =
   | "decisionPool"
   | "factTriage"
   | "graph"
+  | "genealogy"
   | "presets"
   | "adapters"
   | "settings";
@@ -73,6 +75,7 @@ const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
   { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
   { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
   { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
+  { id: "genealogy", label: "演化史", icon: <ClockCounterClockwise weight="duotone" /> },
 ];
 
 const MANAGE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
@@ -89,6 +92,7 @@ const VIEW_LABEL: Record<ViewId, string> = {
   decisionPool: "决策池",
   factTriage: "事实分诊",
   graph: "关系图",
+  genealogy: "演化史",
   presets: "Preset / Vertical",
   adapters: "引擎 Adapter",
   settings: "设置",
@@ -404,6 +408,34 @@ function AppShell() {
         {showMockBanner && <MockViewBanner />}
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {!selected && (view === "graph" || view === "genealogy") && (
+              <div className="flex items-center gap-2 border-b border-border bg-surface/60 px-4 py-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                  同一实体 · 多视图
+                </span>
+                <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+                  {([
+                    { id: "graph", label: "关系图" },
+                    { id: "genealogy", label: "演化史" },
+                  ] as const).map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setView(item.id)}
+                      className={`rounded px-2 py-0.5 text-[12px] ${
+                        view === item.id
+                          ? "bg-surface-raised font-medium text-text"
+                          : "text-text-muted hover:text-text"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[11px] text-text-faint">
+                  关系图看结构 · 演化史看 decision 谱系随时间的 refine/narrow/supersede
+                </span>
+              </div>
+            )}
             {selected ? (
               <TaskDetailView
                 task={selected}
@@ -447,7 +479,7 @@ function AppShell() {
                 onSelect={openTaskPreview}
                 onUpdate={updateTask}
                 drill={drill}
-                relations={MOCK_TASK_RELATIONS}
+                relations={relations}
                 favorites={favorites}
                 onToggleFavorite={toggleFavorite}
               />
@@ -459,6 +491,14 @@ function AppShell() {
                 facts={facts}
                 onNavigateEntity={navigateToEntity}
                 focusRef={focusedEntityRef}
+              />
+            ) : view === "genealogy" ? (
+              <GenealogyTimelineView
+                decisions={decisions}
+                relations={relations}
+                focusRef={focusedEntityRef}
+                onNavigateEntity={navigateToEntity}
+                onFocusGraph={focusEntityInGraph}
               />
             ) : view === "factTriage" ? (
               <FactTriageView
@@ -517,7 +557,7 @@ function AppShell() {
       <TaskPreviewDrawer
         task={previewTask}
         tasks={projectTasks}
-        relations={MOCK_TASK_RELATIONS}
+        relations={relations}
         events={projectEvents}
         onClose={() => setPreviewId(null)}
         onOpenDetail={openTaskDetail}

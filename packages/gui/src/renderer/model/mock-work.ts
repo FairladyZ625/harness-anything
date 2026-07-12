@@ -3,7 +3,6 @@ import type {
   TaskRow,
   DocEntry,
   Project,
-  RelationEdge,
 } from "./types";
 
 export const MOCK_PROJECTS: Project[] = [
@@ -454,44 +453,4 @@ export const MOCK_TASKS: TaskRow[] = [
     lastKnownAt: "2026-06-11T08:15:00",
     docs: docs(["review/walkthrough.md", "evidence/run-log.md"]),
   }),
-];
-
-/* ---------------- 任务关系 ---------------- */
-
-export const MOCK_TASK_RELATIONS: RelationEdge[] = [
-  /* ===== harness-anything：依赖主链 KER-101 → KER-102 → KER-106 ===== */
-  { from: "KER-102", to: "KER-101", kind: "depends-on", provenance: "local-document" },
-  { from: "KER-106", to: "KER-102", kind: "depends-on", provenance: "local-document" },
-  { from: "KER-109", to: "KER-101", kind: "depends-on", provenance: "local-document" },
-  /* 父子树：KER-103 拆出 store 两个子任务 */
-  { from: "KER-103", to: "STO-210", kind: "relates", provenance: "local-document" },
-  { from: "KER-103", to: "STO-211", kind: "relates", provenance: "local-document" },
-  { from: "KER-107", to: "KER-103", kind: "depends-on", provenance: "local-document" },
-  /* GUI 链挂在 schema 契约之后 */
-  { from: "GUI-401", to: "KER-102", kind: "depends-on", provenance: "local-document" },
-  { from: "GUI-402", to: "GUI-401", kind: "depends-on", provenance: "local-document" },
-  { from: "GUI-403", to: "KER-106", kind: "relates", provenance: "local-document" },
-  { from: "CI-602", to: "GUI-401", kind: "depends-on", provenance: "local-document" },
-  { from: "CI-601", to: "KER-106", kind: "relates", provenance: "local-document" },
-  /* 引用关系（不构成依赖） */
-  { from: "KER-108", to: "KER-102", kind: "relates", provenance: "local-document" },
-  /* 外部引擎侧记录的关系：provenance=external-engine */
-  { from: "ADP-501", to: "GH-2214", kind: "relates", provenance: "external-engine" },
-  { from: "FAI-37", to: "KER-101", kind: "depends-on", provenance: "external-engine" },
-  { from: "LIN-92", to: "ADP-502", kind: "depends-on", provenance: "external-engine" },
-  { from: "LIN-88", to: "LIN-92", kind: "relates", provenance: "external-engine" },
-  { from: "ADP-502", to: "KER-103", kind: "depends-on", provenance: "local-document" },
-
-  /* ===== coding-agent-harness：文档/模板流水 ===== */
-  { from: "DOC-12", to: "DOC-11", kind: "depends-on", provenance: "local-document" },
-  { from: "TPL-22", to: "TPL-21", kind: "depends-on", provenance: "local-document" },
-  { from: "DOC-13", to: "TPL-21", kind: "relates", provenance: "local-document" },
-  { from: "DSH-32", to: "DSH-31", kind: "relates", provenance: "external-engine" },
-
-  /* ===== rag-pipeline-svc：ingest → retrieval → eval 主链 ===== */
-  { from: "RAG-2", to: "RAG-1", kind: "depends-on", provenance: "local-document" },
-  { from: "RAG-3", to: "RAG-1", kind: "depends-on", provenance: "local-document" },
-  { from: "RAG-4", to: "RAG-3", kind: "depends-on", provenance: "local-document" },
-  { from: "RAG-4", to: "RAG-5", kind: "depends-on", provenance: "local-document" },
-  { from: "RAG-1", to: "RAG-6", kind: "relates", provenance: "external-engine" },
 ];

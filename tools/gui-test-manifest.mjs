@@ -3,5 +3,6 @@ export const guiVitestManifest = [
   "packages/gui/test/fact-triage.vitest.ts",
   "packages/gui/test/taskFilters.vitest.ts",
   "packages/gui/test/task-adapter.vitest.ts",
-  "packages/gui/test/graphLayout.vitest.ts"
+  "packages/gui/test/graphLayout.vitest.ts",
+  "packages/gui/test/genealogy-timeline.vitest.ts"
 ];
