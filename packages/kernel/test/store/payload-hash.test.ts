@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -29,7 +30,7 @@ test("payload hashes are stable across object key order", () => {
 
 test("journal stores payload hash for audit", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "a.md", "x")));
 
     const journal = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
@@ -39,7 +40,7 @@ test("journal stores payload hash for audit", () => {
 
 test("recovery rejects a tampered payloadRef before applying writes", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "a.md", "trusted")));
 
     const journalRecord = JSON.parse(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8")) as {
@@ -52,7 +53,7 @@ test("recovery rejects a tampered payloadRef before applying writes", () => {
       body: "tampered"
     }), "utf8");
 
-    const recoveredCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const recoveredCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     assert.throws(
       () => Effect.runSync(recoveredCoordinator.recover),
       /payloadRef sha mismatch|payload hash mismatch/

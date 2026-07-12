@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
@@ -117,6 +118,10 @@ test("CLI new-task honors harness.yaml custom authored layout", () => {
       "  localRoot: .harness-local",
       "tasks:",
       "  root: .harness-private/coding-agent-harness/tasks",
+      "settings:",
+      "  identity:",
+      "    personId: person_test",
+      "    displayName: Harness Test",
       ""
     ].join("\n"));
 
@@ -139,6 +144,14 @@ test("CLI new-task honors harness.yaml custom authored layout", () => {
 
 test("CLI new-task honors explicit authored root context without global pollution", () => {
   withTempRoot((rootDir) => {
+    writeFile(rootDir, ".custom-harness/harness.yaml", [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  identity:",
+      "    personId: person_test",
+      "    displayName: Harness Test",
+      ""
+    ].join("\n"));
     const created = runJson(rootDir, [
       "--authored-root",
       ".custom-harness",
@@ -171,12 +184,17 @@ test("CLI new-task honors explicit authored root context without global pollutio
 
 test("CLI new-task honors private self-host harness structure layout", () => {
   withTempRoot((rootDir) => {
+    rmSync(path.join(rootDir, "harness"), { recursive: true, force: true });
     writeFile(rootDir, ".harness-private/coding-agent-harness/harness.yaml", [
       "version: 2",
       "structure:",
       "  harnessRoot: coding-agent-harness",
       "  tasksRoot: coding-agent-harness/tasks",
       "  generatedRoot: coding-agent-harness/governance/generated",
+      "settings:",
+      "  identity:",
+      "    personId: person_test",
+      "    displayName: Harness Test",
       ""
     ].join("\n"));
 
@@ -424,7 +442,7 @@ test("CLI module CRUD maintains generated module view and module-step state", ()
     runGit(rootDir, "commit", "-m", "seed ignore");
     initializeGitRepo(path.join(rootDir, "harness"));
     writeFile(rootDir, "harness/.gitignore", "*.log\n");
-    runGit(path.join(rootDir, "harness"), "add", ".gitignore");
+    runGit(path.join(rootDir, "harness"), "add", ".");
     runGit(path.join(rootDir, "harness"), "commit", "-m", "seed harness repo");
 
     const registered = runJson(rootDir, ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"]);
@@ -480,6 +498,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-p2-cli-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {

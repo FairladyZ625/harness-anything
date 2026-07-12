@@ -11,15 +11,15 @@ import {
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
 } from "../../../application/src/index.ts";
-import type { WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
+import type { OperationalActor, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext, findConflictMarkerWarnings } from "../../../kernel/src/index.ts";
 import { toCliError } from "../cli/error-mapper.ts";
 import { actionTaskId } from "../cli/parse-args.ts";
 import { requiresConflictMarkerPreflight, runRegisteredCommand } from "../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
 import { leaseEnforcementEnabled } from "../commands/settings.ts";
-import { CliActorAttributionError, journalActorWithSource, resolveLocalCliActorAttribution, type CliActorAttribution } from "./actor-attribution.ts";
-import { CliPrincipalResolutionError, resolveCliTaskHolderPrincipal } from "./local-principal.ts";
+import { CliActorAttributionError, type CliActorAttribution } from "./actor-attribution.ts";
+import { CliPrincipalResolutionError, resolveCliTaskHolderPrincipal, resolveLocalCliActorAttribution } from "./local-principal.ts";
 import {
   defaultCliAdapterProvider,
   type CliCompositionAdapterProvider
@@ -27,7 +27,7 @@ import {
 
 export interface ParsedCommandExecutionOptions {
   readonly provider?: CliCompositionAdapterProvider;
-  readonly makeWriteCoordinator?: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
+  readonly makeWriteCoordinator?: (actor: OperationalActor) => WriteCoordinator;
   readonly actorAttribution?: CliActorAttribution;
   readonly missingActorAttributionMessage?: string;
   readonly requireProvidedActorAttribution?: boolean;
@@ -79,7 +79,7 @@ export async function runRegisteredCommandWithCliComposition(
         } else if (options.requireProvidedActorAttribution) {
           throw new CliActorAttributionError(options.missingActorAttributionMessage ?? "Actor attribution is required.");
         } else {
-          actorAttribution = resolveLocalCliActorAttribution(process.env, command.actor);
+          actorAttribution = resolveLocalCliActorAttribution(layoutInput, process.env, command.actor);
         }
       } catch (error) {
         actorAttributionError = error instanceof CliActorAttributionError
@@ -96,26 +96,26 @@ export async function runRegisteredCommandWithCliComposition(
     return taskHolderPrincipal;
   };
 
-  const rawMakeWriteCoordinator = options.makeWriteCoordinator ?? ((actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) =>
+  const rawMakeWriteCoordinator = options.makeWriteCoordinator ?? ((actor: OperationalActor) =>
     makeAttributedWriteCoordinator(() => provider.createWriteCoordinator({
       rootDir: command.rootDir,
       layoutOverrides: command.layoutOverrides,
-      actor: journalActorWithSource(getActorAttribution()),
+      attribution: getActorAttribution().writeAttribution,
       commitAuthor: getActorAttribution().commitAuthor,
       sessionId: getSessionBranchId()
     }), getActorAttribution, options.missingActorAttributionMessage, actor));
   const makeWriteCoordinator = requiresConflictMarkerPreflight(command.action)
-    ? (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => withConflictMarkerFlushRecheck(rawMakeWriteCoordinator(actor), layoutInput)
+    ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(rawMakeWriteCoordinator(actor), layoutInput)
     : rawMakeWriteCoordinator;
-  const rawMakeSessionWriteCoordinator = options.makeWriteCoordinator ?? ((actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) =>
+  const rawMakeSessionWriteCoordinator = options.makeWriteCoordinator ?? ((actor: OperationalActor) =>
     makeAttributedWriteCoordinator(() => provider.createWriteCoordinator({
       rootDir: command.rootDir,
       layoutOverrides: command.layoutOverrides,
-      actor: journalActorWithSource(getActorAttribution()),
+      attribution: getActorAttribution().writeAttribution,
       commitAuthor: getActorAttribution().commitAuthor
     }), getActorAttribution, options.missingActorAttributionMessage, actor));
   const makeSessionWriteCoordinator = requiresConflictMarkerPreflight(command.action)
-    ? (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => withConflictMarkerFlushRecheck(rawMakeSessionWriteCoordinator(actor), layoutInput)
+    ? (actor: OperationalActor) => withConflictMarkerFlushRecheck(rawMakeSessionWriteCoordinator(actor), layoutInput)
     : rawMakeSessionWriteCoordinator;
 
   const makeArtifactStore = () => provider.createArtifactStore({
@@ -126,14 +126,14 @@ export async function runRegisteredCommandWithCliComposition(
   const makeSessionExporter = () => makeProvenanceSessionExporter({
     rootInput: layoutInput,
     currentSessionProbe: getCurrentSessionProbe(),
-    coordinator: makeSessionWriteCoordinator({ kind: "agent", id: "session-export" }),
+    coordinator: makeSessionWriteCoordinator(operationalActor("session-export")),
     artifactStore: makeArtifactStore()
   });
 
   return Effect.runPromise(runRegisteredCommand(command, () => withOptionalLeaseGuard(provider.createLifecycleEngine({
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides,
-    coordinator: makeWriteCoordinator({ kind: "agent", id: "task-lifecycle" }),
+    coordinator: makeWriteCoordinator(operationalActor("task-lifecycle")),
     bindCreateProvenance: (boundAt) => bindCreateProvenance({
       currentSessionProbe: getCurrentSessionProbe(),
       provenanceSessionExporter: makeSessionExporter(),
@@ -141,19 +141,19 @@ export async function runRegisteredCommandWithCliComposition(
     }, boundAt)
   }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => makeDecisionWriteService({
     rootInput: layoutInput,
-    coordinator: makeWriteCoordinator({ kind: "agent", id: "decision-cli" }),
+    coordinator: makeWriteCoordinator(operationalActor("decision-cli")),
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
   }), () => withOptionalFactLeaseGuard(makeFactWriteService({
     rootInput: layoutInput,
-    coordinator: makeWriteCoordinator({ kind: "agent", id: "fact-cli" }),
+    coordinator: makeWriteCoordinator(operationalActor("fact-cli")),
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession
   }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeTaskHolder, () => makeRuntimeEventLedgerService({
     rootInput: layoutInput,
-    coordinator: makeWriteCoordinator({ kind: "agent", id: "runtime-event-cli" })
+    coordinator: makeWriteCoordinator(operationalActor("runtime-event-cli"))
   }), provider.runLedgerMaterializer).pipe(
     Effect.match({
       onFailure: (error): CliResult => ({
@@ -271,7 +271,7 @@ function makeAttributedWriteCoordinator(
   create: () => WriteCoordinator,
   getActorAttribution: () => CliActorAttribution,
   missingMessage: string | undefined,
-  requestedActor: { readonly kind: "agent" | "human" | "system"; readonly id: string }
+  requestedActor: OperationalActor
 ): WriteCoordinator {
   try {
     getActorAttribution();
@@ -284,7 +284,7 @@ function makeAttributedWriteCoordinator(
 
 function failingWriteCoordinator(
   message: string,
-  requestedActor: { readonly kind: "agent" | "human" | "system"; readonly id: string }
+  requestedActor: OperationalActor
 ): WriteCoordinator {
   const fail = () => Effect.fail({
     _tag: "WriteRejected" as const,
@@ -297,4 +297,8 @@ function failingWriteCoordinator(
     flush: () => fail(),
     recover: fail()
   };
+}
+
+function operationalActor(id: string): OperationalActor {
+  return { scope: "operational", kind: "agent", id };
 }

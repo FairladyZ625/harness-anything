@@ -59,7 +59,7 @@ export function writeDistillCandidate(
   };
   const outputPath = path.join(layout.generatedRoot, "distill", action.taskId, `${candidateId}.json`);
   const relativeOutputPath = toPortablePath(path.relative(layout.rootDir, outputPath));
-  return writeCoordinatedPayload(context.makeWriteCoordinator({ kind: "agent", id: "distill-candidate" }), {
+  return writeCoordinatedPayload(context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "distill-candidate" }), {
     entityId: moduleEntityId("distill-candidate"),
     kind: "machine_artifact_write",
     opIdPrefix: `distill-candidate-${candidateId}`,

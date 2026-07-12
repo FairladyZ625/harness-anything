@@ -9,7 +9,7 @@ type Action = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "
 export function runExecutionReview(context: Parameters<CommandRunner>[0], action: Action): ReturnType<CommandRunner> {
   const service = makeReviewExecutionService({
     rootInput: context.layoutInput,
-    coordinator: context.makeWriteCoordinator(context.actorAttribution().actor),
+    coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-review" }),
     artifactStore: context.artifactStore
   });
   return context.currentSessionProbe.currentSession.pipe(

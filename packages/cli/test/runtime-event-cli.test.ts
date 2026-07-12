@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -148,7 +149,7 @@ test("CLI task transition runtime event records dual-axis actor", () => {
   });
 });
 
-test("CLI warns when runtime event actor attribution cannot be resolved", () => {
+test("CLI entity write fails closed before runtime event append when principal cannot be resolved", () => {
   withTempRoot((rootDir) => {
     writeFileSync(path.join(rootDir, "harness/harness.yaml"), "schema: harness-anything/v1\nsettings:\n", "utf8");
     const sessionId = "codex-runtime-event-missing-actor";
@@ -156,13 +157,11 @@ test("CLI warns when runtime event actor attribution cannot be resolved", () => 
       CODEX_SESSION_ID: sessionId,
       CODEX_THREAD_ID: "",
       HARNESS_DAEMON_MODE: "direct"
-    });
+    }, 1);
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
-    const events = readJsonl(ledgerPath);
 
-    assert.equal(output.result.ok, true);
-    assert.equal(events.length, 1);
-    assert.equal(events[0].actor, undefined);
+    assert.equal(output.result.ok, false);
+    assert.equal(existsSync(ledgerPath), false);
     assert.match(output.stderr, /runtime event actor attribution unavailable: Local writes require a configured person identity/u);
   });
 });
@@ -277,6 +276,7 @@ test("CLI event append rejects unsupported steering vocabulary", () => {
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-event-cli-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
@@ -346,7 +346,8 @@ function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
 function runJsonWithStderr(
   rootDir: string,
   args: ReadonlyArray<string>,
-  env: Readonly<Record<string, string>> = {}
+  env: Readonly<Record<string, string>> = {},
+  expectedStatus = 0
 ): { readonly result: Record<string, any>; readonly stderr: string } {
   const child = spawnSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
     encoding: "utf8",
@@ -359,7 +360,7 @@ function runJsonWithStderr(
       ...env
     }
   });
-  assert.equal(child.status, 0);
+  assert.equal(child.status, expectedStatus);
   return {
     result: unwrapCommandReceipt(JSON.parse(child.stdout) as Record<string, any>),
     stderr: child.stderr

@@ -14,6 +14,7 @@ import {
   type ExtensionValidationIssue,
   type HarnessLayoutInput,
   type MaterializedTemplatePlan,
+  type OperationalActor,
   type WriteCoordinator,
   type WriteError
 } from "../../../kernel/src/index.ts";
@@ -53,7 +54,7 @@ export function runNewTaskWithPreset(
   action: NewTaskAction,
   settings?: ProjectHarnessSettings,
   provenanceOptions: ProvenanceBindingOptions = {},
-  makeWriteCoordinator?: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator
+  makeWriteCoordinator?: (actor: OperationalActor) => WriteCoordinator
 ): Effect.Effect<CliResult, EngineError | WriteError> {
   return Effect.gen(function* () {
     const rootDir = resolveHarnessLayout(rootInput).rootDir;
@@ -205,7 +206,7 @@ export function runNewTaskWithPreset(
       }] : []),
       ...readSetWrite
     ];
-    const coordinator = makeWriteCoordinator?.({ kind: "agent", id: "preset-task" });
+    const coordinator = makeWriteCoordinator?.({ scope: "operational", kind: "agent", id: "preset-task" });
     if (!coordinator) return yield* Effect.fail({ _tag: "JournalUnavailable", cause: new Error("write coordinator factory is required") } satisfies WriteError);
     const opId = `${Date.now()}-${stablePayloadHash({ kind: "package_create", writes }).slice(0, 16)}`;
     yield* coordinator.enqueue({

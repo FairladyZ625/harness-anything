@@ -57,7 +57,8 @@ const SETTINGS_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
 const SETTINGS_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u;
 
 export function readProjectHarnessSettings(rootInput: HarnessLayoutInput, command = "settings"): SettingsResult {
-  const configPath = path.join(resolveHarnessLayout(rootInput).authoredRoot, "harness.yaml");
+  const layout = resolveHarnessLayout(rootInput);
+  const configPath = layout.configPath ?? path.join(layout.authoredRoot, "harness.yaml");
   if (!existsSync(configPath)) return { ok: true, settings: EMPTY_SETTINGS };
 
   try {

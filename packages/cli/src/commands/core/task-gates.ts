@@ -27,7 +27,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     codeDocVersionControlSystem: makeLocalVersionControlSystem(),
     executionCompletionService: makeExecutionCompletionService({
       rootInput: context.layoutInput,
-      coordinator: context.makeWriteCoordinator(context.actorAttribution().actor),
+      coordinator: context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-completion" }),
       artifactStore: context.artifactStore
     }),
     completionGateResolver: ({ vertical, preset, profile }) => {

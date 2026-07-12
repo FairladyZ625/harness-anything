@@ -50,7 +50,7 @@ export function runLedgerMaterializer(rootInput: HarnessLayoutInput, options: Le
     };
   }
 
-  return withRepoLocks(layout.rootDir, rootInput, layout.journalPath, { kind: "system", id: "ledger-materializer" }, 60_000, [], () => {
+  return withRepoLocks(layout.rootDir, rootInput, layout.journalPath, { scope: "operational", kind: "system", id: "ledger-materializer" }, 60_000, [], () => {
     return materializeBranches(repoRoot, rootInput, options.dryRun === true, options.maxBranches, versionControlSystem);
   }, { heldGlobalLock: options.heldGlobalLock });
 }

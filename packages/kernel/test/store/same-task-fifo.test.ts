@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
@@ -13,7 +14,7 @@ import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator flushes same-task writes in FIFO order", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "notes.md", "first")));
     Effect.runSync(coordinator.enqueue(docWrite("op-2", "task-1", "notes.md", "second")));
@@ -28,14 +29,12 @@ test("WriteCoordinator journals actor person and uses explicit git authors", () 
   withTempStore((rootDir) => {
     initializeGitRepo(rootDir);
     const harnessRoot = initializeNestedHarnessRepo(rootDir);
-    const alice = makeJournaledWriteCoordinator({
+    const alice = makeJournaledWriteCoordinator({ attribution: testWriteAttribution({ kind: "human", id: "person_alice" }),
       rootDir,
-      actor: { kind: "human", id: "person_alice" },
       commitAuthor: { name: "Alice Admin", email: "alice@example.com" }
     });
-    const bob = makeJournaledWriteCoordinator({
+    const bob = makeJournaledWriteCoordinator({ attribution: testWriteAttribution({ kind: "human", id: "person_bob" }),
       rootDir,
-      actor: { kind: "human", id: "person_bob" },
       commitAuthor: { name: "Bob Builder", email: "bob@example.com" }
     });
 
@@ -58,8 +57,8 @@ test("WriteCoordinator journals actor person and uses explicit git authors", () 
 
 test("WriteCoordinator preserves same-task FIFO across two coordinators", () => {
   withTempStore((rootDir) => {
-    const firstCoordinator = makeJournaledWriteCoordinator({ rootDir });
-    const secondCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const firstCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
+    const secondCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     Effect.runSync(firstCoordinator.enqueue(docWrite("op-1", "task-1", "notes.md", "first")));
     Effect.runSync(secondCoordinator.enqueue(docWrite("op-2", "task-1", "notes.md", "second")));
@@ -78,7 +77,7 @@ test("WriteCoordinator preserves same-task FIFO across two coordinators", () => 
 
 test("WriteCoordinator records real projection hash and compacts watermark-covered journal entries", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "INDEX.md", indexBody("task-1", "Task One", "planned"))));
     const report = Effect.runSync(coordinator.flush("explicit"));
@@ -91,7 +90,7 @@ test("WriteCoordinator records real projection hash and compacts watermark-cover
     assert.equal(watermark.projectionHash, expectedHash);
     assert.equal(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), "");
 
-    const recovered = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
+    const recovered = Effect.runSync(makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir }).recover);
     assert.equal(recovered.replayedOps, 0);
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), indexBody("task-1", "Task One", "planned"));
   });
@@ -106,7 +105,7 @@ test("WriteCoordinator stages hard-deleted task packages and clears replay journ
     runGit(harnessRoot, "add", ".");
     runGit(harnessRoot, "commit", "-m", "seed task");
 
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       commitAuthor: testCommitAuthor
     });
@@ -128,7 +127,7 @@ test("WriteCoordinator stages hard-deleted task packages and clears replay journ
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /op-hard-delete/);
     assert.match(runGit(harnessRoot, "show", "--name-status", "--format=", "HEAD"), /D\s+tasks\/task-1\/INDEX.md/);
 
-    const recovered = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
+    const recovered = Effect.runSync(makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir }).recover);
     assert.equal(recovered.replayedOps, 0);
   });
 });
@@ -148,7 +147,7 @@ test("WriteCoordinator rejects hard delete for task packages with anchored facts
     runGit(rootDir, "add", ".");
     runGit(rootDir, "commit", "-m", "seed anchored task");
 
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       commitAuthor: testCommitAuthor
     });
@@ -178,7 +177,7 @@ test("WriteCoordinator rejects ignored authored paths instead of reporting succe
     runGit(harnessRoot, "commit", "-m", "ignore artifacts");
     const beforeHead = runGit(harnessRoot, "rev-parse", "HEAD");
 
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       commitAuthor: testCommitAuthor
     });
@@ -205,7 +204,7 @@ test("WriteCoordinator rejects tracked files that are now matched by gitignore",
     runGit(harnessRoot, "commit", "-m", "seed tracked ignored authored path");
     const beforeHead = runGit(harnessRoot, "rev-parse", "HEAD");
 
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       commitAuthor: testCommitAuthor
     });
@@ -243,7 +242,7 @@ test("WriteCoordinator excludes localRoot machine artifacts from every git repo"
     runGit(harnessRoot, "commit", "-m", "seed nested harness");
     const innerHead = runGit(harnessRoot, "rev-parse", "HEAD");
 
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       sessionId: "codex-distill-leak",
       autoMaterialize: false,
@@ -279,7 +278,7 @@ test("WriteCoordinator refuses to create missing authored root inside the outer 
     runGit(rootDir, "commit", "-m", "seed outer repo");
     const beforeHead = runGit(rootDir, "rev-parse", "HEAD");
 
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       commitAuthor: testCommitAuthor
     });
@@ -313,7 +312,7 @@ test("resolveCommitPlan fails closed when missing authored root is inside the ou
 
 test("WriteCoordinator bounds committed op ids in watermark after successful compaction", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     for (let index = 0; index < 140; index += 1) {
       Effect.runSync(coordinator.enqueue(docWrite(`op-${index}`, "task-1", "notes.md", `write ${index}`)));
     }
@@ -361,7 +360,7 @@ test("WriteCoordinator commits self-host authored writes inside ignored nested h
     runGit(path.join(rootDir, "harness"), "commit", "-m", "seed nested harness");
     writeFileSync(path.join(rootDir, "harness/notes/unrelated.md"), "after\n", "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       commitAuthor: testCommitAuthor
     });
@@ -403,7 +402,7 @@ test("WriteCoordinator accepts non-native case root paths on case-insensitive fi
       ""
     ].join("\n"), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir: variantRoot });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir: variantRoot });
     Effect.runSync(coordinator.enqueue(docWrite("op-mixed-case", "task-1", "notes.md", "mixed")));
     const report = Effect.runSync(coordinator.flush("explicit"));
 
@@ -440,7 +439,7 @@ test("WriteCoordinator records nested harness HEAD when self-host flush has no s
     const nestedHead = runGit(harnessRoot, "rev-parse", "HEAD");
     assert.notEqual(nestedHead, parentHead);
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-noop-nested", "task-1", "notes.md", "already committed")));
     Effect.runSync(coordinator.flush("explicit"));
     const watermark = JSON.parse(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8")) as {
@@ -459,7 +458,7 @@ test("WriteCoordinator fails closed when authored root is not an independent nes
     runGit(rootDir, "commit", "-m", "seed outer repo");
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     assert.throws(
       () => Effect.runSync(coordinator.enqueue(docWrite("op-unisolated", "task-1", "notes.md", "unisolated"))),
@@ -480,7 +479,7 @@ test("WriteCoordinator still fails closed when ignored authored root was force-t
     runGit(rootDir, "add", "-f", "harness/tracked.md");
     runGit(rootDir, "commit", "-m", "seed force tracked harness");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     assert.throws(
       () => Effect.runSync(coordinator.enqueue(docWrite("op-force-tracked-ignored", "task-1", "notes.md", "ignored"))),

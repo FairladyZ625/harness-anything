@@ -303,6 +303,9 @@ export function taskHolderExecutorFromJournalActor(input: {
   readonly kind: "agent" | "human" | "system";
   readonly id: string;
 }): TaskHolderExecutor | null {
+  if (input.kind === "system") {
+    throw new Error("system actor cannot be projected to a direct-human task holder; use an agent executor with a person principal");
+  }
   return input.kind === "agent" ? { kind: "agent", id: input.id } : null;
 }
 

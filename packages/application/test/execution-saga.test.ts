@@ -22,6 +22,7 @@ import {
 import { writeContentAddressedBlob, writeSessionEntity } from "../../kernel/src/index.ts";
 import type { ExecutionAuthoredStore, ExecutionRecord } from "../src/index.ts";
 import { validateOutputEvidence } from "../../kernel/src/index.ts";
+import { writeAttribution } from "./test-attribution.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
 const executionId = "exe_01KX7H00000000000000000001";
@@ -36,6 +37,7 @@ const aliceClaude = taskHolderActor(
   { personId: "alice", displayName: "Alice" },
   { kind: "agent", id: "claude-code" }
 );
+const aliceCodexAttribution = writeAttribution("alice", "codex");
 
 test("Execution is a hosted entity and Holder V2 rejects a second executor", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-saga-"));
@@ -95,7 +97,7 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
     const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-round-trip`);
     mkdirSync(taskRoot, { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "test" } });
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution });
     const holder = makeTaskHolderService({ rootInput: rootDir });
     const executionIds = [executionId, secondExecutionId];
     const saga = makeExecutionSagaService({
@@ -219,7 +221,7 @@ test("reservation reconciler converges an orphan Execution reservation without a
     await holder.reserveExecution({ taskId, executionId, principal: aliceCodex });
     const authored = makeCoordinatedExecutionAuthoredStore({
       rootInput: rootDir,
-      coordinator: makeJournaledWriteCoordinator({ rootDir, actor: { kind: "system", id: "reconciler-test" } }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution }),
       artifactStore: makeMarkdownArtifactStore({ rootDir })
     });
     const reconcile = makeExecutionReservationReconciler({
@@ -242,7 +244,7 @@ test("submit-for-review rejects an Execution without a finalized primary Session
     const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-primary-gate`);
     mkdirSync(taskRoot, { recursive: true });
     writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "test" } });
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution });
     const holder = makeTaskHolderService({ rootInput: rootDir });
     const saga = makeExecutionSagaService({
       taskHolderService: holder,
@@ -341,7 +343,7 @@ test("Execution session bindings can only be attached while the Execution is act
     const holder = makeTaskHolderService({ rootInput: rootDir });
     const authored = makeCoordinatedExecutionAuthoredStore({
       rootInput: rootDir,
-      coordinator: makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "test" } }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution }),
       artifactStore: makeMarkdownArtifactStore({ rootDir })
     });
     const saga = makeExecutionSagaService({
@@ -433,7 +435,7 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
     const reviewIds = [firstReviewId, secondReviewId];
     const service = makeReviewExecutionService({
       rootInput: rootDir,
-      coordinator: makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "reviewer" } }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "reviewer") }),
       artifactStore: makeMarkdownArtifactStore({ rootDir }),
       generateReviewId: () => reviewIds.shift()!,
       now: () => "2026-07-11T00:02:00.000Z"
@@ -517,7 +519,7 @@ test("Execution completion requires an approved Review, rejects the executor, an
       outputs: [],
       submission: { summary: "round one", verification: ["tests passed"], residual_risks: [] }
     }, null, 2)}\n`, "utf8");
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, actor: { kind: "agent", id: "commander" } });
+    const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: writeAttribution("alice", "commander") });
     const artifactStore = makeMarkdownArtifactStore({ rootDir });
     const completion = makeExecutionCompletionService({ rootInput: rootDir, coordinator, artifactStore, now: () => "2026-07-11T00:03:00.000Z" });
 

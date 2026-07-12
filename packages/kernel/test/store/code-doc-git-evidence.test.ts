@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -15,7 +16,7 @@ test("WriteCoordinator code-doc preflight accepts a commit from the private auth
     const fixture = initializeNestedGitFixture(rootDir);
     const local = makeLocalVersionControlSystem();
     assert.equal(local.commitExists(rootDir, fixture.authoredSha), false, "the old outer-root lookup reproduces the missing commit");
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     const ack = Effect.runSync(coordinator.enqueue(codeDocOp(
       "private-code-doc",
@@ -32,7 +33,7 @@ test("WriteCoordinator code-doc preflight resolves mixed outer and authored repo
     const local = makeLocalVersionControlSystem();
     assert.equal(local.commitExists(rootDir, fixture.authoredSha), false);
     assert.equal(local.commitExists(fixture.authoredRoot, fixture.outerSha), false);
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     const ack = Effect.runSync(coordinator.enqueue(codeDocOp("mixed-code-doc", [
       { kind: "commit", sha: fixture.outerSha },

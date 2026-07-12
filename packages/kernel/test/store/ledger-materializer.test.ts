@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -11,7 +12,7 @@ import { docWrite, withTempStore } from "./helpers.ts";
 test("WriteCoordinator commits session-routed writes to a session branch", () => {
   withTempStore((rootDir) => {
     initAuthoredGit(rootDir);
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       sessionId: "codex-session-1",
       autoMaterialize: false
@@ -31,7 +32,7 @@ test("WriteCoordinator commits session-routed writes to a session branch", () =>
 test("ledger materializer dry-runs and merges pending session branches", () => {
   withTempStore((rootDir) => {
     initAuthoredGit(rootDir);
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       sessionId: "codex-session-2",
       autoMaterialize: false
@@ -58,7 +59,7 @@ test("ledger materializer dry-runs and merges pending session branches", () => {
 test("session write + materializer resolve the trunk on a main-trunk repo", () => {
   withTempStore((rootDir) => {
     initAuthoredGit(rootDir, "main");
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       sessionId: "codex-session-3",
       autoMaterialize: false

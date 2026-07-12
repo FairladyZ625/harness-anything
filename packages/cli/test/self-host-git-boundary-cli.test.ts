@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
@@ -53,6 +54,7 @@ test("CLI reports actionable journal cause when authored root is ignored without
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-boundary-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {
@@ -96,6 +98,10 @@ function writeHarnessConfig(rootDir: string, name: string): void {
     "  localRoot: .harness",
     "tasks:",
     "  root: harness/tasks",
+    "settings:",
+    "  identity:",
+    "    personId: person_test",
+    "    displayName: Harness Test",
     ""
   ].join("\n"), "utf8");
 }

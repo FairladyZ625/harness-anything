@@ -6,8 +6,14 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { makeDecisionWriteService, makeFactWriteService, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, type DecisionCreateInput } from "../src/index.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type DecisionPackage, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type DecisionPackage, type WriteAttribution, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
 import { runEffect } from "./effect-test-helpers.ts";
+
+const testAttribution = {
+  actor: { principal: { kind: "person", personId: "person_test" }, executor: { kind: "agent", id: "test" } },
+  principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:test" },
+  executorSource: "client-asserted"
+} as const satisfies WriteAttribution;
 
 test("decision create service binds provenance and exports the session by id", async () => {
   const rootDir = createHarnessRoot();
@@ -20,7 +26,7 @@ test("decision create service binds provenance and exports the session by id", a
     const exporter = makeProvenanceSessionExporter({
       rootInput: rootDir,
       currentSessionProbe: probe,
-      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
       artifactStore: makeMarkdownArtifactStore({ rootDir }),
       now: () => "2026-07-03T00:02:00.000Z"
     });
@@ -63,7 +69,7 @@ test("fact create service binds provenance into the single-line record and expor
     const exporter = makeProvenanceSessionExporter({
       rootInput: rootDir,
       currentSessionProbe: probe,
-      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
       artifactStore: makeMarkdownArtifactStore({ rootDir }),
       now: () => "2026-07-03T00:02:00.000Z"
     });

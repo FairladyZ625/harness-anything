@@ -57,3 +57,9 @@ export type ActorAxes = Schema.Schema.Type<typeof ActorAxesSchema>;
 export type PrincipalSource = Schema.Schema.Type<typeof PrincipalSourceSchema>;
 export type ExecutorSource = Schema.Schema.Type<typeof ExecutorSourceSchema>;
 export type WriteAttribution = Schema.Schema.Type<typeof WriteAttributionSchema>;
+
+export interface OperationalActor {
+  readonly scope: "operational";
+  readonly kind: "agent" | "system";
+  readonly id: string;
+}

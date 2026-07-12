@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -112,6 +113,7 @@ test("CLI distill promote fails closed for missing or mismatched candidates", ()
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-distill-cli-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {

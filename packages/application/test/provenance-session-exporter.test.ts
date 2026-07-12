@@ -6,9 +6,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Effect } from "effect";
 import { bindCreateProvenance, makeHumanFallbackSessionProbe, makeProvenanceSessionExporter, readSessionEntity } from "../src/index.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type CurrentSessionRef, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
+import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore, type CurrentSessionRef, type WriteAttribution, type WriteCoordinator, type WriteError } from "../../kernel/src/index.ts";
 import type { ProvenanceSessionExporterOptions } from "../src/index.ts";
 import { runEffect, runEffectExit } from "./effect-test-helpers.ts";
+
+const testAttribution = {
+  actor: { principal: { kind: "person", personId: "person_test" }, executor: { kind: "agent", id: "test" } },
+  principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:test" },
+  executorSource: "client-asserted"
+} as const satisfies WriteAttribution;
 
 test("provenance session exporter writes a compact manifest and reads its immutable body by id", async () => {
   const rootDir = createHarnessRoot();
@@ -579,7 +585,7 @@ function makeTestProvenanceSessionExporter(
 ) {
   return makeProvenanceSessionExporter({
     rootInput: rootDir,
-    coordinator: makeJournaledWriteCoordinator({ rootDir }),
+    coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
     artifactStore: makeMarkdownArtifactStore({ rootDir }),
     ...options
   });

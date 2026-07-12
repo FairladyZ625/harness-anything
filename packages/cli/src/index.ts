@@ -2,9 +2,11 @@
 
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 import {
   readDaemonRegistry,
-  type DaemonRegistryRepo
+  type DaemonRegistryRepo,
+  type WriteCoordinator
 } from "../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
@@ -34,9 +36,9 @@ import { selectCliAdapterProvider } from "./composition/adapter-registry.ts";
 import { daemonIdFromEnv, daemonUserRoot, localUserDaemonEndpoint, runCommandThroughDaemon } from "./daemon/client.ts";
 import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
-import { makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
+import { makeDaemonQueuedOperationalWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
 import { leaseEnforcementEnabled } from "./commands/settings.ts";
-import { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
+import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
@@ -107,7 +109,7 @@ async function runDaemonServe(
       taskHolderService: makeTaskHolderService({ rootInput }),
       authoredStore: makeCoordinatedExecutionAuthoredStore({
         rootInput,
-        coordinator: makeJournaledWriteCoordinator({ rootDir: rootInput.rootDir, layoutOverrides: rootInput.layoutOverrides }),
+        coordinator: failClosedReservationReconcilerCoordinator(),
         artifactStore: makeMarkdownArtifactStore(rootInput)
       })
     })(),
@@ -147,6 +149,20 @@ async function runDaemonServe(
   serviceHost.scheduleIdleExit();
   await Promise.race([waitForStopSignal(), serviceHost.waitForStopRequest()]);
   await serviceHost.stop();
+}
+
+function failClosedReservationReconcilerCoordinator(): WriteCoordinator {
+  const fail = () => Effect.fail({
+    _tag: "WriteRejected" as const,
+    reason: "Reservation reconciliation cannot author entity state without the original lease principal attribution.",
+    code: "identity_required",
+    retryable: false
+  });
+  return {
+    enqueue: () => fail(),
+    flush: () => fail(),
+    recover: fail()
+  };
 }
 
 function repoAvailabilityFailure(
@@ -377,7 +393,7 @@ function createRepoServiceBinding(
   const taskWriter = selectCliAdapterProvider("task.lifecycle").createLifecycleEngine({
     rootDir,
     layoutOverrides,
-    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "local-controller")
+    coordinator: failClosedReservationReconcilerCoordinator()
   });
   const localController = makeLocalControllerService({
     rootDir,
@@ -389,7 +405,11 @@ function createRepoServiceBinding(
   const cliCommandService = createCliCommandService(runtime, commandOptions);
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
     rootInput: { rootDir, layoutOverrides },
-    coordinator: makeDaemonQueuedWriteCoordinator(runtime, "runtime-event-protocol")
+    coordinator: makeDaemonQueuedOperationalWriteCoordinator(runtime, "runtime-event-protocol", {
+      scope: "operational",
+      kind: "system",
+      id: "daemon-runtime"
+    })
   }));
   return {
     repo,

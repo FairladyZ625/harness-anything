@@ -6,6 +6,7 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { initializeHarness } from "../init.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult } from "../../cli/types.ts";
+import { resolveLocalCliBootstrapAuthor } from "../../composition/actor-attribution.ts";
 
 const initSmokeTitle = "Harness onboarding smoke";
 const initSmokeSlug = "harness-onboarding-smoke";
@@ -14,7 +15,7 @@ export const runInitCommand: CommandRunner = (context, command) => {
   const action = command.action as Extract<typeof command.action, { readonly kind: "init" }>;
   return Effect.sync(() => {
     try {
-      return initializeHarness(context.layoutInput, action.addNpmScripts, action.projectName, context.actorAttribution().commitAuthor);
+      return initializeHarness(context.layoutInput, action.addNpmScripts, action.projectName, resolveLocalCliBootstrapAuthor(process.env, command.actor));
     } catch (error) {
       return {
         ok: false,

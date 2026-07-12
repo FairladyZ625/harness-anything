@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const defaultCliPath = path.join(repoRoot, "packages/cli/dist/cli/src/index.js");
 const demoAttribution = {
-  actor: "system:quickstart-demo",
+  actor: "agent:quickstart-demo",
   gitAuthorName: "Harness Quickstart Demo",
   gitAuthorEmail: "quickstart-demo@example.invalid"
 };
@@ -31,6 +31,7 @@ try {
   const init = runCli(["init", "--name", "quickstart-demo", "--add-npm-scripts"]);
   assertEqual(init.command, "init", "init command");
   assertEqual(init.report?.configureVerify?.smokeTaskFound, true, "init smoke task query");
+  configureDemoIdentity();
 
   step = "task create";
   const task = runCli([
@@ -168,6 +169,27 @@ function ensureGitWorkspace(rootDir) {
       stdio: "ignore"
     });
   }
+}
+
+function configureDemoIdentity() {
+  const harnessRoot = path.join(workspace, "harness");
+  const configPath = path.join(harnessRoot, "harness.yaml");
+  const config = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, config.replace(
+    /^settings:$/mu,
+    "settings:\n  identity:\n    personId: person_quickstart\n    displayName: Harness Quickstart Demo"
+  ), "utf8");
+  execFileSync("git", ["-C", harnessRoot, "add", "harness.yaml"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure quickstart identity"], {
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: demoAttribution.gitAuthorName,
+      GIT_AUTHOR_EMAIL: demoAttribution.gitAuthorEmail,
+      GIT_COMMITTER_NAME: demoAttribution.gitAuthorName,
+      GIT_COMMITTER_EMAIL: demoAttribution.gitAuthorEmail
+    }
+  });
 }
 
 function unwrapReceipt(value) {

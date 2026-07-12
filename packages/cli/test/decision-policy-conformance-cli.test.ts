@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -89,6 +90,7 @@ function writeDecisionConformancePolicy(rootDir: string): void {
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-policy-conformance-cli-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {

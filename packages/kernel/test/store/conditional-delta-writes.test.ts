@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -20,7 +21,7 @@ import { withTempStore } from "./helpers.ts";
 
 test("fact append deltas from the same base snapshot both survive", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(factAppendOp("fact-a", "task_fact_owner", fact("F-AAAA1111", "Writer A fact."))));
     Effect.runSync(coordinator.enqueue(factAppendOp("fact-b", "task_fact_owner", fact("F-BBBB2222", "Writer B fact."))));
 
@@ -34,7 +35,7 @@ test("fact append deltas from the same base snapshot both survive", () => {
 
 test("decision relation append deltas from the same base snapshot both survive", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(decisionSnapshotOp("decision-base", decisionPackage({ state: "active" }), null)));
     Effect.runSync(coordinator.flush("explicit"));
     const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_TEST/decision.md");
@@ -61,12 +62,12 @@ test("decision relation append deltas from the same base snapshot both survive",
 
 test("stale decision snapshot CAS is rejected with retryable current watermark", () => {
   withTempStore((rootDir) => {
-    const baseCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const baseCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(baseCoordinator.enqueue(decisionSnapshotOp("decision-base", decisionPackage({ state: "proposed" }), null)));
     Effect.runSync(baseCoordinator.flush("explicit"));
 
     const sameSnapshotWatermark = "decision-base";
-    const writerA = makeJournaledWriteCoordinator({ rootDir });
+    const writerA = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(writerA.enqueue(decisionSnapshotOp(
       "decision-writer-a",
       decisionPackage({ state: "active", decidedAt: "2026-07-05T00:00:00.000Z", _coordinatorWatermark: sameSnapshotWatermark }),
@@ -74,7 +75,7 @@ test("stale decision snapshot CAS is rejected with retryable current watermark",
     )));
     Effect.runSync(writerA.flush("explicit"));
 
-    const writerB = makeJournaledWriteCoordinator({ rootDir });
+    const writerB = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(writerB.enqueue(decisionSnapshotOp(
       "decision-writer-b",
       decisionPackage({ state: "rejected", decidedAt: "2026-07-05T00:01:00.000Z", _coordinatorWatermark: sameSnapshotWatermark }),
@@ -101,7 +102,7 @@ test("stale decision snapshot CAS is rejected with retryable current watermark",
 
 test("decision snapshot without an explicit body preserves the existing body bytes", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const originalBody = "Original rationale.\n\n## Evidence\n\nByte-stable prose.\n";
     Effect.runSync(coordinator.enqueue(decisionSnapshotOp(
       "decision-base",
@@ -126,7 +127,7 @@ test("decision snapshot without an explicit body preserves the existing body byt
 
 test("decision snapshot body append is idempotent by heading across different rationales", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const section = "## Judgment-only acceptance\n\nThe arbiter accepts this policy choice.";
     Effect.runSync(coordinator.enqueue(decisionSnapshotOp(
       "decision-base",

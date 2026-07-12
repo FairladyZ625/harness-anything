@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -194,6 +195,7 @@ function readTaskIndex(rootDir: string, task: Record<string, any>): string {
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-task-metadata-cli-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {

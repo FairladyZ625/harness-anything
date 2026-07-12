@@ -45,6 +45,11 @@ export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
+export type {
+  OperationalActor,
+  PrincipalSource,
+  WriteAttribution
+} from "./schemas/actor-attribution.ts";
 export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {

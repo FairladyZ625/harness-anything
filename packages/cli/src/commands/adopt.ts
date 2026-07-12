@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import path from "node:path";
 import { makeMulticaAdoptionService, makeMulticaLifecycleEngine, type MulticaClient, type MulticaRawIssue } from "../../../adapters/multica/src/index.ts";
-import type { ArtifactStoreError, EngineError, ExternalRef, TaskId, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
+import type { ArtifactStoreError, EngineError, ExternalRef, OperationalActor, TaskId, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { resolveHarnessLayout, taskPackagePath } from "../../../kernel/src/index.ts";
 import type { CliResult } from "../cli/types.ts";
@@ -26,7 +26,7 @@ export interface SnapshotMulticaAction {
 export function runAdoptMultica(
   rootInput: HarnessLayoutInput,
   action: AdoptMulticaAction,
-  makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator
+  makeWriteCoordinator: (actor: OperationalActor) => WriteCoordinator
 ): Effect.Effect<CliResult, ArtifactStoreError | EngineError | WriteError> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
@@ -35,7 +35,7 @@ export function runAdoptMultica(
     rootDir,
     layoutOverrides,
     client: fixtureClient(action),
-    coordinator: makeWriteCoordinator({ kind: "agent", id: "adopt-multica-cli" })
+    coordinator: makeWriteCoordinator({ scope: "operational", kind: "agent", id: "adopt-multica-cli" })
   });
 
   return service.adopt({ taskId: action.taskId as TaskId, ref: action.ref as ExternalRef }).pipe(

@@ -106,7 +106,7 @@ export function runExecutionSubmit(
 }
 
 function executionSaga(context: CommandRunnerContext) {
-  const coordinator = context.makeWriteCoordinator(context.actorAttribution().actor);
+  const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "execution-saga" });
   return makeExecutionSagaService({
     taskHolderService: context.taskHolderService,
     authoredStore: makeCoordinatedExecutionAuthoredStore({

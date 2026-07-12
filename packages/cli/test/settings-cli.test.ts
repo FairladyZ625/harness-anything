@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
@@ -12,7 +13,9 @@ const cliEntry = path.resolve("packages/cli/src/index.ts");
 
 test("CLI new-task uses project settings defaults and explicit flag precedence", () => {
   withTempRoot((rootDir) => {
+    rmSync(path.join(rootDir, "harness"), { recursive: true, force: true });
     runJson(rootDir, ["init"]);
+    configureTestIdentity(rootDir);
     runJson(rootDir, ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**"]);
 
     const defaulted = runJson(rootDir, ["new-task", "--title", "Default Coding Task"]);
@@ -369,6 +372,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-cli-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {
@@ -385,7 +389,24 @@ function writeRawPreset(rootDir: string, relativePath: string, manifest: Record<
 function writeHarnessConfig(rootDir: string, lines: ReadonlyArray<string>): void {
   const filePath = path.join(rootDir, "harness/harness.yaml");
   mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, lines.join("\n"), "utf8");
+  const withIdentity = lines.includes("settings:") && !lines.includes("  identity:")
+    ? lines.flatMap((line) => line === "settings:"
+      ? [line, "  identity:", "    personId: person_test", "    displayName: Harness Test"]
+      : [line])
+    : lines;
+  writeFileSync(filePath, withIdentity.join("\n"), "utf8");
+}
+
+function configureTestIdentity(rootDir: string): void {
+  const harnessRoot = path.join(rootDir, "harness");
+  const configPath = path.join(harnessRoot, "harness.yaml");
+  const config = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, config.replace(
+    /^settings:$/mu,
+    "settings:\n  identity:\n    personId: person_test\n    displayName: Harness Test"
+  ), "utf8");
+  execFileSync("git", ["-C", harnessRoot, "add", "harness.yaml"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "test: configure identity"], { stdio: "ignore" });
 }
 
 function writePrivateHarnessConfig(rootDir: string, lines: ReadonlyArray<string>): void {

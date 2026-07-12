@@ -47,7 +47,7 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
     case "migrate-plan":
       return Effect.sync(() => runMigratePlan(context.layoutInput, action));
     case "migrate-structure":
-      return runMigrateStructureEffect(context.layoutInput, action, context.makeWriteCoordinator({ kind: "agent", id: "legacy-migration" }));
+      return runMigrateStructureEffect(context.layoutInput, action, context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "legacy-migration" }));
     case "migrate-anchors":
       return runMigrateAnchors(context, context.layoutInput, action);
     case "migrate-fact-execution":
@@ -55,7 +55,7 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
     case "migrate-provenance":
       return runMigrateProvenance(context, context.layoutInput, action);
     case "migrate-run":
-      return runMigrateRunEffect(context.layoutInput, action, context.makeWriteCoordinator({ kind: "agent", id: "legacy-migration" }));
+      return runMigrateRunEffect(context.layoutInput, action, context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "legacy-migration" }));
     case "migrate-verify":
       return Effect.sync(() => runMigrateVerify(context.layoutInput, action));
     case "legacy-scan":
@@ -63,7 +63,7 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
     case "legacy-intake-plan":
       return Effect.sync(() => runLegacyIntakePlan(context.layoutInput, action));
     case "legacy-copy-safe-docs":
-      return runLegacyCopySafeDocsEffect(context.layoutInput, action, context.makeWriteCoordinator({ kind: "agent", id: "legacy-migration" }));
+      return runLegacyCopySafeDocsEffect(context.layoutInput, action, context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "legacy-migration" }));
     case "legacy-index":
       return Effect.sync(() => runLegacyIndex(context.layoutInput, action));
     case "legacy-verify":

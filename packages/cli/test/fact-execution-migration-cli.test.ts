@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -174,7 +175,7 @@ function writeDecisionEvidence(rootDir: string, taskId: string): void {
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--actor", "human:fixture", "--json", ...args], {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--actor", "agent:fixture", "--json", ...args], {
       encoding: "utf8",
       env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user") }
     });
@@ -188,6 +189,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-execution-migration-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {

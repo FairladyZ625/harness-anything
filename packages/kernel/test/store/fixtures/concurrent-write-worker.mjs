@@ -10,7 +10,14 @@ const receipts = [];
 for (let index = 0; index < 10; index += 1) {
   const coordinator = makeJournaledWriteCoordinator({
     rootDir,
-    actor: { kind: "agent", id: `concurrent-${writerId}` },
+    attribution: {
+      actor: {
+        principal: { kind: "person", personId: "person_test" },
+        executor: { kind: "agent", id: `concurrent-${writerId}` }
+      },
+      principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:test" },
+      executorSource: "client-asserted"
+    },
     lockConflictRetry: { maxWaitMs: 5_000, initialDelayMs: 5, maxDelayMs: 50 }
   });
   const taskId = `task-concurrent-${index}`;

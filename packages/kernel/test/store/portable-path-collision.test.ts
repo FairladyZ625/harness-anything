@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,7 +65,7 @@ test("WriteCoordinator rejects portable document path collisions before enqueuei
     writeFileSync(path.join(taskRoot, "INDEX.md"), indexBody("task-1"), "utf8");
     writeFileSync(path.join(taskRoot, "notes/Progress.md"), "A\n", "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const result = Effect.runSync(Effect.either(coordinator.enqueue(
       docWrite("op-collision", "task-1", "notes/progress.md", "B\n")
     )));

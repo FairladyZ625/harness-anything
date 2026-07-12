@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -12,12 +13,12 @@ import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator recovers queued journal entries after crash before watermark", () => {
   withTempStore((rootDir) => {
-    const firstCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const firstCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(firstCoordinator.enqueue(docWrite("op-1", "task-1", "progress.md", "replayed")));
 
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
 
-    const recoveredCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const recoveredCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const report = Effect.runSync(recoveredCoordinator.recover);
 
     assert.equal(report.replayedOps, 1);
@@ -28,7 +29,7 @@ test("WriteCoordinator recovers queued journal entries after crash before waterm
 
 test("WriteCoordinator writes decision documents with per-decision coordinator watermark", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue({
       opId: "op-decision-1",
       entityId: decisionEntityId("dec_TEST"),
@@ -47,7 +48,7 @@ test("WriteCoordinator writes decision documents with per-decision coordinator w
 
 test("WriteCoordinator recovers queued decision writes after crash before global watermark", () => {
   withTempStore((rootDir) => {
-    const firstCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const firstCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(firstCoordinator.enqueue({
       opId: "op-decision-recover",
       entityId: decisionEntityId("dec_RECOVER"),
@@ -60,7 +61,7 @@ test("WriteCoordinator recovers queued decision writes after crash before global
     assert.equal(existsSync(path.join(rootDir, ".harness/write-journal/watermark.json")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/decisions/decision-dec_RECOVER/decision.md")), false);
 
-    const recoveredCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const recoveredCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const report = Effect.runSync(recoveredCoordinator.recover);
 
     assert.equal(report.replayedOps, 1);
@@ -79,7 +80,7 @@ test("incident poison create self-heals and does not block following writes", ()
       readonly decision: DecisionPackage;
       readonly followingOp: { readonly opId: string; readonly taskId: string; readonly path: string; readonly body: string };
     };
-    const crashed = makeJournaledWriteCoordinator({ rootDir });
+    const crashed = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(crashed.enqueue({
       opId: fixture.poisonOpId,
       entityId: decisionEntityId(fixture.decisionId),
@@ -100,7 +101,7 @@ test("incident poison create self-heals and does not block following writes", ()
     mkdirSync(path.dirname(decisionPath), { recursive: true });
     writeFileSync(decisionPath, serializeDecisionDocument({ decision: fixture.decision }, fixture.poisonOpId), "utf8");
 
-    const report = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
+    const report = Effect.runSync(makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir }).recover);
 
     assert.equal(report.replayedOps, 2);
     assert.equal(report.recoveredWatermark, fixture.followingOp.opId);
@@ -113,7 +114,7 @@ test("incident poison create self-heals and does not block following writes", ()
 
 test("WriteCoordinator recovers queued provenance session writes without duplicating them", () => {
   withTempStore((rootDir) => {
-    const firstCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const firstCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(firstCoordinator.enqueue({
       opId: "session-export-session-1-sha256:queued",
       entityId: moduleEntityId("provenance-session"),
@@ -133,7 +134,7 @@ test("WriteCoordinator recovers queued provenance session writes without duplica
 
     assert.equal(existsSync(path.join(rootDir, "harness/sessions/session-1.md")), false);
 
-    const recoveredCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const recoveredCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const report = Effect.runSync(recoveredCoordinator.recover);
 
     assert.equal(report.replayedOps, 1);
@@ -146,7 +147,7 @@ test("WriteCoordinator recovers queued provenance session writes without duplica
       ""
     ].join("\n"));
 
-    const secondReport = Effect.runSync(makeJournaledWriteCoordinator({ rootDir }).recover);
+    const secondReport = Effect.runSync(makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir }).recover);
     assert.equal(secondReport.replayedOps, 0);
     assert.equal(readFileSync(path.join(rootDir, "harness/sessions/session-1.md"), "utf8"), [
       "schema: provenance-session/v1",

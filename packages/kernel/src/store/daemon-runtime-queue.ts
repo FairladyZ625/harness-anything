@@ -1,19 +1,23 @@
 import { Effect } from "effect";
 import type { WriteError } from "../domain/index.ts";
 import type { FlushReport, WriteOp } from "../ports/write-coordinator.ts";
-import type { GitCommitAuthor, JournalActor } from "./write-journal-types.ts";
+import type { WriteAttribution } from "../schemas/actor-attribution.ts";
+import type { GitCommitAuthor, OperationalActor } from "./write-journal-types.ts";
 import type { makeJournaledWriteCoordinator } from "./write-journal-coordinator.ts";
 
 export type DaemonWritePriority = "interactive" | "normal" | "background" | "maintenance";
 
-export interface InteractiveWriteRequest {
+export type InteractiveWriteAttribution =
+  | { readonly attribution: WriteAttribution; readonly operationalActor?: never }
+  | { readonly attribution?: never; readonly operationalActor: OperationalActor };
+
+export type InteractiveWriteRequest = InteractiveWriteAttribution & {
   readonly commandId: string;
   readonly ops: ReadonlyArray<WriteOp>;
   readonly deadlineMs?: number;
-  readonly actor?: JournalActor;
   readonly commitAuthor?: GitCommitAuthor;
   readonly sessionId?: string;
-}
+};
 
 export interface InteractiveWriteReceipt {
   readonly commandId: string;
@@ -36,11 +40,10 @@ export interface DaemonQueueSnapshot {
   readonly running: boolean;
 }
 
-interface InteractiveQueueItem {
+type InteractiveQueueItem = InteractiveWriteAttribution & {
   readonly kind: "interactive";
   readonly commandId: string;
   readonly ops: ReadonlyArray<WriteOp>;
-  readonly actor?: JournalActor;
   readonly commitAuthor?: GitCommitAuthor;
   readonly sessionId?: string;
   readonly enqueuedAt: number;
@@ -48,7 +51,12 @@ interface InteractiveQueueItem {
   timeout?: ReturnType<typeof setTimeout>;
   readonly resolve: (receipt: InteractiveWriteReceipt) => void;
   readonly reject: (error: WriteError) => void;
-}
+};
+
+type InteractiveCoordinatorBatch = InteractiveWriteAttribution & {
+  readonly commitAuthor?: GitCommitAuthor;
+  readonly sessionId?: string;
+};
 
 interface BackgroundQueueItem<Result> {
   readonly kind: "background";
@@ -69,7 +77,7 @@ export class DaemonWriteQueue {
   private running = false;
   private closed = false;
   private idleWaiters: Array<() => void> = [];
-  private coordinatorFor: ((batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string }) => JournaledWriteCoordinator) | undefined;
+  private coordinatorFor: ((batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator) | undefined;
   private readonly maxInteractiveOpsPerCommit: number;
   private readonly interactiveMicroBatchMs: number;
 
@@ -83,7 +91,7 @@ export class DaemonWriteQueue {
 
   enqueueInteractive(
     request: InteractiveWriteRequest,
-    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string }) => JournaledWriteCoordinator
+    coordinatorFor: (batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator
   ): Promise<InteractiveWriteReceipt> {
     if (this.closed) return Promise.reject({ _tag: "JournalUnavailable", cause: new Error("daemon write queue is closed") } satisfies WriteError);
     this.coordinatorFor = coordinatorFor;
@@ -92,7 +100,7 @@ export class DaemonWriteQueue {
         kind: "interactive",
         commandId: request.commandId,
         ops: request.ops,
-        ...(request.actor ? { actor: request.actor } : {}),
+        ...(request.attribution ? { attribution: request.attribution } : { operationalActor: request.operationalActor }),
         ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {}),
         ...(request.sessionId ? { sessionId: request.sessionId } : {}),
         enqueuedAt: Date.now(),
@@ -174,7 +182,7 @@ export class DaemonWriteQueue {
   }
 
   private async drainInteractive(
-    coordinatorFor: (batch: { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string }) => JournaledWriteCoordinator
+    coordinatorFor: (batch: InteractiveCoordinatorBatch) => JournaledWriteCoordinator
   ): Promise<void> {
     if (this.interactiveMicroBatchMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.interactiveMicroBatchMs));
@@ -253,22 +261,38 @@ export class DaemonWriteQueue {
   }
 }
 
-function attributionFor(item: InteractiveQueueItem | undefined): { readonly actor?: JournalActor; readonly commitAuthor?: GitCommitAuthor; readonly sessionId?: string } {
+function attributionFor(item: InteractiveQueueItem | undefined): InteractiveCoordinatorBatch {
+  if (!item) throw new Error("interactive write batch requires attribution");
   return {
-    ...(item?.actor ? { actor: item.actor } : {}),
+    ...(item.attribution ? { attribution: item.attribution } : { operationalActor: item.operationalActor }),
     ...(item?.commitAuthor ? { commitAuthor: item.commitAuthor } : {}),
     ...(item?.sessionId ? { sessionId: item.sessionId } : {})
   };
 }
 
 function sameAttribution(left: InteractiveQueueItem, right: InteractiveQueueItem): boolean {
-  return actorKey(left.actor) === actorKey(right.actor)
+  return attributionKey(left) === attributionKey(right)
     && authorKey(left.commitAuthor) === authorKey(right.commitAuthor)
     && sessionKey(left.sessionId) === sessionKey(right.sessionId);
 }
 
-function actorKey(actor: JournalActor | undefined): string {
-  return actor ? `${actor.kind}\0${actor.id}` : "";
+function attributionKey(input: InteractiveWriteAttribution): string {
+  if (input.operationalActor) {
+    return `operational\0${input.operationalActor.kind}\0${input.operationalActor.id}`;
+  }
+  const attribution = input.attribution;
+  const source = attribution.principalSource;
+  const principalSourceKey = source.kind === "daemon-authenticated"
+    ? `${source.kind}\0${source.providerId}\0${source.credentialFingerprint}`
+    : source.kind === "local-configured"
+      ? `${source.kind}\0${source.authority}\0${source.authoritySha256}`
+      : `${source.kind}\0${source.evidenceRef}`;
+  return [
+    attribution.actor.principal.personId,
+    attribution.actor.executor?.id ?? "",
+    principalSourceKey,
+    attribution.executorSource
+  ].join("\0");
 }
 
 function authorKey(author: GitCommitAuthor | undefined): string {

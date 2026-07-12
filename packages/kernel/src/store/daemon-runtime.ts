@@ -14,13 +14,14 @@ import {
   type DaemonQueueSnapshot,
   type DaemonWritePriority,
   type InteractiveWriteReceipt,
+  type InteractiveWriteAttribution,
   type InteractiveWriteRequest
 } from "./daemon-runtime-queue.ts";
 import { acquireDaemonGlobalLock, type DaemonGlobalLock } from "./write-journal-locks.ts";
-import { makeJournaledWriteCoordinator } from "./write-journal-coordinator.ts";
-import type { JournalActor } from "./write-journal-types.ts";
+import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "./write-journal-coordinator.ts";
+import type { OperationalActor } from "./write-journal-types.ts";
 
-const defaultDaemonActor: JournalActor = { kind: "system", id: "daemon-runtime" };
+const defaultDaemonOperationalActor: OperationalActor = { scope: "operational", kind: "system", id: "daemon-runtime" };
 const defaultLockTtlMs = 60_000;
 const defaultInteractiveMicroBatchMs = 10;
 const defaultMaxInteractiveOpsPerCommit = 32;
@@ -37,7 +38,7 @@ export type {
 export interface DaemonRuntimeOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
-  readonly actor?: JournalActor;
+  readonly operationalActor?: OperationalActor;
   readonly lockTtlMs?: number;
   readonly interactiveMicroBatchMs?: number;
   readonly maxInteractiveOpsPerCommit?: number;
@@ -205,13 +206,12 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
 
   private readonly runtimeContext: ReturnType<typeof createHarnessRuntimeContext>;
   private readonly layout: ReturnType<typeof resolveHarnessLayout>;
-  private readonly actor: JournalActor;
+  private readonly operationalActor: OperationalActor;
   private readonly lockTtlMs: number;
   private readonly materializerMaxBranchesPerBatch: number;
   private readonly queue: DaemonWriteQueue;
   private readonly options: DaemonRepoRuntimeOptions;
   private lock: DaemonGlobalLock | undefined;
-  private coordinator: ReturnType<typeof makeJournaledWriteCoordinator> | undefined;
   private lastRecovery: RecoveryReport | undefined;
   private lastError: string | undefined;
   private lastMaterializerError: string | undefined;
@@ -224,7 +224,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     this.displayName = options.displayName;
     this.runtimeContext = createHarnessRuntimeContext(this.rootDir, options.layoutOverrides);
     this.layout = resolveHarnessLayout(this.runtimeContext);
-    this.actor = options.actor ?? defaultDaemonActor;
+    this.operationalActor = options.operationalActor ?? defaultDaemonOperationalActor;
     this.lockTtlMs = options.lockTtlMs ?? defaultLockTtlMs;
     this.materializerMaxBranchesPerBatch = options.materializerMaxBranchesPerBatch ?? defaultMaterializerMaxBranchesPerBatch;
     this.queue = new DaemonWriteQueue(
@@ -238,18 +238,17 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   }
 
   async attach(input: { readonly failOnError: boolean }): Promise<DaemonRepoRuntimeStatus> {
-    if (this.lock && this.coordinator && this.state === "attached") return this.status();
+    if (this.lock && this.state === "attached") return this.status();
     try {
-      this.lock = acquireDaemonGlobalLock(this.rootDir, this.runtimeContext, this.layout.journalPath, this.actor, this.lockTtlMs);
-      this.coordinator = makeJournaledWriteCoordinator({
+      this.lock = acquireDaemonGlobalLock(this.rootDir, this.runtimeContext, this.layout.journalPath, this.operationalActor, this.lockTtlMs);
+      this.lastRecovery = Effect.runSync(recoverJournaledWrites({
         rootDir: this.rootDir,
         layoutOverrides: this.options.layoutOverrides,
-        actor: this.actor,
+        operationalActor: this.operationalActor,
         lockTtlMs: this.lockTtlMs,
         heldGlobalLock: this.lock,
         autoMaterialize: false
-      });
-      this.lastRecovery = Effect.runSync(this.coordinator.recover);
+      }));
       this.lastError = undefined;
       this.lastMaterializerError = undefined;
       this.state = "attached";
@@ -277,14 +276,13 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       throw error;
     } finally {
       this.lock = undefined;
-      this.coordinator = undefined;
       this.state = "detached";
     }
   }
 
   status(): DaemonRepoRuntimeStatus {
     return {
-      started: Boolean(this.lock && this.coordinator && this.state === "attached"),
+      started: Boolean(this.lock && this.state === "attached"),
       rootDir: this.rootDir,
       repoId: this.repoId,
       canonicalRoot: this.rootDir,
@@ -333,27 +331,30 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
     });
   }
 
-  private requireAttached(): { readonly lock: DaemonGlobalLock; readonly coordinator: ReturnType<typeof makeJournaledWriteCoordinator> } {
-    if (!this.lock || !this.coordinator || this.state !== "attached") {
+  private requireAttached(): { readonly lock: DaemonGlobalLock } {
+    if (!this.lock || this.state !== "attached") {
       throw { _tag: "JournalUnavailable", cause: new Error(`daemon repo "${this.repoId}" is not attached`) } satisfies WriteError;
     }
-    return { lock: this.lock, coordinator: this.coordinator };
+    return { lock: this.lock };
   }
 
   private makeStartedCoordinator(
     started: ReturnType<DaemonRepoRuntimeContext["requireAttached"]>,
-    request?: { readonly actor?: JournalActor; readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"]; readonly sessionId?: string }
+    request: InteractiveWriteAttribution & { readonly commitAuthor?: InteractiveWriteRequest["commitAuthor"]; readonly sessionId?: string }
   ) {
-    return makeJournaledWriteCoordinator({
+    const common = {
       rootDir: this.rootDir,
       layoutOverrides: this.options.layoutOverrides,
-      actor: request?.actor ?? this.actor,
+      operationalActor: this.operationalActor,
       lockTtlMs: this.lockTtlMs,
       heldGlobalLock: started.lock,
       autoMaterialize: false,
-      ...(request?.sessionId ? { sessionId: request.sessionId } : {}),
-      ...(request?.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
-    });
+      ...(request.sessionId ? { sessionId: request.sessionId } : {}),
+      ...(request.commitAuthor ? { commitAuthor: request.commitAuthor } : {})
+    };
+    return request.attribution
+      ? makeJournaledWriteCoordinator({ ...common, attribution: request.attribution })
+      : makeOperationalJournaledWriteCoordinator({ ...common, operationalActor: request.operationalActor });
   }
 
   private startMaterializerTimer(): void {
@@ -393,7 +394,6 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       // Attach failure reporting should keep the original attach error.
     }
     this.lock = undefined;
-    this.coordinator = undefined;
   }
 }
 
@@ -410,7 +410,7 @@ function toDaemonRuntimeStatus(status: DaemonRepoRuntimeStatus): DaemonRuntimeSt
 function mergeRepoDefaults(repo: DaemonRepoRuntimeOptions, options: MultiRepoDaemonRuntimeOptions): DaemonRepoRuntimeOptions {
   return {
     ...repo,
-    ...(repo.actor ? {} : options.actor ? { actor: options.actor } : {}),
+    ...(repo.operationalActor ? {} : options.operationalActor ? { operationalActor: options.operationalActor } : {}),
     ...(repo.lockTtlMs !== undefined ? {} : options.lockTtlMs !== undefined ? { lockTtlMs: options.lockTtlMs } : {}),
     ...(repo.interactiveMicroBatchMs !== undefined ? {} : options.interactiveMicroBatchMs !== undefined ? { interactiveMicroBatchMs: options.interactiveMicroBatchMs } : {}),
     ...(repo.maxInteractiveOpsPerCommit !== undefined ? {} : options.maxInteractiveOpsPerCommit !== undefined ? { maxInteractiveOpsPerCommit: options.maxInteractiveOpsPerCommit } : {}),

@@ -72,7 +72,7 @@ export function runMigrateProvenance(
         return Effect.succeed(result(action, report(0)));
       }
 
-      const coordinator = context.makeWriteCoordinator({ kind: "agent", id: "provenance-backfill" });
+      const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "provenance-backfill" });
       return writeCoordinatedTaskDocuments(coordinator, stablePayloadHash, scan.entries.map((entry) => ({
         taskId: entry.taskId,
         path: "INDEX.md",

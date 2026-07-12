@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { docWrite, withTempStore } from "./helpers.ts";
 
 test("WriteCoordinator accepts duplicate op ids idempotently", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const op = docWrite("op-1", "task-1", "progress.md", "first");
 
     assert.equal(Effect.runSync(coordinator.enqueue(op)).accepted, true);
@@ -24,7 +25,7 @@ test("WriteCoordinator accepts duplicate op ids idempotently", () => {
 
 test("WriteCoordinator reports duplicate batch write conflicts on the conflicting write task", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue({
       opId: "op-batch-duplicate",
       entityId: taskEntityId("task-batch"),
@@ -57,7 +58,7 @@ test("WriteCoordinator retains the underlying journal read failure", () => {
     mkdirSync(journalDir, { recursive: true });
     writeFileSync(path.join(journalDir, "writes.jsonl"), "{\"schema\":\"write-journal/v1\"}\n", "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const result = Effect.runSync(Effect.either(coordinator.enqueue(docWrite("op-malformed-journal", "task-cause", "progress.md", "entry"))));
 
     assert.equal(result._tag, "Left");

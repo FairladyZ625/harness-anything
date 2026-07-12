@@ -12,6 +12,8 @@ import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../src/sto
 import { acquireDaemonGlobalLock } from "../../src/store/write-journal-locks.ts";
 import { docWrite, withTempStoreAsync } from "./helpers.ts";
 
+const testAttribution = daemonAttribution("person_test", "test", "credential-test");
+
 test("daemon runtime holds global.lock, rejects direct writes before journaling, and yields background batches to P0 writes", async () => {
   await withTempStoreAsync(async (rootDir) => {
     const runtime = createDaemonRuntime({
@@ -23,7 +25,7 @@ test("daemon runtime holds global.lock, rejects direct writes before journaling,
     assert.equal(status.started, true);
     assert.equal(JSON.parse(readFileSync(path.join(rootDir, ".harness/locks/global.lock"), "utf8")).ownerKind, "daemon");
 
-    const direct = makeJournaledWriteCoordinator({ rootDir });
+    const direct = makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution });
     const directFailure = Effect.runSync(Effect.either(direct.enqueue(docWrite("op-direct", "task-1", "direct.md", "direct"))));
     assert.equal(directFailure._tag, "Left");
     assert.equal(directFailure.left._tag, "GlobalWriteConflict");
@@ -60,6 +62,7 @@ test("daemon runtime holds global.lock, rejects direct writes before journaling,
     await backgroundStartedPromise;
     const interactive = runtime.enqueueInteractiveWrite({
       commandId: "cmd-interactive",
+      attribution: testAttribution,
       ops: [docWrite("op-interactive", "task-1", "interactive.md", "interactive")]
     }).then((receipt) => {
       order.push("interactive");
@@ -132,10 +135,10 @@ test("daemon restart after SIGKILL takes over stale lock and recovers durable jo
 test("daemon materializer producer runs bounded batches under the lifetime global lock", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initAuthoredGit(rootDir);
-    const sessionOne = makeJournaledWriteCoordinator({ rootDir, sessionId: "daemon-mat-1", autoMaterialize: false });
+    const sessionOne = makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution, sessionId: "daemon-mat-1", autoMaterialize: false });
     Effect.runSync(sessionOne.enqueue(docWrite("op-mat-1", "task-mat-1", "note.md", "one\n")));
     Effect.runSync(sessionOne.flush("explicit"));
-    const sessionTwo = makeJournaledWriteCoordinator({ rootDir, sessionId: "daemon-mat-2", autoMaterialize: false });
+    const sessionTwo = makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution, sessionId: "daemon-mat-2", autoMaterialize: false });
     Effect.runSync(sessionTwo.enqueue(docWrite("op-mat-2", "task-mat-2", "note.md", "two\n")));
     Effect.runSync(sessionTwo.flush("explicit"));
 
@@ -169,6 +172,7 @@ test("daemon interactive writes route sessionId commits to authored session bran
 
     const receipt = await runtime.enqueueInteractiveWrite({
       commandId: "cmd-session-routed",
+      attribution: testAttribution,
       sessionId: "daemon-session-1",
       ops: [docWrite("op-daemon-session", "task-daemon-session", "note.md", "session routed\n")]
     });
@@ -183,7 +187,7 @@ test("daemon interactive writes route sessionId commits to authored session bran
   });
 });
 
-test("daemon interactive queue does not mix different git authors in one commit", async () => {
+test("daemon interactive queue does not mix different principals or sources with the same executor", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initAuthoredGit(rootDir);
     const runtime = createDaemonRuntime({
@@ -195,25 +199,33 @@ test("daemon interactive queue does not mix different git authors in one commit"
 
     const alice = runtime.enqueueInteractiveWrite({
       commandId: "cmd-alice",
-      actor: { kind: "human", id: "person_alice" },
-      commitAuthor: { name: "Alice Owner", email: "alice@example.test" },
+      attribution: daemonAttribution("person_alice", "codex", "credential-alice"),
+      commitAuthor: { name: "Shared Author", email: "shared@example.test" },
       ops: [docWrite("op-author-alice", "task-author-a", "note.md", "alice\n")]
     });
     const bob = runtime.enqueueInteractiveWrite({
       commandId: "cmd-bob",
-      actor: { kind: "human", id: "person_bob" },
-      commitAuthor: { name: "Bob Owner", email: "bob@example.test" },
+      attribution: daemonAttribution("person_bob", "codex", "credential-bob"),
+      commitAuthor: { name: "Shared Author", email: "shared@example.test" },
       ops: [docWrite("op-author-bob", "task-author-b", "note.md", "bob\n")]
     });
+    const aliceOtherSource = runtime.enqueueInteractiveWrite({
+      commandId: "cmd-alice-other-source",
+      attribution: daemonAttribution("person_alice", "codex", "credential-alice-other"),
+      commitAuthor: { name: "Shared Author", email: "shared@example.test" },
+      ops: [docWrite("op-author-alice-source", "task-author-c", "note.md", "alice other source\n")]
+    });
 
-    const [aliceReceipt, bobReceipt] = await Promise.all([alice, bob]);
+    const [aliceReceipt, bobReceipt, aliceOtherSourceReceipt] = await Promise.all([alice, bob, aliceOtherSource]);
     assert.equal(aliceReceipt.flush.opCount, 1);
     assert.equal(bobReceipt.flush.opCount, 1);
+    assert.equal(aliceOtherSourceReceipt.flush.opCount, 1);
     assert.deepEqual(
-      git(rootDir, "log", "-2", "--format=%an <%ae>|%s").split(/\r?\n/u),
+      git(rootDir, "log", "-3", "--format=%an <%ae>|%s").split(/\r?\n/u),
       [
-        "Bob Owner <bob@example.test>|task(doc): task-author-b note.md [op-author-bob]",
-        "Alice Owner <alice@example.test>|task(doc): task-author-a note.md [op-author-alice]"
+        "Shared Author <shared@example.test>|task(doc): task-author-c note.md [op-author-alice-source]",
+        "Shared Author <shared@example.test>|task(doc): task-author-b note.md [op-author-bob]",
+        "Shared Author <shared@example.test>|task(doc): task-author-a note.md [op-author-alice]"
       ]
     );
 
@@ -230,7 +242,7 @@ test("multi-repo daemon isolates attach lock failures by repo", async () => {
         lockedRoot,
         lockedContext,
         lockedLayout.journalPath,
-        { kind: "system", id: "other-daemon" },
+        { scope: "operational", kind: "system", id: "other-daemon" },
         60_000
       );
       const runtime = createMultiRepoDaemonRuntime({
@@ -252,6 +264,7 @@ test("multi-repo daemon isolates attach lock failures by repo", async () => {
 
         await runtime.enqueueInteractiveWrite("available", {
           commandId: "cmd-available",
+          attribution: testAttribution,
           ops: [docWrite("op-available", "task-available", "note.md", "available")]
         });
         assert.equal(readFileSync(path.join(availableRoot, "harness/tasks/task-available/note.md"), "utf8"), "available");
@@ -259,6 +272,7 @@ test("multi-repo daemon isolates attach lock failures by repo", async () => {
         assert.throws(
           () => runtime.enqueueInteractiveWrite("locked", {
             commandId: "cmd-locked",
+            attribution: testAttribution,
             ops: [docWrite("op-locked", "task-locked", "note.md", "locked")]
           }),
           (error: unknown) => {
@@ -304,12 +318,14 @@ test("multi-repo daemon detaches one repo without releasing other repo locks", a
 
       await runtime.enqueueInteractiveWrite("first", {
         commandId: "cmd-first",
+        attribution: testAttribution,
         ops: [docWrite("op-first", "task-first", "note.md", "first")]
       });
       assert.equal(readFileSync(path.join(firstRoot, "harness/tasks/task-first/note.md"), "utf8"), "first");
 
       await runtime.enqueueInteractiveWrite("second", {
         commandId: "cmd-second",
+        attribution: testAttribution,
         ops: [docWrite("op-second", "task-second", "note.md", "second")]
       });
       assert.equal(readFileSync(path.join(secondRoot, "harness/tasks/task-second/note.md"), "utf8"), "second");
@@ -330,8 +346,17 @@ async function spawnJournalOnlyDaemon(rootDir: string): Promise<void> {
     const rootDir = ${JSON.stringify(rootDir)};
     const runtimeContext = createHarnessRuntimeContext(rootDir);
     const layout = resolveHarnessLayout(runtimeContext);
-    const lock = acquireDaemonGlobalLock(rootDir, runtimeContext, layout.journalPath, { kind: "system", id: "daemon-runtime" }, 60_000);
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, heldGlobalLock: lock, autoMaterialize: false });
+    const lock = acquireDaemonGlobalLock(rootDir, runtimeContext, layout.journalPath, { scope: "operational", kind: "system", id: "daemon-runtime" }, 60_000);
+    const coordinator = makeJournaledWriteCoordinator({
+      rootDir,
+      attribution: {
+        actor: { principal: { kind: "person", personId: "person_test" }, executor: { kind: "agent", id: "test" } },
+        principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:test" },
+        executorSource: "client-asserted"
+      },
+      heldGlobalLock: lock,
+      autoMaterialize: false
+    });
     Effect.runSync(coordinator.enqueue({
       opId: "op-crash-recovery",
       entityId: taskEntityId("task-crash"),
@@ -365,6 +390,21 @@ async function spawnJournalOnlyDaemon(rootDir: string): Promise<void> {
       reject(new Error(`journal child did not die as expected: signal=${signal ?? "none"} stderr=${stderr}`));
     });
   });
+}
+
+function daemonAttribution(personId: string, executorId: string, credentialFingerprint: string) {
+  return {
+    actor: {
+      principal: { kind: "person" as const, personId },
+      executor: { kind: "agent" as const, id: executorId }
+    },
+    principalSource: {
+      kind: "daemon-authenticated" as const,
+      providerId: "test-provider",
+      credentialFingerprint
+    },
+    executorSource: "client-asserted" as const
+  };
 }
 
 function initAuthoredGit(rootDir: string): void {

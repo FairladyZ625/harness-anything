@@ -14,6 +14,7 @@ test("CLI migrate anchors backfills required task plan anchors and is idempotent
   withTempRoot((rootDir) => {
     writeContextDocs(rootDir);
     runJson(rootDir, ["init"]);
+    configureTestIdentity(rootDir);
 
     const oldTask = runJson(rootDir, ["new-task", "--title", "Old Plan Task"]);
     const completeTask = runJson(rootDir, ["new-task", "--title", "Complete Plan Task"]);
@@ -76,6 +77,7 @@ test("CLI migrate anchors fails closed on invalid settings without writing", () 
   withTempRoot((rootDir) => {
     writeContextDocs(rootDir);
     runJson(rootDir, ["init"]);
+    configureTestIdentity(rootDir);
 
     const oldTask = runJson(rootDir, ["new-task", "--title", "Bad Settings Plan"]);
     const oldPlanPath = path.join(rootDir, oldTask.packagePath, "task_plan.md");
@@ -102,6 +104,7 @@ test("CLI migrate anchors skips unreadable materialized documents and keeps scan
   withTempRoot((rootDir) => {
     writeContextDocs(rootDir);
     runJson(rootDir, ["init"]);
+    configureTestIdentity(rootDir);
 
     const unreadableTask = runJson(rootDir, ["new-task", "--title", "Unreadable Plan"]);
     const patchableTask = runJson(rootDir, ["new-task", "--title", "Patchable Plan"]);
@@ -133,6 +136,7 @@ test("CLI migrate anchors skips duplicate task ids before coordinated writes", (
   withTempRoot((rootDir) => {
     writeContextDocs(rootDir);
     runJson(rootDir, ["init"]);
+    configureTestIdentity(rootDir);
 
     const firstTask = runJson(rootDir, ["new-task", "--title", "Duplicate One"]);
     const secondTask = runJson(rootDir, ["new-task", "--title", "Duplicate Two"]);
@@ -180,7 +184,14 @@ function taskIdFromIndex(body: string): string {
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        CLAUDE_SESSION_ID: "",
+        CLAUDE_CODE_SESSION_ID: "",
+        CODEX_THREAD_ID: "",
+        CODEX_SESSION_ID: ""
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
@@ -197,6 +208,18 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+}
+
+function configureTestIdentity(rootDir: string): void {
+  const harnessRoot = path.join(rootDir, "harness");
+  const configPath = path.join(harnessRoot, "harness.yaml");
+  const config = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, config.replace(
+    /^settings:$/mu,
+    "settings:\n  identity:\n    personId: person_test\n    displayName: Harness Test"
+  ), "utf8");
+  execFileSync("git", ["-C", harnessRoot, "add", "harness.yaml"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "test: configure identity"], { stdio: "ignore" });
 }
 
 function writeContextDocs(rootDir: string): void {

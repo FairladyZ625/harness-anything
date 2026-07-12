@@ -86,7 +86,7 @@ export function runMigrateFactExecution(
 
   const migratedAt = new Date().toISOString();
   const writes = migrationWrites(rootInput, pendingTargets as ReadonlyArray<TargetPlan & { readonly target: NonNullable<TargetPlan["target"]> }>, planId, migratedAt);
-  const coordinator = context.makeWriteCoordinator({ kind: "agent", id: "fact-execution-migration" });
+  const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "fact-execution-migration" });
   return writeCoordinatedTaskDocuments(coordinator, stablePayloadHash, writes).pipe(
     Effect.map(() => migrationResult(action, report(pendingTargets.length, new Set(pendingTargets.map((entry) => entry.candidate.taskId)).size)))
   );

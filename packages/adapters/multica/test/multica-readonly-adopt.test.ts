@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import { makeJournaledWriteCoordinator } from "../../../kernel/src/store/index.ts";
+import type { WriteAttribution } from "../../../kernel/src/index.ts";
 import {
   makeMulticaAdoptionService,
   makeMulticaLifecycleEngine,
@@ -14,6 +15,12 @@ import {
   type MulticaClient,
   type MulticaRawIssue
 } from "../src/index.ts";
+
+const testAttribution = {
+  actor: { principal: { kind: "person", personId: "person_test" }, executor: { kind: "agent", id: "test" } },
+  principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:test" },
+  executorSource: "client-asserted"
+} as const satisfies WriteAttribution;
 
 test("Multica LifecycleEngine exposes readonly snapshot capabilities only", () => {
   const engine = makeMulticaLifecycleEngine({ client: fakeClient([issue("FAI-1", "Todo")]) });
@@ -81,7 +88,7 @@ test("Multica adopt writes only local binding and does not write external status
     const service = makeMulticaAdoptionService({
       rootDir,
       client: fakeClient([issue("FAI-1", "Done")]),
-      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
       clock: fixedClock
     });
 
@@ -103,7 +110,7 @@ test("Multica adopt rejects duplicate external bindings and task id conflicts", 
     const service = makeMulticaAdoptionService({
       rootDir,
       client: fakeClient([issue("FAI-1", "Active")]),
-      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
       clock: fixedClock
     });
 
@@ -126,7 +133,7 @@ test("Multica adopt uses explicit authored root for reads, claims, and writes", 
       rootDir,
       layoutOverrides,
       client: fakeClient([issue("FAI-1", "Active")]),
-      coordinator: makeJournaledWriteCoordinator({ rootDir, layoutOverrides }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, layoutOverrides, attribution: testAttribution }),
       clock: fixedClock
     });
 
@@ -151,7 +158,7 @@ test("Multica adopt claim rejects duplicate refs before authored scan can see th
     const service = makeMulticaAdoptionService({
       rootDir,
       client: fakeClient([issue("FAI-1", "Active")]),
-      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
       clock: fixedClock
     });
 
@@ -191,7 +198,7 @@ test("Multica adopt refuses stale snapshots instead of binding uncertain externa
       client: {
         fetchIssue: () => Effect.fail({ _tag: "EngineUnreachable", engine: "multica" })
       },
-      coordinator: makeJournaledWriteCoordinator({ rootDir }),
+      coordinator: makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution }),
       clock: fixedClock
     });
 

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -11,7 +12,7 @@ import { docWrite, withTempStore } from "./helpers.ts";
 
 test("markdown artifact store remains the rebuildable source of truth without SQLite", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "task_plan.md", "# Task")));
     Effect.runSync(coordinator.flush("explicit"));
 

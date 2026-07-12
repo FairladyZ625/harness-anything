@@ -1,21 +1,20 @@
 import { Effect } from "effect";
-import type { FlushReport, RecoveryReport, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
+import type { FlushReport, OperationalActor, RecoveryReport, WriteAttribution, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 
 type QueuedWriteOp = Parameters<WriteCoordinator["enqueue"]>[0];
-interface QueuedJournalActor {
-  readonly kind: "agent" | "human" | "system";
-  readonly id: string;
-}
 interface QueuedGitCommitAuthor {
   readonly name: string;
   readonly email: string;
 }
 
+type QueuedAttribution =
+  | { readonly attribution: WriteAttribution; readonly operationalActor?: never }
+  | { readonly attribution?: never; readonly operationalActor: OperationalActor };
+
 export interface CliDaemonRuntime {
-  readonly enqueueInteractiveWrite: (request: {
+  readonly enqueueInteractiveWrite: (request: QueuedAttribution & {
     readonly commandId: string;
     readonly ops: ReadonlyArray<QueuedWriteOp>;
-    readonly actor?: QueuedJournalActor;
     readonly commitAuthor?: QueuedGitCommitAuthor;
     readonly sessionId?: string;
   }) => Promise<{
@@ -29,7 +28,23 @@ export interface CliDaemonRuntime {
 export function makeDaemonQueuedWriteCoordinator(
   runtime: CliDaemonRuntime,
   commandId: string,
-  options: { readonly actor?: QueuedJournalActor; readonly commitAuthor?: QueuedGitCommitAuthor; readonly sessionId?: string } = {}
+  options: { readonly attribution: WriteAttribution; readonly commitAuthor?: QueuedGitCommitAuthor; readonly sessionId?: string }
+): WriteCoordinator {
+  return makeQueuedCoordinator(runtime, commandId, options);
+}
+
+export function makeDaemonQueuedOperationalWriteCoordinator(
+  runtime: CliDaemonRuntime,
+  commandId: string,
+  operationalActor: OperationalActor
+): WriteCoordinator {
+  return makeQueuedCoordinator(runtime, commandId, { operationalActor });
+}
+
+function makeQueuedCoordinator(
+  runtime: CliDaemonRuntime,
+  commandId: string,
+  options: QueuedAttribution & { readonly commitAuthor?: QueuedGitCommitAuthor; readonly sessionId?: string }
 ): WriteCoordinator {
   const pending: Array<QueuedWriteOp> = [];
   return {
@@ -46,7 +61,7 @@ export function makeDaemonQueuedWriteCoordinator(
         const receipt = await runtime.enqueueInteractiveWrite({
           commandId,
           ops,
-          ...(options.actor ? { actor: options.actor } : {}),
+          ...(options.attribution ? { attribution: options.attribution } : { operationalActor: options.operationalActor }),
           ...(options.commitAuthor ? { commitAuthor: options.commitAuthor } : {}),
           ...(options.sessionId ? { sessionId: options.sessionId } : {})
         });

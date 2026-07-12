@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
@@ -22,7 +23,9 @@ const testActorEnv = { HARNESS_ACTOR: "agent:new-task-cli-test" } as const;
 
 test("CLI init dogfoods coding vertical defaults for new tasks", () => {
   withTempRoot((rootDir) => {
+    rmSync(path.join(rootDir, "harness"), { recursive: true, force: true });
     runJson(rootDir, ["init"]);
+    configureTestIdentity(rootDir);
     assert.equal(existsSync(path.join(rootDir, "harness/adr")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/milestones")), true);
 
@@ -183,6 +186,7 @@ function assertGeneratedTaskId(value: unknown): string {
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return fn(rootDir);
   } finally {
@@ -224,8 +228,20 @@ function initHarnessGit(harnessRoot: string): void {
   execFileSync("git", ["-C", harnessRoot, "config", "user.name", "Harness Test"], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
   writeFileSync(path.join(harnessRoot, ".gitkeep"), "");
-  execFileSync("git", ["-C", harnessRoot, "add", "--", ".gitkeep"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "add", "--", "."], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "commit", "-m", "seed"], { stdio: "ignore" });
+}
+
+function configureTestIdentity(rootDir: string): void {
+  const harnessRoot = path.join(rootDir, "harness");
+  const configPath = path.join(harnessRoot, "harness.yaml");
+  const config = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, config.replace(
+    /^settings:$/mu,
+    "settings:\n  identity:\n    personId: person_test\n    displayName: Harness Test"
+  ), "utf8");
+  execFileSync("git", ["-C", harnessRoot, "add", "harness.yaml"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "test: configure identity"], { stdio: "ignore" });
 }
 
 function gitStatus(harnessRoot: string): string {

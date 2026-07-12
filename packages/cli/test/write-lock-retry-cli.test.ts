@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,6 +43,7 @@ test("CLI waits through transient global write lock conflicts", async () => {
 
 async function withTempRoot<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-lock-"));
+  ensureTestHarnessIdentity(rootDir);
   try {
     return await fn(rootDir);
   } finally {

@@ -23,6 +23,7 @@ import { updateTaskProjectionIncrementally } from "../projection/sqlite-task-inc
 import { hashTaskProjectionRows } from "../projection/sqlite-task-projection.ts";
 import { readMarkdownSource } from "../projection/sqlite-task-source.ts";
 import { appendJsonLineDurably, readDurableState, readPayloadRef, writePayloadRef, writeWatermarkDurably, writeFileDurably } from "./write-journal-durable.ts";
+import { journalActorFromAttribution, journalActorFromOperationalActor } from "./write-journal-attribution.ts";
 import { assertCommitPlanAddable, commitTouchedPaths } from "./write-journal-git.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./write-journal-code-doc-policy.ts";
@@ -38,7 +39,7 @@ import {
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
 import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./write-journal-receipt.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, LockConflictRetryOptions, LockTakeoverRecord, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalActor, JournalRecord, JournalRecordKind, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 export type {
   GitCommitAuthor,
   JournalActor,
@@ -47,10 +48,11 @@ export type {
   JournaledWriteCoordinatorOptions,
   LegacyJournalAttribution,
   LockConflictRetryOptions,
+  OperationalActor,
   ReadableJournalRecord
 } from "./write-journal-types.ts";
 
-const defaultActor: JournalActor = { kind: "agent", id: "local" };
+const defaultOperationalActor: OperationalActor = { scope: "operational", kind: "agent", id: "write-coordinator" };
 // Flush writes the full op-id set before compaction for recovery safety, then
 // trims to a bounded recent-id window only after journal compaction succeeds.
 const maxWatermarkCommittedOpIds = 128;
@@ -60,12 +62,27 @@ const defaultRetryMaxDelayMs = 250;
 type JournalMappedError = WriteLockHeldError | WriteRejectedError | NonTaskWriteEntityError;
 
 export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinatorOptions): WriteCoordinator {
+  return makeJournaledWriteCoordinatorInternal(options, "attributed");
+}
+
+export function makeOperationalJournaledWriteCoordinator(options: OperationalJournaledWriteCoordinatorOptions): WriteCoordinator {
+  return makeJournaledWriteCoordinatorInternal(options, "operational-machine-artifact");
+}
+
+export function recoverJournaledWrites(options: JournalRecoveryOptions): Effect.Effect<RecoveryReport, WriteError> {
+  return makeJournaledWriteCoordinatorInternal(options, "recovery-only").recover;
+}
+
+function makeJournaledWriteCoordinatorInternal(
+  options: JournaledWriteCoordinatorOptions | OperationalJournaledWriteCoordinatorOptions | JournalRecoveryOptions,
+  mode: "attributed" | "operational-machine-artifact" | "recovery-only"
+): WriteCoordinator {
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
   const layout = resolveHarnessLayout(runtimeContext);
   const journalPath = options.journalPath ?? layout.journalPath;
   const watermarkPath = options.watermarkPath ?? layout.watermarkPath;
-  const actor = options.actor ?? defaultActor;
+  const operationalActor = options.operationalActor ?? defaultOperationalActor;
   const lockTtlMs = options.lockTtlMs ?? 60_000;
   const lockConflictRetry = options.lockConflictRetry;
   const heldGlobalLock = options.heldGlobalLock;
@@ -75,7 +92,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
   const autoMaterialize = options.autoMaterialize ?? true;
   const pending: WriteOp[] = [];
   const flushOnce = (reason: FlushReason): Effect.Effect<FlushReport, WriteError> => Effect.try({
-    try: () => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, pending.map((op) => op.entityId), () => {
+    try: () => withRepoLocks(rootDir, runtimeContext, journalPath, operationalActor, lockTtlMs, pending.map((op) => op.entityId), () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       pending.splice(0, pending.length);
       const pendingRecords = uniquePendingRecords(state.records, state.applied);
@@ -84,7 +101,7 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
     catch: (cause): WriteError => toJournalError(cause)
   });
   const recoverOnce: Effect.Effect<RecoveryReport, WriteError> = Effect.try({
-    try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, actor, lockTtlMs, [], () => {
+    try: (): RecoveryReport => withRepoLocks(rootDir, runtimeContext, journalPath, operationalActor, lockTtlMs, [], () => {
       const state = readDurableState(journalPath, watermarkPath, rootDir);
       const pendingRecords = uniquePendingRecords(state.records, state.applied);
       const report = flushRecords("recovery", rootDir, runtimeContext, journalPath, watermarkPath, state.watermark, pendingRecords, state.fileApplied, sessionId, commitAuthor, versionControlSystem);
@@ -107,7 +124,16 @@ export function makeJournaledWriteCoordinator(options: JournaledWriteCoordinator
           return { opId: op.opId, entityId: op.entityId, accepted: true };
         }
 
-        const record = createJournalRecord(rootDir, journalPath, op, actor);
+        if (mode === "recovery-only") {
+          rejectWrite("write coordinator requires request attribution", op.entityId);
+        }
+        if (mode === "operational-machine-artifact" && !op.kind.startsWith("machine_artifact_")) {
+          rejectWrite("operational coordinator only accepts machine artifact writes", op.entityId);
+        }
+        const recordActor = mode === "attributed" && "attribution" in options
+          ? journalActorFromAttribution(options.attribution)
+          : journalActorFromOperationalActor(operationalActor);
+        const record = createJournalRecord(rootDir, journalPath, op, recordActor);
         appendJsonLineDurably(journalPath, record);
         pending.push(op);
         return { opId: op.opId, entityId: op.entityId, accepted: true };

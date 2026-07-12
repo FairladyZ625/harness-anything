@@ -8,7 +8,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { appendJsonLineDurably, fsyncDirectory, readJournal } from "./write-journal-durable.ts";
-import type { JournalActor, LockRecord, LockTakeoverRecord, OwnedLock } from "./write-journal-types.ts";
+import type { LockRecord, LockTakeoverRecord, OperationalActor, OwnedLock } from "./write-journal-types.ts";
 
 export interface DaemonGlobalLock extends OwnedLock {
   readonly refreshHeartbeat: () => void;
@@ -48,7 +48,7 @@ export function withRepoLocks<T>(
   rootDir: string,
   layoutInput: HarnessLayoutInput,
   journalPath: string,
-  actor: JournalActor,
+  actor: OperationalActor,
   lockTtlMs: number,
   entityIds: ReadonlyArray<EntityId>,
   fn: () => T,
@@ -78,7 +78,7 @@ export function acquireDaemonGlobalLock(
   rootDir: string,
   layoutInput: HarnessLayoutInput,
   journalPath: string,
-  actor: JournalActor,
+  actor: OperationalActor,
   lockTtlMs: number
 ): DaemonGlobalLock {
   const lockRoot = path.relative(rootDir, resolveHarnessLayout(layoutInput).locksRoot).split(path.sep).join("/");
@@ -118,7 +118,7 @@ export function assertDirectWriteAllowed(rootDir: string, layoutInput: HarnessLa
 function acquireLock(
   rootDir: string,
   journalPath: string,
-  actor: JournalActor,
+  actor: OperationalActor,
   relativeLockPath: string,
   lockTtlMs: number,
   entityId?: EntityId,

@@ -60,7 +60,14 @@ async function runWorker(rootDir, writer) {
   const opIds = Array.from({ length: writesPerWriter }, (_, index) => `receipt-w${writer}-n${index}`);
   const coordinator = makeJournaledWriteCoordinator({
     rootDir,
-    actor: { kind: "agent", id: `receipt-writer-${writer}` },
+    attribution: {
+      actor: {
+        principal: { kind: "person", personId: "person_test" },
+        executor: { kind: "agent", id: `receipt-writer-${writer}` }
+      },
+      principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:receipt-bench" },
+      executorSource: "client-asserted"
+    },
     lockConflictRetry: { maxWaitMs: 100, initialDelayMs: 5, maxDelayMs: 10 },
     autoMaterialize: false,
     versionControlSystem: slowVersionControlSystem(rootDir)

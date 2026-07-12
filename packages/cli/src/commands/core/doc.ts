@@ -22,7 +22,7 @@ export const runDocCommand: CommandRunner = (context, command) => Effect.gen(fun
     }
     if (action.kind === "doc-generate") {
       const result = action.write
-        ? yield* writeDerivedDocmapManifest(context.layoutInput, context.makeWriteCoordinator({ kind: "agent", id: "docmap-generate" }))
+        ? yield* writeDerivedDocmapManifest(context.layoutInput, context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "docmap-generate" }))
         : deriveDocmapManifest(context.layoutInput);
       const docs = filterDocmapDocuments(result.manifest, action.filters);
       return {

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { DecisionWriteService, FactWriteService, ProvenanceSessionExporter, ProvenanceSessionExporterRejected, ProvenanceSessionExportResult, RuntimeEventLedgerService, TaskHolderPrincipal, TaskHolderService } from "../../../application/src/index.ts";
-import type { ArtifactStore, CurrentSessionProbePort } from "../../../kernel/src/index.ts";
+import type { ArtifactStore, CurrentSessionProbePort, OperationalActor } from "../../../kernel/src/index.ts";
 import type { ArtifactStoreError, DomainStatus, EngineError, PriorityTier, TaskWorkKind, WriteError } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext } from "../../../kernel/src/index.ts";
@@ -31,7 +31,7 @@ export interface CommandRunnerContext {
   readonly provenanceSessionExporter: ProvenanceSessionExporter;
   readonly syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
   readonly runtimeEventLedgerService: RuntimeEventLedgerService;
-  readonly makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator;
+  readonly makeWriteCoordinator: (actor: OperationalActor) => WriteCoordinator;
   readonly actorAttribution: () => CliActorAttribution;
   readonly taskHolderPrincipal: () => TaskHolderPrincipal;
   readonly decisionWriteService: DecisionWriteService;
@@ -112,7 +112,7 @@ export function runRegisteredCommand(
   makeCurrentSessionProbe: () => CurrentSessionProbePort,
   makeProvenanceSessionExporter: () => ProvenanceSessionExporter,
   syncExportedSession: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>,
-  makeWriteCoordinator: (actor: { readonly kind: "agent" | "human" | "system"; readonly id: string }) => WriteCoordinator,
+  makeWriteCoordinator: (actor: OperationalActor) => WriteCoordinator,
   actorAttribution: () => CliActorAttribution,
   taskHolderPrincipal: () => TaskHolderPrincipal,
   makeDecisionWriteService: () => DecisionWriteService,

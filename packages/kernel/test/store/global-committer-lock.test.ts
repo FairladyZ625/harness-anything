@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
@@ -18,7 +19,7 @@ const execFileAsync = promisify(execFile);
 
 test("WriteCoordinator rejects semantic writes without document payload", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     const failure = runWriteFailure(coordinator.enqueue({
       opId: "op-transition",
@@ -36,7 +37,7 @@ test("WriteCoordinator rejects semantic writes without document payload", () => 
 
 test("WriteCoordinator validates supersede batch before writing any document", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     assert.throws(
       () => Effect.runSync(coordinator.enqueue({
@@ -60,7 +61,7 @@ test("WriteCoordinator validates supersede batch before writing any document", (
 
 test("WriteCoordinator validates package create batch before writing any document", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     assert.throws(
       () => Effect.runSync(coordinator.enqueue({
@@ -85,7 +86,7 @@ test("WriteCoordinator validates package create batch before writing any documen
 test("WriteCoordinator flush uses injected VCS port for git operations", () => {
   withTempStore((rootDir) => {
     const vcs = fakeVersionControlSystem(rootDir);
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, versionControlSystem: vcs });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir, versionControlSystem: vcs });
 
     Effect.runSync(coordinator.enqueue(docWrite("op-vcs-port", "task-1", "notes.md", "via fake vcs\n")));
     const report = Effect.runSync(coordinator.flush("manual"));
@@ -104,7 +105,7 @@ test("a commit failure leaves a durable apply marker that recovery automatically
   withTempStore((rootDir) => {
     const baseVcs = fakeVersionControlSystem(rootDir);
     let failCommit = true;
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       versionControlSystem: {
         ...baseVcs,
@@ -136,7 +137,7 @@ test("a commit failure leaves a durable apply marker that recovery automatically
 test("a post-watermark materializer failure cannot turn a committed write receipt into failure", () => {
   withTempStore((rootDir) => {
     const baseVcs = fakeVersionControlSystem(rootDir);
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       sessionId: "materializer-failure",
       versionControlSystem: {
@@ -161,7 +162,7 @@ test("a post-watermark materializer failure cannot turn a committed write receip
 
 test("WriteCoordinator rejects hard delete before journaling when policy payload or disposition is invalid", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     assert.throws(
       () => Effect.runSync(coordinator.enqueue({
@@ -211,7 +212,7 @@ test("WriteCoordinator rejects hard delete before journaling when policy payload
 
 test("WriteCoordinator keeps independent task writes in one global commit stream", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
 
     Effect.runSync(coordinator.enqueue(docWrite("op-1", "task-1", "a.md", "a")));
     Effect.runSync(coordinator.enqueue(docWrite("op-2", "task-2", "b.md", "b")));
@@ -233,7 +234,7 @@ test("two coordinators cannot flush while the global lock is already held", () =
       ownerToken: "held-by-live-process"
     }), "utf8");
 
-    const blockedCoordinator = makeJournaledWriteCoordinator({ rootDir });
+    const blockedCoordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(blockedCoordinator.enqueue(docWrite("op-blocked", "task-1", "blocked.md", "blocked")));
 
     const failure = runWriteFailure(blockedCoordinator.flush("explicit"));
@@ -254,7 +255,7 @@ test("WriteCoordinator queues behind the global lock until the holder releases i
       heartbeatAt: new Date().toISOString(),
       ownerToken: "short-lived-holder"
     }), "utf8");
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       lockConflictRetry: { maxWaitMs: 500, initialDelayMs: 10, maxDelayMs: 20 }
     });
@@ -273,7 +274,7 @@ test("WriteCoordinator queues while a newly created lock record is still incompl
     const lockPath = path.join(rootDir, ".harness/locks/global.lock");
     mkdirSync(path.dirname(lockPath), { recursive: true });
     writeFileSync(lockPath, "", "utf8");
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       lockConflictRetry: { maxWaitMs: 500, initialDelayMs: 5, maxDelayMs: 20 }
     });
@@ -297,7 +298,7 @@ test("WriteCoordinator lock queue times out with holder identity and recovery ad
       heartbeatAt: new Date().toISOString(),
       ownerToken: "long-lived-holder"
     }), "utf8");
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       lockConflictRetry: { maxWaitMs: 30, initialDelayMs: 5, maxDelayMs: 10 }
     });
@@ -325,7 +326,7 @@ test("entity lock conflicts preserve the scoped task id", () => {
       ownerToken: "held-by-live-task-owner"
     }), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-task-lock", "task-1", "blocked.md", "blocked")));
 
     const failure = runWriteFailure(coordinator.flush("explicit"));
@@ -348,7 +349,7 @@ test("entity takeover claim conflicts preserve the scoped task id", () => {
       heartbeatAt: new Date().toISOString()
     }), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     Effect.runSync(coordinator.enqueue(docWrite("op-task-takeover", "task-1", "blocked.md", "blocked")));
 
     const failure = runWriteFailure(coordinator.flush("explicit"));
@@ -370,7 +371,7 @@ test("stale lock takeover is journaled before continuing", () => {
       ownerToken: "dead-owner"
     }), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-after-stale-lock", "task-1", "a.md", "a")));
     const report = Effect.runSync(coordinator.flush("explicit"));
 
@@ -390,7 +391,7 @@ test("live process locks are not taken over solely because TTL expired", () => {
       ownerToken: "still-live-owner"
     }), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-live-lock", "task-1", "a.md", "a")));
 
     const failure = runWriteFailure(coordinator.flush("explicit"));
@@ -415,7 +416,7 @@ test("takeover claim prevents silent acquire while stale lock is quarantined", (
       heartbeatAt: new Date().toISOString()
     }), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-claim", "task-1", "a.md", "a")));
 
     const failure = runWriteFailure(coordinator.flush("explicit"));
@@ -447,7 +448,7 @@ test("dead takeover claim is cleared so stale lock recovery can continue", () =>
       heartbeatAt: "2000-01-01T00:00:00.000Z"
     }), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-dead-claim", "task-1", "a.md", "a")));
     const report = Effect.runSync(coordinator.flush("explicit"));
 
@@ -477,7 +478,7 @@ test("quarantined stale lock is restored before takeover is journaled", () => {
       heartbeatAt: "2000-01-01T00:00:00.000Z"
     }), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-quarantine", "task-1", "a.md", "a")));
     const report = Effect.runSync(coordinator.flush("explicit"));
 
@@ -492,7 +493,7 @@ test("quarantined stale lock is restored before takeover is journaled", () => {
 
 test("double stale lock takeover race keeps a single committer", async () => {
   await withTempStoreAsync(async (rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir, lockTtlMs: 1 });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir, lockTtlMs: 1 });
     Effect.runSync(coordinator.enqueue(docWrite("op-race-1", "task-1", "race.md", "first")));
     Effect.runSync(coordinator.enqueue(docWrite("op-race-2", "task-1", "race.md", "second")));
 
@@ -508,7 +509,15 @@ test("double stale lock takeover race keeps a single committer", async () => {
     const childScript = `
       import { Effect } from "effect";
       import { makeJournaledWriteCoordinator } from "./packages/kernel/src/store/index.ts";
-      const coordinator = makeJournaledWriteCoordinator({ rootDir: ${JSON.stringify(rootDir)}, lockTtlMs: 1 });
+      const coordinator = makeJournaledWriteCoordinator({
+        attribution: {
+          actor: { principal: { kind: "person", personId: "person_test" }, executor: { kind: "agent", id: "test" } },
+          principalSource: { kind: "local-configured", authority: "harness.yaml", authoritySha256: "sha256:test" },
+          executorSource: "client-asserted"
+        },
+        rootDir: ${JSON.stringify(rootDir)},
+        lockTtlMs: 1
+      });
       const result = Effect.runSync(Effect.either(coordinator.flush("explicit")));
       if (result._tag === "Left" && result.left._tag !== "GlobalWriteConflict") {
         throw new Error(JSON.stringify(result.left));
@@ -531,7 +540,7 @@ test("double stale lock takeover race keeps a single committer", async () => {
 
 test("WriteCoordinator reserves code-doc-anchors.json for the dedicated operation", () => {
   withTempStore((rootDir) => {
-    const coordinator = makeJournaledWriteCoordinator({ rootDir });
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir });
     const genericFailure = runWriteFailure(coordinator.enqueue(docWrite("raw-code-doc", "task-1", "code-doc-anchors.json", "{}")));
     assert.equal(genericFailure._tag, "WriteRejected");
     assert.match(genericFailure.reason, /reserved machine document/u);
@@ -553,7 +562,7 @@ test("WriteCoordinator accepts validated dedicated code-doc writes", () => {
     seedCodeDocTaskLedgers(rootDir);
     const local = makeLocalVersionControlSystem();
     const harnessRoot = path.join(rootDir, "harness");
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       versionControlSystem: {
         ...local,
@@ -581,7 +590,7 @@ test("WriteCoordinator rejects task-tree staging with a hand-written code-doc fi
     seedCodeDocTaskLedgers(rootDir);
     const local = makeLocalVersionControlSystem();
     const harnessRoot = path.join(rootDir, "harness");
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
       versionControlSystem: {
         ...local,

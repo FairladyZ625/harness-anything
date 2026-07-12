@@ -6,7 +6,7 @@ import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
 import type { ParsedCommand } from "../cli/types.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
-import { CliActorAttributionError, daemonActorAttribution, journalActorWithSource } from "../composition/actor-attribution.ts";
+import { CliActorAttributionError, daemonActorAttribution } from "../composition/actor-attribution.ts";
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
 import { makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
@@ -37,7 +37,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
             ? makeDaemonQueuedWriteCoordinator(
               runtime,
               `${command.action.kind}:${actor.kind}:${actor.id}`,
-              { actor: journalActorWithSource(attribution), commitAuthor: attribution.commitAuthor, ...(sessionId ? { sessionId } : {}) }
+              { attribution: attribution.writeAttribution, commitAuthor: attribution.commitAuthor, ...(sessionId ? { sessionId } : {}) }
             )
             : missingDaemonActorCoordinator(command.action.kind, actor)
         });

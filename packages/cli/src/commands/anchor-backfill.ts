@@ -129,7 +129,7 @@ export function runMigrateAnchors(
     return Effect.succeed(anchorBackfillResult(action, report(0, 0)));
   }
 
-  const coordinator = context.makeWriteCoordinator({ kind: "agent", id: "anchor-backfill" });
+  const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "anchor-backfill" });
   return writeCoordinatedTaskDocuments(coordinator, stablePayloadHash, scan.entries.map((entry) => ({
     taskId: entry.taskId,
     path: entry.documentPath,

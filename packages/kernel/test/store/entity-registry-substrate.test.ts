@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -171,9 +172,8 @@ test("fixture declarations resolve, coordinate writes, and project hosted and co
         ]
       }
     });
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
-      actor: { kind: "agent", id: "test" }
     });
     const hostedIdentity = { taskId: "task_fixture_host", id: "fx_hosted_1" };
     const compositeIdentity = { id: "fx_composite_1" };

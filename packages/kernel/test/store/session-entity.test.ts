@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -50,9 +51,8 @@ test("session manifests coordinate compact state, immutable transcript bodies, a
         }
       }
     };
-    const coordinator = makeJournaledWriteCoordinator({
+    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(),
       rootDir,
-      actor: { kind: "agent", id: "test" }
     });
 
     Effect.runSync(writeSessionEntity(coordinator, rootDir, manifest));

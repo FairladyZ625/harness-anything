@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +63,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
     if (init.ok !== true || init.path !== "harness/harness.yaml") {
       throw new Error(`unexpected init smoke output: ${JSON.stringify(init)}`);
     }
+    configureSmokeIdentity(projectDir);
 
     const created = runJson(binPath, ["--json", "new-task", "--title", "Smoke Task"], projectDir);
     if (created.ok !== true || typeof created.taskId !== "string" || !created.taskId.startsWith("task_") || created.report?.vertical !== "software/coding" || created.report?.preset !== "standard-task") {
@@ -93,6 +94,15 @@ export function runCliPackageSmoke(root = process.cwd()) {
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+}
+
+function configureSmokeIdentity(projectDir) {
+  const configPath = path.join(projectDir, "harness/harness.yaml");
+  const config = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, config.replace(
+    /^settings:$/mu,
+    "settings:\n  identity:\n    personId: person_harness_smoke\n    displayName: Harness Smoke"
+  ), "utf8");
 }
 
 export function buildCliPackageArtifact(root, options = {}) {

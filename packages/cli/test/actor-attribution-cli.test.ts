@@ -2,9 +2,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
+import { resolveLocalCliActorAttribution } from "../src/composition/local-principal.ts";
+import { createCliCommandService } from "../src/daemon/command-service.ts";
+import type { CliDaemonRuntime } from "../src/daemon/queued-write-coordinator.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
@@ -54,38 +58,159 @@ test("CLI also accepts an agent actor through the explicit flag", () => {
   });
 });
 
-test("CLI keeps agent and system HARNESS_ACTOR channels working", () => {
-  for (const actor of ["agent:codex", "system:release-bot"]) {
-    withTempRoot((rootDir) => {
-      const result = runJson(rootDir, ["init"], true, actorEnv(actor, "Harness Writer", "writer@example.test"));
+test("CLI keeps agent HARNESS_ACTOR working and rejects system entity attribution", () => {
+  withTempRoot((rootDir) => {
+    const accepted = runJson(rootDir, ["init"], true, actorEnv("agent:codex", "Harness Writer", "writer@example.test"));
+    assert.equal(accepted.ok, true);
+  });
+  withTempRoot((rootDir) => {
+    const rejected = runJson(rootDir, ["init"], false, actorEnv("system:release-bot", "Harness Writer", "writer@example.test"));
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error?.hint ?? "", /system actor cannot author canonical entity writes/u);
+  });
+});
 
-      assert.equal(result.ok, true, actor);
-      assert.equal(existsSync(path.join(rootDir, "harness")), true, actor);
+test("daemon attribution preserves authenticated principal and asserted executor as two axes", () => {
+  const attribution = daemonActorAttribution({
+    personId: "person_alice",
+    displayName: "Alice",
+    primaryEmail: "alice@example.test",
+    roles: ["writer"],
+    providerId: "forced-command",
+    resolvedCredential: {
+      kind: "ssh-forced-command-person",
+      issuer: "test",
+      subject: "person_alice"
+    }
+  }, { kind: "agent", id: "codex" });
+
+  assert.deepEqual(attribution.writeAttribution.actor, {
+    principal: { kind: "person", personId: "person_alice" },
+    executor: { kind: "agent", id: "codex" }
+  });
+  assert.equal(attribution.writeAttribution.principalSource.kind, "daemon-authenticated");
+  assert.equal(attribution.writeAttribution.executorSource, "client-asserted");
+
+  const directHuman = daemonActorAttribution({
+    personId: "person_alice",
+    displayName: "Alice",
+    primaryEmail: "alice@example.test",
+    roles: ["writer"],
+    providerId: "forced-command",
+    resolvedCredential: {
+      kind: "ssh-forced-command-person",
+      issuer: "test",
+      subject: "person_alice"
+    }
+  });
+  assert.equal(directHuman.writeAttribution.actor.executor, null);
+  assert.equal(directHuman.writeAttribution.executorSource, "none");
+});
+
+test("daemon command service preserves A/X attribution through the queued coordinator boundary", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-attribution-"));
+  try {
+    ensureTestHarnessIdentity(rootDir);
+    const requests: Parameters<CliDaemonRuntime["enqueueInteractiveWrite"]>[0][] = [];
+    const runtime: CliDaemonRuntime = {
+      enqueueInteractiveWrite: async (request) => {
+        requests.push(request);
+        return { flush: { reason: "explicit", opCount: request.ops.length, committed: true } };
+      },
+      status: () => ({})
+    };
+    const service = createCliCommandService(runtime);
+    await service.runCommand({
+      command: {
+        rootDir,
+        json: true,
+        action: { kind: "new-task", title: "Cross Boundary", titleProvided: true, slug: "cross-boundary" }
+      }
+    }, {
+      actor: {
+        personId: "person_alice",
+        displayName: "Alice",
+        primaryEmail: "alice@example.test",
+        roles: ["writer"],
+        providerId: "forced-command",
+        resolvedCredential: { kind: "ssh-forced-command-person", issuer: "test", subject: "person_alice" }
+      },
+      executor: { kind: "agent", id: "codex" }
     });
+
+    assert.ok(requests.length > 0);
+    assert.equal(requests.every((request) => request.attribution.actor.principal.personId === "person_alice"), true);
+    assert.equal(requests.every((request) => request.attribution.actor.executor?.id === "codex"), true);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("CLI persists env and flag actor sources in the write journal", () => {
-  for (const fixture of [
-    { actor: "agent:codex", source: "env", args: ["new-task", "--title", "Env Source"] },
-    { actor: "human:person_alice", source: "flag", args: ["--actor", "human:person_alice", "new-task", "--title", "Flag Source"] }
-  ] as const) {
-    withTempRoot((rootDir) => {
-      const env = actorEnv(
-        fixture.source === "env" ? fixture.actor : "human:inherited_parent",
-        "Harness Writer",
-        "writer@example.test"
-      );
-      runJson(rootDir, ["--actor", "human:setup", "init"], true, env);
-      installStaleGlobalLock(rootDir);
-
-      const result = runJson(rootDir, fixture.args, true, env);
-      const journal = readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8");
-
-      assertGeneratedTaskId(result.taskId);
-      assert.match(journal, new RegExp(`"actor":\\{"kind":"${fixture.actor.split(":")[0]}","id":"${fixture.actor.split(":")[1]}","source":"${fixture.source}"\\}`, "u"));
+test("local resolver combines configured principal and asserted executor once", () => {
+  withTempRoot((rootDir) => {
+    const attribution = resolveLocalCliActorAttribution(
+      { rootDir },
+      actorEnv("agent:codex", "Harness Writer", "writer@example.test")
+    );
+    assert.deepEqual(attribution.writeAttribution.actor, {
+      principal: { kind: "person", personId: "person_test" },
+      executor: { kind: "agent", id: "codex" }
     });
-  }
+    assert.deepEqual(attribution.writeAttribution.principalSource, {
+      kind: "local-configured",
+      authority: "harness.yaml",
+      authoritySha256: attribution.writeAttribution.principalSource.kind === "local-configured"
+        ? attribution.writeAttribution.principalSource.authoritySha256
+        : "unreachable"
+    });
+    assert.equal(attribution.writeAttribution.executorSource, "client-asserted");
+  });
+});
+
+test("local resolver rejects a disabled configured person", () => {
+  withTempRoot((rootDir) => {
+    writeFileSync(path.join(rootDir, "harness/people.yaml"), JSON.stringify({
+      schema: "harness-people/v1",
+      people: [{
+        personId: "person_test",
+        displayName: "Harness Test",
+        roles: ["writer"],
+        credentials: [],
+        disabled: true
+      }],
+      roles: [{ roleId: "writer", commandClasses: ["repo-write"] }]
+    }), "utf8");
+    assert.throws(
+      () => resolveLocalCliActorAttribution(
+        { rootDir },
+        actorEnv("agent:codex", "Harness Writer", "writer@example.test")
+      ),
+      /person_test.*disabled/u
+    );
+  });
+});
+
+test("local resolver accepts the I1 PersonRegistry.find seam without importing its loader", () => {
+  withTempRoot((rootDir) => {
+    const authorityPath = path.join(rootDir, "harness/persons.yaml");
+    writeFileSync(authorityPath, "schema: persons/v1\n", "utf8");
+    const attribution = resolveLocalCliActorAttribution(
+      { rootDir },
+      actorEnv("agent:codex", "Harness Writer", "writer@example.test"),
+      undefined,
+      {
+        authority: "persons.yaml",
+        authorityPath,
+        find: (personId) => personId === "person_test"
+          ? { personId, displayName: "Harness Test" }
+          : undefined
+      }
+    );
+    assert.equal(attribution.writeAttribution.principalSource.kind, "local-configured");
+    if (attribution.writeAttribution.principalSource.kind === "local-configured") {
+      assert.equal(attribution.writeAttribution.principalSource.authority, "persons.yaml");
+    }
+  });
 });
 
 test("CLI checker reports the two retained inherited-human decision records and accepts compliant records", () => {
@@ -123,11 +248,13 @@ test("CLI checker reports the two retained inherited-human decision records and 
 
 test("CLI local writes preserve distinct git authors for distinct actors", () => {
   withTempRoot((rootDir) => {
-    const aliceEnv = actorEnv("", "Alice Owner", "alice@example.test");
-    const bobEnv = actorEnv("", "Bob Builder", "bob@example.test");
-    runJson(rootDir, ["--actor", "human:person_alice", "init"], true, aliceEnv);
-    const alice = runJson(rootDir, ["--actor", "human:person_alice", "new-task", "--title", "Alice Authored"], true, aliceEnv);
-    const bob = runJson(rootDir, ["--actor", "human:person_bob", "new-task", "--title", "Bob Authored"], true, bobEnv);
+    const aliceEnv = actorEnv("agent:codex", "Alice Owner", "alice@example.test");
+    const bobEnv = actorEnv("agent:codex", "Bob Builder", "bob@example.test");
+    runJson(rootDir, ["init"], true, aliceEnv);
+    setConfiguredIdentity(rootDir, "person_alice", "Alice Owner");
+    const alice = runJson(rootDir, ["new-task", "--title", "Alice Authored"], true, aliceEnv);
+    setConfiguredIdentity(rootDir, "person_bob", "Bob Builder");
+    const bob = runJson(rootDir, ["new-task", "--title", "Bob Authored"], true, bobEnv);
 
     assertGeneratedTaskId(alice.taskId);
     assertGeneratedTaskId(bob.taskId);
@@ -175,16 +302,15 @@ function actorEnv(actor: string, name: string, email: string): Readonly<Record<s
   };
 }
 
-function installStaleGlobalLock(rootDir: string): void {
-  const lockDir = path.join(rootDir, ".harness/locks");
-  mkdirSync(lockDir, { recursive: true });
-  writeFileSync(path.join(lockDir, "global.lock"), JSON.stringify({
-    pid: 999_999,
-    hostname: hostname(),
-    acquiredAt: "2000-01-01T00:00:00.000Z",
-    heartbeatAt: "2000-01-01T00:00:00.000Z",
-    ownerToken: "stale-actor-source-fixture"
-  }), "utf8");
+function setConfiguredIdentity(rootDir: string, personId: string, displayName: string): void {
+  const harnessRoot = path.join(rootDir, "harness");
+  const configPath = path.join(harnessRoot, "harness.yaml");
+  const body = readFileSync(configPath, "utf8")
+    .replace(/^    personId:.*$/mu, `    personId: ${personId}`)
+    .replace(/^    displayName:.*$/mu, `    displayName: ${displayName}`);
+  writeFileSync(configPath, body, "utf8");
+  git(harnessRoot, ["add", "harness.yaml"]);
+  git(harnessRoot, ["commit", "-m", `test: configure ${personId}`]);
 }
 
 function journalRecord(opId: string, entityId: string, kind: string, id: string, source: string): string {

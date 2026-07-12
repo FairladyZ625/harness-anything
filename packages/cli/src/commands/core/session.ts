@@ -85,7 +85,7 @@ function writeCutoverSessionEntities(
   context: Parameters<CommandRunner>[0],
   manifests: ReadonlyArray<SessionManifest>
 ): Effect.Effect<FlushReport, WriteError> {
-  const coordinator = context.makeWriteCoordinator({ kind: "agent", id: "session-sync" });
+  const coordinator = context.makeWriteCoordinator({ scope: "operational", kind: "agent", id: "session-sync" });
   return Effect.gen(function* () {
     for (const [index, manifest] of manifests.entries()) {
       yield* writeSessionEntity(coordinator, context.layoutInput, manifest, {

@@ -79,11 +79,9 @@ export const localAdapterProviderMetadata = {
 } as const satisfies AdapterProviderMetadata;
 
 export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions): WriteCoordinator {
-  if (!options.actor) {
-    throw new Error("Local write coordinator requires explicit actor attribution.");
-  }
   return makeJournaledWriteCoordinator({
     ...options,
+    operationalActor: { scope: "operational", kind: "agent", id: "local-write-coordinator" },
     lockConflictRetry: localLockConflictRetry
   });
 }
@@ -91,11 +89,13 @@ export function makeLocalWriteCoordinator(options: LocalWriteCoordinatorOptions)
 export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalLifecycleEngine {
   const rootDir = path.resolve(options.rootDir);
   const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
-  const coordinator = options.coordinator ?? makeLocalWriteCoordinator({
-    rootDir,
-    layoutOverrides: options.layoutOverrides,
-    actor: options.actor
-  });
+  const coordinator = options.coordinator ?? (options.attribution
+    ? makeLocalWriteCoordinator({
+      rootDir,
+      layoutOverrides: options.layoutOverrides,
+      attribution: options.attribution
+    })
+    : failClosedLocalCoordinator());
   const clock = options.clock ?? (() => new Date());
 
   return {
@@ -112,6 +112,16 @@ export function makeLocalLifecycleEngine(options: LocalLifecycleOptions): LocalL
     deleteTask: (input) => deleteTask(runtimeContext, coordinator, input),
     reopenTask: (input) => reopenTask(runtimeContext, coordinator, input)
   };
+}
+
+function failClosedLocalCoordinator(): WriteCoordinator {
+  const fail = () => Effect.fail({
+    _tag: "WriteRejected" as const,
+    reason: "Local lifecycle writes require request attribution.",
+    code: "identity_required",
+    retryable: false
+  });
+  return { enqueue: () => fail(), flush: () => fail(), recover: fail() };
 }
 
 const localLockConflictRetry = {

@@ -2,7 +2,8 @@ import type { EntityId, TaskId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
-import type { ActorAxes, AgentRef } from "../schemas/actor-attribution.ts";
+import type { ActorAxes, AgentRef, OperationalActor, WriteAttribution } from "../schemas/actor-attribution.ts";
+export type { OperationalActor } from "../schemas/actor-attribution.ts";
 import type {
   JournalRecordV1Document,
   JournalRecordV2Document
@@ -13,7 +14,8 @@ export interface JournaledWriteCoordinatorOptions {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly journalPath?: string;
   readonly watermarkPath?: string;
-  readonly actor?: JournalActor;
+  readonly attribution: WriteAttribution;
+  readonly operationalActor?: OperationalActor;
   readonly lockTtlMs?: number;
   readonly lockConflictRetry?: LockConflictRetryOptions;
   readonly heldGlobalLock?: OwnedLock;
@@ -22,6 +24,11 @@ export interface JournaledWriteCoordinatorOptions {
   readonly commitAuthor?: GitCommitAuthor;
   readonly versionControlSystem?: VersionControlSystem;
 }
+
+export type JournalRecoveryOptions = Omit<JournaledWriteCoordinatorOptions, "attribution">;
+export type OperationalJournaledWriteCoordinatorOptions = JournalRecoveryOptions & {
+  readonly operationalActor: OperationalActor;
+};
 
 export interface LockConflictRetryOptions {
   readonly maxWaitMs: number;
@@ -69,7 +76,7 @@ export type JournalRecord = JournalRecordV1;
 
 export interface LockTakeoverRecord {
   readonly schema: "lock-takeover/v1";
-  readonly actor: JournalActor;
+  readonly actor: OperationalActor;
   readonly at: string;
   readonly lockPath: string;
   readonly oldPid: number;
