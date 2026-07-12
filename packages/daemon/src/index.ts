@@ -164,3 +164,5 @@ export {
   type IssuedAttachToken,
   type SshTunnelTokenStreamOptions
 } from "./transport/ssh-tunnel-token.ts";
+// TW-07 attestation
+export * from "./attestation/index.ts";
