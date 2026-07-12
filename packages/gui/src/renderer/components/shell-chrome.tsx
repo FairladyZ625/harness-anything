@@ -40,12 +40,14 @@ export function NavButton({
   icon,
   label,
   badge,
+  isNew,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
   badge?: number;
+  isNew?: boolean;
 }) {
   return (
     <button
@@ -58,6 +60,11 @@ export function NavButton({
     >
       <span className="text-base">{icon}</span>
       {label}
+      {isNew && (
+        <span className="rounded border border-accent px-1 font-mono text-[10px] leading-[1.4] text-accent">
+          NEW
+        </span>
+      )}
       {badge !== undefined && badge > 0 && (
         <span className="ml-auto rounded bg-accent px-1.5 font-mono text-[11px] font-semibold text-accent-fg">
           {badge}

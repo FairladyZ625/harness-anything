@@ -7,6 +7,10 @@ import type {
   TaskDocumentResult,
   TaskIdPayload,
   TaskListResult,
+  TaskExecutionListResult,
+  ExecutionDetailResult,
+  ExecutionIdPayload,
+  ExecutionProjectionRow,
   DecisionIdPayload,
   DecisionListResult,
   DecisionProjectionRow,
@@ -29,6 +33,8 @@ type HarnessBridgeMethod =
   | "getDecisions"
   | "getDecisionDetail"
   | "getTaskFacts"
+  | "getTaskExecutions"
+  | "getExecutionDetail"
   | "setTaskStatus"
   | "reviewTask"
   | "appendTaskProgress"
@@ -90,6 +96,17 @@ export interface TaskFactListSuccess {
   readonly facts: ReadonlyArray<FactProjectionRow>;
 }
 
+export interface TaskExecutionListSuccess {
+  readonly ok: true;
+  readonly taskId: string;
+  readonly executions: ReadonlyArray<ExecutionProjectionRow>;
+}
+
+export interface ExecutionDetailSuccess {
+  readonly ok: true;
+  readonly execution: ExecutionProjectionRow;
+}
+
 export interface CommandSuccess {
   readonly ok: true;
 }
@@ -132,6 +149,14 @@ export const harnessClient = {
   async getTaskFacts(payload: TaskIdPayload): Promise<TaskFactListSuccess> {
     const result = await invokeBridge("getTaskFacts", payload);
     return readTaskFactListResult(result);
+  },
+  async getTaskExecutions(payload: TaskIdPayload): Promise<TaskExecutionListSuccess> {
+    const result = await invokeBridge("getTaskExecutions", payload);
+    return readTaskExecutionListResult(result);
+  },
+  async getExecutionDetail(payload: ExecutionIdPayload): Promise<ExecutionDetailSuccess> {
+    const result = await invokeBridge("getExecutionDetail", payload);
+    return readExecutionDetailResult(result);
   },
   async setTaskStatus(payload: SetTaskStatusPayload): Promise<CommandResult> {
     return readCommandResult(await invokeBridge("setTaskStatus", payload));
@@ -254,6 +279,33 @@ function readTaskFactListResult(value: unknown): TaskFactListSuccess {
   };
 }
 
+function readTaskExecutionListResult(value: unknown): TaskExecutionListSuccess {
+  const result = value as TaskExecutionListResult;
+  if (!result || typeof result !== "object" || result.ok !== true || typeof result.taskId !== "string" || !Array.isArray(result.executions)) {
+    throw new Error(localErrorHint(value, "Task executions bridge returned an invalid result."));
+  }
+  const executions = result.executions.filter(isExecutionProjectionRow);
+  if (executions.length !== result.executions.length) {
+    throw new Error("Task executions bridge returned rows outside execution projection shape.");
+  }
+  return {
+    ok: true,
+    taskId: result.taskId,
+    executions
+  };
+}
+
+function readExecutionDetailResult(value: unknown): ExecutionDetailSuccess {
+  const result = value as ExecutionDetailResult;
+  if (!result || typeof result !== "object" || result.ok !== true || !isExecutionProjectionRow(result.execution)) {
+    throw new Error(localErrorHint(value, "Execution detail bridge returned an invalid result."));
+  }
+  return {
+    ok: true,
+    execution: result.execution
+  };
+}
+
 function readCommandResult(value: unknown): CommandResult {
   const result = value as LocalControllerResult;
   if (result && typeof result === "object" && result.ok === true) return { ok: true };
@@ -335,6 +387,20 @@ function isFactProjectionRow(value: unknown): value is FactProjectionRow {
     typeof (value as FactProjectionRow).taskId === "string" &&
     typeof (value as FactProjectionRow).factId === "string" &&
     typeof (value as FactProjectionRow).statement === "string"
+  );
+}
+
+function isExecutionProjectionRow(value: unknown): value is ExecutionProjectionRow {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as ExecutionProjectionRow).executionId === "string" &&
+    typeof (value as ExecutionProjectionRow).taskRef === "string" &&
+    typeof (value as ExecutionProjectionRow).taskId === "string" &&
+    typeof (value as ExecutionProjectionRow).state === "string" &&
+    typeof (value as ExecutionProjectionRow).claimedAt === "string" &&
+    Array.isArray((value as ExecutionProjectionRow).outputs) &&
+    Array.isArray((value as ExecutionProjectionRow).sessionBindings)
   );
 }
 
