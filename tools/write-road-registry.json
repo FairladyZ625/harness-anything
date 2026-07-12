@@ -11,8 +11,8 @@
   ],
   "rowCountReconciliation": {
     "phase1FunctionalRows": 26,
-    "registryRows": 32,
-    "difference": "Six additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, task-holder runtime state, plus one WriteCoordinator runtime substrate row."
+    "registryRows": 33,
+    "difference": "Seven additional rows split mixed write functions and infrastructure: module canonical/view, runtime-event coordinated/direct, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road."
   },
   "rows": [
     {
@@ -133,6 +133,19 @@
       "callsiteFiles": ["packages/cli/src/commands/anchor-backfill.ts", "packages/cli/src/commands/core/provenance-backfill.ts"],
       "evidence": ["packages/cli/src/commands/anchor-backfill.ts:132", "packages/cli/src/commands/core/provenance-backfill.ts:75"],
       "freshness": "migration-full-body"
+    },
+    {
+      "id": "fact.execution-migration",
+      "sourceInventoryRows": [6],
+      "road": "D",
+      "bearing": "task-fact-execution",
+      "leaseRequired": false,
+      "channel": { "pathClass": "admin-rpc", "zoneClass": "task-authored-structured" },
+      "entry": ["cli-migration"],
+      "cliActions": ["migrate-fact-execution"],
+      "callsiteFiles": ["packages/cli/src/commands/fact-execution-migration.ts"],
+      "evidence": ["packages/cli/src/commands/fact-execution-migration.ts:71", "packages/cli/src/commands/fact-execution-migration.ts:185"],
+      "freshness": "confirmed-plan-coordinator-batch"
     },
     {
       "id": "fact.record",

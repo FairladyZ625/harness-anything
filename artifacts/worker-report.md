@@ -192,3 +192,27 @@ Progress 摘要：命令、三信号分类、稳定 plan 确认、分批、done-
 - `F-CHCA4ZYK`：不存在 task id 可产生空包目录的结构性行为；
 - `F-D4F06NVH`：supersede scaffold 缺失的结构性缺陷；
 - `F-3B04E5AP` / `F-5PY6HXK0` / `F-668B5547`：W8 generated-view exemption、写入旁路移除、AST seal 规则。
+
+## 10. CI 红修复（PR #662）
+
+CEO 回传的三处失败均为新命令触发的穷尽性契约遗漏，已逐项按现有权威表补齐，没有修改 checker 或新增豁免。
+
+### Write-road registry
+
+- 根因：`migrate-fact-execution` 已被 daemon 判为 repo-write，且 `fact-execution-migration.ts` 新增 coordinator callsite，但 `tools/write-road-registry.json` 没有对应 road。
+- 修法：新增独立 `fact.execution-migration` Road D 行，登记 CLI action、coordinator callsite、admin-rpc / task-authored-structured channel、无 lease 的历史迁移边界；registry reconciliation 由 32 更新为 33 行。
+- 复验：`npm run harness:check-write-road-registry` → PASS，33 rows / 312 discovered write surfaces。
+
+### Conflict preflight / runtime event policy
+
+- 根因：command descriptor 已声明 `conflictMarkerPreflight=true`、`runtimeEvent=deferred`，但 integration 的两张穷尽期望表未登记新 kind。
+- 修法：在 `packages/cli/test/conflict-preflight-cli.test.ts` 的 mutating descriptor 表与 deferred runtime-event 表各加入 `migrate-fact-execution`；策略本身不变。
+- 复验：`node --test packages/cli/test/conflict-preflight-cli.test.ts` → PASS，5/5。
+
+### Kernel dead exports
+
+- 根因：实际失败并非 `FactMigrationTrace` 无消费者；它已被迁移命令真实消费。新增 classifier/migration 也让原先零消费的 `buildRelationGraphProjection` 和 `formatFactFlowRecord` 获得生产消费者，旧 allowlist 两项因此成为 stale debt。
+- 修法：从 `tools/gate-allowlists/check-kernel-dead-exports.json` 删除这两项过期记录；没有为新导出加 allowlist。
+- 复验：
+  - `node --test tools/check-kernel-dead-exports.test.mjs` → PASS，3/3；
+  - `npm run harness:check-kernel-dead-exports` → PASS，allowlisted zero-consumption exports 238→236，223 consumed exports。
