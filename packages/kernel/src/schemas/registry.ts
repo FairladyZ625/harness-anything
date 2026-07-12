@@ -3,7 +3,7 @@ import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
 import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
 import type { LifecycleBinding } from "../domain/lifecycle-binding.ts";
-import { ActorRefSchema, LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
+import { LinkKindSchema, ProvenanceEntrySchema } from "./common.ts";
 import { DecisionPackageSchema } from "./decision-package.ts";
 import { DocmapManifestSchema } from "./docmap.ts";
 import { EntityRelationsSchema } from "./entity-relations.ts";
@@ -12,6 +12,7 @@ import { HarnessCheckReportSchema } from "./harness-check-report.ts";
 import { RuntimeEventRecordSchema } from "./runtime-event.ts";
 import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
+import { WriteJournalOpSchema } from "./write-journal.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { decisionClaimFulfillments, DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
@@ -24,6 +25,7 @@ export {
   ProjectionWarningSourceSchema
 } from "./harness-check-report.ts";
 export { RuntimeEventRecordSchema } from "./runtime-event.ts";
+export type { RuntimeEventRecord } from "./runtime-event.ts";
 export { SubtaskPlanSchema } from "./subtask-plan.ts";
 export {
   EntityRelationRecordSchema,
@@ -35,6 +37,8 @@ export {
   RelationTypeSchema
 } from "./entity-relations.ts";
 export { VerticalDefinitionSchema } from "./vertical-definition.ts";
+export { WriteJournalOpSchema } from "./write-journal.ts";
+export type { WriteJournalOp } from "./write-journal.ts";
 
 export const DomainStatusSchema = Schema.Literal(
   ...domainStatuses
@@ -139,45 +143,6 @@ export const TaskFrontmatterSchema = Schema.Struct({
   provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1)),
   profile: Schema.optional(Schema.String),
   createdBy: Schema.optional(CreatedBySchema)
-});
-
-export const WriteJournalOpSchema = Schema.Struct({
-  schema: Schema.Literal("write-journal/v1"),
-  opId: Schema.String,
-  entityId: Schema.String,
-  kind: Schema.Literal(
-    "package_create",
-    "transition_local",
-    "progress_append",
-    "task_tree_stage",
-    "doc_write",
-    "package_archive",
-    "package_tombstone",
-    "package_reopen",
-    "package_supersede",
-    "package_delete_hard",
-    "decision_propose",
-    "decision_accept",
-    "decision_reject",
-    "decision_defer",
-    "decision_supersede",
-    "decision_amend",
-    "decision_relate",
-    "decision_retire",
-    "relation_retire",
-    "relation_replace",
-    "fact_invalidate"
-  ),
-  actor: ActorRefSchema,
-  at: Schema.String,
-  payloadRef: Schema.optional(Schema.Struct({
-    path: Schema.String,
-    sha256: Schema.String
-  })),
-  payload: Schema.optional(Schema.Record({
-    key: Schema.String,
-    value: Schema.Unknown
-  }))
 });
 
 export const TaskSnapshotSchema = Schema.Struct({
@@ -443,7 +408,6 @@ export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
 export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
 export type DocmapManifestContract = Schema.Schema.Type<typeof DocmapManifestSchema>;
 export type EntityRelations = Schema.Schema.Type<typeof EntityRelationsSchema>;
-export type WriteJournalOp = Schema.Schema.Type<typeof WriteJournalOpSchema>;
 export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;

@@ -1,8 +1,25 @@
 import { Context, Effect } from "effect";
 import type { DomainStatus, EntityId, WriteError } from "../domain/index.js";
+export type { WriteOpKind } from "../domain/write-op-kind.ts";
+import type { WriteOpKind } from "../domain/write-op-kind.ts";
 import type { CurrentSessionRuntime } from "./current-session-probe.js";
 
-export type TaskWriteOpKind =
+export type DecisionWriteOpKind = Extract<WriteOpKind, `decision_${string}`>;
+export type FactWriteOpKind = Extract<WriteOpKind, `fact_${string}`>;
+export type RelationWriteOpKind = Extract<WriteOpKind, `relation_${string}`>;
+export type ModuleWriteOpKind = Extract<WriteOpKind, `module_${string}`>;
+export type MachineArtifactWriteOpKind = Extract<WriteOpKind, `machine_artifact_${string}`>;
+export type TaskWriteOpKind = Exclude<WriteOpKind,
+  | DecisionWriteOpKind
+  | FactWriteOpKind
+  | RelationWriteOpKind
+  | ModuleWriteOpKind
+  | MachineArtifactWriteOpKind
+>;
+
+// BEGIN GENERATED WRITE-ROAD KIND DISCOVERY
+// Generated for the existing write-road AST inventory. Do not edit.
+type GeneratedWriteRoadWriteOpKind =
   | "package_create"
   | "transition_local"
   | "progress_append"
@@ -14,9 +31,7 @@ export type TaskWriteOpKind =
   | "package_tombstone"
   | "package_reopen"
   | "package_supersede"
-  | "package_delete_hard";
-
-export type DecisionWriteOpKind =
+  | "package_delete_hard"
   | "decision_propose"
   | "decision_accept"
   | "decision_reject"
@@ -24,24 +39,18 @@ export type DecisionWriteOpKind =
   | "decision_supersede"
   | "decision_amend"
   | "decision_relate"
-  | "decision_retire";
-
-export type FactWriteOpKind =
-  | "fact_invalidate";
-
-export type RelationWriteOpKind =
+  | "decision_retire"
+  | "fact_invalidate"
   | "relation_retire"
-  | "relation_replace";
-
-export type ModuleWriteOpKind =
+  | "relation_replace"
   | "module_registry_write"
-  | "module_scaffold_write";
-
-export type MachineArtifactWriteOpKind =
+  | "module_scaffold_write"
   | "machine_artifact_write"
   | "machine_artifact_append_jsonl";
-
-export type WriteOpKind = TaskWriteOpKind | DecisionWriteOpKind | FactWriteOpKind | RelationWriteOpKind | ModuleWriteOpKind | MachineArtifactWriteOpKind;
+true satisfies [GeneratedWriteRoadWriteOpKind] extends [WriteOpKind]
+  ? ([WriteOpKind] extends [GeneratedWriteRoadWriteOpKind] ? true : never)
+  : never;
+// END GENERATED WRITE-ROAD KIND DISCOVERY
 
 export type FlushReason = "debounce" | "count" | "explicit" | "shutdown" | "recovery";
 

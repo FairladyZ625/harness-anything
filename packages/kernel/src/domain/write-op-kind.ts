@@ -1,0 +1,31 @@
+export const writeOpKinds = [
+  "package_create",
+  "transition_local",
+  "progress_append",
+  "doc_stage",
+  "task_tree_stage",
+  "doc_write",
+  "code_doc_reconcile",
+  "package_archive",
+  "package_tombstone",
+  "package_reopen",
+  "package_supersede",
+  "package_delete_hard",
+  "decision_propose",
+  "decision_accept",
+  "decision_reject",
+  "decision_defer",
+  "decision_supersede",
+  "decision_amend",
+  "decision_relate",
+  "decision_retire",
+  "fact_invalidate",
+  "relation_retire",
+  "relation_replace",
+  "module_registry_write",
+  "module_scaffold_write",
+  "machine_artifact_write",
+  "machine_artifact_append_jsonl"
+] as const;
+
+export type WriteOpKind = typeof writeOpKinds[number];

@@ -1,7 +1,7 @@
 {
   "schema": "write-journal/v2",
-  "opId": "op-invalid-source",
-  "entityId": "task/task_invalid_source",
+  "opId": "op-invalid-null-source",
+  "entityId": "task/task_invalid_null_source",
   "kind": "progress_append",
   "actor": {
     "principal": { "kind": "person", "personId": "person_zeyu" },

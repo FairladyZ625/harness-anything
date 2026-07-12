@@ -68,7 +68,6 @@ export type {
   RuntimeEventApprovalDecision,
   RuntimeEventInterruptAction,
   RuntimeEventKind,
-  RuntimeEventRecord,
   RuntimeEventRuntime,
   RuntimeEventResultStatus
 } from "./runtime-event.ts";
