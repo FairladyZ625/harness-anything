@@ -33,6 +33,7 @@ export function buildTaskShowReport(
       updatedAt: task.updatedAt,
       source: task.source,
       sourcePath: task.sourcePath,
+      attribution: task.attribution,
       ...(task.createdBy ? { createdBy: task.createdBy } : {}),
       ...(task.fieldExtensions ? { fieldExtensions: task.fieldExtensions } : {})
     },
@@ -142,7 +143,8 @@ function compactTask(row: TaskProjectionRow): Record<string, unknown> {
     ...(row.preset ? { preset: row.preset } : {}),
     ...(row.profile ? { profile: row.profile } : {}),
     ...(row.moduleKey ? { moduleKey: row.moduleKey } : {}),
-    ...(row.moduleTitle ? { moduleTitle: row.moduleTitle } : {})
+    ...(row.moduleTitle ? { moduleTitle: row.moduleTitle } : {}),
+    attribution: row.attribution
   };
 }
 

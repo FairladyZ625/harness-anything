@@ -1,4 +1,4 @@
-import type { RelationType } from "../../api/renderer-dto.ts";
+import type { EntityAttributionProjection, RelationType } from "../../api/renderer-dto.ts";
 
 export type CanonicalStatus =
   | "planned"
@@ -78,6 +78,7 @@ export interface TaskRow {
   rootTaskId?: string;
   /** root task 的标题(查表填入,便于分组标签展示) */
   rootTitle?: string;
+  attribution: EntityAttributionProjection;
 }
 
 /** GUI relation names are the kernel entity-relations/v1 vocabulary verbatim. */

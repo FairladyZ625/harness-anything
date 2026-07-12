@@ -13,6 +13,7 @@ import {
 } from "../migration.ts";
 import { runMigrateAnchors } from "../anchor-backfill.ts";
 import { runMigrateFactExecution } from "../fact-execution-migration.ts";
+import { runMigrateAttribution } from "../attribution-backfill.ts";
 import { runMigrateProvenance } from "./provenance-backfill.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 
@@ -26,6 +27,7 @@ type MigrationAction = Extract<
       | "migrate-structure"
       | "migrate-anchors"
       | "migrate-fact-execution"
+      | "migrate-attribution"
       | "migrate-provenance"
       | "migrate-run"
       | "migrate-verify"
@@ -52,6 +54,8 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
       return runMigrateAnchors(context, context.layoutInput, action);
     case "migrate-fact-execution":
       return runMigrateFactExecution(context, context.layoutInput, action);
+    case "migrate-attribution":
+      return runMigrateAttribution(context, command);
     case "migrate-provenance":
       return runMigrateProvenance(context, context.layoutInput, action);
     case "migrate-run":

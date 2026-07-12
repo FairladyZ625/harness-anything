@@ -18,6 +18,7 @@ export const AttributionEventSchema = Schema.Struct({
   principalSource: PrincipalSourceSchema,
   executorSource: ExecutorSourceSchema,
   at: NonBlankStringSchema,
+  recordedAt: NonBlankStringSchema,
   payloadHash: NonBlankStringSchema,
   payloadRef: JournalPayloadRefSchema
 }).pipe(Schema.filter((event) => (

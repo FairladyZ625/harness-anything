@@ -99,6 +99,23 @@ export const migrationDiagnosticsCommandSpecs = defineCommandSpecs([
     }
   },
   {
+    "kind": "migrate-attribution",
+    "usage": "migrate attribution [--dry-run|--apply --confirm-plan <id>] [--json]",
+    "options": [{"flag":"--dry-run","description":"Produce a deterministic attribution backfill report without writing; this is the default."},{"flag":"--apply","description":"Append only the exact-match migration events from the confirmed plan."},{"flag":"--confirm-plan","description":"Confirm the exact plan id returned by dry-run before applying."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Plan or apply immutable synthetic attribution events for honest legacy matches.",
+    "examples": ["harness-anything migrate attribution --dry-run --json", "harness-anything migrate attribution --apply --confirm-plan abf_0123456789abcdef"],
+    "parse": parseMigrationArgs,
+    "run": runMigrationCommand,
+    "receiptContract": {
+      "data": ["migrationMode", "rows", "report"],
+      "paths": []
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": true,
+      "runtimeEvent": "deferred"
+    }
+  },
+  {
     "kind": "migrate-fact-execution",
     "usage": "migrate fact-execution [--dry-run|--apply --confirm-plan <id>] [--apply-manual <fact-ref-list>] [--batch-size <n>] [--batch <n>] [--sample-size <n>] [--json]",
     "options": [{"flag":"--dry-run","description":"Classify and preview without writing; this is the default."},{"flag":"--apply","description":"Apply the selected automatic or manual-list candidates in the selected batch."},{"flag":"--apply-manual","description":"Select exact fact/<task-id>/<fact-id> refs from a root-relative list file, bypassing three-signal classification."},{"flag":"--confirm-plan","description":"Confirm the exact plan id returned by dry-run before applying."},{"flag":"--batch-size","description":"Limit each coordinated batch to 1-200 selected candidates."},{"flag":"--batch","description":"Select the one-based batch number."},{"flag":"--sample-size","description":"Set samples per classification bucket."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],

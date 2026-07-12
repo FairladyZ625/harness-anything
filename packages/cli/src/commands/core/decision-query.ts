@@ -18,6 +18,7 @@ interface DecisionSummary {
   readonly path: string;
   readonly moduleKeys: ReadonlyArray<string>;
   readonly productLineKeys: ReadonlyArray<string>;
+  readonly attribution: DecisionProjectionRow["attribution"];
 }
 
 interface CompactDecisionSummary {
@@ -112,7 +113,8 @@ function summarizeDecision(decision: DecisionProjectionRow): DecisionSummary {
     rejected: decision.rejected,
     path: decision.path,
     moduleKeys: decision.moduleKeys,
-    productLineKeys: decision.productLineKeys
+    productLineKeys: decision.productLineKeys,
+    attribution: decision.attribution
   };
 }
 

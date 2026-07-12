@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import { defaultTaskProjectionPath, readTaskProjection } from "./sqlite-task-projection.ts";
+import type { EntityAttributionProjection } from "./types.ts";
 
 interface ProjectionJsonObject { readonly [key: string]: ProjectionJsonValue }
 type ProjectionJsonValue = string | number | boolean | null | ReadonlyArray<ProjectionJsonValue> | ProjectionJsonObject;
@@ -15,6 +16,7 @@ export interface SessionProjectionRow {
   readonly bodySha256: string | null;
   readonly bodyRef: ProjectionJsonValue;
   readonly snapshot: ProjectionJsonValue;
+  readonly attribution: EntityAttributionProjection;
 }
 
 export interface ExecutionProjectionRow {
@@ -30,6 +32,7 @@ export interface ExecutionProjectionRow {
   readonly sessionBindings: ReadonlyArray<ProjectionJsonObject>;
   readonly outputs: ReadonlyArray<ProjectionJsonValue>;
   readonly submission: ProjectionJsonValue;
+  readonly attribution: EntityAttributionProjection;
 }
 
 export interface ReviewProjectionRow {
@@ -46,6 +49,7 @@ export interface ReviewProjectionRow {
   readonly rationale: string;
   readonly archiveWarningsAcknowledged: boolean;
   readonly reviewedAt: string;
+  readonly attribution: EntityAttributionProjection;
 }
 
 export interface ExecutionTraceRow extends ExecutionProjectionRow {
@@ -264,7 +268,8 @@ function toSession(row: Record<string, unknown>): SessionProjectionRow {
     exportedAt: nullableString(row.exported_at),
     bodySha256: nullableString(row.body_sha256),
     bodyRef: parseJson(row.body_ref_json),
-    snapshot: parseJson(row.snapshot_json)
+    snapshot: parseJson(row.snapshot_json),
+    attribution: parseAttribution(row.attribution_json)
   };
 }
 
@@ -282,7 +287,8 @@ function toExecution(row: Record<string, unknown>): ExecutionProjectionRow {
     closedAt: nullableString(row.closed_at),
     sessionBindings: jsonArray(row.session_bindings_json).filter(isProjectionRecord),
     outputs: jsonArray(row.outputs_json),
-    submission: parseJson(row.submission_json)
+    submission: parseJson(row.submission_json),
+    attribution: parseAttribution(row.attribution_json)
   };
 }
 
@@ -302,12 +308,18 @@ function toReview(row: Record<string, unknown>): ReviewProjectionRow {
     evidenceChecked: jsonArray(row.evidence_checked_json).filter((value): value is string => typeof value === "string"),
     rationale: String(row.rationale),
     archiveWarningsAcknowledged: row.archive_warnings_acknowledged === 1,
-    reviewedAt: String(row.reviewed_at)
+    reviewedAt: String(row.reviewed_at),
+    attribution: parseAttribution(row.attribution_json)
   };
 }
 
 function parseJson(value: unknown): ProjectionJsonValue {
   return typeof value === "string" ? JSON.parse(value) as ProjectionJsonValue : null;
+}
+
+function parseAttribution(value: unknown): EntityAttributionProjection {
+  if (typeof value !== "string") throw new Error("entity projection row is missing attribution_json");
+  return JSON.parse(value) as EntityAttributionProjection;
 }
 
 function jsonArray(value: unknown): ReadonlyArray<ProjectionJsonValue> {

@@ -98,6 +98,7 @@ function createTableSql(declaration: EntityDeclaration): string {
     const primaryKey = column.primaryKey ? " PRIMARY KEY" : "";
     return `${quoteIdentifier(column.name)} ${sqliteType(column.type)}${primaryKey}`;
   });
+  columns.push("attribution_json TEXT NOT NULL DEFAULT '{\"originator\":null,\"latestActor\":null,\"trailCount\":0,\"completeness\":\"unresolved\"}'");
   return `CREATE TABLE ${quoteIdentifier(declaration.projection.table)} (${columns.join(", ")})`;
 }
 

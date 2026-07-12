@@ -163,6 +163,7 @@ function taskRow(overrides: Partial<TaskProjectionRow>): TaskProjectionRow {
     updatedAt: "2026-07-07T00:00:00.000Z",
     source: "local-document",
     sourcePath: "harness/tasks/task-default/INDEX.md",
+    attribution: { originator: null, latestActor: null, trailCount: 0, completeness: "unresolved" },
     ...overrides
   };
 }

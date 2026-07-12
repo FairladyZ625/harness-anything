@@ -43,6 +43,7 @@ export {
 } from "./projection/entity-projection-readers.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
+export type { EntityAttributionProjection } from "./projection/types.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export { RuntimeEventRecordV2Schema } from "./schemas/runtime-event.ts";
@@ -57,6 +58,8 @@ export * from "./schemas/task-schema-resolver.ts";
 export {
   makeJournaledWriteCoordinator,
   makeOperationalJournaledWriteCoordinator,
+  applyAttributionBackfill,
+  planAttributionBackfill,
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,

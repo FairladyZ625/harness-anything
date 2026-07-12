@@ -7,6 +7,7 @@ import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { parseFlowObject, parseObjectList, parseStringArray, readBlockScalar, unquote } from "../markdown/flow-frontmatter.ts";
 import type { DecisionPackage } from "../schemas/decision-package.ts";
 import type { DecisionProjectionRow } from "./types.ts";
+import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
 
 export function readDecisionProjectionRows(rootInput: HarnessLayoutInput): ReadonlyArray<DecisionProjectionRow> {
   const layout = resolveHarnessLayout(rootInput);
@@ -68,7 +69,8 @@ function decisionDocumentToProjectionRow(rootDir: string, documentPath: string):
     ...(decision.proposedAt ? { proposedAt: decision.proposedAt } : {}),
     ...(decision.arbiter ? { arbiter: decision.arbiter } : {}),
     ...(decision.provenance ? { provenance: decision.provenance } : {}),
-    ...(decision.decidedAt ? { decidedAt: decision.decidedAt } : {})
+    ...(decision.decidedAt ? { decidedAt: decision.decidedAt } : {}),
+    attribution: unresolvedEntityAttribution()
   };
 }
 
@@ -146,7 +148,7 @@ function uniqueDecisionDocumentPaths(values: ReadonlyArray<string>): ReadonlyArr
   return [...new Set(values)];
 }
 
-function canonicalDecisionProjectionRow(row: DecisionProjectionRow): DecisionProjectionRow {
+function canonicalDecisionProjectionRow(row: DecisionProjectionRow): Omit<DecisionProjectionRow, "attribution"> {
   return {
     schema: row.schema,
     decisionId: row.decisionId,

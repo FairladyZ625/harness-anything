@@ -67,6 +67,7 @@ const T = (s: TaskSeed): TaskRow => ({
   lastKnownAt: "2026-06-12T09:00:00",
   gates: [],
   docs: docs(),
+  attribution: { originator: null, latestActor: null, trailCount: 0, completeness: "unresolved" },
   ...s,
 });
 

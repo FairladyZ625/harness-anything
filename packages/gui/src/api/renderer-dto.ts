@@ -7,6 +7,7 @@
 export type {
   DecisionProjectionRow,
   DomainStatus,
+  EntityAttributionProjection,
   ProjectionWarning,
   RelationType,
   TaskProjectionRow

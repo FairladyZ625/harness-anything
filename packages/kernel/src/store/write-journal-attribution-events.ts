@@ -15,6 +15,7 @@ export interface AttributionEventStoreContext {
   readonly rootInput: HarnessLayoutInput;
   readonly commitSha: string;
   readonly versionControlSystem: VersionControlSystem;
+  readonly recordedAt?: string;
 }
 
 export interface AttributionEventStore {
@@ -57,6 +58,10 @@ export function makeLocalGitAttributionEventStore(): AttributionEventStore {
 }
 
 export function createAttributionEvent(record: JournalRecordV2): AttributionEvent {
+  return createAttributionEventRecordedAt(record, record.at);
+}
+
+function createAttributionEventRecordedAt(record: JournalRecordV2, recordedAt: string): AttributionEvent {
   if (!record.payloadRef || typeof record.payload?.payloadHash !== "string") {
     throw new Error(`attributed journal record ${record.opId} lacks immutable payload evidence`);
   }
@@ -71,13 +76,14 @@ export function createAttributionEvent(record: JournalRecordV2): AttributionEven
     principalSource: record.principalSource,
     executorSource: record.executorSource,
     at: record.at,
+    recordedAt,
     payloadHash: record.payload.payloadHash,
     payloadRef: record.payloadRef
   });
 }
 
 function ensureLocalAttributionEvent(record: JournalRecordV2, context: AttributionEventStoreContext): AttributionEventWrite {
-  const event = createAttributionEvent(record);
+  const event = createAttributionEventRecordedAt(record, context.recordedAt ?? record.at);
   const eventPath = localEventPath(context.rootInput, event.opId);
   if (eventExistsAtCommit(eventPath, context)) return { event, touchedPaths: [] };
   if (durableFileExists(eventPath)) {

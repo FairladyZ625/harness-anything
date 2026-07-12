@@ -1,5 +1,6 @@
 import type { CloseoutReadiness, DomainStatus, PackageDisposition, PriorityTier, TaskWorkKind } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
+import type { ActorAxes } from "../schemas/actor-attribution.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
@@ -33,6 +34,13 @@ export type ProjectionWarningCode =
 export interface TaskCreatedBy {
   readonly name: string;
   readonly email: string;
+}
+
+export interface EntityAttributionProjection {
+  readonly originator: ActorAxes | null;
+  readonly latestActor: ActorAxes | null;
+  readonly trailCount: number;
+  readonly completeness: "complete" | "legacy-partial" | "unresolved";
 }
 
 export interface TaskFieldExtensionProjection {
@@ -76,6 +84,7 @@ export interface TaskProjectionRow {
   readonly moduleTitle?: string;
   readonly hasLessonCandidates?: boolean;
   readonly createdBy?: TaskCreatedBy;
+  readonly attribution: EntityAttributionProjection;
   readonly fieldExtensions?: Readonly<Record<string, string | null>>;
 }
 
@@ -117,6 +126,7 @@ export interface DecisionProjectionRow {
   readonly arbiter?: { readonly kind: "agent" | "human" | "system"; readonly id: string };
   readonly provenance?: ReadonlyArray<{ readonly runtime: string; readonly sessionId: string; readonly boundAt: string }>;
   readonly decidedAt?: string;
+  readonly attribution: EntityAttributionProjection;
 }
 
 export interface DecisionProjectionQueryFilters {

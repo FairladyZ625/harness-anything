@@ -261,6 +261,7 @@ export interface ParsedCommand {
     | { readonly kind: "migrate-structure"; readonly mode: "plan" | "apply"; readonly confirmPlan: boolean }
     | { readonly kind: "migrate-anchors"; readonly mode: AnchorBackfillMode }
     | { readonly kind: "migrate-fact-execution"; readonly mode: "dry-run" | "apply"; readonly batchSize: number; readonly batch: number; readonly sampleSize: number; readonly confirmPlan?: string; readonly manualListFile?: string }
+    | { readonly kind: "migrate-attribution"; readonly mode: "dry-run" | "apply"; readonly confirmPlan?: string }
     | { readonly kind: "migrate-provenance"; readonly mode: ProvenanceBackfillMode }
     | { readonly kind: "migrate-run"; readonly planOnly: boolean; readonly outDir: string; readonly locale?: "zh-CN" | "en-US"; readonly assumeLocale?: "zh-CN" | "en-US"; readonly allowDirty: boolean; readonly sessionDir?: string }
     | { readonly kind: "migrate-verify"; readonly sessionPath?: string; readonly fullCutover: boolean }

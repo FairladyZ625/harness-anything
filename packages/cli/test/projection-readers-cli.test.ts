@@ -19,12 +19,18 @@ test("CLI exposes the projection-backed session execution task review and audit 
     writeTask(rootDir, taskId, "in_review");
     writeEntities(rootDir);
 
-    assert.equal(runJson(rootDir, ["session", "show", sessionId]).report.body, "# private transcript\n");
+    const session = runJson(rootDir, ["session", "show", sessionId]).report;
+    assert.equal(session.body, "# private transcript\n");
+    assert.deepEqual(session.session.attribution, unresolvedAttribution());
     assert.equal(runJson(rootDir, ["session", "trace", sessionId]).report.trace.executions[0].executionId, executionId);
-    assert.equal(runJson(rootDir, ["execution", "show", executionId]).report.execution.executionId, executionId);
+    const execution = runJson(rootDir, ["execution", "show", executionId]).report.execution;
+    assert.equal(execution.executionId, executionId);
+    assert.deepEqual(execution.attribution, unresolvedAttribution());
     assert.equal(runJson(rootDir, ["execution", "list", "--task", taskId]).rows, 1);
     assert.equal(runJson(rootDir, ["task", "trace", taskId]).report.trace.executions[0].reviews[0].reviewId, reviewId);
-    assert.equal(runJson(rootDir, ["review", "show", reviewId]).report.review.verdict, "approved");
+    const review = runJson(rootDir, ["review", "show", reviewId]).report.review;
+    assert.equal(review.verdict, "approved");
+    assert.deepEqual(review.attribution, unresolvedAttribution());
     assert.equal(runJson(rootDir, ["audit", "provenance", "--task", taskId]).report.audit.coverage, "complete");
   });
 });
@@ -118,6 +124,10 @@ function writeEntities(rootDir: string): void {
     archive_warnings_acknowledged: false,
     reviewed_at: "2026-07-11T01:15:00.000Z"
   }, null, 2)}\n`);
+}
+
+function unresolvedAttribution(): Record<string, unknown> {
+  return { originator: null, latestActor: null, trailCount: 0, completeness: "unresolved" };
 }
 
 function writeTask(rootDir: string, id: string, status: string): void {

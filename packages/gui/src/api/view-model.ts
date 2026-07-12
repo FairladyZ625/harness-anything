@@ -12,6 +12,7 @@ export interface GuiTaskRow {
   readonly coordinationStatus: GuiCoordinationStatus;
   readonly closeoutReadiness: string;
   readonly parentTaskId?: string;
+  readonly attribution: TaskProjectionRow["attribution"];
 }
 
 export interface GuiBoardColumn {
@@ -78,7 +79,8 @@ export const guiTaskProjectionFields = [
   "parentTaskId",
   "coordinationStatus",
   "closeoutReadiness",
-  "packageDisposition"
+  "packageDisposition",
+  "attribution"
 ] as const satisfies ReadonlyArray<keyof TaskProjectionRow>;
 
 const viewOrder: readonly GuiViewId[] = ["board", "list", "detail", "doc-viewer", "review-queue", "graph"];
@@ -211,6 +213,7 @@ function toGuiTaskRow(row: Pick<TaskProjectionRow, (typeof guiTaskProjectionFiel
     title: row.title,
     coordinationStatus: coordinationStatuses.has(row.coordinationStatus) ? row.coordinationStatus : "unknown",
     closeoutReadiness: row.closeoutReadiness,
+    attribution: row.attribution,
     parentTaskId: typeof row.parentTaskId === "string" && row.parentTaskId.length > 0 ? row.parentTaskId : undefined
   };
 }

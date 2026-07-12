@@ -14,6 +14,7 @@ import { projectionVersion, queryDecisionProjectionRows, queryTaskChildrenRows, 
 import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRows } from "./sqlite-decision-source.ts";
 import { materializeAttributionProjection } from "./sqlite-attribution-projection.ts";
 import { attributionEventSourceHash } from "../local/attribution-event-source.ts";
+import { readLegacyPersonIds } from "./entity-attribution-projection.ts";
 import { compareRows, hashExactRows, readMarkdownSource, taskEntryToRow } from "./sqlite-task-source.ts";
 export { hashTaskProjectionRows } from "./sqlite-task-source.ts";
 export type {
@@ -178,7 +179,12 @@ function projectionSourceHash(taskSourceHash: string, rootInput: ReturnType<type
     table: declaration.projection.table,
     rows: discoverDeclaredEntityRows(rootInput, declaration)
   }));
-  return sha256Text(JSON.stringify({ taskSourceHash, entityRows, attributionEventSourceHash: attributionEventSourceHash(rootInput) }));
+  return sha256Text(JSON.stringify({
+    taskSourceHash,
+    entityRows,
+    attributionEventSourceHash: attributionEventSourceHash(rootInput),
+    legacyPersonIds: [...readLegacyPersonIds(rootInput)].sort()
+  }));
 }
 
 function declaredProjectionMatches(rootInput: ReturnType<typeof createHarnessRuntimeContext>, projectionPath: string): boolean {

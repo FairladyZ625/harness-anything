@@ -20,6 +20,7 @@ function row(overrides: Partial<TaskProjectionRow>): TaskProjectionRow {
     updatedAt: "2026-07-09T00:00:00.000Z",
     source: "local-document",
     sourcePath: "harness/tasks/task-x/INDEX.md",
+    attribution: { originator: null, latestActor: null, trailCount: 0, completeness: "unresolved" },
     ...overrides,
   };
 }
@@ -78,6 +79,7 @@ describe("adaptProjectionRows root computation", () => {
     expect(byId.get("child1b")?.rootTitle).toBe("Root One");
     expect(byId.get("child2")?.rootTaskId).toBe("root2");
     expect(byId.get("child2")?.rootTitle).toBe("Root Two");
+    expect(byId.get("child2")?.attribution.completeness).toBe("unresolved");
   });
 
   it("treats standalone tasks (no parent) as their own root", () => {

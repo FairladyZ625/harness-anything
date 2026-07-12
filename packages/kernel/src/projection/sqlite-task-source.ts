@@ -12,6 +12,7 @@ import {
   type RelationAuthoredSourceKind
 } from "./relation-source-manifest.ts";
 import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskFieldExtensionProjection, TaskProjectionRow } from "./types.ts";
+import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
 import { readDirIfPresent, readDirNamesIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 
 export function readMarkdownSource(rootInput: HarnessLayoutInput): {
@@ -138,7 +139,8 @@ export function taskEntryToRow(
     ...readTaskMetadata(entry.frontmatter),
     ...readModuleMetadata(taskDir),
     hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
-    ...readCreatedBy(entry.frontmatter)
+    ...readCreatedBy(entry.frontmatter),
+    attribution: unresolvedEntityAttribution()
   };
 }
 
@@ -326,7 +328,7 @@ export function compareRows(a: TaskProjectionRow, b: TaskProjectionRow): number 
   return a.taskId.localeCompare(b.taskId);
 }
 
-function canonicalTaskProjectionRow(row: TaskProjectionRow): TaskProjectionRow {
+function canonicalTaskProjectionRow(row: TaskProjectionRow): Omit<TaskProjectionRow, "attribution"> {
   return {
     schema: row.schema,
     taskId: row.taskId,

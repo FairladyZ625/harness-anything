@@ -128,11 +128,12 @@
       "bearing": "attribution-audit",
       "leaseRequired": false,
       "channel": { "pathClass": "coordinator-authored", "zoneClass": "immutable-attribution-event-trail" },
-      "entry": ["write-coordinator", "ledger-materializer"],
+      "entry": ["write-coordinator", "ledger-materializer", "attribution-backfill"],
+      "cliActions": ["migrate-attribution"],
       "directWrites": [
         { "file": "packages/kernel/src/store/write-journal-durable.ts" }
       ],
-      "evidence": ["packages/kernel/src/store/write-journal-attribution-events.ts:28", "packages/kernel/src/store/write-journal-durable.ts:117"],
+      "evidence": ["packages/kernel/src/store/write-journal-attribution-events.ts:28", "packages/kernel/src/store/attribution-backfill.ts:78", "packages/kernel/src/store/write-journal-durable.ts:117"],
       "freshness": "append-only-op-id-shard"
     },
     {
