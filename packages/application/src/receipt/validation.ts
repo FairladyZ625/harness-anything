@@ -5,6 +5,7 @@ import {
   type ImmutableReceiptAcknowledgement,
   type OriginResolution
 } from "./types.ts";
+import { isRecord } from "../record.ts";
 
 const authorityTags = ["COMMITTED", "REJECTED", "RETRYABLE_NOT_COMMITTED", "INDETERMINATE"] as const;
 const originTags = ["APPLIED_EXACT_AT_CUT", "SUPERSEDED", "LOCAL_CONFLICT", "APPLY_BLOCKED", "NONQUIESCENT", "VIEW_UNAVAILABLE"] as const;
@@ -85,6 +86,3 @@ function includes<const Values extends readonly string[]>(values: Values, value:
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
