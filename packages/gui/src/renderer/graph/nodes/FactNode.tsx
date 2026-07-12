@@ -1,41 +1,36 @@
-import { Handle, Position } from '@xyflow/react';
+import { Handle, Position } from "@xyflow/react";
 
+/**
+ * fact 节点(展开态)。默认折叠成 claim/task 上的徽章(dec_01KXA7811SVVT8P66HNDFZQ7DF CH3);
+ * 用户点开后渲染为圆形节点,边锚到 claim handle。
+ */
 export function FactNode({ data, selected }: any) {
   const isLoop = data.loop;
   const isDimmed = data.dimmed;
   const cycleWarning = data.cycleWarning;
 
   return (
-    <div 
-      className="w-[140px] h-[40px] flex items-center relative cursor-pointer box-border rounded-full border bg-surface-raised px-3 shadow-sm transition-all duration-200 group"
-      style={{ 
+    <div
+      className="relative flex h-full w-full items-center justify-center cursor-pointer rounded-full border shadow-sm transition-all duration-200"
+      style={{
+        backgroundColor: "rgba(240, 162, 60, 0.18)",
         opacity: isDimmed ? 0.4 : 1,
-        borderColor: isLoop ? '#f97316' : selected ? 'var(--color-stale)' : 'var(--color-border-strong)',
-        boxShadow: selected || isLoop ? `0 0 0 2px ${isLoop ? '#f97316' : 'var(--color-stale)'}` : undefined,
+        borderColor: isLoop ? "#f97316" : selected ? "var(--color-axis-evidence)" : "var(--color-border-strong)",
+        borderWidth: isLoop ? "2px" : selected ? "1.5px" : "1px",
+        boxShadow: selected ? `0 0 0 3px rgba(240,162,60,0.2)` : undefined,
       }}
     >
-      <Handle type="target" position={Position.Top} className="opacity-0" />
-      <Handle type="source" position={Position.Bottom} className="opacity-0" />
+      <Handle type="target" position={Position.Top} className="!h-1.5 !w-1.5 !min-w-1.5 !min-h-1.5 !border-0 !bg-[var(--color-axis-evidence)]" />
+      <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !min-w-1.5 !min-h-1.5 !border-0 !bg-[var(--color-axis-evidence)]" />
       {cycleWarning && (
         <span
-          title="INV-3: relation cycle detected; traversal is truncated"
-          className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-danger font-mono text-[10px] font-bold text-white"
+          title="INV-3: relation cycle detected"
+          className="absolute -right-1 -top-1 grid size-3.5 place-items-center rounded-full bg-danger font-mono text-[9px] font-bold text-white"
         >
           !
         </span>
       )}
-      
-      <div className="w-[10px] h-[10px] rounded-full shrink-0 mr-2 bg-stale" />
-      <div className="flex flex-col min-w-0 flex-1 justify-center">
-        <span className="font-mono text-[9px] text-text-faint truncate leading-none mb-1">
-          {data.sub}
-        </span>
-        <span className="text-[11px] font-medium text-text truncate leading-none">
-          {data.label}
-        </span>
-      </div>
-      
-      <div className="absolute inset-0 rounded-full ring-2 ring-stale opacity-0 group-hover:opacity-50 transition-opacity" />
+      <span className="font-mono text-[9px] text-stale font-semibold">F</span>
     </div>
   );
 }

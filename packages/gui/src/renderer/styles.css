@@ -39,6 +39,12 @@
   /* freshness 通道 */
   --color-stale: oklch(0.75 0.12 75);
   --color-danger: oklch(0.65 0.18 25);
+
+  /* 关系语义轴(dec_01KXA7811SVVT8P66HNDFZQ7DF CH4):权威/证据/执行/松关联 */
+  --color-axis-authority: oklch(0.72 0.14 250);
+  --color-axis-evidence: oklch(0.75 0.12 75);
+  --color-axis-execution: oklch(0.74 0.14 150);
+  --color-axis-assoc: oklch(0.62 0.012 285);
 }
 
 /*
@@ -68,6 +74,12 @@ html[data-theme="light"] {
 
   --color-stale: oklch(0.57 0.12 75);
   --color-danger: oklch(0.54 0.19 25);
+
+  /* 关系语义轴 — 亮色主题保持色相一致,仅调亮度 */
+  --color-axis-authority: oklch(0.54 0.16 250);
+  --color-axis-evidence: oklch(0.57 0.12 75);
+  --color-axis-execution: oklch(0.56 0.14 150);
+  --color-axis-assoc: oklch(0.46 0.012 285);
 }
 
 html,
