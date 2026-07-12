@@ -1,6 +1,6 @@
 export type RuntimeEventRuntime = "human" | "claude-code" | "codex" | "zcode" | "antigravity";
 
-export const runtimeEventKinds = ["session", "turn", "step", "tool", "approval", "interrupt", "result", "cost"] as const;
+export const runtimeEventKinds = ["session", "turn", "step", "tool", "approval", "interrupt", "result", "cost", "lease"] as const;
 export const runtimeEventResultStatuses = ["started", "succeeded", "failed", "cancelled", "unknown"] as const;
 export const runtimeEventApprovalDecisions = ["approved", "rejected", "timeout", "unknown"] as const;
 export const runtimeEventInterruptActions = ["pause", "cancel", "resume", "append", "branch", "unknown"] as const;

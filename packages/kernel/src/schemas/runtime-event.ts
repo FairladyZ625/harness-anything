@@ -32,13 +32,29 @@ const RuntimeEventActorSchema = Schema.Struct({
   responsibleHuman: Schema.String
 });
 
-const RuntimeEventActorAxesSchema = Schema.Struct({
+// V1-only reader shape. Runtime/session identity remains here solely so legacy
+// rows stay readable; active v2 writers use stable ActorAxesSchema instead.
+const LegacyRuntimeEventActorAxesSchema = Schema.Struct({
   principal: Schema.NullOr(RuntimeEventPersonPrincipalSchema),
   executor: Schema.NullOr(Schema.Struct({
     runtime: Schema.Union(CurrentSessionRuntimeSchema, Schema.Literal("unknown")),
     sessionId: OptionalString
   })),
   responsibleHuman: Schema.NullOr(RuntimeEventPersonPrincipalSchema)
+});
+
+export const RuntimeLeaseEventSchema = Schema.Struct({
+  action: Schema.Literal("reserved", "activated", "renewed", "released", "expired", "reconciled"),
+  taskId: Schema.String,
+  executionId: Schema.String,
+  phase: Schema.Literal("reserving", "active", "released", "expired"),
+  acquiredVia: Schema.Literal("claim"),
+  acquiredAt: Schema.String,
+  leaseExpiresAt: Schema.String,
+  releasedAt: Schema.NullOr(Schema.String),
+  updatedAt: Schema.String,
+  version: Schema.String,
+  previousHolder: Schema.NullOr(ActorAxesSchema)
 });
 
 const RuntimeEventFields = {
@@ -100,17 +116,25 @@ const RuntimeEventFields = {
 export const RuntimeEventRecordSchema = Schema.Struct({
   schema: Schema.Literal("runtime-event/v1"),
   ...RuntimeEventFields,
+  kind: Schema.Literal("session", "turn", "step", "tool", "approval", "interrupt", "result", "cost"),
   actor: Schema.optional(RuntimeEventActorSchema),
-  actorAxes: Schema.optional(RuntimeEventActorAxesSchema)
+  actorAxes: Schema.optional(LegacyRuntimeEventActorAxesSchema)
 });
 
 // Phase 1 publishes the v2 type/schema only. No current append path selects it.
 export const RuntimeEventRecordV2Schema = Schema.Struct({
   schema: Schema.Literal("runtime-event/v2"),
   ...RuntimeEventFields,
-  actor: ActorAxesSchema
-});
+  actor: ActorAxesSchema,
+  lease: Schema.optional(RuntimeLeaseEventSchema)
+}).pipe(Schema.filter((event) => {
+  if (event.kind !== "lease") return event.lease === undefined;
+  return event.lease !== undefined &&
+    event.lease.executionId === event.session.executionId &&
+    event.lease.taskId === event.session.taskId;
+}));
 
 export type RuntimeEventRecord = Schema.Schema.Type<typeof RuntimeEventRecordSchema>;
 export type RuntimeEventRecordV2 = Schema.Schema.Type<typeof RuntimeEventRecordV2Schema>;
-export type RuntimeEventRecordDocument = RuntimeEventRecord;
+export type RuntimeLeaseEvent = Schema.Schema.Type<typeof RuntimeLeaseEventSchema>;
+export type RuntimeEventRecordDocument = RuntimeEventRecord | RuntimeEventRecordV2;

@@ -2,11 +2,9 @@
 
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Effect } from "effect";
 import {
   readDaemonRegistry,
-  type DaemonRegistryRepo,
-  type WriteCoordinator
+  type DaemonRegistryRepo
 } from "../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "./cli/error-codes.ts";
 import { parseArgs } from "./cli/parse-args.ts";
@@ -38,7 +36,7 @@ import { createCliCommandService } from "./daemon/command-service.ts";
 import { makeDocSyncService } from "./daemon/doc-sync-service.ts";
 import { daemonActorAttribution } from "./composition/actor-attribution.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
-import { makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
+import { failClosedReservationReconcilerCoordinator, makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { leaseEnforcementEnabled } from "./commands/settings.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
@@ -106,7 +104,11 @@ async function runDaemonServe(
   const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
   const runtime = createMultiRepoDaemonRuntime({
     materializerPollMs: 5_000,
-    reservationReconciler: async (rootInput) => makeDaemonReservationReconciler(rootInput)(),
+    reservationReconciler: async (rootInput) => {
+      const canonicalRoot = typeof rootInput === "string" ? rootInput : rootInput.rootDir;
+      const repoId = serveRepos.find((repo) => repo.canonicalRoot === canonicalRoot)?.repoId;
+      return makeDaemonReservationReconciler(rootInput, repoId ? runtime.getRepoRuntime(repoId) : undefined)();
+    },
     repos: serveRepos.map((repo) => ({
       repoId: repo.repoId,
       rootDir: repo.canonicalRoot,
@@ -143,20 +145,6 @@ async function runDaemonServe(
   serviceHost.scheduleIdleExit();
   await Promise.race([waitForStopSignal(), serviceHost.waitForStopRequest()]);
   await serviceHost.stop();
-}
-
-function failClosedReservationReconcilerCoordinator(): WriteCoordinator {
-  const fail = () => Effect.fail({
-    _tag: "WriteRejected" as const,
-    reason: "Reservation reconciliation cannot author entity state without the original lease principal attribution.",
-    code: "identity_required",
-    retryable: false
-  });
-  return {
-    enqueue: () => fail(),
-    flush: () => fail(),
-    recover: fail()
-  };
 }
 
 function repoAvailabilityFailure(
@@ -395,7 +383,6 @@ function createRepoServiceBinding(
     taskWriter,
     artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
   });
-  const taskHolderService = makeTaskHolderService({ rootInput: { rootDir, layoutOverrides } });
   const cliCommandService = createCliCommandService(runtime, commandOptions);
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
     rootInput: { rootDir, layoutOverrides },
@@ -405,6 +392,7 @@ function createRepoServiceBinding(
       id: "daemon-runtime"
     })
   }));
+  const taskHolderService = makeTaskHolderService({ rootInput: { rootDir, layoutOverrides }, appendLeaseEvent: appendRuntimeEvent });
   return {
     repo,
     identity,

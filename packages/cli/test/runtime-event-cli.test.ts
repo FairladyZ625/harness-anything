@@ -143,9 +143,10 @@ test("CLI task transition runtime event records dual-axis actor", () => {
     assert.equal(events.length, 1);
     assert.equal(events[0].tool.toolName, "status-set");
     assert.equal(events[0].session.taskId, created.taskId);
+    assert.equal(events[0].schema, "runtime-event/v2");
     assert.equal(events[0].actor.principal.personId, "person_tester");
     assert.deepEqual(events[0].actor.executor, { kind: "agent", id: "codex-cli" });
-    assert.equal(events[0].actor.responsibleHuman, "person:person_tester");
+    assert.equal("responsibleHuman" in events[0].actor, false);
   });
 });
 
@@ -162,7 +163,7 @@ test("CLI entity write fails closed before runtime event append when principal c
 
     assert.equal(output.result.ok, false);
     assert.equal(existsSync(ledgerPath), false);
-    assert.match(output.stderr, /runtime event actor attribution unavailable: Local writes require a configured person identity/u);
+    assert.match(output.result.warnings?.[0]?.message ?? "", /Local writes require a configured person identity/u);
   });
 });
 

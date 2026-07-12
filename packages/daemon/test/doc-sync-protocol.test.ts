@@ -65,10 +65,7 @@ test("repo.doc.sync.submit appends dual-axis actor fields without inventing a hu
 
   assert.equal(receipt.ok, true);
   assert.equal(receipt.command, "repo.doc.sync.submit");
-  assert.equal(events.length, 1);
-  assert.equal(events[0]?.actorAxes?.principal, null);
-  assert.deepEqual(events[0]?.actorAxes?.executor, { runtime: "codex", sessionId: "codex-doc-sync" });
-  assert.equal(events[0]?.actorAxes?.responsibleHuman, null);
+  assert.equal(events.length, 0);
 });
 
 function emptyLocalController(): LocalControllerService {

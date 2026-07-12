@@ -139,8 +139,17 @@ test("daemon command service preserves A/X attribution through the queued coordi
     });
 
     assert.ok(requests.length > 0);
-    assert.equal(requests.every((request) => request.attribution.actor.principal.personId === "person_alice"), true);
-    assert.equal(requests.every((request) => request.attribution.actor.executor?.id === "codex"), true);
+    const attributed = requests.filter((request) => "attribution" in request);
+    const operational = requests.filter((request) => "operationalActor" in request);
+    assert.equal(attributed.every((request) => request.attribution.actor.principal.personId === "person_alice"), true);
+    assert.equal(attributed.every((request) => request.attribution.actor.executor?.id === "codex"), true);
+    assert.equal(operational.length, 1);
+    assert.deepEqual(operational[0]?.operationalActor, {
+      scope: "operational",
+      kind: "agent",
+      id: "runtime-event-cli"
+    });
+    assert.equal("attribution" in operational[0]!, false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -45,6 +45,8 @@ export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
+export { RuntimeEventRecordV2Schema } from "./schemas/runtime-event.ts";
+export type { RuntimeEventRecordDocument, RuntimeEventRecordV2 } from "./schemas/runtime-event.ts";
 export type {
   OperationalActor,
   PrincipalSource,
@@ -54,6 +56,7 @@ export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
   makeJournaledWriteCoordinator,
+  makeOperationalJournaledWriteCoordinator,
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,
