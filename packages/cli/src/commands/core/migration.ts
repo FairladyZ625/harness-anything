@@ -12,6 +12,7 @@ import {
   runMigrateVerify
 } from "../migration.ts";
 import { runMigrateAnchors } from "../anchor-backfill.ts";
+import { runMigrateFactExecution } from "../fact-execution-migration.ts";
 import { runMigrateProvenance } from "./provenance-backfill.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 
@@ -24,6 +25,7 @@ type MigrationAction = Extract<
       | "migrate-plan"
       | "migrate-structure"
       | "migrate-anchors"
+      | "migrate-fact-execution"
       | "migrate-provenance"
       | "migrate-run"
       | "migrate-verify"
@@ -48,6 +50,8 @@ export const runMigrationCommand: CommandRunner = (context, command) => {
       return runMigrateStructureEffect(context.layoutInput, action, context.makeWriteCoordinator({ kind: "agent", id: "legacy-migration" }));
     case "migrate-anchors":
       return runMigrateAnchors(context, context.layoutInput, action);
+    case "migrate-fact-execution":
+      return runMigrateFactExecution(context, context.layoutInput, action);
     case "migrate-provenance":
       return runMigrateProvenance(context, context.layoutInput, action);
     case "migrate-run":

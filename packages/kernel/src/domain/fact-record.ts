@@ -28,6 +28,16 @@ export interface FactRecord {
     readonly sessionId: string;
     readonly boundAt: string;
   }>;
+  readonly migration?: FactMigrationTrace;
+}
+
+export interface FactMigrationTrace {
+  readonly schema: "fact-migration/v1";
+  readonly state: "migrated";
+  readonly plan_id: string;
+  readonly execution_ref: string;
+  readonly evidence_id: string;
+  readonly migrated_at: string;
 }
 
 const factIdPattern = /^F-[0-9A-HJKMNP-TV-Z]{8}$/u;
@@ -37,7 +47,8 @@ export function isFactId(value: string): boolean {
 }
 
 export function formatFactFlowRecord(record: FactRecord): string {
-  return `- {fact_id: ${record.fact_id}, statement: ${quoteFactFlowString(record.statement)}, source: ${quoteFactFlowString(record.source)}, observedAt: ${quoteFactFlowString(record.observedAt)}, confidence: ${record.confidence}, memoryClass: ${record.memoryClass}, memoryTags: [${record.memoryTags.join(", ")}], provenance: [${record.provenance.map(formatFactProvenanceEntry).join(", ")}]}`;
+  const migration = record.migration ? `, migration: ${formatFactMigrationTrace(record.migration)}` : "";
+  return `- {fact_id: ${record.fact_id}, statement: ${quoteFactFlowString(record.statement)}, source: ${quoteFactFlowString(record.source)}, observedAt: ${quoteFactFlowString(record.observedAt)}, confidence: ${record.confidence}, memoryClass: ${record.memoryClass}, memoryTags: [${record.memoryTags.join(", ")}], provenance: [${record.provenance.map(formatFactProvenanceEntry).join(", ")}]${migration}}`;
 }
 
 export function parseFactFlowRecords(body: string): ReadonlyArray<FactRecord> {
@@ -67,6 +78,8 @@ function parseFactFlowRecord(line: string): FactRecord | null {
   if (memoryTags === null) return null;
   const provenance = parseFactProvenanceArray(values.provenance);
   if (provenance.length === 0) return null;
+  const migration = values.migration === undefined ? undefined : parseFactMigrationTrace(values.migration);
+  if (values.migration !== undefined && !migration) return null;
   return {
     fact_id: values.fact_id,
     statement: values.statement,
@@ -75,7 +88,32 @@ function parseFactFlowRecord(line: string): FactRecord | null {
     confidence: values.confidence,
     memoryClass,
     memoryTags,
-    provenance
+    provenance,
+    ...(migration ? { migration } : {})
+  };
+}
+
+function formatFactMigrationTrace(trace: FactMigrationTrace): string {
+  return `{schema: ${quoteFactFlowString(trace.schema)}, state: ${trace.state}, plan_id: ${quoteFactFlowString(trace.plan_id)}, execution_ref: ${quoteFactFlowString(trace.execution_ref)}, evidence_id: ${quoteFactFlowString(trace.evidence_id)}, migrated_at: ${quoteFactFlowString(trace.migrated_at)}}`;
+}
+
+function parseFactMigrationTrace(value: string): FactMigrationTrace | null {
+  if (!value.startsWith("{") || !value.endsWith("}")) return null;
+  const fields: Record<string, string> = {};
+  for (const part of splitFactTopLevel(value.slice(1, -1))) {
+    const separator = part.indexOf(":");
+    if (separator === -1) continue;
+    fields[part.slice(0, separator).trim()] = parseFlowScalar(part.slice(separator + 1).trim());
+  }
+  if (fields.schema !== "fact-migration/v1" || fields.state !== "migrated" ||
+      !fields.plan_id || !fields.execution_ref || !fields.evidence_id || !fields.migrated_at) return null;
+  return {
+    schema: "fact-migration/v1",
+    state: "migrated",
+    plan_id: fields.plan_id,
+    execution_ref: fields.execution_ref,
+    evidence_id: fields.evidence_id,
+    migrated_at: fields.migrated_at
   };
 }
 

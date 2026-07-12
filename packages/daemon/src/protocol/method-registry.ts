@@ -265,6 +265,7 @@ const repoWriteCliActionKinds = new Set<string>([
   "lesson-sediment",
   "materializer-run",
   "migrate-anchors",
+  "migrate-fact-execution",
   "migrate-provenance",
   "migrate-run",
   "migrate-structure",
