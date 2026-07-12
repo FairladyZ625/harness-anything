@@ -45,6 +45,10 @@ export function computeClaimCoverage(
   // 适 App.tsx 未透传 coverageRows 的场景(GraphView 只拿到 decisions + relations + facts)。
   // 注意:decision.claims 是 {id,text} 列表(全集),chosen/rejected 才有 evidence —
   // 所以先按 id 建索引,再遍历全集 claims 给没有 evidence 的 claim 标 uncovered。
+  // 修 #10:此前 Path B 在 evidence 为空时把 unknown 直接翻成 uncovered,把
+  // coverageRows 缺失/loading 误当成「确认风险」。现在 Path B 只升级 unknown→covered
+  // (有 evidence 时);无证据则保持 unknown,等 coverageRows 到位后再由 Path A
+  // 拍板。Path A 的 uncovered 判定保持原义(kernel 已计算 = 真风险)。
   const evidenceById = new Map<string, string[]>();
   for (const claim of [...decision.chosen, ...decision.rejected]) {
     evidenceById.set(claim.id, claim.evidence);
@@ -56,10 +60,8 @@ export function computeClaimCoverage(
     if (evidence.length > 0) {
       info.evidenceFacts = [...new Set([...info.evidenceFacts, ...evidence])];
       if (info.status === "unknown") info.status = "covered";
-    } else if (info.status === "unknown") {
-      // 仍未被任何路径标 covered → uncovered (风险视角)
-      info.status = "uncovered";
     }
+    // evidence 为空且 Path A 未触 → 保持 unknown (loading/缺数据),不再误降为 uncovered。
   }
 
   return [...byClaim.values()];

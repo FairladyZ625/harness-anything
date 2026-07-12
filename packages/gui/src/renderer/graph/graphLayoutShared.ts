@@ -115,7 +115,11 @@ export function buildEdge(input: BuildEdgeInput): Edge {
     source: input.sourceId,
     sourceHandle: input.sourceClaimId ? `claim-${input.sourceClaimId}` : undefined,
     target: input.targetId,
-    targetHandle: input.targetClaimId ? `claim-${input.targetClaimId}` : undefined,
+    // 修 #7:DecisionFocusNode 的 per-claim target handle 命名为 `claim-<id>-in`
+    // (DecisionFocusNode.tsx:97-101)。此前 buildEdge 给 targetClaimId 也拼 `claim-<id>`,
+    // 不匹配任何 handle → 边不显示。聚焦后代(refines 目标=focus)场景下 lineage
+    // 边现在会带 targetClaimId,需要拼对后缀。
+    targetHandle: input.targetClaimId ? `claim-${input.targetClaimId}-in` : undefined,
     type: "interactive",
     data: { ...input.edge, axis: input.axis },
     animated: false,

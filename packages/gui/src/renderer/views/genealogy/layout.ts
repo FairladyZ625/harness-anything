@@ -60,6 +60,8 @@ export interface TimelineLayout {
   ticks: { x: number; label: string }[];
   minT: number;
   maxT: number;
+  /** 修 #11:谱系边成环时,显式带出 cycle 列表供视图告警(此前 BFS 静默截断)。 */
+  cycleWarning: { count: number; cycles: string[][] };
 }
 
 /** 把 `decision/dec_x/CH1` 之类的 ref 归一成裸 decision id；非 decision 端返回 null。 */
@@ -148,6 +150,53 @@ export function collectLineage(
   return depth;
 }
 
+/**
+ * 修 #11:在谱系边集里检测环。collectLineage 的 BFS 遇到环会静默终止(已访问
+ * 节点跳过),导致环里的节点拿到任意 depth,但调用方完全不知数据里有环。
+ * 此函数显式找出所有简单环,供视图发 INV 风格的告警。
+ *
+ * 注:仅按 GenealogyEdge.from/to 形成的有向图找环,与 graphLayoutShared 的
+ * findRelationCycles 同思路,但保持谱系视图自包含(不引入 graph/** 依赖)。
+ */
+export function findGenealogyCycles(edges: GenealogyEdge[]): string[][] {
+  const byFrom = new Map<string, string[]>();
+  for (const edge of edges) {
+    const arr = byFrom.get(edge.from) ?? [];
+    arr.push(edge.to);
+    byFrom.set(edge.from, arr);
+  }
+  const cycles: string[][] = [];
+  const seenKeys = new Set<string>();
+  const visited = new Set<string>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+
+  const visit = (node: string) => {
+    if (onStack.has(node)) {
+      const start = stack.indexOf(node);
+      if (start >= 0) {
+        const cycle = [...stack.slice(start), node];
+        const key = cycle.join(">");
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          cycles.push(cycle);
+        }
+      }
+      return;
+    }
+    if (visited.has(node)) return;
+    onStack.add(node);
+    stack.push(node);
+    for (const next of byFrom.get(node) ?? []) visit(next);
+    stack.pop();
+    onStack.delete(node);
+    visited.add(node);
+  };
+
+  for (const node of byFrom.keys()) visit(node);
+  return cycles;
+}
+
 /** 时间轴上做 3–6 个刻度。 */
 export function axisTicks(minT: number, maxT: number): { t: number; label: string }[] {
   if (!(maxT > minT)) return [];
@@ -167,6 +216,7 @@ const EMPTY_LAYOUT: TimelineLayout = {
   ticks: [],
   minT: 0,
   maxT: 0,
+  cycleWarning: { count: 0, cycles: [] },
 };
 
 /**
@@ -233,5 +283,16 @@ export function computeLayout(
     x: PAD_X + xOfTime(tick.t),
     label: tick.label,
   }));
-  return { nodes: placed, width, height, ticks, minT, maxT };
+  // 修 #11:refines/narrows/supersedes/supports 边集里若成环,collectLineage 会
+  // 静默截断(depth 任意赋),视图此前毫无提示。现在显式计算 cycle 列表上抛。
+  const cycles = findGenealogyCycles(edges);
+  return {
+    nodes: placed,
+    width,
+    height,
+    ticks,
+    minT,
+    maxT,
+    cycleWarning: { count: cycles.length, cycles },
+  };
 }

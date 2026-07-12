@@ -160,14 +160,29 @@ export function DecisionPoolView({
 
   const rows = useMemo(() => {
     const tabStates = new Set(TAB_STATE[tab]);
+    // 修 #2(预存 bug,归属 dec_mrf2nzvf):三元 `||`/`?:` 优先级让 riskFilter="all"
+    // 走到 !decision.riskTier 分支,把所有有 riskTier 的决策反筛掉;urgency/proposedBy
+    // 同样的运算符陷阱。显式拆成「all 放行 + unknown 反查 + 精确匹配」三路,并加括号。
     return sortDecisionQueue(decisions)
       .filter((decision) => tabStates.has(decision.state))
       .filter((decision) => stateFilter === "all" || decision.state === stateFilter)
-      .filter((decision) => riskFilter === "all" || riskFilter === "unknown" ? !decision.riskTier : decision.riskTier === riskFilter)
-      .filter((decision) => urgencyFilter === "all" || urgencyFilter === "unknown" ? !decision.urgency : decision.urgency === urgencyFilter)
+      .filter((decision) => {
+        if (riskFilter === "all") return true;
+        if (riskFilter === "unknown") return !decision.riskTier;
+        return decision.riskTier === riskFilter;
+      })
+      .filter((decision) => {
+        if (urgencyFilter === "all") return true;
+        if (urgencyFilter === "unknown") return !decision.urgency;
+        return decision.urgency === urgencyFilter;
+      })
       .filter((decision) => verticalFilter === "all" || decision.vertical === verticalFilter)
       .filter((decision) => presetFilter === "all" || decision.preset === presetFilter)
-      .filter((decision) => proposedByFilter === "all" || proposedByFilter === "unknown" ? !decision.proposedBy : decision.proposedBy?.kind === proposedByFilter)
+      .filter((decision) => {
+        if (proposedByFilter === "all") return true;
+        if (proposedByFilter === "unknown") return !decision.proposedBy;
+        return decision.proposedBy?.kind === proposedByFilter;
+      })
       .filter((decision) => withinRange(decision, timeRange));
   }, [decisions, presetFilter, proposedByFilter, riskFilter, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
 

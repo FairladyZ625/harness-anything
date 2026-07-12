@@ -81,12 +81,19 @@ function GraphViewInner({
   focusRef?: string | null;
 }) {
   const { fitView } = useReactFlow();
+  // 节点焦点(布局重算依赖)+ 边焦点(仅抽屉展示)。修 #3:此前用单一 focusId
+  // 同时承载节点和边,点边时把 edge id 当 focusNodeId 传给布局器,导致
+  // layoutSimpleEgo 拿不到节点 → 整张图塌成单个空节点。
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
   const [resolvedFocusId, setResolvedFocusId] = useState<string | null>(null);
   const [expandedFacts, setExpandedFacts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (focusRef) setFocusId(endpointToNodeId(focusRef));
+    if (focusRef) {
+      setFocusEdgeId(null);
+      setFocusId(endpointToNodeId(focusRef));
+    }
   }, [focusRef]);
 
   const [nodes, setNodes] = useState<any[]>([]);
@@ -181,7 +188,7 @@ function GraphViewInner({
   }, [edges.length, fitView, nodes.length, resolvedFocusId]);
 
   const onNodeClick = useCallback(
-    (_: any, node: any) => {
+    (evt: any, node: any) => {
       if (node.type === "laneBackground" || node.type === "moduleGroup") return;
       // 点击 fact 节点 → 折叠回去 (toggle expand)
       if (node.type === "fact" && typeof node.id === "string" && node.id.startsWith("fact/")) {
@@ -193,48 +200,54 @@ function GraphViewInner({
         });
         return;
       }
-      // 点击 decisionFocus 上的 claim 行(带 data.claimRow)→ toggle 展开该 claim 的 evidence facts
+      // 点击 decisionFocus 上的具体 claim 行 → 仅 toggle 该 claim 的 evidence facts。
+      // 修 #4:此前点击焦点卡片任意位置都批量 toggle 所有 claim 的 fact,无法定位
+      // 具体行;现在用 data-claim-id 锚到具体 claim。
+      // 修 #5:factRefs 在 threeLaneLayout 里取 coverageRows.coveringFactRef 与
+      // evidence 边的并集,避免仅有规范/transitive 覆盖但无 direct edge 时漏掉。
       if (node.type === "decisionFocus" && node.data?.claimRows) {
-        const claimRows: Array<{ claimId: string; evidenceCount: number }> = node.data.claimRows;
-        const decisionId: string = node.data.decisionId;
-        const factsToToggle = claimRows
-          .filter((r) => r.evidenceCount > 0)
-          .flatMap((r) => {
-            // 展开 coverageRows 给的 coveringFactRef(从 coverageRows 找)
-            const refs = (coverageRows ?? [])
-              .filter((c) => c.claimRef === `decision/${decisionId}/${r.claimId}` && c.coveringFactRef)
-              .map((c) => c.coveringFactRef as string);
-            return refs;
-          });
-        if (factsToToggle.length > 0) {
-          setExpandedFacts((prev) => {
-            const next = new Set(prev);
-            const allOpen = factsToToggle.every((f) => next.has(f));
-            if (allOpen) factsToToggle.forEach((f) => next.delete(f));
-            else factsToToggle.forEach((f) => next.add(f));
-            return next;
-          });
+        const target = evt?.target as HTMLElement | null;
+        const claimRowEl = target?.closest?.("[data-claim-id]");
+        const claimId = claimRowEl?.getAttribute("data-claim-id");
+        if (claimId) {
+          const rows = node.data.claimRows as Array<{
+            claimId: string;
+            factRefs?: string[];
+          }>;
+          const row = rows.find((r) => r.claimId === claimId);
+          const refs = row?.factRefs ?? [];
+          if (refs.length > 0) {
+            setExpandedFacts((prev) => {
+              const next = new Set(prev);
+              const allOpen = refs.every((f) => next.has(f));
+              if (allOpen) refs.forEach((f) => next.delete(f));
+              else refs.forEach((f) => next.add(f));
+              return next;
+            });
+          }
           return;
         }
+        // 点击焦点卡片但未命中 claim 行 → 落到 setFocusId toggle(关闭抽屉)。
       }
+      setFocusEdgeId(null);
       setFocusId((prev) => (prev === node.id ? null : node.id));
     },
-    [coverageRows],
+    [],
   );
 
   const onEdgeClick = useCallback((_: any, edge: any) => {
-    setFocusId((prev) => (prev === edge.id ? null : edge.id));
+    // 修 #3:边焦点独立成 focusEdgeId,不再混入 focusId,布局不会重算。
+    setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
   }, []);
 
   const onPaneClick = useCallback(() => {
     setFocusId(null);
+    setFocusEdgeId(null);
   }, []);
 
   // Drawer
-  const focusNode =
-    focusId && !focusId.startsWith("e_") ? nodes.find((n) => n.id === focusId) : null;
-  const focusEdge =
-    focusId && focusId.startsWith("e_") ? edges.find((e) => e.id === focusId) : null;
+  const focusNode = focusId ? nodes.find((n) => n.id === focusId) : null;
+  const focusEdge = focusEdgeId ? edges.find((e) => e.id === focusEdgeId) : null;
 
   const drawerNodesMap = useMemo(() => {
     const map = new Map();
@@ -245,7 +258,11 @@ function GraphViewInner({
         entity: n.type === "decisionFocus" ? "decision" : n.type,
         label: n.data.label,
         sub: n.data.sub,
-        task: n.type === "task" ? n.data : undefined,
+        // GraphDrawer 读 closeoutReadiness/engine/freshness/module 等字段,
+        // 这些只存在于完整 TaskRow (n.data.raw) 上,不在 React Flow 节点的
+        // 顶层 data 上。修 #1:此前误传 n.data,导致 CloseoutBadge/EngineBadge
+        // 拿到 undefined,CLOSEOUT_META[undefined] 直接抛 → 点 task 节点必崩。
+        task: n.type === "task" ? n.data.raw : undefined,
         raw: n.data,
       });
     });
@@ -271,6 +288,16 @@ function GraphViewInner({
     }
     return { upCount: up, downCount: down };
   }, [focusId, relations]);
+
+  const closeDrawer = useCallback(() => {
+    setFocusId(null);
+    setFocusEdgeId(null);
+  }, []);
+  const focusFromDrawer = useCallback((id: string | null) => {
+    // Drawer 跳转目标恒为节点 id(边无独立跳转语义)。
+    setFocusEdgeId(null);
+    setFocusId(id);
+  }, []);
 
   if (error) {
     return (
@@ -341,7 +368,7 @@ function GraphViewInner({
           </span>
         )}
         <span className="ml-auto text-text-faint">
-          {focusId
+          {focusId || focusEdgeId
             ? "Esc / 点击空白处退出聚焦 · 点击 claim 行展开证据 fact"
             : "默认聚焦式 ego · 点击节点切换焦点 (Powered by React Flow)"}
         </span>
@@ -399,8 +426,8 @@ function GraphViewInner({
             edges={relations}
             upCount={upCount}
             downCount={downCount}
-            onClose={() => setFocusId(null)}
-            onFocus={setFocusId}
+            onClose={closeDrawer}
+            onFocus={focusFromDrawer}
             onNavigateEntity={onNavigateEntity}
           />
         )}

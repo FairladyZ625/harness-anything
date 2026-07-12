@@ -14,6 +14,12 @@ interface ClaimRow {
   status: "covered" | "uncovered" | "unknown";
   evidenceCount: number;
   derivesCount: number;
+  /**
+   * 该 claim 可展开的 fact ref 列表(并集:coverageRows.coveringFactRef ∪
+   * 直接 evidence 边的 factRef)。GraphView 的 onNodeClick 用 data-claim-id
+   * 锚到具体 claim,只 toggle 该行 factRefs,不再批量 toggle 全部 claim。
+   */
+  factRefs?: string[];
 }
 
 interface FocusData {
@@ -79,11 +85,16 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
         )}
         {rows.map((row) => {
           const covColor = COVERAGE_COLOR_VAR[row.status];
+          const hasFacts = (row.factRefs?.length ?? 0) > 0;
           return (
             <div
               key={row.claimId}
-              className="relative flex items-center gap-2 px-3 border-b border-white/5 last:border-b-0"
+              data-claim-id={row.claimId}
+              className={`relative flex items-center gap-2 px-3 border-b border-white/5 last:border-b-0 ${
+                hasFacts ? "cursor-pointer hover:bg-white/[0.03]" : ""
+              }`}
               style={{ minHeight: 44 }}
+              title={hasFacts ? `点击切换 ${row.factRefs!.length} 条证据 fact` : undefined}
             >
               {/* per-claim source/target handles — let edges anchor to a specific claim row */}
               <Handle

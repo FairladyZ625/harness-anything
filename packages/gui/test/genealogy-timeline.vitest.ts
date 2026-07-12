@@ -6,6 +6,11 @@ import type {
   RelationEdge,
 } from "../src/renderer/model/types.ts";
 import { GenealogyTimelineView } from "../src/renderer/views/GenealogyTimelineView.tsx";
+import {
+  buildGenealogyEdges,
+  computeLayout,
+  findGenealogyCycles,
+} from "../src/renderer/views/genealogy/layout.ts";
 
 /**
  * 谱系 timeline 视图的组件级测试。验证:
@@ -156,5 +161,56 @@ describe("GenealogyTimelineView filter correctness", () => {
     // dec_b refines dec_a 多个 claim 锚去重为一条)。
     expect(markup).toContain("4 条演化边");
     expect(markup).toContain("4 决策参与谱系");
+  });
+});
+
+describe("Genealogy cycle warning (修 #11)", () => {
+  it("findGenealogyCycles 检测 A→B→A 的 refines 环", () => {
+    const decisions: DecisionRow[] = ["dec_a", "dec_b"].map((id) =>
+      baseDecision({ decisionId: id }),
+    );
+    const relations: RelationEdge[] = [
+      edge("decision/dec_a", "decision/dec_b", "refines"),
+      edge("decision/dec_b", "decision/dec_a", "refines"),
+    ];
+    const edges = buildGenealogyEdges(
+      relations,
+      new Map(decisions.map((d) => [d.decisionId, d])),
+    );
+    const cycles = findGenealogyCycles(edges);
+    expect(cycles.length).toBeGreaterThan(0);
+    // 至少一条环把 dec_a / dec_b 都卷进去
+    const involved = new Set(cycles.flat());
+    expect(involved.has("dec_a")).toBe(true);
+    expect(involved.has("dec_b")).toBe(true);
+  });
+
+  it("computeLayout 把 cycle 警告透出,TimelineLayout.cycleWarning 非空", () => {
+    const decisions: DecisionRow[] = ["dec_a", "dec_b"].map((id) =>
+      baseDecision({ decisionId: id, title: id }),
+    );
+    const relations: RelationEdge[] = [
+      edge("decision/dec_a", "decision/dec_b", "refines"),
+      edge("decision/dec_b", "decision/dec_a", "refines"),
+    ];
+    const byId = new Map(decisions.map((d) => [d.decisionId, d]));
+    const edges = buildGenealogyEdges(relations, byId);
+    const layout = computeLayout(decisions[0], edges, byId, 900);
+    expect(layout.cycleWarning.count).toBeGreaterThan(0);
+    expect(layout.cycleWarning.cycles.length).toBe(layout.cycleWarning.count);
+  });
+
+  it("渲染时 header 显示「谱系环警告 · N」(SSR 快照)", () => {
+    const decisions: DecisionRow[] = ["dec_a", "dec_b"].map((id) =>
+      baseDecision({ decisionId: id, title: id }),
+    );
+    const relations: RelationEdge[] = [
+      edge("decision/dec_a", "decision/dec_b", "refines"),
+      edge("decision/dec_b", "decision/dec_a", "refines"),
+    ];
+    const markup = renderToStaticMarkup(
+      createElement(GenealogyTimelineView, { decisions, relations }),
+    );
+    expect(markup).toContain("谱系环警告");
   });
 });

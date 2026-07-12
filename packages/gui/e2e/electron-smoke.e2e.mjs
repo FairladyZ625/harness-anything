@@ -99,13 +99,32 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   await page.locator(".react-flow__node-task").nth(1).waitFor({ state: "detached" });
   assert.equal(await page.locator(".react-flow__edge").count(), 2, "disabling assoc hides its edge again");
 
-  await focusCard.click();
+  // Per-claim expand (#4): each claim row is independently clickable via its
+  // data-claim-id attribute, instead of the legacy whole-card "toggle all".
+  // The smoke fixture has CH1 with the only evidence fact (F-ABCDEFGH); CH2/RJ1
+  // have no evidence so clicking them is a no-op.
+  const ch1Row = focusCard.locator("[data-claim-id='CH1']");
+  await ch1Row.waitFor();
+  await ch1Row.click();
   const expandedFact = page.locator('.react-flow__node-fact[data-id="fact/task-gui-smoke/F-ABCDEFGH"]');
   await expandedFact.waitFor({ timeout: 10_000 });
   assert.equal((await expandedFact.textContent())?.trim(), "F");
   assert.equal(await page.locator(".react-flow__edge").count(), 3, "expanding a fact badge reveals its evidence edge");
   await expandedFact.click();
   await expandedFact.waitFor({ state: "detached" });
+
+  // Regression (#1 P1): clicking a task node used to crash the drawer because
+  // GraphView passed `n.data` instead of `n.data.raw` to GraphDrawer, and
+  // CloseoutBadge read `CLOSEOUT_META[undefined]`. Now the drawer should open
+  // and render task-specific badges (status / closeout / engine).
+  const taskNode = page.locator(".react-flow__node-task").first();
+  await taskNode.click();
+  const taskDrawer = page.locator("aside");
+  await taskDrawer.getByText("task-gui-smoke", { exact: true }).waitFor();
+  // Smoke fixture: status=active → closeoutReadiness=not_required → engine=local.
+  await taskDrawer.getByText("Active", { exact: true }).waitFor();
+  await taskDrawer.getByText("无需收口", { exact: true }).waitFor();
+  await taskDrawer.getByText("local", { exact: true }).waitFor();
 
   const viewSwitcher = page.getByText("同一实体 · 多视图", { exact: true }).locator("..");
   await viewSwitcher.getByRole("button", { name: "演化史", exact: true }).click();

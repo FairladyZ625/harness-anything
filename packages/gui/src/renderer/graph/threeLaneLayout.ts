@@ -43,6 +43,8 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
   const derives: { edge: RelationEdge; other: TaskRow; claimId?: string }[] = [];
   const evidence: { edge: RelationEdge; fact: FactRef; claimId?: string }[] = [];
   const assocTasks: { edge: RelationEdge; other: TaskRow; claimId?: string }[] = [];
+  // 修 #8:此前 assoc→decision 边被静默丢弃,开 assoc 轴也显不出。
+  const assocDecisions: { edge: RelationEdge; other: DecisionRow; claimId?: string }[] = [];
 
   for (const edge of input.relations) {
     const fromNode = endpointToNodeId(edge.from);
@@ -75,8 +77,12 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
       if (otherParsed.entity === "task") {
         const t = input.tasks.find((x) => x.taskId === otherId);
         if (t) assocTasks.push({ edge, other: t, claimId: claimFromFocus });
+      } else if (otherParsed.entity === "decision") {
+        // relates/implements 到另一 decision:与 lineage lane 的
+        // authority 轴(refines/narrows/supersedes)语义正交,不会重复。
+        const d = input.decisions.find((x) => `decision/${x.decisionId}` === otherId);
+        if (d) assocDecisions.push({ edge, other: d, claimId: claimFromFocus });
       }
-      // assoc→decision 暂不画(避免与 lineage lane 重复)
     } else if (axis === "authority" && edge.kind === "supports" && otherParsed.entity === "task") {
       // supports 偶尔指向 task (执行支撑),归入 derives lane 避免丢失。
       const t = input.tasks.find((x) => x.taskId === otherId);
@@ -112,11 +118,15 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
     const rows = Math.max(1, dc.length, Math.ceil(ec.length / 3));
     return { info, rows, derives: dc, evidence: ec };
   });
-  const hasStray = strayDerives.length > 0 || assocTasks.length > 0;
+  const hasStray =
+    strayDerives.length > 0 || assocTasks.length > 0 || assocDecisions.length > 0;
   if (hasStray) {
+    // 修 #8:assoc 区域顺序叠 assocTasks + assocDecisions;stray 行的高度要同时盖住
+    // 派生 stray 与 assoc 两组,否则 assoc decision 会越过 lane 底边。
+    const assocTotal = assocTasks.length + assocDecisions.length;
     claimRows.push({
       info: { claimId: "·", status: "unknown", evidenceFacts: [] },
-      rows: Math.max(1, strayDerives.length, assocTasks.length),
+      rows: Math.max(1, strayDerives.length, assocTotal),
       derives: strayDerives,
       evidence: [],
     });
@@ -178,12 +188,28 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
       claims: focus.claims,
       chosen: focus.chosen,
       rejected: focus.rejected,
-      claimRows: claimRows.map((r) => ({
-        claimId: r.info.claimId,
-        status: r.info.status,
-        evidenceCount: r.evidence.length,
-        derivesCount: r.derives.length,
-      })),
+      claimRows: claimRows.map((r) => {
+        // 修 #5:factRefs 取 coverageRows.coveringFactRef 与 evidence 边
+        // factRef 的并集。GraphView 的 onNodeClick 用这个 list 锚到具体
+        // claim 行 → 不再仅靠 coverageRows(否则仅有 canonical/transitive
+        // 覆盖、无 direct edge 时点击会漏 toggle)。
+        const claimRef =
+          r.info.claimId === "·" ? null : `decision/${focus.decisionId}/${r.info.claimId}`;
+        const covRefs = claimRef
+          ? (input.coverageRows ?? [])
+              .filter((c) => c.claimRef === claimRef && c.coveringFactRef)
+              .map((c) => c.coveringFactRef as string)
+          : [];
+        const edgeRefs = r.evidence.map((e) => factRefOf(e.fact));
+        const factRefs = [...new Set([...covRefs, ...edgeRefs])];
+        return {
+          claimId: r.info.claimId,
+          status: r.info.status,
+          evidenceCount: factRefs.length,
+          derivesCount: r.derives.length,
+          factRefs,
+        };
+      }),
       focus: true,
       raw: focus,
     },
@@ -213,22 +239,38 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
         raw: other,
       },
     });
+    // 修 #7:尊重 kernel canonical 方向 (from --kind--> to)。此前恒渲染
+    // other→focus,聚焦后代(decendant refines ancestor)时箭头反 + 丢 claim
+    // handle。同时把 focus 端的 claim 锚保留到 sourceClaimId/targetClaimId。
+    const fromNodeId = endpointToNodeId(item.edge.from);
+    const focusIsSource = fromNodeId === focusId;
+    const sourceId = focusIsSource ? focusId : id;
+    const targetId = focusIsSource ? id : focusId;
+    const focusClaimId = focusIsSource
+      ? endpointClaimId(item.edge.from)
+      : endpointClaimId(item.edge.to);
     const isLoop = inLoopEdge(input.inLoopEdges, item.edge);
     rfEdges.push(
       buildEdge({
         edgeId: `e_lineage_${i}`,
         edge: item.edge,
-        sourceId: id,
-        targetId: focusId,
+        sourceId,
+        targetId,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         axis: "authority",
+        sourceClaimId: focusIsSource ? focusClaimId : undefined,
+        targetClaimId: focusIsSource ? undefined : focusClaimId,
         isLoop,
       }),
     );
   });
 
-  // Derives lane (右) — 按 claim 行排布
+  // Derives lane (右) — 按 claim 行排布。
+  // 修 #6:多 claim 派生同一 task 时,此前会 push 多个相同 React Flow 节点 id
+  // (位置歧义 + 共享边目标)。现在首次出现即注册,后续 claim 只补一条以
+  // sourceHandle 区分的边,target 指向同一节点。
+  const placedTaskIds = new Set<string>();
   let runningY = cardY + DECISION_CARD_PAD_Y;
   const claimYById = new Map<string, number>();
   claimRows.forEach((row) => {
@@ -236,22 +278,25 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
     row.derives.forEach((item, i) => {
       const t = item.other;
       const id = t.taskId;
-      const y = runningY + i * (TASK_H + TASK_GAP_Y);
-      rfNodes.push({
-        id,
-        type: "task",
-        position: { x: LANE_X.derives + 20, y },
-        style: { width: TASK_W, height: TASK_H },
-        data: {
-          label: t.title,
-          taskId: t.taskId,
-          coordinationStatus: t.coordinationStatus,
-          color: statusColor(t),
-          focus: false,
-          dimmed: false,
-          raw: t,
-        },
-      });
+      if (!placedTaskIds.has(id)) {
+        placedTaskIds.add(id);
+        const y = runningY + i * (TASK_H + TASK_GAP_Y);
+        rfNodes.push({
+          id,
+          type: "task",
+          position: { x: LANE_X.derives + 20, y },
+          style: { width: TASK_W, height: TASK_H },
+          data: {
+            label: t.title,
+            taskId: t.taskId,
+            coordinationStatus: t.coordinationStatus,
+            color: statusColor(t),
+            focus: false,
+            dimmed: false,
+            raw: t,
+          },
+        });
+      }
       const isLoop = inLoopEdge(input.inLoopEdges, item.edge);
       rfEdges.push(
         buildEdge({
@@ -270,16 +315,17 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
     runningY += row.rows * CLAIM_ROW_H;
   });
 
-  // Assoc (松关联) → 右泳道下方
-  if (assocTasks.length > 0) {
-    const assocStartY = runningY + 24;
+  // Assoc (松关联) → 右泳道下方。修 #8:同时容纳 assoc task 与 assoc decision
+  // (relates/implements 到 decision),此前 assoc→decision 边被丢弃。
+  if (assocTasks.length > 0 || assocDecisions.length > 0) {
+    let assocCursorY = runningY + 24;
     assocTasks.forEach((item, i) => {
       const t = item.other;
       const id = `${t.taskId}__assoc`;
       rfNodes.push({
         id,
         type: "task",
-        position: { x: LANE_X.derives + 20, y: assocStartY + i * (TASK_H + TASK_GAP_Y) },
+        position: { x: LANE_X.derives + 20, y: assocCursorY },
         style: { width: TASK_W, height: TASK_H, opacity: 0.85 },
         data: {
           label: t.title,
@@ -292,10 +338,49 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
           assoc: true,
         },
       });
+      assocCursorY += TASK_H + TASK_GAP_Y;
       const isLoop = inLoopEdge(input.inLoopEdges, item.edge);
       rfEdges.push(
         buildEdge({
-          edgeId: `e_assoc_${i}`,
+          edgeId: `e_assoc_task_${i}`,
+          edge: item.edge,
+          sourceId: focusId,
+          targetId: id,
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
+          axis: "assoc",
+          sourceClaimId: item.claimId,
+          isLoop,
+        }),
+      );
+    });
+    assocDecisions.forEach((item, i) => {
+      const d = item.other;
+      const id = `decision/${d.decisionId}__assoc`;
+      rfNodes.push({
+        id,
+        type: "decision",
+        position: { x: LANE_X.derives + 20, y: assocCursorY },
+        style: { width: TASK_W, height: TASK_H, opacity: 0.85 },
+        data: {
+          label: d.title,
+          decisionId: d.decisionId,
+          state: d.state,
+          riskTier: d.riskTier,
+          urgency: d.urgency,
+          question: d.question,
+          claims: d.claims,
+          focus: false,
+          dimmed: false,
+          raw: d,
+          assoc: true,
+        },
+      });
+      assocCursorY += TASK_H + TASK_GAP_Y;
+      const isLoop = inLoopEdge(input.inLoopEdges, item.edge);
+      rfEdges.push(
+        buildEdge({
+          edgeId: `e_assoc_decision_${i}`,
           edge: item.edge,
           sourceId: focusId,
           targetId: id,
