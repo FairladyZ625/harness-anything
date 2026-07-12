@@ -1,7 +1,8 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, makeExecutionCompletionService, makeTaskLifecycleOrchestrator, renderCodeDocReconciliationDraft, type TaskLifecycleResult } from "../../../../application/src/index.ts";
-import { makeLocalVersionControlSystem, resolveHarnessLayout, taskDocumentPath } from "../../../../kernel/src/index.ts";
+import { makeLocalVersionControlSystem, readFrontmatter, readRelationGraphProjection, readScalar, resolveHarnessLayout, taskDocumentPath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode, isCliErrorCode, type CliErrorCode as CliErrorCodeValue } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
@@ -47,6 +48,8 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       Effect.map((result): CliResult => taskLifecycleResultToCliResult("task-review", result))
     );
   }
+  const lineageFailure = milestoneDecisionLineageFailure(context, action.taskId);
+  if (lineageFailure) return Effect.succeed(lineageFailure);
   return orchestrator.completeTask({ taskId: action.taskId, reviewerId: action.reviewerId, ciGate: action.ciGate, actor: context.taskHolderPrincipal() }).pipe(
     Effect.map((result): CliResult => {
       const output = taskLifecycleResultToCliResult("task-complete", result);
@@ -56,6 +59,82 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
     Effect.flatMap((output) => output.ok ? queueCloseoutDistillCandidate(context, command, action, output) : Effect.succeed(output))
   );
 };
+
+interface TaskLineageMetadata {
+  readonly parent?: string;
+  readonly preset?: string;
+  readonly taskClass?: string;
+}
+
+function milestoneDecisionLineageFailure(
+  context: Parameters<CommandRunner>[0],
+  taskId: string
+): CliResult | null {
+  const current = readTaskLineageMetadata(context, taskId);
+  if (!current || !requiresDecisionLineage(current)) return null;
+  const allowedTargets = new Set([taskId]);
+  const visited = new Set([taskId]);
+  let parent = current.parent;
+  while (parent && !visited.has(parent)) {
+    visited.add(parent);
+    const metadata = readTaskLineageMetadata(context, parent);
+    if (!metadata) break;
+    if (isMilestone(metadata)) allowedTargets.add(parent);
+    parent = metadata.parent;
+  }
+  const hasLineage = readRelationGraphProjection({
+    rootDir: context.rootDir,
+    layoutOverrides: context.layoutOverrides
+  }).edges.some((edge) =>
+    edge.state === "active" &&
+    edge.relationType === "derives" &&
+    /^decision\/[^/]+\/[^/]+$/u.test(edge.sourceRef) &&
+    edge.targetRef.startsWith("task/") &&
+    allowedTargets.has(edge.targetRef.slice("task/".length))
+  );
+  if (hasLineage) return null;
+  return {
+    ok: false,
+    command: "task-complete",
+    taskId,
+    issues: [{
+      code: "decision_lineage_required",
+      message: `Milestone or long-running task ${taskId} requires an active decision --derives--> task lineage edge.`
+    }],
+    error: cliError(
+      CliErrorCode.CloseoutNotReady,
+      `Milestone or long-running task ${taskId} requires at least one active decision --derives--> task/${taskId} lineage edge before completion.`
+    )
+  };
+}
+
+function readTaskLineageMetadata(
+  context: Parameters<CommandRunner>[0],
+  taskId: string
+): TaskLineageMetadata | null {
+  try {
+    const frontmatter = readFrontmatter(readFileSync(taskDocumentPath(context.layoutInput, taskId, "INDEX.md"), "utf8"));
+    if (!frontmatter) return null;
+    const parent = readScalar(frontmatter, "parent");
+    const preset = readScalar(frontmatter, "preset");
+    const taskClass = readScalar(frontmatter, "taskClass");
+    return {
+      ...(parent ? { parent } : {}),
+      ...(preset ? { preset } : {}),
+      ...(taskClass ? { taskClass } : {})
+    };
+  } catch {
+    return null;
+  }
+}
+
+function requiresDecisionLineage(metadata: TaskLineageMetadata): boolean {
+  return isMilestone(metadata) || metadata.preset === "long-running-task" || metadata.taskClass === "epic";
+}
+
+function isMilestone(metadata: TaskLineageMetadata): boolean {
+  return metadata.preset === "create-milestone" || metadata.taskClass === "milestone";
+}
 
 function runTaskCodeDocReconcile(
   context: Parameters<CommandRunner>[0],

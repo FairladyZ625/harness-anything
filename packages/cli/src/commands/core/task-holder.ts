@@ -9,6 +9,7 @@ import { readSessionEntityDocument } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import type { CommandRunner, CommandRunnerContext } from "../../cli/runner-registry.ts";
+import { leaseEnforcementEnabled } from "../settings.ts";
 type TaskHolderAction = Extract<
   Parameters<CommandRunner>[1]["action"],
   { readonly kind: "task-claim" | "task-holder" | "task-release" }
@@ -134,6 +135,8 @@ export function runTaskClaim(
     const principal = taskHolderPrincipal(context);
     if (!principal.ok) return principal.result;
     if (action.execution) return yield* runExecutionClaim(context, action, principal.value);
+    const session = yield* context.currentSessionProbe.currentSession;
+    if (session.runtime !== "human") return yield* runExecutionClaim(context, action, principal.value);
     return yield* Effect.tryPromise({
       try: () => context.taskHolderService.claim({ taskId: action.taskId, principal: principal.value, ttlMs: action.ttlMs }),
       catch: taskHolderCommandFailure
@@ -150,6 +153,23 @@ export function runTaskClaim(
       })
     }));
   });
+}
+
+export function activeTaskLeaseFailure(
+  context: CommandRunnerContext,
+  taskId: string,
+  command: string
+): Effect.Effect<CliResult | null> {
+  if (!leaseEnforcementEnabled(context.layoutInput)) return Effect.succeed(null);
+  const principal = taskHolderPrincipal(context);
+  if (!principal.ok) return Effect.succeed({ ...principal.result, command, taskId });
+  return Effect.tryPromise({
+    try: () => context.taskHolderService.assertActiveLease({ taskId, principal: principal.value }),
+    catch: taskHolderCommandFailure
+  }).pipe(Effect.match({
+    onFailure: (result): CliResult => ({ ...result, command, taskId }),
+    onSuccess: () => null
+  }));
 }
 
 export function runTaskHolder(
