@@ -88,7 +88,11 @@ function git(rootDir: string, ...args: ReadonlyArray<string>): string {
     env: {
       ...process.env,
       HOME: path.join(rootDir, ".home"),
-      GIT_CONFIG_GLOBAL: "/dev/null"
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_AUTHOR_NAME: "Lease Executor Fixture",
+      GIT_AUTHOR_EMAIL: "lease-executor-fixture@example.com",
+      GIT_COMMITTER_NAME: "Lease Executor Fixture",
+      GIT_COMMITTER_EMAIL: "lease-executor-fixture@example.com"
     }
   }).trim();
 }
