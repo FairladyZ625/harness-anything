@@ -378,6 +378,80 @@ test("CLI complete accepts an approved Execution Review without facts under dec_
   });
 });
 
+test("CLI default claim carries one person's task through submit, review, and complete", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["task", "create", "--title", "Single Person Closeout", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
+    const sessionId = "codex-single-person-closeout";
+    const homeDir = path.join(rootDir, "home");
+    const sessionDir = path.join(homeDir, ".codex/sessions");
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(path.join(sessionDir, `${sessionId}.jsonl`), [
+      JSON.stringify({ timestamp: "2026-07-12T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "close task" } }),
+      JSON.stringify({ timestamp: "2026-07-12T00:00:02.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "ready" }] } })
+    ].join("\n"), "utf8");
+    const sessionEnv = { HOME: homeDir, CODEX_THREAD_ID: sessionId, CODEX_SESSION_ID: sessionId };
+
+    const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, { ...sessionEnv, HARNESS_ACTOR: "agent:worker" });
+    assert.match(String(claimed.executionId), /^exe_/u);
+    writeCloseout(rootDir, path.basename(created.packagePath), [
+      "## Summary", "", "Implemented the single-person closeout flow.", "",
+      "## Verification", "", "node --test passed.", "",
+      "## Residual Risk", "", "No residual risk accepted."
+    ]);
+    writeCodeDocAnchors(rootDir, created.taskId);
+
+    const submitted = runJson(rootDir, [
+      "task", "transition", created.taskId, "in_review",
+      "--lease-token", String(claimed.report.leaseToken),
+      "--summary", "implementation complete", "--verification", "node --test"
+    ], true, { ...sessionEnv, HARNESS_ACTOR: "agent:worker" });
+    assert.equal(submitted.executionId, claimed.executionId);
+
+    runJson(rootDir, [
+      "task", "review-execution", created.taskId, "--execution-id", String(claimed.executionId),
+      "--verdict", "approved", "--findings", "Acceptance checks passed",
+      "--rationale", "The submitted work satisfies the task intent"
+    ], true, { HARNESS_ACTOR: "agent:reviewer" });
+    const completed = runJson(rootDir, [
+      "task", "complete", created.taskId, "--reviewer", "reviewer", "--ci", "passed"
+    ], true, { HARNESS_ACTOR: "agent:commander" });
+    assert.equal(completed.status, "done");
+    assert.equal(completed.executionId, claimed.executionId);
+  });
+});
+
+test("CLI milestone completion requires active decision derives lineage while a leaf task does not", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, "task-milestone", "Milestone", "in_review", { preset: "create-milestone", taskClass: "milestone" });
+    writeReview(rootDir, "task-milestone");
+    writeRealCloseout(rootDir, "task-milestone");
+    const anchorSha = runGit(rootDir, "rev-parse", "HEAD");
+
+    const blocked = runJson(rootDir, ["task", "complete", "task-milestone", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    assert.equal(blocked.error?.code, "closeout_not_ready");
+    assert.match(blocked.error?.hint ?? "", /decision.*derives.*task-milestone/u);
+
+    runJson(rootDir, [
+      "decision", "propose", "--id", "dec_MILESTONE_LINEAGE", "--title", "Milestone lineage",
+      "--question", "Should this milestone exist?", "--chosen", "Create the milestone",
+      "--rejected", "Do nothing", "--why-not", "The work requires coordination",
+      "--claim", "The milestone is required."
+    ]);
+    runJson(rootDir, [
+      "decision", "relate", "dec_MILESTONE_LINEAGE", "--anchor", "CH1", "--type", "derives",
+      "--target", "task/task-milestone", "--rationale", "The charter decision creates the milestone"
+    ]);
+    writeIndex(rootDir, "task-long-running", "Long Running Child", "in_review", { preset: "long-running-task", parent: "task-milestone" });
+    writeReview(rootDir, "task-long-running");
+    writeRealCloseout(rootDir, "task-long-running", { sha: anchorSha });
+    const childCompleted = runJson(rootDir, ["task", "complete", "task-long-running", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    assert.equal(childCompleted.status, "done");
+    const completed = runJson(rootDir, ["task", "complete", "task-milestone", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    assert.equal(completed.status, "done");
+  });
+});
+
 test("CLI rejects executor self-review and changes_requested opens a fresh claim round", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, executionTaskId, "Execution Rework", "in_review");
@@ -415,9 +489,9 @@ function writeIndex(
   directoryName: string,
   title: string,
   status: string,
-  options: { readonly provenance: boolean } = { provenance: true }
+  options: { readonly provenance?: boolean; readonly preset?: string; readonly taskClass?: "milestone" | "epic"; readonly parent?: string } = { provenance: true }
 ): void {
-  const provenance = options.provenance
+  const provenance = options.provenance !== false
     ? [
       "provenance:",
       "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}"
@@ -439,8 +513,10 @@ function writeIndex(
     "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
     "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
     "packageDisposition: active",
+    ...(options.parent ? [`parent: ${options.parent}`] : []),
     "vertical: software/coding",
-    "preset: standard-task",
+    `preset: ${options.preset ?? "standard-task"}`,
+    ...(options.taskClass ? [`taskClass: ${options.taskClass}`] : []),
     ...provenance,
     "---",
     "",
@@ -462,7 +538,7 @@ function writeReview(rootDir: string, directoryName: string): void {
 function writeRealCloseout(
   rootDir: string,
   directoryName: string,
-  options: { readonly coordinatedAnchors?: boolean } = {}
+  options: { readonly coordinatedAnchors?: boolean; readonly sha?: string } = {}
 ): void {
   writeCloseout(rootDir, directoryName, [
     "## Summary",
@@ -477,8 +553,9 @@ function writeRealCloseout(
     "",
     "No residual risk accepted."
   ]);
-  if (options.coordinatedAnchors ?? true) writeCodeDocAnchors(rootDir, directoryName);
-  else writeCodeDocAnchorsRaw(rootDir, directoryName, ensureAnchorCommit(rootDir));
+  const sha = options.sha ?? ensureAnchorCommit(rootDir);
+  if (options.coordinatedAnchors ?? true) writeCodeDocAnchors(rootDir, directoryName, sha);
+  else writeCodeDocAnchorsRaw(rootDir, directoryName, sha);
 }
 
 function writeFact(rootDir: string, directoryName: string): void {
