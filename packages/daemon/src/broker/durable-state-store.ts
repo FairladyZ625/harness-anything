@@ -4,6 +4,7 @@ import path from "node:path";
 import type { ReplicaChangeRecord } from "../../../application/src/index.ts";
 import { fingerprintDigest } from "./fingerprint.ts";
 import type { BrokerDurableState } from "./types.ts";
+import { isMissing } from "./errno.ts";
 
 interface StateEnvelope {
   readonly schema: "broker-state-envelope/v1";
@@ -132,6 +133,3 @@ export async function syncDirectory(directory: string): Promise<void> {
   }
 }
 
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
-}

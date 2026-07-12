@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import type { ManagedFingerprint } from "./types.ts";
+import { isMissing } from "./errno.ts";
 
 const tombstoneDigest = sha256(new Uint8Array());
 
@@ -43,6 +44,3 @@ function sha256(bytes: Uint8Array): string {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
-}

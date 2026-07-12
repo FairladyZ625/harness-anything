@@ -2,6 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { atomicWrite } from "./durable-state-store.ts";
 import { fingerprintBytes } from "./fingerprint.ts";
+import { isMissing } from "./errno.ts";
 
 export class BrokerCasStore {
   private readonly root: string;
@@ -38,6 +39,3 @@ export class BrokerCasStore {
   }
 }
 
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
-}

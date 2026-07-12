@@ -4,6 +4,7 @@ import { BrokerCasStore } from "./cas-store.ts";
 import { atomicWrite, syncDirectory } from "./durable-state-store.ts";
 import { fingerprintDigest, fingerprintPath, sameFingerprint } from "./fingerprint.ts";
 import type { BrokerCrashInjector, BrokerVersion, ManagedFingerprint } from "./types.ts";
+import { isMissing } from "./errno.ts";
 
 type ApplyPhase =
   | "INTENT_DURABLE"
@@ -237,9 +238,6 @@ function phaseBefore(left: ApplyPhase, right: ApplyPhase): boolean {
   return phases.indexOf(left) < phases.indexOf(right);
 }
 
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
-}
 
 async function syncFile(filePath: string): Promise<void> {
   const handle = await open(filePath, "r");
