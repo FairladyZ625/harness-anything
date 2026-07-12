@@ -43,6 +43,13 @@ export interface LayoutInput {
   filters: GraphFilterInput;
   inLoopNodes: Set<string>;
   inLoopEdges: Set<string>;
+  /**
+   * 无限画布 ego 累积态(dec_01KXBGJQFQARSZHHQW1WADFDNC)。存在即走 layoutCanvasEgo
+   * (三类实体统一、按跳级分层列、原地展开累计保留),旁路 simpleEgo/threeLane。
+   *   shown    — 累积可见集 node id → 距焦点跳数。
+   *   expanded — 渲染为详情卡片的 node id 集(其余紧凑 chip)。
+   */
+  canvas?: { shown: Map<string, number>; expanded: Set<string> };
 }
 
 export interface LayoutOutput {

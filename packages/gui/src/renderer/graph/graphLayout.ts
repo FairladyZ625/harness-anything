@@ -1,6 +1,7 @@
 import { parseEndpoint } from "./endpoint";
 import { edgePassesAxisFilter, pickDefaultFocus } from "./graphLayoutShared";
 import type { LayoutInput, LayoutOutput } from "./graphLayoutTypes";
+import { layoutCanvasEgo } from "./canvasEgoLayout";
 import { layoutSimpleEgo } from "./simpleEgoLayout";
 import { layoutThreeLane } from "./threeLaneLayout";
 
@@ -59,7 +60,23 @@ export async function computeGraphLayout(input: LayoutInput): Promise<LayoutOutp
     };
   }
 
-  // 分两类布局:decision focus 走三泳道;其他走简化 ego。
+  // 无限画布 ego(dec_01KXBGJQFQARSZHHQW1WADFDNC):存在 canvas 累积态即统一走
+  // 分层列布局(三类实体一视同仁,decision 的 claim 内联进卡片而非炸成 claim 节点)。
+  if (input.canvas) {
+    return layoutCanvasEgo({
+      focusId: resolvedFocusId,
+      tasks,
+      decisions,
+      facts,
+      relations: validEdges, // axis 过滤在布局器内部做(与原型 relOk 一致)
+      filters,
+      inLoopEdges,
+      shown: input.canvas.shown,
+      expanded: input.canvas.expanded,
+    });
+  }
+
+  // 分两类布局(legacy fallback,canvas 缺省时):decision focus 走三泳道;其他走简化 ego。
   const focusDecision = decisions.find((d) => `decision/${d.decisionId}` === resolvedFocusId);
   if (focusDecision && filters.types.has("decision")) {
     return layoutThreeLane({
