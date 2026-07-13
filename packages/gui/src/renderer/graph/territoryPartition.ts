@@ -27,8 +27,13 @@ const TASK_CHIP_GAP = 4;
 const DECISION_CARD_H = 92;
 const DECISION_CARD_GAP = 10;
 const ZONE_MIN_BODY_H = 36;
-const ZONE_MAX_BODY_H = 460;
+// D2:zone 盒高现在跟着 chip 实际数量走(不再夹),ZONE_MAX_BODY_H 仅作上界 sanity guard,
+// 避免极端数据(50 成员 × 92px)造出 5000px 单块。实际布局里 expanded 已 slice(0,50)。
+const ZONE_MAX_BODY_H = 2400;
 const FOLDED_TASK_CAP = 8;
+// D2:decision zone 修复前压根不折叠(visibleMembers 直接 return members)→ ≥5 家族默认就重叠。
+// 现在与 task 同源 —— 折叠态只显前 N 个家族(按 score 已排),其余进 fold 提示。
+const FOLDED_DECISION_CAP = 3;
 export const GEO = {
   TASK_CHIP_H,
   TASK_CHIP_GAP,
@@ -37,6 +42,7 @@ export const GEO = {
   ZONE_MIN_BODY_H,
   ZONE_MAX_BODY_H,
   FOLDED_TASK_CAP,
+  FOLDED_DECISION_CAP,
 };
 
 // ── 内部结构 ──
