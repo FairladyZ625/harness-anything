@@ -136,7 +136,7 @@ export function MockViewBanner() {
     <div className="flex shrink-0 items-center gap-2 border-b border-stale/30 bg-stale/10 px-4 py-2">
       <MockBadge />
       <span className="font-mono text-[12px] text-text-muted">
-        演示数据 · decision/fact 与管理面真实客户端 API 尚未落地,以下内容不代表真实台账
+        演示数据 · 当前项目首页仍含原型事件流,以下事件不代表真实台账
       </span>
     </div>
   );

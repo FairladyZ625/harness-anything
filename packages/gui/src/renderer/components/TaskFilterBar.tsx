@@ -16,7 +16,7 @@ import {
   type TaskFilters,
 } from "../model/taskFilters";
 
-const ENGINES: (EngineId | "all")[] = ["all", "local", "multica", "github", "linear"];
+const ENGINES: (EngineId | "all")[] = ["all", "local", "multica"];
 const CLOSEOUTS: (CloseoutReadiness | "all")[] = [
   "all",
   "ready",

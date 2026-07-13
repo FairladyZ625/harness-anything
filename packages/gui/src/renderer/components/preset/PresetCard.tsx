@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { ArrowRight, CaretDown } from "@phosphor-icons/react";
 import type { PresetEntry } from "../../model/types";
-import { ACTION_BTN, CHIP, SECTION_LABEL, chainOf, shortRef } from "./shared";
+import { CHIP, SECTION_LABEL, chainOf, shortRef } from "./shared";
 import { LocaleBadges } from "./LocaleBadges";
 
 export function PresetCard({
@@ -19,15 +18,7 @@ export function PresetCard({
   onToggle: () => void;
   onJump: (id: string) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  const builtin = entry.source === "builtin";
   const chain = chainOf(entry, all);
-
-  const act = (text: string) => {
-    setNote(text);
-    setMenuOpen(false);
-  };
 
   return (
     <div
@@ -41,7 +32,7 @@ export function PresetCard({
         className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised/60"
       >
         <span className="min-w-[9rem] shrink-0 font-mono text-[13px] font-semibold">
-          {entry.name}
+          {entry.title ?? entry.id}
         </span>
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="shrink-0 rounded border border-accent/60 px-1.5 py-px font-mono text-[10px] text-accent">
@@ -56,14 +47,14 @@ export function PresetCard({
               激活中
             </span>
           )}
-          {entry.overriddenBy && (
-            <span className="shrink-0 rounded border border-stale/60 px-1.5 py-px font-mono text-[10px] text-stale">
-              被 {entry.overriddenBy} 覆盖
+          {!entry.valid && (
+            <span className="shrink-0 rounded border border-danger/60 px-1.5 py-px font-mono text-[10px] text-danger">
+              invalid · {entry.issueCount} issues
             </span>
           )}
         </span>
         <span className="hidden min-w-[12rem] max-w-[25rem] flex-1 truncate text-[11px] text-text-muted lg:block">
-          {entry.description}
+          {entry.kind ?? "manifest unavailable"}
         </span>
         <CaretDown
           className={`shrink-0 text-[12px] text-text-faint ${
@@ -143,34 +134,7 @@ export function PresetCard({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <button onClick={() => setMenuOpen((v) => !v)} className={`${ACTION_BTN} flex items-center gap-1`}>
-                安装到…
-                <CaretDown className={`text-[11px] ${menuOpen ? "rotate-180" : ""}`} />
-              </button>
-              {menuOpen && (
-                <div className="absolute left-0 top-full z-10 mt-1 w-28 rounded-md border border-border bg-surface-raised py-1 shadow-lg">
-                  {(["project", "user"] as const).map((scope) => (
-                    <button
-                      key={scope}
-                      onClick={() => act(`已安装到 ${scope}（模拟）`)}
-                      className="block w-full px-2.5 py-1 text-left font-mono text-[11px] text-text-muted hover:bg-surface hover:text-text"
-                    >
-                      {scope}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button disabled={builtin} title={builtin ? "内置不可卸载" : undefined} onClick={() => act("已卸载（模拟）")} className={ACTION_BTN}>
-              卸载
-            </button>
-            {!builtin && (
-              <button onClick={() => act("已还原（模拟）")} className={ACTION_BTN}>还原</button>
-            )}
-            {note && <span className="text-[11px] text-accent">{note}</span>}
-          </div>
+          <p className="text-[10px] text-text-faint">只读 snapshot；安装与卸载仍由 CLI 管理。</p>
         </div>
       )}
     </div>

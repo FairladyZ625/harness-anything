@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Stack } from "@phosphor-icons/react";
-import type { PresetEntry, Project } from "../model/types";
-import { MOCK_TEMPLATES, MOCK_VERTICALS } from "../model/mock";
+import type { Project } from "../model/types";
+import type { CatalogRendererData } from "../catalog-data";
 import { SOURCE_SECTIONS, TABS, type TabId } from "../components/preset/shared";
 import { ConceptBar } from "../components/preset/ConceptBar";
 import { PresetCard } from "../components/preset/PresetCard";
@@ -9,12 +9,19 @@ import { VerticalCard, TemplateCard } from "../components/preset/VerticalAndTemp
 import { PresetContextRail } from "../components/preset/PresetContextRail";
 
 export function PresetsView({
-  presets,
+  catalog,
   project,
+  loading,
+  failed,
 }: {
-  presets: PresetEntry[];
+  catalog: CatalogRendererData | undefined;
   project: Project;
+  loading: boolean;
+  failed: boolean;
 }) {
+  const presets = catalog?.presets ?? [];
+  const verticals = catalog?.verticals ?? [];
+  const templates = catalog?.templates ?? [];
   const [tab, setTab] = useState<TabId>("preset");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
@@ -48,12 +55,15 @@ export function PresetsView({
           </span>
         </div>
         <p className="mt-0.5 text-[11px] text-text-faint">
-          Vertical 声明场景槽位，Preset 声明式覆盖并从侧挂模板库选模板；激活的 preset
-          决定 materialization 物化的文档骨架。
+          当前运行时只提供 software/coding 内置 vertical；custom vertical 尚未实现。
+          Preset 列表由 daemon 按 project &gt; user &gt; builtin 解析。
         </p>
       </header>
 
-      <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      {loading && <p className="p-4 text-sm text-text-muted">正在读取 catalog snapshot…</p>}
+      {failed && <p className="p-4 text-sm text-danger">catalog snapshot 读取失败。</p>}
+
+      {!loading && !failed && <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="flex min-w-0 flex-col gap-4">
           <ConceptBar />
 
@@ -118,7 +128,10 @@ export function PresetsView({
 
           {tab === "vertical" && (
             <div className="flex flex-col gap-2">
-              {MOCK_VERTICALS.map((v) => (
+              <p className="rounded-lg border border-border bg-surface px-3 py-2 text-[11px] text-text-muted">
+                当前只有一个内置 vertical；此处是运行时定义检查面，不是多选选择器。
+              </p>
+              {verticals.map((v) => (
                 <VerticalCard key={v.id} v={v} />
               ))}
             </div>
@@ -129,7 +142,7 @@ export function PresetsView({
               <p className="px-0.5 text-[11px] text-text-muted">
                 侧挂素材库：存正文与 locale variants，被 Vertical/Preset 选择
               </p>
-              {MOCK_TEMPLATES.map((t) => (
+              {templates.map((t) => (
                 <TemplateCard key={t.ref} t={t} onJumpToPreset={jumpToPreset} />
               ))}
             </div>
@@ -141,10 +154,13 @@ export function PresetsView({
             activePreset={activePreset}
             focusedPreset={focusedPreset}
             all={presets}
+            verticals={verticals}
+            templates={templates}
             tab={tab}
           />
         )}
       </div>
+      }
     </div>
   );
 }

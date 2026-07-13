@@ -123,8 +123,6 @@ export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
 const ENGINE_LABEL: Record<EngineId, string> = {
   local: "local",
   multica: "multica",
-  github: "github",
-  linear: "linear",
 };
 
 export function EngineBadge({ engine, locked }: { engine: EngineId; locked: boolean }) {

@@ -33,11 +33,9 @@ export type ViewId =
   | "adapters"
   | "settings";
 
-// 这些视图的数据仍为 mock:preset/adapter 管理面无真实后端。进入时顶部显式挂 MOCK 横幅。
+// 项目首页仍含原型事件数据；catalog 管理面已改走 daemon snapshot。
 export const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
   "home",
-  "presets",
-  "adapters",
 ]);
 
 // W2C:列表并入看板(第三种 layout),独立「列表」入口删除。

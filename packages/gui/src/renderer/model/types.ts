@@ -22,7 +22,7 @@ export type CloseoutReadiness =
   | "passed"
   | "failed";
 
-export type EngineId = "local" | "multica" | "github" | "linear";
+export type EngineId = "local" | "multica";
 
 export type DocGroup = "必读" | "计划" | "设计" | "进度" | "收口" | "证据";
 
@@ -217,31 +217,29 @@ export interface VerticalEntityKind {
 
 export interface VerticalInfo {
   id: string;
-  name: string;
+  title: string;
   version: string;
-  description: string;
   entityKinds: VerticalEntityKind[];
-  slots: { slot: string; required: boolean }[];
+  templateSlots: string[];
 }
 
 /** 侧挂素材库条目：存正文与 locale variants，被 Vertical/Preset 选择 */
 export interface TemplateInfo {
   ref: string;
-  kind: string;
+  documentKind: string;
   version: string;
   locales: string[];
-  usedBy: string[];
-  description: string;
+  usedByPresetIds: string[];
 }
 
 export interface PresetEntry {
   id: string;
-  name: string;
+  title?: string;
   source: PresetSource;
-  version: string;
-  description: string;
+  version?: string;
+  kind?: "template-content" | "process-action";
   /** 所属 vertical id */
-  vertical: string;
+  vertical?: string;
   /** Spring Boot 风格单父链；冲突/循环 fail closed */
   extends?: string;
   /** 复用走显式 capability 引入，禁隐式多继承 */
@@ -250,8 +248,8 @@ export interface PresetEntry {
   profile?: string;
   /** 物化时横向取用模板库 */
   selections: TemplateSelection[];
-  /** 被更高优先级来源覆盖时，指向覆盖者 id */
-  overriddenBy?: string;
+  valid: boolean;
+  issueCount: number;
   /**
    * 看板默认分组维度(信息架构声明)。coding preset 通常=root(milestone=root task)。
    * 可选;未声明时 BoardView 退回自身默认。仅 renderer 侧消费,不动 preset 引擎。
@@ -259,24 +257,13 @@ export interface PresetEntry {
   defaultGroupBy?: "module" | "engine" | "root";
 }
 
-export interface AdapterMappingRow {
-  raw: string;
-  canonical: SnapshotStatus;
-}
-
 export interface AdapterInfo {
   engine: EngineId;
   displayName: string;
-  connected: boolean;
-  /** 认证方式提示，如 "凭证 · keychain"；GUI 不落明文 */
-  authHint: string;
-  boundCount: number;
-  /** local 引擎无快照概念 → null */
-  lastSnapshotAt: string | null;
-  freshness: Freshness;
-  mapping: AdapterMappingRow[];
-  /** 出现过但未映射的 raw 状态（产生 unknown），提示补映射 */
-  unmappedRaw: string[];
+  capabilities: string[];
+  readonly: boolean;
+  writable: boolean;
+  defaultProvider: boolean;
 }
 
 export interface EventEntry {

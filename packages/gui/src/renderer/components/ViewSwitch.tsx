@@ -2,7 +2,7 @@ import type { TaskRow, Project, EventEntry, SnapshotStatus } from "../model/type
 import type { TaskFilters } from "../model/taskFilters.ts";
 import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 import type { TriadicRendererData } from "../triadic-data.ts";
-import { MOCK_PRESETS, MOCK_ADAPTERS } from "../model/mock.ts";
+import type { CatalogRendererData } from "../catalog-data.ts";
 import { VIEW_LABEL, type ViewId } from "../shell-config.tsx";
 import { HomeView } from "../views/HomeView.tsx";
 import { OverviewView } from "../views/OverviewView.tsx";
@@ -34,6 +34,9 @@ export interface ViewSwitchProps {
   drill: DrillState;
   focusedEntityRef: string | null;
   project: Project;
+  catalog: CatalogRendererData | undefined;
+  catalogLoading: boolean;
+  catalogError: boolean;
   projectTasks: TaskRow[];
   tasks: TaskRow[];
   triadic: Pick<TriadicRendererData, "decisions" | "facts" | "relations" | "coverageRows" | "factAnchors">;
@@ -66,6 +69,9 @@ export function ViewSwitch(props: ViewSwitchProps) {
     drill,
     focusedEntityRef,
     project,
+    catalog,
+    catalogLoading,
+    catalogError,
     projectTasks,
     tasks,
     triadic,
@@ -236,9 +242,19 @@ export function ViewSwitch(props: ViewSwitchProps) {
           onFocusGraph={onFocusEntityInGraph}
         />
       ) : view === "presets" ? (
-        <PresetsView presets={MOCK_PRESETS} project={project} />
+        <PresetsView
+          catalog={catalog}
+          project={project}
+          loading={catalogLoading}
+          failed={catalogError}
+        />
       ) : view === "adapters" ? (
-        <AdaptersView adapters={MOCK_ADAPTERS} tasks={projectTasks} />
+        <AdaptersView
+          adapters={catalog?.adapters ?? []}
+          tasks={projectTasks}
+          loading={catalogLoading}
+          failed={catalogError}
+        />
       ) : (
         <SettingsView />
       )}

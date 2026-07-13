@@ -30,8 +30,6 @@ import { ListView } from "./ListView";
 
 const ENGINE_HINT: Record<string, string> = {
   multica: "由 Multica 管理，去 Multica 改状态",
-  github: "由 GitHub Issues 管理，去 GitHub 改状态",
-  linear: "由 Linear 管理，去 Linear 改状态",
 };
 
 function Card({

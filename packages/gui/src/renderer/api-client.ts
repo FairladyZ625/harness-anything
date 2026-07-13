@@ -1,5 +1,10 @@
 import type {
   AppendTaskProgressPayload,
+  CatalogSnapshotResult,
+  CatalogSnapshotSuccess,
+  DecisionMutationResult,
+  DecisionProposePayload,
+  DecisionTransitionPayload,
   LocalControllerResult,
   SetTaskStatusPayload,
   TaskDetailResult,
@@ -34,6 +39,7 @@ import {
 export type { ExecutionEvidencePageSuccess } from "./execution-evidence-api-contract.ts";
 
 type HarnessBridgeMethod =
+  | "getCatalogSnapshot"
   | "getTasks"
   | "getTaskDetail"
   | "getTaskDocument"
@@ -41,6 +47,10 @@ type HarnessBridgeMethod =
   | "getTriadicProjection"
   | "getDecisions"
   | "getDecisionDetail"
+  | "proposeDecision"
+  | "acceptDecision"
+  | "rejectDecision"
+  | "deferDecision"
   | "getTaskFacts"
   | "getFacts"
   | "getTaskExecutions"
@@ -149,6 +159,9 @@ export interface CommandFailure {
 export type CommandResult = CommandSuccess | CommandFailure;
 
 export const harnessClient = {
+  async getCatalogSnapshot(): Promise<CatalogSnapshotSuccess> {
+    return readCatalogSnapshotResult(await invokeBridge("getCatalogSnapshot", null));
+  },
   async getTasks(): Promise<TaskListSuccess> {
     const result = await invokeBridge("getTasks", null);
     return readTaskListResult(result);
@@ -176,6 +189,18 @@ export const harnessClient = {
   async getDecisionDetail(payload: DecisionIdPayload): Promise<DecisionDetailSuccess> {
     const result = await invokeBridge("getDecisionDetail", payload);
     return readDecisionDetailResult(result);
+  },
+  async proposeDecision(payload: DecisionProposePayload): Promise<DecisionMutationResult> {
+    return readDecisionMutationResult(await invokeBridge("proposeDecision", payload));
+  },
+  async acceptDecision(payload: DecisionTransitionPayload): Promise<DecisionMutationResult> {
+    return readDecisionMutationResult(await invokeBridge("acceptDecision", payload));
+  },
+  async rejectDecision(payload: DecisionTransitionPayload): Promise<DecisionMutationResult> {
+    return readDecisionMutationResult(await invokeBridge("rejectDecision", payload));
+  },
+  async deferDecision(payload: DecisionTransitionPayload): Promise<DecisionMutationResult> {
+    return readDecisionMutationResult(await invokeBridge("deferDecision", payload));
   },
   async getTaskFacts(payload: TaskIdPayload): Promise<TaskFactListSuccess> {
     const result = await invokeBridge("getTaskFacts", payload);
@@ -238,6 +263,32 @@ function readTaskListResult(value: unknown): TaskListSuccess {
     tasks,
     warnings: Array.isArray(result.warnings) ? result.warnings : []
   };
+}
+
+function readCatalogSnapshotResult(value: unknown): CatalogSnapshotSuccess {
+  const result = value as CatalogSnapshotResult;
+  if (
+    !result || typeof result !== "object" || result.ok !== true ||
+    typeof result.activeVerticalId !== "string" || result.customVerticalsImplemented !== false ||
+    !Array.isArray(result.presets) || !Array.isArray(result.verticals) ||
+    !Array.isArray(result.templates) || !Array.isArray(result.adapters)
+  ) throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
+  if (result.adapters.some((adapter) => adapter.id !== "local" && adapter.id !== "multica")) {
+    throw new Error("Catalog snapshot bridge returned an unregistered adapter id.");
+  }
+  return result;
+}
+
+function readDecisionMutationResult(value: unknown): DecisionMutationResult {
+  const result = value as DecisionMutationResult;
+  if (!result || typeof result !== "object" || typeof result.ok !== "boolean") {
+    return { ok: false, error: { code: "invalid_result", hint: "Decision mutation bridge returned an invalid result." } };
+  }
+  if (!result.ok) return result;
+  if (typeof result.decisionId !== "string" || typeof result.state !== "string") {
+    return { ok: false, error: { code: "invalid_result", hint: "Decision mutation bridge returned no decision id or state." } };
+  }
+  return result;
 }
 
 function readTaskDetailResult(value: unknown): TaskDetailSuccess {

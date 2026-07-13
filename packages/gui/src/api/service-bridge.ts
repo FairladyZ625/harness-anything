@@ -13,6 +13,7 @@ type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<J
 type ShippedGuiBridgeRoute = Extract<(typeof apiRouteContracts)[number], { readonly guiBridgeMethod: PreloadApiMethod }>;
 type ShippedGuiBridgeMethod = ShippedGuiBridgeRoute["guiBridgeMethod"];
 type LocalControllerGuiMethod =
+  | "getCatalogSnapshot"
   | "getTasks"
   | "getTaskDetail"
   | "getTaskDocument"
@@ -22,6 +23,10 @@ type LocalControllerGuiMethod =
   | "getTriadicProjection"
   | "getDecisions"
   | "getDecisionDetail"
+  | "proposeDecision"
+  | "acceptDecision"
+  | "rejectDecision"
+  | "deferDecision"
   | "getTaskFacts"
   | "getFacts"
   | "getTaskExecutions"
@@ -35,6 +40,7 @@ type LocalControllerGuiMethod =
   | "rebuildGovernance";
 
 interface GuiBridgeServiceProxy {
+  readonly getCatalogSnapshot: () => Promise<unknown> | unknown;
   readonly getTasks: () => Promise<unknown> | unknown;
   readonly getTaskDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly getTaskDocument: (payload: unknown) => Promise<unknown> | unknown;
@@ -44,6 +50,10 @@ interface GuiBridgeServiceProxy {
   readonly getTriadicProjection: () => Promise<unknown> | unknown;
   readonly getDecisions: () => Promise<unknown> | unknown;
   readonly getDecisionDetail: (payload: unknown) => Promise<unknown> | unknown;
+  readonly proposeDecision: (payload: unknown) => Promise<unknown> | unknown;
+  readonly acceptDecision: (payload: unknown) => Promise<unknown> | unknown;
+  readonly rejectDecision: (payload: unknown) => Promise<unknown> | unknown;
+  readonly deferDecision: (payload: unknown) => Promise<unknown> | unknown;
   readonly getTaskFacts: (payload: unknown) => Promise<unknown> | unknown;
   readonly getFacts: () => Promise<unknown> | unknown;
   readonly getTaskExecutions: (payload: unknown) => Promise<unknown> | unknown;
@@ -68,6 +78,10 @@ interface GuiBridgeHandlerImplementation {
 }
 
 export const guiBridgeHandlerImplementations = {
+  getCatalogSnapshot: {
+    serviceMethod: "getCatalogSnapshot",
+    invoke: ({ service }) => service.getCatalogSnapshot()
+  },
   getTasks: {
     serviceMethod: "getTasks",
     invoke: ({ service }) => service.getTasks()
@@ -103,6 +117,22 @@ export const guiBridgeHandlerImplementations = {
   getDecisionDetail: {
     serviceMethod: "getDecisionDetail",
     invoke: ({ service, payload }) => service.getDecisionDetail(payload)
+  },
+  proposeDecision: {
+    serviceMethod: "proposeDecision",
+    invoke: ({ service, payload }) => service.proposeDecision(payload)
+  },
+  acceptDecision: {
+    serviceMethod: "acceptDecision",
+    invoke: ({ service, payload }) => service.acceptDecision(payload)
+  },
+  rejectDecision: {
+    serviceMethod: "rejectDecision",
+    invoke: ({ service, payload }) => service.rejectDecision(payload)
+  },
+  deferDecision: {
+    serviceMethod: "deferDecision",
+    invoke: ({ service, payload }) => service.deferDecision(payload)
   },
   getTaskFacts: {
     serviceMethod: "getTaskFacts",
@@ -201,6 +231,7 @@ export async function dispatchGuiServiceMethod(
 
 function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeServiceProxy {
   return {
+    getCatalogSnapshot: () => invokeDaemonGuiRoute(request, "getCatalogSnapshot", undefined),
     getTasks: () => invokeDaemonGuiRoute(request, "getTasks", undefined),
     getTaskDetail: (payload) => invokeDaemonGuiRoute(request, "getTaskDetail", payload),
     getTaskDocument: (payload) => invokeDaemonGuiRoute(request, "getTaskDocument", payload),
@@ -210,6 +241,10 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     getTriadicProjection: () => invokeDaemonGuiRoute(request, "getTriadicProjection", undefined),
     getDecisions: () => invokeDaemonGuiRoute(request, "getDecisions", undefined),
     getDecisionDetail: (payload) => invokeDaemonGuiRoute(request, "getDecisionDetail", payload),
+    proposeDecision: (payload) => invokeDaemonGuiRoute(request, "proposeDecision", payload),
+    acceptDecision: (payload) => invokeDaemonGuiRoute(request, "acceptDecision", payload),
+    rejectDecision: (payload) => invokeDaemonGuiRoute(request, "rejectDecision", payload),
+    deferDecision: (payload) => invokeDaemonGuiRoute(request, "deferDecision", payload),
     getTaskFacts: (payload) => invokeDaemonGuiRoute(request, "getTaskFacts", payload),
     getFacts: () => invokeDaemonGuiRoute(request, "getFacts", undefined),
     getTaskExecutions: (payload) => invokeDaemonGuiRoute(request, "getTaskExecutions", payload),
@@ -258,6 +293,10 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
       return validateTaskIdPayload(payload);
     case "application.decision-id-payload/v1":
       return validateDecisionIdPayload(payload);
+    case "application.decision-propose-payload/v1":
+      return validateDecisionProposePayload(payload);
+    case "application.decision-transition-payload/v1":
+      return validateDecisionTransitionPayload(payload);
     case "application.execution-id-payload/v1":
       return validateEntityIdPayload(payload, "executionId");
     case "application.execution-evidence-page-payload/v1":
@@ -287,6 +326,85 @@ function validateDecisionIdPayload(payload: unknown): PayloadValidation {
   if (!isServicePayloadRecord(payload) || typeof payload.decisionId !== "string") return invalidPayload("decisionId is required.");
   if (!isValidEntityId(payload.decisionId)) return invalidPayload("decisionId is invalid.");
   return { ok: true, payload };
+}
+
+function validateDecisionTransitionPayload(payload: unknown): PayloadValidation {
+  const decision = validateDecisionIdPayload(payload);
+  if (!decision.ok) return decision;
+  if (!isServicePayloadRecord(payload)) return invalidPayload("decision transition payload is required.");
+  if (!optionalDecisionString(payload.decidedAt) || !optionalDecisionString(payload.judgmentOnlyRationale) || !optionalDecisionString(payload.body)) {
+    return invalidPayload("optional decision transition fields must be strings.");
+  }
+  if (payload.standingPolicy !== undefined && typeof payload.standingPolicy !== "boolean") {
+    return invalidPayload("standingPolicy must be boolean.");
+  }
+  return { ok: true, payload };
+}
+
+function validateDecisionProposePayload(payload: unknown): PayloadValidation {
+  if (!isServicePayloadRecord(payload)) return invalidPayload("decision propose payload is required.");
+  if (
+    !nonBlankString(payload.title) || !nonBlankString(payload.question) ||
+    !Array.isArray(payload.chosen) || payload.chosen.length === 0 ||
+    !Array.isArray(payload.rejected) || payload.rejected.length === 0 ||
+    !isTier(payload.riskTier) || !isTier(payload.urgency)
+  ) return invalidPayload("title, question, chosen, rejected, riskTier, and urgency are required.");
+  if (!payload.chosen.every(validChoice) || !payload.rejected.every(validRejected)) {
+    return invalidPayload("chosen and rejected entries require text; rejected entries also require why_not.");
+  }
+  if (payload.decisionId !== undefined && (typeof payload.decisionId !== "string" || !isValidEntityId(payload.decisionId))) {
+    return invalidPayload("decisionId is invalid.");
+  }
+  if (!optionalDecisionString(payload.body) || !optionalStringList(payload.modules) || !optionalStringList(payload.productLines)) {
+    return invalidPayload("optional decision body, modules, and productLines are invalid.");
+  }
+  if (payload.claims !== undefined && (!Array.isArray(payload.claims) || !payload.claims.every(validClaim))) {
+    return invalidPayload("claims must contain valid decision claim entries.");
+  }
+  if (payload.evidenceRelations !== undefined && (
+    !Array.isArray(payload.evidenceRelations) || !payload.evidenceRelations.every(validEvidenceRelation)
+  )) return invalidPayload("evidenceRelations must contain anchor, type, target, and rationale strings.");
+  return { ok: true, payload };
+}
+
+function validChoice(value: unknown): boolean {
+  return isServicePayloadRecord(value) && nonBlankString(value.text) &&
+    (value.id === undefined || nonBlankString(value.id)) &&
+    (value.load_bearing === undefined || typeof value.load_bearing === "boolean");
+}
+
+function validRejected(value: unknown): boolean {
+  return validChoice(value) && isServicePayloadRecord(value) && nonBlankString(value.why_not);
+}
+
+function validClaim(value: unknown): boolean {
+  return validChoice(value) && isServicePayloadRecord(value) && (
+    value.fulfillment === undefined ||
+    value.fulfillment === "evidenced" ||
+    value.fulfillment === "delivered" ||
+    value.fulfillment === "standing-policy"
+  );
+}
+
+function validEvidenceRelation(value: unknown): boolean {
+  return isServicePayloadRecord(value) && nonBlankString(value.anchor) && nonBlankString(value.type) &&
+    nonBlankString(value.target) && nonBlankString(value.rationale);
+}
+
+function nonBlankString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function optionalDecisionString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function optionalStringList(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every(nonBlankString));
+}
+
+function isTier(value: unknown): boolean {
+  return value === "low" || value === "medium" || value === "high";
 }
 
 function validateEntityIdPayload(payload: unknown, field: "executionId" | "reviewId"): PayloadValidation {
