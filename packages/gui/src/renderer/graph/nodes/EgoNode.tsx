@@ -1,0 +1,242 @@
+import type { MouseEvent } from "react";
+import { Handle, Position } from "@xyflow/react";
+import { X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
+import {
+  StatusBadge,
+  CloseoutBadge,
+  EngineBadge,
+  FreshnessTag,
+} from "../../components/badges";
+import { isExternal } from "../../model/types";
+import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
+
+/**
+ * 无限画布 ego 节点(dec_01KXBGJQFQARSZHHQW1WADFDNC)。
+ * 一个组件两态:
+ *   chip — 紧凑一条(默认),点一下就地展开成卡片并长出邻居。
+ *   card — 详情卡片(镜像 GraphDrawer 清晰度:徽章 / 轴色分区 / 大字 / 固定高内滚)。
+ *
+ * 交互回调由 GraphView 在 setNodes 时注入 data:
+ *   data.onCollapse(id)  收起卡片(保留已展开邻居)
+ *   data.onRefocus(id)   设为画布中心(重排 ±2 跳)
+ *   data.onNavigate(ref) 跳转该实体专属详情页(task→详情 / decision→池 / fact→分诊)
+ * chip 的"点击展开"走 ReactFlow onNodeClick,不在此处理。
+ */
+
+type Entity = "task" | "decision" | "fact";
+
+const AXIS_VAR: Record<Entity, string> = {
+  task: "var(--color-axis-execution)",
+  decision: "var(--color-axis-authority)",
+  fact: "var(--color-axis-evidence)",
+};
+const KD_LETTER: Record<Entity, string> = { task: "T", decision: "D", fact: "F" };
+
+const HANDLE_CLS =
+  "!h-2 !w-2 !min-w-2 !min-h-2 !border-0 !bg-[var(--color-border-strong)]";
+
+function Handles() {
+  return (
+    <>
+      <Handle type="target" position={Position.Left} className={HANDLE_CLS} />
+      <Handle type="source" position={Position.Right} className={HANDLE_CLS} />
+    </>
+  );
+}
+
+export function EgoNode({ data, selected }: any) {
+  const entity: Entity = data.entity;
+  const axis = AXIS_VAR[entity];
+  const focus = Boolean(data.focus);
+
+  if (!data.expanded) {
+    // ── chip ──
+    return (
+      <div
+        className="flex h-full w-full items-center gap-2 overflow-hidden rounded-lg border bg-surface-raised pl-0 pr-2.5 cursor-pointer transition-shadow duration-150 hover:shadow-md"
+        style={{
+          borderColor: focus ? axis : selected ? axis : "var(--color-border-strong)",
+          borderWidth: focus ? 2 : 1,
+          boxShadow: focus ? `0 0 0 2px ${axis}` : undefined,
+        }}
+      >
+        <Handles />
+        <div className="h-full w-[3px] shrink-0 rounded-l" style={{ backgroundColor: axis }} />
+        <span
+          className="grid size-[18px] shrink-0 place-items-center rounded font-mono text-[10px] font-bold"
+          style={{ backgroundColor: `color-mix(in srgb, ${axis} 18%, transparent)`, color: axis }}
+        >
+          {KD_LETTER[entity]}
+        </span>
+        {entity === "task" && (
+          <span
+            className="size-[7px] shrink-0 rounded-full"
+            style={{ backgroundColor: data.color ?? "var(--color-status-planned)" }}
+          />
+        )}
+        <span className="ui-meta min-w-0 flex-1 truncate text-text">{data.label}</span>
+        {data.hiddenCount > 0 && (
+          <span className="shrink-0 rounded-full bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
+            +{data.hiddenCount}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // ── card ──
+  const stop = (fn?: (arg: any) => void, arg?: any) => (e: MouseEvent) => {
+    e.stopPropagation();
+    fn?.(arg);
+  };
+
+  return (
+    <div
+      className="flex h-full w-full flex-col overflow-hidden rounded-xl border bg-surface shadow-lg"
+      style={{
+        borderColor: focus ? axis : "var(--color-border-strong)",
+        borderWidth: focus ? 2 : 1,
+        boxShadow: focus ? `0 0 0 2px ${axis}, 0 8px 28px rgba(0,0,0,0.28)` : undefined,
+      }}
+    >
+      <Handles />
+      {/* header */}
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-1.5">
+        <span
+          className="grid h-[18px] shrink-0 place-items-center rounded px-1.5 font-mono text-[9px] font-bold uppercase tracking-wide"
+          style={{ backgroundColor: `color-mix(in srgb, ${axis} 18%, transparent)`, color: axis }}
+        >
+          {entity}
+        </span>
+        <span className="ml-auto flex items-center gap-1">
+          {data.onRefocus && !focus && (
+            <button
+              onClick={stop(data.onRefocus, data.id ?? undefined)}
+              title="设为画布中心(重排前后 2 跳)"
+              className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-[var(--color-border-strong)] hover:text-text"
+            >
+              <Crosshair weight="bold" className="text-[10px]" />
+              设为中心
+            </button>
+          )}
+          {data.onNavigate && (
+            <button
+              onClick={stop(data.onNavigate, data.navRef)}
+              title="打开专属详情页(task→详情 · decision→决策池 · fact→分诊)"
+              className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-accent hover:text-accent"
+            >
+              <ArrowsOutSimple weight="bold" className="text-[10px]" />
+              详情 ↗
+            </button>
+          )}
+          <button
+            onClick={stop(data.onCollapse, data.id ?? undefined)}
+            title="收起(保留已展开邻居)"
+            className="grid size-5 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
+          >
+            <X weight="bold" className="text-[11px]" />
+          </button>
+        </span>
+      </div>
+
+      {/* title */}
+      <div className="shrink-0 px-2.5 pt-2">
+        <p className="ui-body font-semibold leading-snug text-text">{cardTitle(entity, data)}</p>
+      </div>
+
+      {/* scrollable body */}
+      <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2.5 pb-2">
+        {entity === "task" && <TaskBody t={data.raw as TaskRow} />}
+        {entity === "decision" && <DecisionBody d={data.raw as DecisionRow} />}
+        {entity === "fact" && <FactBody f={data.raw as FactRef} />}
+      </div>
+
+      {/* footer */}
+      <div className="flex shrink-0 items-center justify-between border-t border-border px-2.5 py-1 font-mono text-[10px] text-text-faint">
+        <span>度数 {data.degree ?? 0} · 第 {data.hop ?? 0} 跳</span>
+        {data.hiddenCount > 0 && <span>还有 +{data.hiddenCount} 未展开</span>}
+      </div>
+    </div>
+  );
+}
+
+function cardTitle(entity: Entity, data: any): string {
+  if (entity === "fact") return `证据 · ${(data.raw as FactRef).text?.slice(0, 60) ?? ""}`;
+  return data.label;
+}
+
+function TaskBody({ t }: { t: TaskRow }) {
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <StatusBadge status={t.coordinationStatus} />
+        <CloseoutBadge value={t.closeoutReadiness} />
+        <EngineBadge engine={t.engine} locked={isExternal(t)} />
+      </div>
+      <FreshnessTag freshness={t.freshness} lastKnownAt={t.lastKnownAt} />
+      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
+        <span>module: {t.module}</span>
+        {t.riskTier && <span>risk: {t.riskTier}</span>}
+        {t.urgency && <span>urgency: {t.urgency}</span>}
+      </div>
+    </>
+  );
+}
+
+function DecisionBody({ d }: { d: DecisionRow }) {
+  return (
+    <>
+      <div className="flex items-center gap-2 font-mono text-[11px]">
+        <span className="rounded bg-accent px-1.5 py-0.5 text-accent-fg">{d.state}</span>
+        <span className="text-text-muted">
+          {(d.riskTier ?? "未知")} risk · {(d.urgency ?? "未知")} urgency
+        </span>
+      </div>
+      {d.question && (
+        <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">Question</span>
+          <p className="ui-body mt-0.5 font-medium text-text">{d.question}</p>
+        </div>
+      )}
+      {d.chosen && d.chosen.length > 0 && (
+        <div className="rounded-md border border-accent/30 bg-accent-fg/5 px-2 py-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-wide text-accent">Chosen</span>
+          <div className="mt-0.5 flex flex-col gap-1">
+            {d.chosen.map((c) => (
+              <p key={c.id} className="ui-body text-text">{c.text}</p>
+            ))}
+          </div>
+        </div>
+      )}
+      {d.claims && d.claims.length > 0 && (
+        <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">Claims</span>
+          <ul className="ui-body mt-0.5 list-inside list-disc text-text-muted">
+            {d.claims.map((c) => (
+              <li key={c.id}>{c.text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
+function FactBody({ f }: { f: FactRef }) {
+  return (
+    <>
+      <div className="flex items-center gap-2 font-mono text-[11px]">
+        <span className="rounded bg-stale px-1.5 py-0.5 text-stale-fg">{f.category}</span>
+        <span className="text-text-muted">@ {f.at}</span>
+      </div>
+      <div className="rounded-md border border-stale/30 bg-stale/5 px-2 py-1.5">
+        <span className="font-mono text-[10px] uppercase tracking-wide text-stale">Fact Observation</span>
+        <p className="ui-body mt-0.5 font-medium leading-relaxed text-text">{f.text}</p>
+      </div>
+      <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5 font-mono text-[11px] text-text-muted">
+        <div>Task: {f.taskId}</div>
+        <div>Anchor: {f.anchor}</div>
+      </div>
+    </>
+  );
+}

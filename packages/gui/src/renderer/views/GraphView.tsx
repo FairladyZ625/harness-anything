@@ -7,7 +7,6 @@ import {
   BackgroundVariant,
   ReactFlowProvider,
   Panel,
-  useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -28,21 +27,13 @@ import {
   type AxisFilter,
   type GraphFilterInput,
 } from "../graph/graphLayout";
-import {
-  createFocusHistory,
-  currentFocus,
-  canGoBack as historyCanGoBack,
-  canGoForward as historyCanGoForward,
-  goBack as historyGoBack,
-  goForward as historyGoForward,
-  pushFocus,
-  type FocusHistoryState,
-} from "../graph/focusHistory";
+import { useEgoCanvas } from "../graph/useEgoCanvas";
 
 import { TaskNode } from "../graph/nodes/TaskNode";
 import { DecisionNode } from "../graph/nodes/DecisionNode";
 import { DecisionFocusNode } from "../graph/nodes/DecisionFocusNode";
 import { FactNode } from "../graph/nodes/FactNode";
+import { EgoNode } from "../graph/nodes/EgoNode";
 import { ModuleGroupNode } from "../graph/nodes/ModuleGroupNode";
 import { LaneBackgroundNode } from "../graph/nodes/LaneBackgroundNode";
 import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
@@ -60,6 +51,7 @@ const nodeTypes = {
   decision: DecisionNode,
   decisionFocus: DecisionFocusNode,
   fact: FactNode,
+  ego: EgoNode,
   moduleGroup: ModuleGroupNode,
   laneBackground: LaneBackgroundNode,
 };
@@ -69,6 +61,12 @@ const edgeTypes = {
 };
 
 const EMPTY_LOOP = new Set<string>();
+
+const MINIMAP_AXIS: Record<string, string> = {
+  task: "var(--color-axis-execution)",
+  decision: "var(--color-axis-authority)",
+  fact: "var(--color-axis-evidence)",
+};
 
 function defaultAxes(): AxisFilter {
   // relates (assoc) 默认关 — dec_01KXA7811SVVT8P66HNDFZQ7DF CH4。
@@ -94,37 +92,16 @@ function GraphViewInner({
   onNavigateEntity?: (ref: string) => void;
   focusRef?: string | null;
 }) {
-  const { fitView } = useReactFlow();
   const colorMode = useColorMode();
 
-  // 节点焦点(布局重算依赖)+ 边焦点(仅抽屉展示)。修 #3:此前用单一 focusId
-  // 同时承载节点和边,点边时把 edge id 当 focusNodeId 传给布局器,导致
-  // layoutSimpleEgo 拿不到节点 → 整张图塌成单个空节点。
-  //
-  // GUI 可用性补齐(dec_01KXA7811SVVT8P66HNDFZQ7DF):拆开「选中」与「聚焦」。
-  //   focusId    — 布局焦点(三泳道中心 / ego 中心)。受 FocusSwitcher / 双击 /
-  //                 抽屉「设为焦点」/ 跨视图 focusRef 驱动,所有变更入焦点历史。
-  //   selectedId — 抽屉里展示的节点(单击节点选中)。点空白 / Esc / 抽屉关闭即清空。
-  const [focusId, setFocusId] = useState<string | null>(null);
+  // 边焦点(仅抽屉展示)独立于节点焦点。修 #3:此前用单一 focusId 同时承载节点和边,
+  // 点边时把 edge id 当 focusNodeId 传给布局器,导致布局器拿不到节点 → 整张图塌成
+  // 单个空节点。节点焦点 / 画布累积态现在整块住在 useEgoCanvas 里。
+  //   selectedId — 抽屉里展示的节点。点空白 / Esc / 抽屉关闭即清空。
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
   const [resolvedFocusId, setResolvedFocusId] = useState<string | null>(null);
-  const [expandedFacts, setExpandedFacts] = useState<Set<string>>(new Set());
-  const [history, setHistory] = useState<FocusHistoryState>(createFocusHistory);
-
-  // 焦点切换统一入口:更新 focusId + 推历史。重复推同 id 会被 pushFocus 折叠。
-  const setFocusAndPushHistory = useCallback((id: string) => {
-    setFocusId(id);
-    setHistory((prev) => pushFocus(prev, id));
-  }, []);
-
-  // 跨视图带入的 focusRef → 换焦点 + 入历史(用户「跳到这张图」的足迹)。
-  useEffect(() => {
-    if (!focusRef) return;
-    const nodeId = endpointToNodeId(focusRef);
-    if (nodeId) setFocusAndPushHistory(nodeId);
-    // 仅依赖 focusRef:每次外部 ref 变更都要响应,即便值相同(避免漏触发)。
-  }, [focusRef, setFocusAndPushHistory]);
+  const [expandedFacts] = useState<Set<string>>(new Set());
 
   const [nodes, setNodes] = useState<any[]>([]);
   const [edges, setEdges] = useState<any[]>([]);
@@ -167,6 +144,30 @@ function GraphViewInner({
     [filters],
   );
 
+  // 无限画布 ego 状态机(焦点 / 累积可见集 / 已展开卡片 / 焦点历史 / 换焦点即居中)。
+  const {
+    focusId,
+    shown,
+    expanded,
+    canBack,
+    canForward,
+    openFocus,
+    expandNode,
+    collapseNode,
+    clearFocus,
+    goBack,
+    goForward,
+  } = useEgoCanvas({
+    tasks,
+    decisions: decisions ?? [],
+    facts: facts ?? [],
+    relations,
+    axes: filters.axes,
+    focusRef,
+    nodes,
+    resolvedFocusId,
+  });
+
   useEffect(() => {
     const ac = new AbortController();
     computeGraphLayout({
@@ -181,6 +182,7 @@ function GraphViewInner({
       filters: layoutInputFilters,
       inLoopNodes: EMPTY_LOOP,
       inLoopEdges: EMPTY_LOOP,
+      canvas: { shown, expanded },
     })
       .then(({ nodes: rfNodes, edges: rfEdges, cycleWarning: warning, resolvedFocusId: rid }) => {
         if (ac.signal.aborted) return;
@@ -206,78 +208,28 @@ function GraphViewInner({
     focusId,
     expandedFacts,
     layoutInputFilters,
+    shown,
+    expanded,
   ]);
 
-  // Fit view when node count changes or focus changes
-  useEffect(() => {
-    if (nodes.length === 0) return;
-    const frame = window.requestAnimationFrame(() => {
-      fitView({ padding: 0.12, duration: 200 });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [edges.length, fitView, nodes.length, resolvedFocusId]);
-
-  // 单击 = 选中并开抽屉(不换焦点)。fact 节点 / claim 行的展开 toggle 仍走单击,
-  // 因为它们是「展开 / 收起」局部交互,不涉及抽屉。
+  // 单击 chip = 就地展开成卡片并长出邻居(累积,永不重排已有画布)。
+  // 卡片(已展开)单击不处理 —— 收起 / 详情 / 设为中心 走卡片自身按钮。
   const onNodeClick = useCallback(
-    (evt: any, node: any) => {
-      if (node.type === "laneBackground" || node.type === "moduleGroup") return;
-      // 点击 fact 节点 → 折叠回去 (toggle expand)
-      if (node.type === "fact" && typeof node.id === "string" && node.id.startsWith("fact/")) {
-        setExpandedFacts((prev) => {
-          const next = new Set(prev);
-          if (next.has(node.id)) next.delete(node.id);
-          else next.add(node.id);
-          return next;
-        });
-        return;
-      }
-      // 点击 decisionFocus 上的具体 claim 行 → 仅 toggle 该 claim 的 evidence facts。
-      // 修 #4:此前点击焦点卡片任意位置都批量 toggle 所有 claim 的 fact,无法定位
-      // 具体行;现在用 data-claim-id 锚到具体 claim。
-      // 修 #5:factRefs 在 threeLaneLayout 里取 coverageRows.coveringFactRef 与
-      // evidence 边的并集,避免仅有规范/transitive 覆盖但无 direct edge 时漏掉。
-      if (node.type === "decisionFocus" && node.data?.claimRows) {
-        const target = evt?.target as HTMLElement | null;
-        const claimRowEl = target?.closest?.("[data-claim-id]");
-        const claimId = claimRowEl?.getAttribute("data-claim-id");
-        if (claimId) {
-          const rows = node.data.claimRows as Array<{
-            claimId: string;
-            factRefs?: string[];
-          }>;
-          const row = rows.find((r) => r.claimId === claimId);
-          const refs = row?.factRefs ?? [];
-          if (refs.length > 0) {
-            setExpandedFacts((prev) => {
-              const next = new Set(prev);
-              const allOpen = refs.every((f) => next.has(f));
-              if (allOpen) refs.forEach((f) => next.delete(f));
-              else refs.forEach((f) => next.add(f));
-              return next;
-            });
-          }
-          return;
-        }
-        // 未命中 claim 行 → 落到「选中开抽屉」(不再像旧版那样 toggle 焦点)。
-      }
-      setSelectedId(node.id);
-      setFocusEdgeId(null);
+    (_evt: any, node: any) => {
+      if (node.type !== "ego") return;
+      if (node.data?.expanded) return;
+      expandNode(node.id);
     },
-    [],
+    [expandNode],
   );
 
-  // 双击 = 设为焦点(显式切换,推历史)。
+  // 双击 = 设为画布中心(openFocus:重排前后各 2 跳,推历史)。
   const onNodeDoubleClick = useCallback(
     (_evt: any, node: any) => {
-      if (node.type === "laneBackground" || node.type === "moduleGroup") return;
-      if (!node.id || typeof node.id !== "string") return;
-      setFocusAndPushHistory(node.id);
-      // 双击后也把抽屉对齐到焦点,符合「我想看它的全貌」。
-      setSelectedId(node.id);
-      setFocusEdgeId(null);
+      if (node.type !== "ego" || typeof node.id !== "string") return;
+      openFocus(node.id);
     },
-    [setFocusAndPushHistory],
+    [openFocus],
   );
 
   const onEdgeClick = useCallback((_: any, edge: any) => {
@@ -344,6 +296,26 @@ function GraphViewInner({
     [nodes],
   );
 
+  // 注入卡片交互回调(收起 / 设为中心 / 详情跳转)+ id 到 ego 节点 data。
+  const displayNodes = useMemo(
+    () =>
+      nodes.map((n) =>
+        n.type === "ego"
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                id: n.id,
+                onCollapse: collapseNode,
+                onRefocus: openFocus,
+                onNavigate: onNavigateEntity,
+              },
+            }
+          : n,
+      ),
+    [nodes, collapseNode, openFocus, onNavigateEntity],
+  );
+
   // 抽屉里展示的实体(优先 selectedNode,fallback 到 focusNode)。这样单击非焦点
   // 节点能看抽屉,focus 节点也能看抽屉。upCount/downCount 跟随「抽屉里那个」。
   const drawerNodeId = selectedNode?.id ?? focusNode?.id ?? null;
@@ -367,57 +339,31 @@ function GraphViewInner({
     setSelectedId(null);
     setFocusEdgeId(null);
   }, []);
-  // 抽屉里点边列表项 = 既选中(抽屉跟着走)又换焦点(因为「跳到那个节点」就是
-  // 想看它的图)。这种「抽屉里跳」就是用户的 focus 意图,推历史。
+  // 边抽屉里「跳转源/目标节点」= 把该节点设为画布中心(openFocus 重排 ±2),并关边抽屉。
   const focusFromDrawer = useCallback(
     (id: string | null) => {
       if (!id) {
         closeDrawer();
         return;
       }
-      setSelectedId(id);
       setFocusEdgeId(null);
-      setFocusAndPushHistory(id);
+      openFocus(id);
     },
-    [closeDrawer, setFocusAndPushHistory],
+    [closeDrawer, openFocus],
   );
-  // 抽屉里「设为焦点」按钮 = 把当前抽屉里的节点升级为焦点(不切抽屉内容)。
+  // 抽屉里「设为焦点」按钮 = 把当前抽屉里的节点设为画布中心。
   const setDrawerAsFocus = useCallback(() => {
     if (!drawerNodeId) return;
-    setFocusAndPushHistory(drawerNodeId);
-  }, [drawerNodeId, setFocusAndPushHistory]);
+    openFocus(drawerNodeId);
+  }, [drawerNodeId, openFocus]);
 
-  // 历史导航:back/forward。currentFocus 为 null 表示走到历史外(默认焦点),
-  // 此时仍把 focusId 同步到 null 让布局器挑默认。
-  const goBackStack = useCallback(() => {
-    setHistory((prev) => {
-      const next = historyGoBack(prev);
-      if (next === prev) return prev;
-      setFocusId(currentFocus(next));
-      return next;
-    });
-  }, []);
-  const goForwardStack = useCallback(() => {
-    setHistory((prev) => {
-      const next = historyGoForward(prev);
-      if (next === prev) return prev;
-      setFocusId(currentFocus(next));
-      return next;
-    });
-  }, []);
-  const clearFocus = useCallback(() => {
-    setFocusId(null);
-    // 不动历史:用户「退出聚焦」不脚印化(经典浏览器也不会因为关 tab 入栈)。
-  }, []);
-
-  // Switcher 入口:点选 = 设焦点 + 抽屉跟着走。
+  // Switcher 入口:点选 = 设为画布中心(openFocus 重排 ±2)。
   const switchFocusFromList = useCallback(
     (nodeId: string) => {
-      setFocusAndPushHistory(nodeId);
-      setSelectedId(nodeId);
+      openFocus(nodeId);
       setFocusEdgeId(null);
     },
-    [setFocusAndPushHistory],
+    [openFocus],
   );
 
   // 面包屑数据:显示当前焦点(显式 or 布局默认)。kind 用 type 反推
@@ -476,11 +422,11 @@ function GraphViewInner({
       />
 
       <FocusHistoryBar
-        canBack={historyCanGoBack(history)}
-        canForward={historyCanGoForward(history)}
+        canBack={canBack}
+        canForward={canForward}
         breadcrumb={breadcrumb}
-        onBack={goBackStack}
-        onForward={goForwardStack}
+        onBack={goBack}
+        onForward={goForward}
         onClear={clearFocus}
       />
 
@@ -492,7 +438,7 @@ function GraphViewInner({
           onFocus={switchFocusFromList}
         />
         <ReactFlow
-          nodes={nodes}
+          nodes={displayNodes}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
@@ -501,10 +447,13 @@ function GraphViewInner({
           onEdgeClick={onEdgeClick}
           onPaneClick={onPaneClick}
           colorMode={colorMode}
-          fitView
-          fitViewOptions={{ padding: 0.1 }}
+          // 不用 fitView:画布视口由 useEgoCanvas 在换焦点时 setCenter 到焦点节点。
+          // 留着 fitView prop 会在节点测量完成后按整图 bbox 复位,把刚居中的焦点重新
+          // 推到一侧(下游更宽时压在左上角 Filters 面板底下),并把缩放改回 fit 值。
           minZoom={0.1}
           maxZoom={2}
+          // 双击 = 设为画布中心。默认的 d3 双击缩放会和 setCenter 抢同一次手势。
+          zoomOnDoubleClick={false}
           nodesDraggable={false}
           nodesConnectable={false}
           attributionPosition="bottom-right"
@@ -519,6 +468,8 @@ function GraphViewInner({
           <MiniMap
             nodeColor={(n) => {
               if (n.type === "laneBackground") return "rgba(255, 255, 255, 0.04)";
+              // ego 节点按语义轴上色 —— 否则暗色 minimap 上全是暗灰方块,等于隐形。
+              if (n.type === "ego") return MINIMAP_AXIS[(n.data as any)?.entity as string] ?? "var(--color-axis-execution)";
               if (n.type === "decisionFocus" || n.type === "decision") return "var(--color-accent)";
               if (n.type === "fact") return "var(--color-stale)";
               return "var(--color-border-strong)";
@@ -536,15 +487,10 @@ function GraphViewInner({
           </Panel>
         </ReactFlow>
 
-        {(selectedNode || focusNode || focusEdge) && (
+        {/* 节点详情已就地进卡片;抽屉仅保留「边详情」(点关系边)这一路。 */}
+        {(selectedNode || focusEdge) && (
           <GraphDrawer
-            focusNode={
-              selectedNode
-                ? drawerNodesMap.get(selectedId)
-                : focusNode
-                  ? drawerNodesMap.get(focusId)
-                  : undefined
-            }
+            focusNode={selectedNode ? drawerNodesMap.get(selectedId) : undefined}
             focusEdge={focusEdge ? focusEdge.data : undefined}
             nodes={drawerNodesMap}
             edges={relations}

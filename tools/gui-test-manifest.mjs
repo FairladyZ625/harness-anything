@@ -5,5 +5,6 @@ export const guiVitestManifest = [
   "packages/gui/test/task-adapter.vitest.ts",
   "packages/gui/test/graphLayout.vitest.ts",
   "packages/gui/test/genealogy-timeline.vitest.ts",
-  "packages/gui/test/graphNavigation.vitest.ts"
+  "packages/gui/test/graphNavigation.vitest.ts",
+  "packages/gui/test/canvas-ego-layout.vitest.ts"
 ];
