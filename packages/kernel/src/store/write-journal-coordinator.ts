@@ -47,6 +47,7 @@ import {
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
 import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./write-journal-receipt.ts";
+import { memoizePublicationVcs } from "./write-journal-publication-vcs.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalRecordKind, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 export type {
   GitCommitAuthor,
@@ -285,12 +286,16 @@ function flushRecords(
 ): FlushReport {
   const touchedPaths: string[] = [];
   const committedOpIds: string[] = [];
+  // Git topology and commit-tree queries are immutable for the lifetime of this
+  // single locked publication. Reuse them across independently attributed ops
+  // instead of spawning the same rev-parse/cat-file processes for every event.
+  const publicationVcs = memoizePublicationVcs(versionControlSystem ?? makeLocalVersionControlSystem());
   const plannedRecords = records.map((record) => ({
     record,
     touchedPaths: recordTouchedPaths(rootDir, rootInput, record)
   }));
 
-  assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem });
+  assertCommitPlanAddable(rootDir, plannedRecords.flatMap((record) => record.touchedPaths), rootInput, { versionControlSystem: publicationVcs });
   const previousProjectionSourceFingerprint = records.length > 0
     ? captureAuthoredProjectionFingerprint(rootInput)
     : undefined;
@@ -305,7 +310,7 @@ function flushRecords(
     committedOpIds.push(record.opId);
   }
 
-  const eventVcs = versionControlSystem ?? makeLocalVersionControlSystem();
+  const eventVcs = publicationVcs;
   const attributedRecords = plannedRecords
     .map((entry) => entry.record)
     .filter((record): record is Extract<ReadableJournalRecord, { readonly schema: "write-journal/v2" }> => record.schema === "write-journal/v2");
@@ -330,7 +335,7 @@ function flushRecords(
     sessionId,
     {
       author: commitAuthor,
-      versionControlSystem
+      versionControlSystem: publicationVcs
     }
   );
   const attributionEvents = mutationWillCommit

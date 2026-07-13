@@ -27,6 +27,7 @@ import {
 } from "../../application/src/index.ts";
 import {
   makeJournaledWriteCoordinator,
+  readAttributionEvents,
   taskEntityId,
   type WriteAttribution
 } from "../../kernel/src/index.ts";
@@ -90,28 +91,43 @@ test("shadow reconciliation reports exact matches and names commit divergence", 
   assert.deepEqual(report.differences.map((entry) => entry.code), ["CANONICAL_COMMIT_MISMATCH"]);
 });
 
-test("authority serializes concurrent attributed submissions into a linear one-operation commit chain", async () => {
+test("authority microbatches concurrent admissions into one linear publication with per-operation attribution", async () => {
   await withHermeticGit(async ({ rootDir, env }) => {
     const changeLog = createInMemoryReplicaChangeLog();
     const shadowLog = createInMemoryShadowPublicationLog();
-    const service = makeAuthority(rootDir, env, changeLog, shadowLog);
+    const service = makeAuthority(rootDir, env, changeLog, shadowLog, tokenVerifier({ delayedOpId: "op-0", delayMs: 25 }));
     const envelopes = Array.from({ length: 8 }, (_, index) => operationEnvelope(`op-${index}`, `task-tw01-${index}`, `body-${index}\n`));
+    const seedHead = git(rootDir, env, "rev-parse", "HEAD");
 
     const receipts = await Promise.all(envelopes.map((envelope) => service.submit(envelope)));
     const shadow = await shadowLog.list(workspaceId);
-    assert.equal(shadow.length, envelopes.length);
-    assert.deepEqual(shadow.map((record) => record.opIds), envelopes.map((envelope) => [envelope.opId]));
+    assert.equal(shadow.length, 1);
+    assert.deepEqual(shadow[0]?.opIds, envelopes.map((envelope) => envelope.opId));
 
     assert.equal(receipts.every((receipt) => receipt.tag === "COMMITTED"), true, JSON.stringify(receipts));
     assert.deepEqual(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.revision : -1), [1, 2, 3, 4, 5, 6, 7, 8]);
-    assert.equal(git(rootDir, env, "rev-list", "--count", "HEAD~8..HEAD"), "8");
+    assert.equal(new Set(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.commitSha : "")).size, 1);
+    assert.equal(receipts.every((receipt) => receipt.tag === "COMMITTED" && receipt.previousCommit === seedHead), true);
+    assert.equal(git(rootDir, env, "rev-list", "--count", "HEAD~1..HEAD"), "1");
     assert.equal(git(rootDir, env, "rev-list", "--min-parents=2", "HEAD"), "");
     for (let index = 0; index < envelopes.length; index += 1) {
       assert.equal(readFileSync(path.join(rootDir, `harness/tasks/task-tw01-${index}/notes.md`), "utf8"), `body-${index}\n`);
     }
     const changes = await changeLog.changesAfter(workspaceId, 0);
     assert.deepEqual(changes.map((change) => change.revision), [1, 2, 3, 4, 5, 6, 7, 8]);
-    assert.equal(changes.every((change, index) => index === 0 || change.previousCommit === changes[index - 1]?.commitSha), true);
+    assert.equal(changes.every((change) => change.commitSha === receipts[0]?.commitSha), true);
+    assert.equal(changes.every((change) => change.previousCommit === seedHead), true);
+    const attributionEvents = readAttributionEvents(rootDir);
+    assert.deepEqual(attributionEvents.map((event) => event.opId), envelopes.map((envelope) => envelope.opId));
+    assert.deepEqual(
+      attributionEvents.map((event) => event.actor.principal.personId),
+      envelopes.map((envelope) => `person_${envelope.opId}`),
+      "a slow first admission stays first and every operation retains its own principal"
+    );
+    assert.deepEqual(
+      attributionEvents.map((event) => event.actor.executor?.id),
+      envelopes.map((envelope) => `agent_${envelope.opId}`)
+    );
   });
 });
 
@@ -174,7 +190,13 @@ test("length-prefixed decoder rejects an oversized frame from its header before 
   assert.deepEqual(batch.frames, []);
 });
 
-function makeAuthority(rootDir: string, env: NodeJS.ProcessEnv, replicaChangeLog: ReplicaChangeLog, shadowPublicationLog?: ShadowPublicationLog) {
+function makeAuthority(
+  rootDir: string,
+  env: NodeJS.ProcessEnv,
+  replicaChangeLog: ReplicaChangeLog,
+  shadowPublicationLog?: ShadowPublicationLog,
+  verifier: DelegationTokenVerifier = tokenVerifier()
+) {
   return createAuthoritySubmissionService({
     workspaceId,
     coordinatorFactory: {
@@ -185,7 +207,7 @@ function makeAuthority(rootDir: string, env: NodeJS.ProcessEnv, replicaChangeLog
         autoMaterialize: false
       })
     },
-    tokenVerifier: tokenVerifier(),
+    tokenVerifier: verifier,
     operationRegistry: createInMemoryAuthorityOperationRegistry(),
     replicaChangeLog,
     ...(shadowPublicationLog ? { shadowPublicationLog } : {}),
@@ -214,22 +236,27 @@ function operationEnvelope(opId: string, taskId: string, body: string): Authorit
   return { ...envelope, claimedDigest: canonicalAuthorityRequestDigest(envelope) };
 }
 
-function tokenVerifier(): DelegationTokenVerifier {
-  const attribution: WriteAttribution = {
-    actor: {
-      principal: { kind: "person", personId: "person_zeyu" },
-      executor: { kind: "agent", id: "agent-tw01" }
-    },
-    principalSource: {
-      kind: "daemon-authenticated",
-      providerId: "test-token-verifier",
-      credentialFingerprint: "sha256:redacted-credential"
-    },
-    executorSource: "client-asserted"
-  };
+function tokenVerifier(options: { readonly delayedOpId?: string; readonly delayMs?: number } = {}): DelegationTokenVerifier {
   return {
-    verify: async ({ token }) => {
+    verify: async ({ token, envelope }) => {
       if (token !== opaqueToken) throw new Error("invalid token");
+      if (envelope.opId === options.delayedOpId) {
+        await new Promise((resolve) => setTimeout(resolve, options.delayMs ?? 0));
+      }
+      const actorId = `person_${envelope.opId}`;
+      const executorId = `agent_${envelope.opId}`;
+      const attribution: WriteAttribution = {
+        actor: {
+          principal: { kind: "person", personId: actorId },
+          executor: { kind: "agent", id: executorId }
+        },
+        principalSource: {
+          kind: "daemon-authenticated",
+          providerId: "test-token-verifier",
+          credentialFingerprint: "sha256:redacted-credential"
+        },
+        executorSource: "client-asserted"
+      };
       return {
         attribution,
         claims: {
@@ -239,8 +266,8 @@ function tokenVerifier(): DelegationTokenVerifier {
           workspaceId,
           deviceId: "device-1",
           viewId: "view-1",
-          actorId: "person_zeyu",
-          executorId: "agent-tw01",
+          actorId,
+          executorId,
           sessionId: "session-tw01",
           authorityGeneration: 1,
           channelNonceDigest,
