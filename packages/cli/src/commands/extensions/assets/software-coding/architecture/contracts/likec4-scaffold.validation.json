@@ -1,0 +1,41 @@
+{
+  "schema": "architecture-provider-validation/v1",
+  "provider": "likec4",
+  "version": "1.58.0",
+  "invocation": [
+    "npx",
+    "--yes",
+    "likec4@1.58.0",
+    "validate"
+  ],
+  "cwd": "manifest.modelRoot",
+  "inputs": [
+    {
+      "materializeAs": "harness/context/architecture/model/likec4.config.json",
+      "sha256": "ee61550cfed5ea6816b778eb94c16c592091ebfe59cf0fdf15b6bd9cdb6e16b1"
+    },
+    {
+      "materializeAs": "harness/context/architecture/model/model.c4",
+      "sha256": "80ded56324e9c24b027e173855a02881cffb13ff2917d1b9ec36534b8d82a204"
+    },
+    {
+      "materializeAs": "harness/context/architecture/model/specification.c4",
+      "sha256": "f2a6c889180c7f8ae6bfcf1d115830daacf311f0f53bd1e1cfe2d403d298d6aa"
+    },
+    {
+      "materializeAs": "harness/context/architecture/model/views/landscape.c4",
+      "sha256": "0798f93c388dae7ff151fa148ae5771aae4d7f78783cfcc0a2f869ffcbddf4c9"
+    },
+    {
+      "materializeAs": "harness/context/architecture/model/views/runtime.c4",
+      "sha256": "9fa5c2f372f35e93c6ed1cc641291802e6e055ccdcc1216ac1002d573757ca7d"
+    },
+    {
+      "materializeAs": "harness/context/architecture/model/views/write-path.c4",
+      "sha256": "9d1ade1d0104fa70ff7e971082c3d497e022db7e27de6afcee2b42c78fc34bde"
+    }
+  ],
+  "inputCount": 6,
+  "inputDigest": "sha256:74d37a16bf022fd8dba72efb6ccd516f76cece402908299169e97540e96452ea",
+  "result": "valid"
+}

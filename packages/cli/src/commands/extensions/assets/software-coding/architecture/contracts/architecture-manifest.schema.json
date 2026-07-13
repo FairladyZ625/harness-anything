@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/software-coding/architecture-manifest.schema.json",
+  "title": "Software Coding Architecture Manifest",
+  "description": "Opt-in routing contract for a repository-owned architecture model.",
+  "type": "object",
+  "required": [
+    "schema",
+    "enabled",
+    "modelContract",
+    "provider",
+    "modelRoot",
+    "views",
+    "sourceScopes",
+    "extractors"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "architecture-manifest/v1"
+    },
+    "enabled": {
+      "type": "boolean",
+      "const": true
+    },
+    "modelContract": {
+      "type": "string",
+      "const": "architecture-model/v1"
+    },
+    "provider": {
+      "type": "object",
+      "required": [
+        "id",
+        "config"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "const": "likec4"
+        },
+        "config": {
+          "type": "string",
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$",
+          "format": "portable-relative-path"
+        }
+      },
+      "additionalProperties": false
+    },
+    "modelRoot": {
+      "type": "string",
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$",
+      "format": "portable-relative-path"
+    },
+    "views": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "providerView",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$"
+          },
+          "providerView": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$",
+            "format": "portable-relative-path",
+            "allOf": [
+              {
+                "pattern": "\\.c4$"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sourceScopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "nodeId",
+          "include",
+          "exclude"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$"
+          },
+          "nodeId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$"
+          },
+          "include": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$",
+              "format": "repository-source-glob",
+              "allOf": [
+                {
+                  "pattern": "^(?!!).+$"
+                }
+              ]
+            }
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*//).+$",
+              "format": "repository-source-glob",
+              "allOf": [
+                {
+                  "pattern": "^(?!!).+$"
+                }
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "extractors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "adapter",
+          "sourceScopeIds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$"
+          },
+          "adapter": {
+            "type": "string",
+            "const": "javascript-typescript/imports-v1"
+          },
+          "sourceScopeIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "x-harness-schema-id": "architecture-manifest/v1",
+  "x-harness-generated-from": "architecture-manifest.mjs#ArchitectureManifestSchema",
+  "x-harness-semantic-validator": "validateArchitectureManifest"
+}

@@ -3,7 +3,7 @@
   "package": {
     "id": "software-coding-core",
     "title": "Software Coding Core Templates",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "owner": "harness-anything",
     "locales": [
       "zh-CN",
@@ -1085,6 +1085,171 @@
             "## 用途"
           ],
           "bodyPath": "templates/repository.context.readme/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-readme",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.architecture.readme",
+      "materializeAs": "harness/context/architecture/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [
+        "## Purpose",
+        "## Activation",
+        "## Source of Truth",
+        "## Authoring Contract",
+        "## Views",
+        "## Validation",
+        "## Migration and Conflicts"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Purpose",
+            "## Activation",
+            "## Source of Truth",
+            "## Authoring Contract",
+            "## Views",
+            "## Validation",
+            "## Migration and Conflicts"
+          ],
+          "bodyPath": "templates/repository.architecture.readme/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Purpose",
+            "## Activation",
+            "## Source of Truth",
+            "## Authoring Contract",
+            "## Views",
+            "## Validation",
+            "## Migration and Conflicts"
+          ],
+          "bodyPath": "templates/repository.architecture.readme/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-manifest",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.manifest",
+      "materializeAs": "harness/context/architecture/architecture-manifest.json",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "en-US",
+          "anchors": [],
+          "bodyPath": "templates/repository.architecture.manifest/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-config",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.config",
+      "materializeAs": "harness/context/architecture/model/likec4.config.json",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "en-US",
+          "anchors": [],
+          "bodyPath": "templates/repository.architecture.likec4.config/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-specification",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.specification",
+      "materializeAs": "harness/context/architecture/model/specification.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "en-US",
+          "anchors": [],
+          "bodyPath": "templates/repository.architecture.likec4.specification/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-model",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.model",
+      "materializeAs": "harness/context/architecture/model/model.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "en-US",
+          "anchors": [],
+          "bodyPath": "templates/repository.architecture.likec4.model/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-view-landscape",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.view.landscape",
+      "materializeAs": "harness/context/architecture/model/views/landscape.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "en-US",
+          "anchors": [],
+          "bodyPath": "templates/repository.architecture.likec4.view.landscape/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-view-write-path",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.view.write-path",
+      "materializeAs": "harness/context/architecture/model/views/write-path.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "en-US",
+          "anchors": [],
+          "bodyPath": "templates/repository.architecture.likec4.view.write-path/en-US.md"
+        }
+      ]
+    },
+    {
+      "id": "repository/architecture-likec4-view-runtime",
+      "version": "1",
+      "documentKind": "architecture-scaffold",
+      "slot": "repository.architecture.likec4.view.runtime",
+      "materializeAs": "harness/context/architecture/model/views/runtime.c4",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "en-US",
+          "anchors": [],
+          "bodyPath": "templates/repository.architecture.likec4.view.runtime/en-US.md"
         }
       ]
     }

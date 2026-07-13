@@ -68,6 +68,29 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.match(readFileSync(path.join(rootDir, "harness/sessions/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/context/README.md"), "utf8"), /## 用途/u);
+    assert.match(readFileSync(path.join(rootDir, "harness/context/architecture/README.md"), "utf8"), /## Activation/u);
+    assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/architecture-manifest.json")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/model")), false);
+  });
+});
+
+test("CLI init preserves existing architecture assets without enabling or completing the scaffold", () => {
+  withTempRoot((rootDir) => {
+    const architectureRoot = path.join(rootDir, "harness/context/architecture");
+    const modelRoot = path.join(architectureRoot, "model");
+    mkdirSync(modelRoot, { recursive: true });
+    writeFileSync(path.join(architectureRoot, "README.md"), "existing architecture guide\n", "utf8");
+    writeFileSync(path.join(architectureRoot, "architecture-manifest.json"), "existing manifest\n", "utf8");
+    writeFileSync(path.join(modelRoot, "model.c4"), "existing model\n", "utf8");
+
+    const result = runJson(rootDir, ["init"]);
+
+    assert.equal(result.ok, true);
+    assert.equal(readFileSync(path.join(architectureRoot, "README.md"), "utf8"), "existing architecture guide\n");
+    assert.equal(readFileSync(path.join(architectureRoot, "architecture-manifest.json"), "utf8"), "existing manifest\n");
+    assert.equal(readFileSync(path.join(modelRoot, "model.c4"), "utf8"), "existing model\n");
+    assert.equal(existsSync(path.join(modelRoot, "specification.c4")), false);
+    assert.equal(existsSync(path.join(modelRoot, "views")), false);
   });
 });
 

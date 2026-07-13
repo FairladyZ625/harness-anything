@@ -64,7 +64,7 @@ test("CLI template commands use bundled software coding catalog by default", () 
 
   assert.equal(listed.ok, true);
   assert.equal(listed.command, "template-list");
-  assert.equal(listed.templates.length, 33);
+  assert.equal(listed.templates.length, 41);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/task-plan@1" && template.materializeAs === "task_plan.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/brief@1" && template.materializeAs === "brief.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://planning/module-plan@1" && template.materializeAs === "module_plan.md"), true);
@@ -76,12 +76,48 @@ test("CLI template commands use bundled software coding catalog by default", () 
   assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/context-readme@1" && template.materializeAs === "harness/context/README.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/agent-base@1" && template.materializeAs === "AGENTS.md"), true);
   assert.equal(listed.templates.some((template) => template.templateRef === "template://repository/agent-overlay@1" && template.materializeAs === "AGENTS.md"), true);
+  for (const templateRef of [
+    "template://repository/architecture-readme@1",
+    "template://repository/architecture-manifest@1",
+    "template://repository/architecture-likec4-config@1",
+    "template://repository/architecture-likec4-specification@1",
+    "template://repository/architecture-likec4-model@1",
+    "template://repository/architecture-likec4-view-landscape@1",
+    "template://repository/architecture-likec4-view-write-path@1",
+    "template://repository/architecture-likec4-view-runtime@1"
+  ]) {
+    assert.equal(listed.templates.some((template) => template.templateRef === templateRef), true, templateRef);
+  }
 
   assert.equal(rendered.ok, true);
   assert.equal(rendered.command, "template-render");
   assert.equal(rendered.document.locale, "en-US");
   assert.equal(rendered.document.materializeAs, "stdout.md");
   assert.match(rendered.document.body, /## Implementation Plan/);
+});
+
+test("CLI renders the bilingual architecture guide and locale-neutral provider assets", () => {
+  const anchors = [
+    "## Purpose",
+    "## Activation",
+    "## Source of Truth",
+    "## Authoring Contract",
+    "## Views",
+    "## Validation",
+    "## Migration and Conflicts"
+  ];
+  const guideZh = runJson(["template", "render", "template://repository/architecture-readme@1", "--locale", "zh-CN"]);
+  const guideEn = runJson(["template", "render", "template://repository/architecture-readme@1", "--locale", "en-US"]);
+  const manifestFallback = runJson(["template", "render", "template://repository/architecture-manifest@1", "--locale", "zh-CN"]);
+
+  for (const anchor of anchors) {
+    assert.equal(guideZh.document.body.includes(anchor), true, anchor);
+    assert.equal(guideEn.document.body.includes(anchor), true, anchor);
+  }
+  assert.equal(guideZh.document.locale, "zh-CN");
+  assert.equal(guideEn.document.locale, "en-US");
+  assert.equal(manifestFallback.document.locale, "en-US");
+  assert.equal(JSON.parse(manifestFallback.document.body).schema, "architecture-manifest/v1");
 });
 
 test("CLI bundled template render fails closed on missing template refs", () => {

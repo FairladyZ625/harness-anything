@@ -1,10 +1,16 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
+import {
+  findPortablePathCollisions,
+  normalizeRelativeDocumentPath
+} from "../../kernel/src/index.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
@@ -70,6 +76,7 @@ test("bundled software coding assets have consistent template and process-preset
     readonly repositoryScaffold: {
       readonly seededDocs: ReadonlyArray<TemplateSelection & { readonly body?: unknown; readonly path?: unknown }>;
     };
+    readonly projectionSchemas: ReadonlyArray<{ readonly schemaRef: string }>;
     readonly scripts: ReadonlyArray<{
       readonly id: string;
       readonly metadata: { readonly purpose: string };
@@ -119,6 +126,27 @@ test("bundled software coding assets have consistent template and process-preset
     assert.equal(selection.body, undefined, `${selection.templateRef} must not inline seeded doc body`);
     assert.equal(selection.path, undefined, `${selection.templateRef} must use materializeAs instead of path`);
   }
+  const architectureTemplates = new Map([
+    ["repository/architecture-readme", "harness/context/architecture/README.md"],
+    ["repository/architecture-manifest", "harness/context/architecture/architecture-manifest.json"],
+    ["repository/architecture-likec4-config", "harness/context/architecture/model/likec4.config.json"],
+    ["repository/architecture-likec4-specification", "harness/context/architecture/model/specification.c4"],
+    ["repository/architecture-likec4-model", "harness/context/architecture/model/model.c4"],
+    ["repository/architecture-likec4-view-landscape", "harness/context/architecture/model/views/landscape.c4"],
+    ["repository/architecture-likec4-view-write-path", "harness/context/architecture/model/views/write-path.c4"],
+    ["repository/architecture-likec4-view-runtime", "harness/context/architecture/model/views/runtime.c4"]
+  ]);
+  for (const [id, materializeAs] of architectureTemplates) {
+    const document = catalog.documents.find((candidate) => candidate.id === id);
+    assert.notEqual(document, undefined, `${id} must be registered in the coding vertical catalog`);
+    assert.equal(document?.materializeAs, materializeAs);
+  }
+  const selectedRefs = new Set(vertical.repositoryScaffold.seededDocs.map((selection) => selection.templateRef));
+  assert.equal(selectedRefs.has("template://repository/architecture-readme@1"), true, "init seeds only the architecture guide");
+  for (const id of [...architectureTemplates.keys()].filter((candidate) => candidate !== "repository/architecture-readme")) {
+    assert.equal(selectedRefs.has(`template://${id}@1`), false, `${id} must stay explicitly opt-in`);
+  }
+  assert.equal(vertical.projectionSchemas.some((projection) => projection.schemaRef.includes("architecture-manifest")), false);
   assert.equal(vertical.scripts.some((script) => script.id === "vertical:software-coding:adr-seed" && script.metadata.purpose === "scaffold"), true);
   assert.deepEqual([...index.presets].sort(), bundledPresetIds, "bundled preset ids must match the approved public distribution list");
 
@@ -144,6 +172,240 @@ test("bundled software coding assets have consistent template and process-preset
       }
     }
   }
+});
+
+test("architecture contracts are single-authority, portable, and route the scaffold", async () => {
+  const assetRoot = path.resolve("packages/cli/src/commands/extensions/assets/software-coding");
+  const contractPath = path.join(assetRoot, "architecture/contracts/architecture-manifest.mjs");
+  const generatorPath = path.resolve("tools/generate-architecture-manifest-schema.mjs");
+  const contract = await import("../src/commands/extensions/assets/software-coding/architecture/contracts/architecture-manifest.mjs");
+  const manifest = JSON.parse(readFileSync(path.join(assetRoot, "templates/repository.architecture.manifest/en-US.md"), "utf8")) as Record<string, any>;
+  const likeC4Model = readFileSync(path.join(assetRoot, "templates/repository.architecture.likec4.model/en-US.md"), "utf8");
+  const catalog = JSON.parse(readFileSync(path.join(assetRoot, "template-catalog.json"), "utf8")) as {
+    readonly documents: ReadonlyArray<{
+      readonly id: string;
+      readonly materializeAs: string;
+      readonly locales: ReadonlyArray<{ readonly locale: string; readonly bodyPath: string }>;
+    }>;
+  };
+  const generatedSchema = contract.architectureManifestJsonSchema();
+  const modelContract = contract.architectureModelContract();
+
+  assert.match(execFileSync(process.execPath, [generatorPath, "--check"], { encoding: "utf8" }), /fresh/u);
+  assert.equal(manifest.modelContract, modelContract.id);
+  assert.equal(generatedSchema.properties.modelContract.const, modelContract.id);
+  assert.deepEqual(modelContract.views.requiredIds, ["landscape", "write-path", "runtime"]);
+  assert.deepEqual(modelContract.elements.requiredMetadataKeys, [
+    "archId",
+    "status",
+    "owner",
+    "responsibilities",
+    "nonResponsibilities"
+  ]);
+  assert.deepEqual(modelContract.metadataFields.expectation.enum, ["allowed", "required", "forbidden"]);
+  assert.deepEqual(modelContract.metadataFields.status, { type: "string", enum: ["draft", "verified"] });
+  assert.deepEqual(modelContract.metadataFields.placeholder, { type: "boolean" });
+  assert.deepEqual(modelContract.metadataFields.owner, { type: "string", minLength: 1 });
+  for (const metadataKey of ["responsibilities", "nonResponsibilities", "extractorIds", "adrRefs", "decisionRefs"]) {
+    assert.equal(modelContract.metadataFields[metadataKey].type, "array");
+    assert.equal(modelContract.metadataFields[metadataKey].minItems, 1);
+    assert.equal(modelContract.metadataFields[metadataKey].uniqueItems, true);
+  }
+  assert.equal(modelContract.metadataFields.extractorIds.references, "architecture-manifest/v1#extractors[].id");
+  assert.deepEqual(modelContract.evidence.verifiedRule, {
+    when: { metadataKey: "status", equals: "verified" },
+    requireAny: [
+      { metadataKey: "adrRefs", minItems: 1 },
+      { metadataKey: "decisionRefs", minItems: 1 }
+    ]
+  });
+  assert.equal(
+    modelContract.metadataFields.status.enum.includes(modelContract.evidence.verifiedRule.when.equals),
+    true,
+    "verified evidence rule must reference an allowed lifecycle status"
+  );
+  assert.deepEqual(contract.validateArchitectureManifest(manifest), { ok: true, value: manifest, issues: [] });
+  const permissionProbe = execFileSync(process.execPath, [
+    "--permission",
+    `--allow-fs-read=${path.dirname(contractPath)}`,
+    "--input-type=module",
+    "--eval",
+    `import { architectureManifestJsonSchema, architectureModelContract } from ${JSON.stringify(pathToFileURL(contractPath).href)}; process.stdout.write(architectureManifestJsonSchema().$id + "\\n" + architectureModelContract().id);`
+  ], { encoding: "utf8" });
+  assert.equal(permissionProbe, `${generatedSchema.$id}\n${modelContract.id}`, "vertical actions can load both contracts without node_modules access");
+  for (const metadataKey of new Set([
+    ...modelContract.elements.requiredMetadataKeys,
+    ...modelContract.relationships.requiredMetadataKeys,
+    modelContract.lifecycle.placeholderMetadataKey,
+    modelContract.evidence.adrRefsMetadataKey,
+    modelContract.evidence.decisionRefsMetadataKey
+  ])) {
+    assert.match(likeC4Model, new RegExp(`\\b${metadataKey}\\b`, "u"), `LikeC4 scaffold must carry ${metadataKey}`);
+  }
+  assert.match(likeC4Model, /adrRefs \['harness\/adr\/ADR-0000-replace-me\.md'\]/u);
+  assert.equal(new RegExp(modelContract.metadataFields.decisionRefs.items.pattern, "u").test("decision/dec_replace_me"), true);
+  assert.match(likeC4Model, /decisionRefs \['decision\/dec_replace_me'\]/u);
+  const providerInputs = catalog.documents
+    .filter((document) => document.id.startsWith("repository/architecture-likec4-"))
+    .map((document) => {
+      const bodyPath = document.locales.find((locale) => locale.locale === "en-US")?.bodyPath;
+      assert.notEqual(bodyPath, undefined, `${document.id} must have an en-US provider body`);
+      return {
+        materializeAs: document.materializeAs,
+        sha256: createHash("sha256").update(readFileSync(path.join(assetRoot, bodyPath!), "utf8")).digest("hex")
+      };
+    })
+    .sort((left, right) => left.materializeAs.localeCompare(right.materializeAs));
+  const providerValidation = JSON.parse(readFileSync(
+    path.join(assetRoot, "architecture/contracts/likec4-scaffold.validation.json"),
+    "utf8"
+  )) as Record<string, any>;
+  const providerInputDigest = `sha256:${createHash("sha256").update(JSON.stringify(providerInputs)).digest("hex")}`;
+  assert.equal(providerInputs.length, 6);
+  assert.equal(providerValidation.schema, "architecture-provider-validation/v1");
+  assert.equal(providerValidation.provider, "likec4");
+  assert.equal(providerValidation.version, "1.58.0");
+  assert.deepEqual(providerValidation.invocation, ["npx", "--yes", "likec4@1.58.0", "validate"]);
+  assert.equal(providerValidation.cwd, "manifest.modelRoot");
+  assert.deepEqual(providerValidation.inputs, providerInputs);
+  assert.equal(providerValidation.inputCount, providerInputs.length);
+  assert.equal(providerValidation.inputDigest, providerInputDigest, "LikeC4 validation evidence must cover the exact provider inputs");
+  assert.equal(providerValidation.result, "valid");
+  const targets = new Map(catalog.documents.map((document) => [document.id, document.materializeAs]));
+  const manifestDirectory = path.posix.dirname(targets.get("repository/architecture-manifest")!);
+  const modelDirectory = path.posix.join(manifestDirectory, manifest.modelRoot);
+  assert.equal(path.posix.join(modelDirectory, manifest.provider.config), targets.get("repository/architecture-likec4-config"));
+  for (const view of manifest.views) {
+    assert.equal(path.posix.join(modelDirectory, view.path), targets.get(`repository/architecture-likec4-view-${view.id}`));
+  }
+
+  const defaultExcludes = new Set(manifest.sourceScopes[0].exclude);
+  const expectedDefaultExcludes = [
+    ".git/**",
+    ".harness/**",
+    ".harness-private/**",
+    ".worktrees/**",
+    "harness/**",
+    "**/.git/**",
+    "**/.next/**",
+    "**/.turbo/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**",
+    "**/e2e/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*.vitest.*"
+  ];
+  assert.deepEqual([...defaultExcludes].sort(), expectedDefaultExcludes.sort(), "default source scope exclusions are contractual");
+
+  const cases = [
+    {
+      code: "architecture_manifest_invalid",
+      mutate: (candidate: Record<string, any>) => { candidate.enabled = false; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      mutate: (candidate: Record<string, any>) => { candidate.modelRoot = "../model"; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      physicalPath: "model\0x",
+      mutate: (candidate: Record<string, any>) => { candidate.modelRoot = "model\0x"; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      physicalPath: "model.",
+      mutate: (candidate: Record<string, any>) => { candidate.modelRoot = "model."; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      physicalPath: "model ",
+      mutate: (candidate: Record<string, any>) => { candidate.modelRoot = "model "; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      physicalPath: "config:likec4.json",
+      mutate: (candidate: Record<string, any>) => { candidate.provider.config = "config:likec4.json"; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      physicalPath: "NUL.json",
+      mutate: (candidate: Record<string, any>) => { candidate.provider.config = "NUL.json"; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      physicalPath: "*.json",
+      mutate: (candidate: Record<string, any>) => { candidate.provider.config = "*.json"; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      physicalPath: "views/CON.c4",
+      mutate: (candidate: Record<string, any>) => { candidate.views[0].path = "views/CON.c4"; }
+    },
+    {
+      code: "duplicate_architecture_view_id",
+      mutate: (candidate: Record<string, any>) => { candidate.views[1].id = candidate.views[0].id; }
+    },
+    {
+      code: "duplicate_architecture_view_path",
+      mutate: (candidate: Record<string, any>) => { candidate.views[1].path = candidate.views[0].path; }
+    },
+    {
+      code: "duplicate_architecture_view_path",
+      mutate: (candidate: Record<string, any>) => { candidate.views[1].path = "Views/Landscape.c4"; }
+    },
+    {
+      code: "architecture_model_path_collision",
+      mutate: (candidate: Record<string, any>) => { candidate.provider.config = "Views/Landscape.c4"; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      mutate: (candidate: Record<string, any>) => { candidate.sourceScopes[0].nodeId = "Repository Title"; }
+    },
+    {
+      code: "unknown_architecture_source_scope",
+      mutate: (candidate: Record<string, any>) => { candidate.extractors[0].sourceScopeIds = ["missing-scope"]; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      mutate: (candidate: Record<string, any>) => { candidate.sourceScopes[0].include = ["!packages/**"]; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      mutate: (candidate: Record<string, any>) => { candidate.sourceScopes[0].include = ["packages/\0*.ts"]; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      mutate: (candidate: Record<string, any>) => { candidate.extractors[0].adapter = "python/imports-v1"; }
+    },
+    {
+      code: "architecture_manifest_invalid",
+      mutate: (candidate: Record<string, any>) => { candidate.unexpected = true; }
+    }
+  ];
+
+  for (const testCase of cases) {
+    const candidate = structuredClone(manifest);
+    testCase.mutate(candidate);
+    if ("physicalPath" in testCase && typeof testCase.physicalPath === "string") {
+      assert.throws(() => normalizeRelativeDocumentPath(testCase.physicalPath), Error, testCase.physicalPath);
+    }
+    const result = contract.validateArchitectureManifest(candidate);
+    assert.equal(result.ok, false);
+    assert.equal(result.issues.some((issue: Record<string, unknown>) => issue.code === testCase.code), true, testCase.code);
+  }
+  const wildcardGlob = structuredClone(manifest);
+  wildcardGlob.sourceScopes[0].include = ["packages/**/test?.ts"];
+  assert.equal(contract.validateArchitectureManifest(wildcardGlob).ok, true, "source selectors keep glob metacharacters");
+  assert.deepEqual(findPortablePathCollisions(["views/landscape.c4", "Views/Landscape.c4"]), [{
+    canonicalPath: "views/landscape.c4",
+    paths: ["Views/Landscape.c4", "views/landscape.c4"]
+  }]);
 });
 
 test("architecture-rot-audit registry formalizes seven categories and fixed anchors", () => {

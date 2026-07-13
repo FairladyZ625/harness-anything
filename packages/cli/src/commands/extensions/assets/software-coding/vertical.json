@@ -2,7 +2,7 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "entityFieldExtensions": [
     {
       "extends": "task",
@@ -215,6 +215,15 @@
         "slot": "repository.context.readme",
         "templateRef": "template://repository/context-readme@1",
         "materializeAs": "{{paths.contextRoot}}/README.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        }
+      },
+      {
+        "slot": "repository.architecture.readme",
+        "templateRef": "template://repository/architecture-readme@1",
+        "materializeAs": "{{paths.contextRoot}}/architecture/README.md",
         "localePolicy": {
           "prefer": "project",
           "fallback": "en-US"
