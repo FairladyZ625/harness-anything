@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   buildArchitectureCodeGraph,
   validateArchitectureCodeGraph
@@ -10,7 +11,7 @@ import { compareArchitectureText } from "./architecture-portable-path.mjs";
 
 const toolName = "dependency-cruiser";
 const toolVersion = "17.4.3";
-const defaultExclude = "(^|/)(node_modules|dist|test|tests|__tests__)(/|$)|\\.(test|spec)\\.[cm]?[jt]sx?$";
+const defaultExclude = "(^|/)(\\.git|\\.harness|\\.harness-private|\\.worktrees|harness|node_modules|dist|test|tests|__tests__)(/|$)|\\.(test|spec)\\.[cm]?[jt]sx?$";
 const sourceExtension = /\.(?:[cm]?[jt]s|[jt]sx)$/u;
 const defaultTimeoutMs = 10_000;
 const maxOutputBytes = 64 * 1024 * 1024;
@@ -32,15 +33,6 @@ const summaryFields = new Set([
 export async function runJavaScriptTypeScriptCodeGraph(options) {
   const scopes = selectedScopes(options.manifest, options.extractor);
   if (!scopes.ok) return scopes;
-  const roots = scanRoots(scopes.value);
-  const argv = [
-    "--no-config",
-    "--output-type", "json",
-    "--progress", "none",
-    "--exclude", defaultExclude,
-    "--",
-    ...roots
-  ];
   const execute = options.execute ?? executeDependencyCruiser;
   const versionExecution = await execute({
     executable: "depcruise",
@@ -55,9 +47,29 @@ export async function runJavaScriptTypeScriptCodeGraph(options) {
       tool: missingTool(options.extractor, "not-installed", "Install the pinned @harness-anything/cli dependencies so depcruise is available on PATH.")
     };
   }
-  if (versionExecution.status !== "ok" || versionExecution.stdout.trim() !== toolVersion) {
+  if (versionExecution.status !== "ok") {
+    return invalid("architecture_extractor_process_failed", "extractor.tool.version", `dependency-cruiser version probe failed closed: ${versionExecution.reason}.`);
+  }
+  if (versionExecution.stdout.trim() !== toolVersion) {
     return invalid("architecture_extractor_version_mismatch", "extractor.tool.version", `Expected dependency-cruiser ${toolVersion}.`);
   }
+  const roots = existingScanRoots(options.executionRoot, scanRoots(scopes.value));
+  if (roots.length === 0) {
+    return decodeDependencyCruiserCodeGraph({
+      raw: { modules: [], summary: {} },
+      executionRoot: options.executionRoot,
+      extractor: options.extractor,
+      scopes: scopes.value
+    });
+  }
+  const argv = [
+    "--no-config",
+    "--output-type", "json",
+    "--progress", "none",
+    "--exclude", defaultExclude,
+    "--",
+    ...roots
+  ];
   const execution = await execute({
     executable: "depcruise",
     argv,
@@ -104,10 +116,8 @@ export function decodeDependencyCruiserCodeGraph({ raw, executionRoot, extractor
     if (matchingScopes.length > 1) {
       return invalid("architecture_extractor_scope_ambiguous", sourcePath, `Source path matches multiple declared scopes: ${matchingScopes.map((scope) => scope.id).sort(compareArchitectureText).join(", ")}.`);
     }
-    if (matchingScopes.length === 1) {
-      if (candidates.has(sourcePath)) return invalid("architecture_extractor_output_duplicate", sourcePath, "dependency-cruiser returned the same portable source path more than once.");
-      candidates.set(sourcePath, { module, sourceScopeId: matchingScopes[0].id });
-    }
+    if (candidates.has(sourcePath)) return invalid("architecture_extractor_output_duplicate", sourcePath, "dependency-cruiser returned the same portable source path more than once.");
+    candidates.set(sourcePath, { module, sourceScopeId: matchingScopes[0]?.id ?? null });
   }
 
   const packageByManifest = new Map();
@@ -185,7 +195,30 @@ async function executeDependencyCruiser({ executable, argv, cwd, timeoutMs }) {
   return new Promise((resolve) => {
     let stdout = "";
     let settled = false;
-    const child = spawn(executable, argv, { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let resolvedExecutable = executable;
+    let resolvedArgv = argv;
+    try {
+      if (executable === "depcruise") {
+        const packageEntry = fileURLToPath(import.meta.resolve("dependency-cruiser"));
+        const dependencyCruiserEntry = path.resolve(path.dirname(packageEntry), "../../bin/dependency-cruise.mjs");
+        resolvedExecutable = dependencyCruiserEntry;
+        resolvedArgv = argv;
+      }
+    } catch {
+      resolve({ status: "tool-missing" });
+      return;
+    }
+    const child = spawn(resolvedExecutable, resolvedArgv, {
+      cwd,
+      env: {
+        ...process.env,
+        PATH: path.dirname(process.execPath),
+        PREFIX: path.dirname(path.dirname(process.execPath))
+      },
+      shell: false,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -249,6 +282,17 @@ function scanRoots(scopes) {
   return [...new Set(roots)].sort(compareArchitectureText);
 }
 
+function existingScanRoots(executionRoot, roots) {
+  const expanded = roots.flatMap((root) => {
+    if (root !== ".") return existsSync(path.resolve(executionRoot, root)) ? [root] : [];
+    return readdirSync(executionRoot, { withFileTypes: true }).flatMap((entry) => {
+      if (excludedByDefault(entry.name)) return [];
+      return entry.isDirectory() || entry.isFile() && sourceExtension.test(entry.name) ? [entry.name] : [];
+    });
+  });
+  return [...new Set(expanded)].sort(compareArchitectureText);
+}
+
 function staticRoot(glob) {
   const segments = glob.split("/");
   const fixed = [];
@@ -268,7 +312,7 @@ function portableToolPath(value) {
 }
 
 function excludedByDefault(filePath) {
-  return /(^|\/)(?:node_modules|dist|test|tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
+  return /(^|\/)(?:\.git|\.harness|\.harness-private|\.worktrees|harness|node_modules|dist|test|tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
 }
 
 function nearestPackageManifest(root, filePath) {

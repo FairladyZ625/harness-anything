@@ -92,6 +92,7 @@
     "@eslint/js": "10.0.1",
     "@types/node": "24.13.2",
     "eslint": "10.7.0",
+    "likec4": "1.58.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.63.0"
   },

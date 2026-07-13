@@ -254,7 +254,7 @@ test("CLI configured architecture snapshot and check require an owning task", ()
   });
 });
 
-test("CLI architecture check is invisible until configured and snapshot degrades without its fixed adapter", () => {
+test("CLI architecture check is invisible until configured and snapshot runs through fixed adapters", () => {
   withTempRoot((rootDir) => {
     ensureTestHarnessIdentity(rootDir);
     runJson(rootDir, ["init"]);
@@ -271,23 +271,19 @@ test("CLI architecture check is invisible until configured and snapshot degrades
     writeFileSync(modelPath, readFileSync(modelPath, "utf8").replaceAll("placeholder true", "placeholder false"), "utf8");
     const task = runJson(rootDir, ["task", "create", "--title", "Architecture snapshot fixture"]);
 
-    const missing = runJson(rootDir, [
+    const snapshot = runJson(rootDir, [
       "script", "run", "vertical:software-coding:architecture-snapshot", "--task", task.taskId
-    ], false);
-
-    assert.equal(missing.ok, false);
-    assert.equal(missing.error.code, "script_result_failed");
-    assert.equal(missing.report.schema, "architecture-snapshot-report/v1");
-    assert.equal(missing.report.status, "tool-missing");
-    assert.deepEqual(missing.report.missingTools.map((tool: Record<string, unknown>) => tool.adapter), [
-      "likec4/model-v1",
-      "javascript-typescript/imports-v1"
     ]);
+
+    assert.equal(snapshot.ok, true);
+    assert.equal(snapshot.report.schema, "architecture-snapshot-report/v1");
+    assert.equal(snapshot.report.status, "fresh");
+    assert.deepEqual(snapshot.report.missingTools, []);
     assert.equal(existsSync(path.join(
       rootDir,
       task.packagePath,
       "artifacts/architecture/architecture-snapshot.json"
-    )), false);
+    )), true);
   });
 });
 
@@ -363,7 +359,8 @@ test("CLI architecture check treats a changed manifest digest as model evolution
     ], false);
 
     assert.equal(result.ok, false);
-    assert.equal(result.report.status, "tool-missing");
+    assert.equal(result.report.status, "drifted");
+    assert.equal(result.report.reasons.includes("model-digest-mismatch"), true);
     assert.deepEqual(result.report.issues, []);
   });
 });
@@ -377,7 +374,8 @@ test("CLI architecture check does not infer snapshot presence from its task arti
     ], false);
 
     assert.notEqual(absent.error?.code, "task_not_found");
-    assert.equal(absent.report.status, "tool-missing");
+    assert.equal(absent.report.status, "drifted");
+    assert.deepEqual(absent.report.reasons, ["snapshot-missing"]);
     assert.equal(absent.report.snapshot.path, path.relative(rootDir, snapshotPath));
     assert.deepEqual(absent.report.snapshot, {
       path: path.relative(rootDir, snapshotPath),

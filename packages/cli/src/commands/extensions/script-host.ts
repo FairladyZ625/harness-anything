@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -13,6 +14,7 @@ import { trustedScriptRepositoryContext } from "./script-repository-context.ts";
 import { discoverPresets } from "./state.ts";
 import {
   isPathInside,
+  permissionPathsForScope,
   resolvedScopeSetIsSafe,
   resolveDeclaredReadScopes,
   resolveDeclaredWriteScopes,
@@ -228,11 +230,13 @@ export function runScriptHost(options: {
     evidenceDir: runDir,
     outputRoot: executionOutputRoot,
     allowAddons: options.script.entry.metadata.kind === "check",
+    allowChildProcess: isTrustedArchitectureToolScript(options.script, scriptPath),
     readPermissions: [
       ...scriptPackageReadPermissions(scriptPath, options.script.manifestRoot),
       ...(options.script.trustedPackageReadPermissions ?? []),
       contextPath,
       ...checkScriptPackageReadPermissions(options.script.entry.metadata.kind, options.script.manifestRoot, scriptPath, layout),
+      ...architectureToolPackageReadPermissions(options.script, scriptPath, layout),
       ...executionReadScope.permissions
     ],
     writePermissions: [
@@ -501,4 +505,33 @@ function checkScriptLocalWritePermissions(kind: ScriptKind | undefined, layout: 
     layout.cacheRoot,
     `${layout.cacheRoot}/**`
   ];
+}
+
+function architectureToolPackageReadPermissions(
+  script: ResolvedScriptEntry,
+  scriptPath: string,
+  layout: ReturnType<typeof resolveHarnessLayout>
+): ReadonlyArray<string> {
+  return isTrustedArchitectureToolScript(script, scriptPath)
+    ? [
+        ...permissionPathsForScope(path.dirname(layout.rootDir), false),
+        ...permissionPathsForScope(layout.rootDir, true),
+        ...nodeModuleReadPermissions([path.dirname(scriptPath), script.manifestRoot, layout.rootDir])
+      ]
+    : [];
+}
+
+function isTrustedArchitectureToolScript(script: ResolvedScriptEntry, scriptPath: string): boolean {
+  const bundledRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "assets", "software-coding");
+  const expectedCommands = new Map([
+    ["vertical:software-coding:architecture-snapshot", "scripts/architecture-snapshot.mjs"],
+    ["vertical:software-coding:architecture-check", "scripts/architecture-check.mjs"]
+  ]);
+  const expectedCommand = expectedCommands.get(script.entry.id);
+  return script.entry.source === "vertical" &&
+    script.verticalId === "software/coding" &&
+    expectedCommand !== undefined &&
+    script.entry.command === expectedCommand &&
+    path.resolve(script.manifestRoot) === path.resolve(bundledRoot) &&
+    path.resolve(scriptPath) === path.resolve(bundledRoot, expectedCommand);
 }

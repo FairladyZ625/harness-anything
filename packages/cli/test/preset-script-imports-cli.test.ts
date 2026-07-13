@@ -308,6 +308,36 @@ test("ScriptExecutor classifies a filesystem write outside its permission scope"
   });
 });
 
+test("ScriptExecutor denies child processes unless the host grants the capability", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const evidenceDir = path.join(rootDir, "evidence");
+    const outputRoot = path.join(rootDir, "output");
+    const scriptPath = path.join(rootDir, "spawn-child.cjs");
+    mkdirSync(evidenceDir, { recursive: true });
+    mkdirSync(outputRoot, { recursive: true });
+    writeFileSync(scriptPath, [
+      "const { spawnSync } = require('node:child_process');",
+      "spawnSync(process.execPath, ['--version']);",
+      ""
+    ].join("\n"), "utf8");
+
+    const result = executeScript({
+      scriptPath,
+      cwd: rootDir,
+      evidenceDir,
+      outputRoot,
+      readPermissions: [scriptPath],
+      writePermissions: [outputRoot],
+      env: {},
+      artifactRoots: [outputRoot],
+      outputBoundary: { kind: "roots", roots: [outputRoot], inspect: "generated" }
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.stderr, /ChildProcess/u);
+  });
+});
+
 test("ScriptExecutor diffs generated artifacts and registers machine evidence", () => {
   withCanonicalTempRoot((rootDir) => {
     const evidenceDir = path.join(rootDir, "evidence");
