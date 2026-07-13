@@ -76,6 +76,7 @@
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
+        "check-staged-activation",
         "check-template-command-surface",
         "check-locale-content",
         "check-catalog-schema",
@@ -118,6 +119,7 @@
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
+        "check-staged-activation",
         "check-template-command-surface",
         "check-locale-content",
         "check-catalog-schema",
@@ -131,7 +133,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 37
+      "harnessLeafGateCount": 38
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -3006,6 +3008,88 @@
           "check": true,
           "checkPr": true,
           "script": "harness:check-gate-manifest-invariants"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      }
+    },
+    {
+      "id": "check-staged-activation",
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/staged-activation.test.mjs"
+        ]
+      },
+      "command": "npm run harness:check-staged-activation",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "harness/adr/ADR-0028-dual-axis-attribution-trunk.md#d5",
+        "task_01KXE0493Q44XTR1DWY3P5VVWX",
+        "tools/staged-activation.json",
+        "tools/staged-activation.schema.md"
+      ],
+      "consumerScope": [
+        "daemon and CLI production imports of registered staged contract symbols",
+        "explicit staged-activation expiry dates"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Entries are explicit lifecycle records anchored to tasks or milestones, not exceptions to an invariant."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/staged-activation.json",
+          "tools/staged-activation.schema.md",
+          "tools/probe-production-consumer.mjs",
+          "tools/run-staged-activation.mjs",
+          "package.json:scripts.harness:check-staged-activation",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-staged-activation"
         },
         "rewriteCi": {
           "pullRequestJobs": [
