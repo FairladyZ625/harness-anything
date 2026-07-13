@@ -1,5 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 const contractsPath = "../src/commands/extensions/assets/software-coding/architecture/contracts/architecture-adapter-contracts.mjs";
@@ -226,9 +229,13 @@ test("the adapter pipeline fails closed on extra fields at every success boundar
   }
 });
 
-test("the production fixed registry consumes LikeC4 intent and a JS/TS graph", async () => {
+test("the production fixed registry consumes LikeC4 intent and a JS/TS graph", async (t) => {
   const { runDeclaredArchitectureExtractors } = await import(adaptersPath);
   const options = pipelineOptions();
+  options.executionRoot = mkdtempSync(path.join(tmpdir(), "ha-architecture-adapter-"));
+  t.after(() => rmSync(options.executionRoot, { recursive: true, force: true }));
+  mkdirSync(path.join(options.executionRoot, "packages/api"), { recursive: true });
+  mkdirSync(path.join(options.executionRoot, "packages/store"), { recursive: true });
   options.executeLikeC4 = async () => ({ status: "ok", version: "1.58.0", raw: likeC4Export() });
   options.execute = async (call: Record<string, unknown>) => (call.argv as string[]).includes("--version")
     ? { status: "ok", stdout: "17.4.3\n" }
