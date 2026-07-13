@@ -114,36 +114,6 @@ export function parseMigrationArgs(args: ReadonlyArray<string>, rootDir: string,
     };
   }
 
-  if (migrateArgs[0] === "migrate-attribution") {
-    if (migrateArgs.includes("--dry-run") && migrateArgs.includes("--apply")) {
-      return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --dry-run or --apply.") };
-    }
-    const declarePrincipal = readOption(migrateArgs, "--declare-principal");
-    const declareAuthority = readOption(migrateArgs, "--declare-authority");
-    if ((declarePrincipal && !declareAuthority) || (!declarePrincipal && declareAuthority)) {
-      return {
-        ok: false,
-        error: cliError(
-          CliErrorCode.AttributionDeclarationInvalid,
-          "Use --declare-principal <personId> and --declare-authority <decision-id> together."
-        )
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        rootDir,
-        json,
-        action: {
-          kind: "migrate-attribution",
-          mode: migrateArgs.includes("--apply") ? "apply" : "dry-run",
-          confirmPlan: readOption(migrateArgs, "--confirm-plan"),
-          ...(declarePrincipal && declareAuthority ? { declarePrincipal, declareAuthority } : {})
-        }
-      }
-    };
-  }
-
   if (migrateArgs[0] === "migrate-provenance") {
     if (migrateArgs.includes("--dry-run") && migrateArgs.includes("--apply")) {
       return { ok: false, error: cliError(CliErrorCode.ConflictingMigrationMode, "Use only one of --dry-run or --apply.") };

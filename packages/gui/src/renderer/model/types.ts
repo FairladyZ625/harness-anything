@@ -137,9 +137,7 @@ export interface DecisionRow {
   urgency?: Urgency; // 缺失即未知；不得以 UI 默认值合成紧急等级
   vertical?: string;
   preset?: string;
-  proposedBy?: { kind: "agent" | "human" | "system"; id: string };
-  /** arbiter 必须 ≠ proposedBy（防自证） */
-  arbiter?: { kind: "agent" | "human" | "system"; id: string };
+  attribution: EntityAttributionProjection;
   proposedAt?: string;
   decidedAt?: string;
   question: string; // 这条决策回答的问题（复现当时场景）

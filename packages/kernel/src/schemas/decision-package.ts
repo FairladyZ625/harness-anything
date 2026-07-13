@@ -61,9 +61,7 @@ export const DecisionPackageSchema = Schema.Struct({
     modules: StringArray,
     productLines: StringArray
   }),
-  proposedBy: ActorRefSchema,
   proposedAt: NonBlankStringSchema,
-  arbiter: ActorRefSchema,
   decidedAt: OptionalString,
   contentPins: Schema.optional(Schema.Array(DecisionContentPinSchema)),
   provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1)),
@@ -72,7 +70,7 @@ export const DecisionPackageSchema = Schema.Struct({
   rejected: Schema.Array(RejectedDecisionAnchorSchema).pipe(Schema.minItems(1)),
   claims: Schema.Array(DecisionClaimSchema).pipe(Schema.minItems(1)),
   relations: Schema.Array(EntityRelationRecordSchema)
-}).pipe(Schema.filter((decision) => decision.proposedBy.kind !== decision.arbiter.kind || decision.proposedBy.id !== decision.arbiter.id));
+});
 
 export type DecisionPackage = Schema.Schema.Type<typeof DecisionPackageSchema>;
 

@@ -118,7 +118,7 @@ export function DecisionPoolView({
   const [urgencyFilter, setUrgencyFilter] = useState<NonNullable<DecisionRow["urgency"]> | "unknown" | "all">("all");
   const [verticalFilter, setVerticalFilter] = useState("all");
   const [presetFilter, setPresetFilter] = useState("all");
-  const [proposedByFilter, setProposedByFilter] = useState<NonNullable<DecisionRow["proposedBy"]>["kind"] | "unknown" | "all">("all");
+  const [originatorFilter, setOriginatorFilter] = useState<"person" | "agent" | "unknown" | "all">("all");
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
   const handledFocusRef = useRef<string | null>(null);
 
@@ -145,7 +145,7 @@ export function DecisionPoolView({
     setUrgencyFilter("all");
     setVerticalFilter("all");
     setPresetFilter("all");
-    setProposedByFilter("all");
+    setOriginatorFilter("all");
     setTimeRange("all");
     const frame = window.requestAnimationFrame(() => {
       document
@@ -161,7 +161,7 @@ export function DecisionPoolView({
   const rows = useMemo(() => {
     const tabStates = new Set(TAB_STATE[tab]);
     // 修 #2(预存 bug,归属 dec_mrf2nzvf):三元 `||`/`?:` 优先级让 riskFilter="all"
-    // 走到 !decision.riskTier 分支,把所有有 riskTier 的决策反筛掉;urgency/proposedBy
+    // 走到 !decision.riskTier 分支,把所有有 riskTier 的决策反筛掉;urgency/originator
     // 同样的运算符陷阱。显式拆成「all 放行 + unknown 反查 + 精确匹配」三路,并加括号。
     return sortDecisionQueue(decisions)
       .filter((decision) => tabStates.has(decision.state))
@@ -179,12 +179,13 @@ export function DecisionPoolView({
       .filter((decision) => verticalFilter === "all" || decision.vertical === verticalFilter)
       .filter((decision) => presetFilter === "all" || decision.preset === presetFilter)
       .filter((decision) => {
-        if (proposedByFilter === "all") return true;
-        if (proposedByFilter === "unknown") return !decision.proposedBy;
-        return decision.proposedBy?.kind === proposedByFilter;
+        if (originatorFilter === "all") return true;
+        const originator = decision.attribution.originator;
+        if (originatorFilter === "unknown") return !originator;
+        return originatorFilter === "agent" ? Boolean(originator?.executor) : Boolean(originator && !originator.executor);
       })
       .filter((decision) => withinRange(decision, timeRange));
-  }, [decisions, presetFilter, proposedByFilter, riskFilter, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
+  }, [decisions, originatorFilter, presetFilter, riskFilter, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
 
   const counts = {
     proposed: decisions.filter((decision) => TAB_STATE.proposed.includes(decision.state)).length,
@@ -253,12 +254,11 @@ export function DecisionPoolView({
           <option value="all">preset: all</option>
           {presets.map((preset) => <option key={preset} value={preset}>{preset}</option>)}
         </select>
-        <select className={selectClass} value={proposedByFilter} onChange={(event) => setProposedByFilter(event.target.value as typeof proposedByFilter)}>
-          <option value="all">proposedBy: all</option>
-          <option value="human">proposedBy: human</option>
-          <option value="agent">proposedBy: agent</option>
-          <option value="system">proposedBy: system</option>
-          <option value="unknown">proposedBy: unknown</option>
+        <select className={selectClass} value={originatorFilter} onChange={(event) => setOriginatorFilter(event.target.value as typeof originatorFilter)}>
+          <option value="all">originator: all</option>
+          <option value="person">originator: person</option>
+          <option value="agent">originator: agent executor</option>
+          <option value="unknown">originator: unknown</option>
         </select>
         <select className={selectClass} value={timeRange} onChange={(event) => setTimeRange(event.target.value as TimeRange)}>
           <option value="all">time: all</option>
@@ -294,7 +294,7 @@ export function DecisionPoolView({
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-faint">
                     <span>{decision.vertical ?? "未知/—"}</span>
                     <span>{decision.preset ?? "未知/—"}</span>
-                    <span>proposedBy {decision.proposedBy ? `${decision.proposedBy.kind}:${decision.proposedBy.id}` : "未知/—"}</span>
+                    <span>originator {formatActorAxes(decision.attribution.originator)}</span>
                     <span>proposed {decision.proposedAt ? decision.proposedAt.slice(5, 16).replace("T", " ") : "未知/—"}</span>
                   </div>
                 </div>
@@ -322,4 +322,9 @@ export function DecisionPoolView({
       </div>
     </div>
   );
+}
+
+function formatActorAxes(actor: DecisionRow["attribution"]["originator"]): string {
+  if (!actor) return "未知/—";
+  return `person:${actor.principal.personId} / ${actor.executor ? `agent:${actor.executor.id}` : "executor:none"}`;
 }

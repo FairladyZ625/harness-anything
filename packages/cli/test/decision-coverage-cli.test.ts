@@ -49,7 +49,7 @@ test("CLI decision accept blocks zero-evidence decisions without judgment-only",
       "--why-not", "The acceptance path needs a non-empty floor"
     ]);
 
-    const result = runJson(rootDir, ["decision", "accept", "dec_NOEVIDENCE", "--arbiter", "human:ZeyuLi"], false);
+    const result = runJson(rootDir, ["decision", "accept", "dec_NOEVIDENCE"], false);
 
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, "decision_write_rejected");
@@ -93,7 +93,7 @@ test("CLI decision accept transitions an existing decision with evidence through
       "--evidence-relation", `C1:relates:task/${task.taskId}:Task evidence establishes a non-empty acceptance floor`
     ]);
 
-    const result = runJson(rootDir, ["decision", "accept", "dec_ACCEPTCLI", "--arbiter", "human:ZeyuLi"]);
+    const result = runJson(rootDir, ["decision", "accept", "dec_ACCEPTCLI"]);
 
     assert.equal(result.ok, true);
     assert.equal(result.command, "decision-accept");
@@ -102,7 +102,8 @@ test("CLI decision accept transitions an existing decision with evidence through
     assert.match(body, /^state: active$/mu);
     assert.match(body, /^contentPins:$/mu);
     assert.match(body, /action: "accept", state: "active"/u);
-    assert.match(body, /arbiter: \{ kind: "human", id: "ZeyuLi" \}/u);
+    assert.match(body, /contentPins:[\s\S]*arbiter: \{ kind: "human", id: "person_test" \}/u);
+    assert.equal(/^arbiter:/mu.test(body), false);
     assert.match(body, /canonicalization: "decision-content\/v1"/u);
     assert.match(body, /digest: "sha256:[a-f0-9]{64}"/u);
   });
@@ -133,7 +134,7 @@ test("CLI decision amend appends a chosen anchor that can satisfy accept evidenc
       "--rationale", "Amended chosen anchor carries the acceptance evidence"
     ]);
 
-    const result = runJson(rootDir, ["decision", "accept", "dec_AMEND_CHOSEN_EVIDENCE", "--arbiter", "human:ZeyuLi"]);
+    const result = runJson(rootDir, ["decision", "accept", "dec_AMEND_CHOSEN_EVIDENCE"]);
 
     assert.equal(result.ok, true);
     const body = readFileSync(path.join(rootDir, "harness/decisions/decision-dec_AMEND_CHOSEN_EVIDENCE/decision.md"), "utf8");
@@ -156,7 +157,6 @@ test("CLI decision accept records judgment-only rationale", () => {
 
     const result = runJson(rootDir, [
       "decision", "accept", "dec_JUDGMENTONLY",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "Human arbiter accepts this policy bet before facts exist."
     ]);
 
@@ -185,7 +185,6 @@ test("CLI decision judgment-only accept appends without changing existing body b
 
     const result = runJson(rootDir, [
       "decision", "accept", "dec_JUDGMENT_BODY_PRESERVE",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "The human arbiter accepts this policy choice."
     ]);
 
@@ -264,7 +263,6 @@ test("CLI decision accept rejects a flag-like judgment-only rationale without ch
 
     const result = runJson(rootDir, [
       "decision", "accept", "dec_FLAG_RATIONALE",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "--note"
     ], false);
 
@@ -291,7 +289,6 @@ test("CLI decision accept rejects a whitespace-prefixed flag-like rationale", ()
 
     const result = runJson(rootDir, [
       "decision", "accept", "dec_SPACED_FLAG_RATIONALE",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "  --note"
     ], false);
 
@@ -316,14 +313,12 @@ test("CLI repeated judgment-only accept keeps a single existing judgment section
     const decisionPath = path.join(rootDir, "harness/decisions/decision-dec_REPEAT_JUDGMENT/decision.md");
     runJson(rootDir, [
       "decision", "accept", "dec_REPEAT_JUDGMENT",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "Initial judgment rationale."
     ]);
     const afterFirstAccept = decisionBody(readFileSync(decisionPath, "utf8"));
 
     const repeated = runJson(rootDir, [
       "decision", "accept", "dec_REPEAT_JUDGMENT",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "A later accept supplies different words."
     ]);
 
@@ -347,7 +342,7 @@ test("CLI decision reckon fails closed on uncovered load-bearing claims", () => 
       "--why-not", "Reckon is the coverage gate",
       "--evidence-relation", `C1:relates:task/${task.taskId}:Task evidence only satisfies accept floor`
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_RECKON_FAIL", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "accept", "dec_RECKON_FAIL"]);
 
     const result = runJson(rootDir, ["decision", "reckon", "dec_RECKON_FAIL", "--task", task.taskId], false);
 
@@ -378,7 +373,7 @@ test("CLI decision reckon passes covered load-bearing claims and records a fact"
       "--why-not", "Reckon is mechanical",
       "--evidence-relation", `C1:evidenced-by:fact/${task.taskId}/F-C0VERED1:Fact covers claim C1`
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_RECKON_PASS", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "accept", "dec_RECKON_PASS"]);
 
     const result = runJson(rootDir, ["decision", "reckon", "dec_RECKON_PASS", "--task", task.taskId]);
 
@@ -407,7 +402,7 @@ test("CLI decision reckon ignores non-load-bearing uncovered claims", () => {
       "--non-load-bearing",
       "--evidence-relation", `C1:relates:task/${task.taskId}:Task evidence only satisfies accept floor`
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_RECKON_IGNORE", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "accept", "dec_RECKON_IGNORE"]);
 
     const result = runJson(rootDir, ["decision", "reckon", "dec_RECKON_IGNORE", "--task", task.taskId]);
 
@@ -552,7 +547,7 @@ test("CLI decision conformance reports refuted claims independently from uncover
       "--why-not", "Contrary evidence must not cover a claim",
       "--evidence-relation", `C1:derives:task/${task.taskId}:The decision derives the remediation task`
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_REFUTED_CLAIM", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "accept", "dec_REFUTED_CLAIM"]);
 
     const taskPackage = readdirSync(path.join(rootDir, "harness/tasks"))
       .find((entry) => entry.startsWith(task.taskId));
@@ -652,8 +647,9 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+  const cliArgs = independentDecisionJudgmentArgs(args);
   try {
-    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
       encoding: "utf8"
     });
     const parsed = JSON.parse(output) as Record<string, any>;
@@ -664,6 +660,11 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
+  if (args[0] !== "decision" || !["accept", "reject", "defer", "supersede", "retire"].includes(args[1] ?? "")) return args;
+  return ["--actor", "human:person_test", ...args];
 }
 
 function decisionBody(document: string): string {

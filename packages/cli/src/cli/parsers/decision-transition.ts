@@ -1,7 +1,6 @@
 import { cliError, CliErrorCode } from "../error-codes.ts";
 import { readOption } from "../parse-options.ts";
 import type { CliResult, ParsedCommand } from "../types.ts";
-import { invalidDecisionActor, isDecisionActorRef } from "./decision-actor.ts";
 import { parseClaimFulfillments } from "./decision-fulfillment.ts";
 
 const transitionOps = new Set(["accept", "reject", "defer", "supersede", "retire"]);
@@ -22,8 +21,6 @@ export function parseDecisionTransitionArgs(
   args: ReadonlyArray<string>,
   op: "accept" | "reject" | "defer" | "supersede" | "retire"
 ): { readonly ok: true; readonly value: TransitionAction } | { readonly ok: false; readonly error: CliResult["error"] } {
-  const arbiter = readOption(args, "--arbiter");
-  if (arbiter && !isDecisionActorRef(arbiter)) return invalidDecisionActor();
   const judgmentOnlyRationale = readOption(args, "--judgment-only");
   const fulfillments = parseClaimFulfillments(args);
   if (!fulfillments.ok) return fulfillments;
@@ -42,7 +39,6 @@ export function parseDecisionTransitionArgs(
     value: {
       kind: `decision-${op}` as TransitionAction["kind"],
       decisionId: args[2]!,
-      arbiter,
       decidedAt: readOption(args, "--decided-at"),
       ...(op === "accept" && judgmentOnlyRationale ? { judgmentOnlyRationale } : {}),
       ...(op === "accept" && args.includes("--standing-policy") ? { standingPolicy: true } : {}),

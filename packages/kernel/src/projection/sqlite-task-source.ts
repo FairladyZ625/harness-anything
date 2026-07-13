@@ -5,7 +5,7 @@ import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind, i
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
+import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import {
   deriveRelationTaskAuthoredSources,
   relationDecisionAuthoredSourceKind,
@@ -139,7 +139,6 @@ export function taskEntryToRow(
     ...readTaskMetadata(entry.frontmatter),
     ...readModuleMetadata(taskDir),
     hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
-    ...readCreatedBy(entry.frontmatter),
     attribution: unresolvedEntityAttribution()
   };
 }
@@ -148,14 +147,6 @@ function parseFrontmatter(body: string): string {
   const frontmatter = readFrontmatter(body);
   if (!frontmatter) throw new Error("INDEX.md missing frontmatter");
   return frontmatter;
-}
-
-function readCreatedBy(frontmatter: string): { readonly createdBy?: { readonly name: string; readonly email: string } } {
-  const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
-  if (!block) return {};
-  const name = readNestedScalar(block, "name");
-  const email = readNestedScalar(block, "email");
-  return name && email ? { createdBy: { name, email } } : {};
 }
 
 function readParent(frontmatter: string): { readonly parentTaskId?: string } {
@@ -353,7 +344,6 @@ function canonicalTaskProjectionRow(row: TaskProjectionRow): Omit<TaskProjection
     ...(row.moduleKey ? { moduleKey: row.moduleKey } : {}),
     ...(row.moduleTitle ? { moduleTitle: row.moduleTitle } : {}),
     ...(row.hasLessonCandidates === undefined ? {} : { hasLessonCandidates: row.hasLessonCandidates }),
-    ...(row.createdBy ? { createdBy: { name: row.createdBy.name, email: row.createdBy.email } } : {}),
     ...(row.fieldExtensions ? { fieldExtensions: sortRecord(row.fieldExtensions) } : {})
   };
 }

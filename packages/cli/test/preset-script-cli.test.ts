@@ -68,7 +68,7 @@ test("CLI check reports decision conformance violations without failing when pol
       "--why-not", "The milestone loop needs task or defer closure",
       "--evidence-relation", `C1:evidenced-by:fact/${task.taskId}/F-C123ABCD:Fact covers the accepted conformance claim`
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_CONFORMANCE_EDGE", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "accept", "dec_CONFORMANCE_EDGE"]);
     const audited = runJson(rootDir, ["check", "--profile", "source-package"]);
     assert.equal(audited.ok, true);
     assert.equal(audited.warnings.some((warning: Record<string, unknown>) => (
@@ -127,7 +127,7 @@ test("CLI check fails on decision conformance violations when policy enforcement
       "--why-not", "The governed repository requires conformance enforcement",
       "--evidence-relation", `C1:evidenced-by:fact/${task.taskId}/F-GATED123:Fact covers the governed conformance claim`
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_CONFORMANCE_GATED", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "accept", "dec_CONFORMANCE_GATED"]);
     writeFile(rootDir, "harness/policies/presets/decision-conformance.policy.json", JSON.stringify({
       schema: "preset-policy/decision-conformance/v1",
       presetId: "decision-conformance",
@@ -633,8 +633,9 @@ test("CLI legacy-migration preset action plans V2 task discovery and context for
 });
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+  const cliArgs = independentDecisionJudgmentArgs(args);
   try {
-    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -651,6 +652,11 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
+  if (args[0] !== "decision" || !["accept", "reject", "defer", "supersede", "retire"].includes(args[1] ?? "")) return args;
+  return ["--actor", "human:person_test", ...args];
 }
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {

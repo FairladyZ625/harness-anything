@@ -43,8 +43,8 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-propose",
-    "usage": "decision propose --title <title> --question <text> --chosen <text|json>... --rejected <text|json>... [--why-not <fallback-for-text-rejections>] [--from-file <path>|--json-input <json>] [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--proposed-by kind:id] [--arbiter kind:id] [--claim <text>]... [--fulfillment <claim-id>:<mode>]... [--non-load-bearing] [--evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>] [--body <text>|--body-file <path>] [--dry-run] [--json]",
-    "options": [{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--question","description":"Set the decision question being answered."},{"flag":"--chosen","description":"Add a chosen option; repeat independently for every chosen option."},{"flag":"--rejected","description":"Add a rejected option; repeat independently and use JSON to carry its own why_not."},{"flag":"--why-not","description":"Set the fallback rationale applied to text-only rejected options."},{"flag":"--from-file","description":"Read command input JSON from a file; flags remain shortcut overrides."},{"flag":"--json-input","description":"Read command input JSON from an inline string; flags remain shortcut overrides."},{"flag":"--id","description":"Set the explicit entity id when the command supports one."},{"flag":"--risk-tier","description":"Set decision risk tier: low, medium, or high."},{"flag":"--urgency","description":"Set decision urgency: low, medium, or high."},{"flag":"--module","description":"Select a registered module key; use module list to discover keys."},{"flag":"--product-line","description":"Attach a comma-separated product line list to a decision."},{"flag":"--proposed-by","description":"Set the decision proposer as agent:<id>, human:<id>, or system:<id>."},{"flag":"--arbiter","description":"Set the decision arbiter as agent:<id>, human:<id>, or system:<id>."},{"flag":"--claim","description":"Set the primary supporting claim text for a decision."},{"flag":"--fulfillment","description":"Declare one claim fulfillment mode as claim-id:evidenced, claim-id:delivered, or claim-id:standing-policy."},{"flag":"--non-load-bearing","description":"Mark the proposed primary claim, or an existing amended claim, as exempt from reckon coverage."},{"flag":"--evidence-relation","description":"Attach a decision anchor to a task, decision, or fact ref as anchor:type:target:rationale; repeat for multiple relations."},{"flag":"--body","description":"Set authored body content for the generated decision document; mutually exclusive with --body-file."},{"flag":"--body-file","description":"Read authored body markdown from a file; mutually exclusive with --body."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "decision propose --title <title> --question <text> --chosen <text|json>... --rejected <text|json>... [--why-not <fallback-for-text-rejections>] [--from-file <path>|--json-input <json>] [--id dec_x] [--risk-tier low|medium|high] [--urgency low|medium|high] [--module <key[,key]>] [--product-line <key[,key]>] [--claim <text>]... [--fulfillment <claim-id>:<mode>]... [--non-load-bearing] [--evidence-relation <anchor>:<type>:<task|fact-ref>:<rationale>] [--body <text>|--body-file <path>] [--dry-run] [--json]",
+    "options": [{"flag":"--title","description":"Set the required task title used for generated package metadata and slug."},{"flag":"--question","description":"Set the decision question being answered."},{"flag":"--chosen","description":"Add a chosen option; repeat independently for every chosen option."},{"flag":"--rejected","description":"Add a rejected option; repeat independently and use JSON to carry its own why_not."},{"flag":"--why-not","description":"Set the fallback rationale applied to text-only rejected options."},{"flag":"--from-file","description":"Read command input JSON from a file; flags remain shortcut overrides."},{"flag":"--json-input","description":"Read command input JSON from an inline string; flags remain shortcut overrides."},{"flag":"--id","description":"Set the explicit entity id when the command supports one."},{"flag":"--risk-tier","description":"Set decision risk tier: low, medium, or high."},{"flag":"--urgency","description":"Set decision urgency: low, medium, or high."},{"flag":"--module","description":"Select a registered module key; use module list to discover keys."},{"flag":"--product-line","description":"Attach a comma-separated product line list to a decision."},{"flag":"--claim","description":"Set the primary supporting claim text for a decision."},{"flag":"--fulfillment","description":"Declare one claim fulfillment mode as claim-id:evidenced, claim-id:delivered, or claim-id:standing-policy."},{"flag":"--non-load-bearing","description":"Mark the proposed primary claim, or an existing amended claim, as exempt from reckon coverage."},{"flag":"--evidence-relation","description":"Attach a decision anchor to a task, decision, or fact ref as anchor:type:target:rationale; repeat for multiple relations."},{"flag":"--body","description":"Set authored body content for the generated decision document; mutually exclusive with --body-file."},{"flag":"--body-file","description":"Read authored body markdown from a file; mutually exclusive with --body."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Create a proposed decision with optional typed evidence relations through the decision write service.",
     "examples": ["harness-anything decision propose --title \"Adopt CLI decision loop\" --question \"Should M3 expose decision CLI?\" --chosen \"Expose it\" --rejected \"Keep write API only\" --why-not \"No human fallback path\" --evidence-relation C1:supersedes-fact:fact/task_01ABC/F-1234ABCD:\"Evidence covers C1.\""],
     "parse": parseDecisionArgs,
@@ -60,10 +60,10 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-accept",
-    "usage": "decision accept <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--judgment-only <rationale>] [--standing-policy] [--fulfillment <claim-id>:<mode>]... [--dry-run] [--json]",
-    "options": [{"flag":"--arbiter","description":"Set the decision arbiter as agent:<id>, human:<id>, or system:<id>."},{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--judgment-only","description":"Accept a decision without evidence only with an explicit recorded rationale."},{"flag":"--standing-policy","description":"Classify the accepted decision as a standing policy."},{"flag":"--fulfillment","description":"Declare one claim fulfillment mode as claim-id:evidenced, claim-id:delivered, or claim-id:standing-policy."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "decision accept <decision-id> [--decided-at <iso>] [--judgment-only <rationale>] [--standing-policy] [--fulfillment <claim-id>:<mode>]... [--dry-run] [--json]",
+    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--judgment-only","description":"Accept a decision without evidence only with an explicit recorded rationale."},{"flag":"--standing-policy","description":"Classify the accepted decision as a standing policy."},{"flag":"--fulfillment","description":"Declare one claim fulfillment mode as claim-id:evidenced, claim-id:delivered, or claim-id:standing-policy."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Accept a proposed decision through the decision write service after the non-empty evidence floor or an explicit judgment-only rationale.",
-    "examples": ["harness-anything decision accept dec_01ABC --arbiter human:ZeyuLi"],
+    "examples": ["harness-anything decision accept dec_01ABC"],
     "parse": parseDecisionArgs,
     "run": runDecisionCommand,
     "receiptContract": {
@@ -77,10 +77,10 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-reject",
-    "usage": "decision reject <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--arbiter","description":"Set the decision arbiter as agent:<id>, human:<id>, or system:<id>."},{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "decision reject <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
+    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Reject a proposed decision through the decision write service.",
-    "examples": ["harness-anything decision reject dec_01ABC --arbiter human:ZeyuLi"],
+    "examples": ["harness-anything decision reject dec_01ABC"],
     "parse": parseDecisionArgs,
     "run": runDecisionCommand,
     "receiptContract": {
@@ -94,10 +94,10 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-defer",
-    "usage": "decision defer <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--arbiter","description":"Set the decision arbiter as agent:<id>, human:<id>, or system:<id>."},{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "decision defer <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
+    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Defer a proposed decision through the decision write service.",
-    "examples": ["harness-anything decision defer dec_01ABC --arbiter human:ZeyuLi"],
+    "examples": ["harness-anything decision defer dec_01ABC"],
     "parse": parseDecisionArgs,
     "run": runDecisionCommand,
     "receiptContract": {
@@ -111,10 +111,10 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-supersede",
-    "usage": "decision supersede <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--arbiter","description":"Set the decision arbiter as agent:<id>, human:<id>, or system:<id>."},{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "decision supersede <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
+    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Supersede a decision through the decision write service.",
-    "examples": ["harness-anything decision supersede dec_01ABC --arbiter human:ZeyuLi"],
+    "examples": ["harness-anything decision supersede dec_01ABC"],
     "parse": parseDecisionArgs,
     "run": runDecisionCommand,
     "receiptContract": {
@@ -213,10 +213,10 @@ export const decisionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "decision-retire",
-    "usage": "decision retire <decision-id> [--arbiter kind:id] [--decided-at <iso>] [--dry-run] [--json]",
-    "options": [{"flag":"--arbiter","description":"Set the decision arbiter as agent:<id>, human:<id>, or system:<id>."},{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "decision retire <decision-id> [--decided-at <iso>] [--dry-run] [--json]",
+    "options": [{"flag":"--decided-at","description":"Set the decision timestamp for transition commands."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Retire a decision through the decision write service.",
-    "examples": ["harness-anything decision retire dec_01ABC --arbiter human:ZeyuLi"],
+    "examples": ["harness-anything decision retire dec_01ABC"],
     "parse": parseDecisionArgs,
     "run": runDecisionCommand,
     "receiptContract": {

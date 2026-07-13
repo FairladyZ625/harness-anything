@@ -12,7 +12,7 @@ import { runPropose } from "./decision-propose.ts";
 import { runDecisionQueryCommand } from "./decision-query.ts";
 import { runReckon } from "./decision-reckon.ts";
 import { runDecisionRelate, runDecisionRelationReplace, runDecisionRelationRetire } from "./decision-relate.ts";
-import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionResult, parseActor, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
+import { acceptEvidenceFloorHint, decisionFailure, decisionHasAcceptEvidenceFloor, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 
 type DecisionAction = Extract<ParsedCommand["action"], { readonly kind:
@@ -58,11 +58,9 @@ function runTransition(
       const current = document.decision;
       const fulfilled = applyClaimFulfillments(current, action.fulfillments);
       if (!fulfilled.ok) return Effect.succeed(fulfillmentFailure(action.kind, current.decision_id, fulfilled.reason));
-      const arbiter = parseActor(action.arbiter) ?? current.arbiter;
       const request = {
         current,
         claims: fulfilled.decision.claims,
-        arbiter,
         decidedAt: action.decidedAt,
         judgmentOnlyRationale: action.judgmentOnlyRationale,
         ...(action.kind === "decision-accept" && action.standingPolicy ? { decisionClass: "standing-policy" as const } : {}),

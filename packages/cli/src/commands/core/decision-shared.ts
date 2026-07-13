@@ -10,15 +10,6 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../../../../kerne
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 
-export function parseActor(value: string | undefined): DecisionPackage["arbiter"] | null {
-  if (!value) return null;
-  const separator = value.indexOf(":");
-  if (separator <= 0 || separator === value.length - 1) return null;
-  const kind = value.slice(0, separator);
-  if (kind !== "agent" && kind !== "human" && kind !== "system") return null;
-  return { kind, id: value.slice(separator + 1) };
-}
-
 export function decisionResult(rootInput: HarnessLayoutInput, command: string, decisionId: string, state: string, dryRun: boolean): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const documentPath = layout.decisionDocumentPath(decisionId);

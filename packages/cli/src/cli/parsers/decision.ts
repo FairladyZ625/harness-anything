@@ -10,7 +10,6 @@ import { readOption, readRepeatedRawOption } from "../parse-options.ts";
 import type { CliResult, DecisionEvidenceRelationInput, ParsedCommand } from "../types.ts";
 import { parseDecisionAmendPatches } from "./decision-amend.ts";
 import { parseClaimFulfillments } from "./decision-fulfillment.ts";
-import { invalidDecisionActor, isDecisionActorRef } from "./decision-actor.ts";
 import { readDecisionBody } from "./decision-body.ts";
 import { isDecisionTransitionOp, parseDecisionTransitionArgs } from "./decision-transition.ts";
 import { parseChoiceInputs, parseClaimInputs, parseRejectedInputs } from "./decision-propose-inputs.ts";
@@ -101,10 +100,6 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
   const riskTier = readTier(readOption(args, "--risk-tier") ?? jsonString(payload, "riskTier") ?? "medium");
   const urgency = readTier(readOption(args, "--urgency") ?? jsonString(payload, "urgency") ?? "medium");
   if (!riskTier || !urgency) return { ok: false, error: cliError(CliErrorCode.InvalidDecisionTier, "Use low, medium, or high for --risk-tier and --urgency.") };
-  const proposedBy = readOption(args, "--proposed-by") ?? jsonString(payload, "proposedBy");
-  const arbiter = readOption(args, "--arbiter") ?? jsonString(payload, "arbiter");
-  if (proposedBy && !isDecisionActorRef(proposedBy)) return invalidDecisionActor();
-  if (arbiter && !isDecisionActorRef(arbiter)) return invalidDecisionActor();
   const evidenceRelations = parseEvidenceRelations(args, jsonValues(payload, "evidenceRelations"));
   if (!evidenceRelations.ok) return { ok: false, error: evidenceRelations.error };
   const hasClaimFlags = readRepeatedRawOption(args, "--claim").length > 0;
@@ -134,8 +129,6 @@ function parseDecisionPropose(args: ReadonlyArray<string>, rootDir: string, json
     fulfillments: fulfillments.value,
     riskTier,
     urgency,
-    proposedBy,
-    arbiter,
     modules: [...jsonStringList(payload, "modules"), ...splitRepeatedList(args, "--module")],
     productLines: [...jsonStringList(payload, "productLines"), ...splitRepeatedList(args, "--product-line")],
     evidenceRelations: evidenceRelations.value,

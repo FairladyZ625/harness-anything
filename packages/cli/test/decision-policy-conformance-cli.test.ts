@@ -19,12 +19,11 @@ test("CLI decision conformance requires standing-policy fulfillment instead of a
       "--evidence-relation",
       "C1:refines:decision/dec_POLICY_TARGET/C1:The standing policy refines an existing policy decision"
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_POLICY_REFINED", "--arbiter", "human:ZeyuLi", "--fulfillment", "C1:standing-policy"]);
+    runJson(rootDir, ["decision", "accept", "dec_POLICY_REFINED", "--fulfillment", "C1:standing-policy"]);
 
     propose(rootDir, "dec_POLICY_EMPTY", "Unfulfilled standing policy");
     runJson(rootDir, [
       "decision", "accept", "dec_POLICY_EMPTY",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "Exercise the negative conformance path.",
       "--fulfillment", "C1:standing-policy"
     ]);
@@ -33,7 +32,6 @@ test("CLI decision conformance requires standing-policy fulfillment instead of a
     propose(rootDir, "dec_ORDINARY_MISSING", "Ordinary unimplemented decision");
     runJson(rootDir, [
       "decision", "accept", "dec_ORDINARY_MISSING",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "Exercise the ordinary negative path."
     ]);
     const result = runJson(rootDir, ["check", "--profile", "source-package"], false);
@@ -51,7 +49,7 @@ test("CLI decision conformance reaches the deferred decision exemption", () => {
     writeDecisionConformancePolicy(rootDir);
     propose(rootDir, "dec_DEFERRED_EXIT", "Deferred conformance exit");
     runJson(rootDir, ["decision", "amend", "dec_DEFERRED_EXIT", "--standing-policy"]);
-    runJson(rootDir, ["decision", "defer", "dec_DEFERRED_EXIT", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "defer", "dec_DEFERRED_EXIT"]);
 
     const result = runJson(rootDir, ["check", "--profile", "source-package"]);
     assert.equal(hasFinding(result, "accepted-decision-missing-task-or-defer", "decision/dec_DEFERRED_EXIT"), false);
@@ -99,8 +97,9 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+  const cliArgs = independentDecisionJudgmentArgs(args);
   try {
-    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
       encoding: "utf8",
       env: { ...process.env, HARNESS_ACTOR: "agent:test" }
     });
@@ -112,6 +111,11 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
+  if (args[0] !== "decision" || !["accept", "reject", "defer", "supersede", "retire"].includes(args[1] ?? "")) return args;
+  return ["--actor", "human:person_test", ...args];
 }
 
 function writeFile(rootDir: string, relativePath: string, body: string): void {

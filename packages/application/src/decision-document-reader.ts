@@ -84,9 +84,7 @@ function parseDecisionFrontmatter(frontmatter: string): DecisionPackage {
       modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules")),
       productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"))
     },
-    proposedBy: parseActor(readScalar(frontmatter, "proposedBy", { required: true })),
     proposedAt: unquote(readScalar(frontmatter, "proposedAt", { required: true })),
-    arbiter: parseActor(readScalar(frontmatter, "arbiter", { required: true })),
     ...(decidedAt ? { decidedAt } : {}),
     ...(hasTopLevelKey(frontmatter, "contentPins") ? { contentPins } : {}),
     provenance: parseObjectList(frontmatter, "provenance") as DecisionPackage["provenance"],
@@ -112,10 +110,6 @@ function readBlockScalar(frontmatter: string, blockName: string, key: string): s
 function parseStringArray(value: string): string[] {
   const parsed = JSON.parse(value) as unknown;
   return Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : [];
-}
-
-function parseActor(value: string): DecisionPackage["arbiter"] {
-  return parseFlowObject(value) as DecisionPackage["arbiter"];
 }
 
 function parseObjectList(frontmatter: string, key: string): ReadonlyArray<Record<string, unknown>> {

@@ -173,8 +173,18 @@ test("GUI bridge projects a hermetic decision-task-fact ledger into renderer dat
     assert.deepEqual(projection.decisions.map((decision) => decision.decisionId), ["dec_gui"]);
     assert.deepEqual(projection.decisions[0]?.riskTier, "medium");
     assert.deepEqual(projection.decisions[0]?.urgency, "medium");
-    assert.deepEqual(projection.decisions[0]?.proposedBy, { kind: "agent", id: "codex" });
-    assert.deepEqual(projection.decisions[0]?.arbiter, { kind: "human", id: "ZeyuLi" });
+    assert.deepEqual(projection.decisions[0]?.attribution, {
+      originator: {
+        principal: { kind: "person", personId: "ZeyuLi" },
+        executor: { kind: "agent", id: "codex" }
+      },
+      latestActor: {
+        principal: { kind: "person", personId: "ZeyuLi" },
+        executor: null
+      },
+      trailCount: 2,
+      completeness: "complete"
+    });
     assert.deepEqual(projection.decisions[0]?.provenance, [{ runtime: "codex", sessionId: "session-gui", boundAt: "2026-07-10T00:00:00.000Z" }]);
     assert.deepEqual(projection.facts.map((fact) => fact.anchor), ["task-1/F-12345678"]);
     assert.deepEqual(projection.facts.map((fact) => fact.confidence), ["high"]);
@@ -441,9 +451,7 @@ function writeTriadicLedger(rootDir: string): void {
     "applies_to:",
     "  modules: [\"gui\"]",
     "  productLines: []",
-    "proposedBy: { kind: \"agent\", id: \"codex\" }",
     "proposedAt: \"2026-07-10T00:00:00.000Z\"",
-    "arbiter: { kind: \"human\", id: \"ZeyuLi\" }",
     "decidedAt: \"2026-07-10T01:00:00.000Z\"",
     "provenance:",
     "  - { runtime: \"codex\", sessionId: \"session-gui\", boundAt: \"2026-07-10T00:00:00.000Z\" }",
@@ -481,6 +489,42 @@ function writeTriadicLedger(rootDir: string): void {
     "# Use the triadic GUI projection",
     ""
   ].join("\n"), "utf8");
+
+  const attributionDir = path.join(rootDir, "harness/attribution-events");
+  mkdirSync(attributionDir, { recursive: true });
+  const baseEvent = {
+    schema: "attribution-event/v1",
+    journalRecordSchema: "write-journal/v2",
+    entityId: "decision/dec_gui",
+    principalSource: { kind: "migration", evidenceRef: "test/gui" },
+    recordedAt: "2026-07-10T01:00:00.000Z",
+    payloadHash: "gui-payload-hash",
+    payloadRef: { path: "test/gui", sha256: "gui-payload-sha" }
+  } as const;
+  writeFileSync(path.join(attributionDir, "decision-propose.jsonl"), `${JSON.stringify({
+    ...baseEvent,
+    eventId: "evt_gui_propose",
+    opId: "op_gui_propose",
+    kind: "decision_propose",
+    actor: {
+      principal: { kind: "person", personId: "ZeyuLi" },
+      executor: { kind: "agent", id: "codex" }
+    },
+    executorSource: "client-asserted",
+    at: "2026-07-10T00:00:00.000Z"
+  })}\n`, "utf8");
+  writeFileSync(path.join(attributionDir, "decision-accept.jsonl"), `${JSON.stringify({
+    ...baseEvent,
+    eventId: "evt_gui_accept",
+    opId: "op_gui_accept",
+    kind: "decision_accept",
+    actor: {
+      principal: { kind: "person", personId: "ZeyuLi" },
+      executor: null
+    },
+    executorSource: "none",
+    at: "2026-07-10T01:00:00.000Z"
+  })}\n`, "utf8");
 }
 
 function restoreEnv(name: string, value: string | undefined): void {

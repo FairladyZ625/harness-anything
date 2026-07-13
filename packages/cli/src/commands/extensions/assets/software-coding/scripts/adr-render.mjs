@@ -104,9 +104,6 @@ function renderStatus(decision) {
   lines.push(statusLine(decision));
   lines.push("");
   lines.push(`- Decision 锚：\`${decision.decision_id}\`（${decision.state}）`);
-  if (decision.arbiter && decision.arbiter.kind) {
-    lines.push(`- Arbiter：${decision.arbiter.kind}/${decision.arbiter.id ?? ""}`);
-  }
   return lines;
 }
 
@@ -181,16 +178,14 @@ function renderConsequences(decision) {
 
 function renderProvenance(decision) {
   const provenance = decision.provenance ?? [];
-  const proposedBy = decision.proposedBy;
-  if (provenance.length === 0 && !proposedBy) return [];
+  if (provenance.length === 0) return [];
   const first = provenance[0] ?? {};
-  const proposer = proposedBy ? `${proposedBy.id ?? proposedBy.kind ?? ""}` : "unknown";
   const runtime = first.runtime ? `runtime=${first.runtime}` : "";
   const session = first.sessionId ? `session=${first.sessionId}` : "";
   const provenanceTail = [runtime, session].filter(Boolean).join("；");
   const proposedAt = decision.proposedAt ? ` 于 ${decision.proposedAt}` : "";
   const suffix = provenanceTail ? `；${provenanceTail}` : "";
-  return [`> 由 ${proposer}${proposedAt} propose${suffix}。`];
+  return [`> Decision${proposedAt} proposed${suffix}。`];
 }
 
 function defaultHumanBlock() {
@@ -282,9 +277,7 @@ function readDecisionSourceFields(frontmatter) {
       modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules")),
       productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"))
     },
-    proposedBy: parseFlowObject(readDecisionScalarField(frontmatter, "proposedBy")),
     proposedAt: unquote(readDecisionScalarField(frontmatter, "proposedAt")),
-    arbiter: parseFlowObject(readDecisionScalarField(frontmatter, "arbiter")),
     decidedAt: optional(unquote(readDecisionScalarField(frontmatter, "decidedAt"))),
     provenance: parseObjectList(frontmatter, "provenance"),
     question: unquote(readDecisionScalarField(frontmatter, "question")),

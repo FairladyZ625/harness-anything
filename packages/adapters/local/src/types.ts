@@ -2,7 +2,6 @@ import type { Effect } from "effect";
 import type { DomainStatus, EngineError, PackageDisposition, PriorityTier, TaskId, TaskWorkKind, WriteAttribution, WriteError } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import type { ProvenancePayload, WriteCoordinator } from "../../../kernel/src/index.ts";
-import type { TaskCreatedBy } from "./created-by.ts";
 
 export interface LocalJournalActor {
   readonly kind: "agent" | "human" | "system";
@@ -54,7 +53,6 @@ export interface CreateLocalTaskInput {
   readonly urgency?: PriorityTier;
   readonly vertical?: string;
   readonly preset?: string;
-  readonly createdBy?: TaskCreatedBy;
 }
 
 export interface SetLocalStatusInput {
@@ -172,5 +170,4 @@ export interface LocalTaskIndex {
   readonly preset: string;
   readonly provenance: ReadonlyArray<ProvenancePayload>;
   readonly profile?: string;
-  readonly createdBy?: TaskCreatedBy;
 }

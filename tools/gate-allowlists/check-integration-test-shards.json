@@ -2,6 +2,12 @@
   "schema": "harness-anything/gate-allowlist/v1",
   "gateId": "check-integration-test-shards",
   "entries": {
-    "intentionalTestDeletions": []
+    "intentionalTestDeletions": [
+      {
+        "value": "packages/cli/test/attribution-backfill-cli.test.ts",
+        "ref": "dec_01KXCCXZMJR974S7ECZ5NAJH8K",
+        "reason": "Phase 7 retires the completed one-time attribution backfill command and its integration suite."
+      }
+    ]
   }
 }

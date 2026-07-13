@@ -207,7 +207,7 @@ test("SQLite projection rebuild materializes decision rows for query readers", (
     const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath, { readOnly: true });
     try {
-      const row = db.prepare("SELECT decision_id, legacy_id, state, risk_tier, urgency, vertical, preset, proposed_by_json, proposed_at, arbiter_json, provenance_json FROM decision_projection WHERE legacy_id = ?").get("E72") as Record<string, unknown>;
+      const row = db.prepare("SELECT decision_id, legacy_id, state, risk_tier, urgency, vertical, preset, proposed_at, provenance_json FROM decision_projection WHERE legacy_id = ?").get("E72") as Record<string, unknown>;
       assert.equal(row.decision_id, "dec_M5_E72_SELFHOST");
       assert.equal(row.legacy_id, "E72");
       assert.equal(row.state, "active");
@@ -215,10 +215,11 @@ test("SQLite projection rebuild materializes decision rows for query readers", (
       assert.equal(row.urgency, "medium");
       assert.equal(row.vertical, "software/coding");
       assert.equal(row.preset, "architecture-decision");
-      assert.deepEqual(JSON.parse(String(row.proposed_by_json)), { kind: "agent", id: "test" });
       assert.equal(row.proposed_at, "2026-07-04T00:00:00.000Z");
-      assert.deepEqual(JSON.parse(String(row.arbiter_json)), { kind: "human", id: "ZeyuLi" });
       assert.deepEqual(JSON.parse(String(row.provenance_json)), [{ runtime: "human", sessionId: "human-cli-1", boundAt: "2026-07-04T00:00:00.000Z" }]);
+      const columns = (db.prepare("PRAGMA table_info(decision_projection)").all() as ReadonlyArray<{ readonly name: string }>).map((column) => column.name);
+      assert.equal(columns.includes("proposed_by_json"), false);
+      assert.equal(columns.includes("arbiter_json"), false);
     } finally {
       db.close();
     }
@@ -241,7 +242,7 @@ test("SQLite projection rebuilds stale schema versions before serving decision D
     const result = queryDecisionProjection({ rootDir, filters: {} });
 
     assert.equal(result.warnings.some((warning) => warning.code === "projection_stale"), true);
-    assert.deepEqual(result.rows[0]?.proposedBy, { kind: "agent", id: "test" });
+    assert.equal(result.rows[0]?.attribution.completeness, "unresolved");
     assert.deepEqual(result.rows[0]?.provenance, [{ runtime: "human", sessionId: "human-cli-1", boundAt: "2026-07-04T00:00:00.000Z" }]);
   });
 });
@@ -361,7 +362,7 @@ test("corrupted SQLite projection is reported with a stable warning and rebuilt 
     const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     const db = new DatabaseSync(projectionPath);
     try {
-      db.prepare("UPDATE task_projection SET created_by_json = ? WHERE task_id = ?").run("{bad-json", "task-1");
+      db.prepare("UPDATE task_projection SET attribution_json = ? WHERE task_id = ?").run("{bad-json", "task-1");
     } finally {
       db.close();
     }

@@ -11,7 +11,7 @@ import test from "node:test";
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 
-test("new-task records optional createdBy from local git user config and projects it", () => {
+test("new-task records attribution events independently of local git author config", () => {
   withTempRoot((rootDir) => {
     initGit(rootDir);
     configureGitUser(rootDir, "M2 Commander", "m2@example.com");
@@ -21,17 +21,18 @@ test("new-task records optional createdBy from local git user config and project
     const taskId = assertGeneratedTaskId(created.taskId);
     const indexBody = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-attribution-task/INDEX.md`), "utf8");
 
-    assert.match(indexBody, /createdBy:\n  name: M2 Commander\n  email: m2@example\.com/);
+    assert.equal(indexBody.includes("createdBy:"), false);
 
     const listed = runJson(rootDir, ["task", "list"]);
-    assert.equal(listed.tasks[0].createdBy.name, "M2 Commander");
-    assert.equal(listed.tasks[0].createdBy.email, "m2@example.com");
+    assert.equal(listed.tasks[0].attribution.completeness, "complete");
+    assert.equal(listed.tasks[0].attribution.trailCount, 1);
+    assert.equal(listed.tasks[0].attribution.originator.principal.kind, "person");
     assert.equal(listed.tasks[0].canonicalStatus, "planned");
     assert.equal(listed.tasks[0].packageDisposition, "active");
   });
 });
 
-test("new-task omits createdBy deterministically when git user config is unavailable", () => {
+test("new-task never serializes retired createdBy when git user config is unavailable", () => {
   withTempRoot((rootDir) => {
     initGit(rootDir);
     initializeNestedHarnessRepo(rootDir, { writeOuterGitignore: true });

@@ -70,7 +70,6 @@ test("CLI decision accept and amend declare standing-policy decisions", () => {
 
     runJson(rootDir, [
       "decision", "accept", "dec_POLICY_ACCEPT",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "Policy judgment is explicitly authorized.",
       "--standing-policy"
     ]);
@@ -100,7 +99,6 @@ test("CLI decision propose, accept, and amend declare claim fulfillment", () => 
 
     runJson(rootDir, [
       "decision", "accept", "dec_FULFILL_ACCEPT",
-      "--arbiter", "human:ZeyuLi",
       "--judgment-only", "The policy judgment is explicit.",
       "--fulfillment", "C1:standing-policy"
     ]);
@@ -546,7 +544,7 @@ test("CLI decision list filters projected rows by state and module", () => {
       "--module",
       "other-module"
     ]);
-    runJson(rootDir, ["decision", "accept", "dec_M5_E72_SELFHOST", "--arbiter", "human:ZeyuLi"]);
+    runJson(rootDir, ["decision", "accept", "dec_M5_E72_SELFHOST"]);
 
     const result = runJson(rootDir, ["decision", "list", "--state", "active", "--module", "m5-circulation"]);
 
@@ -604,8 +602,9 @@ function runJson(
   expectSuccess = true,
   envOverrides: NodeJS.ProcessEnv = {}
 ): Record<string, any> {
+  const cliArgs = independentDecisionJudgmentArgs(args);
   try {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -625,4 +624,9 @@ function runJson(
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
+  if (args[0] !== "decision" || !["accept", "reject", "defer", "supersede", "retire"].includes(args[1] ?? "")) return args;
+  return ["--actor", "human:person_test", ...args];
 }

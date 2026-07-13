@@ -1,6 +1,5 @@
 export const CliErrorCode = {
   ArchivedHardDeleteForbidden: "archived_hard_delete_forbidden",
-  AttributionDeclarationInvalid: "attribution_declaration_invalid",
   ArtifactReadFailed: "artifact_read_failed",
   ArtifactWriteRejected: "artifact_write_rejected",
   CiNotPassed: "ci_not_passed",
@@ -222,7 +221,6 @@ export interface CliErrorCodeDefinition {
 
 export const cliErrorCodeRegistry = {
   [CliErrorCode.ArchivedHardDeleteForbidden]: { category: "domain", defaultHint: "Archived tasks cannot be hard deleted." },
-  [CliErrorCode.AttributionDeclarationInvalid]: { category: "migration", defaultHint: "Attribution declaration requires a registered principal and explicit decision authority." },
   [CliErrorCode.ArtifactReadFailed]: { category: "domain", defaultHint: "Artifact read failed." },
   [CliErrorCode.ArtifactWriteRejected]: { category: "domain", defaultHint: "Artifact write was rejected." },
   [CliErrorCode.ArchiveReferenceUnresolved]: { category: "command", defaultHint: "Archive would leave a task-owned relation endpoint unresolved." },

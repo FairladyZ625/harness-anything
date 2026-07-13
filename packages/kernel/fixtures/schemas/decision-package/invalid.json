@@ -11,15 +11,7 @@
     "modules": ["kernel"],
     "productLines": []
   },
-  "proposedBy": {
-    "kind": "agent",
-    "id": "claude"
-  },
   "proposedAt": "2026-06-16T03:11:00Z",
-  "arbiter": {
-    "kind": "human",
-    "id": "ZeyuLi"
-  },
   "provenance": [
     {
       "runtime": "claude-code",

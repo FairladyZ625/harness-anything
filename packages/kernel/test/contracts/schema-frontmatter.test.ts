@@ -49,6 +49,24 @@ test("task frontmatter schema accepts optional metadata and rejects invalid valu
   assert.throws(() => Schema.decodeUnknownSync(TaskFrontmatterSchema)({ ...fixture, urgency: "soon" }));
 });
 
+test("retired authority fields are accepted as legacy excess input and stripped on decode", async () => {
+  const task = await readJson(validFixtureUrl) as Record<string, unknown>;
+  const decision = await readJson(validDecisionFixtureUrl) as Record<string, unknown>;
+  const decodedTask = Schema.decodeUnknownSync(TaskFrontmatterSchema)({
+    ...task,
+    createdBy: { name: "Legacy Author", email: "legacy@example.com" }
+  });
+  const decodedDecision = Schema.decodeUnknownSync(DecisionPackageSchema)({
+    ...decision,
+    proposedBy: { kind: "agent", id: "legacy-proposer" },
+    arbiter: { kind: "human", id: "legacy-arbiter" }
+  });
+
+  assert.equal("createdBy" in decodedTask, false);
+  assert.equal("proposedBy" in decodedDecision, false);
+  assert.equal("arbiter" in decodedDecision, false);
+});
+
 test("decision package schema decodes and encodes the valid fixture", async () => {
   const fixture = await readJson(validDecisionFixtureUrl);
   const decoded = Schema.decodeUnknownSync(DecisionPackageSchema)(fixture);
@@ -81,10 +99,6 @@ test("decision package schema rejects contract-critical invalid fixtures", async
 
   assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)(emptyRejected));
   assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({ ...base, state: "accepted" }));
-  assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
-    ...base,
-    arbiter: base.proposedBy
-  }));
   assert.throws(() => Schema.decodeUnknownSync(DecisionPackageSchema)({
     ...base,
     rejected: [{ id: "RJ3", text: "A rejected alternative without a rationale.", why_not: "   " }]

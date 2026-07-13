@@ -126,8 +126,6 @@ type LifecycleBindingDecoded = Schema.Schema.Type<typeof LifecycleBindingSchema>
 true satisfies MutuallyAssignable<LifecycleBindingDecoded, LifecycleBinding>;
 true satisfies MutuallyAssignable<keyof LifecycleBindingDecoded, keyof LifecycleBinding>;
 
-const CreatedBySchema = Schema.Struct({ name: Schema.String, email: Schema.String });
-
 export const TaskFrontmatterSchema = Schema.Struct({
   schema: Schema.Literal("task-package/v2"),
   task_id: Schema.String,
@@ -141,8 +139,7 @@ export const TaskFrontmatterSchema = Schema.Struct({
   vertical: Schema.String,
   preset: Schema.String,
   provenance: Schema.Array(ProvenanceEntrySchema).pipe(Schema.minItems(1)),
-  profile: Schema.optional(Schema.String),
-  createdBy: Schema.optional(CreatedBySchema)
+  profile: Schema.optional(Schema.String)
 });
 
 export const TaskSnapshotSchema = Schema.Struct({
@@ -386,8 +383,7 @@ export const SqliteTaskRowSchema = Schema.Struct({
   freshness: FreshnessSchema,
   updatedAt: Schema.String,
   source: Schema.Literal("local-document", "external-engine", "snapshot-cache"),
-  sourcePath: Schema.String,
-  createdBy: Schema.optional(CreatedBySchema)
+  sourcePath: Schema.String
 });
 
 export const DocsReleasePromotionBundleSchema = Schema.Struct({

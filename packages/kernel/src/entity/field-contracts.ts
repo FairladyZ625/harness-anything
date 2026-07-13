@@ -37,9 +37,7 @@ export const decisionFieldContracts = {
   preset: immutable("preset routing is creation-time governance metadata", show("decision.preset")),
   decisionClass: amendable([amendWrite("metadata"), lifecycleWrite("decision-accept")], projection("decisionClass", true), show("decision.decisionClass")),
   applies_to: immutable("module/product-line scope changes require a superseding decision", projection("moduleKeys/productLineKeys", true), show("decision.applies_to")),
-  proposedBy: immutable("proposal actor is provenance and cannot be amended", show("decision.proposedBy")),
   proposedAt: immutable("proposal timestamp is provenance and cannot be amended", show("decision.proposedAt")),
-  arbiter: lifecycle("decision lifecycle transitions own arbiter", [lifecycleWrite("decision-accept/reject/defer/supersede/retire")], show("decision.arbiter")),
   decidedAt: lifecycle("decision lifecycle transitions own decidedAt", [lifecycleWrite("decision-accept/reject/defer/supersede/retire")], projection("decidedAt", true), show("decision.decidedAt")),
   contentPins: lifecycle("decision lifecycle transitions append immutable signed-content pins", [lifecycleWrite("decision-accept/reject/defer/supersede/retire")], show("decision.contentPins")),
   provenance: immutable("provenance is bound by create/write services, not amended as content", show("decision.provenance")),
@@ -63,8 +61,7 @@ export const taskFieldContracts = {
   vertical: immutable("vertical routing is create-time task metadata", projection("vertical", true), show("task.vertical")),
   preset: immutable("preset routing is create-time task metadata", projection("preset", true), show("task.preset")),
   provenance: immutable("provenance is bound by create/write services, not amended as content", show("task.provenance")),
-  profile: immutable("profile is create-time preset metadata", projection("profile", true), show("task.profile")),
-  createdBy: immutable("createdBy is captured from the local author at task creation", projection("createdBy", false), show("task.createdBy"))
+  profile: immutable("profile is create-time preset metadata", projection("profile", true), show("task.profile"))
 } satisfies Record<TaskFieldKey, EntityFieldContract>;
 
 export const factFieldContracts = {

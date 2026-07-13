@@ -161,6 +161,7 @@ export async function runRegisteredCommandWithCliComposition(
   }), enforceTaskLease(), makeTaskHolder, getTaskHolderPrincipal), makeArtifactStore, getCurrentSessionProbe, makeSessionExporter, syncExportedSession, makeWriteCoordinator, getActorAttribution, getTaskHolderPrincipal, () => makeDecisionWriteService({
     rootInput: layoutInput,
     coordinator: makeWriteCoordinator(operationalActor("decision-cli")),
+    attribution: getActorAttribution().writeAttribution,
     currentSessionProbe: getCurrentSessionProbe(),
     provenanceSessionExporter: makeSessionExporter(),
     syncExportedSession

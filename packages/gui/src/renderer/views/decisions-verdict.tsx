@@ -34,6 +34,10 @@ import { buildEntityJumpContext } from "../model/copy-context";
 
 const dateLabel = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
 
+const formatActorAxes = (actor: DecisionRow["attribution"]["originator"], fallback: string) => actor
+  ? `person:${actor.principal.personId} / ${actor.executor ? `agent:${actor.executor.id}` : "executor:none"}`
+  : fallback;
+
 // ============ 决策就绪信号灯(41 §3.1a)============
 
 export type SignalColor = "green" | "yellow" | "red";
@@ -306,7 +310,6 @@ export function VerdictCard({
   readOnly?: boolean;
 }) {
   const cov = coverageOf(d, facts);
-  const selfArb = d.proposedBy?.id === d.arbiter?.id;
   const derived = derivedTasks(d, relations, tasks);
   const chain = supersedeChain(d, relations);
   // 评审深度提示:riskTier 驱动(E50 防意外:GUI 只提示不强拦)
@@ -415,19 +418,14 @@ export function VerdictCard({
         </div>
       )}
 
-      {/* 提议/批准者 + proposer≠arbiter 自证警示(actorClass 审计性展示,INV-7 已删 → 不再强拒 agent) */}
+      {/* 归属展示来自 immutable attribution events；防自提自裁由写服务 fail-closed。 */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
         <span>
-          proposedBy <span className="font-mono text-text-muted">{d.proposedBy ? `${d.proposedBy.kind}:${d.proposedBy.id}` : "未知/—"}</span>
+          originator <span className="font-mono text-text-muted">{formatActorAxes(d.attribution.originator, "未知/—")}</span>
         </span>
         <span>
-          arbiter <span className="font-mono text-text-muted">{d.arbiter ? `${d.arbiter.kind}:${d.arbiter.id}` : "待决策批准"}</span>
+          latest actor <span className="font-mono text-text-muted">{formatActorAxes(d.attribution.latestActor, "待决策批准")}</span>
         </span>
-        {selfArb && (
-          <span className="inline-flex items-center gap-1 text-danger">
-            <WarningCircle weight="bold" /> proposer≠arbiter 自证风险
-          </span>
-        )}
       </div>
 
       {/* ① chosen + rejected(必显) */}

@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
-import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { indexPath, makeIndex, renderIndex } from "../../../adapters/local/src/task-index.ts";
 import { taskEntityId, type EngineError, type WriteError } from "../../../kernel/src/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/index.ts";
@@ -65,8 +64,7 @@ export function runNewTaskFromLegacy(
           runtime: "human",
           sessionId: `human-cli-${Date.parse(createdAt)}`,
           boundAt: createdAt
-        }],
-        createdBy: resolveTaskCreatedBy(rootDir)
+        }]
       }, hashPayload);
       const packagePath = createTaskPackagePath(rootInput, taskId, slug);
       const provenance = buildLegacyProvenance(legacySource.entry, createdAt);

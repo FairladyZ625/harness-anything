@@ -24,6 +24,7 @@ export {
   decisionContentCanonicalization
 } from "./integrity/decision-content-digest.ts";
 export { validateOutputEvidence } from "./local/output-evidence-validator.ts";
+export { readAttributionEvents } from "./local/attribution-event-source.ts";
 export { makeCodeDocGitEvidenceResolver } from "./git/code-doc-git-evidence.ts";
 export * from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
@@ -49,18 +50,17 @@ export * from "./schemas/common.ts";
 export { RuntimeEventRecordV2Schema } from "./schemas/runtime-event.ts";
 export type { RuntimeEventRecordDocument, RuntimeEventRecordV2 } from "./schemas/runtime-event.ts";
 export type {
+  ActorAxes,
   OperationalActor,
   PrincipalSource,
   WriteAttribution
 } from "./schemas/actor-attribution.ts";
+export type { AttributionEvent } from "./schemas/attribution-event.ts";
 export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
   makeJournaledWriteCoordinator,
   makeOperationalJournaledWriteCoordinator,
-  AttributionBackfillDeclarationError,
-  applyAttributionBackfill,
-  planAttributionBackfill,
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,

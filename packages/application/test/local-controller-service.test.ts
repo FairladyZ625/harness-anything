@@ -52,8 +52,18 @@ test("local controller service reads projection and writes through injected task
     const decisions = service.getDecisions();
     assert.equal(decisions.ok, true);
     assert.deepEqual(decisions.decisions.map((decision) => decision.decisionId), ["dec_test"]);
-    assert.deepEqual(decisions.decisions[0]?.proposedBy, { kind: "agent", id: "codex" });
-    assert.deepEqual(decisions.decisions[0]?.arbiter, { kind: "human", id: "ZeyuLi" });
+    assert.deepEqual(decisions.decisions[0]?.attribution, {
+      originator: {
+        principal: { kind: "person", personId: "ZeyuLi" },
+        executor: { kind: "agent", id: "codex" }
+      },
+      latestActor: {
+        principal: { kind: "person", personId: "ZeyuLi" },
+        executor: null
+      },
+      trailCount: 2,
+      completeness: "complete"
+    });
     assert.deepEqual(decisions.decisions[0]?.provenance, [{ runtime: "codex", sessionId: "session-1", boundAt: "2026-07-07T00:00:00.000Z" }]);
     const decisionDetail = service.getDecisionDetail({ decisionId: "dec_test" });
     assert.equal(decisionDetail.ok, true);
@@ -188,9 +198,7 @@ function writeDecision(rootDir: string, decisionId: string): void {
     "applies_to:",
     "  modules: [\"gui\"]",
     "  productLines: []",
-    "proposedBy: { kind: \"agent\", id: \"codex\" }",
     "proposedAt: \"2026-07-07T00:00:00.000Z\"",
-    "arbiter: { kind: \"human\", id: \"ZeyuLi\" }",
     "decidedAt: \"2026-07-07T01:00:00.000Z\"",
     "provenance:",
     "  - { runtime: \"codex\", sessionId: \"session-1\", boundAt: \"2026-07-07T00:00:00.000Z\" }",
@@ -207,4 +215,37 @@ function writeDecision(rootDir: string, decisionId: string): void {
     "# Projection Decision",
     ""
   ].join("\n"), "utf8");
+  writeDecisionAttributionEvents(rootDir, decisionId);
+}
+
+function writeDecisionAttributionEvents(rootDir: string, decisionId: string): void {
+  const eventsDir = path.join(rootDir, "harness/attribution-events");
+  mkdirSync(eventsDir, { recursive: true });
+  const base = {
+    schema: "attribution-event/v1",
+    journalRecordSchema: "write-journal/v2",
+    entityId: `decision/${decisionId}`,
+    principalSource: { kind: "migration", evidenceRef: "test/local-controller" },
+    recordedAt: "2026-07-07T01:00:00.000Z",
+    payloadHash: "test-payload-hash",
+    payloadRef: { path: "test/local-controller", sha256: "test-payload-sha" }
+  } as const;
+  writeFileSync(path.join(eventsDir, `${decisionId}-propose.jsonl`), `${JSON.stringify({
+    ...base,
+    eventId: `evt_${decisionId}_propose`,
+    opId: `op_${decisionId}_propose`,
+    kind: "decision_propose",
+    actor: { principal: { kind: "person", personId: "ZeyuLi" }, executor: { kind: "agent", id: "codex" } },
+    executorSource: "client-asserted",
+    at: "2026-07-07T00:00:00.000Z"
+  })}\n`, "utf8");
+  writeFileSync(path.join(eventsDir, `${decisionId}-accept.jsonl`), `${JSON.stringify({
+    ...base,
+    eventId: `evt_${decisionId}_accept`,
+    opId: `op_${decisionId}_accept`,
+    kind: "decision_accept",
+    actor: { principal: { kind: "person", personId: "ZeyuLi" }, executor: null },
+    executorSource: "none",
+    at: "2026-07-07T01:00:00.000Z"
+  })}\n`, "utf8");
 }

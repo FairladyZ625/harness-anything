@@ -26,9 +26,5 @@
       "boundAt": "2026-06-11T00:00:00.000Z"
     }
   ],
-  "profile": "baseline",
-  "createdBy": {
-    "name": "Harness User",
-    "email": "harness@example.com"
-  }
+  "profile": "baseline"
 }

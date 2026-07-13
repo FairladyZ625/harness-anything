@@ -128,12 +128,12 @@
       "bearing": "attribution-audit",
       "leaseRequired": false,
       "channel": { "pathClass": "coordinator-authored", "zoneClass": "immutable-attribution-event-trail" },
-      "entry": ["write-coordinator", "ledger-materializer", "attribution-backfill"],
-      "cliActions": ["migrate-attribution"],
+      "entry": ["write-coordinator", "ledger-materializer"],
+      "cliActions": [],
       "directWrites": [
         { "file": "packages/kernel/src/store/write-journal-durable.ts" }
       ],
-      "evidence": ["packages/kernel/src/store/write-journal-attribution-events.ts:28", "packages/kernel/src/store/attribution-backfill.ts:78", "packages/kernel/src/store/write-journal-durable.ts:117"],
+      "evidence": ["packages/kernel/src/store/write-journal-attribution-events.ts:28", "packages/kernel/src/store/write-journal-durable.ts:117"],
       "freshness": "append-only-op-id-shard"
     },
     {
@@ -419,7 +419,6 @@
         { "file": "packages/cli/src/commands/init.ts" },
         { "file": "packages/cli/src/commands/extensions/repository-scaffold.ts" },
         { "file": "packages/cli/src/commands/daemon/productization.ts" },
-        { "file": "packages/adapters/local/src/created-by.ts", "command": "git" },
         { "file": "packages/daemon/src/transport/unix-socket.ts" },
         { "file": "packages/kernel/src/daemon/registry.ts" }
       ],

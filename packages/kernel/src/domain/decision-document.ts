@@ -1,5 +1,5 @@
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { parseFlowObject, parseObjectList, parseStringArray, readBlockScalar, unquote } from "../markdown/flow-frontmatter.ts";
+import { parseObjectList, parseStringArray, readBlockScalar, unquote } from "../markdown/flow-frontmatter.ts";
 import type { DecisionPackage } from "../schemas/decision-package.ts";
 import type { EntityRelationRecord } from "./entity-relation.ts";
 
@@ -47,9 +47,7 @@ export function serializeDecisionDocument(payload: DecisionDocumentPayload, wate
     "applies_to:",
     `  modules: ${flowArray(decision.applies_to.modules)}`,
     `  productLines: ${flowArray(decision.applies_to.productLines)}`,
-    `proposedBy: ${flowObject(decision.proposedBy)}`,
     `proposedAt: ${quoteScalar(decision.proposedAt)}`,
-    `arbiter: ${flowObject(decision.arbiter)}`,
     ...(decision.decidedAt ? [`decidedAt: ${quoteScalar(decision.decidedAt)}`] : []),
     ...(decision.contentPins !== undefined ? [
       "contentPins:",
@@ -108,9 +106,7 @@ function parseDecisionFrontmatter(frontmatter: string): DecisionPackage {
       modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules")),
       productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"))
     },
-    proposedBy: parseFlowObject(readScalar(frontmatter, "proposedBy", { required: true })) as DecisionPackage["proposedBy"],
     proposedAt: unquote(readScalar(frontmatter, "proposedAt", { required: true })),
-    arbiter: parseFlowObject(readScalar(frontmatter, "arbiter", { required: true })) as DecisionPackage["arbiter"],
     ...(decidedAt ? { decidedAt } : {}),
     ...(hasTopLevelKey(frontmatter, "contentPins") ? { contentPins } : {}),
     provenance: parseObjectList(frontmatter, "provenance") as DecisionPackage["provenance"],

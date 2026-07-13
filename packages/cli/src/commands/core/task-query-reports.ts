@@ -34,7 +34,6 @@ export function buildTaskShowReport(
       source: task.source,
       sourcePath: task.sourcePath,
       attribution: task.attribution,
-      ...(task.createdBy ? { createdBy: task.createdBy } : {}),
       ...(task.fieldExtensions ? { fieldExtensions: task.fieldExtensions } : {})
     },
     hierarchy: {

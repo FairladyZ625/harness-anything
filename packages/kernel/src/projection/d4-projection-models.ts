@@ -19,8 +19,7 @@ export class D4TaskProjectionModel extends Model.Class<D4TaskProjectionModel>("D
   profile: Schema.NullOr(Schema.String),
   moduleKey: Schema.NullOr(Schema.String),
   moduleTitle: Schema.NullOr(Schema.String),
-  hasLessonCandidates: Schema.Number,
-  createdByJson: Schema.NullOr(Schema.String)
+  hasLessonCandidates: Schema.Number
 }) {}
 
 export class D4DecisionProjectionModel extends Model.Class<D4DecisionProjectionModel>("D4DecisionProjectionModel")({

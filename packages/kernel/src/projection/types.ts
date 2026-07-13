@@ -31,11 +31,6 @@ export type ProjectionWarningCode =
   | "relation_endpoint_unknown"
   | "relation_cycle_detected";
 
-export interface TaskCreatedBy {
-  readonly name: string;
-  readonly email: string;
-}
-
 export interface EntityAttributionProjection {
   readonly originator: ActorAxes | null;
   readonly latestActor: ActorAxes | null;
@@ -83,7 +78,6 @@ export interface TaskProjectionRow {
   readonly moduleKey?: string;
   readonly moduleTitle?: string;
   readonly hasLessonCandidates?: boolean;
-  readonly createdBy?: TaskCreatedBy;
   readonly attribution: EntityAttributionProjection;
   readonly fieldExtensions?: Readonly<Record<string, string | null>>;
 }
@@ -121,9 +115,7 @@ export interface DecisionProjectionRow {
   readonly vertical?: string;
   readonly preset?: string;
   readonly decisionClass?: "standing-policy";
-  readonly proposedBy?: { readonly kind: "agent" | "human" | "system"; readonly id: string };
   readonly proposedAt?: string;
-  readonly arbiter?: { readonly kind: "agent" | "human" | "system"; readonly id: string };
   readonly provenance?: ReadonlyArray<{ readonly runtime: string; readonly sessionId: string; readonly boundAt: string }>;
   readonly decidedAt?: string;
   readonly attribution: EntityAttributionProjection;

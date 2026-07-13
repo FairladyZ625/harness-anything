@@ -22,15 +22,6 @@
     "freshness": { "enum": ["fresh", "stale-but-usable", "unavailable-no-cache"] },
     "updatedAt": { "type": "string" },
     "source": { "enum": ["local-document", "external-engine", "snapshot-cache"] },
-    "sourcePath": { "type": "string" },
-    "createdBy": {
-      "type": "object",
-      "required": ["name", "email"],
-      "properties": {
-        "name": { "type": "string" },
-        "email": { "type": "string" }
-      },
-      "additionalProperties": false
-    }
+    "sourcePath": { "type": "string" }
   }
 }

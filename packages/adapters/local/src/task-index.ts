@@ -4,10 +4,9 @@ import type { DomainStatus, EngineError, PriorityTier, TaskId, TaskWorkKind } fr
 import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { isGeneratedTaskId, taskDocumentPath as harnessTaskDocumentPath, validateTaskIdSyntax } from "../../../kernel/src/index.ts";
-import { readFrontmatter, readNestedScalar, readScalar } from "../../../kernel/src/index.ts";
+import { readFrontmatter, readScalar } from "../../../kernel/src/index.ts";
 import type { ProvenancePayload } from "../../../kernel/src/index.ts";
 import { ProvenanceEntrySchema } from "../../../kernel/src/index.ts";
-import type { TaskCreatedBy } from "./created-by.ts";
 import type { LocalTaskIndex } from "./types.ts";
 
 export type HashPayload = (value: unknown) => string;
@@ -68,7 +67,6 @@ export function makeIndex(input: {
   readonly preset: string;
   readonly provenance?: ReadonlyArray<ProvenancePayload>;
   readonly profile?: string;
-  readonly createdBy?: TaskCreatedBy;
 }, hashPayload: HashPayload): LocalTaskIndex {
   const fingerprint = hashPayload({
     engine: "local",
@@ -93,8 +91,7 @@ export function makeIndex(input: {
     vertical: input.vertical,
     preset: input.preset,
     provenance: input.provenance ?? [humanFallbackProvenance(input.bindingCreatedAt)],
-    ...(input.profile ? { profile: input.profile } : {}),
-    ...(input.createdBy ? { createdBy: input.createdBy } : {})
+    ...(input.profile ? { profile: input.profile } : {})
   };
 }
 
@@ -123,11 +120,6 @@ export function renderIndex(index: LocalTaskIndex, reason?: string): string {
     "provenance:",
     ...index.provenance.map((entry) => `  - {runtime: ${JSON.stringify(entry.runtime)}, sessionId: ${JSON.stringify(entry.sessionId)}, boundAt: ${JSON.stringify(entry.boundAt)}}`),
     ...(index.profile ? [`profile: ${index.profile}`] : []),
-    ...(index.createdBy ? [
-      "createdBy:",
-      `  name: ${index.createdBy.name}`,
-      `  email: ${index.createdBy.email}`
-    ] : []),
     "---",
     "",
     `# ${index.title}`,
@@ -175,8 +167,7 @@ export function readIndex(rootInput: HarnessLayoutInput, taskId: TaskId): LocalT
     vertical: readScalar(frontmatter, "vertical", { required: true }),
     preset: readScalar(frontmatter, "preset", { required: true }),
     provenance,
-    ...readProfile(frontmatter),
-    ...readCreatedBy(frontmatter)
+    ...readProfile(frontmatter)
   };
 }
 
@@ -199,14 +190,6 @@ export function taskDocumentPath(rootInput: HarnessLayoutInput, taskId: TaskId, 
 
 function nullIfEmpty(value: string): string | null {
   return value.length === 0 ? null : value;
-}
-
-function readCreatedBy(frontmatter: string): { readonly createdBy?: TaskCreatedBy } {
-  const block = frontmatter.match(/^createdBy:\r?\n((?:[ \t]+[^\r\n]*(?:\r?\n|$))*)/mu)?.[1];
-  if (!block) return {};
-  const name = readNestedScalar(block, "name");
-  const email = readNestedScalar(block, "email");
-  return name && email ? { createdBy: { name, email } } : {};
 }
 
 function readPackageDisposition(frontmatter: string): LocalTaskIndex["packageDisposition"] {

@@ -20,7 +20,7 @@ import type {
   TaskProjectionRow
 } from "./types.ts";
 
-export const projectionVersion = "entity-projection/d4-v6";
+export const projectionVersion = "entity-projection/d4-v7";
 const baseTaskProjectionColumns = [
   "task_id",
   "title",
@@ -44,7 +44,6 @@ const baseTaskProjectionColumns = [
   "module_key",
   "module_title",
   "has_lesson_candidates",
-  "created_by_json",
   "attribution_json"
 ] as const;
 
@@ -93,7 +92,6 @@ export function writeProjectionDatabase(
         module_key TEXT,
         module_title TEXT,
         has_lesson_candidates INTEGER NOT NULL,
-        created_by_json TEXT,
         attribution_json TEXT NOT NULL
       )
     `;
@@ -119,9 +117,7 @@ export function writeProjectionDatabase(
         vertical TEXT,
         preset TEXT,
         decision_class TEXT,
-        proposed_by_json TEXT,
         proposed_at TEXT,
-        arbiter_json TEXT,
         provenance_json TEXT,
         decided_at TEXT,
         attribution_json TEXT NOT NULL
@@ -325,7 +321,6 @@ export function insertTaskRow(
     row.moduleKey ?? null,
     row.moduleTitle ?? null,
     row.hasLessonCandidates === true ? 1 : 0,
-    row.createdBy ? JSON.stringify(row.createdBy) : null,
     JSON.stringify(row.attribution ?? unresolvedEntityAttribution()),
     ...taskFieldExtensions.map((extension) => row.fieldExtensions?.[extension.field] ?? extension.default)
   ];
@@ -340,13 +335,13 @@ export function insertDecisionRow(sql: SqlClient.SqlClient, row: DecisionProject
     INSERT OR REPLACE INTO decision_projection (
       decision_id, legacy_id, legacy_number, state, title, question, chosen_json,
       rejected_json, path, module_keys_json, product_line_keys_json, risk_tier, urgency,
-      vertical, preset, decision_class, proposed_by_json, proposed_at, arbiter_json, provenance_json, decided_at, attribution_json
+      vertical, preset, decision_class, proposed_at, provenance_json, decided_at, attribution_json
     ) VALUES (
       ${row.decisionId}, ${row.legacyId ?? null}, ${row.legacyId ? legacyNumberFromLabel(row.legacyId) ?? null : null},
       ${row.state}, ${row.title}, ${row.question}, ${JSON.stringify(row.chosen)}, ${JSON.stringify(row.rejected)},
       ${row.path}, ${JSON.stringify(row.moduleKeys)}, ${JSON.stringify(row.productLineKeys)}, ${row.riskTier ?? null}, ${row.urgency ?? null},
-      ${row.vertical ?? null}, ${row.preset ?? null}, ${row.decisionClass ?? null}, ${row.proposedBy ? JSON.stringify(row.proposedBy) : null}, ${row.proposedAt ?? null},
-      ${row.arbiter ? JSON.stringify(row.arbiter) : null}, ${row.provenance ? JSON.stringify(row.provenance) : null}, ${row.decidedAt ?? null},
+      ${row.vertical ?? null}, ${row.preset ?? null}, ${row.decisionClass ?? null}, ${row.proposedAt ?? null},
+      ${row.provenance ? JSON.stringify(row.provenance) : null}, ${row.decidedAt ?? null},
       ${JSON.stringify(row.attribution ?? unresolvedEntityAttribution())}
     )
   `;
@@ -389,7 +384,7 @@ function taskWhereClause(filters: TaskProjectionQueryFilters): { readonly sql: s
   if (filters.missingMaterials) clauses.push("closeout_readiness = 'missing'");
   if (filters.search) {
     const needle = `%${filters.search.toLocaleLowerCase()}%`;
-    clauses.push("(lower(task_id) LIKE ? OR lower(title) LIKE ? OR lower(source_path) LIKE ? OR lower(COALESCE(preset, '')) LIKE ? OR lower(COALESCE(module_key, '')) LIKE ? OR lower(COALESCE(module_title, '')) LIKE ? OR lower(COALESCE(created_by_json, '')) LIKE ?)");
+    clauses.push("(lower(task_id) LIKE ? OR lower(title) LIKE ? OR lower(source_path) LIKE ? OR lower(COALESCE(preset, '')) LIKE ? OR lower(COALESCE(module_key, '')) LIKE ? OR lower(COALESCE(module_title, '')) LIKE ? OR lower(COALESCE(attribution_json, '')) LIKE ?)");
     params.push(needle, needle, needle, needle, needle, needle, needle);
   }
   for (const extensionFilter of filters.fieldExtensions ?? []) {

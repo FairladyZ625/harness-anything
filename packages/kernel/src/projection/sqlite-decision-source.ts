@@ -4,7 +4,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
-import { parseFlowObject, parseObjectList, parseStringArray, readBlockScalar, unquote } from "../markdown/flow-frontmatter.ts";
+import { parseObjectList, parseStringArray, readBlockScalar, unquote } from "../markdown/flow-frontmatter.ts";
 import type { DecisionPackage } from "../schemas/decision-package.ts";
 import type { DecisionProjectionRow } from "./types.ts";
 import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
@@ -65,9 +65,7 @@ function decisionDocumentToProjectionRow(rootDir: string, documentPath: string):
     ...(decision.vertical ? { vertical: decision.vertical } : {}),
     ...(decision.preset ? { preset: decision.preset } : {}),
     ...(decision.decisionClass ? { decisionClass: decision.decisionClass } : {}),
-    ...(decision.proposedBy ? { proposedBy: decision.proposedBy } : {}),
     ...(decision.proposedAt ? { proposedAt: decision.proposedAt } : {}),
-    ...(decision.arbiter ? { arbiter: decision.arbiter } : {}),
     ...(decision.provenance ? { provenance: decision.provenance } : {}),
     ...(decision.decidedAt ? { decidedAt: decision.decidedAt } : {}),
     attribution: unresolvedEntityAttribution()
@@ -93,9 +91,7 @@ const decisionSourceFieldReaders = {
     modules: parseStringArray(readBlockScalar(frontmatter, "applies_to", "modules"), { tolerateInvalidArrays: true }),
     productLines: parseStringArray(readBlockScalar(frontmatter, "applies_to", "productLines"), { tolerateInvalidArrays: true })
   }),
-  proposedBy: (frontmatter) => parseFlowObject(readScalar(frontmatter, "proposedBy")) as DecisionPackage["proposedBy"],
   proposedAt: (frontmatter) => unquote(readScalar(frontmatter, "proposedAt")),
-  arbiter: (frontmatter) => parseFlowObject(readScalar(frontmatter, "arbiter")) as DecisionPackage["arbiter"],
   decidedAt: (frontmatter) => optional(unquote(readScalar(frontmatter, "decidedAt"))),
   provenance: (frontmatter) => parseObjectList(frontmatter, "provenance") as DecisionPackage["provenance"],
   question: (frontmatter) => unquote(readScalar(frontmatter, "question")),
@@ -169,9 +165,7 @@ function canonicalDecisionProjectionRow(row: DecisionProjectionRow): Omit<Decisi
     ...(row.vertical ? { vertical: row.vertical } : {}),
     ...(row.preset ? { preset: row.preset } : {}),
     ...(row.decisionClass ? { decisionClass: row.decisionClass } : {}),
-    ...(row.proposedBy ? { proposedBy: { ...row.proposedBy } } : {}),
     ...(row.proposedAt ? { proposedAt: row.proposedAt } : {}),
-    ...(row.arbiter ? { arbiter: { ...row.arbiter } } : {}),
     ...(row.provenance ? { provenance: row.provenance.map((entry) => ({ ...entry })) } : {}),
     ...(row.decidedAt ? { decidedAt: row.decidedAt } : {})
   };

@@ -51,8 +51,7 @@ function matchesSearch(row: TaskProjectionRow, search: string): boolean {
     row.preset ?? "",
     row.moduleKey ?? "",
     row.moduleTitle ?? "",
-    row.createdBy?.name ?? "",
-    row.createdBy?.email ?? ""
+    JSON.stringify(row.attribution)
   ].some((value) => value.toLocaleLowerCase().includes(needle));
 }
 

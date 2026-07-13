@@ -14,7 +14,7 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { docSyncDirtyWarnings } from "./doc-sync.ts";
 import { nextDecisionAnchorId } from "./decision-anchor-id.ts";
-import { decisionFailure, decisionResult, parseActor, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
+import { decisionFailure, decisionResult, withDecisionBodyEmptyWarning } from "./decision-shared.ts";
 import { applyClaimFulfillments } from "./decision-claim-fulfillment.ts";
 
 type ProposeAction = Extract<ParsedCommand["action"], { readonly kind: "decision-propose" }>;
@@ -70,9 +70,7 @@ function proposedDecision(action: ProposeAction, now: string, relations: Readonl
     vertical: "software/coding",
     preset: "architecture-decision",
     applies_to: { modules: [...action.modules], productLines: [...action.productLines] },
-    proposedBy: parseActor(action.proposedBy) ?? { kind: "agent", id: "decision-cli" },
     proposedAt: now,
-    arbiter: parseActor(action.arbiter) ?? { kind: "human", id: process.env.USER || "local-human" },
     question: action.question,
     chosen: proposedChosen(action),
     rejected: proposedRejected(action),

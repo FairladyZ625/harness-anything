@@ -10,13 +10,17 @@ import {
   validateRelationRecordsForHost,
   type DecisionPackage,
   type DecisionState,
+  type ActorAxes,
+  type AttributionEvent,
   type EntityRelationRecord,
   type ProvenancePayload,
   type WriteCoordinator,
+  type WriteAttribution,
   type WriteError,
   type WriteOpKind
 } from "../../kernel/src/index.ts";
 import type { DocumentWrite } from "../../kernel/src/index.ts";
+import { readAttributionEvents } from "../../kernel/src/index.ts";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
@@ -25,6 +29,8 @@ import type { ProvenanceSessionExporterRejected } from "./provenance-session-exp
 export interface DecisionWriteServiceOptions extends ProvenanceBindingOptions {
   readonly coordinator: WriteCoordinator;
   readonly rootInput?: HarnessLayoutInput;
+  readonly attribution?: WriteAttribution;
+  readonly readAttributionEvents?: () => ReadonlyArray<AttributionEvent>;
   readonly hashPayload?: PayloadHasher;
   readonly now?: () => string;
 }
@@ -43,7 +49,6 @@ export interface DecisionTransitionRequest {
   readonly current: DecisionPackage;
   readonly claims?: DecisionPackage["claims"];
   readonly decisionClass?: DecisionPackage["decisionClass"];
-  readonly arbiter: DecisionPackage["arbiter"];
   readonly decidedAt?: string;
   readonly judgmentOnlyRationale?: string;
   readonly body?: string;
@@ -221,6 +226,8 @@ function transitionDecision(
   if (!transition.allowed) {
     return Effect.fail(rejection(request.current.decision_id, `decision state transition ${request.current.state} -> ${to} rejected: ${transition.reason}`));
   }
+  const independence = assertIndependentJudgmentActor(options, request.current.decision_id);
+  if (independence) return Effect.fail(independence);
   if (kind === "decision_accept" && request.current.state === "proposed") {
     const evidenceFloor = acceptEvidenceFloor(transitionCurrent, request.judgmentOnlyRationale);
     if (evidenceFloor) return Effect.fail(evidenceFloor);
@@ -230,10 +237,10 @@ function transitionDecision(
     if (disposition) return Effect.fail(disposition);
   }
   const decidedAt = request.decidedAt ?? fallbackDecidedAt;
+  const arbiter = contentPinActor(options.attribution!.actor);
   const next: DecisionPackage = {
     ...transitionCurrent,
     state: to,
-    arbiter: request.arbiter,
     decidedAt,
     contentPins: [
       ...(request.current.contentPins ?? []),
@@ -241,7 +248,7 @@ function transitionDecision(
         action: contentPinAction(kind),
         state: to,
         decidedAt,
-        arbiter: request.arbiter,
+        arbiter,
         canonicalization: decisionContentCanonicalization,
         digest: computeDecisionContentDigest(transitionCurrent)
       }
@@ -348,9 +355,6 @@ type DecisionDocumentWriteMode =
   | { readonly kind: "append_relation"; readonly relation: EntityRelationRecord };
 
 function validateDecisionWrite(decision: DecisionPackage, previous?: DecisionPackage): DecisionWriteRejected | null {
-  if (sameActor(decision.proposedBy, decision.arbiter)) {
-    return rejection(decision.decision_id, "decision arbiter must differ from proposedBy");
-  }
   if (decision.rejected.length === 0 || decision.rejected.some((entry) => entry.why_not.trim().length === 0)) {
     return rejection(decision.decision_id, "decision rejected alternatives require non-empty why_not");
   }
@@ -378,8 +382,33 @@ function validateDecisionWrite(decision: DecisionPackage, previous?: DecisionPac
   }
 }
 
-function sameActor(left: DecisionPackage["proposedBy"], right: DecisionPackage["arbiter"]): boolean {
-  return left.kind === right.kind && left.id === right.id;
+function assertIndependentJudgmentActor(options: DecisionWriteServiceOptions, decisionId: string): DecisionWriteRejected | null {
+  const currentActor = options.attribution?.actor;
+  if (!currentActor) return rejection(decisionId, "decision judgment requires request attribution");
+  try {
+    const events = options.readAttributionEvents?.() ?? (options.rootInput ? readAttributionEvents(options.rootInput) : []);
+    const propose = events.find((event) =>
+      event.kind === "decision_propose" &&
+      (event.entityId === decisionId || event.entityId === `decision/${decisionId}`)
+    );
+    if (!propose) return rejection(decisionId, "decision judgment requires an immutable decision_propose attribution event");
+    return sameActorAxes(propose.actor, currentActor)
+      ? rejection(decisionId, "decision judgment actor must differ from the decision_propose actor")
+      : null;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return rejection(decisionId, `decision judgment could not verify decision_propose attribution: ${detail}`);
+  }
+}
+
+function sameActorAxes(left: ActorAxes, right: ActorAxes): boolean {
+  return left.principal.personId === right.principal.personId && left.executor?.id === right.executor?.id;
+}
+
+function contentPinActor(actor: ActorAxes): NonNullable<DecisionPackage["contentPins"]>[number]["arbiter"] {
+  return actor.executor
+    ? { kind: "agent", id: actor.executor.id }
+    : { kind: "human", id: actor.principal.personId };
 }
 
 function rejection(decisionId: string, reason: string): DecisionWriteRejected {

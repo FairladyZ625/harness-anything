@@ -113,7 +113,6 @@ function taskFrontmatterObject(frontmatter: string, vertical: BundledVertical): 
     preset: readScalar(frontmatter, "preset", { required: true }),
     provenance: readProvenance(frontmatter),
     ...optionalScalar(frontmatter, "profile"),
-    ...readCreatedByObject(frontmatter),
     ...taskFieldExtensionObject(frontmatter, vertical)
   };
 }
@@ -133,14 +132,6 @@ function taskFieldExtensionObject(frontmatter: string, vertical: BundledVertical
 function readProvenance(frontmatter: string): ReadonlyArray<Record<string, string>> {
   const block = frontmatter.match(/^provenance:\r?\n((?:[ \t]+-\s*\{[^\r\n]*\}(?:\r?\n|$))*)/mu)?.[1] ?? "";
   return [...block.matchAll(/-\s*\{([^}]*)\}/gmu)].map((match) => parseFlowObject(match[1] ?? ""));
-}
-
-function readCreatedByObject(frontmatter: string): Record<string, { readonly name: string; readonly email: string }> {
-  const block = frontmatter.match(/^createdBy:\r?\n((?:[ \t]+[^\r\n]*(?:\r?\n|$))*)/mu)?.[1];
-  if (!block) return {};
-  const name = readScalar(block, "  name");
-  const email = readScalar(block, "  email");
-  return name && email ? { createdBy: { name, email } } : {};
 }
 
 function parseFlowObject(value: string): Record<string, string> {

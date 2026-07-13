@@ -11,15 +11,7 @@
     "modules": ["kernel", "cli"],
     "productLines": ["PLT-TaskTree"]
   },
-  "proposedBy": {
-    "kind": "agent",
-    "id": "claude"
-  },
   "proposedAt": "2026-06-16T03:11:00Z",
-  "arbiter": {
-    "kind": "human",
-    "id": "ZeyuLi"
-  },
   "decidedAt": "2026-06-16T04:02:00Z",
   "provenance": [
     {

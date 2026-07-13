@@ -29,7 +29,6 @@ export interface TaskRecord {
   readonly module_key: string | null;
   readonly module_title: string | null;
   readonly has_lesson_candidates: number;
-  readonly created_by_json: string | null;
   readonly attribution_json: string;
 }
 
@@ -49,9 +48,7 @@ export interface DecisionRecord {
   readonly vertical: string | null;
   readonly preset: string | null;
   readonly decision_class: string | null;
-  readonly proposed_by_json: string | null;
   readonly proposed_at: string | null;
-  readonly arbiter_json: string | null;
   readonly provenance_json: string | null;
   readonly decided_at: string | null;
   readonly attribution_json: string;
@@ -61,7 +58,6 @@ export function recordToTaskRow(
   record: TaskRecord,
   taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = []
 ): TaskProjectionRow {
-  const createdBy = record.created_by_json ? JSON.parse(record.created_by_json) as TaskProjectionRow["createdBy"] : undefined;
   const fieldExtensions = readTaskFieldExtensionRecord(record, taskFieldExtensions);
   return {
     schema: "sqlite-task-row/v1",
@@ -87,7 +83,6 @@ export function recordToTaskRow(
     ...(record.module_key ? { moduleKey: record.module_key } : {}),
     ...(record.module_title ? { moduleTitle: record.module_title } : {}),
     hasLessonCandidates: record.has_lesson_candidates === 1,
-    ...(createdBy ? { createdBy } : {}),
     attribution: JSON.parse(record.attribution_json) as EntityAttributionProjection,
     ...(fieldExtensions ? { fieldExtensions } : {})
   };
@@ -111,9 +106,7 @@ export function recordToDecisionRow(record: DecisionRecord): DecisionProjectionR
     ...(record.vertical ? { vertical: record.vertical } : {}),
     ...(record.preset ? { preset: record.preset } : {}),
     ...(record.decision_class ? { decisionClass: record.decision_class as DecisionProjectionRow["decisionClass"] } : {}),
-    ...(record.proposed_by_json ? { proposedBy: JSON.parse(record.proposed_by_json) as NonNullable<DecisionProjectionRow["proposedBy"]> } : {}),
     ...(record.proposed_at ? { proposedAt: record.proposed_at } : {}),
-    ...(record.arbiter_json ? { arbiter: JSON.parse(record.arbiter_json) as NonNullable<DecisionProjectionRow["arbiter"]> } : {}),
     ...(record.provenance_json ? { provenance: JSON.parse(record.provenance_json) as NonNullable<DecisionProjectionRow["provenance"]> } : {}),
     ...(record.decided_at ? { decidedAt: record.decided_at } : {}),
     attribution: JSON.parse(record.attribution_json) as EntityAttributionProjection

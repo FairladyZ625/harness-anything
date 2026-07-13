@@ -10,7 +10,6 @@ import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext, harnessRuntimeRoot, taskPackagePath } from "../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../kernel/src/index.ts";
 import { createDaemonRuntime, createMultiRepoDaemonRuntime, makeJournaledWriteCoordinator, runLedgerMaterializer } from "../../../kernel/src/store/index.ts";
-import { resolveTaskCreatedBy } from "./created-by.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
 import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
 import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, stageTaskTree, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
@@ -138,7 +137,6 @@ function createTask(
   bindProvenance: LocalLifecycleOptions["bindCreateProvenance"] = defaultCreateProvenance
 ): Effect.Effect<LocalTaskResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    const rootDir = harnessRuntimeRoot(rootInput);
     if (!input.allowManualId) {
       const error = validateGeneratedTaskId(input.taskId);
       if (error) return yield* Effect.fail(error);
@@ -167,8 +165,7 @@ function createTask(
       urgency: input.urgency,
       vertical: input.vertical ?? "default",
       preset: input.preset ?? "default",
-      provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)],
-      createdBy: resolveTaskCreatedBy(rootDir, input.createdBy)
+      provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)]
     }, stablePayloadHash);
     yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex(index), {
       kind: "package_create",
@@ -350,7 +347,6 @@ function supersedeTask(
   bindProvenance: LocalLifecycleOptions["bindCreateProvenance"] = defaultCreateProvenance
 ): Effect.Effect<LocalSupersedeResult, EngineError | WriteError> {
   return Effect.gen(function* () {
-    const rootDir = harnessRuntimeRoot(rootInput);
     const error = validateGeneratedTaskId(input.newTaskId);
     if (error) return yield* Effect.fail(error);
     if (existsSync(indexPath(rootInput, input.newTaskId))) {
@@ -369,8 +365,7 @@ function supersedeTask(
       vertical: oldIndex.vertical,
       preset: oldIndex.preset,
       provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)],
-      profile: oldIndex.profile,
-      createdBy: resolveTaskCreatedBy(rootDir)
+      profile: oldIndex.profile
     }, stablePayloadHash);
     yield* writeSupersedeTaskDocuments(coordinator, stablePayloadHash, input.oldTaskId, [
       { taskId: input.oldTaskId, path: "INDEX.md", body: renderIndex({ ...oldIndex, packageDisposition: "archived" }, input.reason) },

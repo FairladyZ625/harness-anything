@@ -15,9 +15,7 @@
     "vertical",
     "preset",
     "applies_to",
-    "proposedBy",
     "proposedAt",
-    "arbiter",
     "provenance",
     "question",
     "chosen",
@@ -50,9 +48,7 @@
         }
       }
     },
-    "proposedBy": { "$ref": "#/$defs/actorRef" },
     "proposedAt": { "$ref": "#/$defs/nonBlankString" },
-    "arbiter": { "$ref": "#/$defs/actorRef" },
     "decidedAt": { "type": "string" },
     "provenance": {
       "type": "array",

@@ -5,7 +5,6 @@ import { readAttributionEvents } from "../local/attribution-event-source.ts";
 import type { ActorAxes, ExecutorSource, PrincipalSource } from "../schemas/actor-attribution.ts";
 import type { AttributionEvent } from "../schemas/attribution-event.ts";
 import type { EntityAttributionProjection } from "./types.ts";
-import { legacyEntityAttribution, readLegacyPersonIds, unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
 import { runSqlite } from "./sqlite-projection-store.ts";
 import { SqlClient } from "@effect/sql";
 import { Effect } from "effect";
@@ -163,20 +162,10 @@ const entityProjectionTables = [
 function materializeEntityAttributionBlocks(rootInput: HarnessLayoutInput, projectionPath: string): void {
   const rows = readAttributionProjection(rootInput, projectionPath);
   const bySubject = Map.groupBy(rows, (row) => row.subjectRef);
-  const personIds = readLegacyPersonIds(rootInput);
   runSqlite(projectionPath, Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const existing = new Set((yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master WHERE type = 'table'`)
       .map((row) => String(row.name)));
-    if (existing.has("decision_projection")) {
-      const decisions = yield* sql<{ readonly decision_id: string; readonly proposed_by_json: string | null; readonly arbiter_json: string | null }>`
-        SELECT decision_id, proposed_by_json, arbiter_json FROM decision_projection
-      `;
-      for (const decision of decisions) {
-        const legacy = legacyDecisionAttribution(decision.proposed_by_json, decision.arbiter_json, personIds);
-        yield* sql`UPDATE decision_projection SET attribution_json = ${JSON.stringify(legacy)} WHERE decision_id = ${decision.decision_id}`;
-      }
-    }
     for (const entity of entityProjectionTables) {
       if (!existing.has(entity.table)) continue;
       const records = yield* sql.unsafe<Record<string, unknown>>(`SELECT ${entity.id} FROM ${entity.table}`);
@@ -200,28 +189,4 @@ function eventAttribution(rows: ReadonlyArray<AttributionProjectionRow>): Entity
     trailCount: ordered.length,
     completeness: "complete"
   };
-}
-
-function legacyDecisionAttribution(
-  proposedByJson: string | null,
-  arbiterJson: string | null,
-  personIds: ReadonlySet<string>
-): EntityAttributionProjection {
-  const originator = legacyActor(proposedByJson, personIds);
-  const latestActor = legacyActor(arbiterJson, personIds) ?? originator;
-  return originator ? legacyEntityAttribution(originator, latestActor) : {
-    ...unresolvedEntityAttribution(),
-    latestActor
-  };
-}
-
-function legacyActor(value: string | null, personIds: ReadonlySet<string>): ActorAxes | null {
-  if (!value) return null;
-  try {
-    const actor = JSON.parse(value) as { readonly kind?: unknown; readonly id?: unknown };
-    if (actor.kind !== "human" || typeof actor.id !== "string" || !personIds.has(actor.id)) return null;
-    return { principal: { kind: "person", personId: actor.id }, executor: null };
-  } catch {
-    return null;
-  }
 }

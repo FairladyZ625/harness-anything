@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import { resolveTaskCreatedBy } from "../../../adapters/local/src/created-by.ts";
 import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
 import {
@@ -187,8 +186,7 @@ export function runNewTaskWithPreset(
         runtime: "human",
         sessionId: `human-cli-${Date.parse(createdAt)}`,
         boundAt: createdAt
-      }],
-      createdBy: resolveTaskCreatedBy(rootDir)
+      }]
     }, stablePayloadHash);
     const writes = [
       { taskId, path: "INDEX.md", body: renderIndex(index), packageSlug: action.slug },

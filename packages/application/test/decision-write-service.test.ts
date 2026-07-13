@@ -5,8 +5,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import { makeDecisionWriteService, readDecisionDocument, type DecisionWriteRejected } from "../src/index.ts";
-import { computeDecisionContentDigest, deriveRelationId, type DecisionPackage, type EntityRelationRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
+import { makeDecisionWriteService as makeRawDecisionWriteService, readDecisionDocument, type DecisionWriteRejected, type DecisionWriteServiceOptions } from "../src/index.ts";
+import { computeDecisionContentDigest, deriveRelationId, type AttributionEvent, type DecisionPackage, type EntityRelationRecord, type WriteCoordinator, type WriteOp } from "../../kernel/src/index.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
 test("decision accept blocks zero-evidence decisions without judgment-only rationale", () => {
@@ -176,21 +176,40 @@ test("decision accept emits an append-only body mutation for judgment-only ratio
   assert.match(payload.writeMode?.appendBody ?? "", /CEO accepted this as a judgment-only policy choice/u);
 });
 
-test("decision write service rejects invalid arbiter and unsupported transitions", () => {
-  const service = makeDecisionWriteService({ coordinator: fakeCoordinator([]) });
-  const proposed = decisionPackage({ state: "proposed", arbiter: { kind: "agent", id: "claude" } });
+test("decision write service rejects self-judgment from the same full ActorAxes and unsupported transitions", () => {
+  const service = makeRawDecisionWriteService({
+    coordinator: fakeCoordinator([]),
+    attribution: proposerAttribution,
+    readAttributionEvents: () => [proposeAttributionEvent]
+  });
+  const proposed = decisionPackage({ state: "proposed" });
   const rejected = decisionPackage({ state: "rejected" });
 
-  const selfArbiter = Effect.runSyncExit(service.propose({ decision: proposed }));
+  const selfArbiter = Effect.runSyncExit(service.accept({ current: proposed, judgmentOnlyRationale: "Self judgment must still be rejected." }));
   const terminalTransition = Effect.runSyncExit(service.accept({
-    current: rejected,
-    arbiter: { kind: "human", id: "ZeyuLi" }
+    current: rejected
   }));
 
   assert.equal(selfArbiter._tag, "Failure");
-  assert.match(failureReason(selfArbiter.cause), /arbiter must differ/u);
+  assert.match(failureReason(selfArbiter.cause), /must differ from the decision_propose actor/u);
   assert.equal(terminalTransition._tag, "Failure");
   assert.match(failureReason(terminalTransition.cause), /terminal_state/u);
+});
+
+test("decision judgment fails closed when the immutable propose attribution event is missing", () => {
+  const service = makeRawDecisionWriteService({
+    coordinator: fakeCoordinator([]),
+    attribution: judgmentAttribution,
+    readAttributionEvents: () => []
+  });
+
+  const result = Effect.runSyncExit(service.accept({
+    current: decisionPackage({ state: "proposed" }),
+    judgmentOnlyRationale: "The missing origin event must block this write."
+  }));
+
+  assert.equal(result._tag, "Failure");
+  assert.match(failureReason(result.cause), /requires an immutable decision_propose attribution event/u);
 });
 
 test("decision write service rejects empty rejected alternatives", () => {
@@ -423,9 +442,7 @@ function decisionPackage(overrides: Partial<DecisionPackage> = {}): DecisionPack
       modules: ["kernel"],
       productLines: []
     },
-    proposedBy: { kind: "agent", id: "claude" },
     proposedAt: "2026-07-02T00:00:00Z",
-    arbiter: { kind: "human", id: "ZeyuLi" },
     provenance: [{
       runtime: "codex",
       sessionId: "session-1",
@@ -438,6 +455,46 @@ function decisionPackage(overrides: Partial<DecisionPackage> = {}): DecisionPack
     relations: [],
     ...overrides
   };
+}
+
+const proposerAttribution = {
+  actor: {
+    principal: { kind: "person", personId: "ZeyuLi" },
+    executor: { kind: "agent", id: "claude" }
+  },
+  principalSource: { kind: "migration", evidenceRef: "test/proposer" },
+  executorSource: "client-asserted"
+} as const;
+
+const judgmentAttribution = {
+  actor: {
+    principal: { kind: "person", personId: "ZeyuLi" },
+    executor: null
+  },
+  principalSource: { kind: "migration", evidenceRef: "test/judgment" },
+  executorSource: "none"
+} as const;
+
+const proposeAttributionEvent = {
+  schema: "attribution-event/v1",
+  eventId: "evt_propose",
+  opId: "op_propose",
+  journalRecordSchema: "write-journal/v2",
+  entityId: "decision/dec_TEST",
+  kind: "decision_propose",
+  ...proposerAttribution,
+  at: "2026-07-02T00:00:00Z",
+  recordedAt: "2026-07-02T00:00:00Z",
+  payloadHash: "hash",
+  payloadRef: { kind: "inline", value: "payload" }
+} as AttributionEvent;
+
+function makeDecisionWriteService(options: DecisionWriteServiceOptions) {
+  return makeRawDecisionWriteService({
+    attribution: judgmentAttribution,
+    readAttributionEvents: () => [proposeAttributionEvent],
+    ...options
+  });
 }
 
 function relationRecord(source: string, target: string, type: EntityRelationRecord["type"] = "supersedes-fact"): EntityRelationRecord {

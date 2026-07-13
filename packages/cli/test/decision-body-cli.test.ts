@@ -86,7 +86,7 @@ test("CLI decision propose and accept warn when markdown prose is empty, without
     assert.equal(proposal.ok, true);
     assert.equal(proposal.warnings?.some((warning: { code?: string }) => warning.code === "decision_body_empty"), true);
 
-    const accepted = runJson(rootDir, ["decision", "accept", "dec_EMPTY_BODY", "--arbiter", "human:ZeyuLi"]);
+    const accepted = runJson(rootDir, ["decision", "accept", "dec_EMPTY_BODY"]);
     assert.equal(accepted.ok, true);
     assert.equal(accepted.decisionState, "active");
     assert.equal(accepted.warnings?.some((warning: { code?: string }) => warning.code === "decision_body_empty"), true);
@@ -110,7 +110,7 @@ test("CLI decision proposal and acceptance omit the empty-body warning when pros
     assert.equal(proposal.ok, true);
     assert.equal(proposal.warnings?.some((warning: { code?: string }) => warning.code === "decision_body_empty") ?? false, false);
 
-    const accepted = runJson(rootDir, ["decision", "accept", "dec_NONEMPTY_BODY", "--arbiter", "human:ZeyuLi"]);
+    const accepted = runJson(rootDir, ["decision", "accept", "dec_NONEMPTY_BODY"]);
     assert.equal(accepted.ok, true);
     assert.equal(accepted.warnings?.some((warning: { code?: string }) => warning.code === "decision_body_empty") ?? false, false);
   });
@@ -127,8 +127,9 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
 }
 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+  const cliArgs = independentDecisionJudgmentArgs(args);
   try {
-    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
       encoding: "utf8"
     });
     const parsed = JSON.parse(output) as Record<string, any>;
@@ -139,6 +140,11 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
+  if (args[0] !== "decision" || !["accept", "reject", "defer", "supersede", "retire"].includes(args[1] ?? "")) return args;
+  return ["--actor", "human:person_test", ...args];
 }
 
 function decisionBody(document: string): string {

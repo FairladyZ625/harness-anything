@@ -287,11 +287,6 @@ export interface DecisionProjectionRejected {
   readonly whyNot: string;
 }
 
-export interface DecisionProjectionActor {
-  readonly kind: "agent" | "human" | "system";
-  readonly id: string;
-}
-
 export interface ProjectionProvenanceEntry {
   readonly runtime: string;
   readonly sessionId: string;
@@ -314,9 +309,7 @@ export interface DecisionProjectionRow {
   readonly urgency?: "low" | "medium" | "high";
   readonly vertical?: string;
   readonly preset?: string;
-  readonly proposedBy?: DecisionProjectionActor;
   readonly proposedAt?: string;
-  readonly arbiter?: DecisionProjectionActor;
   readonly provenance?: ReadonlyArray<ProjectionProvenanceEntry>;
   readonly decidedAt?: string;
 }

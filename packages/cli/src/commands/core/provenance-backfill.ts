@@ -180,8 +180,6 @@ function findBlockEnd(lines: ReadonlyArray<string>, start: number): number {
 function insertionPoint(lines: ReadonlyArray<string>): number {
   const profileIndex = lines.findIndex((line) => line.startsWith("profile:"));
   if (profileIndex >= 0) return profileIndex;
-  const createdByIndex = lines.findIndex((line) => line === "createdBy:");
-  if (createdByIndex >= 0) return createdByIndex;
   const presetIndex = lines.findIndex((line) => line.startsWith("preset:"));
   return presetIndex >= 0 ? presetIndex + 1 : lines.length;
 }
