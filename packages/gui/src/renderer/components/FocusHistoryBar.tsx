@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight, Crosshair, X } from "@phosphor-icons/react";
+import { t } from "../i18n/index.tsx";
 
 /**
  * GraphView 焦点历史 + 面包屑(dec_01KXA7811SVVT8P66HNDFZQ7DF — 关系图可用性)。
@@ -38,8 +39,8 @@ export function FocusHistoryBar({
         type="button"
         onClick={onBack}
         disabled={!canBack}
-        title="上一个焦点 (back)"
-        aria-label="上一个焦点"
+        title={t("components.focusHistoryBar.previousFocusBack")}
+        aria-label={t("components.focusHistoryBar.previousFocus")}
         className={`grid size-6 place-items-center rounded ${
           canBack
             ? "text-text-muted hover:bg-surface-raised hover:text-text"
@@ -52,8 +53,8 @@ export function FocusHistoryBar({
         type="button"
         onClick={onForward}
         disabled={!canForward}
-        title="下一个焦点 (forward)"
-        aria-label="下一个焦点"
+        title={t("components.focusHistoryBar.nextFocusForward")}
+        aria-label={t("components.focusHistoryBar.nextFocus")}
         className={`grid size-6 place-items-center rounded ${
           canForward
             ? "text-text-muted hover:bg-surface-raised hover:text-text"
@@ -86,8 +87,8 @@ export function FocusHistoryBar({
           <button
             type="button"
             onClick={onClear}
-            title="退出聚焦"
-            aria-label="退出聚焦"
+            title={t("components.focusHistoryBar.exitFocus")}
+            aria-label={t("components.focusHistoryBar.exitFocus")}
             className="grid size-5 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
           >
             <X weight="bold" className="size-3" />
@@ -95,8 +96,7 @@ export function FocusHistoryBar({
         </>
       ) : (
         <span className="px-2 font-mono text-text-faint">
-          默认聚焦式 ego · 双击节点或左栏点选切换焦点
-        </span>
+          {t("components.focusHistoryBar.defaultFocusedEgoDoubleClickNodeClick")}</span>
       )}
     </div>
   );

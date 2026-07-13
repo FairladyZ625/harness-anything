@@ -2,6 +2,7 @@ import { Plus, CloudSlash } from "@phosphor-icons/react";
 import type { Project, TaskRow, EventEntry } from "../model/types";
 import { BOARD_COLUMNS } from "../model/types";
 import { EngineBadge, STATUS_META } from "../components/badges";
+import { t } from "../i18n/index.tsx";
 
 const dateTime = (iso: string) => iso.slice(5, 16).replace("T", " ");
 
@@ -64,8 +65,7 @@ function ProjectCard({
         </span>
         {current && (
           <span className="shrink-0 rounded border border-border px-1 font-mono text-[10px] text-text-faint">
-            当前
-          </span>
+            {t("views.homeView.current")}</span>
         )}
       </div>
       <div className="truncate font-mono text-[11px] text-text-faint">
@@ -83,7 +83,7 @@ function ProjectCard({
       <div className="flex items-center gap-2.5">
         {ready > 0 && (
           <span className="rounded-md bg-accent px-1.5 py-0.5 font-mono text-[11px] font-semibold text-accent-fg">
-            封存就绪 {ready}
+            {t("views.homeView.readyArchiving")}{ready}
           </span>
         )}
         {stale > 0 && (
@@ -105,12 +105,11 @@ function ProjectCard({
           </span>
         )}
         <span className="ml-auto font-mono text-[11px] text-text-faint">
-          {tasks.length} 任务
-        </span>
+          {tasks.length} {t("views.homeView.task")}</span>
       </div>
       <div className="flex items-center justify-between font-mono text-[10px] text-text-faint">
-        <span>活动 {lastActivity ? dateTime(lastActivity) : "—"}</span>
-        <span>投影 {dateTime(project.watermarkAt)}</span>
+        <span>{t("views.homeView.activities")}{lastActivity ? dateTime(lastActivity) : "—"}</span>
+        <span>{t("views.homeView.projection")}{dateTime(project.watermarkAt)}</span>
       </div>
     </button>
   );
@@ -133,14 +132,13 @@ export function HomeView({
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <div className="flex items-baseline gap-2">
-          <h1 className="ui-title font-semibold">项目</h1>
+          <h1 className="ui-title font-semibold">{t("views.homeView.project")}</h1>
           <span className="font-mono text-[11px] text-text-faint">
             {projects.length}
           </span>
         </div>
         <p className="mt-0.5 text-[11px] text-text-faint">
-          各项目独立统计、并排展示，不做合并完成率。
-        </p>
+          {t("views.homeView.eachProjectCountedIndependentlyDisplayedSideBy")}</p>
       </header>
 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 p-4">
@@ -156,29 +154,26 @@ export function HomeView({
         ))}
         <button
           disabled
-          title="本地多项目注册将在 V2 提供(coming soon)"
+          title={t("views.homeView.localMultiProjectRegistrationWillAvailableV2")}
           className="flex min-h-36 cursor-not-allowed flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-text-faint opacity-60"
         >
           <Plus weight="bold" className="text-lg" />
-          <span className="text-xs">添加项目(V2)</span>
+          <span className="text-xs">{t("views.homeView.addProjectV2")}</span>
         </button>
       </div>
 
       <div className="px-4 pb-4">
         <div className="pb-1.5 font-mono text-[10px] uppercase tracking-wide text-text-faint">
-          远程项目
-        </div>
+          {t("views.homeView.remoteProject")}</div>
         <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3">
           <CloudSlash weight="duotone" className="text-xl text-text-faint" />
           <span className="text-xs text-text-muted">
-            登录后可访问其他设备上的项目 · V2
-          </span>
+            {t("views.homeView.signAccessProjectsOtherDevicesV2")}</span>
           <button
             disabled
             className="ml-auto cursor-not-allowed rounded-md border border-border px-2 py-1 text-xs text-text-faint opacity-60"
           >
-            了解多端同步
-          </button>
+            {t("views.homeView.learnAboutMultiEndSynchronization")}</button>
         </div>
       </div>
     </div>

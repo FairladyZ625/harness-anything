@@ -7,6 +7,7 @@ import { ConceptBar } from "../components/preset/ConceptBar";
 import { PresetCard } from "../components/preset/PresetCard";
 import { VerticalCard, TemplateCard } from "../components/preset/VerticalAndTemplateCards";
 import { PresetContextRail } from "../components/preset/PresetContextRail";
+import { t } from "../i18n/index.tsx";
 
 export function PresetsView({
   catalog,
@@ -49,19 +50,17 @@ export function PresetsView({
       <header className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <Stack className="self-center text-[15px] text-text-faint" />
-          <h1 className="ui-title font-semibold">Preset / Vertical 管理</h1>
+          <h1 className="ui-title font-semibold">{t("views.presetsView.presetVerticalManagement")}</h1>
           <span className="shrink-0 font-mono text-[11px] text-accent sm:ml-auto">
-            当前项目激活：{project.preset}
+            {t("views.presetsView.currentProjectActivation")}{project.preset}
           </span>
         </div>
         <p className="mt-0.5 text-[11px] text-text-faint">
-          当前运行时只提供 software/coding 内置 vertical；custom vertical 尚未实现。
-          Preset 列表由 daemon 按 project &gt; user &gt; builtin 解析。
-        </p>
+          {t("views.presetsView.currentRuntimeOnlyProvidesSoftwareCodingBuilt")}</p>
       </header>
 
-      {loading && <p className="p-4 text-sm text-text-muted">正在读取 catalog snapshot…</p>}
-      {failed && <p className="p-4 text-sm text-danger">catalog snapshot 读取失败。</p>}
+      {loading && <p className="p-4 text-sm text-text-muted">{t("views.presetsView.readingCatalogSnapshot")}</p>}
+      {failed && <p className="p-4 text-sm text-danger">{t("views.presetsView.catalogSnapshotReadingFailed")}</p>}
 
       {!loading && !failed && <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="flex min-w-0 flex-col gap-4">
@@ -86,14 +85,13 @@ export function PresetsView({
           {tab === "preset" && (
             <>
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-                <span className="font-mono text-[11px]">project</span>
+                <span className="font-mono text-[11px]">{t("views.presetsView.project")}</span>
                 <span className="font-mono text-[11px] text-text-faint">&gt;</span>
-                <span className="font-mono text-[11px]">user</span>
+                <span className="font-mono text-[11px]">{t("views.presetsView.user")}</span>
                 <span className="font-mono text-[11px] text-text-faint">&gt;</span>
-                <span className="font-mono text-[11px]">builtin</span>
+                <span className="font-mono text-[11px]">{t("views.presetsView.builtin")}</span>
                 <span className="min-w-[14rem] flex-1 text-[11px] text-text-muted">
-                  · 高优先级来源的同名条目覆盖低优先级；被覆盖项保留但不参与物化
-                </span>
+                  {t("views.presetsView.entriesSameNameFromHighPrioritySources")}</span>
               </div>
 
               {SOURCE_SECTIONS.map(({ source, label, hint }) => {
@@ -118,7 +116,7 @@ export function PresetsView({
                       />
                     ))}
                     {rows.length === 0 && (
-                      <p className="px-0.5 text-[11px] text-text-faint">该层级暂无条目</p>
+                      <p className="px-0.5 text-[11px] text-text-faint">{t("views.presetsView.thereCurrentlyNoEntriesLevel")}</p>
                     )}
                   </section>
                 );
@@ -129,8 +127,7 @@ export function PresetsView({
           {tab === "vertical" && (
             <div className="flex flex-col gap-2">
               <p className="rounded-lg border border-border bg-surface px-3 py-2 text-[11px] text-text-muted">
-                当前只有一个内置 vertical；此处是运行时定义检查面，不是多选选择器。
-              </p>
+                {t("views.presetsView.thereCurrentlyOnlyOneBuiltVerticalRuntime")}</p>
               {verticals.map((v) => (
                 <VerticalCard key={v.id} v={v} />
               ))}
@@ -140,8 +137,7 @@ export function PresetsView({
           {tab === "templates" && (
             <div className="flex flex-col gap-2">
               <p className="px-0.5 text-[11px] text-text-muted">
-                侧挂素材库：存正文与 locale variants，被 Vertical/Preset 选择
-              </p>
+                {t("views.presetsView.sideLibrarySaveTextLocaleVariantsSelected")}</p>
               {templates.map((t) => (
                 <TemplateCard key={t.ref} t={t} onJumpToPreset={jumpToPreset} />
               ))}

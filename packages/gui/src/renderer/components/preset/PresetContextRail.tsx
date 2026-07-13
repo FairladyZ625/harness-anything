@@ -2,6 +2,7 @@ import { ArrowRight } from "@phosphor-icons/react";
 import type { PresetEntry, TemplateInfo, VerticalInfo } from "../../model/types";
 import { CHIP, SECTION_LABEL, chainOf, shortRef } from "./shared";
 import type { TabId } from "./shared";
+import { t } from "../../i18n/index.tsx";
 
 export function PresetContextRail({
   activePreset,
@@ -31,18 +32,18 @@ export function PresetContextRail({
   return (
     <aside className="sticky top-4 hidden self-start rounded-lg border border-border bg-surface px-3 py-3 lg:block">
       <div className="flex items-center justify-between gap-2">
-        <span className={SECTION_LABEL}>上下文</span>
+        <span className={SECTION_LABEL}>{t("components.presetContextRail.context")}</span>
         <span className="rounded bg-accent/15 px-1.5 py-px font-mono text-[10px] text-accent">{tab}</span>
       </div>
 
       <div className="mt-3 border-b border-border pb-3">
-        <div className="text-[10px] text-text-faint">当前激活</div>
+        <div className="text-[10px] text-text-faint">{t("components.presetContextRail.currentlyActive")}</div>
         <div className="mt-1 font-mono text-[13px] font-semibold text-text">{activePreset.id}</div>
-        <div className="mt-1 text-[11px] text-text-muted">{activePreset.title ?? "无标题"}</div>
+        <div className="mt-1 text-[11px] text-text-muted">{activePreset.title ?? t("components.presetContextRail.untitled")}</div>
       </div>
 
       <div className="border-b border-border py-3">
-        <div className="text-[10px] text-text-faint">焦点 preset</div>
+        <div className="text-[10px] text-text-faint">{t("components.presetContextRail.focusPreset")}</div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <span className="font-mono text-[13px] font-semibold text-text">{focusedPreset.id}</span>
           <span className="rounded border border-accent/60 px-1.5 py-px font-mono text-[10px] text-accent">
@@ -52,12 +53,12 @@ export function PresetContextRail({
         <div className="mt-1 flex flex-wrap gap-1">
           <span className={CHIP}>{focusedPreset.source}</span>
           <span className={CHIP}>v{focusedPreset.version}</span>
-          {focusedPreset.profile && <span className={CHIP}>profile: {focusedPreset.profile}</span>}
+          {focusedPreset.profile && <span className={CHIP}>{t("components.presetContextRail.profileValue", { profile: focusedPreset.profile })}</span>}
         </div>
       </div>
 
       <div className="border-b border-border py-3">
-        <div className="text-[10px] text-text-faint">继承链</div>
+        <div className="text-[10px] text-text-faint">{t("components.presetContextRail.inheritanceChain")}</div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {chain.map((p, i) => (
             <span key={p.id} className="flex items-center gap-1.5">
@@ -72,20 +73,19 @@ export function PresetContextRail({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <div className="font-mono text-[17px] font-semibold text-text">{vertical?.templateSlots.length ?? 0}</div>
-            <div className="text-[10px] text-text-faint">vertical slots</div>
+            <div className="text-[10px] text-text-faint">{t("components.presetContextRail.verticalSlots")}</div>
           </div>
           <div>
             <div className="font-mono text-[17px] font-semibold text-text">{directSelections}</div>
-            <div className="text-[10px] text-text-faint">本层覆盖</div>
+            <div className="text-[10px] text-text-faint">{t("components.presetContextRail.layerCovers")}</div>
           </div>
         </div>
         <div className="mt-2 text-[11px] text-text-muted">
-          父链可继承 {inheritedCount} 个 template selection；statusMapping 仍归 Engine。
-        </div>
+          {t("components.presetContextRail.parentChainCanInherited")}{inheritedCount} {t("components.presetContextRail.templateSelectionStatusMappingStillBelongsEngine")}</div>
       </div>
 
       <div className="border-b border-border py-3">
-        <div className="text-[10px] text-text-faint">Capabilities</div>
+        <div className="text-[10px] text-text-faint">{t("components.presetContextRail.capabilities")}</div>
         <div className="mt-1.5 flex flex-wrap gap-1">
           {focusedPreset.capabilityImports.length > 0 ? (
             focusedPreset.capabilityImports.map((c) => (
@@ -98,7 +98,7 @@ export function PresetContextRail({
       </div>
 
       <div className="pt-3">
-        <div className="text-[10px] text-text-faint">本层模板</div>
+        <div className="text-[10px] text-text-faint">{t("components.presetContextRail.templateLayer")}</div>
         {focusedPreset.selections.length > 0 ? (
           <div className="mt-1.5 flex flex-col gap-1.5">
             {focusedPreset.selections.slice(0, 3).map((s) => (
@@ -108,16 +108,15 @@ export function PresetContextRail({
               </div>
             ))}
             {focusedPreset.selections.length > 3 && (
-              <div className="text-[10px] text-text-faint">+{focusedPreset.selections.length - 3} more</div>
+              <div className="text-[10px] text-text-faint">{t("components.presetContextRail.moreCount", { count: focusedPreset.selections.length - 3 })}</div>
             )}
           </div>
         ) : (
-          <div className="mt-1.5 text-[11px] text-text-faint">无本层覆盖，读取父链</div>
+          <div className="mt-1.5 text-[11px] text-text-faint">{t("components.presetContextRail.noCoverageLayerReadParentChain")}</div>
         )}
         {tab === "templates" && (
           <div className="mt-2 text-[10px] text-text-faint">
-            当前焦点直接命中模板库 {templateCoverage.length} 条
-          </div>
+            {t("components.presetContextRail.currentFocusDirectlyHitsTemplateLibrary")}{templateCoverage.length} {t("components.presetContextRail.article")}</div>
         )}
       </div>
     </aside>

@@ -17,6 +17,7 @@ import { PresetsView } from "../views/PresetsView.tsx";
 import { AdaptersView } from "../views/AdaptersView.tsx";
 import { SettingsView } from "../views/SettingsView.tsx";
 import { TaskDetailView } from "../views/TaskDetailView.tsx";
+import { t } from "../i18n/index.tsx";
 
 type DrillState = { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
 
@@ -104,12 +105,11 @@ export function ViewSwitch(props: ViewSwitchProps) {
           className="flex items-center gap-2 border-b border-border bg-surface/60 px-4 py-1.5"
         >
           <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-            多视图
-          </span>
+            {t("components.viewSwitch.multipleViews")}</span>
           <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
             {([
-              { id: "graph", label: "关系图" },
-              { id: "genealogy", label: "演化史" },
+              { id: "graph", label: t("components.viewSwitch.graph") },
+              { id: "genealogy", label: t("components.viewSwitch.genealogy") },
             ] as const).map((item) => (
               <button
                 key={item.id}
@@ -125,8 +125,7 @@ export function ViewSwitch(props: ViewSwitchProps) {
             ))}
           </div>
           <span className="text-[11px] text-text-faint">
-            常驻切换 · 关系图看结构,演化史看 decision 谱系随时间的 refine/narrow/supersede
-          </span>
+            {t("components.viewSwitch.residentSwitchingLookRelationshipDiagramSeeStructure")}</span>
         </div>
       )}
       {selected ? (

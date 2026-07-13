@@ -1,4 +1,5 @@
 import { Handle, Position } from "@xyflow/react";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 关系图里的 decision 节点(非聚焦态 — 谱系 lane 的邻居决策)。
@@ -26,7 +27,7 @@ export function DecisionNode({ data, selected }: any) {
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !min-w-2 !min-h-2 !border-0 !bg-[var(--color-axis-authority)]" />
       {cycleWarning && (
         <span
-          title="INV-3: relation cycle detected; traversal is truncated"
+          title={t("graph.nodes.relationCycleTraversalTruncated")}
           className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-danger font-mono text-[10px] font-bold text-white"
         >
           !

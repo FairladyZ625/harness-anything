@@ -5,6 +5,7 @@ import type {
   SnapshotStatus,
   TaskRow,
 } from "./types";
+import { t } from "../i18n/core.ts";
 
 export interface TaskFilters {
   query: string;
@@ -97,14 +98,14 @@ export const applyTaskFilters = (
 
 export const taskFilterSummary = (filters: TaskFilters): string[] => {
   const parts: string[] = [];
-  if (filters.query.trim()) parts.push(`搜索 "${filters.query.trim()}"`);
+  if (filters.query.trim()) parts.push(t("model.taskFilters.searchValue", { value: filters.query.trim() }));
   if (filters.module !== "all") parts.push(`module=${filters.module}`);
   if (filters.engine !== "all") parts.push(`engine=${filters.engine}`);
   if (filters.status.length > 0) parts.push(`status=${filters.status.join("|")}`);
   if (filters.closeout !== "all") parts.push(`closeout=${filters.closeout}`);
   if (filters.freshness !== "all") parts.push(`freshness=${filters.freshness}`);
-  if (filters.includeArchived) parts.push("含归档/取消");
-  if (filters.favoritesOnly) parts.push("仅看收藏");
+  if (filters.includeArchived) parts.push(t("model.taskFilters.includingArchiveCancel"));
+  if (filters.favoritesOnly) parts.push(t("model.taskFilters.viewOnlyCollections"));
   return parts;
 };
 

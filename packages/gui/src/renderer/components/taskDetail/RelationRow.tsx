@@ -1,5 +1,6 @@
 import type { RelationEdge } from "../../model/types";
 import { normalizeTaskId } from "../../model/triadic";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * W2B 活链接:relation peer 端点可能是 task/decision/fact。
@@ -48,7 +49,7 @@ export function RelationRow({
         <button
           onClick={handleClick}
           className="shrink-0 font-mono text-[11px] text-accent hover:underline"
-          title={isTask ? "跳转到 task" : isDecision ? "跳转到 decision" : "跳转到 fact"}
+          title={isTask ? t("components.relationRow.jumpTask") : isDecision ? t("components.relationRow.jumpDecision") : t("components.relationRow.jumpFact")}
         >
           {peer}
         </button>
@@ -60,7 +61,7 @@ export function RelationRow({
         <span
           className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full"
           style={{ background: "var(--color-stale)" }}
-          title="provenance: external-engine"
+          title={t("components.relationRow.externalEngineProvenance")}
         />
       )}
     </div>

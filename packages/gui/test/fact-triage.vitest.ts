@@ -392,7 +392,7 @@ describe("cross-entity navigation projection", () => {
       }),
     );
 
-    expect(markup).toContain("支撑的 decision");
+    expect(markup).toContain("supporting decision");
     expect(markup).toContain("dec_1");
   });
 });
@@ -427,16 +427,16 @@ describe("copy-context builder", () => {
       [baseTask()],
     );
 
-    expect(text).toContain("当前问题");
+    expect(text).toContain("Current Problem");
     expect(text).toContain("task_a/F-001");
     expect(text).toContain("模块覆盖率只有 12%");
     expect(text).toContain("Task A");
     expect(text).toContain("dec_1");
     expect(text).toContain("是否上线");
-    expect(text).toContain("低 confidence");
+    expect(text).toContain("low confidence");
     expect(text).toContain("evidenced-by");
     expect(text).toContain("承重证据");
-    expect(text).toContain("需要人判");
+    expect(text).toContain("Need someone to judge");
   });
 
   it("expands a decision context through claim-level edges", () => {
@@ -457,7 +457,7 @@ describe("copy-context builder", () => {
       "正在检查这条 decision 的证据覆盖与派生工作",
     );
 
-    expect(text).toContain("当前问题");
+    expect(text).toContain("Current Problem");
     expect(text).toContain("正在检查这条 decision 的证据覆盖与派生工作");
     expect(text).toContain("选择关系投影方案");
     expect(text).toContain("落实关系投影");
@@ -479,8 +479,8 @@ describe("copy-context builder", () => {
     );
 
     expect(text).toContain("confidence**: low");
-    expect(text).toContain("invalidated**: 是");
-    expect(text).toContain("宿主 task");
+    expect(text).toContain("invalidated**: Yes");
+    expect(text).toContain("Host task");
     expect(text).toContain("Task A");
   });
 });

@@ -11,6 +11,7 @@ import {
   type Member,
 } from "./territoryPartition";
 import type { Node } from "@xyflow/react";
+import { t } from "../i18n/core.ts";
 
 /**
  * L1 领地总览布局(IA v2 Layer 0 / dec_01KXA7811SVVT8P66HNDFZQ7DF)。
@@ -184,7 +185,7 @@ export function layoutTerritory(input: TerritoryInput): LayoutOutput {
             style: { width: memberW, height: GEO.TASK_CHIP_H },
             data: {
               entity: "fold",
-              label: `▸ 还有 ${hidden} 项（多为 done）— 展开`,
+              label: t("graph.territoryLayout.thereAlsoHiddenItemsMostlyDoneExpand", { hidden: hidden }),
               zoneId: zone.id,
               skel: zone.skel,
             },

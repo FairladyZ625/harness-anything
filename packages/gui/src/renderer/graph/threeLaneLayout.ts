@@ -7,6 +7,7 @@ import { computeClaimCoverage } from "./claimCoverage";
 import { buildEdge, factRefOf, findRelationCycles, inLoopEdge, statusColor } from "./graphLayoutShared";
 import type { Node, Edge } from "@xyflow/react";
 import { MarkerType as RFMarkerType, Position } from "@xyflow/react";
+import { t } from "../i18n/core.ts";
 
 // Lane X 位置(三泳道)
 const LANE_X = { lineage: 40, focus: 460, derives: 900 };
@@ -145,7 +146,7 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
     id: "lane_lineage",
     type: "laneBackground",
     position: { x: LANE_X.lineage, y: TOP_PAD },
-    data: { label: "谱系 · refines / narrows / supersedes", axis: "authority" },
+    data: { label: t("graph.threeLaneLayout.pedigreeRefinesNarrowsSupersedes"), axis: "authority" },
     style: { width: LANE_WIDTH, height: totalH },
     zIndex: -2,
     selectable: false,
@@ -155,7 +156,7 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
     id: "lane_claims",
     type: "laneBackground",
     position: { x: LANE_X.focus, y: TOP_PAD },
-    data: { label: "主张 · claims + 覆盖", axis: "focus" },
+    data: { label: t("graph.threeLaneLayout.claimsClaimsCoverage"), axis: "focus" },
     style: { width: LANE_WIDTH, height: totalH },
     zIndex: -2,
     selectable: false,
@@ -165,7 +166,7 @@ export function layoutThreeLane(input: ThreeLaneInput): LayoutOutput {
     id: "lane_derives",
     type: "laneBackground",
     position: { x: LANE_X.derives, y: TOP_PAD },
-    data: { label: "派生 · derives → task", axis: "execution" },
+    data: { label: t("graph.threeLaneLayout.deriveDerivesTask"), axis: "execution" },
     style: { width: LANE_WIDTH + 60, height: totalH },
     zIndex: -2,
     selectable: false,

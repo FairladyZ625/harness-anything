@@ -24,7 +24,13 @@ export type CloseoutReadiness =
 
 export type EngineId = "local" | "multica";
 
-export type DocGroup = "必读" | "计划" | "设计" | "进度" | "收口" | "证据";
+export type DocGroup =
+  | "required"
+  | "plan"
+  | "design"
+  | "progress"
+  | "closeout"
+  | "evidence";
 
 export interface DocEntry {
   path: string;
@@ -286,4 +292,11 @@ export const BOARD_COLUMNS: SnapshotStatus[] = [
   "unknown",
 ];
 
-export const DOC_GROUPS: DocGroup[] = ["必读", "计划", "设计", "进度", "收口", "证据"];
+export const DOC_GROUPS: DocGroup[] = [
+  "required",
+  "plan",
+  "design",
+  "progress",
+  "closeout",
+  "evidence",
+];

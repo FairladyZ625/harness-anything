@@ -2,6 +2,7 @@ import type { NodeProps } from "@xyflow/react";
 import type { SemanticAxis } from "../constants";
 import { AXIS_COLOR_VAR } from "../constants";
 import type { SnapshotStatus } from "../../model/types";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * L1 领地总览的 zone 背景节点(IA v2 Layer 0)。
@@ -41,12 +42,12 @@ interface ZoneData {
 }
 
 const STATUS_BAR_ORDER: Array<{ key: SnapshotStatus; label: string; color: string }> = [
-  { key: "blocked", label: "blocked", color: "var(--color-status-blocked)" },
-  { key: "active", label: "active", color: "var(--color-status-active)" },
-  { key: "in_review", label: "封存", color: "var(--color-status-in-review)" },
-  { key: "planned", label: "planned", color: "var(--color-status-planned)" },
-  { key: "done", label: "done", color: "var(--color-status-done)" },
-  { key: "cancelled", label: "cancelled", color: "var(--color-status-cancelled)" },
+  { key: "blocked", get label() { return t("graph.territoryZoneNode.blocked"); }, color: "var(--color-status-blocked)" },
+  { key: "active", get label() { return t("graph.territoryZoneNode.active"); }, color: "var(--color-status-active)" },
+  { key: "in_review", get label() { return t("graph.territoryZoneNode.seal"); }, color: "var(--color-status-in-review)" },
+  { key: "planned", get label() { return t("graph.territoryZoneNode.planned"); }, color: "var(--color-status-planned)" },
+  { key: "done", get label() { return t("graph.territoryZoneNode.done"); }, color: "var(--color-status-done)" },
+  { key: "cancelled", get label() { return t("graph.territoryZoneNode.cancelled"); }, color: "var(--color-status-cancelled)" },
 ];
 
 const DECISION_STATE_COLOR: Record<string, string> = {
@@ -120,7 +121,7 @@ export function TerritoryZoneNode({ data }: NodeProps) {
               }}
               className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted hover:border-[var(--color-border-strong)] hover:text-text"
             >
-              {d.folded ? "▸ 展开" : "▾ 收起"}
+              {d.folded ? t("graph.territoryZoneNode.expand") : t("graph.territoryZoneNode.collapse")}
             </button>
           )}
         </div>
@@ -184,7 +185,7 @@ function TaskMeta({
     items.push({ label: `${counts.blocked} blocked`, color: "var(--color-status-blocked)", bold: true });
   if (counts.active)
     items.push({ label: `${counts.active} active`, color: "var(--color-status-active)", bold: true });
-  if (counts.in_review) items.push({ label: `${counts.in_review} 封存` });
+  if (counts.in_review) items.push({ label: t("graph.territoryZoneNode.reviewArchive", { in_review: counts.in_review }) });
   if (counts.planned) items.push({ label: `${counts.planned} planned` });
   if (counts.done)
     items.push({
@@ -244,7 +245,7 @@ function DecisionHealth({
             })}
           </span>
           <span>
-            {coverage.covered}/{coverage.total} claim
+            {t("graph.territoryZoneNode.claimCoverage", { covered: coverage.covered, total: coverage.total })}
           </span>
         </span>
       )}
@@ -268,8 +269,7 @@ function DecisionHealth({
       )}
       {historyTotal !== undefined && historyTotal > 0 && (
         <span style={{ color: "var(--color-axis-authority)" }}>
-          ⧉ {historyTotal} 历史版本
-        </span>
+          ⧉ {historyTotal} {t("graph.territoryZoneNode.historicalVersion")}</span>
       )}
     </div>
   );

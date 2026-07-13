@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import test from "node:test";
@@ -9,6 +9,23 @@ import { _electron as electron } from "playwright-core";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const guiRoot = resolve(repoRoot, "packages/gui");
+
+// The smoke test pins the renderer to zh-CN below, so it must expect zh-CN copy.
+// Read it from the catalog rather than hardcoding it: the copy is not the contract,
+// the key is. Copy edits must not break this test; a deleted key must.
+const smokeLocale = JSON.parse(
+  readFileSync(resolve(guiRoot, "src/renderer/i18n/locales/zh-CN/components.json"), "utf8")
+);
+
+function localeLiteral(key) {
+  const template = smokeLocale[key];
+  assert.ok(typeof template === "string", `smoke test expects locale key ${key} to exist`);
+  // Keep only the leading placeholder-free run so interpolated counts do not couple
+  // the assertion to whatever the fixture ledger happens to contain.
+  const literal = template.split("{")[0].trim();
+  assert.ok(literal.length > 0, `locale key ${key} starts with a placeholder, cannot anchor on it`);
+  return literal;
+}
 
 // dec_01KXA7811SVVT8P66HNDFZQ7DF GUI usability evidence shots. The directory
 // is a sibling of the hermetic ledger so it gets cleaned up with the test run
@@ -56,6 +73,10 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   });
   page.on("pageerror", (error) => consoleFailures.push(`${error.message}\n${error.stack ?? ""}`));
   await page.waitForLoadState("domcontentloaded");
+  // Keep the smoke test deterministic across developer and CI host locales.
+  // The assertions below intentionally exercise the zh-CN catalog.
+  await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "zh-CN"));
+  await page.reload({ waitUntil: "domcontentloaded" });
 
   assert.equal(await page.title(), "Harness Anything");
 
@@ -81,9 +102,10 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   const taskSurface = page.getByTestId("real-task-summary").or(page.getByTestId("task-empty-state"));
   await taskSurface.waitFor({ timeout: 20_000 });
   const taskSurfaceText = await taskSurface.textContent();
-  assert.match(
-    taskSurfaceText ?? "",
-    /Active work|No task rows available from the local task bridge/u,
+  const activeWorkSummary = localeLiteral("components.appSidebar.activeWorkSummary");
+  const emptyState = localeLiteral("components.appSidebar.noTaskRowsFromLocalBridge");
+  assert.ok(
+    (taskSurfaceText ?? "").includes(activeWorkSummary) || (taskSurfaceText ?? "").includes(emptyState),
     "renderer did not show real task projection data or the real task empty state"
   );
 

@@ -1,4 +1,5 @@
 import type { RelationKind } from "../model/types";
+import { t } from "../i18n/core.ts";
 
 // 图节点尺寸
 export const NODE_W = 150;
@@ -23,10 +24,10 @@ export type SemanticAxis = "authority" | "evidence" | "execution" | "assoc";
 export const AXIS_ORDER: ReadonlyArray<SemanticAxis> = ["authority", "evidence", "execution", "assoc"];
 
 export const AXIS_LABEL: Record<SemanticAxis, string> = {
-  authority: "权威",
-  evidence: "证据",
-  execution: "执行",
-  assoc: "关联",
+  get authority() { return t("graph.constants.authority"); },
+  get evidence() { return t("graph.constants.evidence"); },
+  get execution() { return t("graph.constants.execute"); },
+  get assoc() { return t("graph.constants.association"); },
 };
 
 export const AXIS_SUBLABEL: Record<SemanticAxis, string> = {
@@ -76,37 +77,37 @@ export const COVERAGE_COLOR_VAR = {
 } as const;
 
 export const KIND_LABEL: Record<RelationKind, string> = {
-  supports: "支撑",
-  supersedes: "推翻",
-  refines: "细化",
-  narrows: "收窄",
-  derives: "派生",
-  blocks: "阻塞",
-  relates: "关联",
-  implements: "实现",
-  "depends-on": "依赖",
-  produces: "产出",
-  evidences: "证明",
-  "evidenced-by": "证据",
-  refutes: "反证",
-  "invalidated-by": "失效于",
-  "supersedes-fact": "取代事实",
+  get supports() { return t("graph.constants.support"); },
+  get supersedes() { return t("graph.constants.overthrow"); },
+  get refines() { return t("graph.constants.refine"); },
+  get narrows() { return t("graph.constants.narrow"); },
+  get derives() { return t("graph.constants.derived"); },
+  get blocks() { return t("graph.constants.blocking"); },
+  get relates() { return t("graph.constants.association"); },
+  get implements() { return t("graph.constants.realize"); },
+  get "depends-on"() { return t("graph.constants.depend"); },
+  get produces() { return t("graph.constants.output"); },
+  get evidences() { return t("graph.constants.prove"); },
+  get "evidenced-by"() { return t("graph.constants.evidence"); },
+  get refutes() { return t("graph.constants.counterevidence"); },
+  get "invalidated-by"() { return t("graph.constants.invalid"); },
+  get "supersedes-fact"() { return t("graph.constants.replaceFacts"); },
 };
 
 export const KIND_LABEL_IN: Record<string, string> = {
-  supports: "支撑→",
-  supersedes: "被推翻",
-  refines: "被细化",
-  narrows: "被收窄",
-  derives: "派生→",
-  blocks: "被阻塞",
-  relates: "关联",
-  implements: "被实现",
-  "depends-on": "被依赖",
-  produces: "由…产出",
-  evidences: "被证明",
-  "evidenced-by": "证据来自",
-  refutes: "被反证",
-  "invalidated-by": "令…失效",
-  "supersedes-fact": "事实被取代",
+  get supports() { return t("graph.constants.support2"); },
+  get supersedes() { return t("graph.constants.overturned"); },
+  get refines() { return t("graph.constants.refined"); },
+  get narrows() { return t("graph.constants.narrowed"); },
+  get derives() { return t("graph.constants.derive"); },
+  get blocks() { return t("graph.constants.blocked"); },
+  get relates() { return t("graph.constants.association"); },
+  get implements() { return t("graph.constants.realized"); },
+  get "depends-on"() { return t("graph.constants.depended"); },
+  get produces() { return t("graph.constants.producedBy"); },
+  get evidences() { return t("graph.constants.proven"); },
+  get "evidenced-by"() { return t("graph.constants.evidenceComesFrom"); },
+  get refutes() { return t("graph.constants.disproved"); },
+  get "invalidated-by"() { return t("graph.constants.invalidate"); },
+  get "supersedes-fact"() { return t("graph.constants.factsReplaced"); },
 };

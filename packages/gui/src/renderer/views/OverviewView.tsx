@@ -22,6 +22,7 @@ import {
 } from "../components/badges";
 import { Card } from "../components/overview/parts";
 import { sortDecisionQueue } from "../model/triadic";
+import { t } from "../i18n/index.tsx";
 
 const timeOf = (iso: string) => iso.slice(11, 16);
 const dateTime = (iso: string) => iso.slice(5, 16).replace("T", " ");
@@ -111,26 +112,26 @@ export function OverviewView({
 
   const healthRows = [
     {
-      label: "INV-4 watermark",
-      value: `投影 @ ${dateTime(project.watermarkAt)}`,
+      label: t("views.overviewView.inv4Watermark"),
+      value: t("views.overviewView.projectionValue", { value: dateTime(project.watermarkAt) }),
       tone: "text-text-muted",
       ok: true,
     },
     {
-      label: "INV-6 dangling relations",
-      value: `${danglingRelations.length} 条`,
+      label: t("views.overviewView.inv6DanglingRelations"),
+      value: t("views.overviewView.countItems", { count: danglingRelations.length }),
       tone: danglingRelations.length > 0 ? "text-danger" : "text-success",
       ok: danglingRelations.length === 0,
     },
     {
-      label: "fact liveness",
-      value: `${invalidatedFacts.length} 条已失效`,
+      label: t("views.overviewView.factLiveness"),
+      value: t("views.overviewView.countItemsHaveExpired", { count: invalidatedFacts.length }),
       tone: invalidatedFacts.length > 0 ? "text-stale" : "text-success",
       ok: invalidatedFacts.length === 0,
     },
     {
-      label: "projection freshness",
-      value: `${stale.length} stale · ${unavailable.length} unavailable`,
+      label: t("views.overviewView.projectionFreshness"),
+      value: t("views.overviewView.freshnessCounts", { stale: stale.length, unavailable: unavailable.length }),
       tone: stale.length + unavailable.length > 0 ? "text-stale" : "text-success",
       ok: stale.length + unavailable.length === 0,
     },
@@ -150,22 +151,20 @@ export function OverviewView({
             {project.path}
           </span>
           <span className="ml-auto shrink-0 font-mono text-[12px] text-text-faint">
-            投影 @ {timeOf(project.watermarkAt)}
+            {t("views.overviewView.projection")}{timeOf(project.watermarkAt)}
           </span>
         </div>
         <p className="mt-1 text-[12px] text-text-muted">
-          一屏三问：今天要裁什么 / 现在在跑什么 / 什么在风化。
-        </p>
+          {t("views.overviewView.threeQuestionsOneScreenWhatCutToday")}</p>
       </header>
 
       <div className="grid grid-cols-1 gap-4 p-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <Card title="今天要裁什么" bodyClassName="p-3">
-          <QuestionLabel>① proposed decision top-N → 决策批准</QuestionLabel>
+        <Card title={t("views.overviewView.whatWillCutToday")} bodyClassName="p-3">
+          <QuestionLabel>{t("views.overviewView.proposedDecisionTopNDecisionApproval")}</QuestionLabel>
           {proposedTop.length === 0 ? (
             <div className="rounded-md border border-border bg-surface-raised px-3 py-4 text-[13px] text-text-muted">
               <CheckCircle weight="duotone" className="mr-1 inline text-success" />
-              今日无待决策批准。
-            </div>
+              {t("views.overviewView.noDecisionApprovalPendingToday")}</div>
           ) : (
             <div className="space-y-2">
               {proposedTop.map((decision) => (
@@ -197,14 +196,14 @@ export function OverviewView({
           )}
         </Card>
 
-        <Card title="现在在跑什么" bodyClassName="p-3">
-          <QuestionLabel>② active / blocked / in_review 分布 → 看板筛选</QuestionLabel>
+        <Card title={t("views.overviewView.whatYouRunningNow")} bodyClassName="p-3">
+          <QuestionLabel>{t("views.overviewView.activeBlockedReviewDistributionKanbanFiltering")}</QuestionLabel>
           <div className="grid grid-cols-3 gap-2">
             {(["active", "blocked", "in_review"] as SnapshotStatus[]).map((status) => (
               <button
                 key={status}
                 onClick={() => onDrill("__all__", status, dimension)}
-                title="按当前维度下钻该状态"
+                title={t("views.overviewView.drillDownStatusAccordingCurrentDimension")}
                 className="rounded-md border border-border bg-surface-raised px-3 py-2 text-left hover:border-border-strong"
               >
                 <div className="flex items-center gap-1.5">
@@ -229,21 +228,19 @@ export function OverviewView({
             ))}
             {blockers.length === 0 && (
               <p className="rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text-faint">
-                当前无 blocked 或封存就绪滞留项。
-              </p>
+                {t("views.overviewView.thereCurrentlyNoBlockedArchiveReadyHoldouts")}</p>
             )}
           </div>
         </Card>
 
-        <Card title="什么在风化" bodyClassName="p-3">
+        <Card title={t("views.overviewView.whatWeathering")} bodyClassName="p-3">
           <div className="flex items-center gap-2">
-            <QuestionLabel>③ check / watermark / fact liveness 机械信号</QuestionLabel>
+            <QuestionLabel>{t("views.overviewView.checkWatermarkFactLivenessMechanicalSignal")}</QuestionLabel>
             <button
               onClick={onOpenDecisionPool}
               className="ml-auto rounded border border-border px-2 py-1 font-mono text-[11px] text-accent hover:bg-surface-raised"
             >
-              打开决策池
-            </button>
+              {t("views.overviewView.openDecisionPool")}</button>
           </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             {healthRows.map((row) => (
@@ -258,9 +255,15 @@ export function OverviewView({
           </div>
         </Card>
 
-        <Card title={`${dimension === "root" ? "根任务" : "模块"} × 状态下钻`} bodyClassName="p-3">
+        <Card
+          title={t("views.overviewView.valueStatusDrillDown", {
+            value: dimension === "root"
+              ? t("views.overviewView.rootTask")
+              : t("views.overviewView.module"),
+          })}
+        >
           <div className="mb-2 flex items-center gap-2">
-            <QuestionLabel>② 点击进入可操作任务集合</QuestionLabel>
+            <QuestionLabel>{t("views.overviewView.clickEnterOperableTaskCollection")}</QuestionLabel>
             <div className="ml-auto flex items-center gap-0.5 rounded-md border border-border p-0.5">
               {(["root", "module"] as const).map((d) => (
                 <button
@@ -268,8 +271,8 @@ export function OverviewView({
                   onClick={() => setDimension(d)}
                   title={
                     d === "root"
-                      ? "按任务树根分组(milestone)"
-                      : "按 module 分组(传统)"
+                      ? t("views.overviewView.groupByTaskTreeRootMilestone")
+                      : t("views.overviewView.groupByModuleTraditional")
                   }
                   className={seg(dimension === d)}
                 >

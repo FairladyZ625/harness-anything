@@ -27,9 +27,10 @@ import type { TaskFilters } from "../model/taskFilters";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { ListView } from "./ListView";
+import { t } from "../i18n/index.tsx";
 
 const ENGINE_HINT: Record<string, string> = {
-  multica: "由 Multica 管理，去 Multica 改状态",
+  get multica() { return t("views.boardView.managedByMulticaGoMulticaChangeStatus"); },
 };
 
 function Card({
@@ -73,7 +74,7 @@ function Card({
               event.stopPropagation();
               onToggleFavorite(task.taskId);
             }}
-            title={isFavorite ? "取消收藏" : "收藏(置顶)"}
+            title={isFavorite ? t("views.boardView.cancelFavorites") : t("views.boardView.favoritesPinned")}
             className={`ml-auto inline-flex items-center justify-center rounded p-0.5 text-[12px] hover:bg-surface ${
               isFavorite
                 ? "text-accent opacity-100"
@@ -171,8 +172,7 @@ function Column({
         {isOver && rejecting && (
           <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-danger">
             <Lock weight="bold" />
-            外部引擎管理
-          </span>
+            {t("views.boardView.externalEngineManagement")}</span>
         )}
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto pb-1">
@@ -189,8 +189,7 @@ function Column({
           ))
         ) : (
           <div className="rounded-lg border border-dashed border-border px-3 py-5 text-[14px] text-text-faint">
-            当前筛选下无 {meta.label} 任务
-          </div>
+            {t("views.boardView.noneCurrentlyFiltered")}{meta.label} {t("views.boardView.task")}</div>
         )}
       </div>
     </div>
@@ -267,7 +266,7 @@ export function BoardView({
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
-        <h1 className="ui-title font-semibold">看板</h1>
+        <h1 className="ui-title font-semibold">{t("views.boardView.kanban")}</h1>
         <span className="font-mono text-[13px] text-text-faint">
           {tasks.length}/{allTasks.length}
         </span>
@@ -275,37 +274,33 @@ export function BoardView({
           <button
             onClick={() => setLayout("column")}
             className={seg(layout === "column")}
-            title="按 coordinationStatus 分列(可拖拽改状态)"
+            title={t("views.boardView.sortedByCoordinationStatusCanDraggedChangeStatus")}
           >
-            列
-          </button>
+            {t("views.boardView.column")}</button>
           <button
             onClick={() => setLayout("swimlane")}
             className={seg(layout === "swimlane")}
-            title="按分组维度 × 状态的泳道矩阵"
+            title={t("views.boardView.swimlaneMatrixByGroupingDimensionState")}
           >
-            泳道
-          </button>
+            {t("views.boardView.lane")}</button>
           <button
             onClick={() => setLayout("list")}
             className={seg(layout === "list")}
-            title="审计表格:每页行数可调,支持批量选择"
+            title={t("views.boardView.auditFormNumberRowsPerPageAdjustable")}
           >
-            列表
-          </button>
+            {t("views.boardView.list")}</button>
         </div>
         <span className="text-[12px] text-text-faint">
           {layout === "column"
-            ? "coordinationStatus 轴 · local 任务可拖拽"
+            ? t("views.boardView.coordinationStatusAxisLocalTaskCanDragged")
             : layout === "list"
-              ? "审计面 · 支持 ID 复制与批量操作"
-              : "拖拽改状态请在列模式 · 外部任务任何模式都只读"}
+              ? t("views.boardView.auditSurfaceSupportsIdCopyBatchOperations")
+              : t("views.boardView.dragDropChangeStatusColumnModeExternal")}
         </span>
         {layout !== "list" && (
           <div className="ml-auto flex items-center gap-1.5">
             <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-              分组维度
-            </span>
+              {t("views.boardView.groupingDimensions")}</span>
             <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
               {(["root", "module", "engine"] as const).map((d) => (
                 <button
@@ -313,10 +308,10 @@ export function BoardView({
                   onClick={() => setGroupBy(d)}
                   title={
                     d === "root"
-                      ? "按任务树根分组(milestone)"
+                      ? t("views.boardView.groupByTaskTreeRootMilestone")
                       : d === "module"
-                        ? "按 module 维度(传统)"
-                        : "按引擎分组"
+                        ? t("views.boardView.byModuleDimensionTraditional")
+                        : t("views.boardView.groupByEngine")
                   }
                   className={`font-mono ${seg(groupBy === d)}`}
                 >
@@ -332,7 +327,7 @@ export function BoardView({
         filteredCount={tasks.length}
         filters={filters}
         onChange={onFiltersChange}
-        contextLabel="看板"
+        contextLabel={t("views.boardView.kanban")}
         favorites={favorites}
       />
       {layout === "list" ? (

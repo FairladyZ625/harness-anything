@@ -6,6 +6,7 @@ import type { GraphFilterInput } from "./graphLayoutTypes";
 import { computeClaimCoverage } from "./claimCoverage";
 import { statusColor } from "./graphLayoutShared";
 import { sortDecisionQueue } from "../model/triadic";
+import { t as translate } from "../i18n/core.ts";
 
 /**
  * L1 领地分区逻辑(IA v2 Layer 0)。
@@ -130,7 +131,7 @@ export function partitionTaskTerritory(input: PartitionInput): Section[] {
       );
     } else {
       const t = members[0];
-      const mod = t.module || "(未分模块)";
+      const mod = t.module || translate("graph.territoryPartition.notDividedIntoModules");
       const list = soloByModule.get(mod);
       if (list) list.push(t);
       else soloByModule.set(mod, [t]);
@@ -149,16 +150,16 @@ export function partitionTaskTerritory(input: PartitionInput): Section[] {
   if (milestoneZones.length > 0) {
     sections.push({
       id: "milestones",
-      title: "里程碑 / 任务树",
-      subtitle: `${milestoneZones.length} 块 · 排序:阻塞 → 进行 → 规划 → 完成`,
+      title: translate("graph.territoryPartition.milestoneTaskTree"),
+      subtitle: translate("graph.territoryPartition.countBlocksSortingBlockingProceedingPlanningDone", { count: milestoneZones.length }),
       zones: milestoneZones,
     });
   }
   if (moduleZones.length > 0) {
     sections.push({
       id: "solo",
-      title: "独立任务（按模块聚合）",
-      subtitle: `${moduleZones.reduce((s, z) => s + z.total, 0)} 项`,
+      title: translate("graph.territoryPartition.independentTasksAggregatedByModule"),
+      subtitle: translate("graph.territoryPartition.valueItems", { value: moduleZones.reduce((s, z) => s + z.total, 0) }),
       zones: moduleZones,
     });
   }
@@ -361,17 +362,17 @@ export function partitionDecisionTerritory(input: PartitionInput): Section[] {
   const sections: Section[] = [];
   for (const [landingKey, famsAtLanding] of landingEntries) {
     const unlanded = landingKey === "__unlanded__";
-    const landingTitle = unlanded ? "未落地" : (famsAtLanding[0].landing ?? "");
+    const landingTitle = unlanded ? translate("graph.territoryPartition.notYetLanded") : (famsAtLanding[0].landing ?? "");
     const title = unlanded
-      ? "⚠ 未落地（没有派生任务的决策族）"
-      : `里程碑 · ${landingTitle}`;
+      ? translate("graph.territoryPartition.notYetImplementedDecisionFamilyWithoutDerived")
+      : translate("graph.territoryPartition.milestoneLandingTitle", { landingTitle: landingTitle });
     const zones: Zone[] = [
       buildDecisionZone(landingKey, landingTitle, famsAtLanding, decById, derivesFromDecision, coverageRows, unlanded),
     ];
     sections.push({
       id: `landing:${landingKey}`,
       title,
-      subtitle: `${famsAtLanding.length} 个决策族`,
+      subtitle: translate("graph.territoryPartition.countDecisionFamilies", { count: famsAtLanding.length }),
       zones,
     });
   }

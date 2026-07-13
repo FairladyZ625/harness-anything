@@ -1,4 +1,5 @@
 import { CHIP } from "./shared";
+import { t } from "../../i18n/index.tsx";
 
 export function LocaleBadges({
   locales,
@@ -16,8 +17,7 @@ export function LocaleBadges({
       ))}
       {warnMissingZh && !locales.includes("zh-CN") && (
         <span className="rounded border border-stale/60 px-1.5 py-px text-[10px] text-stale">
-          缺中文 variant
-        </span>
+          {t("components.localeBadges.missingChineseVariant")}</span>
       )}
     </span>
   );

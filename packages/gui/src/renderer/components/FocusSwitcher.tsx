@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { MagnifyingGlass, Graph } from "@phosphor-icons/react";
 import type { DecisionRow, TaskRow } from "../model/types";
+import { t } from "../i18n/index.tsx";
 
 /**
  * GraphView 焦点切换器(dec_01KXA7811SVVT8P66HNDFZQ7DF — 关系图可用性)。
@@ -98,15 +99,13 @@ export function FocusSwitcher({ decisions, tasks, focusId, onFocus }: Props) {
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Graph weight="duotone" className="shrink-0 text-text-muted" />
         <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-          焦点切换
-        </span>
+          {t("components.focusSwitcher.focusSwitch")}</span>
         <span className="ml-auto font-mono text-[11px] text-text-faint">
-          {decisionCount} 决策 · {items.length - decisionCount} 任务
-        </span>
+          {decisionCount} {t("components.focusSwitcher.decision")}{items.length - decisionCount} {t("components.focusSwitcher.task")}</span>
       </div>
 
       <label className="relative block border-b border-border px-2 py-2">
-        <span className="sr-only">搜索焦点实体</span>
+        <span className="sr-only">{t("components.focusSwitcher.searchFocusEntity")}</span>
         <MagnifyingGlass
           weight="bold"
           className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-text-faint"
@@ -115,7 +114,7 @@ export function FocusSwitcher({ decisions, tasks, focusId, onFocus }: Props) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索决策 / 任务…"
+          placeholder={t("components.focusSwitcher.searchDecisionsTasks")}
           className="w-full rounded-md border border-border bg-surface-raised py-1.5 pl-7 pr-2 text-[12px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
           autoComplete="off"
           spellCheck={false}
@@ -125,8 +124,7 @@ export function FocusSwitcher({ decisions, tasks, focusId, onFocus }: Props) {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {visible.length === 0 ? (
           <div className="px-3 py-3 text-[12px] leading-relaxed text-text-faint">
-            没有命中的实体。清空搜索看全部。
-          </div>
+            {t("components.focusSwitcher.noHitEntitiesClearSearchSeeThem")}</div>
         ) : (
           <ul className="flex flex-col py-1">
             {visible.map((it) => {

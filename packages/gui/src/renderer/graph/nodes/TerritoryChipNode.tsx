@@ -2,6 +2,7 @@ import type { NodeProps } from "@xyflow/react";
 import { ArrowsOutSimple } from "@phosphor-icons/react";
 import type { TaskRow, DecisionRow } from "../../model/types";
 import { STATUS_META } from "../../components/badges";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * L1 领地总览的实体 chip 节点(IA v2 Layer 0)。
@@ -206,11 +207,10 @@ function DecisionCardChip({ d }: { d: ChipData }) {
           )}
           {d.derivedCount !== undefined && d.derivedCount > 0 && (
             <span className="flex items-center gap-1" style={{ color: "var(--color-axis-execution)" }}>
-              ▸ {d.derivedCount} 派生
-            </span>
+              ▸ {d.derivedCount} {t("graph.territoryChipNode.derived")}</span>
           )}
           {d.riskTier === "high" && (
-            <span style={{ color: "var(--color-danger)" }}>high risk</span>
+            <span style={{ color: "var(--color-danger)" }}>{t("graph.territoryChipNode.highRisk")}</span>
           )}
         </div>
       </div>

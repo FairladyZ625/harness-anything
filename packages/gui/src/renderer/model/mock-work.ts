@@ -4,6 +4,7 @@ import type {
   DocEntry,
   Project,
 } from "./types";
+import { t } from "../i18n/core.ts";
 
 export const MOCK_PROJECTS: Project[] = [
   {
@@ -35,16 +36,16 @@ export const MOCK_PROJECTS: Project[] = [
 /* ---------------- 文档骨架 ---------------- */
 
 const FULL_PACK: Omit<DocEntry, "present">[] = [
-  { path: "contract.md", title: "任务契约", group: "必读", required: true },
-  { path: "task_flow.md", title: "阶段流程", group: "必读", required: true },
-  { path: "plan/milestones.md", title: "里程碑计划", group: "计划", required: false },
-  { path: "plan/strategy.md", title: "实施策略", group: "计划", required: false },
-  { path: "design/decisions.md", title: "设计决策", group: "设计", required: false },
-  { path: "design/visual-map.md", title: "可视化地图", group: "设计", required: false },
-  { path: "progress/log.md", title: "进度记录", group: "进度", required: false },
-  { path: "review/walkthrough.md", title: "Walkthrough", group: "收口", required: true },
-  { path: "review/lessons.md", title: "经验沉淀", group: "收口", required: false },
-  { path: "evidence/run-log.md", title: "执行证据", group: "证据", required: true },
+  { path: "contract.md", get title() { return t("model.mockWork.missionContract"); }, group: "required", required: true },
+  { path: "task_flow.md", get title() { return t("model.mockWork.stageProcess"); }, group: "required", required: true },
+  { path: "plan/milestones.md", get title() { return t("model.mockWork.milestonePlan"); }, group: "plan", required: false },
+  { path: "plan/strategy.md", get title() { return t("model.mockWork.implementationStrategy"); }, group: "plan", required: false },
+  { path: "design/decisions.md", get title() { return t("model.mockWork.designDecisions"); }, group: "design", required: false },
+  { path: "design/visual-map.md", get title() { return t("model.mockWork.visualMap"); }, group: "design", required: false },
+  { path: "progress/log.md", get title() { return t("model.mockWork.progressRecord"); }, group: "progress", required: false },
+  { path: "review/walkthrough.md", get title() { return t("model.mockWork.walkthrough"); }, group: "closeout", required: true },
+  { path: "review/lessons.md", get title() { return t("model.mockWork.experienceAccumulation"); }, group: "closeout", required: false },
+  { path: "evidence/run-log.md", get title() { return t("model.mockWork.evidenceExecution"); }, group: "evidence", required: true },
 ];
 
 /** missing 传入缺失文档的 path 列表 */
@@ -75,7 +76,7 @@ export const MOCK_TASKS: TaskRow[] = [
   /* ===== harness-anything · kernel ===== */
   T({
     taskId: "KER-101",
-    title: "WriteCoordinator 串行写入与冲突重建",
+    get title() { return t("model.mockWork.writeCoordinatorSerialWritingConflictReconstruction"); },
     coordinationStatus: "active",
     module: "kernel",
     closeoutReadiness: "incomplete",
@@ -88,7 +89,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "KER-102",
-    title: "三端口 Schema 契约与校验管线",
+    get title() { return t("model.mockWork.threePortSchemaContractVerificationPipeline"); },
     coordinationStatus: "in_review",
     module: "kernel",
     closeoutReadiness: "ready",
@@ -101,24 +102,24 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "KER-108",
-    title: "Relation 实体与 provenance 字段",
+    get title() { return t("model.mockWork.relationEntityProvenanceField"); },
     coordinationStatus: "planned",
     module: "kernel",
     docs: docs(["design/visual-map.md", "progress/log.md", "review/walkthrough.md", "review/lessons.md", "evidence/run-log.md"]),
   }),
   T({
     taskId: "KER-109",
-    title: "WriteCoordinator 锁竞争压测",
+    get title() { return t("model.mockWork.writeCoordinatorLockCompetitionStressTest"); },
     coordinationStatus: "blocked",
     module: "kernel",
     closeoutReadiness: "missing",
-    gates: [{ name: "stress-bench", ok: false, detail: "p99 写延迟超阈值" }],
+    gates: [{ name: "stress-bench", ok: false, get detail() { return t("model.mockWork.p99WriteDelayExceedsThreshold"); } }],
     docs: docs(["review/walkthrough.md", "evidence/run-log.md"]),
   }),
   /* ===== harness-anything · store ===== */
   T({
     taskId: "KER-103",
-    title: "ArtifactStore 目录布局与 scaffold 生成器",
+    get title() { return t("model.mockWork.artifactStoreDirectoryLayoutScaffoldGenerator"); },
     coordinationStatus: "planned",
     module: "store",
     lastKnownAt: "2026-06-11T17:20:00",
@@ -126,7 +127,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "KER-107",
-    title: "投影 watermark 与增量刷新",
+    get title() { return t("model.mockWork.projectionWatermarkIncrementalRefresh"); },
     coordinationStatus: "active",
     module: "store",
     closeoutReadiness: "incomplete",
@@ -134,7 +135,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "STO-210",
-    title: "ArtifactStore 路径遍历防护",
+    get title() { return t("model.mockWork.artifactStorePathTraversalProtection"); },
     coordinationStatus: "in_review",
     module: "store",
     closeoutReadiness: "ready",
@@ -147,7 +148,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "STO-211",
-    title: "tombstone GC 策略",
+    get title() { return t("model.mockWork.tombstoneGcStrategy"); },
     coordinationStatus: "planned",
     module: "store",
     docs: docs(["plan/milestones.md", "design/decisions.md", "review/walkthrough.md", "evidence/run-log.md"]),
@@ -155,7 +156,7 @@ export const MOCK_TASKS: TaskRow[] = [
   /* ===== harness-anything · cli ===== */
   T({
     taskId: "KER-104",
-    title: "投影重建命令 governance rebuild",
+    get title() { return t("model.mockWork.projectionRebuildCommandGovernanceRebuild"); },
     coordinationStatus: "done",
     module: "cli",
     closeoutReadiness: "passed",
@@ -163,7 +164,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "CLI-310",
-    title: "harness check 增量快照命令",
+    get title() { return t("model.mockWork.harnessCheckIncrementalSnapshotCommand"); },
     coordinationStatus: "active",
     module: "cli",
     closeoutReadiness: "incomplete",
@@ -171,7 +172,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "CLI-311",
-    title: "harness init 模板物化",
+    get title() { return t("model.mockWork.harnessInitTemplateMaterialization"); },
     coordinationStatus: "done",
     module: "cli",
     closeoutReadiness: "passed",
@@ -180,7 +181,7 @@ export const MOCK_TASKS: TaskRow[] = [
   /* ===== harness-anything · gui ===== */
   T({
     taskId: "KER-105",
-    title: "旧版 dashboard 字段清理",
+    get title() { return t("model.mockWork.oldVersionDashboardFieldCleaning"); },
     coordinationStatus: "cancelled",
     module: "gui",
     packageDisposition: "archived",
@@ -188,7 +189,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "GUI-401",
-    title: "七视图导航壳与主题系统",
+    get title() { return t("model.mockWork.sevenViewNavigationShellThemeSystem"); },
     coordinationStatus: "active",
     module: "gui",
     closeoutReadiness: "incomplete",
@@ -196,24 +197,24 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "GUI-402",
-    title: "看板批量操作交互",
+    get title() { return t("model.mockWork.kanbanBatchOperationInteraction"); },
     coordinationStatus: "planned",
     module: "gui",
     docs: docs(["design/visual-map.md", "review/walkthrough.md", "evidence/run-log.md"]),
   }),
   T({
     taskId: "GUI-403",
-    title: "Electron 安全合同 CSP 落地",
+    get title() { return t("model.mockWork.electronSecurityContractCspLaunched"); },
     coordinationStatus: "blocked",
     module: "gui",
     closeoutReadiness: "missing",
-    gates: [{ name: "security-contract", ok: false, detail: "CSP 白名单未冻结" }],
+    gates: [{ name: "security-contract", ok: false, get detail() { return t("model.mockWork.cspWhitelistNotFrozen"); } }],
     docs: docs(["review/walkthrough.md", "evidence/run-log.md"]),
   }),
   /* ===== harness-anything · adapters ===== */
   T({
     taskId: "FAI-37",
-    title: "Task binding schema 与三轴投影",
+    get title() { return t("model.mockWork.taskBindingSchemaThreeAxisProjection"); },
     coordinationStatus: "blocked",
     rawStatus: "waiting_local_directory",
     module: "adapters",
@@ -226,7 +227,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "GH-2214",
-    title: "GitHub Issues adapter 状态映射表",
+    get title() { return t("model.mockWork.gitHubIssuesAdapterStatusMappingTable"); },
     coordinationStatus: "active",
     rawStatus: "open:in-progress",
     module: "adapters",
@@ -237,7 +238,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "LIN-88",
-    title: "Linear adapter 增量快照轮询",
+    get title() { return t("model.mockWork.linearAdapterIncrementalSnapshotPolling"); },
     coordinationStatus: "unknown",
     rawStatus: "triage_hold",
     module: "adapters",
@@ -250,7 +251,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "LIN-92",
-    title: "Closeout note 发布管道",
+    get title() { return t("model.mockWork.closeoutNoteReleasePipeline"); },
     coordinationStatus: "in_review",
     rawStatus: "Finalizing",
     module: "adapters",
@@ -260,11 +261,11 @@ export const MOCK_TASKS: TaskRow[] = [
     closeoutReadiness: "ready",
     waitingSince: "2026-06-10T19:12:00",
     lastKnownAt: "2026-06-10T19:12:00",
-    gates: [{ name: "snapshot-fresh", ok: false, detail: "快照缓存不可用" }],
+    gates: [{ name: "snapshot-fresh", ok: false, get detail() { return t("model.mockWork.snapshotCacheNotAvailable"); } }],
   }),
   T({
     taskId: "ADP-501",
-    title: "GitHub 状态映射表补全",
+    get title() { return t("model.mockWork.gitHubStatusMapCompletion"); },
     coordinationStatus: "in_review",
     rawStatus: "open:review",
     module: "adapters",
@@ -277,7 +278,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "ADP-502",
-    title: "Multica snapshot 缓存层",
+    get title() { return t("model.mockWork.multicaSnapshotCachingLayer"); },
     coordinationStatus: "done",
     rawStatus: "done",
     module: "adapters",
@@ -289,7 +290,7 @@ export const MOCK_TASKS: TaskRow[] = [
   /* ===== harness-anything · ci ===== */
   T({
     taskId: "KER-106",
-    title: "import boundary 测试覆盖 GUI 包",
+    get title() { return t("model.mockWork.importBoundaryTestCoverageGuiPackage"); },
     coordinationStatus: "in_review",
     module: "ci",
     closeoutReadiness: "ready",
@@ -302,7 +303,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "CI-601",
-    title: "import-boundary 测试矩阵",
+    get title() { return t("model.mockWork.importBoundaryTestMatrix"); },
     coordinationStatus: "active",
     module: "ci",
     closeoutReadiness: "incomplete",
@@ -310,18 +311,18 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "CI-602",
-    title: "GUI 包 e2e 烟测",
+    get title() { return t("model.mockWork.guiPackageE2eSmokeTest"); },
     coordinationStatus: "in_review",
     module: "ci",
     closeoutReadiness: "failed",
     lastKnownAt: "2026-06-11T16:45:00",
-    gates: [{ name: "e2e", ok: false, detail: "3 条用例超时" }],
+    gates: [{ name: "e2e", ok: false, get detail() { return t("model.mockWork.threeUseCasesTimedOut"); } }],
   }),
 
   /* ===== coding-agent-harness ===== */
   T({
     taskId: "DOC-11",
-    title: "kernel-rewrite 文档导航重组",
+    get title() { return t("model.mockWork.kernelRewriteDocumentNavigationReorganization"); },
     coordinationStatus: "active",
     module: "docs",
     projectId: "coding-agent-harness",
@@ -330,7 +331,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "DOC-12",
-    title: "GUI spec 七视图修订",
+    get title() { return t("model.mockWork.guiSpecSevenViewRevision"); },
     coordinationStatus: "in_review",
     module: "docs",
     projectId: "coding-agent-harness",
@@ -341,7 +342,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "DOC-13",
-    title: "adapter PRD 模板统一",
+    get title() { return t("model.mockWork.adapterPrdTemplateUnification"); },
     coordinationStatus: "planned",
     module: "docs",
     projectId: "coding-agent-harness",
@@ -349,7 +350,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "TPL-21",
-    title: "dashboard 模板抽离",
+    get title() { return t("model.mockWork.dashboardTemplateExtraction"); },
     coordinationStatus: "done",
     module: "templates",
     projectId: "coding-agent-harness",
@@ -358,7 +359,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "TPL-22",
-    title: "preset 双语模板镜像",
+    get title() { return t("model.mockWork.presetBilingualTemplateImage"); },
     coordinationStatus: "blocked",
     module: "templates",
     projectId: "coding-agent-harness",
@@ -368,7 +369,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "DSH-31",
-    title: "legacy dashboard 退役清单",
+    get title() { return t("model.mockWork.legacyDashboardRetirementList"); },
     coordinationStatus: "cancelled",
     module: "dashboard",
     projectId: "coding-agent-harness",
@@ -377,7 +378,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "DSH-32",
-    title: "issue 同步脚本迁移",
+    get title() { return t("model.mockWork.issueSynchronizationScriptMigration"); },
     coordinationStatus: "active",
     rawStatus: "open:in-progress",
     module: "dashboard",
@@ -391,7 +392,7 @@ export const MOCK_TASKS: TaskRow[] = [
   /* ===== rag-pipeline-svc ===== */
   T({
     taskId: "RAG-1",
-    title: "增量摄取管线",
+    get title() { return t("model.mockWork.incrementalIngestionPipeline"); },
     coordinationStatus: "active",
     module: "ingest",
     projectId: "rag-pipeline-svc",
@@ -400,7 +401,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "RAG-2",
-    title: "混合检索权重调参",
+    get title() { return t("model.mockWork.hybridSearchWeightParameterAdjustment"); },
     coordinationStatus: "planned",
     module: "retrieval",
     projectId: "rag-pipeline-svc",
@@ -408,7 +409,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "RAG-3",
-    title: "重排序 provider 接口",
+    get title() { return t("model.mockWork.reorderProviderInterface"); },
     coordinationStatus: "in_review",
     rawStatus: "Finalizing",
     module: "retrieval",
@@ -423,7 +424,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "RAG-4",
-    title: "评测集冻结",
+    get title() { return t("model.mockWork.evaluationSetFrozen"); },
     coordinationStatus: "blocked",
     module: "eval",
     projectId: "rag-pipeline-svc",
@@ -433,7 +434,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "RAG-5",
-    title: "离线指标基线",
+    get title() { return t("model.mockWork.offlineIndicatorBaseline"); },
     coordinationStatus: "done",
     module: "eval",
     projectId: "rag-pipeline-svc",
@@ -442,7 +443,7 @@ export const MOCK_TASKS: TaskRow[] = [
   }),
   T({
     taskId: "RAG-6",
-    title: "队列积压治理",
+    get title() { return t("model.mockWork.queueBacklogManagement"); },
     coordinationStatus: "unknown",
     rawStatus: "backlog_grooming",
     module: "ingest",

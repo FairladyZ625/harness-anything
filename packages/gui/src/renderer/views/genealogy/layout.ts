@@ -1,4 +1,5 @@
 import type { DecisionRow, RelationEdge, RelationKind } from "../../model/types";
+import { t } from "../../i18n/core.ts";
 
 /**
  * 决策谱系「演化史」视图的纯逻辑层：常量、类型、关系筛选、深度优先谱系收集。
@@ -20,30 +21,30 @@ export const KIND_META: Record<
   { label: string; color: string; verb: string; dash: string; strokeWidth: number }
 > = {
   refines: {
-    label: "细化",
+    get label() { return t("views.layout.refine"); },
     color: "var(--color-accent)",
-    verb: "细化了",
+    get verb() { return t("views.layout.refined"); },
     dash: "",
     strokeWidth: 1.6,
   },
   narrows: {
-    label: "收窄",
+    get label() { return t("views.layout.narrow"); },
     color: "var(--color-status-in-review)",
-    verb: "收窄了",
+    get verb() { return t("views.layout.narrowed"); },
     dash: "5 3",
     strokeWidth: 1.6,
   },
   supersedes: {
-    label: "推翻",
+    get label() { return t("views.layout.overthrow"); },
     color: "var(--color-danger)",
-    verb: "推翻了",
+    get verb() { return t("views.layout.overturned"); },
     dash: "",
     strokeWidth: 2.4,
   },
   supports: {
-    label: "支撑",
+    get label() { return t("views.layout.support"); },
     color: "var(--color-status-done)",
-    verb: "支撑了",
+    get verb() { return t("views.layout.supported"); },
     dash: "1.5 2.5",
     strokeWidth: 1.4,
   },
@@ -57,9 +58,9 @@ export const ENCODING_META: Record<
   { label: string; short: string; blurb: string }
 > = {
   dag: {
-    label: "DAG 拓扑",
+    get label() { return t("views.layout.dagTopology"); },
     short: "DAG",
-    blurb: "谱系拓扑排版，时间只做排序；同列同日过多时自动折簇",
+    get blurb() { return t("views.layout.genealogyTopologyTypesettingOnlySortingByTime"); },
   },
 };
 
@@ -127,7 +128,7 @@ export function dayKeyOf(decision: DecisionRow): string {
 
 export function shortTime(decision: DecisionRow): string {
   const raw = decision.decidedAt ?? decision.proposedAt;
-  if (!raw) return "无判定时间";
+  if (!raw) return t("views.layout.noDecisionTime");
   return raw.slice(0, 10);
 }
 

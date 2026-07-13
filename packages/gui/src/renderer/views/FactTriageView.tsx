@@ -15,6 +15,7 @@ import type {
   FactAnchorRow,
   RelationCoverageRow,
 } from "../../api/renderer-dto";
+import { t } from "../i18n/index.tsx";
 
 /** 信号 → 颜色/图标(triage 卡片 badge 语言) */
 const SIGNAL_VISUAL: Record<
@@ -113,15 +114,12 @@ export function FactTriageView({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="border-b border-border px-4 py-3">
           <div className="flex flex-wrap items-baseline gap-3">
-            <h1 className="ui-title font-semibold">事实分诊</h1>
+            <h1 className="ui-title font-semibold">{t("views.factTriageView.factTriage")}</h1>
             <span className="font-mono text-[13px] text-text-faint">
-              按危险信号排序 · 机器发现候选,人判
-            </span>
+              {t("views.factTriageView.sortByRedFlagsMachineDiscoversCandidates")}</span>
           </div>
           <p className="mt-1 text-[12px] leading-relaxed text-text-muted">
-            triage 维度从 coverageRows、factAnchors 与 relation 图投影现算,不改 kernel fact schema。
-            健康 fact(severity=0)不进池——只顶有异常信号的到最前。
-          </p>
+            {t("views.factTriageView.triageDimensionCalculatedFromCoverageRowsFactAnchorsRelation")}</p>
         </header>
 
         {/* 信号 filter chips */}
@@ -139,7 +137,7 @@ export function FactTriageView({
                 className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition-opacity ${
                   active ? visual.cls : "border-border bg-surface text-text-faint opacity-50"
                 }`}
-                title={active ? "点击隐藏此类信号" : "点击显示此类信号"}
+                title={active ? t("views.factTriageView.clickHideTypeSignal") : t("views.factTriageView.clickDisplaySuchSignals")}
               >
                 <Icon weight="bold" className="text-[11px]" />
                 {SIGNAL_LABEL[kind]}
@@ -148,9 +146,9 @@ export function FactTriageView({
             );
           })}
           <span className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] text-text-faint">
-            {rows.length} / {triage.length} visible
+            {t("views.factTriageView.visibleCount", { visible: rows.length, total: triage.length })}
             {facts.length - triage.length > 0 && (
-              <span className="text-success">· {facts.length - triage.length} healthy hidden</span>
+              <span className="text-success">· {t("views.factTriageView.healthyHiddenCount", { count: facts.length - triage.length })}</span>
             )}
           </span>
         </div>
@@ -159,12 +157,10 @@ export function FactTriageView({
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {triage.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
-              当前投影没有触发 triage 信号的 fact——全部健康。
-            </div>
+              {t("views.factTriageView.factCurrentProjectionDoesNotTriggerTriage")}</div>
           ) : rows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
-              当前信号过滤条件下没有 fact。调整 filter chips 查看其他信号。
-            </div>
+              {t("views.factTriageView.thereNoFactUnderCurrentSignalFilter")}</div>
           ) : (
             <div className="space-y-2">
               {rows.map((item) => (
@@ -265,7 +261,7 @@ function FactTriageCard({
               );
             })}
             <span className="font-mono text-[10px] text-text-faint">
-              severity {severity}
+              {t("views.factTriageView.severityValue", { severity })}
             </span>
           </div>
 
@@ -273,7 +269,7 @@ function FactTriageCard({
           <button
             onClick={onInspect}
             className="mt-1.5 block w-full text-left"
-            title="点击打开 Fact Inspector"
+            title={t("views.factTriageView.clickOpenFactInspector")}
           >
             <div className="font-mono text-[11px] text-text-faint">{fact.anchor}</div>
             <p className="mt-0.5 text-[13px] font-medium leading-relaxed text-text">
@@ -289,7 +285,7 @@ function FactTriageCard({
               <button
                 onClick={() => onNavigateTask?.(sourceTask.taskId)}
                 className="text-accent hover:underline"
-                title="跳转到来源 task"
+                title={t("views.factTriageView.jumpSourceTask")}
               >
                 task/{sourceTask.taskId}
               </button>
@@ -301,7 +297,7 @@ function FactTriageCard({
           {/* citing decisions(活链接) */}
           {citingDecisionIds.length > 0 && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span className="text-text-faint">支撑的 decision:</span>
+              <span className="text-text-faint">{t("views.factTriageView.supportingDecision")}</span>
               {citingDecisionIds.map((decId) => {
                 const dec = decisions.find((d) => d.decisionId === decId);
                 return (
@@ -309,7 +305,7 @@ function FactTriageCard({
                     key={decId}
                     onClick={() => onNavigateDecision?.(decId)}
                     className="font-mono text-accent hover:underline"
-                    title={dec?.title ?? "未知 decision"}
+                    title={dec?.title ?? t("views.factTriageView.unknownDecision")}
                   >
                     {decId}[{dec?.state ?? "?"}]
                   </button>
@@ -330,10 +326,9 @@ function FactTriageCard({
               <button
                 onClick={() => onFocusGraph(`fact/${fact.anchor}`)}
                 className="inline-flex items-center gap-1 text-[11px] text-text-faint hover:text-accent"
-                title="在关系图中聚焦此 fact"
+                title={t("views.factTriageView.focusFactDiagram")}
               >
-                <Graph weight="bold" /> 图中聚焦
-              </button>
+                <Graph weight="bold" /> {t("views.factTriageView.focusPicture")}</button>
             )}
           </div>
         </div>

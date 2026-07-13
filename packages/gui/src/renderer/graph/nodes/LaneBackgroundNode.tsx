@@ -1,5 +1,6 @@
 import type { NodeProps } from "@xyflow/react";
 import { AXIS_COLOR_VAR, AXIS_LABEL, type SemanticAxis } from "../constants";
+import { t } from "../../i18n/index.tsx";
 
 interface LaneData {
   label: string;
@@ -14,7 +15,7 @@ interface LaneData {
 export function LaneBackgroundNode({ data }: NodeProps) {
   const d = data as unknown as LaneData;
   const accentVar = d.axis === "focus" ? "var(--color-accent)" : AXIS_COLOR_VAR[d.axis as SemanticAxis];
-  const tag = d.axis === "focus" ? "焦点" : d.axis ? AXIS_LABEL[d.axis as SemanticAxis] : "";
+  const tag = d.axis === "focus" ? t("graph.laneBackgroundNode.focus") : d.axis ? AXIS_LABEL[d.axis as SemanticAxis] : "";
   return (
     <div
       className="relative h-full w-full rounded-xl border"

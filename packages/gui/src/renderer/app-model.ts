@@ -1,4 +1,6 @@
 /** @slice-activation GUI workspace shell contract: exported for renderer model tests and package-level shell consumers. */
+import { t } from "./i18n/core.ts";
+
 export interface RendererCapabilityModel {
   readonly nodeGlobalsAvailable: false;
   readonly privilegedModulesAvailable: false;
@@ -17,11 +19,11 @@ export interface RendererNavigationItem {
 }
 
 export const rendererNavigation: readonly RendererNavigationItem[] = [
-  { id: "workspace", label: "Workspace" },
-  { id: "board", label: "Board" },
-  { id: "list", label: "List" },
-  { id: "detail", label: "Detail" },
-  { id: "doc-viewer", label: "Docs" },
-  { id: "review-queue", label: "Review" },
-  { id: "graph", label: "Graph" }
+  { id: "workspace", get label() { return t("renderer.appModel.workspace"); } },
+  { id: "board", get label() { return t("renderer.appModel.board"); } },
+  { id: "list", get label() { return t("renderer.appModel.list"); } },
+  { id: "detail", get label() { return t("renderer.appModel.detail"); } },
+  { id: "doc-viewer", get label() { return t("renderer.appModel.docs"); } },
+  { id: "review-queue", get label() { return t("renderer.appModel.review"); } },
+  { id: "graph", get label() { return t("renderer.appModel.graph"); } }
 ];

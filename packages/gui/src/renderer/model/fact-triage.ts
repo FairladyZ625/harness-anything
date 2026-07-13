@@ -3,6 +3,7 @@ import type {
   RelationCoverageRow,
 } from "../../api/renderer-dto";
 import type { FactRef, RelationEdge } from "./types";
+import { t } from "../i18n/core.ts";
 
 /**
  * Fact triage is a read-only projection over the kernel graph. It finds
@@ -35,10 +36,10 @@ export const SIGNAL_SEVERITY: Record<FactTriageSignalKind, number> = {
 };
 
 export const SIGNAL_LABEL: Record<FactTriageSignalKind, string> = {
-  INVALIDATED: "矛盾 fact",
-  ORPHAN: "孤儿 fact",
-  LOW_CONFIDENCE: "低 confidence",
-  SUPERSEDED: "已被取代",
+  get INVALIDATED() { return t("model.factTriage.contradictoryFact"); },
+  get ORPHAN() { return t("model.factTriage.orphanFact"); },
+  get LOW_CONFIDENCE() { return t("model.factTriage.lowConfidence"); },
+  get SUPERSEDED() { return t("model.factTriage.hasBeenSuperseded"); },
 };
 
 function decisionIdFromRef(ref: string): string | undefined {
@@ -66,7 +67,7 @@ export function computeFactTriageSignals(
   if (invalidatedDecisions.length > 0) {
     signals.push({
       kind: "INVALIDATED",
-      detail: `与 decision 冲突: ${[...new Set(invalidatedDecisions)].join(", ")}`,
+      detail: t("model.factTriage.conflictsDecisionValue", { value: [...new Set(invalidatedDecisions)].join(", ") }),
     });
   }
 
@@ -98,14 +99,14 @@ export function computeFactTriageSignals(
   if (isKnownFact && citingDecisionIds.length === 0) {
     signals.push({
       kind: "ORPHAN",
-      detail: "factAnchors 中存在，但没有 coverageRows claim 由它承重",
+      detail: t("model.factTriage.factAnchorsExistButNoCoverageRowsClaimSupported"),
     });
   }
 
   if (fact.confidence === "low") {
     signals.push({
       kind: "LOW_CONFIDENCE",
-      detail: "fact 投影记录的 confidence=low，需复核观察质量",
+      detail: t("model.factTriage.confidenceFactProjectionRecordLowObservationQuality"),
     });
   }
 
@@ -120,7 +121,7 @@ export function computeFactTriageSignals(
   if (supersedingRefs.length > 0) {
     signals.push({
       kind: "SUPERSEDED",
-      detail: `已被取代: ${[...new Set(supersedingRefs)].join(", ")}`,
+      detail: t("model.factTriage.supersededValue", { value: [...new Set(supersedingRefs)].join(", ") }),
     });
   }
 

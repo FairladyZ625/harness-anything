@@ -17,6 +17,7 @@ import type {
 import { FactInspector } from "../components/FactInspector";
 import { VerdictCard, sortKey } from "./decisions-verdict";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
+import { t } from "../i18n/index.tsx";
 
 export type DecideAction = "accept" | "reject" | "defer";
 
@@ -127,19 +128,18 @@ export function DecisionsView({
       {/* 队列指示条:当前位置 + 两轴排序说明 + 跳过/导航 */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ChatCircleDots weight="bold" className="text-[14px] text-accent" />
-        <span className="text-[13px] font-semibold text-text">决策批准</span>
+        <span className="text-[13px] font-semibold text-text">{t("views.decisionsView.decisionApproval")}</span>
         <span className="rounded bg-surface-raised px-1.5 py-px font-mono text-[11px] text-text-muted">
           {queue.length > 0 ? `${idx + 1} / ${queue.length}` : "0 / 0"}
         </span>
         <span className="text-[11px] text-text-faint">
-          按 riskTier × urgency 排序(两轴正交)
-        </span>
+          {t("views.decisionsView.sortByRiskTierUrgencyTwoAxesOrthogonal")}</span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={handlePrev}
             disabled={idx === 0}
             className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text disabled:opacity-30"
-            title="上一条"
+            title={t("views.decisionsView.previousArticle")}
           >
             <CaretLeft weight="bold" />
           </button>
@@ -147,7 +147,7 @@ export function DecisionsView({
             onClick={handleNext}
             disabled={idx >= queue.length - 1}
             className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text disabled:opacity-30"
-            title="下一条"
+            title={t("views.decisionsView.nextArticle")}
           >
             <CaretRight weight="bold" />
           </button>
@@ -155,19 +155,18 @@ export function DecisionsView({
             onClick={handleSkip}
             disabled={!current}
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-faint hover:bg-surface-raised hover:text-text disabled:opacity-30"
-            title="跳过:不改状态,仅本会话后移"
+            title={t("views.decisionsView.skipDoNotChangeStatusOnlyMove")}
           >
             <SkipForward weight="bold" className="text-[12px]" />
-            跳过
-          </button>
+            {t("views.decisionsView.skip")}</button>
           {skipped.size > 0 && (
             <button
               onClick={handleResetSkipped}
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-accent hover:bg-surface-raised"
-              title="恢复本会话跳过的条目"
+              title={t("views.decisionsView.restoreSkippedItemsSession")}
             >
               <ArrowsClockwise weight="bold" className="text-[12px]" />
-              恢复{skipped.size}
+              {t("views.decisionsView.restore")}{skipped.size}
             </button>
           )}
         </div>
@@ -180,21 +179,16 @@ export function DecisionsView({
             {current ? (
               <>
                 <div className="mb-2 rounded-md bg-stale/10 px-3 py-1.5 text-[11px] text-stale">
-                  这是唯一面向人的队列。低 risk 决策确定性 check 自动过、不进此队列;只承重的进。处理一条自动落到下一条。
-                </div>
+                  {t("views.decisionsView.onlyQueuePeopleLowRiskDecisionMaking")}</div>
                 {/* accept 成功 + 需回写的确认条(42 §4:accept 只记意志,回写派生为 task) */}
                 {processed[0]?.writeback && (
                   <div className="mb-2 rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
                     <div className="flex items-center gap-1 font-semibold text-accent">
                       <PencilSimpleLine weight="bold" className="text-[12px]" />
-                      {processed[0].id} 已 accept · 需派生回写 task
-                    </div>
+                      {processed[0].id} {t("views.decisionsView.acceptedNeedDeriveWritebackTask")}</div>
                     <div className="mt-0.5">
-                      回写
-                      <span className="mx-1 rounded bg-surface px-1 font-mono">{processed[0].writeback.target}</span>
-                      ({processed[0].writeback.kind}):accept 只记录意志不执行回写,将派生一个 task(本 decision 作 parent ref),
-                      由 agent 在该 task 里面对最新文档状态处理冲突。
-                    </div>
+                      {t("views.decisionsView.writeBack")}<span className="mx-1 rounded bg-surface px-1 font-mono">{processed[0].writeback.target}</span>
+                      ({processed[0].writeback.kind}{t("views.decisionsView.acceptOnlyRecordsWillDoesNotPerform")}</div>
                   </div>
                 )}
                 <VerdictCard
@@ -217,14 +211,13 @@ export function DecisionsView({
                   <SealCheck weight="duotone" className="text-[28px] text-success" />
                 </div>
                 <div>
-                  <div className="text-[15px] font-semibold text-text">今日无待决策批准</div>
+                  <div className="text-[15px] font-semibold text-text">{t("views.decisionsView.noDecisionApprovalPendingToday")}</div>
                   <div className="mt-1 text-[12px] text-text-faint">
-                    队列清空是正常态。承重决策由内核产出时再进队。
-                  </div>
+                    {t("views.decisionsView.itNormalQueueClearedLoadBearingDecision")}</div>
                 </div>
                 {processed.length > 0 && (
                   <div className="mt-2 w-full max-w-md text-left">
-                    <div className="mb-1 text-[11px] font-semibold text-text-faint">本会话已处理</div>
+                    <div className="mb-1 text-[11px] font-semibold text-text-faint">{t("views.decisionsView.sessionHasBeenProcessed")}</div>
                     <ul className="space-y-1">
                       {processed.map((p) => (
                         <li key={`${p.id}-${p.at}`} className="flex items-center gap-2 text-[11px]">
@@ -232,10 +225,9 @@ export function DecisionsView({
                           <span className="font-mono text-text-faint">{p.id}</span>
                           <span className="truncate text-text-muted">{p.title}</span>
                           {p.writeback && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-accent/10 px-1 font-mono text-[10px] text-accent" title={`accept 只记意志,回写 ${p.writeback.target} 派生为 task(42 §4)`}>
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-accent/10 px-1 font-mono text-[10px] text-accent" title={t("views.decisionsView.acceptOnlyRemembersWillWritesBackTarget", { target: p.writeback.target })}>
                               <PencilSimpleLine weight="bold" className="text-[10px]" />
-                              需回写
-                            </span>
+                              {t("views.decisionsView.needWriteBack")}</span>
                           )}
                         </li>
                       ))}
@@ -256,7 +248,7 @@ export function DecisionsView({
                     <button
                       key={d.decisionId}
                       onClick={() => setCursor(i)}
-                      title={`${d.decisionId} · ${d.riskTier ?? "未知"}/${d.urgency ?? "未知"}`}
+                      title={`${d.decisionId} · ${d.riskTier ?? t("views.decisionsView.unknown")}/${d.urgency ?? t("views.decisionsView.unknown")}`}
                       className={`flex shrink-0 items-center gap-1 rounded px-2 py-1 font-mono text-[10px] ${
                         i === idx
                           ? "bg-accent text-accent-fg"
@@ -284,11 +276,10 @@ export function DecisionsView({
 
           {trace && (
             <div className="border-t border-border bg-surface-raised px-3 py-2 text-[11px] text-text-muted">
-              <span className="font-mono">trace → {trace.slice(0, 16)}…</span>
+              <span className="font-mono">{t("views.decisionsView.traceValue", { value: trace.slice(0, 16) })}</span>
               <span className="ml-2 text-text-faint">
-                (原型:点击调用 conversation-mining 导出该 session 原文;真实由 coordinator 内置,E47)
-              </span>
-              <button onClick={() => setTrace(null)} className="ml-2 text-accent">关闭</button>
+                {t("views.decisionsView.prototypeClickCallConversationMiningExportOriginal")}</span>
+              <button onClick={() => setTrace(null)} className="ml-2 text-accent">{t("views.decisionsView.close")}</button>
             </div>
           )}
         </div>

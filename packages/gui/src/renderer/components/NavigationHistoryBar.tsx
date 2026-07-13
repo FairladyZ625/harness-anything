@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
+import { t } from "../i18n/index.tsx";
 
 /**
  * AppShell 全局后退/前进栏。经典浏览器式 ← / → 按钮 + 快捷键提示。
@@ -24,8 +25,8 @@ export function NavigationHistoryBar({ canBack, canForward, onBack, onForward }:
         type="button"
         onClick={onBack}
         disabled={!canBack}
-        title="后退 (Cmd+[ 或鼠标侧键)"
-        aria-label="后退"
+        title={t("components.navigationHistoryBar.backCmdMouseSideButton")}
+        aria-label={t("components.navigationHistoryBar.back")}
         className={`grid size-6 place-items-center rounded ${
           canBack
             ? "text-text-muted hover:bg-surface-raised hover:text-text"
@@ -38,8 +39,8 @@ export function NavigationHistoryBar({ canBack, canForward, onBack, onForward }:
         type="button"
         onClick={onForward}
         disabled={!canForward}
-        title="前进 (Cmd+] 或鼠标侧键)"
-        aria-label="前进"
+        title={t("components.navigationHistoryBar.forwardCmdMouseSideButton")}
+        aria-label={t("components.navigationHistoryBar.moveForward")}
         className={`grid size-6 place-items-center rounded ${
           canForward
             ? "text-text-muted hover:bg-surface-raised hover:text-text"

@@ -7,6 +7,7 @@ import {
   AXIS_ORDER,
   type SemanticAxis,
 } from "../graph/constants";
+import { t } from "../i18n/index.tsx";
 
 export type EntityType = "decision" | "task" | "fact";
 
@@ -71,7 +72,7 @@ export function GraphFilterPanel({ filters, setFilters, availableModules }: Prop
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={open ? "收起筛选面板" : "展开筛选面板"}
+        title={open ? t("components.graphFilterPanel.collapseFilterPanel") : t("components.graphFilterPanel.expandFilterPanel")}
         className={`flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised rounded-lg ${open ? "border-b border-border rounded-b-none" : ""}`}
       >
         {open ? (
@@ -80,7 +81,7 @@ export function GraphFilterPanel({ filters, setFilters, availableModules }: Prop
           <CaretRight weight="bold" className="text-text-faint text-[10px]" />
         )}
         <Funnel weight="duotone" className="text-text-muted" />
-        <span className="font-mono text-xs font-semibold text-text">Filters</span>
+        <span className="font-mono text-xs font-semibold text-text">{t("components.graphFilterPanel.filters")}</span>
         {!open && narrowed > 0 && (
           <span className="rounded-full bg-accent px-1.5 py-0.5 font-mono text-[10px] text-accent-fg">
             {narrowed}
@@ -95,7 +96,7 @@ export function GraphFilterPanel({ filters, setFilters, availableModules }: Prop
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-[11px] text-text-muted font-mono uppercase tracking-wide">
             <Bandaids weight="bold" />
-            <span>语义轴</span>
+            <span>{t("components.graphFilterPanel.semanticAxis")}</span>
           </div>
           <div className="flex flex-col gap-1.5">
             {AXIS_ORDER.map((axis) => {
@@ -127,8 +128,7 @@ export function GraphFilterPanel({ filters, setFilters, availableModules }: Prop
               );
             })}
             <div className="text-[9.5px] text-text-faint mt-0.5 leading-snug">
-              默认关 assoc(relates),减少噪音;点开切换。
-            </div>
+              {t("components.graphFilterPanel.assocRelatesTurnedOffByDefaultReduce")}</div>
           </div>
         </div>
 
@@ -136,7 +136,7 @@ export function GraphFilterPanel({ filters, setFilters, availableModules }: Prop
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-[11px] text-text-muted font-mono uppercase tracking-wide">
             <SquaresFour weight="bold" />
-            <span>Modules</span>
+            <span>{t("components.graphFilterPanel.modules")}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {availableModules.map((mod) => {
@@ -162,7 +162,7 @@ export function GraphFilterPanel({ filters, setFilters, availableModules }: Prop
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-[11px] text-text-muted font-mono uppercase tracking-wide">
             <Graph weight="bold" />
-            <span>Entity Types</span>
+            <span>{t("components.graphFilterPanel.entityTypes")}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {(["decision", "task", "fact"] as const).map((t) => {

@@ -9,6 +9,7 @@ import {
   KIND_META,
   shortTime,
 } from "./layout";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 主区谱系图：刻度 + 网格 + 语义色/线型边 + 决策卡（或日簇）。
@@ -148,14 +149,13 @@ export function TimelinePlot({
               className={`absolute flex flex-col justify-center gap-0.5 rounded-xl border border-dashed border-border-strong bg-surface-raised px-3 py-2 text-left transition-colors hover:border-accent ${
                 dim ? "opacity-40" : ""
               }`}
-              title="点击展开该日决策"
+              title={t("views.timelinePlot.clickExpandDaySDecision")}
             >
               <span className="font-mono text-[11px] font-semibold text-text">
-                {node.dayKey === "NO_TIME" ? "无时间" : node.dayKey}
+                {node.dayKey === "NO_TIME" ? t("views.timelinePlot.noTime") : node.dayKey}
               </span>
               <span className="text-[12px] text-text-muted">
-                {node.clusterSize ?? 0} 条决策 · 点击展开
-              </span>
+                {node.clusterSize ?? 0} {t("views.timelinePlot.decisionsClickExpand")}</span>
             </button>
           );
         }
@@ -186,8 +186,7 @@ export function TimelinePlot({
               </span>
               {isFocus && (
                 <span className="ml-auto shrink-0 rounded bg-accent px-1 py-px font-mono text-[9px] font-semibold text-accent-fg">
-                  焦点
-                </span>
+                  {t("views.timelinePlot.focus")}</span>
               )}
             </div>
             <span className="line-clamp-3 break-words text-[12px] font-medium leading-snug text-text">
@@ -199,8 +198,7 @@ export function TimelinePlot({
               </span>
               {node.timeMs === null && (
                 <span className="rounded bg-stale/15 px-1 font-mono text-[9px] text-stale">
-                  无时间
-                </span>
+                  {t("views.timelinePlot.noTime2")}</span>
               )}
               {node.dayKey &&
                 onToggleCluster &&
@@ -220,8 +218,7 @@ export function TimelinePlot({
                     }
                   }}
                 >
-                  收起日
-                </span>
+                  {t("views.timelinePlot.closeDay")}</span>
               )}
             </div>
           </button>

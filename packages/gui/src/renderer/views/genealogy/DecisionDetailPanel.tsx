@@ -1,6 +1,7 @@
 import { ArrowSquareOut, Graph, X } from "@phosphor-icons/react";
 import type { DecisionRow } from "../../model/types";
 import { DecisionStateBadge } from "../../components/badges";
+import { t } from "../../i18n/index.tsx";
 
 /** 选中决策的详情面板（右栏）：id / 状态 / question / chosen / rejected + 外链。 */
 export function DecisionDetailPanel({
@@ -26,7 +27,7 @@ export function DecisionDetailPanel({
         </div>
         <button
           onClick={onClose}
-          title="关闭详情"
+          title={t("views.decisionDetailPanel.closeDetails")}
           className="grid size-6 shrink-0 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
         >
           <X weight="bold" />
@@ -34,8 +35,8 @@ export function DecisionDetailPanel({
       </header>
       <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-faint">
-          <span>decided {decision.decidedAt ? decision.decidedAt.slice(0, 16).replace("T", " ") : "—"}</span>
-          <span>proposed {decision.proposedAt ? decision.proposedAt.slice(0, 16).replace("T", " ") : "—"}</span>
+          <span>{t("views.decisionDetailPanel.decidedValue", { value: decision.decidedAt ? decision.decidedAt.slice(0, 16).replace("T", " ") : "—" })}</span>
+          <span>{t("views.decisionDetailPanel.proposedValue", { value: decision.proposedAt ? decision.proposedAt.slice(0, 16).replace("T", " ") : "—" })}</span>
         </div>
         <p className="mt-2 text-[12px] leading-relaxed text-text-muted">
           <span className="font-semibold text-text-faint">Q: </span>
@@ -43,7 +44,7 @@ export function DecisionDetailPanel({
         </p>
         {decision.chosen.length > 0 && (
           <section className="mt-3">
-            <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">chosen</div>
+            <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{t("views.decisionDetailPanel.chosen")}</div>
             <ul className="mt-1 space-y-1">
               {decision.chosen.map((claim) => (
                 <li key={claim.id} className="flex gap-1.5 text-[12px] leading-snug text-text">
@@ -56,7 +57,7 @@ export function DecisionDetailPanel({
         )}
         {decision.rejected.length > 0 && (
           <section className="mt-3">
-            <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">rejected</div>
+            <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{t("views.decisionDetailPanel.rejected")}</div>
             <ul className="mt-1 space-y-1">
               {decision.rejected.map((claim) => (
                 <li key={claim.id} className="text-[12px] leading-snug text-text-muted">
@@ -77,8 +78,7 @@ export function DecisionDetailPanel({
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[12px] text-text-muted hover:border-border-strong hover:text-text"
           >
             <ArrowSquareOut weight="bold" />
-            在决策池查看
-          </button>
+            {t("views.decisionDetailPanel.viewDecisionPool")}</button>
         )}
         {onFocusGraph && (
           <button
@@ -86,8 +86,7 @@ export function DecisionDetailPanel({
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[12px] text-text-muted hover:border-border-strong hover:text-accent"
           >
             <Graph weight="bold" />
-            在关系图聚焦
-          </button>
+            {t("views.decisionDetailPanel.focusRelationshipDiagram")}</button>
         )}
       </footer>
     </aside>

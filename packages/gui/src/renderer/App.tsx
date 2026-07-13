@@ -20,8 +20,10 @@ import { useCatalogQuery } from "./catalog-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import { MOCK_BACKED_VIEWS, type ViewId } from "./shell-config.tsx";
 import { useNavigationHistory } from "./navigation/useNavigationHistory.ts";
+import { t, useI18n } from "./i18n/index.tsx";
 
 function AppShell() {
+  const { locale } = useI18n();
   // 应用位置由导航历史栈持有:entries[index] 是唯一真源。
   // 六个位置状态(view/selectedId/previewId/focusedEntityRef/taskFilters/drill)
   // 全部从 location 派生,变更只走 navigate() / updateLocation() —— 这是
@@ -58,9 +60,9 @@ function AppShell() {
 
   const project = useMemo(() => ({
     ...buildRealProject(realTasks),
-    preset: catalogQuery.data?.activePresetId ?? "未配置",
+    preset: catalogQuery.data?.activePresetId ?? t("renderer.app.notConfigured"),
     engines: catalogQuery.data?.adapters.map((adapter) => adapter.engine) ?? ["local"]
-  }), [catalogQuery.data, realTasks]);
+  }), [catalogQuery.data, locale, realTasks]);
   const projectId = project.id;
   const projects = useMemo(() => [project], [project]);
   const { favorites, toggleFavorite } = useFavorites(projectId);

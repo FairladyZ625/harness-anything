@@ -1,5 +1,6 @@
 import type { TaskProjectionRow } from "../api/renderer-dto.ts";
 import type { EngineId, Project, TaskRow } from "./model/types.ts";
+import { t } from "./i18n/core.ts";
 
 /**
  * Maps a real `sqlite-task-row/v1` projection row onto the prototype's `TaskRow`
@@ -85,7 +86,7 @@ export function buildRealProject(tasks: ReadonlyArray<TaskRow>): Project {
   return {
     id: REAL_PROJECT_ID,
     name: "harness-anything",
-    path: "本地台账",
+    path: t("renderer.taskAdapter.localLedger"),
     preset: "software/coding",
     engines: ["local"],
     watermarkAt: tasks[0]?.lastKnownAt ?? new Date().toISOString(),

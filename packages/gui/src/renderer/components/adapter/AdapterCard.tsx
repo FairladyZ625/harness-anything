@@ -1,4 +1,5 @@
 import type { AdapterInfo } from "../../model/types";
+import { t } from "../../i18n/index.tsx";
 
 export function AdapterCard({
   adapter,
@@ -21,8 +22,8 @@ export function AdapterCard({
         <span className="rounded border border-border px-1.5 py-px font-mono text-[11px] text-text-muted">
           {adapter.engine}
         </span>
-        {adapter.defaultProvider && <span className="rounded bg-accent/15 px-1.5 py-px text-[10px] text-accent">default</span>}
-        <span className="ml-auto font-mono text-[11px] text-text-muted">投影内 {projectedCount}</span>
+        {adapter.defaultProvider && <span className="rounded bg-accent/15 px-1.5 py-px text-[10px] text-accent">{t("components.adapterCard.default")}</span>}
+        <span className="ml-auto font-mono text-[11px] text-text-muted">{t("components.adapterCard.withinProjection")}{projectedCount}</span>
       </div>
 
       <div className="flex flex-wrap gap-1 border-t border-border px-3 py-2">
@@ -34,8 +35,8 @@ export function AdapterCard({
       </div>
 
       <p className="border-t border-border px-3 py-1.5 text-[11px] text-text-faint">
-        registry metadata · {adapter.writable ? "支持写入" : "只读"}
-        {adapter.readonly && adapter.writable ? "（读取与写入能力并存）" : ""}
+        {t("components.adapterCard.registryMetadata")} · {adapter.writable ? t("components.adapterCard.supportWriting") : t("components.adapterCard.readOnly")}
+        {adapter.readonly && adapter.writable ? t("components.adapterCard.readingWritingCapabilitiesCoexist") : ""}
       </p>
     </section>
   );

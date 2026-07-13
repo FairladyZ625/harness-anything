@@ -4,6 +4,7 @@ import Markdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MagnifyingGlass } from "@phosphor-icons/react";
+import { t } from "../i18n/index.tsx";
 
 // mermaid diagram rendering is intentionally omitted in the Electron shell:
 // its runtime injects inline <style>/<script>, which the production CSP
@@ -48,7 +49,7 @@ export function DocReader({ content }: { content: string }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="文档内搜索…"
+            placeholder={t("components.docReader.searchWithinDocuments")}
             className="w-full bg-transparent text-[12px] text-text outline-none placeholder:text-text-faint"
           />
         </div>
@@ -58,8 +59,7 @@ export function DocReader({ content }: { content: string }) {
               matchCount > 0 ? "text-text-muted" : "text-text-faint"
             }`}
           >
-            {matchCount} 处匹配
-          </span>
+            {matchCount} {t("components.docReader.matchEverywhere")}</span>
         )}
       </div>
       <div className="prose-harness">

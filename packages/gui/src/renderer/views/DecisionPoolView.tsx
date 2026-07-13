@@ -14,6 +14,7 @@ import {
   UrgencyBadge,
 } from "../components/badges";
 import { coverageOf, sortDecisionQueue, supersedeChain } from "../model/triadic";
+import { t } from "../i18n/index.tsx";
 
 type PoolTab = "proposed" | "active" | "retired";
 type TimeRange = "all" | "14d" | "30d";
@@ -44,7 +45,7 @@ function withinRange(decision: DecisionRow, range: TimeRange) {
 function CoverageBadge({ decision, facts }: { decision: DecisionRow; facts: FactRef[] }) {
   const coverage = coverageOf(decision, facts);
   if (coverage.total === 0) {
-    return <span className="font-mono text-[11px] text-text-faint">coverage n/a</span>;
+    return <span className="font-mono text-[11px] text-text-faint">{t("views.decisionPoolView.coverageNotAvailable")}</span>;
   }
   const ok = coverage.covered === coverage.total;
   return (
@@ -52,10 +53,10 @@ function CoverageBadge({ decision, facts }: { decision: DecisionRow; facts: Fact
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] ${
         ok ? "bg-success/10 text-success" : "bg-stale/10 text-stale"
       }`}
-      title={ok ? "承重论点均有可达活 fact" : `缺可达活 fact: ${coverage.gaps.join(", ")}`}
+      title={ok ? t("views.decisionPoolView.loadBearingArgumentsAllViableFacts") : t("views.decisionPoolView.lackAvailabilityFactValue", { value: coverage.gaps.join(", ") })}
     >
       {ok ? <CheckCircle weight="bold" /> : <WarningCircle weight="bold" />}
-      {coverage.covered}/{coverage.total} reachable
+      {t("views.decisionPoolView.reachableCoverage", { covered: coverage.covered, total: coverage.total })}
     </span>
   );
 }
@@ -72,7 +73,7 @@ function ChainView({
   const amended = decision.decidedAt && decision.lastChangedAt && decision.lastChangedAt !== decision.decidedAt;
 
   if (!hasSupersede && !amended) {
-    return <span className="font-mono text-[11px] text-text-faint">no supersede/amend chain</span>;
+    return <span className="font-mono text-[11px] text-text-faint">{t("views.decisionPoolView.noSupersedeAmendChain")}</span>;
   }
 
   return (
@@ -82,17 +83,17 @@ function ChainView({
         <span className="inline-flex items-center gap-1 font-mono text-danger">
           {decision.decisionId}
           <ArrowRight weight="bold" />
-          retires {chain.supersedes.join(", ")}
+          {t("views.decisionPoolView.retiresValue", { value: chain.supersedes.join(", ") })}
         </span>
       )}
       {chain.supersededBy.length > 0 && (
         <span className="inline-flex items-center gap-1 font-mono text-stale">
-          superseded by {chain.supersededBy.join(", ")}
+          {t("views.decisionPoolView.supersededByValue", { value: chain.supersededBy.join(", ") })}
         </span>
       )}
       {amended && (
         <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">
-          amended @ {decision.lastChangedAt?.slice(5, 16).replace("T", " ")}
+          {t("views.decisionPoolView.amendedAtValue", { value: decision.lastChangedAt?.slice(5, 16).replace("T", " ") })}
         </span>
       )}
     </div>
@@ -197,10 +198,9 @@ export function DecisionPoolView({
     <div className="flex h-full flex-col">
       <header className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="ui-title font-semibold">决策池</h1>
+          <h1 className="ui-title font-semibold">{t("views.decisionPoolView.decisionPool")}</h1>
           <span className="font-mono text-[13px] text-text-faint">
-            全集浏览 · 覆盖度可达性 · supersede/amend 演化链
-          </span>
+            {t("views.decisionPoolView.browseFullSetCoverageAccessibilitySupersedeAmend")}</span>
         </div>
       </header>
 
@@ -221,49 +221,49 @@ export function DecisionPoolView({
         ))}
         <span className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] text-text-faint">
           <Funnel weight="bold" />
-          {rows.length} visible
+          {t("views.decisionPoolView.visibleCount", { count: rows.length })}
         </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <select className={selectClass} value={stateFilter} onChange={(event) => setStateFilter(event.target.value as DecisionState | "all")}>
-          <option value="all">state: all</option>
+          <option value="all">{t("views.decisionPoolView.stateAll")}</option>
           {TAB_STATE[tab].map((state) => (
-            <option key={state} value={state}>state: {state}</option>
+            <option key={state} value={state}>{t("views.decisionPoolView.stateValue", { value: state })}</option>
           ))}
         </select>
         <select className={selectClass} value={riskFilter} onChange={(event) => setRiskFilter(event.target.value as typeof riskFilter)}>
-          <option value="all">risk: all</option>
-          <option value="high">risk: high</option>
-          <option value="medium">risk: medium</option>
-          <option value="low">risk: low</option>
-          <option value="unknown">risk: unknown</option>
+          <option value="all">{t("views.decisionPoolView.riskAll")}</option>
+          <option value="high">{t("views.decisionPoolView.riskHigh")}</option>
+          <option value="medium">{t("views.decisionPoolView.riskMedium")}</option>
+          <option value="low">{t("views.decisionPoolView.riskLow")}</option>
+          <option value="unknown">{t("views.decisionPoolView.riskUnknown")}</option>
         </select>
         <select className={selectClass} value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value as typeof urgencyFilter)}>
-          <option value="all">urgency: all</option>
-          <option value="high">urgency: high</option>
-          <option value="medium">urgency: medium</option>
-          <option value="low">urgency: low</option>
-          <option value="unknown">urgency: unknown</option>
+          <option value="all">{t("views.decisionPoolView.urgencyAll")}</option>
+          <option value="high">{t("views.decisionPoolView.urgencyHigh")}</option>
+          <option value="medium">{t("views.decisionPoolView.urgencyMedium")}</option>
+          <option value="low">{t("views.decisionPoolView.urgencyLow")}</option>
+          <option value="unknown">{t("views.decisionPoolView.urgencyUnknown")}</option>
         </select>
         <select className={selectClass} value={verticalFilter} onChange={(event) => setVerticalFilter(event.target.value)}>
-          <option value="all">vertical: all</option>
+          <option value="all">{t("views.decisionPoolView.verticalAll")}</option>
           {verticals.map((vertical) => <option key={vertical} value={vertical}>{vertical}</option>)}
         </select>
         <select className={selectClass} value={presetFilter} onChange={(event) => setPresetFilter(event.target.value)}>
-          <option value="all">preset: all</option>
+          <option value="all">{t("views.decisionPoolView.presetAll")}</option>
           {presets.map((preset) => <option key={preset} value={preset}>{preset}</option>)}
         </select>
         <select className={selectClass} value={originatorFilter} onChange={(event) => setOriginatorFilter(event.target.value as typeof originatorFilter)}>
-          <option value="all">originator: all</option>
-          <option value="person">originator: person</option>
-          <option value="agent">originator: agent executor</option>
-          <option value="unknown">originator: unknown</option>
+          <option value="all">{t("views.decisionPoolView.originatorAll")}</option>
+          <option value="person">{t("views.decisionPoolView.originatorPerson")}</option>
+          <option value="agent">{t("views.decisionPoolView.originatorAgent")}</option>
+          <option value="unknown">{t("views.decisionPoolView.originatorUnknown")}</option>
         </select>
         <select className={selectClass} value={timeRange} onChange={(event) => setTimeRange(event.target.value as TimeRange)}>
-          <option value="all">time: all</option>
-          <option value="14d">time: last 14d</option>
-          <option value="30d">time: last 30d</option>
+          <option value="all">{t("views.decisionPoolView.timeAll")}</option>
+          <option value="14d">{t("views.decisionPoolView.timeLast14Days")}</option>
+          <option value="30d">{t("views.decisionPoolView.timeLast30Days")}</option>
         </select>
       </div>
 
@@ -292,16 +292,16 @@ export function DecisionPoolView({
                   <h2 className="mt-1 truncate text-[15px] font-semibold text-text">{decision.title}</h2>
                   <p className="mt-0.5 truncate text-[12px] text-text-muted">Q: {decision.question}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-faint">
-                    <span>{decision.vertical ?? "未知/—"}</span>
-                    <span>{decision.preset ?? "未知/—"}</span>
-                    <span>originator {formatActorAxes(decision.attribution.originator)}</span>
-                    <span>proposed {decision.proposedAt ? decision.proposedAt.slice(5, 16).replace("T", " ") : "未知/—"}</span>
+                    <span>{decision.vertical ?? t("views.decisionPoolView.unknown")}</span>
+                    <span>{decision.preset ?? t("views.decisionPoolView.unknown")}</span>
+                    <span>{t("views.decisionPoolView.originatorValue", { value: formatActorAxes(decision.attribution.originator) })}</span>
+                    <span>{t("views.decisionPoolView.proposedValue", { value: decision.proposedAt ? decision.proposedAt.slice(5, 16).replace("T", " ") : t("views.decisionPoolView.unknown") })}</span>
                   </div>
                 </div>
                 {onFocusGraph && (
                   <button
                     onClick={() => onFocusGraph(`decision/${decision.decisionId}`)}
-                    title="在关系图中聚焦此 decision"
+                    title={t("views.decisionPoolView.focusDecisionDiagram")}
                     className="grid size-7 shrink-0 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-accent"
                   >
                     <Graph weight="bold" />
@@ -315,8 +315,7 @@ export function DecisionPoolView({
           ))}
           {rows.length === 0 && (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
-              当前过滤条件下没有 decision。
-            </div>
+              {t("views.decisionPoolView.thereNoDecisionsUnderCurrentFilter")}</div>
           )}
         </div>
       </div>
@@ -325,6 +324,6 @@ export function DecisionPoolView({
 }
 
 function formatActorAxes(actor: DecisionRow["attribution"]["originator"]): string {
-  if (!actor) return "未知/—";
+  if (!actor) return t("views.decisionPoolView.unknown");
   return `person:${actor.principal.personId} / ${actor.executor ? `agent:${actor.executor.id}` : "executor:none"}`;
 }

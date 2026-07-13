@@ -1,4 +1,6 @@
 /** @slice-activation GUI workspace shell contract: exported for layout routing tests and package-level shell consumers. */
+import { t } from "./i18n/core.ts";
+
 export type WorkspacePerspective = "triage" | "review" | "operate";
 
 export type WorkspacePaneKind =
@@ -80,7 +82,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
       return pane({
         id: `task-${stableSegment(target.taskId)}`,
         kind: "task",
-        title: `Task ${target.taskId}`,
+        title: t("renderer.workspaceShell.taskValue", { taskId: target.taskId }),
         placement,
         projectId: target.projectId,
         taskId: target.taskId,
@@ -90,7 +92,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
       return pane({
         id: `task-context-${stableSegment(target.taskId)}-${target.perspective ?? "operate"}`,
         kind: "taskContext",
-        title: `Context ${target.taskId}`,
+        title: t("renderer.workspaceShell.contextValue", { taskId: target.taskId }),
         placement,
         projectId: target.projectId,
         taskId: target.taskId,
@@ -121,7 +123,9 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
       return pane({
         id: `terminal-${stableSegment(target.sessionId ?? target.taskId ?? target.cwd ?? "new")}`,
         kind: "terminal",
-        title: target.sessionId ? `Terminal ${target.sessionId}` : "New terminal",
+        title: target.sessionId
+          ? t("renderer.workspaceShell.terminalValue", { sessionId: target.sessionId })
+          : t("renderer.workspaceShell.newTerminal"),
         placement,
         projectId: target.projectId,
         taskId: target.taskId,
@@ -134,7 +138,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
       return pane({
         id: `session-list-${stableSegment(target.hostProfileId ?? target.projectId ?? "all")}`,
         kind: "sessionList",
-        title: "Terminal sessions",
+        title: t("renderer.workspaceShell.terminalSessions"),
         placement,
         projectId: target.projectId,
         hostProfileId: target.hostProfileId,
@@ -144,7 +148,9 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
       return pane({
         id: `logs-${stableSegment(target.taskId ?? target.projectId ?? target.stream ?? "project")}`,
         kind: "logs",
-        title: target.stream ? `Logs ${target.stream}` : "Logs",
+        title: target.stream
+          ? t("renderer.workspaceShell.logsValue", { stream: target.stream })
+          : t("renderer.workspaceShell.logs"),
         placement,
         projectId: target.projectId,
         taskId: target.taskId,
@@ -155,7 +161,7 @@ export function routeOpenIntent(intent: OpenIntent): WorkspacePaneDescriptor {
       return pane({
         id: `browser-placeholder-${stableSegment(target.url)}`,
         kind: "browser",
-        title: "External URL",
+        title: t("renderer.workspaceShell.externalUrl"),
         placement: "external",
         projectId: target.projectId,
         source: intent,
@@ -227,7 +233,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
       pane({
         id: "review-queue-project-local",
         kind: "review",
-        title: "Review queue",
+        title: t("renderer.workspaceShell.reviewQueue"),
         placement: "tab",
         projectId: "project-local",
         state: { role: "queue" }
@@ -242,7 +248,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
       pane({
         id: "checker-project-local",
         kind: "checker",
-        title: "Review checklist",
+        title: t("renderer.workspaceShell.reviewChecklist"),
         placement: "dock",
         projectId: "project-local",
         state: { role: "checklist" }
@@ -255,7 +261,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
       pane({
         id: "board-project-local",
         kind: "board",
-        title: "Triage board",
+        title: t("renderer.workspaceShell.triageBoard"),
         placement: "tab",
         projectId: "project-local",
         state: { role: "pressure" }
@@ -263,7 +269,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
       pane({
         id: "list-project-local",
         kind: "list",
-        title: "Task list",
+        title: t("renderer.workspaceShell.taskList"),
         placement: "split",
         projectId: "project-local",
         state: { role: "queue" }
@@ -271,7 +277,7 @@ function defaultPanesForPerspective(perspective: WorkspacePerspective): Readonly
       pane({
         id: "task-context-project-local",
         kind: "taskContext",
-        title: "Filters and task context",
+        title: t("renderer.workspaceShell.filtersAndTaskContext"),
         placement: "dock",
         projectId: "project-local",
         taskId: "TASK-001",

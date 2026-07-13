@@ -51,6 +51,7 @@ import {
   useContainerWidth,
   useNodeSizeOverrides,
 } from "./graphViewHooks";
+import { t } from "../i18n/index.tsx";
 
 const nodeTypes = {
   task: TaskNode,
@@ -378,10 +379,9 @@ function GraphViewInner({
         data-testid="triadic-graph-empty-state"
         className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
       >
-        <div className="text-[14px] font-semibold text-text">暂无三元语关系数据</div>
+        <div className="text-[14px] font-semibold text-text">{t("views.graphView.thereNoTrigramRelationshipDataYet")}</div>
         <div className="max-w-md text-[12px] leading-relaxed text-text-faint">
-          当前 ledger 没有可投影的 task、decision 或 fact。记录出现后，关系图会自动显示真实节点与 kernel relation 边。
-        </div>
+          {t("views.graphView.currentLedgerHasNoTasksDecisionsFacts")}</div>
       </div>
     );
   }

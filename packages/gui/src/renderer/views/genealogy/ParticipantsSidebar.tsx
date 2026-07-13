@@ -1,6 +1,7 @@
 import { GitBranch, MagnifyingGlass } from "@phosphor-icons/react";
 import type { DecisionRow } from "../../model/types";
 import { shortTime } from "./layout";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 左栏：参与谱系的决策列表（搜索框 + 焦点候选）。点选一项即把主区焦点切到它的演化史。
@@ -28,7 +29,7 @@ export function ParticipantsSidebar({
           <input
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="搜索决策 id / 标题"
+            placeholder={t("views.participantsSidebar.searchDecisionIdTitle")}
             className="min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-text-faint"
           />
         </div>
@@ -62,7 +63,7 @@ export function ParticipantsSidebar({
           );
         })}
         {participants.length === 0 && (
-          <div className="px-3 py-6 text-center text-[12px] text-text-faint">无匹配决策</div>
+          <div className="px-3 py-6 text-center text-[12px] text-text-faint">{t("views.participantsSidebar.noMatchingDecision")}</div>
         )}
       </div>
     </div>

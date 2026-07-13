@@ -13,7 +13,6 @@ import {
 import type {
   DecisionRow,
   DocEntry,
-  DocGroup,
   TaskRow,
   RelationEdge,
 } from "../model/types";
@@ -26,7 +25,7 @@ import {
   EngineBadge,
   FreshnessTag,
 } from "../components/badges";
-import { SAMPLE_MARKDOWN, DOC_CONTENT } from "../model/mock";
+import { getSampleDocument } from "../model/mock";
 import { DocReader } from "../components/DocReader";
 import {
   LOCAL_TRANSITIONS,
@@ -38,24 +37,15 @@ import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
 import { RelationRow } from "../components/taskDetail/RelationRow";
 import { DocTree } from "../components/taskDetail/DocTree";
 import { buildDocTree } from "../model/docTree";
+import { docGroupLabel, inferDocGroup, isRequiredDocGroup } from "../model/docGroups";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
 import { useTaskDetailQuery, useTaskDocumentQuery, useReviewTaskMutation } from "../task-data";
+import { t } from "../i18n/index.tsx";
 
 /**
  * 推断文档分组:preset 模板里常见文件名 → DocGroup。投影只给 path,组别靠命名启发式。
  * 未命中归到「进度」(默认进度日志)。
  */
-function inferDocGroup(path: string): DocGroup {
-  const lower = path.toLowerCase();
-  if (lower.includes("contract") || lower === "index.md") return "必读";
-  if (lower.includes("plan") || lower.includes("roadmap") || lower.includes("task-plan")) return "计划";
-  if (lower.includes("design") || lower.includes("adr") || lower.includes("architecture")) return "设计";
-  if (lower.includes("progress")) return "进度";
-  if (lower.includes("closeout") || lower.includes("verification") || lower.includes("verify")) return "收口";
-  if (lower.includes("evidence") || lower.includes("fact") || lower.includes("lesson")) return "证据";
-  return "进度";
-}
-
 function docTitleFromPath(path: string): string {
   const file = path.split("/").pop() ?? path;
   const stem = file.replace(/\.md$/i, "");
@@ -84,8 +74,8 @@ function DocBody({
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
         <FileText weight="duotone" className="text-2xl text-text-faint" />
-        <p className="text-[13px] text-text-muted">该任务无投影文档</p>
-        <p className="font-mono text-[11px] text-text-faint">从 preset 物化的 doc 清单为空</p>
+        <p className="text-[13px] text-text-muted">{t("views.taskDetailView.thereNoProjectionDocumentTask")}</p>
+        <p className="font-mono text-[11px] text-text-faint">{t("views.taskDetailView.listDocMaterializedFromPresetEmpty")}</p>
       </div>
     );
   }
@@ -94,7 +84,7 @@ function DocBody({
     return (
       <div className="flex items-center gap-2 rounded-lg border border-border px-4 py-8 text-[13px] text-text-muted">
         <Spinner weight="bold" className="animate-spin" />
-        正在读取 {path} …
+        {t("views.taskDetailView.reading")}{path} …
       </div>
     );
   }
@@ -103,14 +93,14 @@ function DocBody({
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-12 text-center">
         <XCircle weight="duotone" className="text-2xl text-danger" />
-        <p className="text-[13px] text-text">文档读取失败</p>
+        <p className="text-[13px] text-text">{t("views.taskDetailView.documentReadingFailed")}</p>
         <p className="font-mono text-[11px] text-text-faint">
-          {(documentQuery.error as Error | undefined)?.message ?? "本地台账桥未返回正文"}
+          {(documentQuery.error as Error | undefined)?.message ?? t("views.taskDetailView.localLedgerBridgeDidNotReturnText")}
         </p>
         {fallbackPresent && (
-          <p className="mt-2 font-mono text-[11px] text-text-faint">回退显示样例正文</p>
+          <p className="mt-2 font-mono text-[11px] text-text-faint">{t("views.taskDetailView.fallbackDisplaySampleText")}</p>
         )}
-        {fallbackPresent && <DocReader content={DOC_CONTENT[path] ?? SAMPLE_MARKDOWN} />}
+        {fallbackPresent && <DocReader content={getSampleDocument(path)} />}
       </div>
     );
   }
@@ -125,12 +115,12 @@ function DocBody({
     return (
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong py-16 text-center">
         <FileText weight="duotone" className="text-2xl text-text-faint" />
-        <p className="text-[13px] text-text-muted">文档未物化</p>
-        <p className="font-mono text-[11px] text-text-faint">该骨架由 preset 定义</p>
+        <p className="text-[13px] text-text-muted">{t("views.taskDetailView.documentNotMaterialized")}</p>
+        <p className="font-mono text-[11px] text-text-faint">{t("views.taskDetailView.skeletonDefinedByPreset")}</p>
       </div>
     );
   }
-  return <DocReader content={DOC_CONTENT[path] ?? SAMPLE_MARKDOWN} />;
+  return <DocReader content={getSampleDocument(path)} />;
 }
 
 export function TaskDetailView({
@@ -142,7 +132,7 @@ export function TaskDetailView({
   decisions = [],
   onSelect,
   projectName,
-  fromViewLabel = "工作区",
+  fromViewLabel = t("views.taskDetailView.workspace"),
   onNavigateDecision,
   onNavigateEntity,
 }: {
@@ -174,7 +164,7 @@ export function TaskDetailView({
         path: d.path,
         title: docTitleFromPath(d.path),
         group,
-        required: group === "必读" || group === "收口",
+        required: isRequiredDocGroup(group),
         present: true,
       };
     });
@@ -213,7 +203,7 @@ export function TaskDetailView({
         <button
           onClick={onBack}
           className="rounded-md border border-border p-1.5 text-text-muted hover:border-border-strong hover:bg-surface-raised hover:text-text"
-          title="返回上一层"
+          title={t("views.taskDetailView.returnPreviousLevel")}
         >
           <ArrowLeft weight="bold" />
         </button>
@@ -259,12 +249,12 @@ export function TaskDetailView({
                 weight="bold"
                 className="self-center text-[9px] text-text-faint"
               />
-              <span className="text-[12px] text-text-muted">{doc?.group ?? "—"}</span>
+              <span className="text-[12px] text-text-muted">{doc ? docGroupLabel(doc.group) : "—"}</span>
               <CaretRight
                 weight="bold"
                 className="self-center text-[9px] text-text-faint"
               />
-              <span className="text-[13px] font-semibold text-text">{doc?.title ?? "无文档"}</span>
+              <span className="text-[13px] font-semibold text-text">{doc?.title ?? t("views.taskDetailView.noDocumentation")}</span>
               {doc && (
                 <span className="ml-2 font-mono text-[10px] text-text-faint">
                   {doc.path}
@@ -282,19 +272,19 @@ export function TaskDetailView({
         {/* 治理侧栏：三轴并排 */}
         <aside className="w-64 shrink-0 overflow-y-auto border-l border-border bg-surface p-4">
           <div className="flex flex-col gap-4">
-            <AxisRow label="coordinationStatus">
+            <AxisRow label={t("views.taskDetailView.coordinationStatus")}>
               <StatusBadge status={task.coordinationStatus} />
               <span className="w-full font-mono text-[11px] text-text-faint">
-                原文: {task.rawStatus}
+                {t("views.taskDetailView.originalText")}{task.rawStatus}
               </span>
               <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
             </AxisRow>
 
-            <AxisRow label="closeoutReadiness">
+            <AxisRow label={t("views.taskDetailView.closeoutReadiness")}>
               <CloseoutBadge value={task.closeoutReadiness} />
             </AxisRow>
 
-            <AxisRow label="packageDisposition">
+            <AxisRow label={t("views.taskDetailView.packageDisposition")}>
               <span className="font-mono text-[12px] text-text-muted">
                 {task.packageDisposition}
               </span>
@@ -302,16 +292,14 @@ export function TaskDetailView({
 
             <div className="flex flex-col gap-1.5">
               <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                阶段
-              </span>
+                {t("views.taskDetailView.stage")}</span>
               <PhaseSteps status={task.coordinationStatus} />
             </div>
 
             {spawningDecision && (
               <div className="flex flex-col gap-1.5 rounded-md border border-accent/20 bg-accent/5 px-2.5 py-2">
                 <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                  Decision 上游
-                </span>
+                  {t("views.taskDetailView.decisionUpstream")}</span>
                 <DecisionSourceBadge
                   decisionId={spawningDecision}
                   title={spawningDecisionTitle}
@@ -329,10 +317,10 @@ export function TaskDetailView({
 
             <div className="flex flex-col gap-1.5">
               <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                Gates
+                {t("views.taskDetailView.gates")}
               </span>
               {task.gates.length === 0 ? (
-                <span className="text-[11px] text-text-faint">无 gate 记录</span>
+                <span className="text-[11px] text-text-faint">{t("views.taskDetailView.noGateRecord")}</span>
               ) : (
                 task.gates.map((g) => (
                   <div key={g.name} className="flex items-center gap-1.5 text-[11px]">
@@ -360,15 +348,14 @@ export function TaskDetailView({
 
             <div className="flex flex-col gap-1.5">
               <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                关系
-              </span>
+                {t("views.taskDetailView.relationship")}</span>
               {outEdges.length === 0 && inEdges.length === 0 ? (
-                <span className="text-[11px] text-text-faint">无关联任务</span>
+                <span className="text-[11px] text-text-faint">{t("views.taskDetailView.unrelatedTasks")}</span>
               ) : (
                 <>
                   {outEdges.length > 0 && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-text-faint">出边</span>
+                      <span className="text-[10px] text-text-faint">{t("views.taskDetailView.outSide")}</span>
                       {outEdges.map((r, i) => (
                         <RelationRow
                           key={`out-${r.kind}-${r.to}-${i}`}
@@ -384,7 +371,7 @@ export function TaskDetailView({
                   )}
                   {inEdges.length > 0 && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-text-faint">入边</span>
+                      <span className="text-[10px] text-text-faint">{t("views.taskDetailView.enterEdge")}</span>
                       {inEdges.map((r, i) => (
                         <RelationRow
                           key={`in-${r.kind}-${r.from}-${i}`}
@@ -407,21 +394,18 @@ export function TaskDetailView({
             {/* 操作区：external 灰显 + 引导 */}
             <div className="flex flex-col gap-2">
               <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                状态转换
-              </span>
+                {t("views.taskDetailView.stateTransition")}</span>
               {external ? (
                 <div className="rounded-md border border-border bg-surface-raised p-2.5">
                   <div className="flex items-center gap-1.5 text-[12px] text-text-muted">
                     <Lock weight="bold" />
-                    由 {task.engine} 管理
-                  </div>
+                    {t("views.taskDetailView.by")}{task.engine} {t("views.taskDetailView.management")}</div>
                   <button className="mt-2 inline-flex items-center gap-1 text-[12px] text-accent hover:underline">
-                    在 {task.engine} 中打开
-                    <ArrowSquareOut weight="bold" />
+                    {t("views.taskDetailView.message")}{task.engine} {t("views.taskDetailView.open")}<ArrowSquareOut weight="bold" />
                   </button>
                 </div>
               ) : isTerminal(task.coordinationStatus) ? (
-                <p className="text-[12px] text-text-faint">终态不可再转出</p>
+                <p className="text-[12px] text-text-faint">{t("views.taskDetailView.finalStateCannotTransferredOutAgain")}</p>
               ) : (
                 <div className="grid grid-cols-2 gap-1.5">
                   {LOCAL_TRANSITIONS.filter(
@@ -448,24 +432,22 @@ export function TaskDetailView({
             {task.closeoutReadiness === "ready" && (
               <div className="flex flex-col gap-2">
                 <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                  收口机判
-                </span>
+                  {t("views.taskDetailView.closingMachineJudgment")}</span>
                 <button
                   onClick={() => reviewMutation.mutate({ taskId: task.taskId })}
                   disabled={reviewMutation.isPending}
                   className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-accent px-2 py-1.5 text-[12px] font-semibold text-accent-fg active:scale-[0.98] disabled:opacity-50"
                 >
                   <SealCheck weight="bold" />
-                  {reviewMutation.isPending ? "机判中…" : "请求 review gate 机判"}
+                  {reviewMutation.isPending ? t("views.taskDetailView.judging") : t("views.taskDetailView.requestReviewGateReview")}
                 </button>
                 {reviewMutation.isError && (
                   <p className="text-[11px] leading-relaxed text-danger">
-                    机判请求失败:{(reviewMutation.error as Error)?.message ?? "本地台账桥未返回"}
+                    {t("views.taskDetailView.machineJudgmentRequestFailed")}{(reviewMutation.error as Error)?.message ?? t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
                   </p>
                 )}
                 <p className="text-[11px] leading-relaxed text-text-faint">
-                  判定由 review gate 机判(PASS/FAIL 由 findings 与 gates 决定),人工不可覆写。结果经投影重读回写 closeoutReadiness。
-                </p>
+                  {t("views.taskDetailView.judgmentDeterminedByReviewGateMachinePass")}</p>
               </div>
             )}
           </div>

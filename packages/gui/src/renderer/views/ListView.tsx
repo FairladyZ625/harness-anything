@@ -13,6 +13,7 @@ import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { sortByFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
+import { t } from "../i18n/index.tsx";
 
 const PAGE_SIZE_OPTIONS = [8, 15, 30, 60] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
@@ -64,7 +65,7 @@ function AuditRow({
         <button
           type="button"
           onClick={() => onToggleFavorite(task.taskId)}
-          title={isFavorite ? "取消收藏" : "收藏(置顶)"}
+          title={isFavorite ? t("views.listView.cancelFavorites") : t("views.listView.favoritesPinned")}
           className={`inline-flex items-center justify-center rounded p-0.5 text-[14px] hover:bg-surface ${
             isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
@@ -89,8 +90,7 @@ function AuditRow({
           {isExternal(task) && (
             <span className="inline-flex items-center gap-1">
               <Lock weight="bold" />
-              外部只读
-            </span>
+              {t("views.listView.externalReadOnly")}</span>
           )}
         </div>
       </td>
@@ -186,12 +186,11 @@ export function ListView({
         <>
           <header className="border-b border-border px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-3">
-              <h1 className="ui-title font-semibold">列表</h1>
+              <h1 className="ui-title font-semibold">{t("views.listView.list")}</h1>
               <span className="font-mono text-[13px] text-text-faint">
-                审计表格 · 定位任务、外部只读源、归档和投影风险
-              </span>
+                {t("views.listView.auditFormsLocateTasksExternalReadOnly")}</span>
               <span className="ml-auto font-mono text-[13px] text-text-faint">
-                {tasks.length}/{allTasks.length} filtered
+                {t("views.listView.filteredCount", { filtered: tasks.length, total: allTasks.length })}
               </span>
             </div>
           </header>
@@ -201,7 +200,7 @@ export function ListView({
             filteredCount={tasks.length}
             filters={filters}
             onChange={onFiltersChange}
-            contextLabel="列表"
+            contextLabel={t("views.listView.list")}
             favorites={favorites}
           />
         </>
@@ -209,60 +208,53 @@ export function ListView({
 
       {selectedTaskIds.size > 0 && (
         <div className="flex items-center gap-3 bg-accent/10 border-b border-border/40 px-4 py-2 text-[13px]">
-          <span className="font-semibold text-accent">批量操作 ({selectedTaskIds.size} 项已选):</span>
+          <span className="font-semibold text-accent">{t("views.listView.batchOperations")}{selectedTaskIds.size} {t("views.listView.itemsSelected")}</span>
           <button
             onClick={() => {
-              alert(`已模拟批量对任务 [${Array.from(selectedTaskIds).join(", ")}] 运行 Check！`);
+              alert(t("views.listView.simulatedBatchRunTaskValueCheck", { value: Array.from(selectedTaskIds).join(", ") }));
               setSelectedTaskIds(new Set());
             }}
             className="rounded bg-accent px-2.5 py-1 font-semibold text-accent-fg hover:bg-accent/90 cursor-pointer"
           >
-            批量运行 Check
-          </button>
+            {t("views.listView.runCheckBatches")}</button>
           <button
             onClick={() => {
-              alert(`已模拟批量对任务 [${Array.from(selectedTaskIds).join(", ")}] 标记为 Ready！`);
+              alert(t("views.listView.simulatedBatchPairTaskValueMarkedAs", { value: Array.from(selectedTaskIds).join(", ") }));
               setSelectedTaskIds(new Set());
             }}
             className="rounded border border-border bg-surface px-2.5 py-1 hover:bg-surface-raised cursor-pointer"
           >
-            批量标记 Ready
-          </button>
+            {t("views.listView.batchMarkReady")}</button>
           <button
             onClick={() => {
-              alert(`已模拟批量对任务 [${Array.from(selectedTaskIds).join(", ")}] 进行归档！`);
+              alert(t("views.listView.batchArchivingTaskValueHasBeenSimulated", { value: Array.from(selectedTaskIds).join(", ") }));
               setSelectedTaskIds(new Set());
             }}
             className="rounded border border-border bg-surface px-2.5 py-1 hover:bg-surface-raised text-text-muted cursor-pointer"
           >
-            批量归档
-          </button>
+            {t("views.listView.batchArchiving")}</button>
           <button
             onClick={() => setSelectedTaskIds(new Set())}
             className="ml-auto text-text-faint hover:text-text cursor-pointer"
           >
-            取消选择
-          </button>
+            {t("views.listView.deselect")}</button>
         </div>
       )}
 
       <div className="grid grid-cols-3 gap-3 border-b border-border px-4 py-3">
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <div className="font-mono text-[12px] uppercase tracking-wide text-text-faint">
-            当前结果
-          </div>
+            {t("views.listView.currentResults")}</div>
           <div className="mt-1 font-mono text-[22px] font-semibold">{tasks.length}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <div className="font-mono text-[12px] uppercase tracking-wide text-text-faint">
-            外部只读
-          </div>
+            {t("views.listView.externalReadOnly2")}</div>
           <div className="mt-1 font-mono text-[22px] font-semibold">{externalCount}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <div className="font-mono text-[12px] uppercase tracking-wide text-text-faint">
-            风险/失联
-          </div>
+            {t("views.listView.riskLossContact")}</div>
           <div className="mt-1 font-mono text-[22px] font-semibold">{riskCount}</div>
         </div>
       </div>
@@ -271,10 +263,9 @@ export function ListView({
         {visible.length === 0 ? (
           <div className="grid h-full place-items-center p-6">
             <div className="max-w-md rounded-lg border border-dashed border-border px-4 py-5 text-center">
-              <div className="text-[16px] font-semibold text-text">没有匹配任务</div>
+              <div className="text-[16px] font-semibold text-text">{t("views.listView.noMatchingTasks")}</div>
               <p className="mt-1 text-[14px] text-text-faint">
-                放宽搜索、模块、状态或打开“含归档”查看隐藏任务。
-              </p>
+                {t("views.listView.broadenSearchModuleStatusOpenArchivesView")}</p>
             </div>
           </div>
         ) : (
@@ -302,14 +293,14 @@ export function ListView({
                     className="accent-accent"
                   />
                 </th>
-                <th className="w-10 px-2 py-2 font-medium" title="收藏">★</th>
-                <th className="px-3 py-2 font-medium">task</th>
-                <th className="px-3 py-2 font-medium">title / module</th>
-                <th className="px-3 py-2 font-medium">status</th>
-                <th className="px-3 py-2 font-medium">closeout</th>
-                <th className="px-3 py-2 font-medium">engine</th>
-                <th className="px-3 py-2 font-medium">freshness</th>
-                <th className="px-3 py-2 font-medium">package</th>
+                <th className="w-10 px-2 py-2 font-medium" title={t("views.listView.collection")}>★</th>
+                <th className="px-3 py-2 font-medium">{t("views.listView.task")}</th>
+                <th className="px-3 py-2 font-medium">{t("views.listView.titleModule")}</th>
+                <th className="px-3 py-2 font-medium">{t("views.listView.status")}</th>
+                <th className="px-3 py-2 font-medium">{t("views.listView.closeout")}</th>
+                <th className="px-3 py-2 font-medium">{t("views.listView.engine")}</th>
+                <th className="px-3 py-2 font-medium">{t("views.listView.freshness")}</th>
+                <th className="px-3 py-2 font-medium">{t("views.listView.package")}</th>
               </tr>
             </thead>
             <tbody>
@@ -332,14 +323,13 @@ export function ListView({
 
       <footer className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
         <span className="font-mono text-[13px] text-text-faint">
-          page {safePage + 1} / {pageCount}
+          {t("views.listView.pageCount", { page: safePage + 1, total: pageCount })}
         </span>
         <span className="font-mono text-[13px] text-text-faint">
-          rows {visible.length} of {sorted.length}
+          {t("views.listView.rowCount", { visible: visible.length, total: sorted.length })}
         </span>
         <label className="ml-2 flex items-center gap-1.5 text-[12px] text-text-faint">
-          每页
-          <select
+          {t("views.listView.perPage")}<select
             value={pageSize}
             onChange={(event) => {
               setPageSize(Number(event.target.value) as PageSize);
@@ -359,15 +349,13 @@ export function ListView({
             className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted enabled:hover:bg-surface-raised enabled:hover:text-text disabled:opacity-40"
           >
             <CaretLeft weight="bold" />
-            上一页
-          </button>
+            {t("views.listView.previousPage")}</button>
           <button
             disabled={safePage >= pageCount - 1}
             onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
             className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted enabled:hover:bg-surface-raised enabled:hover:text-text disabled:opacity-40"
           >
-            下一页
-            <CaretRight weight="bold" />
+            {t("views.listView.nextPage")}<CaretRight weight="bold" />
           </button>
         </div>
       </footer>

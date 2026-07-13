@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AdapterInfo, TaskRow } from "../model/types";
 import { AdapterCard } from "../components/adapter/AdapterCard";
 import { AdapterContextRail } from "../components/adapter/AdapterContextRail";
+import { t } from "../i18n/index.tsx";
 
 export function AdaptersView({
   adapters,
@@ -22,14 +23,13 @@ export function AdaptersView({
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
-        <h1 className="ui-title font-mono font-semibold">引擎 / Adapter</h1>
+        <h1 className="ui-title font-mono font-semibold">{t("views.adaptersView.engineAdapter")}</h1>
         <p className="mt-0.5 text-[11px] text-text-faint">
-          只显示当前代码中实际注册的 provider metadata；连接状态与凭证不在此 snapshot 内。
-        </p>
+          {t("views.adaptersView.onlyProviderMetadataActuallyRegisteredCurrentCode")}</p>
       </header>
-      {loading && <p className="p-4 text-sm text-text-muted">正在读取 adapter registry…</p>}
-      {failed && <p className="p-4 text-sm text-danger">adapter registry 读取失败。</p>}
-      {!loading && !failed && adapters.length === 0 && <p className="p-4 text-sm text-text-muted">没有已注册 adapter。</p>}
+      {loading && <p className="p-4 text-sm text-text-muted">{t("views.adaptersView.readingAdapterRegistry")}</p>}
+      {failed && <p className="p-4 text-sm text-danger">{t("views.adaptersView.adapterRegistryReadFailed")}</p>}
+      {!loading && !failed && adapters.length === 0 && <p className="p-4 text-sm text-text-muted">{t("views.adaptersView.noAdapterRegistered")}</p>}
       {!loading && !failed && adapters.length > 0 &&
       <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="flex min-w-0 flex-col gap-3">

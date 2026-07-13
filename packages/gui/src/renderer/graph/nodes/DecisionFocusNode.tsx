@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { COVERAGE_COLOR_VAR } from "../constants";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 聚焦态 decision 节点(dec_01KXA7811SVVT8P66HNDFZQ7DF CH2/CH5)。
@@ -34,8 +35,8 @@ interface FocusData {
 }
 
 const STATUS_TEXT: Record<ClaimRow["status"], string> = {
-  covered: "已佐证",
-  uncovered: "无证据",
+  get covered() { return t("graph.decisionFocusNode.corroborated"); },
+  get uncovered() { return t("graph.decisionFocusNode.noEvidence"); },
   unknown: "",
 };
 
@@ -80,8 +81,7 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
       <div className="flex-1 flex flex-col">
         {rows.length === 0 && (
           <div className="px-3 py-3 text-[11px] text-text-faint italic">
-            无 claim 锚点(空决策)
-          </div>
+            {t("graph.decisionFocusNode.noClaimAnchorEmptyDecision")}</div>
         )}
         {rows.map((row) => {
           const covColor = COVERAGE_COLOR_VAR[row.status];
@@ -94,7 +94,7 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
                 hasFacts ? "cursor-pointer hover:bg-white/[0.03]" : ""
               }`}
               style={{ minHeight: 44 }}
-              title={hasFacts ? `点击切换 ${row.factRefs!.length} 条证据 fact` : undefined}
+              title={hasFacts ? t("graph.decisionFocusNode.clickSwitchCountPiecesEvidenceFact", { count: row.factRefs!.length }) : undefined}
             >
               {/* per-claim source/target handles — let edges anchor to a specific claim row */}
               <Handle
@@ -112,7 +112,7 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
                 style={{ backgroundColor: "var(--color-axis-authority)" }}
               />
               <span
-                title={row.status === "covered" ? "已佐证" : row.status === "uncovered" ? "无证据 (风险)" : "未知覆盖度"}
+                title={row.status === "covered" ? t("graph.decisionFocusNode.corroborated") : row.status === "uncovered" ? t("graph.decisionFocusNode.noEvidenceRisk") : t("graph.decisionFocusNode.unknownCoverage")}
                 className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
                 style={{
                   backgroundColor: covColor,
@@ -128,7 +128,7 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
               <span className="ml-auto flex items-center gap-1.5">
                 {row.derivesCount > 0 && (
                   <span
-                    title={`${row.derivesCount} 条派生/依赖边`}
+                    title={t("graph.decisionFocusNode.derivesCountDerivedDependentEdges", { derivesCount: row.derivesCount })}
                     className="inline-flex items-center gap-1 rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-mono text-text-muted"
                   >
                     <span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: "var(--color-axis-execution)" }} />
@@ -137,7 +137,7 @@ export function DecisionFocusNode({ data, selected }: NodeProps) {
                 )}
                 {row.evidenceCount > 0 && (
                   <span
-                    title={`${row.evidenceCount} 条证据 fact`}
+                    title={t("graph.decisionFocusNode.evidenceCountEvidenceFact", { evidenceCount: row.evidenceCount })}
                     className="inline-flex items-center gap-1 rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-mono text-text-muted"
                   >
                     <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "var(--color-axis-evidence)" }} />

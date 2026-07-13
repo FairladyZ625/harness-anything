@@ -1,4 +1,5 @@
 import type { NodeProps } from "@xyflow/react";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 旧 dagre 复合布局的 module group 背景。三泳道布局不再新建 moduleGroup,
@@ -16,7 +17,7 @@ export function ModuleGroupNode({ data, width, height }: NodeProps) {
       }}
     >
       <div className="absolute -top-6 left-0 text-[11px] font-mono text-text-muted tracking-wider">
-        MODULE: {data.label as string}
+        {t("graph.moduleGroupNode.module")} {data.label as string}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { Clipboard, Check } from "@phosphor-icons/react";
+import { t } from "../i18n/index.tsx";
 
 /**
  * 一键复制上下文按钮(W2B §3)。
@@ -11,7 +12,7 @@ import { Clipboard, Check } from "@phosphor-icons/react";
  */
 export function CopyContextButton({
   buildText,
-  label = "复制上下文",
+  label = t("components.copyContextButton.copyContext"),
   compact = false,
 }: {
   /** 惰性构造:点击时才算上下文文本(避免每帧重算) */
@@ -47,7 +48,7 @@ export function CopyContextButton({
   return (
     <button
       onClick={onCopy}
-      title={copied ? "已复制到剪贴板" : "复制 agent 可用的上下文包(粘贴给你自己的 coding agent)"}
+      title={copied ? t("components.copyContextButton.copiedClipboard") : t("components.copyContextButton.copyContextPackageAvailableAgentPasteYour")}
       className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors ${
         copied
           ? "border-success/40 bg-success/10 text-success"
@@ -55,7 +56,7 @@ export function CopyContextButton({
       }`}
     >
       {copied ? <Check weight="bold" className="text-[12px]" /> : <Clipboard weight="bold" className="text-[12px]" />}
-      {compact ? (copied ? "已复制" : label) : copied ? "已复制" : label}
+      {compact ? (copied ? t("components.copyContextButton.copied") : label) : copied ? t("components.copyContextButton.copied") : label}
     </button>
   );
 }

@@ -8,6 +8,7 @@ import {
 import type { Project, TaskRow } from "../model/types.ts";
 import { useTheme, type ThemeMode } from "../theme.tsx";
 import { MockBadge } from "./MockBadge.tsx";
+import { t } from "../i18n/index.tsx";
 
 const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
   dark: "light",
@@ -26,7 +27,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={() => setMode(THEME_CYCLE[mode])}
-      title={`主题：${mode}（点击切换）`}
+      title={t("components.shellChrome.themeModeClickSwitch", { mode: mode })}
       className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
     >
       {THEME_ICON[mode]}
@@ -62,7 +63,7 @@ export function NavButton({
       {label}
       {isNew && (
         <span className="rounded border border-accent px-1 font-mono text-[10px] leading-[1.4] text-accent">
-          NEW
+          {t("components.shellChrome.new")}
         </span>
       )}
       {badge !== undefined && badge > 0 && (
@@ -107,15 +108,15 @@ export function ProjectSummary({
           {project.name}
         </span>
         <span className="block truncate font-mono text-[13px] text-text-faint">
-          {project.preset} · {projectTasks.length} tasks
+          {project.preset} · {t("components.shellChrome.taskCount", { count: projectTasks.length })}
         </span>
         <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[12px]">
-          <span className="text-accent">{review} review</span>
+          <span className="text-accent">{t("components.shellChrome.reviewCount", { count: review })}</span>
           <span className={blocked > 0 ? "text-status-blocked" : "text-text-faint"}>
-            {blocked} blocked
+            {t("components.shellChrome.blockedCount", { count: blocked })}
           </span>
           <span className={stale > 0 ? "text-stale" : "text-text-faint"}>
-            {stale} stale
+            {t("components.shellChrome.staleCount", { count: stale })}
           </span>
         </span>
       </span>
@@ -136,8 +137,7 @@ export function MockViewBanner() {
     <div className="flex shrink-0 items-center gap-2 border-b border-stale/30 bg-stale/10 px-4 py-2">
       <MockBadge />
       <span className="font-mono text-[12px] text-text-muted">
-        演示数据 · 当前项目首页仍含原型事件流,以下事件不代表真实台账
-      </span>
+        {t("components.shellChrome.demonstrationDataCurrentProjectHomepageStillContains")}</span>
     </div>
   );
 }

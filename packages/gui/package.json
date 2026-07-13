@@ -14,7 +14,7 @@
     "package:win:x64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --win --x64",
     "package:linux:x64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --linux AppImage deb --x64",
     "preview": "vite preview --host 127.0.0.1",
-    "test:gui": "vitest run --config vitest.config.ts",
+    "test:gui": "node scripts/check-locales.mjs && vitest run --config vitest.config.ts",
     "test:e2e": "npm run build && npm run build:preload && node --test e2e/*.e2e.mjs"
   },
   "exports": {

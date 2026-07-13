@@ -3,6 +3,7 @@ import { CaretRight, CaretDown } from "@phosphor-icons/react";
 import type { DocTreeNode } from "../../model/docTree.ts";
 import { collectDirectoryPaths } from "../../model/docTree.ts";
 import { DocPresence } from "./widgets.tsx";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 文档路径分段树(替代原来的 6-组扁平分组)。
@@ -39,8 +40,7 @@ export function DocTree({ nodes, activeDoc, onSelectDoc }: DocTreeProps) {
   if (nodes.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
-        投影未返回文档清单
-      </div>
+        {t("components.docTree.projectionDidNotReturnDocumentList")}</div>
     );
   }
 
@@ -130,16 +130,14 @@ function TreeNodeView({
       <span className="min-w-0 truncate">{doc.title}</span>
       {doc.required && (
         <span className="shrink-0 rounded border border-border px-1 text-[9px] text-text-faint">
-          必需
-        </span>
+          {t("components.docTree.required")}</span>
       )}
       {!doc.present && doc.required && (
         <span
           className="shrink-0 text-[10px]"
           style={{ color: "var(--color-danger)" }}
         >
-          缺失
-        </span>
+          {t("components.docTree.missing")}</span>
       )}
     </button>
   );

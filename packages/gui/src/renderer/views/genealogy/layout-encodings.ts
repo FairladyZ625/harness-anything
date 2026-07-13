@@ -17,6 +17,7 @@ import {
   findGenealogyCycles,
   type RawLineageNode,
 } from "./layout";
+import { t } from "../../i18n/core.ts";
 
 /**
  * 谱系布局：DAG 拓扑为主视图，日簇折叠为同列内同日节点过多时的自动收敛策略。
@@ -191,7 +192,7 @@ export function computeDagLayout(
   const ticks = ranks.map((rank) => {
     const col = byRank.get(rank) ?? [];
     const label =
-      rank === 0 ? "祖先" : rank === maxRank ? "后代" : `层 ${rank}`;
+      rank === 0 ? t("views.layoutEncodings.ancestors") : rank === maxRank ? t("views.layoutEncodings.descendants") : t("views.layoutEncodings.layerRank", { rank: rank });
     const x = maxRank === 0 ? PAD_X + contentW / 2 : PAD_X + rank * colStep;
     const day = col[0]?.dayKey;
     const dayLabel = day && day !== "NO_TIME" ? day.slice(5) : "";

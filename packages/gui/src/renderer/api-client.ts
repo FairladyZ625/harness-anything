@@ -32,6 +32,7 @@ import type {
   ProjectionWarning,
   TaskProjectionRow
 } from "../api/renderer-dto.ts";
+import { t } from "./i18n/core.ts";
 import {
   readExecutionEvidencePageResult,
   type ExecutionEvidencePageSuccess
@@ -282,11 +283,11 @@ function readCatalogSnapshotResult(value: unknown): CatalogSnapshotSuccess {
 function readDecisionMutationResult(value: unknown): DecisionMutationResult {
   const result = value as DecisionMutationResult;
   if (!result || typeof result !== "object" || typeof result.ok !== "boolean") {
-    return { ok: false, error: { code: "invalid_result", hint: "Decision mutation bridge returned an invalid result." } };
+    return { ok: false, error: { code: "invalid_result", hint: t("renderer.apiClient.invalidDecisionMutationResult") } };
   }
   if (!result.ok) return result;
   if (typeof result.decisionId !== "string" || typeof result.state !== "string") {
-    return { ok: false, error: { code: "invalid_result", hint: "Decision mutation bridge returned no decision id or state." } };
+    return { ok: false, error: { code: "invalid_result", hint: t("renderer.apiClient.missingDecisionIdOrState") } };
   }
   return result;
 }
@@ -473,7 +474,7 @@ function readCommandResult(value: unknown): CommandResult {
     ok: false,
     error: {
       code: "invalid_bridge_result",
-      hint: "The GUI bridge returned an unrecognized command result."
+      hint: t("renderer.apiClient.unrecognizedCommandResult")
     }
   };
 }

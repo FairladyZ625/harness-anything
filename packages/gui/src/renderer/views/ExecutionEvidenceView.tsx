@@ -8,6 +8,7 @@ import {
   type ExecutionRow,
   type TaskExecutionGroup
 } from "../execution-data.ts";
+import { t } from "../i18n/index.tsx";
 
 /**
  * 执行证据视图(mission B2 · 忠实还原 execution-view-prototype.html)。
@@ -22,10 +23,10 @@ import {
 type FilterKey = "receiptPass" | "receiptNone" | "execArchival" | "execReal";
 
 const FILTER_LABEL: Record<FilterKey, string> = {
-  receiptPass: "有通过 receipt",
-  receiptNone: "无 receipt",
-  execArchival: "迁移归档",
-  execReal: "真实执行"
+  get receiptPass() { return t("views.executionEvidenceView.thereReceipt"); },
+  get receiptNone() { return t("views.executionEvidenceView.noReceipt"); },
+  get execArchival() { return t("views.executionEvidenceView.migrateArchive"); },
+  get execReal() { return t("views.executionEvidenceView.realExecution"); }
 };
 
 export function ExecutionEvidenceView() {
@@ -54,15 +55,12 @@ export function ExecutionEvidenceView() {
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <header className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="ui-title font-semibold">执行证据</h1>
+          <h1 className="ui-title font-semibold">{t("views.executionEvidenceView.evidenceExecution")}</h1>
           <span className="font-mono text-[13px] text-text-faint">
-            按 checker receipt 状态排序 · 声称交付却无证据的浮顶
-          </span>
+            {t("views.executionEvidenceView.sortByCheckerReceiptStatusFloatingTops")}</span>
         </div>
         <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-text-muted">
-          交付主张 + 证据 + checker 验没验。核心排序信号 = checker receipt 状态:无 passing receipt 的交付浮顶
-          (说做完了但没证据)。迁移归档的历史交付证据在此归宿。
-        </p>
+          {t("views.executionEvidenceView.deliverClaimEvidenceCheckerCoreSortingSignal")}</p>
       </header>
 
       <StatStrip aggregation={aggregation.data} />
@@ -86,12 +84,12 @@ export function ExecutionEvidenceView() {
 function StatStrip({ aggregation }: { readonly aggregation: ExecutionAggregation }) {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1.5 border-b border-border bg-surface px-4 py-2 font-mono text-[12px]">
-      <StatItem label="执行" value={aggregation.totalExecutions} />
-      <StatItem label="有执行的 task" value={aggregation.tasksWithExecutions} />
-      <StatItem label="交付输出" value={aggregation.totalOutputs} />
-      <StatItem label="迁移归档执行" value={aggregation.archivalExecutions} tone="warn" />
-      <StatItem label="真实执行" value={aggregation.realExecutions} tone="good" />
-      <StatItem label="有通过 receipt" value={aggregation.passingReceiptOutputs} tone="warn" />
+      <StatItem label={t("views.executionEvidenceView.execute")} value={aggregation.totalExecutions} />
+      <StatItem label={t("views.executionEvidenceView.thereTasksExecuted")} value={aggregation.tasksWithExecutions} />
+      <StatItem label={t("views.executionEvidenceView.deliverOutput")} value={aggregation.totalOutputs} />
+      <StatItem label={t("views.executionEvidenceView.migrationArchiveExecution")} value={aggregation.archivalExecutions} tone="warn" />
+      <StatItem label={t("views.executionEvidenceView.realExecution")} value={aggregation.realExecutions} tone="good" />
+      <StatItem label={t("views.executionEvidenceView.thereReceipt")} value={aggregation.passingReceiptOutputs} tone="warn" />
     </div>
   );
 }
@@ -132,7 +130,7 @@ function FilterBar({
     {
       key: "execArchival",
       tone: "archival",
-      count: `${aggregation.archivalExecutions} 执行 · ${aggregation.totalOutputs} 输出`
+      count: t("views.executionEvidenceView.archivalExecutionsExecutionTotalOutputsOutput", { archivalExecutions: aggregation.archivalExecutions, totalOutputs: aggregation.totalOutputs })
     },
     { key: "execReal", tone: "real", count: `${aggregation.realExecutions}` }
   ];
@@ -169,7 +167,7 @@ function FilterBar({
         />
       ))}
       <span className="ml-auto inline-flex items-center gap-2 font-mono text-[11px] text-text-faint">
-        {loading ? "加载中…" : `本页 ${visibleTasks} task · ${visibleOutputs} output preview visible`}
+        {loading ? t("views.executionEvidenceView.loading") : t("views.executionEvidenceView.pageVisibleTasksTaskVisibleOutputsOutputPreviewVisible", { visibleTasks: visibleTasks, visibleOutputs: visibleOutputs })}
       </span>
     </div>
   );
@@ -191,7 +189,7 @@ function FilterChip({
   return (
     <button
       onClick={onClick}
-      title={active ? "点击隐藏" : "点击显示"}
+      title={active ? t("views.executionEvidenceView.clickHide") : t("views.executionEvidenceView.clickShow")}
       className={`ee-chip ee-chip-${tone} ${active ? "ee-chip-active" : ""}`}
     >
       <span className="ee-chip-label">{label}</span>
@@ -212,21 +210,19 @@ function ExecutionContent({
   if (aggregation.isLoading && aggregation.data.groups.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
-        正在加载执行投影…
-      </div>
+        {t("views.executionEvidenceView.loadingExecutionProjection")}</div>
     );
   }
   if (aggregation.isError) {
     return (
       <div className="rounded-lg border border-dashed border-danger/40 bg-danger/5 px-4 py-8 text-center text-[14px] text-danger">
-        <div>读取执行投影失败，数据 generation 可能已更新。</div>
+        <div>{t("views.executionEvidenceView.failedReadExecutionProjectionDataGenerationMay")}</div>
         <button
           type="button"
           className="mt-3 rounded border border-danger/40 px-3 py-1.5 font-mono text-[12px]"
           onClick={aggregation.restartPagination}
         >
-          从第一页重新加载
-        </button>
+          {t("views.executionEvidenceView.reloadFromFirstPage")}</button>
       </div>
     );
   }
@@ -239,8 +235,7 @@ function ExecutionContent({
     return (
       <div className="space-y-3.5">
         <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
-          当前页在这些 filter chips 下没有可见的执行证据。可调整过滤条件，或继续翻页查找。
-        </div>
+          {t("views.executionEvidenceView.currentPageHasNoVisibleEvidenceExecution")}</div>
         <PageControls aggregation={aggregation} />
       </div>
     );
@@ -263,24 +258,22 @@ function PageControls({
 }) {
   if (!aggregation.hasPreviousPage && !aggregation.hasNextPage) return null;
   return (
-    <nav aria-label="执行证据分页" className="flex items-center justify-center gap-2 py-2 font-mono text-[12px]">
+    <nav aria-label={t("views.executionEvidenceView.executionEvidencePaging")} className="flex items-center justify-center gap-2 py-2 font-mono text-[12px]">
       <button
         type="button"
         className="rounded border border-border px-3 py-1.5 text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
         disabled={!aggregation.hasPreviousPage || aggregation.isFetching}
         onClick={aggregation.previousPage}
       >
-        上一页
-      </button>
-      <span className="min-w-16 text-center text-text-faint">第 {aggregation.pageNumber} 页</span>
+        {t("views.executionEvidenceView.previousPage")}</button>
+      <span className="min-w-16 text-center text-text-faint">{t("views.executionEvidenceView.no")}{aggregation.pageNumber} {t("views.executionEvidenceView.page")}</span>
       <button
         type="button"
         className="rounded border border-border px-3 py-1.5 text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
         disabled={!aggregation.hasNextPage || aggregation.isFetching}
         onClick={aggregation.nextPage}
       >
-        下一页
-      </button>
+        {t("views.executionEvidenceView.nextPage")}</button>
     </nav>
   );
 }
@@ -325,7 +318,7 @@ function TaskSection({
     <section className={`ee-task-section ${collapsed ? "ee-task-section-collapsed" : ""}`}>
       <button
         onClick={() => setCollapsed((prev) => !prev)}
-        title={collapsed ? "点击展开" : "点击折叠"}
+        title={collapsed ? t("views.executionEvidenceView.clickExpand") : t("views.executionEvidenceView.clickCollapse")}
         className="ee-task-section-head"
       >
         <CaretDown weight="bold" className="ee-chevron" />
@@ -333,9 +326,9 @@ function TaskSection({
           <div className="ee-ts-title">{group.title}</div>
           <div className="ee-ts-meta">
             <span className="ee-ts-taskid">{group.taskId}</span>
-            <span className="ee-ts-exec-count">本页 {group.executions.length} 轮执行</span>
+            <span className="ee-ts-exec-count">{t("views.executionEvidenceView.pageExecutions", { count: group.executions.length })}</span>
             <span className={`ee-ts-out-count ${hasAnyPassing ? "" : "text-stale"}`}>
-              {totalOutputs} 输出 · {hasAnyPassing ? "部分有 receipt" : "全部无 receipt"}
+              {totalOutputs} {t("views.executionEvidenceView.output")}{hasAnyPassing ? t("views.executionEvidenceView.someHaveReceipts") : t("views.executionEvidenceView.allWithoutReceipt")}
             </span>
           </div>
         </div>
@@ -389,9 +382,9 @@ function ExecutionBlock({
     <div className="ee-exec-block">
       <div className="ee-exec-header">
         {execution.archival ? (
-          <span className="ee-archival-badge"><Package weight="bold" className="text-[10px]" />迁移归档</span>
+          <span className="ee-archival-badge"><Package weight="bold" className="text-[10px]" />{t("views.executionEvidenceView.migrateArchive")}</span>
         ) : (
-          <span className="ee-real-badge"><Lightning weight="bold" className="text-[10px]" />真实执行</span>
+          <span className="ee-real-badge"><Lightning weight="bold" className="text-[10px]" />{t("views.executionEvidenceView.realExecution")}</span>
         )}
         {!execution.archival && execution.executorId && (
           <span className="ee-executor-id">{execution.executorId}</span>
@@ -411,8 +404,7 @@ function ExecutionBlock({
         </div>
       ) : (
         <div className="ee-exec-empty">
-          该轮暂无可见输出
-          {(!filters.receiptNone || !filters.receiptPass) ? "(受 receipt 过滤影响)。" : "。"}
+          {t("views.executionEvidenceView.thereNoVisibleOutputRoundYet")}{(!filters.receiptNone || !filters.receiptPass) ? t("views.executionEvidenceView.affectedByReceiptFiltering") : "。"}
         </div>
       )}
       {execution.hasMoreOutputs && loadedOutputs === null && (
@@ -422,11 +414,11 @@ function ExecutionBlock({
           disabled={loadingOutputs}
           onClick={() => void loadAllOutputs()}
         >
-          {loadingOutputs ? "加载全部输出…" : `按需加载全部 ${execution.outputCount} 个输出`}
+          {loadingOutputs ? t("views.executionEvidenceView.loadingAllOutput") : t("views.executionEvidenceView.loadAllOutputCountOutputsDemand", { outputCount: execution.outputCount })}
         </button>
       )}
       {loadError && (
-        <div className="mx-3 mb-3 font-mono text-[11px] text-danger">输出详情加载失败，可重试。</div>
+        <div className="mx-3 mb-3 font-mono text-[11px] text-danger">{t("views.executionEvidenceView.outputDetailsLoadingFailedPleaseTryAgain")}</div>
       )}
     </div>
   );
@@ -465,7 +457,7 @@ function OutputCard({
       document.body.removeChild(textarea);
     }
     setCopied(true);
-    onToast("已复制证据上下文");
+    onToast(t("views.executionEvidenceView.evidenceContextCopied"));
     window.setTimeout(() => setCopied(false), 1600);
   };
 
@@ -482,28 +474,27 @@ function OutputCard({
         </div>
         {long_ && !expanded && (
           <button className="ee-out-expand" onClick={() => setExpanded(true)}>
-            展开全文 ↓
-          </button>
+            {t("views.executionEvidenceView.expandFullText")}</button>
         )}
         <div className="ee-out-footer">
           <span className="ee-evidence-id">{output.evidenceId}</span>
           {output.hasPassingReceipt ? (
-            <span className="ee-receipt-badge ee-receipt-pass"><Check weight="bold" className="text-[10px]" />通过 receipt</span>
+            <span className="ee-receipt-badge ee-receipt-pass"><Check weight="bold" className="text-[10px]" />{t("views.executionEvidenceView.byReceipt")}</span>
           ) : (
-            <span className="ee-receipt-badge ee-receipt-none">⧗ 无 receipt</span>
+            <span className="ee-receipt-badge ee-receipt-none">{t("views.executionEvidenceView.noReceipt2")}</span>
           )}
           <span className="ee-substrate-tag">{output.substrate}</span>
-          {archival && <span className="ee-archival-corner"><Package weight="bold" className="text-[10px]" />归档</span>}
+          {archival && <span className="ee-archival-corner"><Package weight="bold" className="text-[10px]" />{t("views.executionEvidenceView.archive")}</span>}
         </div>
       </div>
       <div className="ee-out-actions">
         <button
           onClick={onCopy}
-          title="复制 agent 可用的上下文包"
+          title={t("views.executionEvidenceView.copyContextPackageAvailableAgent")}
           className={`ee-copy-btn ${copied ? "ee-copy-btn-copied" : ""}`}
         >
           {copied ? <Check weight="bold" className="text-[12px]" /> : <Clipboard weight="bold" className="text-[12px]" />}
-          <span>{copied ? "已复制" : "复制上下文"}</span>
+          <span>{copied ? t("views.executionEvidenceView.copied") : t("views.executionEvidenceView.copyContext")}</span>
         </button>
       </div>
     </article>
@@ -526,17 +517,17 @@ function formatStamp(iso: string): string {
 
 function buildOutputContext(output: ExecutionOutputRow): string {
   const lines: ReadonlyArray<string> = [
-    "# 执行证据 · 上下文包",
+    t("views.executionEvidenceView.executionEvidenceContextPackage"),
     "",
     `evidence_id: ${output.evidenceId}`,
     `substrate: ${output.substrate}`,
     `hasReceipt: ${output.hasReceiptRef}`,
     "",
-    "## 交付证据原文",
+    t("views.executionEvidenceView.deliveryEvidenceOriginalText"),
     "",
     output.text,
     "",
-    `--- 复制自 Harness GUI「执行证据」 · ${new Date().toISOString()}`
+    t("views.executionEvidenceView.copiedFromHarnessGuiExecutionEvidenceValue", { value: new Date().toISOString() })
   ];
   return lines.join("\n");
 }

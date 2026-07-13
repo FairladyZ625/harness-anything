@@ -1,5 +1,6 @@
 import { Panel } from "@xyflow/react";
 import type { ViewMode, TerritorySkel } from "../graph/useTerritoryView";
+import { t } from "../i18n/index.tsx";
 
 /**
  * L1 ↔ L2 模式切换条(IA v2 Layer 0 ↔ Layer 1)。
@@ -26,20 +27,16 @@ export function TerritoryModeBar({
       <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-1.5 py-1 shadow-sm">
         <div className="flex overflow-hidden rounded-md border border-border">
           <ModeBtn active={viewMode === "territory"} onClick={() => onModeChange("territory")}>
-            领地
-          </ModeBtn>
+            {t("components.territoryModeBar.territory")}</ModeBtn>
           <ModeBtn active={viewMode === "spotlight"} onClick={() => onModeChange("spotlight")}>
-            聚光灯
-          </ModeBtn>
+            {t("components.territoryModeBar.spotlight")}</ModeBtn>
         </div>
         {viewMode === "territory" && (
           <div className="flex overflow-hidden rounded-md border border-border">
             <ModeBtn active={skel === "task"} onClick={() => onSkelChange("task")}>
-              任务
-            </ModeBtn>
+              {t("components.territoryModeBar.task")}</ModeBtn>
             <ModeBtn active={skel === "decision"} onClick={() => onSkelChange("decision")}>
-              决策
-            </ModeBtn>
+              {t("components.territoryModeBar.decisionMaking")}</ModeBtn>
           </div>
         )}
       </div>

@@ -11,6 +11,7 @@ import {
 } from "../components/badges";
 import { spawningDecisionOf } from "../model/triadic";
 import { sortByFavoritesFirst } from "../model/taskFilters";
+import { t } from "../i18n/index.tsx";
 
 export type LaneGroupBy = "module" | "engine" | "root";
 
@@ -61,7 +62,7 @@ function LaneCard({
   return (
     <div
       onClick={() => onSelect(task.taskId)}
-      title={external ? "外部引擎管理 · 只读" : undefined}
+      title={external ? t("views.swimlaneBoard.externalEngineManagementReadOnly") : undefined}
       className={`flex min-h-[150px] cursor-pointer flex-col rounded-lg bg-surface-raised px-3.5 py-3 ${freshnessBorder(
         task.freshness,
       )} ${archived ? "opacity-50" : ""} ${isFavorite ? "ring-1 ring-accent/40" : ""} hover:border-border-strong`}
@@ -76,7 +77,7 @@ function LaneCard({
             event.stopPropagation();
             onToggleFavorite(task.taskId);
           }}
-          title={isFavorite ? "取消收藏" : "收藏(置顶)"}
+          title={isFavorite ? t("views.swimlaneBoard.cancelFavorites") : t("views.swimlaneBoard.favoritesPinned")}
           className={`ml-auto inline-flex items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
             isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
@@ -121,7 +122,7 @@ function LaneCell({
   return (
     <button
       onClick={onPick}
-      title="在下方查看下钻任务"
+      title={t("views.swimlaneBoard.viewDrillDownTasksBelow")}
       className={`min-h-[62px] w-full rounded-lg border px-3 py-2 text-left transition ${
         selected
           ? "border-accent bg-surface-raised"
@@ -186,8 +187,7 @@ function DrilldownPanel({
     return (
       <section className="min-h-[320px] shrink-0 bg-bg px-4 py-3">
         <div className="h-full rounded-lg border border-dashed border-border px-4 py-5 text-[15px] text-text-faint">
-          选择上方泳道单元格后，在这里查看该组任务。
-        </div>
+          {t("views.swimlaneBoard.afterSelectingUpperSwimlaneCellViewSet")}</div>
       </section>
     );
   }
@@ -202,8 +202,7 @@ function DrilldownPanel({
     <section className="min-h-[320px] shrink-0 bg-bg px-4 py-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="font-mono text-[12px] uppercase tracking-wide text-text-faint">
-          下钻结果
-        </span>
+          {t("views.swimlaneBoard.drillDownResults")}</span>
         <span className="font-mono text-[15px] font-semibold text-text">
           {groupBy}: {laneLabel}
         </span>
@@ -214,7 +213,7 @@ function DrilldownPanel({
           {meta.label}
         </span>
         <span className="font-mono text-[13px] text-text-faint">
-          {tasks.length} tasks
+          {t("views.swimlaneBoard.taskCount", { count: tasks.length })}
         </span>
       </div>
 
@@ -235,16 +234,14 @@ function DrilldownPanel({
               onClick={() => setShowAll(true)}
               className="min-h-[150px] rounded-lg border border-dashed border-border px-3 text-center font-mono text-[13px] text-text-muted hover:border-border-strong hover:text-text"
             >
-              +{hiddenCount} 更多
-            </button>
+              +{hiddenCount} {t("views.swimlaneBoard.more")}</button>
           )}
         </div>
       </div>
 
       {tasks.length === 0 && (
         <div className="rounded-lg border border-dashed border-border px-3 py-4 text-[15px] text-text-faint">
-          该单元格暂无任务
-        </div>
+          {t("views.swimlaneBoard.thereCurrentlyNoTasksCell")}</div>
       )}
     </section>
   );
@@ -363,8 +360,7 @@ export function SwimlaneBoard({
           })}
           {lanes.length === 0 && (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 text-[15px] text-text-faint">
-              当前筛选下没有可展示的泳道任务。
-            </div>
+              {t("views.swimlaneBoard.thereNoSwimlaneTasksDisplayUnderCurrent")}</div>
           )}
         </div>
       </div>

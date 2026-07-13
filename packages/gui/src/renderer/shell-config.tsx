@@ -11,6 +11,7 @@ import {
   ClockCounterClockwise,
   ClipboardText,
 } from "@phosphor-icons/react";
+import { t } from "./i18n/index.tsx";
 
 /**
  * AppShell 级常量与类型:ViewId 路由表 + 导航分组 + 视图标签。
@@ -40,33 +41,33 @@ export const MOCK_BACKED_VIEWS: ReadonlySet<ViewId> = new Set([
 
 // W2C:列表并入看板(第三种 layout),独立「列表」入口删除。
 export const WORKSPACE_NAV: { id: ViewId; label: string; icon: React.ReactNode; isNew?: true }[] = [
-  { id: "overview", label: "总览", icon: <SquaresFour weight="duotone" /> },
-  { id: "board", label: "看板", icon: <Kanban weight="duotone" /> },
-  { id: "decisions", label: "决策批准", icon: <Scales weight="duotone" /> },
-  { id: "decisionPool", label: "决策池", icon: <GitBranch weight="duotone" /> },
-  { id: "factTriage", label: "事实分诊", icon: <FirstAidKit weight="duotone" /> },
-  { id: "executions", label: "执行证据", icon: <ClipboardText weight="duotone" />, isNew: true },
-  { id: "graph", label: "关系图", icon: <Graph weight="duotone" /> },
-  { id: "genealogy", label: "演化史", icon: <ClockCounterClockwise weight="duotone" /> },
+  { id: "overview", get label() { return t("renderer.shellConfig.overview"); }, icon: <SquaresFour weight="duotone" /> },
+  { id: "board", get label() { return t("renderer.shellConfig.kanban"); }, icon: <Kanban weight="duotone" /> },
+  { id: "decisions", get label() { return t("renderer.shellConfig.decisionApproval"); }, icon: <Scales weight="duotone" /> },
+  { id: "decisionPool", get label() { return t("renderer.shellConfig.decisionPool"); }, icon: <GitBranch weight="duotone" /> },
+  { id: "factTriage", get label() { return t("renderer.shellConfig.factTriage"); }, icon: <FirstAidKit weight="duotone" /> },
+  { id: "executions", get label() { return t("renderer.shellConfig.evidenceExecution"); }, icon: <ClipboardText weight="duotone" />, isNew: true },
+  { id: "graph", get label() { return t("renderer.shellConfig.graph"); }, icon: <Graph weight="duotone" /> },
+  { id: "genealogy", get label() { return t("renderer.shellConfig.genealogy"); }, icon: <ClockCounterClockwise weight="duotone" /> },
 ];
 
 export const MANAGE_NAV: { id: ViewId; label: string; icon: React.ReactNode }[] = [
-  { id: "presets", label: "Preset / Vertical", icon: <Stack weight="duotone" /> },
-  { id: "adapters", label: "引擎 Adapter", icon: <PlugsConnected weight="duotone" /> },
-  { id: "settings", label: "设置", icon: <GearSix weight="duotone" /> },
+  { id: "presets", get label() { return t("renderer.shellConfig.presetVertical"); }, icon: <Stack weight="duotone" /> },
+  { id: "adapters", get label() { return t("renderer.shellConfig.engineAdapter"); }, icon: <PlugsConnected weight="duotone" /> },
+  { id: "settings", get label() { return t("renderer.shellConfig.settings"); }, icon: <GearSix weight="duotone" /> },
 ];
 
 export const VIEW_LABEL: Record<ViewId, string> = {
-  home: "项目",
-  overview: "总览",
-  board: "看板",
-  decisions: "决策批准",
-  decisionPool: "决策池",
-  factTriage: "事实分诊",
-  executions: "执行证据",
-  graph: "关系图",
-  genealogy: "演化史",
-  presets: "Preset / Vertical",
-  adapters: "引擎 Adapter",
-  settings: "设置",
+  get home() { return t("renderer.shellConfig.project"); },
+  get overview() { return t("renderer.shellConfig.overview"); },
+  get board() { return t("renderer.shellConfig.kanban"); },
+  get decisions() { return t("renderer.shellConfig.decisionApproval"); },
+  get decisionPool() { return t("renderer.shellConfig.decisionPool"); },
+  get factTriage() { return t("renderer.shellConfig.factTriage"); },
+  get executions() { return t("renderer.shellConfig.evidenceExecution"); },
+  get graph() { return t("renderer.shellConfig.graph"); },
+  get genealogy() { return t("renderer.shellConfig.genealogy"); },
+  get presets() { return t("renderer.shellConfig.presetVertical"); },
+  get adapters() { return t("renderer.shellConfig.engineAdapter"); },
+  get settings() { return t("renderer.shellConfig.settings"); },
 };

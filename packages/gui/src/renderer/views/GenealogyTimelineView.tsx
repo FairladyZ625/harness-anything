@@ -15,6 +15,7 @@ import { DecisionDetailPanel } from "./genealogy/DecisionDetailPanel";
 import { GenealogyEmptyState, IsolatedNodeMessage } from "./genealogy/EmptyStates";
 import { ParticipantsSidebar } from "./genealogy/ParticipantsSidebar";
 import { TimelinePlot } from "./genealogy/TimelinePlot";
+import { t, tp } from "../i18n/index.tsx";
 
 /**
  * 决策谱系「演化史」视图入口壳。
@@ -165,24 +166,28 @@ export function GenealogyTimelineView({
       <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2.5">
         <h1 className="ui-title inline-flex items-center gap-1.5 font-semibold">
           <ClockCounterClockwise weight="duotone" className="text-accent" />
-          决策演化史
+          {t("views.genealogyTimelineView.evolutionDecisionMaking")}
         </h1>
         <span className="font-mono text-[12px] text-text-faint">
-          {participants.length} 决策参与谱系 · {edges.length} 条演化边
+          {tp(edges.length, {
+            one: "views.genealogyTimelineView.headerStatsOne",
+            other: "views.genealogyTimelineView.headerStatsOther",
+          }, {
+            participants: participants.length,
+          })}
         </span>
         {cycleWarning.count > 0 && (
           <span
             className="inline-flex items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 font-mono text-danger"
             title={cycleWarning.cycles.map((c) => c.join(" → ")).join("\n")}
           >
-            谱系环警告 · {cycleWarning.count}
+            {t("views.genealogyTimelineView.cycleWarning", { count: cycleWarning.count })}
           </span>
         )}
         {focus && (
           <span className="font-mono text-[11px] text-text-faint">
-            焦点谱系：{ancestorCount} 祖先 · {descendantCount} 后代
-            {visibleClusters > 0
-              ? ` · ${visibleClusters} 日簇 / ${visibleCards} 卡`
+            {t("views.genealogyTimelineView.focusPedigree")}{ancestorCount} {t("views.genealogyTimelineView.ancestors")}{descendantCount} {t("views.genealogyTimelineView.descendants")}{visibleClusters > 0
+              ? t("views.genealogyTimelineView.visibleClustersDayClustersVisibleCardsCards", { visibleClusters: visibleClusters, visibleCards: visibleCards })
               : ""}
           </span>
         )}

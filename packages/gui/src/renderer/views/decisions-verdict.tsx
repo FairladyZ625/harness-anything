@@ -31,6 +31,7 @@ import {
 } from "../model/triadic";
 import { CopyContextButton } from "../components/CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
+import { t } from "../i18n/index.tsx";
 
 const dateLabel = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
 
@@ -73,48 +74,48 @@ function computeReadinessSignals(
   }
   signals.push({
     id: "evidence-liveness",
-    label: "evidence 活性",
+    label: t("views.decisionsVerdict.evidenceActivity"),
     color: deadEvidence.length > 0 ? "yellow" : "green",
     summary:
       deadEvidence.length > 0
-        ? `${deadEvidence.length} 条 evidence 引用了已失效 fact:${deadEvidence.join(", ")}(被 invalidated-by/supersedes-fact 边标记)`
-        : "所有引用的 fact 均为活,未被失效边指向",
+        ? t("views.decisionsVerdict.countPiecesEvidenceReferInvalidatedFactValue", { count: deadEvidence.length, value: deadEvidence.join(", ") })
+        : t("views.decisionsVerdict.allReferencedFactsLiveNotPointedBy"),
   });
 
   // ② applies_to 漂移(黄):propose 后 applies_to 文档有 commit(mock 显式字段)
   const drift = d.readinessSignals?.appliesToDrift;
   signals.push({
     id: "applies-to-drift",
-    label: "applies_to 漂移",
+    label: t("views.decisionsVerdict.appliesDrift"),
     color: drift ? "yellow" : "green",
     summary: drift
-      ? `propose 后 applies_to 文档被触碰:${drift.docs.join(", ")} · 最近 commit ${dateLabel(drift.lastCommitAt)}(基于 boundAt × git log)`
-      : "propose 后 applies_to 文档无 commit 触碰",
+      ? t("views.decisionsVerdict.afterProposeAppliesDocumentTouchedValueRecent", { value: drift.docs.join(", "), value2: dateLabel(drift.lastCommitAt) })
+      : t("views.decisionsVerdict.applyDocumentHasNoCommitTouchAfter"),
   });
 
   // ③ 覆盖度(红):承重论点 → 活 fact 不可达
   const cov = coverageOf(d, facts);
   signals.push({
     id: "coverage",
-    label: "覆盖度",
+    label: t("views.decisionsVerdict.coverage"),
     color: cov.total > 0 && cov.covered < cov.total ? "red" : "green",
     summary:
       cov.total === 0
-        ? "无承重论点"
+        ? t("views.decisionsVerdict.noLoadBearingArgument")
         : cov.covered < cov.total
-          ? `承重论点 ${cov.gaps.join(", ")} 无可达活 fact(${cov.covered}/${cov.total})`
-          : `${cov.covered}/${cov.total} 论点有可达活 fact`,
+          ? t("views.decisionsVerdict.loadBearingArgumentValueUnreachableFactCovered", { value: cov.gaps.join(", "), covered: cov.covered, total: cov.total })
+          : t("views.decisionsVerdict.coveredTotalArgumentFactual", { covered: cov.covered, total: cov.total }),
   });
 
   // ④ 冲突标记(红):findConflictMarkers 命中(mock 显式字段)
   const conflict = d.readinessSignals?.conflictMarker;
   signals.push({
     id: "conflict-marker",
-    label: "冲突标记",
+    label: t("views.decisionsVerdict.conflictFlag"),
     color: conflict ? "red" : "green",
     summary: conflict
-      ? `findConflictMarkers 命中:${conflict.summary}(冲突实体 ${conflict.conflictingEntity},coordinator 写入时亦拒)`
-      : "findConflictMarkers 未命中",
+      ? t("views.decisionsVerdict.findConflictMarkersHitsSummaryConflictingEntityConflictingEntityCoordinator", { summary: conflict.summary, conflictingEntity: conflict.conflictingEntity })
+      : t("views.decisionsVerdict.findConflictMarkersMissed"),
   });
 
   return signals;
@@ -157,14 +158,14 @@ function buildConflictRejection(d: DecisionRow): { code: string; reason: string;
   const conflict = d.readinessSignals?.conflictMarker;
   return {
     code: "E_CONFLICT_MARKER",
-    reason: `accept 被 coordinator 前置预检拒绝:findConflictMarkers 命中该 decision 包`,
+    reason: t("views.decisionsVerdict.acceptWasRejectedByCoordinatorPreflightFindConflictMarkers"),
     detail: conflict
       ? [
           `conflictingEntity: ${conflict.conflictingEntity}`,
           `summary: ${conflict.summary}`,
-          `action: 先解决 ${conflict.conflictingEntity} 的并发修改冲突,重新 propose 或 amend`,
+          t("views.decisionsVerdict.actionFirstResolveConcurrentModificationConflictConflictingEntity", { conflictingEntity: conflict.conflictingEntity }),
         ]
-      : ["action: 解决并发冲突后重试"],
+      : [t("views.decisionsVerdict.actionRetryAfterResolvingConcurrencyConflicts")],
   };
 }
 
@@ -198,7 +199,7 @@ function FactChip({
       <button
         onClick={() => onInspect(factRef)}
         className="inline-flex items-center gap-1 rounded border border-dashed border-danger/60 px-1.5 py-0.5 font-mono text-[11px] text-danger hover:bg-danger/10"
-        title="悬空:引用不存在的 fact 锚"
+        title={t("views.decisionsVerdict.danglingReferenceNonExistentFactAnchor")}
       >
         <WarningCircle weight="bold" className="text-[11px]" />
         {factRef}
@@ -211,7 +212,11 @@ function FactChip({
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] ${
         f.invalidated ? "text-stale line-through" : "text-success"
       } hover:bg-surface-raised`}
-      title={`fact:${f.text}${f.invalidated ? " (已失效)" : ""}${rationale ? `\nrationale: ${rationale}` : ""}`}
+      title={t("views.decisionsVerdict.factTooltip", {
+        fact: f.text,
+        expired: f.invalidated ? t("views.decisionsVerdict.expired") : "",
+        rationale: rationale ? t("views.decisionsVerdict.rationaleValue", { rationale }) : "",
+      })}
     >
       <span className="font-sans text-text-faint">⟶</span>
       {f.anchor}
@@ -244,7 +249,7 @@ function ClaimList({
       <div className="text-[11px] font-semibold text-text-faint">
         {title}
         {tone === "rejected" && (
-          <span className="ml-1 text-danger">· 否决比选择更重要,每条必带 why_not</span>
+          <span className="ml-1 text-danger">{t("views.decisionsVerdict.rejectionMoreImportantThanSelectionEveryEntry")}</span>
         )}
       </div>
       <ul className="mt-1 space-y-1.5">
@@ -262,14 +267,13 @@ function ClaimList({
               </div>
             ) : (
               <span className="ml-2 font-mono text-[11px] text-danger">
-                ⚠ 无 evidence(INV-5 Goodhart 风险)
-              </span>
+                {t("views.decisionsVerdict.noEvidenceInv5GoodhartRisk")}</span>
             )}
             {tone === "rejected" && !c.whyNot && (
-              <span className="ml-2 font-mono text-[11px] text-danger">⚠ 缺 why_not</span>
+              <span className="ml-2 font-mono text-[11px] text-danger">{t("views.decisionsVerdict.missingWhyNot")}</span>
             )}
             {c.whyNot && (
-              <div className="ml-4 text-[11px] italic text-text-faint">why_not: {c.whyNot}</div>
+              <div className="ml-4 text-[11px] italic text-text-faint">{t("views.decisionsVerdict.whyNotValue", { value: c.whyNot })}</div>
             )}
           </li>
         ))}
@@ -359,7 +363,7 @@ export function VerdictCard({
                 decisions,
                 facts,
                 tasks,
-                "正在检查此 decision 的证据覆盖、就绪信号与关系上下游",
+                t("views.decisionsVerdict.checkingEvidenceCoverageReadinessSignalsRelationshipUpstream"),
               )
             }
           />
@@ -373,23 +377,21 @@ export function VerdictCard({
       {deepHint && (
         <div className="mt-2 rounded-md bg-stale/10 px-2.5 py-1.5 text-[11px] text-stale">
           <WarningCircle weight="bold" className="mr-1 inline text-[11px]" />
-          高风险:建议拉满证据审查,放慢节奏充分核查后再决策批准。
-        </div>
+          {t("views.decisionsVerdict.highRiskItRecommendedFullyReviewEvidence")}</div>
       )}
       {quickHint && (
         <div className="mt-2 rounded-md bg-surface-raised px-2.5 py-1.5 text-[11px] text-text-faint">
-          低风险:可快速通过(因故进人队列,非典型)。
-        </div>
+          {t("views.decisionsVerdict.lowRiskCanPassQuicklyGettingInto")}</div>
       )}
 
       {/* 决策就绪信号灯(41 §3.1a):四盏机械信号灯必显,灯名 + 判定摘要 hover */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface-raised/40 px-2.5 py-1.5">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-faint">决策就绪</span>
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-faint">{t("views.decisionsVerdict.decisionReady")}</span>
         {signals.map((s) => (
           <SignalLamp key={s.id} signal={s} />
         ))}
         {worst === "green" && (
-          <span className="ml-auto text-[10px] text-success">全绿 · 直接决策批准正当</span>
+          <span className="ml-auto text-[10px] text-success">{t("views.decisionsVerdict.fullyGreenDirectDecisionMakingApprovalLegitimate")}</span>
         )}
       </div>
 
@@ -404,7 +406,7 @@ export function VerdictCard({
         >
           <div className="flex items-center gap-1 font-semibold">
             {worst === "red" ? <BugBeetle weight="bold" className="text-[12px]" /> : <WarningCircle weight="bold" className="text-[12px]" />}
-            {worst === "red" ? "红灯:决策批准前必须核查(承重风险)" : "黄灯:决策批准前建议核查"}
+            {worst === "red" ? t("views.decisionsVerdict.redLightVerificationRequiredBeforeDecisionApproval") : t("views.decisionsVerdict.yellowLightProposedVerificationBeforeDecisionApproval")}
           </div>
           <ul className="mt-1 space-y-0.5 pl-4">
             {signals.filter((s) => s.color !== "green").map((s) => (
@@ -421,29 +423,28 @@ export function VerdictCard({
       {/* 归属展示来自 immutable attribution events；防自提自裁由写服务 fail-closed。 */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
         <span>
-          originator <span className="font-mono text-text-muted">{formatActorAxes(d.attribution.originator, "未知/—")}</span>
+          {t("views.decisionsVerdict.originator")} <span className="font-mono text-text-muted">{formatActorAxes(d.attribution.originator, t("views.decisionsVerdict.unknown"))}</span>
         </span>
         <span>
-          latest actor <span className="font-mono text-text-muted">{formatActorAxes(d.attribution.latestActor, "待决策批准")}</span>
+          {t("views.decisionsVerdict.latestActor")} <span className="font-mono text-text-muted">{formatActorAxes(d.attribution.latestActor, t("views.decisionsVerdict.pendingDecisionApproval"))}</span>
         </span>
       </div>
 
       {/* ① chosen + rejected(必显) */}
-      <ClaimList title="chosen" items={d.chosen} tone="chosen" facts={facts} relations={relations} onInspectFact={onInspectFact} />
-      <ClaimList title="rejected" items={d.rejected} tone="rejected" facts={facts} relations={relations} onInspectFact={onInspectFact} />
+      <ClaimList title={t("views.decisionsVerdict.chosen")} items={d.chosen} tone="chosen" facts={facts} relations={relations} onInspectFact={onInspectFact} />
+      <ClaimList title={t("views.decisionsVerdict.rejected")} items={d.rejected} tone="rejected" facts={facts} relations={relations} onInspectFact={onInspectFact} />
 
       {/* 覆盖度:承重论点 → 活 fact 可达(布尔,非分数) */}
       <div className="mt-2 flex items-center gap-2 text-[11px]">
-        <span className="text-text-faint">覆盖度</span>
+        <span className="text-text-faint">{t("views.decisionsVerdict.coverage")}</span>
         {cov.total === 0 ? (
-          <span className="text-text-faint">无承重论点</span>
+          <span className="text-text-faint">{t("views.decisionsVerdict.noLoadBearingArgument")}</span>
         ) : cov.covered === cov.total ? (
           <span className="inline-flex items-center gap-1 text-success">
-            <CheckCircle weight="bold" /> {cov.covered}/{cov.total} 论点有可达 evidence
-          </span>
+            <CheckCircle weight="bold" /> {cov.covered}/{cov.total} {t("views.decisionsVerdict.argumentHasEvidence")}</span>
         ) : (
           <span className="inline-flex items-center gap-1 text-stale">
-            <WarningCircle weight="bold" /> {cov.covered}/{cov.total} · 缺 {cov.gaps.join(", ")}
+            <WarningCircle weight="bold" /> {cov.covered}/{cov.total} {t("views.decisionsVerdict.missing")}{cov.gaps.join(", ")}
           </span>
         )}
       </div>
@@ -452,11 +453,10 @@ export function VerdictCard({
       {(derived.length > 0 || chain.supersedes.length > 0 || chain.supersededBy.length > 0) && (
         <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2">
           <div className="flex items-center gap-1 text-[11px] font-semibold text-text-faint">
-            <TreeStructure weight="bold" className="text-[12px]" /> relation 上下游(loop)
-          </div>
+            <TreeStructure weight="bold" className="text-[12px]" /> {t("views.decisionsVerdict.relationUpstreamDownstreamLoop")}</div>
           {derived.length > 0 && (
             <div className="mt-1 text-[11px]">
-              <span className="text-text-faint">派生 task → </span>
+              <span className="text-text-faint">{t("views.decisionsVerdict.derivedTask")}</span>
               {derived.map((t) => (
                 <span key={t.taskId} className="mr-2 inline-flex items-center gap-1 font-mono text-text-muted">
                   <span className="rounded bg-surface px-1">{t.taskId}</span>
@@ -467,13 +467,13 @@ export function VerdictCard({
           )}
           {chain.supersedes.length > 0 && (
             <div className="mt-0.5 text-[11px]">
-              <span className="text-text-faint">推翻(supersedes)→ </span>
+              <span className="text-text-faint">{t("views.decisionsVerdict.overthrowSupersedes")}</span>
               <span className="font-mono text-danger">{chain.supersedes.join(", ")}</span>
             </div>
           )}
           {chain.supersededBy.length > 0 && (
             <div className="mt-0.5 text-[11px]">
-              <span className="text-text-faint">被推翻(superseded by)→ </span>
+              <span className="text-text-faint">{t("views.decisionsVerdict.overturnedSupersededBy")}</span>
               <span className="font-mono text-danger">{chain.supersededBy.join(", ")}</span>
             </div>
           )}
@@ -482,7 +482,7 @@ export function VerdictCard({
 
       {/* ⑤ provenance 三字段 + 原文追溯入口 */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-        <span className="text-text-faint">provenance:</span>
+        <span className="text-text-faint">{t("views.decisionsVerdict.provenance")}</span>
         {d.provenance?.map((p) => (
           <button
             key={p.sessionId}
@@ -498,7 +498,7 @@ export function VerdictCard({
       </div>
 
       <div className="mt-1 text-[11px] text-text-faint">
-        proposedAt: {dateLabel(d.proposedAt)} · lastChanged: {dateLabel(d.lastChangedAt)}
+        {t("views.decisionsVerdict.timestamps", { proposedAt: dateLabel(d.proposedAt), lastChanged: dateLabel(d.lastChangedAt) })}
       </div>
 
       {/* 三操作视觉等权:accept 给 accent,但 reject/defer 同尺寸同可达,不藏菜单(反模式清单②) */}
@@ -506,33 +506,33 @@ export function VerdictCard({
         <button
           onClick={handleAccept}
           disabled={readOnly}
-          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Accept"}
+          title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.accept")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-semibold text-accent-fg hover:bg-accent/90"
         >
           <CheckCircle weight="bold" className="text-[13px]" />
-          Accept
+          {t("views.decisionsVerdict.accept")}
         </button>
         <button
           onClick={() => {
             if (!readOnly) onDecide(d.decisionId, "reject");
           }}
           disabled={readOnly}
-          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Reject"}
+          title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.reject")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-danger/50 hover:bg-danger/5 hover:text-danger"
         >
           <ProhibitInset weight="bold" className="text-[13px]" />
-          Reject
+          {t("views.decisionsVerdict.reject")}
         </button>
         <button
           onClick={() => {
             if (!readOnly) onDecide(d.decisionId, "defer");
           }}
           disabled={readOnly}
-          title={readOnly ? "只读 API 已接入；决策批准写面不在本切片" : "Defer"}
+          title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.defer")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-stale/50 hover:bg-stale/5 hover:text-stale"
         >
           <ClockClockwise weight="bold" className="text-[13px]" />
-          Defer
+          {t("views.decisionsVerdict.defer")}
         </button>
       </div>
 
@@ -540,10 +540,10 @@ export function VerdictCard({
       {rejection && (
         <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 p-2.5 font-mono text-[11px] text-danger">
           <div className="flex items-center justify-between">
-            <span className="font-semibold">✗ accept 被拒绝重来(coordinator 预检)</span>
+            <span className="font-semibold">{t("views.decisionsVerdict.acceptRejectedTryAgainCoordinatorPreCheck")}</span>
             <button onClick={() => setRejection(null)} className="text-danger/70 hover:text-danger">✕</button>
           </div>
-          <div className="mt-1">code: {rejection.code}</div>
+          <div className="mt-1">{t("views.decisionsVerdict.codeValue", { code: rejection.code })}</div>
           <div>{rejection.reason}</div>
           <div className="mt-1 space-y-0.5 text-danger/80">
             {rejection.detail.map((line, i) => (
@@ -568,8 +568,7 @@ export function VerdictCard({
             }`}
           >
             <Robot weight="bold" className="text-[13px]" />
-            呼叫 Agent 核查(推荐)
-            <span className="ml-1 text-[10px] font-normal opacity-70">agent 核查漂移/失效,经 CLI 代录决策</span>
+            {t("views.decisionsVerdict.callAgentVerifyRecommended")}<span className="ml-1 text-[10px] font-normal opacity-70">{t("views.decisionsVerdict.agentChecksDriftFailureMakesDecisionsBehalf")}</span>
           </button>
         ) : (
           <button
@@ -577,8 +576,7 @@ export function VerdictCard({
             className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
           >
             <PaperPlaneTilt weight="bold" className="text-[11px]" />
-            或通过 CLI 与 Agent 讨论后决策批准(预填 /decisions)
-          </button>
+            {t("views.decisionsVerdict.decideApproveAfterDiscussionAgentThroughCli")}</button>
         )
       )}
     </div>

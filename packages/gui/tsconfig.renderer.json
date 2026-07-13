@@ -16,6 +16,7 @@
     "strict": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "jsx": "react-jsx",
     "types": [],
     "outDir": "./dist/renderer-types"
@@ -23,6 +24,7 @@
   "include": [
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
+    "src/renderer/**/*.json",
     "src/api/renderer-dto.ts"
   ],
   "exclude": [

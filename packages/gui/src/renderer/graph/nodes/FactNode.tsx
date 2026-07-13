@@ -1,4 +1,5 @@
 import { Handle, Position } from "@xyflow/react";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * fact 节点(展开态)。默认折叠成 claim/task 上的徽章(dec_01KXA7811SVVT8P66HNDFZQ7DF CH3);
@@ -24,7 +25,7 @@ export function FactNode({ data, selected }: any) {
       <Handle type="source" position={Position.Bottom} className="!h-1.5 !w-1.5 !min-w-1.5 !min-h-1.5 !border-0 !bg-[var(--color-axis-evidence)]" />
       {cycleWarning && (
         <span
-          title="INV-3: relation cycle detected"
+          title={t("graph.nodes.relationCycleDetected")}
           className="absolute -right-1 -top-1 grid size-3.5 place-items-center rounded-full bg-danger font-mono text-[9px] font-bold text-white"
         >
           !

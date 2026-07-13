@@ -9,6 +9,7 @@ import {
 } from "../../components/badges";
 import { isExternal } from "../../model/types";
 import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 无限画布 ego 节点(dec_01KXBGJQFQARSZHHQW1WADFDNC)。
@@ -130,26 +131,24 @@ export function EgoNode({ data, selected }: any) {
           {data.onRefocus && !focus && (
             <button
               onClick={stop(data.onRefocus, data.id ?? undefined)}
-              title="设为画布中心(重排前后 2 跳)"
+              title={t("graph.egoNode.setCenterCanvas2JumpsBeforeAfter")}
               className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-[var(--color-border-strong)] hover:text-text"
             >
               <Crosshair weight="bold" className="text-[10px]" />
-              设为中心
-            </button>
+              {t("graph.egoNode.setAsCenter")}</button>
           )}
           {data.onNavigate && (
             <button
               onClick={stop(data.onNavigate, data.navRef)}
-              title="打开专属详情页(task→详情 · decision→决策池 · fact→分诊)"
+              title={t("graph.egoNode.openExclusiveDetailsPageTaskDetailsDecision")}
               className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-accent hover:text-accent"
             >
               <ArrowsOutSimple weight="bold" className="text-[10px]" />
-              详情 ↗
-            </button>
+              {t("graph.egoNode.details")}</button>
           )}
           <button
             onClick={stop(data.onCollapse, data.id ?? undefined)}
-            title="收起(保留已展开邻居)"
+            title={t("graph.egoNode.collapseKeepExpandedNeighbors")}
             className="grid size-5 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
           >
             <X weight="bold" className="text-[11px]" />
@@ -173,31 +172,31 @@ export function EgoNode({ data, selected }: any) {
 
       {/* footer */}
       <div className="flex shrink-0 items-center justify-between border-t border-border px-2.5 py-1 font-mono text-[10px] text-text-faint">
-        <span>度数 {data.degree ?? 0} · 第 {data.hop ?? 0} 跳</span>
-        {data.hiddenCount > 0 && <span>还有 +{data.hiddenCount} 未展开</span>}
+        <span>{t("graph.egoNode.degreeHop", { degree: data.degree ?? 0, hop: data.hop ?? 0 })}</span>
+        {data.hiddenCount > 0 && <span>{t("graph.egoNode.hiddenNotExpanded", { count: data.hiddenCount })}</span>}
       </div>
     </div>
   );
 }
 
 function cardTitle(entity: Entity, data: any): string {
-  if (entity === "fact") return `证据 · ${(data.raw as FactRef).text?.slice(0, 60) ?? ""}`;
+  if (entity === "fact") return t("graph.egoNode.evidenceValue", { value: (data.raw as FactRef).text?.slice(0, 60) ?? "" });
   return data.label;
 }
 
-function TaskBody({ t }: { t: TaskRow }) {
+function TaskBody({ t: task }: { t: TaskRow }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5">
-        <StatusBadge status={t.coordinationStatus} />
-        <CloseoutBadge value={t.closeoutReadiness} />
-        <EngineBadge engine={t.engine} locked={isExternal(t)} />
+        <StatusBadge status={task.coordinationStatus} />
+        <CloseoutBadge value={task.closeoutReadiness} />
+        <EngineBadge engine={task.engine} locked={isExternal(task)} />
       </div>
-      <FreshnessTag freshness={t.freshness} lastKnownAt={t.lastKnownAt} />
+      <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
       <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
-        <span>module: {t.module}</span>
-        {t.riskTier && <span>risk: {t.riskTier}</span>}
-        {t.urgency && <span>urgency: {t.urgency}</span>}
+        <span>{t("graph.egoNode.moduleValue", { module: task.module })}</span>
+        {task.riskTier && <span>{t("graph.egoNode.riskValue", { risk: task.riskTier })}</span>}
+        {task.urgency && <span>{t("graph.egoNode.urgencyValue", { urgency: task.urgency })}</span>}
       </div>
     </>
   );
@@ -209,18 +208,18 @@ function DecisionBody({ d }: { d: DecisionRow }) {
       <div className="flex items-center gap-2 font-mono text-[11px]">
         <span className="rounded bg-accent px-1.5 py-0.5 text-accent-fg">{d.state}</span>
         <span className="text-text-muted">
-          {(d.riskTier ?? "未知")} risk · {(d.urgency ?? "未知")} urgency
+          {t("graph.egoNode.riskUrgency", { risk: d.riskTier ?? t("graph.egoNode.unknown"), urgency: d.urgency ?? t("graph.egoNode.unknown") })}
         </span>
       </div>
       {d.question && (
         <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">Question</span>
+          <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{t("graph.egoNode.question")}</span>
           <p className="ui-body mt-0.5 font-medium text-text">{d.question}</p>
         </div>
       )}
       {d.chosen && d.chosen.length > 0 && (
         <div className="rounded-md border border-accent/30 bg-accent-fg/5 px-2 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-wide text-accent">Chosen</span>
+          <span className="font-mono text-[10px] uppercase tracking-wide text-accent">{t("graph.egoNode.chosen")}</span>
           <div className="mt-0.5 flex flex-col gap-1">
             {d.chosen.map((c) => (
               <p key={c.id} className="ui-body text-text">{c.text}</p>
@@ -230,7 +229,7 @@ function DecisionBody({ d }: { d: DecisionRow }) {
       )}
       {d.claims && d.claims.length > 0 && (
         <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">Claims</span>
+          <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{t("graph.egoNode.claims")}</span>
           <ul className="ui-body mt-0.5 list-inside list-disc text-text-muted">
             {d.claims.map((c) => (
               <li key={c.id}>{c.text}</li>
@@ -250,12 +249,12 @@ function FactBody({ f }: { f: FactRef }) {
         <span className="text-text-muted">@ {f.at}</span>
       </div>
       <div className="rounded-md border border-stale/30 bg-stale/5 px-2 py-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-stale">Fact Observation</span>
+        <span className="font-mono text-[10px] uppercase tracking-wide text-stale">{t("graph.egoNode.factObservation")}</span>
         <p className="ui-body mt-0.5 font-medium leading-relaxed text-text">{f.text}</p>
       </div>
       <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5 font-mono text-[11px] text-text-muted">
-        <div>Task: {f.taskId}</div>
-        <div>Anchor: {f.anchor}</div>
+        <div>{t("graph.egoNode.taskValue", { taskId: f.taskId })}</div>
+        <div>{t("graph.egoNode.anchorValue", { anchor: f.anchor })}</div>
       </div>
     </>
   );

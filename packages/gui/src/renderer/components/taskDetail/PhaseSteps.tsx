@@ -1,16 +1,17 @@
 import { Fragment } from "react";
 import type { CanonicalStatus, SnapshotStatus } from "../../model/types";
 import { STEP_FLOW } from "./constants";
+import { t } from "../../i18n/index.tsx";
 
 export function PhaseSteps({ status }: { status: SnapshotStatus }) {
   const idx = STEP_FLOW.indexOf(status as CanonicalStatus);
   if (idx < 0) {
     const note =
       status === "blocked"
-        ? "blocked：暂离主流程，解除后回到 active"
+        ? t("components.phaseSteps.blockedTemporarilyLeaveMainProcessReturnActive")
         : status === "cancelled"
-          ? "cancelled：终态，不参与阶段流"
-          : "unknown：快照展示值，无阶段位置";
+          ? t("components.phaseSteps.canceledFinalStateNotParticipatingStageFlow")
+          : t("components.phaseSteps.unknownSnapshotDisplayValueNoStagePosition");
     return <p className="text-[11px] leading-relaxed text-text-faint">{note}</p>;
   }
   return (

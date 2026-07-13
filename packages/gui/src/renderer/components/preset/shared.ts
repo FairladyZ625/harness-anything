@@ -1,20 +1,27 @@
 import type { PresetEntry, PresetSource } from "../../model/types";
+import { t } from "../../i18n/core.ts";
 
 export type TabId = "preset" | "vertical" | "templates";
 
 export const TABS: { id: TabId; label: string }[] = [
-  { id: "preset", label: "Preset" },
-  { id: "vertical", label: "Vertical" },
-  { id: "templates", label: "模板库" },
+  { id: "preset", get label() { return t("components.shared.preset"); } },
+  { id: "vertical", get label() { return t("components.shared.vertical"); } },
+  { id: "templates", get label() { return t("components.shared.templateLibrary"); } },
 ];
 
 export const SOURCE_SECTIONS: { source: PresetSource; label: string; hint: string }[] = [
-  { source: "project", label: "project", hint: "项目级 · 优先级最高" },
-  { source: "user", label: "user", hint: "用户级" },
-  { source: "builtin", label: "builtin", hint: "内置 · 不可卸载" },
+  { source: "project", get label() { return t("components.shared.project"); }, get hint() { return t("components.shared.projectLevelHighestPriority"); } },
+  { source: "user", get label() { return t("components.shared.user"); }, get hint() { return t("components.shared.userLevel"); } },
+  { source: "builtin", get label() { return t("components.shared.builtin"); }, get hint() { return t("components.shared.builtCannotUninstalled"); } },
 ];
 
-export const FLOW_STEPS = ["Vertical", "Preset", "物化文档", "Refs/Events", "投影重建"];
+export const flowSteps = () => [
+  t("components.shared.vertical"),
+  t("components.shared.preset"),
+  t("components.shared.materializedDocument"),
+  t("components.shared.refsEvents"),
+  t("components.shared.projectionReconstruction"),
+];
 
 export const ACTION_BTN =
   "rounded-md border border-border px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-muted";

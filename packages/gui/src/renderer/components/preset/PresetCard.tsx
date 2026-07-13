@@ -2,6 +2,7 @@ import { ArrowRight, CaretDown } from "@phosphor-icons/react";
 import type { PresetEntry } from "../../model/types";
 import { CHIP, SECTION_LABEL, chainOf, shortRef } from "./shared";
 import { LocaleBadges } from "./LocaleBadges";
+import { t } from "../../i18n/index.tsx";
 
 export function PresetCard({
   entry,
@@ -41,20 +42,19 @@ export function PresetCard({
           <span className="shrink-0 font-mono text-[11px] text-text-faint">
             v{entry.version}
           </span>
-          {entry.profile && <span className={`shrink-0 ${CHIP}`}>profile: {entry.profile}</span>}
+          {entry.profile && <span className={`shrink-0 ${CHIP}`}>{t("components.presetCard.profileValue", { profile: entry.profile })}</span>}
           {active && (
             <span className="shrink-0 rounded bg-accent px-1.5 py-px text-[10px] text-accent-fg">
-              激活中
-            </span>
+              {t("components.presetCard.activating")}</span>
           )}
           {!entry.valid && (
             <span className="shrink-0 rounded border border-danger/60 px-1.5 py-px font-mono text-[10px] text-danger">
-              invalid · {entry.issueCount} issues
+              {t("components.presetCard.invalidIssueCount", { count: entry.issueCount })}
             </span>
           )}
         </span>
         <span className="hidden min-w-[12rem] max-w-[25rem] flex-1 truncate text-[11px] text-text-muted lg:block">
-          {entry.kind ?? "manifest unavailable"}
+          {entry.kind ?? t("components.presetCard.manifestUnavailable")}
         </span>
         <CaretDown
           className={`shrink-0 text-[12px] text-text-faint ${
@@ -66,7 +66,7 @@ export function PresetCard({
       {expanded && (
         <div className="flex flex-col gap-3 border-t border-border px-3 py-2.5">
           <div>
-            <div className={SECTION_LABEL}>继承链</div>
+            <div className={SECTION_LABEL}>{t("components.presetCard.inheritanceChain")}</div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {chain.map((p, i) => (
                 <span key={p.id} className="flex items-center gap-1.5">
@@ -83,12 +83,12 @@ export function PresetCard({
                   </button>
                 </span>
               ))}
-              <span className="ml-1 text-[10px] text-text-faint">单父链 · 冲突 fail closed</span>
+              <span className="ml-1 text-[10px] text-text-faint">{t("components.presetCard.singleParentChainConflictFailClosed")}</span>
             </div>
           </div>
 
           <div>
-            <div className={SECTION_LABEL}>Capability imports · 显式引入，禁隐式多继承</div>
+            <div className={SECTION_LABEL}>{t("components.presetCard.capabilityImportsExplicitIntroductionProhibitingImplicitMultiple")}</div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {entry.capabilityImports.length > 0 ? (
                 entry.capabilityImports.map((c) => (
@@ -101,16 +101,16 @@ export function PresetCard({
           </div>
 
           <div>
-            <div className={SECTION_LABEL}>Template selections · 物化时横向取用模板库</div>
+            <div className={SECTION_LABEL}>{t("components.presetCard.templateSelectionsHorizontalAccessTemplateLibraryDuring")}</div>
             {entry.selections.length > 0 ? (
               <div className="mt-1.5 overflow-x-auto">
                 <table className="min-w-[620px] text-left text-[11px]">
                   <thead>
                     <tr className="text-[10px] text-text-faint">
-                      <th className="py-0.5 pr-2 font-normal">slot</th>
-                      <th className="py-0.5 pr-2 font-normal">template</th>
-                      <th className="py-0.5 pr-2 font-normal">物化为</th>
-                      <th className="py-0.5 font-normal">locales</th>
+                      <th className="py-0.5 pr-2 font-normal">{t("components.presetCard.slot")}</th>
+                      <th className="py-0.5 pr-2 font-normal">{t("components.presetCard.template")}</th>
+                      <th className="py-0.5 pr-2 font-normal">{t("components.presetCard.materializedAs")}</th>
+                      <th className="py-0.5 font-normal">{t("components.presetCard.locales")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -130,11 +130,11 @@ export function PresetCard({
                 </table>
               </div>
             ) : (
-              <p className="mt-1.5 text-[11px] text-text-faint">无本层覆盖，全部继承自父链</p>
+              <p className="mt-1.5 text-[11px] text-text-faint">{t("components.presetCard.noCoverageLayerAllInheritedFromParent")}</p>
             )}
           </div>
 
-          <p className="text-[10px] text-text-faint">只读 snapshot；安装与卸载仍由 CLI 管理。</p>
+          <p className="text-[10px] text-text-faint">{t("components.presetCard.readOnlySnapshotInstallationUninstallationStillManaged")}</p>
         </div>
       )}
     </div>

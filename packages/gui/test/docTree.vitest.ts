@@ -17,7 +17,7 @@ function doc(path: string, overrides: Partial<DocEntry> = {}): DocEntry {
   return {
     path,
     title: path.split("/").pop() ?? path,
-    group: "进度",
+    group: "progress",
     required: false,
     present: true,
     ...overrides,

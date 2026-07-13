@@ -11,6 +11,7 @@ import {
 } from "./graphLayoutShared";
 import type { Node, Edge } from "@xyflow/react";
 import { Position } from "@xyflow/react";
+import { t as translate } from "../i18n/core.ts";
 
 /**
  * 无限画布 ego 布局(dec_01KXBGJQFQARSZHHQW1WADFDNC refines dec_01KXA7811)。
@@ -92,7 +93,7 @@ export function buildEgoGraph(
         to: `task/${t.taskId}`,
         kind: "depends-on",
         provenance: "local-document",
-        rationale: "子任务",
+        rationale: translate("graph.canvasEgoLayout.subtask"),
       };
       const key = `child_${t.taskId}`;
       link(edge, "execution", key);
