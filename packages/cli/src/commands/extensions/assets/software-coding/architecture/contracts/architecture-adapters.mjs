@@ -3,6 +3,7 @@ import {
   validateArchitectureComparisonResult,
   validateArchitectureProviderObservation
 } from "./architecture-adapter-contracts.mjs";
+import { javascriptTypeScriptExtractorBoundary } from "./architecture-code-graph.mjs";
 import { compareArchitectureText } from "./architecture-portable-path.mjs";
 import {
   architectureFindingsHaveUniqueIds,
@@ -25,6 +26,7 @@ const providerRegistry = new Map([
 const fixedRegistry = { providers: providerRegistry, extractors: adapterRegistry };
 const contractDigest = `sha256:${"0".repeat(64)}`;
 const likeC4ProviderAdapterId = "likec4/model-v1";
+const jsTsExtractorBoundary = javascriptTypeScriptExtractorBoundary();
 
 export async function runDeclaredArchitectureExtractors(options) {
   return runArchitectureAdapterPipeline(options, fixedRegistry);
@@ -308,7 +310,7 @@ async function runMissingJavaScriptTypeScriptAdapter({ extractor }) {
       role: "extractor",
       declarationId: extractor.id,
       adapter: extractor.adapter,
-      tool: "dependency-cruiser",
+      tool: jsTsExtractorBoundary.tool,
       version: null,
       reason: "fixed-adapter-capability-unavailable",
       hint: "The fixed JavaScript/TypeScript extractor adapter capability is not connected in this release; no local setup action can enable it."
