@@ -1,17 +1,26 @@
 import {
   planTemplateMaterialization,
-  validateTemplateCatalog
+  validateTemplateCatalog,
+  type HarnessLayoutInput
 } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { resolveActiveVertical } from "./active-vertical.ts";
 import { decodeTemplateCatalog, invalidExtensionResult } from "./shared.ts";
 import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
 
 type TemplateAction = Extract<ParsedCommand["action"], { readonly kind: "template-list" | "template-render" }>;
 
-export function runTemplateCommand(action: TemplateAction): CliResult {
+export function runTemplateCommand(rootInput: HarnessLayoutInput, action: TemplateAction): CliResult {
+  let catalogPath = action.catalogPath;
+  if (!catalogPath) {
+    const activeVertical = resolveActiveVertical(rootInput, action.kind);
+    if (!activeVertical.ok) return activeVertical.result;
+    catalogPath = activeVertical.id;
+  }
+
   if (action.kind === "template-list") {
-    const decoded = decodeTemplateCatalog(action.catalogPath);
+    const decoded = decodeTemplateCatalog(catalogPath);
     if (!decoded.ok) {
       return invalidExtensionResult("template-list", CliErrorCode.TemplateCatalogInvalid, "Template catalog failed validation.", decoded.issues);
     }
@@ -32,7 +41,7 @@ export function runTemplateCommand(action: TemplateAction): CliResult {
     };
   }
 
-  const decoded = decodeTemplateCatalog(action.catalogPath);
+  const decoded = decodeTemplateCatalog(catalogPath);
   if (!decoded.ok) {
     return invalidExtensionResult("template-render", CliErrorCode.TemplateCatalogInvalid, "Template catalog failed validation.", decoded.issues);
   }

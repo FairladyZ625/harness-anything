@@ -74,29 +74,38 @@ export function isResolvedPreset(entry: PresetResolutionEntry): entry is Resolve
   return !isInvalidPreset(entry);
 }
 
-export function discoverPresetEntries(rootInput: HarnessLayoutInput): ReadonlyArray<PresetResolutionEntry> {
+export function discoverPresetEntries(
+  rootInput: HarnessLayoutInput,
+  verticalId: string
+): ReadonlyArray<PresetResolutionEntry> {
   const byId = new Map<string, PresetResolutionEntry>();
   for (const entry of loadBundledPresetManifestEntries()) {
+    if (entry.manifest.vertical !== verticalId) continue;
     byId.set(entry.manifest.id, { manifest: entry.manifest, layer: "builtin", sourcePath: entry.sourcePath });
   }
   for (const layer of ["user", "project"] as const) {
     for (const preset of readLayerPresetEntries(rootInput, layer)) {
-      byId.set(presetEntryId(preset), preset);
+      const presetId = presetEntryId(preset);
+      if (isInvalidPreset(preset) || preset.manifest.vertical === verticalId) {
+        byId.set(presetId, preset);
+      } else if (byId.has(presetId)) {
+        byId.set(presetId, blockedOffVerticalPreset(preset, verticalId));
+      }
     }
   }
   return [...byId.values()].sort((left, right) => presetEntryId(left).localeCompare(presetEntryId(right)));
 }
 
-export function discoverPresets(rootInput: HarnessLayoutInput): ReadonlyArray<ResolvedPreset> {
-  return discoverPresetEntries(rootInput).filter(isResolvedPreset);
+export function discoverPresets(rootInput: HarnessLayoutInput, verticalId: string): ReadonlyArray<ResolvedPreset> {
+  return discoverPresetEntries(rootInput, verticalId).filter(isResolvedPreset);
 }
 
-export function resolvePresetEntry(rootInput: HarnessLayoutInput, presetId: string): PresetResolutionEntry | undefined {
-  return discoverPresetEntries(rootInput).find((preset) => presetEntryId(preset) === presetId);
+export function resolvePresetEntry(rootInput: HarnessLayoutInput, presetId: string, verticalId: string): PresetResolutionEntry | undefined {
+  return discoverPresetEntries(rootInput, verticalId).find((preset) => presetEntryId(preset) === presetId);
 }
 
-export function resolvePreset(rootInput: HarnessLayoutInput, presetId: string): ResolvedPreset | undefined {
-  const entry = resolvePresetEntry(rootInput, presetId);
+export function resolvePreset(rootInput: HarnessLayoutInput, presetId: string, verticalId: string): ResolvedPreset | undefined {
+  const entry = resolvePresetEntry(rootInput, presetId, verticalId);
   return entry && !isInvalidPreset(entry) ? entry : undefined;
 }
 
@@ -214,12 +223,12 @@ export function materializePresetTaskDocuments(
   if (!validation.ok) {
     return { ok: false, profile, documents: [], issues: validation.issues };
   }
-  const catalog = requireBundledTemplateCatalog();
+  const catalog = requireBundledTemplateCatalog(manifest.vertical);
   const materialized = planTemplateMaterialization({
     catalog,
     locale: options.locale,
     resolveBody: resolveTemplateCatalogBody(catalog),
-    selections: combineVerticalAndPresetSelections(profile.templateSelections)
+    selections: combineVerticalAndPresetSelections(manifest.vertical, profile.templateSelections)
   });
   return {
     ok: materialized.ok,
@@ -290,6 +299,7 @@ export function presetManifestPath(rootInput: HarnessLayoutInput, layer: "projec
 
 export function runPresetEntrypoint(
   rootInput: HarnessLayoutInput,
+  verticalId: string,
   presetId: string,
   entrypoint: string,
   taskId: string,
@@ -300,7 +310,7 @@ export function runPresetEntrypoint(
 ): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
-  const preset = resolvePresetEntry(rootInput, presetId);
+  const preset = resolvePresetEntry(rootInput, presetId, verticalId);
   if (!preset) return presetNotFound("preset-run", presetId);
   if (isInvalidPreset(preset)) {
     return {
@@ -340,7 +350,7 @@ export function runPresetEntrypoint(
       });
     }
     const presetSummary = publicPresetSummary(preset);
-    const scriptResult = runScriptEntrypoint(rootInput, preset, discoverPresets(rootInput), presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
+    const scriptResult = runScriptEntrypoint(rootInput, preset, discoverPresets(rootInput, verticalId), presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
     if (!scriptResult.ok) return scriptResult.result;
     generated.push(...scriptResult.generated);
     if (scriptResult.ingestOp) pendingOps.push(scriptResult.ingestOp);
@@ -466,8 +476,8 @@ function timestampForPath(now: Date = new Date()): string {
 
 function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): ReadonlyArray<ExtensionValidationIssue> {
   const issues: ExtensionValidationIssue[] = [];
-  const vertical = requireBundledVerticalDefinition();
-  const catalog = requireBundledTemplateCatalog();
+  const vertical = requireBundledVerticalDefinition("software/coding");
+  const catalog = requireBundledTemplateCatalog("software/coding");
   if (manifest.vertical !== vertical.id) {
     issues.push(extensionIssue("custom_vertical_forbidden", "P08 only allows software/coding preset overrides; custom vertical exposure is gated by P10/P11.", "vertical"));
   }
@@ -525,10 +535,11 @@ function allowsRequiredTemplateOverride(
 }
 
 function combineVerticalAndPresetSelections(
+  verticalId: string,
   presetSelections: ReadonlyArray<PresetManifest["profiles"][number]["templateSelections"][number]>
 ): PresetManifest["profiles"][number]["templateSelections"] {
   const byPath = new Map<string, PresetManifest["profiles"][number]["templateSelections"][number]>();
-  for (const selection of verticalTaskTemplateSelections(requireBundledVerticalDefinition())) {
+  for (const selection of verticalTaskTemplateSelections(requireBundledVerticalDefinition(verticalId))) {
     byPath.set(selection.materializeAs, selection);
   }
   for (const selection of presetSelections) {
@@ -545,15 +556,15 @@ function verticalTaskTemplateSelections(
   return vertical.packageScaffolds.find((scaffold) => scaffold.entityKind === "task")?.templateSelections ?? vertical.templateSelections;
 }
 
-function requireBundledTemplateCatalog() {
-  const catalog = bundledTemplateCatalog();
-  if (!catalog) throw new Error("bundled template catalog missing");
+function requireBundledTemplateCatalog(verticalId: string) {
+  const catalog = bundledTemplateCatalog(verticalId);
+  if (!catalog) throw new Error(`bundled template catalog missing for vertical ${verticalId}`);
   return catalog;
 }
 
-function requireBundledVerticalDefinition() {
-  const vertical = bundledVerticalDefinition();
-  if (!vertical) throw new Error("bundled vertical definition missing");
+function requireBundledVerticalDefinition(verticalId: string) {
+  const vertical = bundledVerticalDefinition(verticalId);
+  if (!vertical) throw new Error(`bundled vertical definition missing for vertical ${verticalId}`);
   return vertical;
 }
 
@@ -563,4 +574,18 @@ function extensionIssue(code: ExtensionValidationIssue["code"], message: string,
 
 function presetEntryId(entry: PresetResolutionEntry): string {
   return isInvalidPreset(entry) ? entry.id : entry.manifest.id;
+}
+
+function blockedOffVerticalPreset(preset: ResolvedPreset, activeVerticalId: string): InvalidPreset {
+  if (preset.layer === "builtin") throw new Error("bundled presets must be filtered by active vertical before precedence resolution");
+  return {
+    id: preset.manifest.id,
+    layer: preset.layer,
+    sourcePath: preset.sourcePath,
+    issues: [extensionIssue(
+      "custom_vertical_forbidden",
+      `Preset ${preset.manifest.id} targets ${preset.manifest.vertical} and cannot override active vertical ${activeVerticalId}.`,
+      "vertical"
+    )]
+  };
 }

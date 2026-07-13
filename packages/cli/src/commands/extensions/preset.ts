@@ -4,6 +4,7 @@ import { validatePresetManifests } from "../../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { resolveActiveVertical } from "./active-vertical.ts";
 import {
   discoverPresetEntries,
   discoverPresets,
@@ -20,7 +21,6 @@ import {
   validatePresetManifestForUse
 } from "./state.ts";
 import { decodePresetManifest, invalidExtensionResult, invalidResolvedPresetResult } from "./shared.ts";
-
 type PresetAction = Extract<ParsedCommand["action"], {
   readonly kind:
     | "preset-validate"
@@ -34,29 +34,35 @@ type PresetAction = Extract<ParsedCommand["action"], {
     | "preset-run"
     | "preset-action"
 }>;
-
 export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAction, pendingOps: WriteOp[]): CliResult {
+  let activeVerticalId: string | undefined;
+  if (usesActiveVertical(action)) {
+    const activeVertical = resolveActiveVertical(rootInput, action.kind);
+    if (!activeVertical.ok) return activeVertical.result;
+    activeVerticalId = activeVertical.id;
+  }
+
   switch (action.kind) {
     case "preset-validate":
       return runPresetValidate(action);
     case "preset-list":
-      return runPresetList(rootInput);
+      return runPresetList(rootInput, activeVerticalId!);
     case "preset-inspect":
-      return runPresetInspect(rootInput, action.presetId);
+      return runPresetInspect(rootInput, action.presetId, activeVerticalId!);
     case "preset-check":
-      return runPresetCheck(rootInput, action.presetId);
+      return runPresetCheck(rootInput, action.presetId, activeVerticalId!);
     case "preset-install":
       return runPresetInstall(rootInput, action);
     case "preset-seed":
-      return runPresetSeed(rootInput);
+      return runPresetSeed(rootInput, activeVerticalId!);
     case "preset-audit":
-      return runPresetAudit(rootInput);
+      return runPresetAudit(rootInput, activeVerticalId!);
     case "preset-uninstall":
       return runPresetUninstall(rootInput, action);
     case "preset-run":
-      return runPresetEntrypoint(rootInput, action.presetId, action.entrypoint, action.taskId, "preset-run", pendingOps, action.allowScripts, action.inputs);
+      return runPresetEntrypoint(rootInput, activeVerticalId!, action.presetId, action.entrypoint, action.taskId, "preset-run", pendingOps, action.allowScripts, action.inputs);
     case "preset-action":
-      return runPresetAction(rootInput, action, pendingOps);
+      return runPresetAction(rootInput, activeVerticalId!, action, pendingOps);
   }
 }
 
@@ -89,8 +95,8 @@ function runPresetValidate(action: Extract<PresetAction, { readonly kind: "prese
   };
 }
 
-function runPresetList(rootInput: HarnessLayoutInput): CliResult {
-  const entries = discoverPresetEntries(rootInput);
+function runPresetList(rootInput: HarnessLayoutInput, activeVerticalId: string): CliResult {
+  const entries = discoverPresetEntries(rootInput, activeVerticalId);
   const issues = entries.flatMap((entry) => isInvalidPreset(entry) ? entry.issues : validatePresetManifestForUse(entry.manifest).issues);
   return {
     ok: issues.length === 0,
@@ -101,8 +107,8 @@ function runPresetList(rootInput: HarnessLayoutInput): CliResult {
   };
 }
 
-function runPresetInspect(rootInput: HarnessLayoutInput, presetId: string): CliResult {
-  const preset = resolvePresetEntry(rootInput, presetId);
+function runPresetInspect(rootInput: HarnessLayoutInput, presetId: string, activeVerticalId: string): CliResult {
+  const preset = resolvePresetEntry(rootInput, presetId, activeVerticalId);
   if (!preset) return presetNotFound("preset-inspect", presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-inspect", preset);
   const validation = validatePresetManifestForUse(preset.manifest);
@@ -118,8 +124,8 @@ function runPresetInspect(rootInput: HarnessLayoutInput, presetId: string): CliR
   };
 }
 
-function runPresetCheck(rootInput: HarnessLayoutInput, presetId: string): CliResult {
-  const preset = resolvePresetEntry(rootInput, presetId);
+function runPresetCheck(rootInput: HarnessLayoutInput, presetId: string, activeVerticalId: string): CliResult {
+  const preset = resolvePresetEntry(rootInput, presetId, activeVerticalId);
   if (!preset) return presetNotFound("preset-check", presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-check", preset);
   const validation = validatePresetManifestForUse(preset.manifest);
@@ -163,8 +169,8 @@ function runPresetInstall(rootInput: HarnessLayoutInput, action: Extract<PresetA
   };
 }
 
-function runPresetSeed(rootInput: HarnessLayoutInput): CliResult {
-  for (const manifest of loadBundledPresetManifests()) {
+function runPresetSeed(rootInput: HarnessLayoutInput, activeVerticalId: string): CliResult {
+  for (const manifest of loadBundledPresetManifests().filter((candidate) => candidate.vertical === activeVerticalId)) {
     const target = presetManifestPath(rootInput, "user", manifest.id);
     if (!existsSync(target)) {
       mkdirSync(path.dirname(target), { recursive: true });
@@ -174,13 +180,17 @@ function runPresetSeed(rootInput: HarnessLayoutInput): CliResult {
   return {
     ok: true,
     command: "preset-seed",
-    presets: discoverPresets(rootInput).filter((preset) => preset.layer === "user").map(publicPresetSummary)
+    presets: discoverPresets(rootInput, activeVerticalId)
+      .filter((preset) => preset.layer === "user")
+      .map(publicPresetSummary)
   };
 }
 
-function runPresetAudit(rootInput: HarnessLayoutInput): CliResult {
-  const resolved = discoverPresetEntries(rootInput);
-  const bundledById = new Map(loadBundledPresetManifests().map((manifest) => [manifest.id, manifest.version]));
+function runPresetAudit(rootInput: HarnessLayoutInput, activeVerticalId: string): CliResult {
+  const resolved = discoverPresetEntries(rootInput, activeVerticalId);
+  const bundledById = new Map(loadBundledPresetManifests()
+    .filter((manifest) => manifest.vertical === activeVerticalId)
+    .map((manifest) => [manifest.id, manifest.version]));
   const drift = resolved
     .filter(isResolvedPreset)
     .filter((preset) => preset.layer !== "builtin" && bundledById.has(preset.manifest.id) && bundledById.get(preset.manifest.id) !== preset.manifest.version)
@@ -218,8 +228,8 @@ function runPresetUninstall(rootInput: HarnessLayoutInput, action: Extract<Prese
   };
 }
 
-function runPresetAction(rootInput: HarnessLayoutInput, action: Extract<PresetAction, { readonly kind: "preset-action" }>, pendingOps: WriteOp[]): CliResult {
-  const preset = resolvePresetEntry(rootInput, action.presetId);
+function runPresetAction(rootInput: HarnessLayoutInput, activeVerticalId: string, action: Extract<PresetAction, { readonly kind: "preset-action" }>, pendingOps: WriteOp[]): CliResult {
+  const preset = resolvePresetEntry(rootInput, action.presetId, activeVerticalId);
   if (!preset) return presetNotFound("preset-action", action.presetId);
   if (isInvalidPreset(preset)) return invalidResolvedPresetResult("preset-action", preset);
   const declared = preset.manifest.entrypoints?.[action.actionName];
@@ -231,5 +241,9 @@ function runPresetAction(rootInput: HarnessLayoutInput, action: Extract<PresetAc
       error: cliError(CliErrorCode.PresetActionForbidden, `Preset action ${action.actionName} is not declared.`)
     };
   }
-  return runPresetEntrypoint(rootInput, action.presetId, action.actionName, action.taskId, "preset-action", pendingOps, action.allowScripts, action.inputs);
+  return runPresetEntrypoint(rootInput, activeVerticalId, action.presetId, action.actionName, action.taskId, "preset-action", pendingOps, action.allowScripts, action.inputs);
+}
+
+function usesActiveVertical(action: PresetAction): boolean {
+  return action.kind !== "preset-validate" && action.kind !== "preset-install" && action.kind !== "preset-uninstall";
 }

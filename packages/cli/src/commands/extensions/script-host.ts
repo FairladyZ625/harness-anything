@@ -38,6 +38,7 @@ export interface ScriptEntry {
 
 export interface ResolvedScriptEntry {
   readonly entry: ScriptEntry;
+  readonly verticalId: string;
   readonly manifestRoot: string;
   readonly owner?: unknown;
   readonly context?: Record<string, unknown>;
@@ -68,7 +69,7 @@ export function runScriptHost(options: {
 }): ScriptHostRunResult {
   const layout = resolveHarnessLayout(options.rootInput);
   const validation = validateResolvedScript(options.script);
-  const policy = resolveScriptPolicy(options.rootInput, discoverPresets(options.rootInput), {
+  const policy = resolveScriptPolicy(options.rootInput, discoverPresets(options.rootInput, options.script.verticalId), {
     source: options.script.entry.source,
     scriptId: options.script.entry.id,
     presetId: typeof options.script.context?.presetId === "string" ? options.script.context.presetId : undefined

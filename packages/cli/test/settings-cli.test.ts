@@ -190,6 +190,134 @@ test("CLI custom vertical gates require user dev mode and project gate", () => {
   });
 });
 
+test("CLI script discovery fails closed before exposing coding scripts for a non-coding active vertical", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  locale: zh-CN",
+      "  defaultVertical: custom/acme",
+      "  defaultPreset: standard-task",
+      "  customVerticals:",
+      "    enabled: false",
+      ""
+    ]);
+
+    const listed = runJson(rootDir, ["script", "list", "--source", "vertical"], false, {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test"
+    });
+
+    assert.equal(listed.ok, false);
+    assert.equal(listed.error.code, "custom_vertical_user_dev_mode_required");
+    assert.equal(listed.scripts, undefined);
+  });
+});
+
+test("CLI preset discovery fails closed before exposing coding presets for a non-coding active vertical", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  locale: zh-CN",
+      "  defaultVertical: custom/acme",
+      "  defaultPreset: standard-task",
+      "  customVerticals:",
+      "    enabled: false",
+      ""
+    ]);
+
+    const listed = runJson(rootDir, ["preset", "list"], false, {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test"
+    });
+
+    assert.equal(listed.ok, false);
+    assert.equal(listed.error.code, "custom_vertical_user_dev_mode_required");
+    assert.equal(listed.presets, undefined);
+  });
+});
+
+test("CLI bundled template discovery follows the active vertical", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  locale: zh-CN",
+      "  defaultVertical: custom/acme",
+      "  defaultPreset: standard-task",
+      "  customVerticals:",
+      "    enabled: false",
+      ""
+    ]);
+
+    const listed = runJson(rootDir, ["template", "list"], false, {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test"
+    });
+
+    assert.equal(listed.ok, false);
+    assert.equal(listed.error.code, "custom_vertical_user_dev_mode_required");
+    assert.equal(listed.templates, undefined);
+  });
+});
+
+test("CLI preset runtime commands cannot bypass the non-coding active vertical", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  locale: zh-CN",
+      "  defaultVertical: custom/acme",
+      "  defaultPreset: standard-task",
+      "  customVerticals:",
+      "    enabled: false",
+      ""
+    ]);
+    const directTestEnv = {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test"
+    };
+
+    for (const args of [
+      ["preset", "inspect", "standard-task"],
+      ["preset", "check", "standard-task"],
+      ["preset", "run", "standard-task", "scaffold", "--task", "task-fixture"]
+    ]) {
+      const result = runJson(rootDir, args, false, directTestEnv);
+      assert.equal(result.ok, false);
+      assert.equal(result.error.code, "custom_vertical_user_dev_mode_required", args.join(" "));
+    }
+  });
+});
+
+test("CLI check fails closed when the active vertical cannot be resolved", () => {
+  withTempRoot((rootDir) => {
+    writeHarnessConfig(rootDir, [
+      "schema: harness-anything/v1",
+      "settings:",
+      "  locale: zh-CN",
+      "  defaultVertical: custom/acme",
+      "  defaultPreset: standard-task",
+      "  customVerticals:",
+      "    enabled: false",
+      ""
+    ]);
+
+    const checked = runJson(rootDir, ["check", "--profile", "source-package"], false, {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test"
+    });
+
+    assert.equal(checked.ok, false);
+    assert.equal(checked.error.code, "check_profile_failed");
+    assert.equal(checked.warnings.some((warning: Record<string, unknown>) => (
+      warning.source === "vertical-check" &&
+      warning.code === "custom_vertical_user_dev_mode_required"
+    )), true);
+  });
+});
+
 test("CLI custom vertical gate ignores private harness context", () => {
   withTempRoot((rootDir) => {
     writePrivateHarnessConfig(rootDir, [
@@ -351,7 +479,12 @@ test("CLI settings locale controls bundled materialization and metadata check", 
   });
 });
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function runJson(
+  rootDir: string,
+  args: ReadonlyArray<string>,
+  expectSuccess = true,
+  extraEnv: NodeJS.ProcessEnv = {}
+): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
@@ -359,7 +492,8 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
         ...process.env,
         HARNESS_ACTOR: "agent:settings-test",
         HARNESS_GIT_AUTHOR_NAME: "Settings Tester",
-        HARNESS_GIT_AUTHOR_EMAIL: "settings@example.test"
+        HARNESS_GIT_AUTHOR_EMAIL: "settings@example.test",
+        ...extraEnv
       }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);

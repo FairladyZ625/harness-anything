@@ -8,7 +8,19 @@ import { readTemplateCatalogFile, type TemplateCatalog } from "./template-catalo
 type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 
-const assetRoot = join(dirname(fileURLToPath(import.meta.url)), "assets", "software-coding");
+interface BundledVerticalPackage {
+  readonly id: string;
+  readonly assetDirectory: string;
+  readonly templateCatalogIds: ReadonlyArray<string>;
+}
+
+const bundledAssetsRoot = join(dirname(fileURLToPath(import.meta.url)), "assets");
+const bundledVerticalPackages: ReadonlyArray<BundledVerticalPackage> = [{
+  id: "software/coding",
+  assetDirectory: "software-coding",
+  templateCatalogIds: ["software-coding-core"]
+}];
+const defaultBundledVerticalId = "software/coding";
 
 export interface BundledPresetManifestEntry {
   readonly manifest: PresetManifest;
@@ -21,8 +33,10 @@ export interface BundledVerticalDefinitionEntry {
 }
 
 export function bundledTemplateCatalog(id?: string): TemplateCatalog | undefined {
-  if (id && id !== "software/coding" && id !== "software-coding-core") return undefined;
-  return readTemplateCatalogFile(assetPath("template-catalog.json"));
+  const bundle = bundledVerticalPackages.find((candidate) => (
+    candidate.id === (id ?? defaultBundledVerticalId) || candidate.templateCatalogIds.includes(id ?? "")
+  ));
+  return bundle ? readTemplateCatalogFile(assetPath(bundle, "template-catalog.json")) : undefined;
 }
 
 export function bundledVerticalDefinition(id?: string): VerticalDefinition | undefined {
@@ -30,10 +44,11 @@ export function bundledVerticalDefinition(id?: string): VerticalDefinition | und
 }
 
 export function bundledVerticalDefinitionEntry(id?: string): BundledVerticalDefinitionEntry | undefined {
-  if (id && id !== "software/coding") return undefined;
-  const sourcePath = assetPath("vertical.json");
+  const bundle = bundledVerticalPackages.find((candidate) => candidate.id === (id ?? defaultBundledVerticalId));
+  if (!bundle) return undefined;
+  const sourcePath = assetPath(bundle, "vertical.json");
   return {
-    manifest: readBundledJson("vertical.json", VerticalDefinitionSchema),
+    manifest: readBundledJson(bundle, "vertical.json", VerticalDefinitionSchema),
     sourcePath
   };
 }
@@ -43,13 +58,15 @@ export function loadBundledPresetManifests(): ReadonlyArray<PresetManifest> {
 }
 
 export function loadBundledPresetManifestEntries(): ReadonlyArray<BundledPresetManifestEntry> {
-  const index = readJson("presets/index.json") as { readonly presets?: ReadonlyArray<string> };
-  return (index.presets ?? []).map((presetId) => {
-    const sourcePath = assetPath(`presets/${presetId}/preset.json`);
-    return {
-      manifest: readBundledJson(`presets/${presetId}/preset.json`, PresetManifestSchema),
-      sourcePath
-    };
+  return bundledVerticalPackages.flatMap((bundle) => {
+    const index = readJson(bundle, "presets/index.json") as { readonly presets?: ReadonlyArray<string> };
+    return (index.presets ?? []).map((presetId) => {
+      const relativePath = `presets/${presetId}/preset.json`;
+      return {
+        manifest: readBundledJson(bundle, relativePath, PresetManifestSchema),
+        sourcePath: assetPath(bundle, relativePath)
+      };
+    });
   });
 }
 
@@ -60,14 +77,14 @@ export function bundledTaskTemplateSelections(): VerticalDefinition["templateSel
     ?? [];
 }
 
-function readBundledJson<A, I>(relativePath: string, schema: Schema.Schema<A, I, never>): A {
-  return Schema.decodeUnknownSync(schema)(readJson(relativePath));
+function readBundledJson<A, I>(bundle: BundledVerticalPackage, relativePath: string, schema: Schema.Schema<A, I, never>): A {
+  return Schema.decodeUnknownSync(schema)(readJson(bundle, relativePath));
 }
 
-function readJson(relativePath: string): unknown {
-  return JSON.parse(readFileSync(assetPath(relativePath), "utf8")) as unknown;
+function readJson(bundle: BundledVerticalPackage, relativePath: string): unknown {
+  return JSON.parse(readFileSync(assetPath(bundle, relativePath), "utf8")) as unknown;
 }
 
-function assetPath(relativePath: string): string {
-  return join(assetRoot, relativePath);
+function assetPath(bundle: BundledVerticalPackage, relativePath: string): string {
+  return join(bundledAssetsRoot, bundle.assetDirectory, relativePath);
 }

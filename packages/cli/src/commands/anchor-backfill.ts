@@ -195,7 +195,7 @@ function scanAnchorBackfill(rootInput: HarnessLayoutInput, locale: "zh-CN" | "en
       continue;
     }
 
-    const preset = resolvePresetEntry(rootInput, presetId);
+    const preset = resolvePresetEntry(rootInput, presetId, vertical);
     if (!preset) {
       skipped.push({ path: relativeIndexPath, reason: "preset_not_found", detail: presetId });
       continue;
