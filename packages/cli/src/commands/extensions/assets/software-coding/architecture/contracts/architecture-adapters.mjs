@@ -4,6 +4,7 @@ import {
   validateArchitectureProviderObservation
 } from "./architecture-adapter-contracts.mjs";
 import { javascriptTypeScriptExtractorBoundary } from "./architecture-code-graph.mjs";
+import { runJavaScriptTypeScriptCodeGraph } from "./architecture-javascript-typescript-extractor.mjs";
 import { compareArchitectureText } from "./architecture-portable-path.mjs";
 import {
   architectureFindingsHaveUniqueIds,
@@ -16,6 +17,7 @@ import {
 
 const adapterRegistry = new Map([
   ["javascript-typescript/imports-v1", {
+    extract: runJavaScriptTypeScriptCodeGraph,
     run: runMissingJavaScriptTypeScriptAdapter,
     compare: compareMissingJavaScriptTypeScriptAdapter
   }]
@@ -30,6 +32,21 @@ const jsTsExtractorBoundary = javascriptTypeScriptExtractorBoundary();
 
 export async function runDeclaredArchitectureExtractors(options) {
   return runArchitectureAdapterPipeline(options, fixedRegistry);
+}
+
+export async function runDeclaredArchitectureCodeGraph(options) {
+  const entry = adapterRegistry.get(options.extractor.adapter);
+  if (typeof entry?.extract !== "function") {
+    return {
+      status: "invalid",
+      issues: [pipelineIssue(
+        "architecture_code_graph_adapter_unknown",
+        "extractor.adapter",
+        `No fixed code graph extractor is registered for ${options.extractor.adapter}.`
+      )]
+    };
+  }
+  return entry.extract(options);
 }
 
 export async function runArchitectureAdapterPipeline(options, registry) {
@@ -239,7 +256,8 @@ function architectureObservedEvidence(observation) {
 
 function validExtractorEntry(value) {
   return isArchitectureRecord(value) &&
-    hasExactKeys(value, ["run", "compare"]) &&
+    (hasExactKeys(value, ["run", "compare"]) || hasExactKeys(value, ["extract", "run", "compare"])) &&
+    (value.extract === undefined || typeof value.extract === "function") &&
     typeof value.run === "function" &&
     typeof value.compare === "function";
 }

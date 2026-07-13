@@ -1,0 +1,80 @@
+{
+  "modules": [
+    {
+      "source": "packages/api/src/index.ts",
+      "valid": true,
+      "dependencies": [
+        {
+          "module": "@fixture/store",
+          "resolved": "packages/store/src/index.ts",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "couldNotResolve": false,
+          "coreModule": false,
+          "circular": false,
+          "dependencyTypes": ["local"],
+          "exoticallyRequired": false,
+          "followable": true,
+          "protocol": "file:",
+          "valid": true
+        },
+        {
+          "module": "./index.test.js",
+          "resolved": "packages/api/src/index.test.ts",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "couldNotResolve": false,
+          "coreModule": false,
+          "circular": false,
+          "dependencyTypes": ["local"],
+          "exoticallyRequired": false,
+          "followable": true,
+          "protocol": "file:",
+          "valid": true
+        }
+      ],
+      "dependents": [],
+      "orphan": false
+    },
+    {
+      "source": "packages/store/src/index.ts",
+      "valid": true,
+      "dependencies": [],
+      "dependents": ["packages/api/src/index.ts"],
+      "orphan": false
+    },
+    {
+      "source": "packages/api/src/index.test.ts",
+      "valid": true,
+      "dependencies": [],
+      "dependents": ["packages/api/src/index.ts"],
+      "orphan": false
+    },
+    {
+      "source": "dist/generated.js",
+      "valid": true,
+      "dependencies": [],
+      "dependents": [],
+      "orphan": true
+    },
+    {
+      "source": "scripts/release.mjs",
+      "valid": true,
+      "dependencies": [],
+      "dependents": [],
+      "orphan": true
+    }
+  ],
+  "summary": {
+    "violations": [],
+    "error": 0,
+    "warn": 0,
+    "info": 0,
+    "ignore": 0,
+    "totalCruised": 5,
+    "totalDependenciesCruised": 2,
+    "optionsUsed": {
+      "outputType": "json"
+    }
+  }
+}

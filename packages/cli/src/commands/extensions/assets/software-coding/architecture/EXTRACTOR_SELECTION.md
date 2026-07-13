@@ -10,6 +10,12 @@ Use dependency-cruiser behind a Harness-owned process and JSON adapter boundary.
 
 This selection does not add the dependency or enable scanning. The implementation slice owns the pinned package version, golden raw-output fixtures, execution limits, and real repository snapshot.
 
+## Implementation binding
+
+P3b pins `dependency-cruiser@17.4.3`. The 17.4.3 release retains dependency-cruiser's `^20.12 || ^22 || >=24` Node range and has no high-severity npm audit finding in this lockfile. The newer 18.1.0 release was not used because its `^22 || ^24 || >=26` engine range excludes Node 25 while the published Harness CLI contract and supply-chain gate require `node >=24`; narrowing that public runtime contract is outside this extractor task.
+
+The adapter checks `depcruise --version` before every scan, rejects any version other than 17.4.3, and then invokes JSON extraction with `--no-config`, an argv array, repository cwd, a ten-second timeout, bounded stdout, and `shell: false`. Source-scope globs are evaluated by the Node 24 runtime after decoding so copied vertical assets remain self-contained; test, `dist`, `node_modules`, and undeclared paths do not enter the normalized graph.
+
 ## Evidence
 
 | Criterion | dependency-cruiser | Madge | TypeScript compiler API |
