@@ -1,7 +1,7 @@
 {
   "schema": "authority-concurrency-benchmark/v1",
-  "measuredAt": "2026-07-13T08:34:17.364Z",
-  "sourceCommit": "269b9a521f1f0cc2a3f8e54d6cfbb762bfbdc325",
+  "measuredAt": "2026-07-13T08:38:55.427Z",
+  "sourceCommit": "eb69bf06bdfd8089d3d6ff165893dc678063b6ae",
   "environment": {
     "node": "v25.8.0",
     "platform": "darwin",
@@ -13,20 +13,20 @@
     {
       "writers": 1,
       "attempts": 10,
-      "p50Ms": 335.22,
-      "p95Ms": 364.05,
-      "maxMs": 364.05,
+      "p50Ms": 332.9,
+      "p95Ms": 359.02,
+      "maxMs": 359.02,
       "samplesMs": [
-        364.05,
-        338.46,
-        332.35,
-        335.06,
-        338.81,
-        339.28,
-        335.22,
-        334.04,
-        343.42,
-        332.16
+        359.02,
+        335.13,
+        333.01,
+        332.9,
+        330.37,
+        318.91,
+        340.9,
+        336.75,
+        324.72,
+        322.77
       ]
     }
   ]
