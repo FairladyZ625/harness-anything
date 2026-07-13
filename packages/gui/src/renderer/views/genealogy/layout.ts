@@ -49,40 +49,30 @@ export const KIND_META: Record<
   },
 };
 
-/** 编码轴：替换线性时间 x 的三种可读方案。 */
-export type EncodingMode = "ordinal" | "day-cluster" | "dag";
+/** 编码模式：DAG 拓扑（唯一布局），日簇是同列内同日节点过多时的自动收敛策略。 */
+export type EncodingMode = "dag";
 
 export const ENCODING_META: Record<
   EncodingMode,
   { label: string; short: string; blurb: string }
 > = {
-  ordinal: {
-    label: "序数轴",
-    short: "序数",
-    blurb: "x=事件序，空白日不占宽",
-  },
-  "day-cluster": {
-    label: "日簇折叠",
-    short: "日簇",
-    blurb: "同日合成簇节点，点开展开",
-  },
   dag: {
     label: "DAG 拓扑",
     short: "DAG",
-    blurb: "谱系拓扑排版，时间只做排序",
+    blurb: "谱系拓扑排版，时间只做排序；同列同日过多时自动折簇",
   },
 };
 
 // ---- 布局常量（px）----
-export const CARD_W = 248;
-export const CARD_H = 72;
-export const ROW_H = 94;
+// 卡片加宽加高，让真实账本里 80–100 字标题能完整显示（3 行 × ~28 字）。
+export const CARD_W = 280;
+export const CARD_H = 96;
+export const ROW_H = 118;
 export const AXIS_H = 34;
 export const PAD_X = 28;
 export const PAD_Y = 20;
-export const LANE_GAP = 18;
-export const CLUSTER_W = 168;
-export const CLUSTER_H = 64;
+export const CLUSTER_W = 188;
+export const CLUSTER_H = 72;
 
 export interface GenealogyEdge {
   from: string;
@@ -269,37 +259,6 @@ export function collectRawNodes(
     .filter((node): node is RawLineageNode => node !== null);
 }
 
-/** 同 depth 带内按 x 排序后贪心装道，零重叠。 */
-export function packDepthLanes(
-  nodes: Array<Omit<LaidOutNode, "y"> & { x: number }>,
-  rowH: number = ROW_H,
-): { placed: LaidOutNode[]; rowCount: number } {
-  const depths = [...new Set(nodes.map((n) => n.depth))].sort((a, b) => a - b);
-  const placed: LaidOutNode[] = [];
-  let rowCursor = 0;
-  for (const depth of depths) {
-    const group = nodes
-      .filter((n) => n.depth === depth)
-      .sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
-    const laneRight: number[] = [];
-    for (const node of group) {
-      const cardW = node.isCluster ? CLUSTER_W : CARD_W;
-      let lane = laneRight.findIndex((right) => node.x >= right + LANE_GAP);
-      if (lane === -1) {
-        lane = laneRight.length;
-        laneRight.push(0);
-      }
-      laneRight[lane] = node.x + cardW;
-      placed.push({
-        ...node,
-        y: AXIS_H + PAD_Y + (rowCursor + lane) * rowH,
-      });
-    }
-    rowCursor += Math.max(1, laneRight.length);
-  }
-  return { placed, rowCount: rowCursor };
-}
-
 export const EMPTY_LAYOUT: TimelineLayout = {
   nodes: [],
   width: 0,
@@ -307,12 +266,11 @@ export const EMPTY_LAYOUT: TimelineLayout = {
   ticks: [],
   minT: 0,
   maxT: 0,
-  encoding: "ordinal",
+  encoding: "dag",
   cycleWarning: { count: 0, cycles: [] },
 };
 
 export type LayoutOptions = {
-  encoding?: EncodingMode;
   expandedDays?: ReadonlySet<string>;
 };
 

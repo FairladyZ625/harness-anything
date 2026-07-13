@@ -3,7 +3,6 @@ import { ClockCounterClockwise } from "@phosphor-icons/react";
 import type { DecisionRow, RelationEdge } from "../model/types";
 import {
   ENCODING_META,
-  type EncodingMode,
   KIND_META,
   buildGenealogyEdges,
   collectLineage,
@@ -21,7 +20,7 @@ import { TimelinePlot } from "./genealogy/TimelinePlot";
  * 决策谱系「演化史」视图入口壳。
  *
  * 纯前端派生：从 relations 筛谱系四类边，焦点上溯/下溯。
- * 时间编码可切换（序数轴 / 日簇折叠 / DAG 拓扑），不再用线性 wall-clock x。
+ * 布局 = DAG 拓扑（x = 谱系深度），同列内同日节点过多时自动折成簇（可展开）。
  */
 export function GenealogyTimelineView({
   decisions,
@@ -72,7 +71,6 @@ export function GenealogyTimelineView({
   const [focusId, setFocusId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [encoding, setEncoding] = useState<EncodingMode>("ordinal");
   const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -120,10 +118,9 @@ export function GenealogyTimelineView({
   const layout = useMemo(
     () =>
       computeLayout(focus, edges, byId, plotWidth, {
-        encoding,
         expandedDays,
       }),
-    [focus, edges, byId, plotWidth, encoding, expandedDays],
+    [focus, edges, byId, plotWidth, expandedDays],
   );
 
   const nodeById = useMemo(() => {
@@ -184,46 +181,16 @@ export function GenealogyTimelineView({
         {focus && (
           <span className="font-mono text-[11px] text-text-faint">
             焦点谱系：{ancestorCount} 祖先 · {descendantCount} 后代
-            {encoding === "day-cluster" && visibleClusters > 0
+            {visibleClusters > 0
               ? ` · ${visibleClusters} 日簇 / ${visibleCards} 卡`
               : ""}
           </span>
         )}
-
-        {/* 编码方案切换 —— 供 CEO / 泽宇对照 */}
-        <div
-          className="ml-auto flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-0.5"
-          role="tablist"
-          aria-label="时间编码方案"
-        >
-          {(Object.keys(ENCODING_META) as EncodingMode[]).map((mode) => {
-            const meta = ENCODING_META[mode];
-            const active = encoding === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                data-encoding-tab={mode}
-                title={meta.blurb}
-                onClick={() => setEncoding(mode)}
-                className={`rounded-md px-2.5 py-1 font-mono text-[11px] transition-colors ${
-                  active
-                    ? "bg-accent text-accent-fg"
-                    : "text-text-muted hover:bg-surface-raised hover:text-text"
-                }`}
-              >
-                {meta.short}
-              </button>
-            );
-          })}
-        </div>
       </header>
 
       <div className="flex items-center gap-3 border-b border-border px-4 py-1.5">
         <span className="font-mono text-[11px] text-text-faint">
-          {ENCODING_META[encoding].label}：{ENCODING_META[encoding].blurb}
+          {ENCODING_META.dag.label}：{ENCODING_META.dag.blurb}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px]">
           {(["refines", "narrows", "supersedes", "supports"] as const).map((kind) => {
@@ -270,6 +237,7 @@ export function GenealogyTimelineView({
               nodeById={nodeById}
               lineageEdges={lineageEdges}
               selectedId={selectedId}
+              expandedDays={expandedDays}
               onToggleSelect={(id) =>
                 setSelectedId((prev) => (prev === id ? null : id))
               }

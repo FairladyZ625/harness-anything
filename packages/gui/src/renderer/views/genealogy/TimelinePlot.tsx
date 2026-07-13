@@ -12,13 +12,14 @@ import {
 
 /**
  * 主区谱系图：刻度 + 网格 + 语义色/线型边 + 决策卡（或日簇）。
- * hover 高亮自管。day-cluster 点簇展开由 onToggleCluster 上抛。
+ * hover 高亮自管。同列同日簇点开展开由 onToggleCluster 上抛。
  */
 export function TimelinePlot({
   layout,
   nodeById,
   lineageEdges,
   selectedId,
+  expandedDays,
   onToggleSelect,
   onToggleCluster,
 }: {
@@ -26,12 +27,13 @@ export function TimelinePlot({
   nodeById: Map<string, LaidOutNode>;
   lineageEdges: GenealogyEdge[];
   selectedId: string | null;
+  expandedDays?: ReadonlySet<string>;
   onToggleSelect: (id: string) => void;
   onToggleCluster?: (dayKey: string) => void;
 }) {
   const [hoverId, setHoverId] = useState<string | null>(null);
 
-  // 簇展开后，边的端点可能是簇 id；映射成员 → 可见节点（卡或所属簇）。
+  // 簇折叠时边的端点是成员 id；映射成员 → 可见节点（卡或所属簇）。
   const resolveVisible = (id: string): LaidOutNode | undefined => {
     const direct = nodeById.get(id);
     if (direct) return direct;
@@ -188,7 +190,7 @@ export function TimelinePlot({
                 </span>
               )}
             </div>
-            <span className="line-clamp-2 break-words text-[12px] font-medium leading-snug text-text">
+            <span className="line-clamp-3 break-words text-[12px] font-medium leading-snug text-text">
               {node.decision.title}
             </span>
             <div className="flex items-center gap-1.5">
@@ -200,7 +202,9 @@ export function TimelinePlot({
                   无时间
                 </span>
               )}
-              {layout.encoding === "day-cluster" && node.dayKey && onToggleCluster && (
+              {node.dayKey &&
+                onToggleCluster &&
+                expandedDays?.has(node.dayKey) && (
                 <span
                   role="link"
                   tabIndex={0}
