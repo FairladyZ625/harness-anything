@@ -19,6 +19,19 @@ Describe the proposed behavior change and the evidence that motivates it.
 - Upstream dependencies:
 - Downstream projections, generated assets, or integrations:
 
+## Architecture Context
+
+- Applicability: enabled, or N/A for docs-only / clearly local low-risk work (reason required):
+- Manifest and check state: absent (`not-configured`), `fresh`, `drifted`, `invalid`, or `tool-missing`:
+- Stable node ID(s) and canonical owner:
+- Stable view / flow ID:
+- Direct incomers and outgoers; affected multi-hop path when relevant:
+- Selected implementation layer and why it owns the change:
+- Snapshot digest (or why unavailable):
+- Model/snapshot conflicts that must remain visible:
+- Related ADR paths and canonical `decision/<id>` references:
+- Query evidence: LikeC4 MCP tool used, or CLI/text-model fallback:
+
 ## Compatibility and Data
 
 - Compatibility commitments:

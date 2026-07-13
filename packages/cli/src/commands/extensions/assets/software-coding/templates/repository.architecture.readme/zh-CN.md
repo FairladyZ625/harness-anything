@@ -37,6 +37,16 @@ V1 合同要求三个稳定 view ID，并让 model 与 view 分文件维护：
 
 Agent 引用 manifest 中的稳定 view ID 与节点 `archId`，而不是显示标题。
 
+## Agent Query Routing
+
+跨模块改代码前，只回答最小必要问题集：哪个稳定 node 负责该行为、它位于哪个 view/flow、直接 incomers/outgoers 是什么、哪些多跳路径受影响，以及为什么所选实现层级是 canonical owner。task 的 `code-impact-analysis.md` 只记录这些稳定引用和当前 snapshot digest。
+
+如果环境已经提供 LikeC4 MCP，使用 `search-element` 或 `read-element` 解析稳定 node，使用 `read-view` 定位声明 flow，使用 `query-graph` 查看直接 incomers/outgoers；只有跨边界修改才使用递归 graph 或 relationship-path 工具。官方 server 可以来自已激活的编辑器扩展、`likec4 mcp` 或 `@likec4/mcp`；MCP 只是可选的查询加速器，不能成为 task 前置条件。
+
+确定性 fallback 始终存在：按上文顺序读取 manifest 与 `.c4` 文本，再运行 `ha script run vertical:software-coding:architecture-check --task <task-id>`。若项目已经提供 LikeC4，可用 `likec4 validate` 检查模型语法。不能为了完成普通 task 自动安装或启动联网工具。
+
+显式解释 check 状态：`not-configured` 表示继续普通 coding 流程；`fresh` 提供应引用的 snapshot digest；`drifted` 必须同时保留模型意图与冲突的代码证据；`invalid` 必须呈现配置问题；`tool-missing` 必须记录缺失工具，并在可行时继续用文本模型导航。docs-only 或明确局部低风险的工作可以写明理由后标 N/A，无需运行外部查询。
+
 ## Validation
 
 用随 vertical 交付的 `architecture-manifest/v1` 合同校验 manifest。若项目显式提供 LikeC4，则从 manifest 的 `modelRoot` 运行 `likec4 validate`。工具缺失是确定性的降级状态，不能因此自动联网安装。

@@ -19,6 +19,19 @@
 - 上游依赖：
 - 下游投影、生成资产或集成：
 
+## Architecture Context
+
+- 适用性：enabled；若为 docs-only / 明确局部低风险工作则可填 N/A（必须写理由）：
+- Manifest 与 check 状态：absent (`not-configured`)、`fresh`、`drifted`、`invalid` 或 `tool-missing`：
+- 稳定 node ID 与 canonical owner：
+- 稳定 view / flow ID：
+- 直接 incomers/outgoers；适用时记录受影响的多跳路径：
+- 选择的实现层级及其应负责本次修改的理由：
+- Snapshot digest（或无法取得的原因）：
+- 必须保持可见的模型/snapshot 冲突：
+- 关联 ADR 路径与 canonical `decision/<id>` 引用：
+- 查询证据：使用的 LikeC4 MCP tool，或 CLI/文本模型 fallback：
+
 ## Compatibility and Data
 
 - 兼容性承诺：

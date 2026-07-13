@@ -17,6 +17,12 @@ Each scaffold folder owns the single source of truth for its own usage. This ent
 - Milestone discipline → `harness/milestones/README.md`
 - Sessions, standards, and context → `harness/sessions/README.md`, `harness/standards/README.md`, `harness/context/README.md`
 
+## Architecture-aware code changes
+
+- If `harness/context/architecture/architecture-manifest.json` exists, read `harness/context/architecture/README.md` before choosing the implementation layer. Follow its query routing and record stable architecture references in `code-impact-analysis.md`; do not copy the model into the task.
+- If the manifest is absent, continue with the normal coding workflow. Docs-only or clearly local low-risk changes may record architecture impact as N/A with a reason.
+- For an applicable task with a manifest, run `ha script run vertical:software-coding:architecture-check --task <task-id>` before implementation. Report `drifted`, `invalid`, or `tool-missing` results as evidence; do not hide a model/snapshot conflict or make architecture check a completion gate.
+
 ## Governance routing (near-field hard gates)
 
 - PR / branch / merge / admin bypass → `harness/standards/repo-governance.md` and `.github/pull_request_template.md`

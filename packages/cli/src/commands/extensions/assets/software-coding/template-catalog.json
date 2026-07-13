@@ -22,6 +22,7 @@
         "## Change Intent",
         "## Affected Surfaces",
         "## Dependency Paths",
+        "## Architecture Context",
         "## Compatibility and Data",
         "## Test and Verification Impact",
         "## Risks and Unknowns",
@@ -35,6 +36,7 @@
             "## Change Intent",
             "## Affected Surfaces",
             "## Dependency Paths",
+            "## Architecture Context",
             "## Compatibility and Data",
             "## Test and Verification Impact",
             "## Risks and Unknowns",
@@ -48,6 +50,7 @@
             "## Change Intent",
             "## Affected Surfaces",
             "## Dependency Paths",
+            "## Architecture Context",
             "## Compatibility and Data",
             "## Test and Verification Impact",
             "## Risks and Unknowns",
@@ -837,6 +840,7 @@
       "requiredAnchors": [
         "## Harness CLI (software/coding)",
         "## Scaffold folders (see each folder README, do not duplicate here)",
+        "## Architecture-aware code changes",
         "## Governance routing (near-field hard gates)"
       ],
       "fallbackLocale": "en-US",
@@ -846,6 +850,7 @@
           "anchors": [
             "## Harness CLI (software/coding)",
             "## Scaffold folders (see each folder README, do not duplicate here)",
+            "## Architecture-aware code changes",
             "## Governance routing (near-field hard gates)"
           ],
           "bodyPath": "templates/repository.agent.overlay/zh-CN.md"
@@ -855,6 +860,7 @@
           "anchors": [
             "## Harness CLI (software/coding)",
             "## Scaffold folders (see each folder README, do not duplicate here)",
+            "## Architecture-aware code changes",
             "## Governance routing (near-field hard gates)"
           ],
           "bodyPath": "templates/repository.agent.overlay/en-US.md"

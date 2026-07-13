@@ -19,6 +19,12 @@
 - 里程碑纪律 → `harness/milestones/README.md`
 - 会话、标准与上下文 → `harness/sessions/README.md`、`harness/standards/README.md`、`harness/context/README.md`
 
+## Architecture-aware code changes
+
+- 若存在 `harness/context/architecture/architecture-manifest.json`，选择实现层级前先读 `harness/context/architecture/README.md`，按其中的查询路由定位，并在 `code-impact-analysis.md` 记录稳定架构引用；不要把模型内容复制进 task。
+- manifest 不存在时继续普通 coding 流程。docs-only 或明确局部低风险的修改可以把架构影响记为 N/A，但必须写理由。
+- 对已有 manifest 且适用的 task，在实现前运行 `ha script run vertical:software-coding:architecture-check --task <task-id>`。把 `drifted`、`invalid` 或 `tool-missing` 作为证据呈现；不得隐藏模型与 snapshot 冲突，也不得把 architecture check 变成 completion gate。
+
 ## Governance routing (near-field hard gates)
 
 - PR / 分支 / 合并 / admin bypass → `harness/standards/repo-governance.md` 与 `.github/pull_request_template.md`

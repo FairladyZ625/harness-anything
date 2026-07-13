@@ -53,6 +53,8 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.match(agents, /## WriteCoordinator discipline/u);
     assert.match(agents, /## Harness CLI \(software\/coding\)/u);
     assert.match(agents, /## Scaffold folders/u);
+    assert.match(agents, /## Architecture-aware code changes/u);
+    assert.match(agents, /architecture-manifest\.json/u);
     assert.match(agents, /## Governance routing \(near-field hard gates\)/u);
     assert.match(agents, /## Repository Specifics/u);
     // D3: overlay only routes to folder READMEs, it never restates their bodies.
@@ -68,7 +70,10 @@ test("CLI init defaults harness project name from the target root basename", () 
     assert.match(readFileSync(path.join(rootDir, "harness/sessions/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/standards/README.md"), "utf8"), /## 用途/u);
     assert.match(readFileSync(path.join(rootDir, "harness/context/README.md"), "utf8"), /## 用途/u);
-    assert.match(readFileSync(path.join(rootDir, "harness/context/architecture/README.md"), "utf8"), /## Activation/u);
+    const architectureGuide = readFileSync(path.join(rootDir, "harness/context/architecture/README.md"), "utf8");
+    assert.match(architectureGuide, /## Activation/u);
+    assert.match(architectureGuide, /## Agent Query Routing/u);
+    assert.match(architectureGuide, /MCP/u);
     assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/architecture-manifest.json")), false);
     assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/model")), false);
   });

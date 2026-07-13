@@ -103,6 +103,7 @@ test("CLI renders the bilingual architecture guide and locale-neutral provider a
     "## Source of Truth",
     "## Authoring Contract",
     "## Views",
+    "## Agent Query Routing",
     "## Validation",
     "## Migration and Conflicts"
   ];
@@ -137,6 +138,31 @@ test("CLI bundled additive task templates render both supported locales", () => 
     assert.equal(zh.document.locale, "zh-CN");
     assert.equal(en.document.locale, "en-US");
     assert.notEqual(zh.document.body, en.document.body);
+  }
+});
+
+test("CLI coding routes architecture-aware impact without requiring MCP or a manifest", () => {
+  const overlayEn = runJson(["template", "render", "template://repository/agent-overlay@1", "--locale", "en-US"]);
+  const overlayZh = runJson(["template", "render", "template://repository/agent-overlay@1", "--locale", "zh-CN"]);
+  const guideEn = runJson(["template", "render", "template://repository/architecture-readme@1", "--locale", "en-US"]);
+  const impactEn = runJson(["template", "render", "template://analysis/code-impact@1", "--locale", "en-US"]);
+  const impactZh = runJson(["template", "render", "template://analysis/code-impact@1", "--locale", "zh-CN"]);
+
+  for (const overlay of [overlayEn, overlayZh]) {
+    assert.match(overlay.document.body, /## Architecture-aware code changes/u);
+    assert.match(overlay.document.body, /architecture-manifest\.json/u);
+    assert.match(overlay.document.body, /architecture-check --task <task-id>/u);
+  }
+  assert.match(guideEn.document.body, /`likec4 mcp`/u);
+  assert.match(guideEn.document.body, /`query-graph`/u);
+  assert.match(guideEn.document.body, /MCP is an optional query accelerator/u);
+  for (const impact of [impactEn, impactZh]) {
+    assert.match(impact.document.body, /## Architecture Context/u);
+    for (const state of ["not-configured", "fresh", "drifted", "invalid", "tool-missing"]) {
+      assert.equal(impact.document.body.includes(`\`${state}\``), true, state);
+    }
+    assert.match(impact.document.body, /Snapshot digest/u);
+    assert.match(impact.document.body, /decision\/<id>/u);
   }
 });
 
