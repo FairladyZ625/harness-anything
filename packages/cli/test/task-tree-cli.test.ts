@@ -87,7 +87,7 @@ test("closing a parent with open children warns without mutating child status", 
     writeSubstantiveTaskPlan(rootDir, String(parent.packagePath));
 
     runJson(rootDir, ["task", "transition", String(parent.taskId), "active"]);
-    const closed = runJson(rootDir, ["task", "transition", String(parent.taskId), "done", "--force", "--reason", "fixture close"]);
+    const closed = runJson(rootDir, ["task", "transition", String(parent.taskId), "cancelled", "--force", "--reason", "fixture close"]);
     const list = runJson(rootDir, ["task", "list"]);
 
     assert.equal(closed.ok, true);

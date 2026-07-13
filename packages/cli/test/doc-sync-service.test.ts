@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -186,6 +186,29 @@ test("doc sync submit rejects disguised prose edits to task fact records", async
   });
 });
 
+for (const typedRecord of [
+  { directory: "executions", bearing: "task-execution", registryRowId: "task.execution.record" },
+  { directory: "reviews", bearing: "task-execution-review", registryRowId: "task.execution-review.record" }
+] as const) {
+  test(`doc sync submit rejects hosted ${typedRecord.directory} records`, async () => {
+    await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
+      const relativePath = `tasks/${taskId}/${typedRecord.directory}/fake.md`;
+      const service = makeDocSyncService({ rootDir, coordinator: attributedCoordinator(rootDir) });
+      const result = await service.submit(submitRequest({
+        baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
+        intentId: `intent-${typedRecord.directory}`,
+        changes: [inlineChange(relativePath, null, "{}\n")]
+      }));
+
+      assert.equal(result.ok, false);
+      assert.equal(result.code, "doc_sync_forbidden_touch");
+      assert.equal(result.forbiddenTouches?.[0]?.hunks[0]?.bearing, typedRecord.bearing);
+      assert.equal(result.forbiddenTouches?.[0]?.hunks[0]?.registryRowId, typedRecord.registryRowId);
+      assert.equal(existsSync(path.join(harnessRoot, relativePath)), false);
+    });
+  });
+}
+
 test("doc sync submit rejects stale base ledger and blob with A2 CAS shape", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot, taskRoot, taskId }) => {
     const baseLedgerSha = git(harnessRoot, "rev-parse", "HEAD");
@@ -357,10 +380,10 @@ function submitRequest(input: {
   };
 }
 
-function inlineChange(pathInput: string, baseBody: string, newBody: string, options: { readonly mediaType?: string } = {}) {
+function inlineChange(pathInput: string, baseBody: string | null, newBody: string, options: { readonly mediaType?: string } = {}) {
   return {
     path: pathInput,
-    baseBlobSha256: sha256Text(baseBody),
+    baseBlobSha256: baseBody === null ? null : sha256Text(baseBody),
     newBlobSha256: sha256Text(newBody),
     mediaType: options.mediaType ?? (pathInput.endsWith(".md") ? "text/markdown" : "text/plain"),
     size: Buffer.byteLength(newBody),

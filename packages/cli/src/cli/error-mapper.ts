@@ -1,5 +1,5 @@
 import type { ArtifactStoreError, EngineError, WriteError } from "../../../kernel/src/index.ts";
-import { cliError, CliErrorCode } from "./error-codes.ts";
+import { cliError, CliErrorCode, isCliErrorCode } from "./error-codes.ts";
 import type { CliResult } from "./types.ts";
 
 type CliReachableKernelError = ArtifactStoreError | EngineError | WriteError;
@@ -32,9 +32,11 @@ const cliErrorMappers = {
   Timeout: () => cliError(CliErrorCode.Timeout, "Command failed."),
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
   GlobalWriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."),
-  WriteRejected: (error) => error.reason.includes("authored root is not isolated from the outer code repository")
-    ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
-    : cliError(CliErrorCode.WriteRejected, error.reason),
+  WriteRejected: (error) => error.code && isCliErrorCode(error.code)
+    ? cliError(error.code, error.reason)
+    : error.reason.includes("authored root is not isolated from the outer code repository")
+      ? cliError(CliErrorCode.JournalUnavailable, `Journal is unavailable: ${error.reason}`)
+      : cliError(CliErrorCode.WriteRejected, error.reason),
   ArtifactReadFailed: () => cliError(CliErrorCode.ArtifactReadFailed, "Artifact read failed."),
   ArtifactWriteRejected: (error) => cliError(CliErrorCode.ArtifactWriteRejected, error.reason),
   TaskPackageNotFound: (error) => cliError(CliErrorCode.TaskNotFound, `task not found: ${error.taskId}`),

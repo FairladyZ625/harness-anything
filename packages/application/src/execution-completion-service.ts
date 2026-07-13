@@ -41,10 +41,11 @@ export function makeExecutionCompletionService(options: {
         }
         return execution;
       });
-      const execution = executions
-        .filter((candidate) => candidate.state === "submitted")
-        .sort((left, right) => `${right.submitted_at ?? ""}:${right.execution_id}`.localeCompare(`${left.submitted_at ?? ""}:${left.execution_id}`))[0];
-      if (!execution) throw new Error(`task ${taskId} has Execution history but no submitted Execution`);
+      const submitted = executions.filter((candidate) => candidate.state === "submitted");
+      if (submitted.length !== 1) {
+        throw new Error(`task ${taskId} requires exactly one submitted Execution; found ${submitted.length}`);
+      }
+      const execution = submitted[0]!;
       assertExecutionTaskInReview(task.documents, taskId);
       if (executionActorsShareExecutor(execution.primary_actor.executor, actor.executor)) {
         throw new Error(`execution executor cannot complete its own delivery: ${execution.execution_id}`);
@@ -52,9 +53,15 @@ export function makeExecutionCompletionService(options: {
 
       const reviews = task.documents
         .filter((document) => /^reviews\/[^/]+\.md$/u.test(document.path))
-        .map((document) => Schema.decodeUnknownSync(reviewDeclaration.schema)(
-          reviewDeclaration.documentCodec.decode(document.body)
-        ) as ReviewRecord);
+        .map((document) => {
+          const review = Schema.decodeUnknownSync(reviewDeclaration.schema)(
+            reviewDeclaration.documentCodec.decode(document.body)
+          ) as ReviewRecord;
+          if (document.path !== `reviews/${review.review_id}.md` || review.task_ref !== `task/${taskId}`) {
+            throw new Error(`review identity does not match its host path: ${document.path}`);
+          }
+          return review;
+        });
       const executionRef = `execution/${taskId}/${execution.execution_id}`;
       const approved = reviews.filter((review) =>
         review.task_ref === `task/${taskId}` &&

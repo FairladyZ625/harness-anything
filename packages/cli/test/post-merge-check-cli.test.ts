@@ -165,7 +165,7 @@ test("CLI check --post-merge tolerates facts.md that vanishes after source enume
   });
 });
 
-test("CLI check --post-merge reports done task document placeholders as hard-fails", () => {
+test("CLI check --post-merge blocks closeout placeholders but ignores the non-authoritative legacy review placeholder", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-a", "A", "done");
     writeFileSync(path.join(rootDir, "harness/tasks/task-a/closeout.md"), [
@@ -206,16 +206,12 @@ test("CLI check --post-merge reports done task document placeholders as hard-fai
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, "check_profile_failed");
     const closeout = result.warnings.find((warning: any) => warning.code === "closeout_placeholder");
-    const review = result.warnings.find((warning: any) => warning.code === "review_placeholder");
     assert.ok(closeout);
     assert.equal(closeout.severity, "hard-fail");
     assert.match(closeout.message, /harness\/tasks\/task-a\/closeout\.md/);
     assert.match(closeout.repairHint, /Summary, Verification, and Residual Risk evidence/);
-    assert.ok(review);
-    assert.equal(review.severity, "hard-fail");
-    assert.match(review.message, /harness\/tasks\/task-a\/review\.md/);
-    assert.match(review.repairHint, /actual review result/);
-    assert.equal(result.warnings.filter((warning: any) => warning.severity === "hard-fail").length >= 2, true);
+    assert.equal(result.warnings.some((warning: any) => warning.code === "review_placeholder"), false);
+    assert.equal(result.warnings.filter((warning: any) => warning.severity === "hard-fail").length >= 1, true);
   });
 });
 

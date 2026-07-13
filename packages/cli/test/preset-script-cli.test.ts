@@ -1,14 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
-import { unwrapCommandReceipt } from "./helpers/receipt.ts";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { gitRead, runJson, withTempRoot, writeFile } from "./helpers/preset-script-fixtures.ts";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-
-const cliEntry = path.resolve("packages/cli/src/index.ts");
 
 test("CLI script command lists, inspects, and runs vertical script entries through ScriptHost", () => {
   withTempRoot((rootDir) => {
@@ -599,6 +595,70 @@ test("CLI process preset script entrypoint blocks out-of-scope filesystem writes
   });
 });
 
+test("CLI process preset script ingest cannot overwrite Task typed-authority records", () => {
+  withTempRoot((temporaryRoot) => {
+    const rootDir = realpathSync(temporaryRoot);
+    ensureTestHarnessIdentity(rootDir);
+    runJson(rootDir, ["init"]);
+    const task = runJson(rootDir, ["task", "create", "--title", "Typed Authority Boundary"]);
+    const taskRoot = path.join(rootDir, String(task.packagePath));
+    const originalIndex = readFileSync(path.join(taskRoot, "INDEX.md"), "utf8");
+    writeFile(rootDir, ".harness/presets/typed-authority-writer/preset.json", JSON.stringify({
+      schema: "preset-manifest/v2",
+      id: "typed-authority-writer",
+      title: "Typed Authority Writer",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        scaffold: {
+          type: "script",
+          command: "scripts/preset-action.mjs",
+          reads: ["{{outputRoot}}/**"],
+          writes: ["{{outputRoot}}/**"]
+        }
+      },
+      profiles: [{
+        id: "baseline",
+        title: "Baseline",
+        checkerProfile: "standard",
+        completionGates: [],
+        templateSelections: []
+      }],
+      defaultProfile: "baseline"
+    }, null, 2));
+    writeFile(rootDir, ".harness/presets/typed-authority-writer/scripts/preset-action.mjs", [
+      "#!/usr/bin/env node",
+      "import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';",
+      "import path from 'node:path';",
+      "const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, 'utf8'));",
+      "mkdirSync(path.join(context.outputRoot, 'executions'), { recursive: true });",
+      "mkdirSync(path.join(context.outputRoot, 'reviews'), { recursive: true });",
+      "mkdirSync(path.join(context.outputRoot, 'artifacts'), { recursive: true });",
+      "writeFileSync(path.join(context.outputRoot, 'INDEX.md'), '# forged task\\n', 'utf8');",
+      "writeFileSync(path.join(context.outputRoot, 'executions/fake.md'), '{}\\n', 'utf8');",
+      "writeFileSync(path.join(context.outputRoot, 'reviews/fake.md'), '{}\\n', 'utf8');",
+      "writeFileSync(path.join(context.outputRoot, 'artifacts/report.json'), '{}\\n', 'utf8');",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, [
+      "preset", "action", "typed-authority-writer", "scaffold",
+      "--task", String(task.taskId), "--allow-scripts"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "write_rejected", JSON.stringify(result));
+    assert.match(result.error.hint, /typed-authority path/u);
+    assert.equal(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), originalIndex);
+    assert.equal(existsSync(path.join(taskRoot, "executions/fake.md")), false);
+    assert.equal(existsSync(path.join(taskRoot, "reviews/fake.md")), false);
+    assert.equal(existsSync(path.join(taskRoot, "artifacts/report.json")), false);
+  });
+});
+
 test("CLI legacy-migration preset action plans V2 task discovery and context forward evidence", () => {
   withTempRoot((rootDir) => {
     ensureTestHarnessIdentity(rootDir);
@@ -631,52 +691,3 @@ test("CLI legacy-migration preset action plans V2 task discovery and context for
     assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
   });
 });
-
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
-  const cliArgs = independentDecisionJudgmentArgs(args);
-  try {
-    const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...cliArgs], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:preset-script-test",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
-      }
-    });
-    const parsed = JSON.parse(output) as Record<string, any>;
-    if (expectSuccess) assert.equal(parsed.ok, true, output);
-    return unwrapCommandReceipt(parsed);
-  } catch (error) {
-    if (expectSuccess) throw error;
-    const failure = error as { readonly stdout?: string };
-    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
-  }
-}
-
-function independentDecisionJudgmentArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
-  if (args[0] !== "decision" || !["accept", "reject", "defer", "supersede", "retire"].includes(args[1] ?? "")) return args;
-  return ["--actor", "human:person_test", ...args];
-}
-
-function withTempRoot<T>(fn: (rootDir: string) => T): T {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "harness-preset-script-"));
-  try {
-    return fn(rootDir);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-}
-
-function gitRead(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-C", path.join(rootDir, "harness"), ...args], {
-    encoding: "utf8",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" }
-  }).trimEnd();
-}
-
-function writeFile(rootDir: string, relativePath: string, body: string): void {
-  const target = path.join(rootDir, relativePath);
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, body, "utf8");
-}

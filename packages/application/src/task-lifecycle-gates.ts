@@ -175,7 +175,7 @@ export function parseReviewMarkdown(markdown: string): ParsedReviewMarkdown {
 
 export function isReviewPlaceholderMarkdown(markdown: string): boolean {
   const parsed = parseReviewMarkdown(markdown);
-  return /^Status:\s*not-started\s*$/imu.test(markdown) && parsed.findings.length === 0;
+  return /^Status:\s*not-started\s*$/imu.test(markdown) && parsed.findings.length === 0 && parsed.issues.length === 0;
 }
 
 export function isCloseoutPlaceholderMarkdown(markdown: string, fingerprints: ReadonlyArray<string>): boolean {

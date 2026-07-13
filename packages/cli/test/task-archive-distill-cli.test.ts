@@ -24,8 +24,8 @@ test("CLI task archive batches filtered terminal tasks through package archive w
     for (const task of [first, second, active]) writeSubstantiveTaskPlan(rootDir, String(task.packagePath));
     for (const taskId of [firstTaskId, secondTaskId]) {
       runJson(rootDir, ["task", "status", "set", taskId, "active"]);
-      runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "batch fixture"]);
     }
+    for (const task of [first, second]) setTaskStatusFixture(rootDir, String(task.packagePath), "done");
     runJson(rootDir, ["task", "status", "set", activeTaskId, "active"]);
 
     const result = runJson(rootDir, ["task", "archive", "--filter", "state:done", "--before", "2999-01-01", "--reason", "batch containment"]);
@@ -115,8 +115,8 @@ test("CLI task archive preflights all batch ids before mutating any package", ()
     for (const task of [first, second]) writeSubstantiveTaskPlan(rootDir, String(task.packagePath));
     for (const taskId of [firstTaskId, secondTaskId]) {
       runJson(rootDir, ["task", "status", "set", taskId, "active"]);
-      runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "batch fixture"]);
     }
+    for (const task of [first, second]) setTaskStatusFixture(rootDir, String(task.packagePath), "done");
     const firstIndexPath = path.join(rootDir, String(first.packagePath), "INDEX.md");
     const secondIndexPath = path.join(rootDir, String(second.packagePath), "INDEX.md");
     const secondBefore = readFileSync(secondIndexPath, "utf8");
@@ -137,6 +137,11 @@ function appendIndexRelation(body: string, relation: EntityRelationRecord): stri
   const line = formatRelationFlowRecord(relation);
   const nextBody = body.replace("---\n\n#", `relations:\n${line}\n---\n\n#`);
   return nextBody === body ? `${body.trimEnd()}\nrelations:\n${line}\n` : nextBody;
+}
+
+function setTaskStatusFixture(rootDir: string, packagePath: string, status: string): void {
+  const indexPath = path.join(rootDir, packagePath, "INDEX.md");
+  writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/^(  status:\s*).+$/mu, `$1${status}`), "utf8");
 }
 
 function relationRecord(source: string, target: string): EntityRelationRecord {

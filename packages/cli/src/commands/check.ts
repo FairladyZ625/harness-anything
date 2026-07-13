@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { isCloseoutPlaceholderMarkdown, isReviewPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown, type TaskDocumentPlaceholderPolicy } from "../../../application/src/index.ts";
+import { isCloseoutPlaceholderMarkdown, isTaskDocumentPlaceholderMarkdown, parseReviewMarkdown, type TaskDocumentPlaceholderPolicy } from "../../../application/src/index.ts";
 import { findEntityRefs } from "../../../kernel/src/index.ts";
 import { checkTaskProjection } from "../../../kernel/src/index.ts";
 import type { HarnessLayoutInput, HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
@@ -18,6 +18,7 @@ import { readProjectHarnessSettings, settingsIssue, type ProjectHarnessSettings 
 import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-placeholders.ts";
 import { discoverScriptEntries } from "./extensions/script.ts";
 import { runScriptHost } from "./extensions/script-host.ts";
+import { validateInReviewExecutionConsistency } from "./task-execution-consistency.ts";
 
 const FORCE_STATUS_AUDIT_MARKER = "FORCE_STATUS_SET_AUDIT";
 
@@ -178,7 +179,10 @@ function findingsFromReport(report: Record<string, unknown>): ReadonlyArray<{
 function validateCheckProfile(rootInput: HarnessLayoutInput, profile: CheckProfile, strict: boolean): ReadonlyArray<ProfileValidationIssue> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
-  const issues: ProfileValidationIssue[] = [...validateUniqueTaskDirectoryIds(layout.rootDir, layout.tasksRoot)];
+  const issues: ProfileValidationIssue[] = [
+    ...validateUniqueTaskDirectoryIds(layout.rootDir, layout.tasksRoot),
+    ...validateInReviewExecutionConsistency(rootInput)
+  ];
   const settingsResult = readProjectHarnessSettings(rootInput, "check");
   const settings = settingsResult.ok ? settingsResult.settings : undefined;
   if (!settingsResult.ok) issues.push(settingsIssue(settingsResult));
@@ -337,16 +341,6 @@ function validateDoneTaskDocumentPlaceholders(rootInput: HarnessLayoutInput): Re
       ));
     }
 
-    const reviewPath = path.join(taskDir, "review.md");
-    if (existsSync(reviewPath) && isReviewPlaceholderMarkdown(readFileSync(reviewPath, "utf8"))) {
-      issues.push(profileIssue(
-        "completion-consistency",
-        "review_placeholder",
-        "hard-fail",
-        `${relativeTaskDir}/review.md is still the initial not-started review with no findings.`,
-        "Record the actual review result before treating the task as done."
-      ));
-    }
   }
   return issues;
 }

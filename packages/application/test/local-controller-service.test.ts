@@ -169,6 +169,28 @@ test("local controller service reads projection and writes through injected task
 
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "active" }), { ok: true });
     assert.deepEqual(writes, ["status:task-1:active"]);
+    assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "in_review" }), {
+      ok: false,
+      error: {
+        code: "execution_submission_required",
+        hint: "Task review state is created only by an Execution submit-for-review transaction."
+      }
+    });
+    assert.deepEqual(await service.reviewTask({ taskId: "task-1" }), {
+      ok: false,
+      error: {
+        code: "execution_submission_required",
+        hint: "Task review state is created only by an Execution submit-for-review transaction."
+      }
+    });
+    assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "shipping" } as never), {
+      ok: false,
+      error: {
+        code: "invalid_status",
+        hint: "Invalid lifecycle status: shipping. Valid statuses: planned, active, blocked, in_review, done, cancelled."
+      }
+    });
+    assert.deepEqual(writes, ["status:task-1:active"]);
     assert.deepEqual(await service.setTaskStatus({ taskId: "task-1", status: "done" }), {
       ok: false,
       error: {

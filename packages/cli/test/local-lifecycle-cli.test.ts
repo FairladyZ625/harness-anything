@@ -1,17 +1,29 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { initializeNestedHarnessRepo, withTestHarnessRoot as withTempRoot } from "./helpers/git-fixtures.ts";
-import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
+import { initializeNestedHarnessRepo, withTestHarnessRoot as withTempRoot } from "./helpers/git-fixtures.ts";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { commandDescriptors } from "../src/cli/command-registry.ts";
 import { capabilityExcludedCommandKinds } from "../src/commands/core/capabilities.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import {
+  assertGeneratedTaskId,
+  runJson,
+  runRawJson,
+  runText,
+  seedApprovedExecution,
+  writeCodeDocAnchors,
+  writeConflictMarker,
+  writeFact,
+  writeIndex,
+  writeReview
+} from "./helpers/local-lifecycle-fixtures.ts";
 
-const cliEntry = path.resolve("packages/cli/src/index.ts");
-const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
+const executionTaskId = "task_01KX7H00000000000000000000";
+const executionId = "exe_01KX7H00000000000000000001";
+const executionActorEnv = { HARNESS_ACTOR: "agent:test" } as const;
 
 test("CLI init creates authored harness and skips outer gitignore outside git repos", () => {
   withTempRoot((rootDir) => {
@@ -79,26 +91,43 @@ test("CLI status set mutates local task state through the write journal", () => 
   });
 });
 
-test("CLI rejects invalid local lifecycle transitions with a stable error code", () => {
+test("CLI rejects naked local review transitions with the Execution submission error", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
     const failure = runJson(rootDir, ["task", "status", "set", taskId, "in_review"], false);
 
     assert.equal(failure.ok, false);
-    assert.equal(failure.error?.code, "invalid_transition");
+    assert.equal(failure.error?.code, "execution_submission_required");
   });
 });
 
-test("CLI blocks ordinary terminal status-set and requires audited force for recovery", () => {
+test("CLI rejects generic exits from in_review without a changes_requested Execution Review", () => {
+  withTempRoot((rootDir) => {
+    const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
+    const taskId = assertGeneratedTaskId(created.taskId);
+    const indexPath = path.join(rootDir, String(created.packagePath), "INDEX.md");
+    const indexBody = readFileSync(indexPath, "utf8");
+    writeFileSync(indexPath, indexBody.replace("  status: planned", "  status: in_review"), "utf8");
+
+    for (const status of ["active", "blocked"] as const) {
+      const failure = runJson(rootDir, ["task", "status", "set", taskId, status], false);
+      assert.equal(failure.ok, false);
+      assert.equal(failure.error?.code, "execution_review_required");
+    }
+    assert.match(readFileSync(indexPath, "utf8"), /^  status: in_review$/mu);
+  });
+});
+
+test("CLI never lets forced done bypass Execution completion and keeps audited cancellation for recovery", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["new-task", "--title", "Task One"]);
     const taskId = assertGeneratedTaskId(created.taskId);
 
     const invalidForce = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "invalid recovery"], false);
     assert.equal(invalidForce.ok, false);
-    assert.equal(invalidForce.error?.code, "invalid_transition");
-    assert.match(invalidForce.error?.hint ?? "", /active.*task complete|archive|supersede/u);
+    assert.equal(invalidForce.error?.code, "execution_completion_required");
+    assert.match(invalidForce.error?.hint ?? "", /Execution.*approved Review.*task-complete/iu);
     assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
 
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
@@ -116,13 +145,18 @@ test("CLI blocks ordinary terminal status-set and requires audited force for rec
     assert.equal(missingReason.ok, false);
     assert.equal(missingReason.error?.code, "missing_force_reason");
 
-    const forced = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "fixture recovery"]);
+    const forcedDone = runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "fixture recovery"], false);
+    assert.equal(forcedDone.ok, false);
+    assert.equal(forcedDone.error?.code, "execution_completion_required");
+    assert.equal(existsSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`)), false);
+
+    const forced = runJson(rootDir, ["task", "status", "set", taskId, "cancelled", "--force", "--reason", "fixture recovery"]);
     assert.equal(forced.ok, true);
-    assert.equal(forced.status, "done");
+    assert.equal(forced.status, "cancelled");
     assert.equal(forced.forced, true);
     assert.equal(forced.forceAudit.marker, "FORCE_STATUS_SET_AUDIT");
     const progressBody = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-task-one/progress.md`), "utf8");
-    assert.match(progressBody, /FORCE_STATUS_SET_AUDIT: forced terminal status=done; reason=fixture recovery/);
+    assert.match(progressBody, /FORCE_STATUS_SET_AUDIT: forced terminal status=cancelled; reason=fixture recovery/);
 
     const check = runJson(rootDir, ["check", "--profile", "target-project"], false);
     assert.equal(check.warnings.some((warning: Record<string, unknown>) => warning.code === "forced_terminal_status_set" && warning.severity === "warning"), true);
@@ -239,7 +273,8 @@ test("CLI task reopen restores only non-terminal package disposition", () => {
 
     writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
     runJson(rootDir, ["task", "status", "set", taskId, "active"]);
-    runJson(rootDir, ["task", "status", "set", taskId, "done", "--force", "--reason", "terminal fixture"]);
+    const indexPath = path.join(rootDir, `harness/tasks/${taskId}-reopenable/INDEX.md`);
+    writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/^(  status:\s*).+$/mu, "$1done"), "utf8");
     const failure = runJson(rootDir, ["task", "reopen", taskId, "--reason", "more work"], false);
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "terminal_reopen_requires_supersede");
@@ -333,8 +368,8 @@ test("CLI task complete help explains the resolved completion contract", () => {
   withTempRoot((rootDir) => {
     const output = runText(rootDir, ["task", "complete", "--help"]);
 
-    assert.match(output, /submitted Execution and approved Review/u);
-    assert.match(output, /legacy tasks use document review/u);
+    assert.match(output, /exactly one submitted Execution and an approved typed Review/u);
+    assert.match(output, /legacy review\.md is only a compatibility blocker check/u);
     assert.match(output, /Pass --ci only when the contract declares ci/u);
     assert.match(output, /Facts are never a quantity gate/u);
   });
@@ -533,164 +568,30 @@ test("CLI task-review fails closed on open release-blocking findings and emits p
 test("CLI task-complete evaluates review, CI, and closeout readiness before setting status done", () => {
   withTempRoot((rootDir) => {
     initializeNestedHarnessRepo(rootDir);
-    writeIndex(rootDir, "task-1", "Complete Task", "in_review");
-    writeFact(rootDir, "task-1");
-    writeReview(rootDir, "task-1", []);
-    writeFileSync(path.join(rootDir, "harness/tasks/task-1/closeout.md"), "# Closeout\n", "utf8");
-    writeCodeDocAnchors(rootDir, "task-1");
+    writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
+    writeFact(rootDir, executionTaskId);
+    writeReview(rootDir, executionTaskId, []);
+    writeFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/closeout.md`), "# Closeout\n", "utf8");
+    writeCodeDocAnchors(rootDir, executionTaskId);
+    seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const passed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    const failed = runJson(rootDir, ["task-complete", executionTaskId, "--ci", "failed"], false, executionActorEnv);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error?.code, "ci_not_passed");
+
+    const missingCi = runJson(rootDir, ["task-complete", executionTaskId], false, executionActorEnv);
+    assert.equal(missingCi.ok, false);
+    assert.equal(missingCi.error?.code, "missing_ci_gate");
+
+    const passed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, executionActorEnv);
     assert.equal(passed.ok, true);
     assert.deepEqual(passed.completionGate.axes, {
       coordinationStatus: "in_review",
       packageDisposition: "active",
       closeoutReadiness: "ready"
     });
+    assert.equal(passed.executionId, executionId);
     assert.equal(passed.status, "done");
-    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /status: done/);
-
-    const failed = runJson(rootDir, ["task-complete", "task-1", "--ci", "failed"], false);
-    assert.equal(failed.ok, false);
-    assert.equal(failed.error?.code, "ci_not_passed");
-
-    const missingCi = runJson(rootDir, ["task-complete", "task-1"], false);
-    assert.equal(missingCi.ok, false);
-    assert.equal(missingCi.error?.code, "missing_ci_gate");
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /status: done/);
   });
 });
-
-function writeIndex(
-  rootDir: string,
-  directoryName: string,
-  title: string,
-  status: string,
-  options: {
-    readonly taskId?: string;
-    readonly engine?: string;
-    readonly ref?: string;
-    readonly bindingFingerprint?: string;
-    readonly packageDisposition?: string;
-  } = {}
-): void {
-  const taskId = options.taskId ?? directoryName;
-  const engine = options.engine ?? "local";
-  const ref = options.ref ?? "";
-  const bindingCreatedAt = "2026-06-12T00:00:00.000Z";
-  const bindingFingerprint = options.bindingFingerprint ?? (engine === "local" && ref === ""
-    ? "sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7"
-    : "sha256:fixture");
-  mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    `task_id: ${taskId}`,
-    `title: ${title}`,
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    `  engine: ${engine}`,
-    `  status: ${status}`,
-    `  ref: ${ref}`,
-    `  titleSnapshot: ${title}`,
-    "  url: ",
-    `  bindingCreatedAt: ${bindingCreatedAt}`,
-    `  bindingFingerprint: ${bindingFingerprint}`,
-    `packageDisposition: ${options.packageDisposition ?? "active"}`,
-    "vertical: software/coding",
-    "preset: standard-task",
-    "provenance:",
-    `  - {runtime: "human", sessionId: "human-cli-${Date.parse(bindingCreatedAt)}", boundAt: "${bindingCreatedAt}"}`,
-    "---",
-    "",
-    `# ${title}`,
-    ""
-  ].join("\n"), "utf8");
-}
-
-function writeReview(rootDir: string, directoryName: string, findingRows: ReadonlyArray<string>): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "review.md"), [
-    "# Review",
-    "",
-    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ...findingRows,
-    ""
-  ].join("\n"), "utf8");
-}
-
-function writeFact(rootDir: string, directoryName: string): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "facts.md"), [
-    "# Facts",
-    "",
-    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
-    ""
-  ].join("\n"), "utf8");
-}
-
-function writeCodeDocAnchors(rootDir: string, directoryName: string, sha = ensureAnchorCommit(rootDir)): void {
-  runJson(rootDir, [
-    "task", "code-doc", "reconcile", directoryName,
-    "--commit", sha,
-    "--path", "evidence/code-doc-anchor.txt"
-  ]);
-}
-
-function ensureAnchorCommit(rootDir: string): string {
-  if (!existsSync(path.join(rootDir, ".git"))) {
-    execFileSync("git", ["-C", rootDir, "init", "-q"]);
-    execFileSync("git", ["-C", rootDir, "config", "user.email", "test@example.com"]);
-    execFileSync("git", ["-C", rootDir, "config", "user.name", "Test User"]);
-  }
-  const evidencePath = "evidence/code-doc-anchor.txt";
-  mkdirSync(path.join(rootDir, path.dirname(evidencePath)), { recursive: true });
-  writeFileSync(path.join(rootDir, evidencePath), "code-doc reconciliation fixture\n", "utf8");
-  execFileSync("git", ["-C", rootDir, "add", evidencePath]);
-  execFileSync("git", ["-C", rootDir, "commit", "-m", "seed code-doc anchor"]);
-  return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-}
-
-function writeConflictMarker(rootDir: string): void {
-  const filePath = path.join(rootDir, "harness/standards/repo.md");
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", "utf8");
-}
-
-function assertGeneratedTaskId(value: unknown): string {
-  assert.equal(typeof value, "string");
-  assert.match(value, taskIdPattern);
-  return value;
-}
-
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, any> {
-  try {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8",
-      env: { ...process.env, ...env }
-    });
-    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
-  } catch (error) {
-    if (expectSuccess) throw error;
-    const failure = error as { readonly stdout?: string };
-    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
-  }
-}
-
-function runRawJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
-  const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-    encoding: "utf8"
-  });
-  return JSON.parse(stdout) as Record<string, any>;
-}
-
-function runText(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): string {
-  try {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    return stdout;
-  } catch (error) {
-    if (expectSuccess) throw error;
-    const failure = error as { readonly stderr?: string };
-    return failure.stderr ?? "";
-  }
-}

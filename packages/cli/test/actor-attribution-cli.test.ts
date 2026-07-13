@@ -155,6 +155,46 @@ test("daemon command service preserves A/X attribution through the queued coordi
   }
 });
 
+test("daemon command service rejects malformed caller sessions and always settles request accounting", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-session-contract-"));
+  try {
+    let started = 0;
+    let settled = 0;
+    const runtime: CliDaemonRuntime = {
+      enqueueInteractiveWrite: async () => ({ flush: { reason: "explicit", opCount: 0, committed: true } }),
+      status: () => ({})
+    };
+    const service = createCliCommandService(runtime, {
+      onCommandStart: () => { started += 1; },
+      onCommandSettled: () => { settled += 1; }
+    });
+
+    const receipt = await service.runCommand({
+      command: {
+        rootDir,
+        json: true,
+        action: { kind: "status" }
+      },
+      session: {
+        runtime: "codex",
+        sessionId: "../cross-request",
+        source: "runtime",
+        detectedAt: "not-a-timestamp"
+      }
+    });
+
+    assert.equal(receipt.ok, false);
+    if (!receipt.ok) {
+      assert.equal(receipt.error.code, "invalid_session");
+      assert.match(receipt.error.hint, /sessionId|detectedAt/u);
+    }
+    assert.equal(started, 1);
+    assert.equal(settled, 1);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("local resolver combines configured principal and asserted executor once", () => {
   withTempRoot((rootDir) => {
     const attribution = resolveLocalCliActorAttribution(

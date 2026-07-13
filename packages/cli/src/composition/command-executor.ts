@@ -12,7 +12,7 @@ import {
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
 } from "../../../application/src/index.ts";
-import type { OperationalActor, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
+import type { CurrentSessionProbePort, CurrentSessionRef, OperationalActor, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
 import { createHarnessRuntimeContext, findConflictMarkerWarnings, makeOperationalJournaledWriteCoordinator } from "../../../kernel/src/index.ts";
 import { toCliError } from "../cli/error-mapper.ts";
 import { actionTaskId } from "../cli/parse-args.ts";
@@ -33,6 +33,7 @@ export interface ParsedCommandExecutionOptions {
   readonly actorAttribution?: CliActorAttribution;
   readonly missingActorAttributionMessage?: string;
   readonly requireProvidedActorAttribution?: boolean;
+  readonly currentSession?: CurrentSessionRef;
 }
 
 export async function runRegisteredCommandWithCliComposition(
@@ -53,9 +54,11 @@ export async function runRegisteredCommandWithCliComposition(
     }
     return enforceTaskLeaseValue;
   };
-  let currentSessionProbe: ReturnType<typeof makeEnvironmentCurrentSessionProbe> | undefined;
+  let currentSessionProbe: CurrentSessionProbePort | undefined;
   const getCurrentSessionProbe = () => {
-    currentSessionProbe ??= makeEnvironmentCurrentSessionProbe();
+    currentSessionProbe ??= options.currentSession
+      ? { currentSession: Effect.succeed(options.currentSession) }
+      : makeEnvironmentCurrentSessionProbe();
     return currentSessionProbe;
   };
   let sessionBranchResolved = false;

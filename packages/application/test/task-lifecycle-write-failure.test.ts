@@ -5,72 +5,52 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
-import { makeMarkdownArtifactStore, type ArtifactStore, type EngineError, type TaskPackageRead, type VersionControlSystem, type WriteError } from "../../kernel/src/index.ts";
+import { makeMarkdownArtifactStore, type ArtifactStore, type TaskPackageRead, type VersionControlSystem } from "../../kernel/src/index.ts";
 import { makeTaskLifecycleOrchestrator, type TaskLifecycleWriter } from "../src/task-lifecycle-orchestrator.ts";
 import { runEffect } from "./effect-test-helpers.ts";
 
 const codeDocSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-// Regression: task-complete must surface the underlying kernel writer error code
-// rather than the misleading completion_gate_failed. A stub writer forces setStatus
-// to fail after every gate passes, covering the kernel tags whose registered CLI
-// error code is NOT their raw PascalCase _tag (previously leaked by the default
-// branch and then coerced to completion_gate_failed by cliErrorCode).
-const writeFailureCases: ReadonlyArray<{ readonly name: string; readonly error: EngineError | WriteError; readonly code: string }> = [
-  {
-    name: "TerminalReopenRequiresSupersede",
-    error: { _tag: "TerminalReopenRequiresSupersede", taskId: "task-1", status: "done" },
-    code: "terminal_reopen_requires_supersede"
-  },
-  {
-    name: "StaleSnapshotRefused",
-    error: { _tag: "StaleSnapshotRefused", engine: "local", ref: "local:task-1" },
-    code: "stale_snapshot_refused"
-  },
-  {
-    name: "GeneratedTaskIdRequired",
-    error: { _tag: "GeneratedTaskIdRequired", taskId: "task-1" },
-    code: "generated_task_id_required"
-  },
-  {
-    name: "WriteRejected",
-    error: { _tag: "WriteRejected", taskId: "task-1", reason: "provenance minItems(1)" },
-    code: "write_rejected"
-  },
-  {
-    name: "GlobalWriteConflict",
-    error: { _tag: "GlobalWriteConflict", owner: "other-session" },
-    code: "write_conflict"
-  }
-];
+test("completeTask surfaces an Execution transaction failure without falling back to generic status write", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-write-failure-"));
+  try {
+    let statusWriteCount = 0;
+    writeTaskPackage(rootDir, "task-1", "Complete Task");
+    writeFact(rootDir, "task-1");
+    const orchestrator = makeTaskLifecycleOrchestrator({
+      rootDir,
+      taskWriter: {
+        ...successfulWriter(),
+        setStatus: (input) => {
+          statusWriteCount += 1;
+          return Effect.succeed({ taskId: input.taskId, status: input.status });
+        }
+      },
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
+      codeDocVersionControlSystem: codeDocVersionControlSystem(),
+      executionCompletionService: {
+        completeTaskExecution: async () => { throw new Error("atomic Execution completion write rejected"); }
+      }
+    });
 
-for (const { name, error, code } of writeFailureCases) {
-  test(`completeTask surfaces the real writer error code for ${name}`, async () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-write-failure-"));
-    try {
-      writeTaskPackage(rootDir, "task-1", "Complete Task");
-      writeFact(rootDir, "task-1");
-      const orchestrator = makeTaskLifecycleOrchestrator({
-        rootDir,
-        taskWriter: failingWriter(error),
-        artifactStore: makeMarkdownArtifactStore({ rootDir }),
-        completionGateResolver: () => ["ci", "code-doc-reconciliation"],
-        codeDocVersionControlSystem: codeDocVersionControlSystem(),
-        now: () => "2026-06-13T00:00:00.000Z"
-      });
+    const result = await runEffect(orchestrator.completeTask({
+      taskId: "task-1",
+      reviewerId: "reviewer-a",
+      ciGate: "passed",
+      actor: completionActor()
+    }));
 
-      const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed" }));
-
-      assert.equal(result.ok, false);
-      if (result.ok) return;
-      assert.equal(result.error.code, code);
-      assert.notEqual(result.error.code, "completion_gate_failed");
-      assert.match(result.error.hint, /Completion status update failed\./);
-    } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "write_rejected");
+      assert.match(result.error.hint, /atomic Execution completion write rejected/u);
     }
-  });
-}
+    assert.equal(statusWriteCount, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("setTaskStatus rejects a scaffold task plan before writing active status", async () => {
   let statusWriteCount = 0;
@@ -103,10 +83,18 @@ test("setTaskStatus rejects a scaffold task plan before writing active status", 
   assert.equal(statusWriteCount, 0);
 });
 
-test("setTaskStatus applies the task plan gate only when entering active", async () => {
+test("setTaskStatus rejects a generic in_review transition without an Execution submission", async () => {
+  let statusWriteCount = 0;
+  const writer: TaskLifecycleWriter = {
+    ...successfulWriter(),
+    setStatus: (input) => {
+      statusWriteCount += 1;
+      return Effect.succeed({ taskId: input.taskId, status: input.status });
+    }
+  };
   const orchestrator = makeTaskLifecycleOrchestrator({
     rootDir: "/unused",
-    taskWriter: successfulWriter(),
+    taskWriter: writer,
     artifactStore: inMemoryTaskPackageStore("task-1", {
       "task_plan.md": "# Plan\n\n## Goal\n\nDescribe the result.\n\n## Verification\n\nList the checks.\n"
     }),
@@ -118,8 +106,70 @@ test("setTaskStatus applies the task plan gate only when entering active", async
 
   const result = await runEffect(orchestrator.setTaskStatus({ taskId: "task-1", status: "in_review" }));
 
-  assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.status, "in_review");
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "execution_submission_required");
+    assert.match(result.error.hint, /Execution.*submit/iu);
+  }
+  assert.equal(statusWriteCount, 0);
+});
+
+test("setTaskStatus rejects a generic exit from in_review without an Execution Review", async () => {
+  let statusWriteCount = 0;
+  const writer: TaskLifecycleWriter = {
+    ...successfulWriter(),
+    setStatus: (input) => {
+      statusWriteCount += 1;
+      return Effect.succeed({ taskId: input.taskId, status: input.status });
+    }
+  };
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: "/unused",
+    taskWriter: writer,
+    artifactStore: inMemoryTaskPackageStore("task-1", {
+      "INDEX.md": [
+        "---",
+        "lifecycle:",
+        "  engine: local",
+        "  status: in_review",
+        "---",
+        ""
+      ].join("\n"),
+      "task_plan.md": "# Plan\n\n## Goal\n\nShip the mandatory Execution Review path.\n"
+    })
+  });
+
+  for (const status of ["active", "blocked"] as const) {
+    const result = await runEffect(orchestrator.setTaskStatus({ taskId: "task-1", status }));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "execution_review_required");
+  }
+  assert.equal(statusWriteCount, 0);
+});
+
+test("startTaskReview cannot create in_review outside the Execution submission transaction", async () => {
+  let statusWriteCount = 0;
+  const writer: TaskLifecycleWriter = {
+    ...successfulWriter(),
+    setStatus: (input) => {
+      statusWriteCount += 1;
+      return Effect.succeed({ taskId: input.taskId, status: input.status });
+    }
+  };
+  const orchestrator = makeTaskLifecycleOrchestrator({
+    rootDir: "/unused",
+    taskWriter: writer,
+    artifactStore: inMemoryTaskPackageStore("task-1", {})
+  });
+
+  const result = await runEffect(orchestrator.startTaskReview({ taskId: "task-1" }));
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "execution_submission_required");
+    assert.match(result.error.hint, /Execution.*submit/iu);
+  }
+  assert.equal(statusWriteCount, 0);
 });
 
 test("setTaskStatus accepts active when a scaffold section contains substantive additions", async () => {
@@ -165,23 +215,40 @@ test("reviewTask accepts zero Facts through ArtifactStore under dec_mrg3z1we/CH4
   }
 });
 
-test("generic preset completes without CI code-doc or Facts when its contract declares no deterministic gates", async () => {
+test("a valid legacy review cannot complete a task without a submitted Execution", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-generic-completion-"));
   try {
+    let statusWriteCount = 0;
     writeIndexOnly(rootDir, "task-1", "Writing Task", "in_review", "writing/generic", "writing-task");
     writeCloseout(rootDir, "task-1", ["## Summary", "", "The requested text is complete."]);
     const orchestrator = makeTaskLifecycleOrchestrator({
       rootDir,
-      taskWriter: successfulWriter(),
+      taskWriter: {
+        ...successfulWriter(),
+        setStatus: (input) => {
+          statusWriteCount += 1;
+          return Effect.succeed({ taskId: input.taskId, status: input.status });
+        }
+      },
       artifactStore: inMemoryTaskPackageStore("task-1", {
         "review.md": validReview(),
         "closeout.md": "# Closeout\n\n## Summary\n\nThe requested text is complete.\n"
       }),
-      completionGateResolver: () => []
+      completionGateResolver: () => [],
+      executionCompletionService: { completeTaskExecution: async () => null }
     });
-    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a" }));
-    assert.equal(result.ok, true);
-    if (result.ok) assert.equal(result.status, "done");
+    const result = await runEffect(orchestrator.completeTask({
+      taskId: "task-1",
+      reviewerId: "reviewer-a",
+      actor: {
+        principal: { personId: "reviewer-a" },
+        executor: { kind: "agent", id: "reviewer-agent" },
+        responsibleHuman: "person:reviewer-a"
+      }
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "execution_completion_required");
+    assert.equal(statusWriteCount, 0);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -196,9 +263,10 @@ test("software preset contract continues to require CI", async () => {
       taskWriter: successfulWriter(),
       artifactStore: makeMarkdownArtifactStore({ rootDir }),
       codeDocVersionControlSystem: codeDocVersionControlSystem(),
-      completionGateResolver: () => ["ci", "code-doc-reconciliation"]
+      completionGateResolver: () => ["ci", "code-doc-reconciliation"],
+      executionCompletionService: successfulExecutionCompletionService()
     });
-    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a" }));
+    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", actor: completionActor() }));
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.error.code, "missing_ci_gate");
   } finally {
@@ -240,10 +308,11 @@ test("completeTask evaluates closeout and review placeholders through ArtifactSt
         lessonCandidatesPlaceholderFingerprintSets: []
       },
       codeDocVersionControlSystem: codeDocVersionControlSystem(),
+      executionCompletionService: successfulExecutionCompletionService(),
       now: () => "2026-06-13T00:00:00.000Z"
     });
 
-    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed" }));
+    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed", actor: completionActor() }));
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -279,10 +348,11 @@ test("completeTask rejects ArtifactStore closeout placeholders", async () => {
         visualMapPlaceholderFingerprintSets: [],
         lessonCandidatesPlaceholderFingerprintSets: []
       },
+      executionCompletionService: successfulExecutionCompletionService(),
       now: () => "2026-06-13T00:00:00.000Z"
     });
 
-    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed" }));
+    const result = await runEffect(orchestrator.completeTask({ taskId: "task-1", reviewerId: "reviewer-a", ciGate: "passed", actor: completionActor() }));
 
     assert.equal(result.ok, false);
     if (result.ok) return;
@@ -292,16 +362,6 @@ test("completeTask rejects ArtifactStore closeout placeholders", async () => {
   }
 });
 
-function failingWriter(error: EngineError | WriteError): TaskLifecycleWriter {
-  return {
-    setStatus: () => Effect.fail(error),
-    appendProgress: () => Effect.fail(error),
-    stageDocument: () => Effect.succeed({ taskId: "task-1", path: "review.md" }),
-    stageTaskTree: () => Effect.succeed({ taskId: "task-1", path: "." }),
-    taskTreeStatus: () => Effect.succeed({ taskId: "task-1", dirty: false, entries: [] })
-  };
-}
-
 function successfulWriter(): TaskLifecycleWriter {
   return {
     setStatus: (input) => Effect.succeed({ taskId: input.taskId, status: input.status }),
@@ -309,6 +369,18 @@ function successfulWriter(): TaskLifecycleWriter {
     stageDocument: (input) => Effect.succeed({ taskId: input.taskId, path: input.path }),
     stageTaskTree: (input) => Effect.succeed({ taskId: input.taskId, path: "." }),
     taskTreeStatus: (taskId) => Effect.succeed({ taskId, dirty: false, entries: [] })
+  };
+}
+
+function successfulExecutionCompletionService() {
+  return { completeTaskExecution: async () => ({ executionId: "exe_01KX7H00000000000000000001" }) };
+}
+
+function completionActor() {
+  return {
+    principal: { personId: "reviewer-a" },
+    executor: { kind: "agent" as const, id: "reviewer-agent" },
+    responsibleHuman: "person:reviewer-a"
   };
 }
 

@@ -57,23 +57,19 @@ export const runTaskLifecycleCommand: CommandRunner = (context, command) => {
 };
 
 function runExecutionAwareInReview(
-  context: CommandRunnerContext,
+  _context: CommandRunnerContext,
   action: Extract<TaskLifecycleAction, { readonly kind: "status-set" }>
 ): Effect.Effect<CliResult, EngineError | WriteError> {
-  return Effect.promise(() => context.taskHolderService.holder({ taskId: action.taskId })).pipe(
-    Effect.flatMap((snapshot) => snapshot.holder?.schema === "task-holder/v2"
-      ? Effect.succeed({
-          ok: false,
-          command: "status-set",
-          taskId: action.taskId,
-          status: "in_review",
-          error: cliError(
-            CliErrorCode.WriteRejected,
-            "Active Holder V2 execution must submit through the Execution saga; provide --lease-token and --summary."
-          )
-        } satisfies CliResult)
-      : runStatusSet(context, action.taskId, action.status, action.force, action.reason))
-  );
+  return Effect.succeed({
+    ok: false,
+    command: "status-set",
+    taskId: action.taskId,
+    status: "in_review",
+    error: cliError(
+      CliErrorCode.ExecutionSubmissionRequired,
+      "Task review state is created only by an Execution submit-for-review transaction; provide --lease-token and --summary."
+    )
+  } satisfies CliResult);
 }
 
 function runProgressAppend(
@@ -134,8 +130,20 @@ function runStatusSet(
         error: cliError(
           CliErrorCode.TerminalStatusRequiresTaskComplete,
           status === "done"
-            ? "Use task-complete after review, CI, and closeout gates pass. Use --force --reason only for recovery."
+            ? "Use task-complete after Execution Review, CI, and closeout gates pass; --force cannot certify done."
             : "Terminal cancellation must be audited. Use --force --reason only for recovery."
+        )
+      } satisfies CliResult;
+    }
+    if (status === "done") {
+      return {
+        ok: false,
+        command: "status-set",
+        taskId,
+        status,
+        error: cliError(
+          CliErrorCode.ExecutionCompletionRequired,
+          "A submitted Execution with an approved Review must complete through task-complete; --force cannot bypass that transaction."
         )
       } satisfies CliResult;
     }

@@ -135,7 +135,7 @@ export const coreCommandSpecs = defineCommandSpecs([
     "run": runTaskLifecycleCommand,
     "receiptContract": {
       "data": ["taskId", "report"],
-      "optionalData": { "executionId": "Only emitted when --execution opens a Holder V2 round." },
+      "optionalData": { "executionId": "Only emitted when a work claim opens a Holder V2 Execution round." },
       "paths": []
     },
     "eventPolicy": {
@@ -180,7 +180,7 @@ export const coreCommandSpecs = defineCommandSpecs([
   {
     "kind": "status-set",
     "usage": "task transition <id> <planned|active|blocked|in_review|done|cancelled> [--force --reason <reason>]",
-    "options": [{"flag":"--force","description":"Force the lifecycle transition with audit metadata."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--execution-id","description":"Submit the exact active Execution when transitioning to in_review."},{"flag":"--lease-token","description":"Authenticate the Holder V2 execution lease."},{"flag":"--completion-claim","description":"Record the required textual completion claim."},{"flag":"--deliverable","description":"Record a deliverable description; repeat as needed."},{"flag":"--output","description":"Record inline OutputEvidence text; repeat as needed."},{"flag":"--verification","description":"Record a verification note; repeat as needed."},{"flag":"--known-gap","description":"Record a known gap; repeat as needed."},{"flag":"--residual-risk","description":"Record a residual risk; repeat as needed."}],
+    "options": [{"flag":"--force","description":"Force audited cancellation recovery; this never certifies done."},{"flag":"--reason","description":"Record the reason for the lifecycle change."},{"flag":"--execution-id","description":"Submit the exact active Execution when transitioning to in_review."},{"flag":"--lease-token","description":"Authenticate the Holder V2 execution lease."},{"flag":"--completion-claim","description":"Record the required textual completion claim."},{"flag":"--deliverable","description":"Record a deliverable description; repeat as needed."},{"flag":"--output","description":"Record inline OutputEvidence text; repeat as needed."},{"flag":"--verification","description":"Record a verification note; repeat as needed."},{"flag":"--known-gap","description":"Record a known gap; repeat as needed."},{"flag":"--residual-risk","description":"Record a residual risk; repeat as needed."}],
     "aliases": ["task status set <id> <status> (deprecated, use task transition; retires at E77/F6 acceptance)"],
     "summary": "Move a local task to a new lifecycle status.",
     "examples": ["harness-anything task transition task_01ABC active --reason \"work started\""],
@@ -189,15 +189,15 @@ export const coreCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "status"],
       "optionalData": {
-        "forced": "Only emitted for audited terminal recovery transitions invoked with --force.",
-        "forceAudit": "Only emitted for audited terminal recovery transitions that append force audit evidence.",
+        "forced": "Only emitted for audited cancellation recovery invoked with --force.",
+        "forceAudit": "Only emitted for audited cancellation recovery that appends force audit evidence.",
         "executionId": "Only emitted for Holder V2 execution submission.",
         "report": "Only emitted for Holder V2 execution submission."
       },
       "paths": [],
       "optionalPaths": {
-        "primary": "Only emitted for audited terminal recovery transitions where the audit progress path is returned as the primary path.",
-        "forceAudit": "Only emitted for audited terminal recovery transitions that append force audit evidence."
+        "primary": "Only emitted for audited cancellation recovery where the audit progress path is returned as the primary path.",
+        "forceAudit": "Only emitted for audited cancellation recovery that appends force audit evidence."
       }
     },
     "eventPolicy": {
@@ -347,7 +347,7 @@ export const coreCommandSpecs = defineCommandSpecs([
     "usage": "task review <id> [--reviewer <id>]",
     "options": [{"flag":"--reviewer","description":"Set the reviewer id."}],
     "aliases": ["task-review <id> (deprecated, use task review; retires at E77/F6 acceptance)"],
-    "summary": "Evaluate the review gate for a task package.",
+    "summary": "Run the legacy review.md compatibility lint. This command cannot approve an Execution or authorize Task completion.",
     "examples": ["harness-anything task review task_01ABC --reviewer reviewer-id"],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,
@@ -385,7 +385,7 @@ export const coreCommandSpecs = defineCommandSpecs([
     "usage": "task complete <id> [--ci passed|failed] [--reviewer <id>]",
     "options": [{"flag":"--ci","description":"Set the CI result when the resolved preset/profile completionGates declares ci."},{"flag":"--reviewer","description":"Set the reviewer id."}],
     "aliases": ["task-complete <id> (deprecated, use task complete; retires at E77/F6 acceptance)"],
-    "summary": "Evaluate the Task's resolved preset/profile completionGates. Execution-bearing tasks require a submitted Execution and approved Review; legacy tasks use document review. Pass --ci only when the contract declares ci; Facts are never a quantity gate (dec_mrg3z1we/CH4; ADR-0027 D5-D7).",
+    "summary": "Evaluate the Task's resolved preset/profile completionGates. Completion always requires exactly one submitted Execution and an approved typed Review; legacy review.md is only a compatibility blocker check. Pass --ci only when the contract declares ci; Facts are never a quantity gate (dec_mrg3z1we/CH4; ADR-0027 D5-D7).",
     "examples": ["harness-anything task complete task_01ABC --ci passed --reviewer reviewer-id"],
     "parse": parseCoreTaskArgs,
     "run": runTaskGatesCommand,
@@ -394,7 +394,7 @@ export const coreCommandSpecs = defineCommandSpecs([
       "optionalData": {
         "report": "Only emitted for completion paths that surface a review or gate report; clean completion emits reviewContract and completionGate.",
         "executionId": "Only emitted when completion accepts a submitted Execution.",
-        "reviewContract": "Present only for a legacy task package without Execution history; Execution-bearing tasks use Review Entities."
+        "reviewContract": "Compatibility-only legacy review.md gate evidence; it never authorizes completion."
       },
       "paths": []
     },

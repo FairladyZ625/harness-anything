@@ -42,8 +42,9 @@ export function useTaskDocumentQuery(taskId: string | null, path: string | null)
 export function useSetTaskStatusMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { readonly taskId: string; readonly status: DomainStatus }) => harnessClient.setTaskStatus(input),
-    onSuccess: async () => {
+    mutationFn: async (input: { readonly taskId: string; readonly status: DomainStatus }) =>
+      requireCommandSuccess(await harnessClient.setTaskStatus(input)),
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all });
     }
   });
@@ -64,8 +65,9 @@ export function useAppendTaskProgressMutation() {
 export function useReviewTaskMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { readonly taskId: string }) => harnessClient.reviewTask(input),
-    onSuccess: async () => {
+    mutationFn: async (input: { readonly taskId: string }) =>
+      requireCommandSuccess(await harnessClient.reviewTask(input)),
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all });
     }
   });
@@ -92,4 +94,9 @@ export function taskModule(task: TaskProjectionRow): string {
 export function commandMessage(result: CommandResult | undefined): string {
   if (!result) return "";
   return result.ok ? "Command completed through the local task bridge." : `${result.error.code}: ${result.error.hint}`;
+}
+
+function requireCommandSuccess(result: CommandResult): CommandResult {
+  if (!result.ok) throw new Error(`${result.error.code}: ${result.error.hint}`);
+  return result;
 }

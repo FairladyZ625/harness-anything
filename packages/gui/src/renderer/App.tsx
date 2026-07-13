@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SnapshotStatus } from "./model/types.ts";
+import { isGenericStatusWriteTransition, type SnapshotStatus } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { MockViewBanner } from "./components/shell-chrome.tsx";
@@ -109,15 +109,17 @@ function AppShell() {
   // 决策批准角标:proposed 决策数(唯一面向人的"待人处理"计数)
   const inboxCount = decisions.filter((d) => d.state === "proposed").length;
 
-  // 状态写真桥:乐观更新本地态 + setTaskStatus 持久化(查询刷新时被权威投影覆盖)。
+  // 状态写真桥只提交普通 active/blocked 转换；权威投影成功刷新前不伪造本地状态。
   // 写操作统一走 toast 反馈:成功/失败都显式提示,不静默。
   const showToast = useToast();
   const statusMutation = useSetTaskStatusMutation();
   const updateTask = (taskId: string, patch: Partial<import("./model/types.ts").TaskRow>) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.taskId === taskId ? { ...t, ...patch } : t)),
-    );
-    if (patch.coordinationStatus && patch.coordinationStatus !== "unknown") {
+    const current = tasks.find((task) => task.taskId === taskId);
+    if (
+      current
+      && patch.coordinationStatus
+      && isGenericStatusWriteTransition(current.coordinationStatus, patch.coordinationStatus)
+    ) {
       statusMutation.mutate(
         { taskId, status: patch.coordinationStatus },
         {
