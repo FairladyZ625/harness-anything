@@ -8,32 +8,39 @@
 // 每次的修法都是"下次记得再多跑一道",而清单还在长。
 //
 // 所以这里不枚举 job,而是【从 manifest 派生】。新增一个 job、给某个 job 挂一道新门,
-// 这个命令自动跟上,不需要任何人记住任何事。
+// 这个命令自动跟上,不需要任何人记住任何事。integration shard 的真实 fan-out 则直接
+// 读取 rewrite-ci workflow；解析不到预期结构时失败，不猜默认值。
 //
 // 用法:
-//   npm run check:ci                     跑全部可本地执行的 job
+//   npm run check:ci                      跑全部可本地执行的 job
 //   npm run check:ci -- --job boundaries  只跑指定 job(可重复)
-//   npm run check:ci -- --json           额外吐一份机器可读回执(贴进 PR / worker 报告)
+//   npm run check:ci -- --json             额外吐一份机器可读回执(贴进 PR / worker 报告)
 //
 // 回执是产物,不是断言:每个 job 的真实 exit code 都在里面。CEO 会重跑并比对数字。
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const manifest = JSON.parse(readFileSync(path.join(root, "tools/gate-manifest.json"), "utf8"));
+const manifestPath = path.join(root, "tools/gate-manifest.json");
+const workflowPath = path.join(root, ".github/workflows/rewrite-ci.yml");
+const INTEGRATION_SHARD_JOB = "integration-shard";
 
-// pr-body-lint 需要一个真实 PR body,本地没有;integration-shard 需要分片参数,单独展开。
-const INTEGRATION_SHARDS = 6;
-const NOT_LOCALLY_RUNNABLE = new Set(["pr-body-lint"]);
+export const LOCAL_EQUIVALENCE_NOTICE = "本地绿 ≠ 完整 CI 等价：skipped jobs still require GitHub CI.";
+
+// 这是本地执行能力声明，不是 CI job 清单。每项都必须带可展示、可入回执的原因；
+// 后续审计门可直接消费这个结构，不必解析 console 文案。
+export const LOCAL_JOB_LIMITATIONS = Object.freeze({
+  "pr-body-lint": "needs a real pull request body and cannot run locally"
+});
 
 // GitHub 上的活配置(分支保护规则)不是代码,读它需要凭据。缺凭据是环境问题不是代码问题,
 // 所以显式提示而不是让它红在一个看不懂的地方。
 const NEEDS_GITHUB = ["GITHUB_REPOSITORY", "GITHUB_TOKEN"];
 
-function deriveJobs() {
+export function deriveJobs(manifest) {
   const jobs = new Map();
   for (const gate of manifest.gates ?? []) {
     for (const job of gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []) {
@@ -42,6 +49,114 @@ function deriveJobs() {
     }
   }
   return jobs;
+}
+
+function mappingBlock(lines, key, indent, label) {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`^ {${indent}}${escapedKey}:\\s*(?:#.*)?$`, "u");
+  const matches = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => pattern.test(line));
+  if (matches.length === 0) throw new Error(`${label} is missing`);
+  if (matches.length > 1) throw new Error(`${label} is declared more than once`);
+
+  const start = matches[0].index;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\s*(?:#.*)?$/u.test(line)) continue;
+    const content = /^( *)\S/u.exec(line);
+    if (content !== null && content[1].length <= indent) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start + 1, end);
+}
+
+export function parseIntegrationShardMatrix(workflowText) {
+  const lines = workflowText.split(/\r?\n/u);
+  const jobs = mappingBlock(lines, "jobs", 0, "rewrite-ci jobs");
+  const job = mappingBlock(jobs, INTEGRATION_SHARD_JOB, 2, "rewrite-ci integration-shard job");
+  const strategy = mappingBlock(job, "strategy", 4, "integration-shard strategy");
+  const matrix = mappingBlock(strategy, "matrix", 6, "integration-shard matrix");
+  const shardLines = matrix.filter((line) => /^ {8}shard:/u.test(line));
+  if (shardLines.length !== 1) {
+    throw new Error("rewrite-ci integration-shard strategy.matrix must declare exactly one shard list");
+  }
+
+  const match = /^ {8}shard:\s*\[([^\]]*)\]\s*(?:#.*)?$/u.exec(shardLines[0]);
+  if (match === null) {
+    throw new Error("rewrite-ci integration-shard strategy.matrix.shard must be an inline integer list");
+  }
+  const tokens = match[1].split(",").map((entry) => entry.trim());
+  if (tokens.length === 0 || tokens.some((entry) => !/^[1-9]\d*$/u.test(entry))) {
+    throw new Error("rewrite-ci integration-shard strategy.matrix.shard must contain positive integers");
+  }
+  const shards = tokens.map(Number);
+  const expected = shards.map((_, index) => index + 1);
+  if (shards.some((shard, index) => shard !== expected[index])) {
+    throw new Error(
+      `rewrite-ci integration-shard strategy.matrix.shard must be contiguous 1..N; got [${shards.join(", ")}]`
+    );
+  }
+  return shards;
+}
+
+export function buildCiPlan(manifest, workflowText, wanted = []) {
+  const derived = deriveJobs(manifest);
+  const integrationShards = parseIntegrationShardMatrix(workflowText);
+  if (!derived.has(INTEGRATION_SHARD_JOB)) {
+    throw new Error(`no gate in the manifest declares workflow job "${INTEGRATION_SHARD_JOB}"`);
+  }
+  for (const job of Object.keys(LOCAL_JOB_LIMITATIONS)) {
+    if (!derived.has(job)) throw new Error(`local job limitation references undeclared manifest job "${job}"`);
+  }
+
+  const selected = wanted.length > 0 ? wanted : [...derived.keys()];
+  const plan = [];
+  const skipped = [];
+  for (const job of selected) {
+    if (!derived.has(job)) throw new Error(`no gate in the manifest declares workflow job "${job}"`);
+    const reason = LOCAL_JOB_LIMITATIONS[job];
+    if (reason !== undefined) {
+      skipped.push({ job, reason });
+      continue;
+    }
+    if (job === INTEGRATION_SHARD_JOB) {
+      for (const shard of integrationShards) plan.push([job, shard]);
+      continue;
+    }
+    plan.push([job, undefined]);
+  }
+  return { derived, integrationShards, plan, skipped };
+}
+
+export function createReceipt(receipts, skipped) {
+  const failed = receipts.filter((receipt) => receipt.exitCode !== 0);
+  return {
+    schema: "check-ci-receipt/v1",
+    receipts,
+    skipped,
+    notice: skipped.length > 0 ? LOCAL_EQUIVALENCE_NOTICE : null,
+    ok: failed.length === 0
+  };
+}
+
+export function formatSummary(receipts, skipped) {
+  const failed = receipts.filter((receipt) => receipt.exitCode !== 0);
+  const lines = ["\n──── check:ci ────"];
+  for (const receipt of receipts) {
+    lines.push(`  ${receipt.exitCode === 0 ? "✓" : "✗"} ${receipt.job.padEnd(24)} exit=${receipt.exitCode}  ${receipt.seconds}s`);
+  }
+  for (const item of skipped) lines.push(`  ↷ SKIPPED ${item.job}: ${item.reason}`);
+  if (failed.length === 0) {
+    lines.push(skipped.length === 0 ? "  ALL GREEN" : `  ALL GREEN (locally runnable jobs only; ${skipped.length} skipped)`);
+  } else {
+    lines.push(`  RED: ${failed.map((receipt) => receipt.job).join(", ")}`);
+  }
+  if (skipped.length > 0) lines.push(`  NOTICE: ${LOCAL_EQUIVALENCE_NOTICE}`);
+  return `${lines.join("\n")}\n`;
 }
 
 // gui-build 内含 `vite build`,它写出 packages/gui/dist;之后任何 `tsc -b` 都会被
@@ -80,64 +195,48 @@ function runJob(job, shard) {
   };
 }
 
-const argv = process.argv.slice(2);
-const wanted = [];
-// 回执写文件,不写 stdout —— 每个 gate 都是 stdio:inherit,stdout 早被它们的输出占满了,
-// 把 JSON 混进去等于交出一份没法解析的回执(实测第一版就是这么废的)。
-let receiptPath = null;
-for (let index = 0; index < argv.length; index += 1) {
-  if (argv[index] === "--job") { wanted.push(argv[index + 1]); index += 1; continue; }
-  if (argv[index] === "--json") { receiptPath = argv[index + 1] ?? "check-ci-receipt.json"; index += 1; continue; }
-  throw new Error(`unknown option: ${argv[index]}`);
+function parseArgs(argv) {
+  const wanted = [];
+  // 回执写文件,不写 stdout —— 每个 gate 都是 stdio:inherit,stdout 早被它们的输出占满了,
+  // 把 JSON 混进去等于交出一份没法解析的回执(实测第一版就是这么废的)。
+  let receiptPath = null;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--job") { wanted.push(argv[index + 1]); index += 1; continue; }
+    if (argv[index] === "--json") { receiptPath = argv[index + 1] ?? "check-ci-receipt.json"; index += 1; continue; }
+    throw new Error(`unknown option: ${argv[index]}`);
+  }
+  return { wanted, receiptPath };
 }
 
-const derived = deriveJobs();
-const missingCredentials = NEEDS_GITHUB.filter((name) => !process.env[name]);
-if (missingCredentials.length > 0) {
+function main() {
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const workflowText = readFileSync(workflowPath, "utf8");
+  const { wanted, receiptPath } = parseArgs(process.argv.slice(2));
+  const { derived, plan, skipped } = buildCiPlan(manifest, workflowText, wanted);
+  const missingCredentials = NEEDS_GITHUB.filter((name) => !process.env[name]);
+  if (missingCredentials.length > 0) {
+    console.error(
+      `\n[check:ci] ${missingCredentials.join(" and ")} not set. The boundaries job reads GitHub's live\n` +
+      `           branch rules (check-github-required-contexts) and will fail for environmental\n` +
+      `           reasons, not code reasons. Set them first:\n\n` +
+      `             export GITHUB_REPOSITORY=<owner>/<name>\n` +
+      `             export GITHUB_TOKEN=$(gh auth token)\n`
+    );
+  }
+
   console.error(
-    `\n[check:ci] ${missingCredentials.join(" and ")} not set. The boundaries job reads GitHub's live\n` +
-    `           branch rules (check-github-required-contexts) and will fail for environmental\n` +
-    `           reasons, not code reasons. Set them first:\n\n` +
-    `             export GITHUB_REPOSITORY=<owner>/<name>\n` +
-    `             export GITHUB_TOKEN=$(gh auth token)\n`
+    `\n[check:ci] ${plan.length} runs derived from tools/gate-manifest.json and ${path.relative(root, workflowPath)} ` +
+    `(${[...derived].map(([job, gates]) => `${job}:${gates.length}`).join(" ")})\n`
   );
-}
+  const receipts = [];
+  for (const [job, shard] of plan) receipts.push(runJob(job, shard));
 
-const selected = wanted.length > 0 ? wanted : [...derived.keys()];
-const plan = [];
-for (const job of selected) {
-  if (!derived.has(job)) throw new Error(`no gate in the manifest declares workflow job "${job}"`);
-  if (NOT_LOCALLY_RUNNABLE.has(job)) {
-    console.error(`[check:ci] skipping ${job}: needs a real pull request, cannot run locally.`);
-    continue;
+  console.error(formatSummary(receipts, skipped));
+  if (receiptPath !== null) {
+    writeFileSync(receiptPath, `${JSON.stringify(createReceipt(receipts, skipped), null, 2)}\n`);
+    console.error(`  receipt → ${receiptPath}\n`);
   }
-  if (job === "integration-shard") {
-    for (let shard = 1; shard <= INTEGRATION_SHARDS; shard += 1) plan.push([job, shard]);
-    continue;
-  }
-  plan.push([job, undefined]);
+  process.exit(receipts.some((receipt) => receipt.exitCode !== 0) ? 1 : 0);
 }
 
-console.error(
-  `\n[check:ci] ${plan.length} runs derived from tools/gate-manifest.json ` +
-  `(${[...derived].map(([job, gates]) => `${job}:${gates.length}`).join(" ")})\n`
-);
-
-const receipts = [];
-for (const [job, shard] of plan) {
-  receipts.push(runJob(job, shard));
-}
-
-const failed = receipts.filter((receipt) => receipt.exitCode !== 0);
-console.error("\n──── check:ci ────");
-for (const receipt of receipts) {
-  console.error(`  ${receipt.exitCode === 0 ? "✓" : "✗"} ${receipt.job.padEnd(24)} exit=${receipt.exitCode}  ${receipt.seconds}s`);
-}
-console.error(failed.length === 0 ? "  ALL GREEN\n" : `  RED: ${failed.map((receipt) => receipt.job).join(", ")}\n`);
-
-if (receiptPath !== null) {
-  writeFileSync(receiptPath, `${JSON.stringify({ schema: "check-ci-receipt/v1", receipts, ok: failed.length === 0 }, null, 2)}\n`);
-  console.error(`  receipt → ${receiptPath}\n`);
-}
-
-process.exit(failed.length === 0 ? 0 : 1);
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) main();
