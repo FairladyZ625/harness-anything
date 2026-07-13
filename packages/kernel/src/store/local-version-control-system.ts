@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
@@ -155,20 +156,7 @@ function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
 
 function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
   try {
-    return execFileSync("git", ["-C", repoRoot, ...args], {
-      encoding: "utf8",
-      maxBuffer: gitMaxBuffer,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ...(author ? {
-          GIT_AUTHOR_NAME: author.name,
-          GIT_AUTHOR_EMAIL: author.email,
-          GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? author.name,
-          GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? author.email
-        } : {})
-      }
-    });
+    return execFileSync("git", ["-C", repoRoot, ...args], localGitProcessOptions(author));
   } catch (error) {
     throw new VcsCommandError({
       command: args[0] ?? "command",
@@ -178,6 +166,24 @@ function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args
       stderrSummary: commandErrorSummary(error)
     });
   }
+}
+
+export function localGitProcessOptions(author?: VcsCommitAuthor): ExecFileSyncOptionsWithStringEncoding {
+  return {
+    encoding: "utf8",
+    maxBuffer: gitMaxBuffer,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    env: {
+      ...process.env,
+      ...(author ? {
+        GIT_AUTHOR_NAME: author.name,
+        GIT_AUTHOR_EMAIL: author.email,
+        GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? author.name,
+        GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? author.email
+      } : {})
+    }
+  };
 }
 
 function commandErrorCode(error: unknown): string | number | undefined {

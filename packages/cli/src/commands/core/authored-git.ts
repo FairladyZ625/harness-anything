@@ -37,7 +37,7 @@ function validateAuthoredRelativePaths(
 
 export function gitTopLevel(inputPath: string): string | null {
   try {
-    return normalizeExistingPath(execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim());
+    return normalizeExistingPath(execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }).trim());
   } catch {
     return null;
   }

@@ -472,7 +472,7 @@ function resolveChangePath(authoredRoot: string, pathInput: string): { readonly 
 
 function gitText(cwd: string, args: ReadonlyArray<string>): string | null {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trimEnd();
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trimEnd();
   } catch {
     return null;
   }
@@ -480,7 +480,7 @@ function gitText(cwd: string, args: ReadonlyArray<string>): string | null {
 
 function gitBlobText(cwd: string, args: ReadonlyArray<string>): string | null {
   try {
-    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
   } catch {
     return null;
   }

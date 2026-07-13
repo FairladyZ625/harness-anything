@@ -227,7 +227,8 @@ function readGitText(rootDir: string, args: ReadonlyArray<string>): string | und
   try {
     return execFileSync("git", ["-C", rootDir, ...args], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true
     }).trim();
   } catch {
     return undefined;
@@ -238,6 +239,7 @@ function runInitGit(rootDir: string, args: ReadonlyArray<string>, author?: CliGi
   execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
     env: {
       ...process.env,
       ...(author ? {

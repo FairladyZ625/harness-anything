@@ -78,7 +78,8 @@ function readGitConfigEmail(authoredRoot: string): string | undefined {
   try {
     const configured = execFileSync("git", ["-C", authoredRoot, "config", "user.email"], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true
     }).trim();
     return configured || undefined;
   } catch {
@@ -210,6 +211,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
     ], {
       detached: true,
       stdio: "ignore",
+      windowsHide: true,
       env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: target.userRoot, HARNESS_DAEMON_ID: target.daemonId }
     });
     child.unref();
@@ -438,6 +440,7 @@ async function startBootstrapDaemon(rootDir: string, repoId: string, registryPat
   ], {
     detached: true,
     stdio: "ignore",
+    windowsHide: true,
     env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: target.userRoot, HARNESS_DAEMON_ID: target.daemonId }
   });
   child.unref();
@@ -550,7 +553,7 @@ function requiredOption(args: ReadonlyArray<string>, name: string): string {
 
 function runDaemonGit(cwd: string, args: ReadonlyArray<string>): void {
   try {
-    execFileSync("git", [...args], { cwd, stdio: "ignore" });
+    execFileSync("git", [...args], { cwd, stdio: "ignore", windowsHide: true });
   } catch {
     throw new Error(`git ${args.join(" ")} failed in ${cwd}`);
   }

@@ -298,7 +298,8 @@ function readTaskTreeStatus(rootInput: HarnessLayoutInput, taskId: string): Loca
   const output = execFileSync("git", ["-C", packagePath, "status", "--porcelain", "-uall", "--", "."], {
     encoding: "utf8",
     maxBuffer: gitMaxBuffer,
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true
   });
   const entries = output
     .split(/\r?\n/u)
@@ -313,7 +314,8 @@ function gitTopLevel(inputPath: string): string | null {
     return execFileSync("git", ["-C", inputPath, "rev-parse", "--show-toplevel"], {
       encoding: "utf8",
       maxBuffer: gitMaxBuffer,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true
     }).trim();
   } catch {
     return null;

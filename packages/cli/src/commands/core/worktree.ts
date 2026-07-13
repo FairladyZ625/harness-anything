@@ -208,7 +208,7 @@ function gitBranchExists(root: string, branchName: string): boolean {
 }
 
 function git(cwd: string, args: ReadonlyArray<string>): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 }
 
 function worktreeFailure(command: string, message: string, code: CliErrorCodeValue, taskId: string) {

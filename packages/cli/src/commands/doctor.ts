@@ -141,7 +141,8 @@ function isInsideDoctorGitWorkTree(rootDir: string): boolean {
   try {
     const output = execFileSync("git", ["-C", rootDir, "rev-parse", "--is-inside-work-tree"], {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true
     }).trim();
     return output === "true";
   } catch {

@@ -95,7 +95,11 @@ function findDuplicateExternalBindings(entries: ReadonlyArray<TaskSourceEntry>):
 
 function findTrackedGeneratedFiles(rootDir: string): ReadonlyArray<ProjectionWarning> {
   try {
-    const output = execFileSync("git", ["-C", rootDir, "ls-files", "--", ".harness", ".journal", ".projection.sqlite", ".adopt-claims"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const output = execFileSync("git", ["-C", rootDir, "ls-files", "--", ".harness", ".journal", ".projection.sqlite", ".adopt-claims"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true
+    }).trim();
     if (output.length === 0) return [];
     return [hardFail(
       "collaboration-gate",
