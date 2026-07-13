@@ -19,7 +19,10 @@ import {
   type JsonObject,
   type LocalDaemonTarget
 } from "../../../daemon/src/index.ts";
-import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import {
+  createHarnessRuntimeContext,
+  resolveHarnessLayout
+} from "../../../kernel/src/index.ts";
 import { CliErrorCode, cliError } from "../cli/error-codes.ts";
 import type { CommandFailureReceipt, CommandReceipt } from "../cli/receipt.ts";
 import { toCommandReceipt } from "../cli/receipt.ts";
@@ -27,6 +30,7 @@ import type { ParsedCommand } from "../cli/types.ts";
 import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalActorFromFlag } from "../composition/actor-attribution.ts";
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
 import { buildDocSyncSubmitRequest } from "./doc-sync-service.ts";
+import { resolveCanonicalHarnessRoot } from "./canonical-harness-root.ts";
 
 export {
   daemonIdForRoot,
@@ -107,6 +111,7 @@ export async function runCommandThroughDaemon(
 }
 
 async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfig): Promise<CommandReceipt | CommandFailureReceipt> {
+  command = commandForCanonicalHarness(command);
   const target = resolveLocalDaemonTarget({
     rootDir: command.rootDir,
     repoIdOverride: command.daemonRepoId,
@@ -261,7 +266,8 @@ function directModeRejection(command: ParsedCommand, config: DaemonClientConfig)
 }
 
 function isInitializedHarness(command: ParsedCommand): boolean {
-  const layout = resolveHarnessLayout(createHarnessRuntimeContext(command.rootDir, command.layoutOverrides));
+  const canonicalRoot = resolveCanonicalHarnessRoot(createHarnessRuntimeContext(command.rootDir, command.layoutOverrides));
+  const layout = resolveHarnessLayout(createHarnessRuntimeContext(canonicalRoot, command.layoutOverrides));
   return existsSync(path.join(layout.authoredRoot, "harness.yaml"));
 }
 
@@ -277,6 +283,13 @@ function commandForTarget(command: ParsedCommand, target: LocalDaemonTarget): Pa
   return path.resolve(command.rootDir) === path.resolve(target.canonicalRoot)
     ? command
     : { ...command, rootDir: target.canonicalRoot };
+}
+
+function commandForCanonicalHarness(command: ParsedCommand): ParsedCommand {
+  const canonicalRoot = resolveCanonicalHarnessRoot(createHarnessRuntimeContext(command.rootDir, command.layoutOverrides));
+  return path.resolve(command.rootDir) === path.resolve(canonicalRoot)
+    ? command
+    : { ...command, rootDir: canonicalRoot };
 }
 
 function daemonClientCliEntrypointPath(): string {
