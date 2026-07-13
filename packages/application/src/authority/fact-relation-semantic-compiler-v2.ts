@@ -27,12 +27,15 @@ import {
   type RelationRetirePayloadV2
 } from "./fact-relation-command-v2.ts";
 import {
-  SemanticAdmissionErrorV2,
   type AuthoritySemanticCompilerV2,
-  type PathCasV2,
-  type RegistryEntityRefV2,
-  type SemanticBaseCasV2
+  type RegistryEntityRefV2
 } from "./semantic-mutation-envelope-v2.ts";
+import {
+  semanticAdmissionV2,
+  semanticMutationPlanV2,
+  verifySemanticBaseCasV2,
+  verifySemanticPathCasV2
+} from "./semantic-authority-helpers-v2.ts";
 
 export {
   canonicalPayloadDigestV2,
@@ -83,9 +86,9 @@ export function makeFactRelationSemanticCompilerV2(
   return {
     compile: async (envelope) => {
       const { payload, decodedBytes } = decodeFactRelationCommandPayloadV2(envelope);
-      const compiled = await compilePayload(options.state, payload);
-      await verifyBaseCas(options.state, envelope.intent.kind === "typed" ? envelope.intent.baseCas : [], compiled.requiredBaseRefs);
-      verifyPathCas(envelope.intent.kind === "typed" ? envelope.intent.declaredPathCas : [], compiled.requiredPathSnapshots);
+      const compiled = await compileFactRelationPayloadV2(options.state, payload);
+      await verifySemanticBaseCasV2(options.state, envelope.intent.kind === "typed" ? envelope.intent.baseCas : [], compiled.requiredBaseRefs);
+      verifySemanticPathCasV2(envelope.intent.kind === "typed" ? envelope.intent.declaredPathCas : [], compiled.requiredPathSnapshots);
       return {
         mutationPlan: compiled.mutationPlan,
         operation: compiled.operation,
@@ -95,7 +98,7 @@ export function makeFactRelationSemanticCompilerV2(
   };
 }
 
-async function compilePayload(
+async function compileFactRelationPayloadV2(
   state: FactRelationAuthorityStateV2,
   payload: FactRelationCommandPayloadV2
 ): Promise<CompiledFactRelationCommandV2> {
@@ -126,7 +129,7 @@ function compileFactCreate(payload: FactCreatePayloadV2): CompiledFactRelationCo
   });
   const factRef = entityRef("fact", `fact/${payload.ownerTaskId}/${payload.factId}`);
   return {
-    mutationPlan: plan([{ entityKind: "fact", identity: { taskId: payload.ownerTaskId, factId: payload.factId }, action: "create" }]),
+    mutationPlan: semanticMutationPlanV2([{ entityKind: "fact", identity: { taskId: payload.ownerTaskId, factId: payload.factId }, action: "create" }]),
     operation: {
       opId: "authority-overrides-this",
       entityId: taskEntityId(payload.ownerTaskId),
@@ -139,8 +142,8 @@ function compileFactCreate(payload: FactCreatePayloadV2): CompiledFactRelationCo
 }
 
 function compileFactInvalidate(payload: FactInvalidatePayloadV2): CompiledFactRelationCommandV2 {
-  if (payload.factId === payload.invalidatedByFactId) throw compilerAdmission("FACT_SELF_INVALIDATION");
-  if (!payload.rationale.trim()) throw compilerAdmission("FACT_INVALIDATION_RATIONALE_REQUIRED");
+  if (payload.factId === payload.invalidatedByFactId) throw semanticAdmissionV2("FACT_SELF_INVALIDATION");
+  if (!payload.rationale.trim()) throw semanticAdmissionV2("FACT_INVALIDATION_RATIONALE_REQUIRED");
   const relation = decodeRelationV2({
     relation_id: deriveRelationId({
       source: `fact/${payload.ownerTaskId}/${payload.invalidatedByFactId}`,
@@ -161,7 +164,7 @@ function compileFactInvalidate(payload: FactInvalidatePayloadV2): CompiledFactRe
   const invalidator = entityRef("fact", `fact/${payload.ownerTaskId}/${payload.invalidatedByFactId}`);
   const relationRef = entityRef("relation", `relation/${relation.relation_id}`);
   return {
-    mutationPlan: plan([
+    mutationPlan: semanticMutationPlanV2([
       { entityKind: "fact", identity: { taskId: payload.ownerTaskId, factId: payload.factId }, action: "invalidate" },
       {
         entityKind: "relation",
@@ -193,13 +196,13 @@ async function compileRelationCreate(
   payload: RelationCreatePayloadV2
 ): Promise<CompiledFactRelationCommandV2> {
   const relation = decodeRelationV2(payload.relation);
-  if (relation.state !== "active") throw compilerAdmission("RELATION_CREATE_REQUIRES_ACTIVE_STATE");
+  if (relation.state !== "active") throw semanticAdmissionV2("RELATION_CREATE_REQUIRES_ACTIVE_STATE");
   assertRelationIdentity(relation);
   const host = relationHost(relation.source);
   assertRelationHost(relation, host.hostRef);
   const relationRef = entityRef("relation", `relation/${relation.relation_id}`);
   const hostRef = entityRef(host.kind, host.hostRef);
-  const mutationPlan = plan([{
+  const mutationPlan = semanticMutationPlanV2([{
     entityKind: "relation",
     identity: { relationId: relation.relation_id },
     action: "create",
@@ -231,7 +234,7 @@ async function compileRelationCreate(
   const snapshot = await requiredDocument(state, path);
   if (host.kind === "decision") {
     const current = decodeDecision(parseDecisionDocument(snapshot.body).decision);
-    if (current.decision_id !== host.id) throw compilerAdmission("RELATION_HOST_ID_MISMATCH");
+    if (current.decision_id !== host.id) throw semanticAdmissionV2("RELATION_HOST_ID_MISMATCH");
     return {
       mutationPlan,
       operation: {
@@ -275,17 +278,17 @@ async function compileRelationLifecycle(
   const snapshot = await requiredDocument(state, path);
   const current = currentHostedRelations(snapshot.body, host.kind);
   const existing = current.relations.find((relation) => relation.relation_id === payload.relationId);
-  if (!existing) throw compilerAdmission("RELATION_NOT_FOUND");
-  if (existing.source !== payload.sourceRef) throw compilerAdmission("RELATION_SOURCE_MISMATCH");
-  if (existing.state !== "active") throw compilerAdmission("RELATION_NOT_ACTIVE");
+  if (!existing) throw semanticAdmissionV2("RELATION_NOT_FOUND");
+  if (existing.source !== payload.sourceRef) throw semanticAdmissionV2("RELATION_SOURCE_MISMATCH");
+  if (existing.state !== "active") throw semanticAdmissionV2("RELATION_NOT_ACTIVE");
   const retired = { ...existing, state: "retired" as const };
   const replacement = payload.schema === "relation.replace/v1" ? decodeRelationV2(payload.replacement) : null;
   if (replacement) {
-    if (replacement.state !== "active") throw compilerAdmission("RELATION_REPLACEMENT_REQUIRES_ACTIVE_STATE");
+    if (replacement.state !== "active") throw semanticAdmissionV2("RELATION_REPLACEMENT_REQUIRES_ACTIVE_STATE");
     assertRelationIdentity(replacement);
     const replacementHost = relationHost(replacement.source);
-    if (replacementHost.hostRef !== host.hostRef) throw compilerAdmission("RELATION_REPLACEMENT_HOST_MISMATCH");
-    if (replacement.relation_id === existing.relation_id) throw compilerAdmission("RELATION_REPLACEMENT_ID_UNCHANGED");
+    if (replacementHost.hostRef !== host.hostRef) throw semanticAdmissionV2("RELATION_REPLACEMENT_HOST_MISMATCH");
+    if (replacement.relation_id === existing.relation_id) throw semanticAdmissionV2("RELATION_REPLACEMENT_ID_UNCHANGED");
     assertRelationHost(replacement, host.hostRef);
   }
   const mutations: RegistryMutationPlanInput["mutations"] = [
@@ -313,7 +316,7 @@ async function compileRelationLifecycle(
       .map((relation) => relation.relation_id === existing.relation_id ? retired : relation)
       .concat(replacement ? [replacement] : []);
     return {
-      mutationPlan: plan(mutations),
+      mutationPlan: semanticMutationPlanV2(mutations),
       operation: {
         opId: "authority-overrides-this",
         entityId: `decision/${host.id}` as EntityId,
@@ -328,7 +331,7 @@ async function compileRelationLifecycle(
     };
   }
   return {
-    mutationPlan: plan(mutations),
+    mutationPlan: semanticMutationPlanV2(mutations),
     operation: {
       opId: "authority-overrides-this",
       entityId: taskEntityId(host.kind === "fact" ? host.taskId : host.id),
@@ -346,57 +349,21 @@ async function compileRelationLifecycle(
   };
 }
 
-async function verifyBaseCas(
-  state: FactRelationAuthorityStateV2,
-  claimed: ReadonlyArray<SemanticBaseCasV2>,
-  requiredRefs: ReadonlyArray<RegistryEntityRefV2>
-): Promise<void> {
-  const required = uniqueRefs(requiredRefs);
-  if (claimed.length !== required.length) throw compilerAdmission("BASE_CAS_CONFLICT");
-  const byRef = new Map(claimed.map((entry) => [entityRefKey(entry.entityRef), entry]));
-  if (byRef.size !== claimed.length) throw compilerAdmission("BASE_CAS_CONFLICT");
-  for (const ref of required) {
-    const row = byRef.get(entityRefKey(ref));
-    if (!row) throw compilerAdmission("BASE_CAS_CONFLICT");
-    const actual = await state.readEntityBase(ref);
-    if (!actual) {
-      if (row.expectedSemanticVersion !== null || row.expectedStateDigest !== null) throw compilerAdmission("BASE_CAS_CONFLICT");
-      continue;
-    }
-    if (row.expectedSemanticVersion !== actual.semanticVersion
-      || !nullableBytesEqual(row.expectedStateDigest, actual.stateDigest)) throw compilerAdmission("BASE_CAS_CONFLICT");
-  }
-}
-
-function verifyPathCas(
-  claimed: ReadonlyArray<PathCasV2>,
-  required: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>
-): void {
-  if (claimed.length !== required.length) throw compilerAdmission("BASE_CAS_CONFLICT");
-  const byPath = new Map(claimed.map((entry) => [entry.path, entry]));
-  if (byPath.size !== claimed.length) throw compilerAdmission("BASE_CAS_CONFLICT");
-  for (const { path, snapshot } of required) {
-    const row = byPath.get(path);
-    if (!row || row.expectedEpoch !== snapshot.epoch || row.expectedRevision !== snapshot.revision
-      || !compilerBytesEqual(row.expectedBlobDigest, snapshot.blobDigest)) throw compilerAdmission("BASE_CAS_CONFLICT");
-  }
-}
-
 function decodeDecision(value: unknown): DecisionPackage {
   try {
     return Schema.decodeUnknownSync(DecisionPackageSchema)(value);
   } catch {
-    throw compilerAdmission("RELATION_HOST_DOCUMENT_INVALID");
+    throw semanticAdmissionV2("RELATION_HOST_DOCUMENT_INVALID");
   }
 }
 
 function assertRelationIdentity(relation: EntityRelationRecord): void {
-  if (deriveRelationId(relation) !== relation.relation_id) throw compilerAdmission("RELATION_ID_MISMATCH");
+  if (deriveRelationId(relation) !== relation.relation_id) throw semanticAdmissionV2("RELATION_ID_MISMATCH");
 }
 
 function assertRelationHost(relation: EntityRelationRecord, hostRef: string): void {
   const issues = validateRelationRecordsForHost(hostRef, [relation]);
-  if (issues.length > 0) throw compilerAdmission(`RELATION_DOMAIN_INVALID:${issues[0]!.code}`);
+  if (issues.length > 0) throw semanticAdmissionV2(`RELATION_DOMAIN_INVALID:${issues[0]!.code}`);
 }
 
 function relationHost(sourceRef: string):
@@ -409,20 +376,20 @@ function relationHost(sourceRef: string):
   if (segments[0] === "fact" && segments[1] && segments[2]) {
     return { kind: "fact", id: segments[2], taskId: segments[1], factId: segments[2], hostRef: `fact/${segments[1]}/${segments[2]}` };
   }
-  throw compilerAdmission("RELATION_STORAGE_SOURCE_UNSUPPORTED");
+  throw semanticAdmissionV2("RELATION_STORAGE_SOURCE_UNSUPPORTED");
 }
 
 function relationStoragePath(relationId: string, sourceRef: string): string {
   const locator = entityRegistry.relation.storageLocator;
-  if (locator.status !== "ready") throw compilerAdmission("REGISTRY_FACET_NOT_WRITABLE");
+  if (locator.status !== "ready") throw semanticAdmissionV2("REGISTRY_FACET_NOT_WRITABLE");
   const target = locator.locator.locate({ relationId }, { sourceRef }).targets[0];
-  if (!target?.path) throw compilerAdmission("RELATION_STORAGE_TARGET_REQUIRED");
+  if (!target?.path) throw semanticAdmissionV2("RELATION_STORAGE_TARGET_REQUIRED");
   return target.path;
 }
 
 async function requiredDocument(state: FactRelationAuthorityStateV2, path: string): Promise<HostedDocumentSnapshotV2> {
   const snapshot = await state.readHostedDocument(path);
-  if (!snapshot) throw compilerAdmission("RELATION_HOST_DOCUMENT_NOT_FOUND");
+  if (!snapshot) throw semanticAdmissionV2("RELATION_HOST_DOCUMENT_NOT_FOUND");
   return snapshot;
 }
 
@@ -443,11 +410,11 @@ function rewriteHostedRelation(
   let next = body;
   if (existing) {
     const before = formatRelationFlowRecord(existing);
-    if (!next.includes(before)) throw compilerAdmission("RELATION_HOST_CODEC_MISMATCH");
+    if (!next.includes(before)) throw semanticAdmissionV2("RELATION_HOST_CODEC_MISMATCH");
     next = next.replace(before, formatRelationFlowRecord({ ...existing, state: "retired" }));
   }
   if (!replacement) return next;
-  if (next.includes(`relation_id: ${replacement.relation_id}`)) throw compilerAdmission("RELATION_ALREADY_EXISTS");
+  if (next.includes(`relation_id: ${replacement.relation_id}`)) throw semanticAdmissionV2("RELATION_ALREADY_EXISTS");
   const line = formatRelationFlowRecord(replacement);
   if (/^relations:\s*$/mu.test(next)) return next.replace(/^relations:\s*$/mu, (heading) => `${heading}\n${line}`);
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(next);
@@ -461,30 +428,6 @@ function targetFactInSameHost(target: string, taskId: string): ReadonlyArray<str
   return segments[0] === "fact" && segments[1] === taskId && segments[2] ? [segments[2]] : [];
 }
 
-function plan(mutations: RegistryMutationPlanInput["mutations"]): RegistryMutationPlanInput {
-  return { registryVersion, mutations };
-}
-
 function entityRef(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
   return { registryVersion, entityKind, canonicalRef };
-}
-
-function entityRefKey(ref: RegistryEntityRefV2): string {
-  return `${ref.registryVersion}\0${ref.entityKind}\0${ref.canonicalRef}`;
-}
-
-function uniqueRefs(refs: ReadonlyArray<RegistryEntityRefV2>): ReadonlyArray<RegistryEntityRefV2> {
-  return [...new Map(refs.map((ref) => [entityRefKey(ref), ref])).values()];
-}
-
-function compilerAdmission(code: string, message = code): SemanticAdmissionErrorV2 {
-  return new SemanticAdmissionErrorV2(code, message);
-}
-
-function compilerBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  return Buffer.from(left).equals(Buffer.from(right));
-}
-
-function nullableBytesEqual(left: Uint8Array | null, right: Uint8Array | null): boolean {
-  return left === null || right === null ? left === right : compilerBytesEqual(left, right);
 }

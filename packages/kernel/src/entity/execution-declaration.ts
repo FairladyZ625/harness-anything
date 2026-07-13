@@ -2,7 +2,6 @@ import { Schema } from "effect";
 import { executionStates } from "../domain/execution.ts";
 import { decodeEntityDeclaration, jsonEntityDocumentCodec } from "./declaration.ts";
 import {
-  deferredRegistryFacet,
   readyIdentityProjectionFacets,
   readyStorageLocator,
   typedOnlySemanticDiff
@@ -179,7 +178,7 @@ export const executionDeclaration = decodeEntityDeclaration({
       };
     }
   }),
-  mutationContract: deferredRegistryFacet("W4", "OQ-3 action vocabulary is not registered"),
+  mutationContract: { status: "ready", actions: ["claim", "submit", "close"] },
   semanticDiff: typedOnlySemanticDiff("machine-owned execution documents reject transparent canonical writes"),
   rootResolver: {
     pathTemplate: "tasks/{taskId}/executions/{executionId}.md",

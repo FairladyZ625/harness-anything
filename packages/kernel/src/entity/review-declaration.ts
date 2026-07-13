@@ -2,7 +2,6 @@ import { Schema } from "effect";
 import { reviewVerdicts } from "../domain/review.ts";
 import { decodeEntityDeclaration, jsonEntityDocumentCodec } from "./declaration.ts";
 import {
-  deferredRegistryFacet,
   readyIdentityProjectionFacets,
   readyStorageLocator,
   typedOnlySemanticDiff
@@ -91,7 +90,7 @@ export const reviewDeclaration = decodeEntityDeclaration({
       };
     }
   }),
-  mutationContract: deferredRegistryFacet("W4", "OQ-3 action vocabulary is not registered"),
+  mutationContract: { status: "ready", actions: ["create", "dismiss", "record"] },
   semanticDiff: typedOnlySemanticDiff("machine-owned review documents reject transparent canonical writes"),
   rootResolver: {
     pathTemplate: "tasks/{taskId}/reviews/{reviewId}.md",

@@ -16,7 +16,11 @@ import { decisionDocumentTargetPath, decisionWriteKinds, writeDecisionDocument }
 import { taskIdForWriteOp } from "./write-journal-entity.ts";
 import { appendJsonLineDurably, writeFileDurably } from "./write-journal-durable.ts";
 import { rejectTaskWrite, rejectWrite } from "./write-journal-rejection.ts";
-import { resolveContentAddressedBlobPath } from "./content-addressed-blob-store.ts";
+import {
+  resolveContentAddressedBlobPath,
+  writeContentAddressedBlob
+} from "./content-addressed-blob-store.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
 import { assertReservedCodeDocWrite } from "./write-journal-code-doc-policy.ts";
 import {
   applyCanonicalAuthoredBatch,
@@ -79,6 +83,9 @@ export function writeTransactionPlan(op: WriteOp): WriteTransactionPlan {
       documentWrites: () => companionWrites,
       apply: (rootInput) => {
         const document = declaredEntityDocument(rootInput, op);
+        if (document.blobBody !== undefined && document.blobRef) {
+          writeContentAddressedBlob(rootInput, document.blobBody, document.blobRef.mediaType);
+        }
         writeDocumentsAtomically(rootInput, companionWrites, document);
         return null;
       },
@@ -318,7 +325,13 @@ function declaredEntityCompanionWrites(payload: DeclaredEntityDocumentWritePaylo
 function declaredEntityDocument(
   rootInput: HarnessLayoutInput,
   op: WriteOp
-): { readonly targetPath: string; readonly body: string; readonly blobPath?: string } {
+): {
+  readonly targetPath: string;
+  readonly body: string;
+  readonly blobPath?: string;
+  readonly blobRef?: DeclaredEntityDocumentWritePayload["entityDocument"]["blobRef"];
+  readonly blobBody?: string;
+} {
   if (!hasDeclaredEntityDocument(op.payload)) rejectWrite(`${op.kind} op requires entityDocument payload`, op.entityId);
   const document = op.payload.entityDocument;
   if (!document || typeof document !== "object" || typeof document.body !== "string" || !isStringRecord(document.identity)) {
@@ -329,9 +342,25 @@ function declaredEntityDocument(
     if (!op.entityId.startsWith(`entity/${declaration.kind}/`)) {
       rejectWrite(`entityDocument kind does not match write entity: ${op.entityId}`, op.entityId);
     }
+    if (document.blobBody !== undefined && typeof document.blobBody !== "string") {
+      rejectWrite("declared entity blobBody must be text", op.entityId);
+    }
+    if (document.blobBody !== undefined && !document.blobRef) {
+      rejectWrite("declared entity blobBody requires blobRef", op.entityId);
+    }
+    if (document.blobBody !== undefined && document.blobRef
+      && (document.blobRef.sha256 !== sha256Text(document.blobBody)
+        || document.blobRef.size !== Buffer.byteLength(document.blobBody, "utf8"))) {
+      rejectWrite("declared entity blobBody does not match blobRef", op.entityId);
+    }
     return {
       targetPath: resolveEntityDocumentPath(rootInput, declaration, document.identity),
-      body: document.body, ...(document.blobRef ? { blobPath: resolveContentAddressedBlobPath(rootInput, document.blobRef) } : {})
+      body: document.body,
+      ...(document.blobRef ? {
+        blobPath: resolveContentAddressedBlobPath(rootInput, document.blobRef),
+        blobRef: document.blobRef
+      } : {}),
+      ...(document.blobBody === undefined ? {} : { blobBody: document.blobBody })
     };
   } catch (error) {
     rejectWrite(error instanceof Error ? error.message : String(error), op.entityId);
@@ -359,6 +388,19 @@ export function writeOpTouchedPaths(rootInput: HarnessLayoutInput, op: WriteOp):
 
 export function documentWritesForWriteOp(op: WriteOp): ReadonlyArray<DocumentWrite> {
   return writeTransactionPlan(op).documentWrites();
+}
+
+export function materializeDeclaredEntityBlob(rootInput: HarnessLayoutInput, op: WriteOp): void {
+  if (!hasDeclaredEntityDocument(op.payload)) return;
+  const document = op.payload.entityDocument;
+  if (document.blobBody === undefined || !document.blobRef) return;
+  writeContentAddressedBlob(rootInput, document.blobBody, document.blobRef.mediaType);
+}
+
+export function claimCheckedDeclaredEntityWriteOp(op: WriteOp): WriteOp {
+  if (!hasDeclaredEntityDocument(op.payload) || op.payload.entityDocument.blobBody === undefined) return op;
+  const { blobBody: _blobBody, ...entityDocument } = op.payload.entityDocument;
+  return { ...op, payload: { ...op.payload, entityDocument } };
 }
 
 export { isProgressAppendDeltaPayload, readHardDeletePayload } from "./write-journal-operations-internal.ts";

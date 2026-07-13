@@ -12,8 +12,13 @@ import {
 } from "../../../kernel/src/index.ts";
 import {
   SemanticAdmissionErrorV2,
+  bytesEqual,
   type SemanticMutationEnvelopeV2
 } from "./semantic-mutation-envelope-v2.ts";
+import {
+  exactSemanticObjectV2,
+  semanticAdmissionV2
+} from "./semantic-authority-helpers-v2.ts";
 
 export const factRelationTypedCommandsV2 = [
   "fact.create",
@@ -77,28 +82,28 @@ export function decodeFactRelationCommandPayloadV2(envelope: SemanticMutationEnv
   readonly payload: FactRelationCommandPayloadV2;
   readonly decodedBytes: bigint;
 } {
-  if (envelope.intent.kind !== "typed") throw payloadAdmission("TYPED_COMMAND_REQUIRED");
+  if (envelope.intent.kind !== "typed") throw semanticAdmissionV2("TYPED_COMMAND_REQUIRED");
   if (envelope.intent.command.registryVersion !== 1 || envelope.intent.command.version !== 1) {
-    throw payloadAdmission("TYPED_COMMAND_VERSION_UNSUPPORTED");
+    throw semanticAdmissionV2("TYPED_COMMAND_VERSION_UNSUPPORTED");
   }
   if (!factRelationTypedCommandsV2.includes(envelope.intent.command.name as FactRelationTypedCommandV2)) {
-    throw payloadAdmission("TYPED_COMMAND_UNREGISTERED");
+    throw semanticAdmissionV2("TYPED_COMMAND_UNREGISTERED");
   }
-  if (envelope.intent.canonicalPayload.kind !== "inline") throw payloadAdmission("AUTHORITY_PAYLOAD_CAS_UNSUPPORTED");
+  if (envelope.intent.canonicalPayload.kind !== "inline") throw semanticAdmissionV2("AUTHORITY_PAYLOAD_CAS_UNSUPPORTED");
   const bytes = envelope.intent.canonicalPayload.bytes;
-  if (envelope.intent.canonicalPayload.size !== BigInt(bytes.length)) throw payloadAdmission("CANONICAL_PAYLOAD_SIZE_MISMATCH");
-  if (!payloadBytesEqual(envelope.intent.canonicalPayloadDigest, canonicalPayloadDigestV2(bytes))) {
-    throw payloadAdmission("CANONICAL_PAYLOAD_DIGEST_MISMATCH");
+  if (envelope.intent.canonicalPayload.size !== BigInt(bytes.length)) throw semanticAdmissionV2("CANONICAL_PAYLOAD_SIZE_MISMATCH");
+  if (!bytesEqual(envelope.intent.canonicalPayloadDigest, canonicalPayloadDigestV2(bytes))) {
+    throw semanticAdmissionV2("CANONICAL_PAYLOAD_DIGEST_MISMATCH");
   }
   let decoded: unknown;
   try {
     decoded = JSON.parse(Buffer.from(bytes).toString("utf8"));
   } catch {
-    throw payloadAdmission("TYPED_PAYLOAD_INVALID");
+    throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
   }
-  const payload = strictPayload(decoded);
-  if (!payloadBytesEqual(bytes, encodeFactRelationCommandPayloadV2(payload))) throw payloadAdmission("TYPED_PAYLOAD_NON_CANONICAL");
-  if (payload.schema.replace("/v1", "") !== envelope.intent.command.name) throw payloadAdmission("TYPED_COMMAND_PAYLOAD_MISMATCH");
+  const payload = decodeStrictFactRelationPayloadV2(decoded);
+  if (!bytesEqual(bytes, encodeFactRelationCommandPayloadV2(payload))) throw semanticAdmissionV2("TYPED_PAYLOAD_NON_CANONICAL");
+  if (payload.schema.replace("/v1", "") !== envelope.intent.command.name) throw semanticAdmissionV2("TYPED_COMMAND_PAYLOAD_MISMATCH");
   return { payload, decodedBytes: BigInt(bytes.length) };
 }
 
@@ -116,17 +121,17 @@ export function decodeFactRecordV2(value: unknown): FactRecord {
   try {
     return Schema.decodeUnknownSync(FactRecordSchema)({ schema: "fact-record/v1", ...(value as object) });
   } catch {
-    throw payloadAdmission("FACT_PAYLOAD_INVALID");
+    throw semanticAdmissionV2("FACT_PAYLOAD_INVALID");
   }
 }
 
 export function decodeRelationV2(value: unknown): EntityRelationRecord {
   try {
-    const row = exactObject(value, ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"], "relation");
+    const row = exactSemanticObjectV2(value, ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"], { name: "relation" });
     return Schema.decodeUnknownSync(entityRegistry.relation.schema)(row);
   } catch (error) {
     if (error instanceof SemanticAdmissionErrorV2) throw error;
-    throw payloadAdmission("RELATION_PAYLOAD_INVALID");
+    throw semanticAdmissionV2("RELATION_PAYLOAD_INVALID");
   }
 }
 
@@ -185,21 +190,21 @@ function canonicalRelationWire(relation: EntityRelationRecord): object {
   };
 }
 
-function strictPayload(value: unknown): FactRelationCommandPayloadV2 {
-  const row = exactObject(value, ["schema"], "typed payload", true);
+function decodeStrictFactRelationPayloadV2(value: unknown): FactRelationCommandPayloadV2 {
+  const row = exactSemanticObjectV2(value, ["schema"], { name: "typed payload", allowAdditional: true });
   switch (row.schema) {
     case "fact.create/v1":
-      return exactObject(value, ["schema", "ownerTaskId", "factId", "statement", "source", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance"], row.schema) as unknown as FactCreatePayloadV2;
+      return exactSemanticObjectV2(value, ["schema", "ownerTaskId", "factId", "statement", "source", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance"], { name: row.schema }) as unknown as FactCreatePayloadV2;
     case "fact.invalidate/v1":
-      return exactObject(value, ["schema", "ownerTaskId", "factId", "invalidatedByFactId", "rationale"], row.schema) as unknown as FactInvalidatePayloadV2;
+      return exactSemanticObjectV2(value, ["schema", "ownerTaskId", "factId", "invalidatedByFactId", "rationale"], { name: row.schema }) as unknown as FactInvalidatePayloadV2;
     case "relation.create/v1": {
-      const payload = exactObject(value, ["schema", "relation"], row.schema);
+      const payload = exactSemanticObjectV2(value, ["schema", "relation"], { name: row.schema });
       return { schema: row.schema, relation: decodeRelationV2(payload.relation) };
     }
     case "relation.retire/v1":
-      return exactObject(value, ["schema", "sourceRef", "relationId"], row.schema) as unknown as RelationRetirePayloadV2;
+      return exactSemanticObjectV2(value, ["schema", "sourceRef", "relationId"], { name: row.schema }) as unknown as RelationRetirePayloadV2;
     case "relation.replace/v1": {
-      const payload = exactObject(value, ["schema", "sourceRef", "relationId", "replacement"], row.schema);
+      const payload = exactSemanticObjectV2(value, ["schema", "sourceRef", "relationId", "replacement"], { name: row.schema });
       return {
         schema: row.schema,
         sourceRef: payloadText(payload.sourceRef),
@@ -208,34 +213,11 @@ function strictPayload(value: unknown): FactRelationCommandPayloadV2 {
       };
     }
     default:
-      throw payloadAdmission("TYPED_PAYLOAD_SCHEMA_UNSUPPORTED");
+      throw semanticAdmissionV2("TYPED_PAYLOAD_SCHEMA_UNSUPPORTED");
   }
-}
-
-function exactObject(
-  value: unknown,
-  keys: ReadonlyArray<string>,
-  name: string,
-  allowAdditional = false
-): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw payloadAdmission("TYPED_PAYLOAD_INVALID");
-  const row = value as Record<string, unknown>;
-  const actual = Object.keys(row);
-  if (keys.some((key) => !actual.includes(key)) || (!allowAdditional && actual.length !== keys.length)) {
-    throw payloadAdmission("TYPED_PAYLOAD_UNKNOWN_OR_MISSING_FIELD", name);
-  }
-  return row;
 }
 
 function payloadText(value: unknown): string {
-  if (typeof value !== "string" || !value || value.trim() !== value) throw payloadAdmission("TYPED_PAYLOAD_INVALID");
+  if (typeof value !== "string" || !value || value.trim() !== value) throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
   return value;
-}
-
-function payloadAdmission(code: string, message = code): SemanticAdmissionErrorV2 {
-  return new SemanticAdmissionErrorV2(code, message);
-}
-
-function payloadBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  return Buffer.from(left).equals(Buffer.from(right));
 }

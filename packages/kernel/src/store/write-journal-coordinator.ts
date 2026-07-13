@@ -26,6 +26,7 @@ import { appendJsonLineDurably, readDurableState, readPayloadRef, writeWatermark
 import { assertCommitPlanAddable, commitTouchedPaths } from "./write-journal-git.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
 import { assertCodeDocGitEvidence, assertNoUncoordinatedCodeDocChange } from "./write-journal-code-doc-policy.ts";
+import { writeJournalRecordCommitSummary } from "./write-journal-commit-summary.ts";
 import { runLedgerMaterializer } from "./ledger-materializer.ts";
 import { createAttributionEvent, makeLocalGitAttributionEventStore, planAttributionEventCommit, type AttributionEventStore } from "./write-journal-attribution-events.ts";
 import { assertDirectWriteAllowed, withRepoLocks, WriteLockHeldError } from "./write-journal-locks.ts";
@@ -41,7 +42,9 @@ import {
 } from "./write-journal-records.ts";
 import {
   applyWriteOp,
+  claimCheckedDeclaredEntityWriteOp,
   documentWritesForWriteOp,
+  materializeDeclaredEntityBlob,
   readHardDeletePayload,
   validateWriteTransaction,
   writeOpTouchedPaths
@@ -49,7 +52,7 @@ import {
 import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./write-journal-receipt.ts";
 import { semanticCommitMessage } from "./write-journal-authority-trailer.ts";
 import { memoizePublicationVcs } from "./write-journal-publication-vcs.ts";
-import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalRecordKind, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
+import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 export type {
   GitCommitAuthor,
   JournalActor,
@@ -128,31 +131,33 @@ function makeJournaledWriteCoordinatorInternal(
     enqueue: (op) => Effect.try({
       try: (): WriteAck => {
         validateOp(runtimeContext, op);
+        const journalOp = claimCheckedDeclaredEntityWriteOp(op);
         const attribution = mode === "attributed"
-          ? decodeWriteAttribution("attribution" in options ? options.attribution : undefined, op.entityId)
+          ? decodeWriteAttribution("attribution" in options ? options.attribution : undefined, journalOp.entityId)
           : undefined;
         if (mode === "recovery-only") {
-          rejectWrite("write coordinator requires request attribution", op.entityId);
+          rejectWrite("write coordinator requires request attribution", journalOp.entityId);
         }
-        if (mode === "operational-machine-artifact" && !op.kind.startsWith("machine_artifact_")) {
-          rejectWrite("operational coordinator only accepts machine artifact writes", op.entityId);
+        if (mode === "operational-machine-artifact" && !journalOp.kind.startsWith("machine_artifact_")) {
+          rejectWrite("operational coordinator only accepts machine artifact writes", journalOp.entityId);
         }
-        preflightWriteOp(rootDir, runtimeContext, op, versionControlSystem);
+        preflightWriteOp(rootDir, runtimeContext, journalOp, versionControlSystem);
         if (!heldGlobalLock) assertDirectWriteAllowed(rootDir, runtimeContext, lockTtlMs);
         const state = readDurableState(journalPath, watermarkPath, rootDir);
-        const existing = state.records.find((record) => record.opId === op.opId);
+        const existing = state.records.find((record) => record.opId === journalOp.opId);
         if (existing) {
-          if (attribution) assertRecordMatchesAttributedOp(existing, op, attribution);
-          else assertRecordMatchesOperationalOp(existing, op, operationalActor);
-          return { opId: op.opId, entityId: op.entityId, accepted: true };
+          if (attribution) assertRecordMatchesAttributedOp(existing, journalOp, attribution);
+          else assertRecordMatchesOperationalOp(existing, journalOp, operationalActor);
+          return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
         }
-        if (state.applied.has(op.opId)) return { opId: op.opId, entityId: op.entityId, accepted: true };
+        if (state.applied.has(journalOp.opId)) return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
+        materializeDeclaredEntityBlob(runtimeContext, op);
         const record = attribution
-          ? createAttributedJournalRecord(rootDir, journalPath, op, attribution)
-          : createOperationalJournalRecord(rootDir, journalPath, op, operationalActor);
+          ? createAttributedJournalRecord(rootDir, journalPath, journalOp, attribution)
+          : createOperationalJournalRecord(rootDir, journalPath, journalOp, operationalActor);
         appendJsonLineDurably(journalPath, record);
-        pending.push(op);
-        return { opId: op.opId, entityId: op.entityId, accepted: true };
+        pending.push(journalOp);
+        return { opId: journalOp.opId, entityId: journalOp.entityId, accepted: true };
       },
       catch: (cause): WriteError => toJournalError(cause, { entityId: op.entityId })
     }),
@@ -334,7 +339,7 @@ function flushRecords(
     rootInput,
     semanticCommitMessage(
       plannedRecords.map((entry) => entry.record),
-      plannedRecords.map((entry) => recordCommitSummary(rootDir, entry.record))
+      plannedRecords.map((entry) => writeJournalRecordCommitSummary(entry.record, readVerifiedPayload(rootDir, entry.record)))
     ),
     sessionId,
     {
@@ -452,51 +457,6 @@ function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Re
     rejectWrite(`payload hash mismatch for op ${record.opId}`, record.entityId);
   }
   return payload;
-}
-
-function recordCommitSummary(rootDir: string, record: ReadableJournalRecord): string {
-  const parsed = parseEntityLabel(record.entityId);
-  const payload = readVerifiedPayload(rootDir, record);
-  const detail = recordCommitDetail(record.kind, payload);
-  return `${parsed.kind}(${writeKindVerb(record.kind)}): ${parsed.id}${detail ? ` ${detail}` : ""}`;
-}
-
-function parseEntityLabel(entityId: EntityId): { readonly kind: string; readonly id: string } {
-  const separator = entityId.indexOf("/");
-  if (separator < 0) return { kind: "write", id: entityId };
-  return { kind: entityId.slice(0, separator), id: entityId.slice(separator + 1) };
-}
-
-function writeKindVerb(kind: JournalRecordKind): string {
-  return kind
-    .replace(/^decision_/u, "")
-    .replace(/^package_/u, "")
-    .replace(/_local$/u, "")
-    .replace(/^module_/u, "")
-    .replace(/_write$/u, "")
-    .replace(/_/gu, "-");
-}
-
-function recordCommitDetail(kind: JournalRecordKind, payload: Record<string, unknown>): string {
-  if (kind === "transition_local" && typeof payload.to === "string") return `-> ${payload.to}`;
-  if (kind === "progress_append") return "progress.md";
-  if ((kind === "machine_artifact_write" || kind === "machine_artifact_append_jsonl") && typeof payload.path === "string") return payload.path;
-  if ((kind === "doc_write" || kind === "doc_stage" || kind === "code_doc_reconcile") && typeof payload.path === "string") return payload.path;
-  if (kind === "task_tree_stage") return "task package";
-  if (kind === "module_registry_write" && typeof payload.operation === "string") return payload.operation;
-  if (kind === "module_scaffold_write") return "scaffold";
-  if (kind === "decision_relate") {
-    const decision = payload.decision as { readonly relations?: ReadonlyArray<{ readonly type?: unknown; readonly target?: unknown }> } | undefined;
-    const relation = decision?.relations?.at(-1);
-    if (relation && typeof relation.type === "string" && typeof relation.target === "string") {
-      return `${relation.type} ${relation.target.replace(/^decision\//u, "")}`;
-    }
-  }
-  if (kind.startsWith("decision_")) {
-    const decision = payload.decision as { readonly title?: unknown } | undefined;
-    if (decision && typeof decision.title === "string" && decision.title.trim().length > 0) return decision.title.trim().slice(0, 72);
-  }
-  return "";
 }
 
 function rebuildProjectionHash(

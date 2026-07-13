@@ -39,12 +39,15 @@ import {
   type TaskTransitionPayloadV2
 } from "./task-decision-module-command-v2.ts";
 import {
-  SemanticAdmissionErrorV2,
   type AuthoritySemanticCompilerV2,
-  type PathCasV2,
-  type RegistryEntityRefV2,
-  type SemanticBaseCasV2
+  type RegistryEntityRefV2
 } from "./semantic-mutation-envelope-v2.ts";
+import {
+  semanticAdmissionV2 as admission,
+  semanticMutationPlanV2 as taskDecisionModulePlan,
+  verifySemanticBaseCasV2,
+  verifySemanticPathCasV2
+} from "./semantic-authority-helpers-v2.ts";
 import type {
   HostedDocumentSnapshotV2,
   SemanticEntityBaseV2
@@ -100,8 +103,8 @@ export function makeTaskDecisionModuleSemanticCompilerV2(
     compile: async (envelope) => {
       const { payload, decodedBytes } = decodeTaskDecisionModuleCommandPayloadV2(envelope);
       const compiled = await compileTaskDecisionModulePayload(options.state, payload);
-      await verifyTaskDecisionModuleBaseCas(options.state, envelope.intent.kind === "typed" ? envelope.intent.baseCas : [], compiled.requiredBaseRefs);
-      verifyTaskDecisionModulePathCas(envelope.intent.kind === "typed" ? envelope.intent.declaredPathCas : [], compiled.requiredPathSnapshots);
+      await verifySemanticBaseCasV2(options.state, envelope.intent.kind === "typed" ? envelope.intent.baseCas : [], compiled.requiredBaseRefs);
+      verifySemanticPathCasV2(envelope.intent.kind === "typed" ? envelope.intent.declaredPathCas : [], compiled.requiredPathSnapshots);
       return { mutationPlan: compiled.mutationPlan, operation: compiled.operation, decodedBytes };
     }
   };
@@ -429,41 +432,6 @@ function decodeModuleRecord(value: unknown): ModuleRecordV2 {
   };
 }
 
-async function verifyTaskDecisionModuleBaseCas(
-  state: TaskDecisionModuleAuthorityStateV2,
-  claimed: ReadonlyArray<SemanticBaseCasV2>,
-  requiredRefs: ReadonlyArray<RegistryEntityRefV2>
-): Promise<void> {
-  const required = uniqueTaskDecisionModuleRefs(requiredRefs);
-  if (claimed.length !== required.length) throw admission("BASE_CAS_CONFLICT");
-  const byRef = new Map(claimed.map((entry) => [taskDecisionModuleEntityRefKey(entry.entityRef), entry]));
-  if (byRef.size !== claimed.length) throw admission("BASE_CAS_CONFLICT");
-  for (const ref of required) {
-    const row = byRef.get(taskDecisionModuleEntityRefKey(ref));
-    if (!row) throw admission("BASE_CAS_CONFLICT");
-    const actual = await state.readEntityBase(ref);
-    if (!actual) {
-      if (row.expectedSemanticVersion !== null || row.expectedStateDigest !== null) throw admission("BASE_CAS_CONFLICT");
-    } else if (row.expectedSemanticVersion !== actual.semanticVersion || !nullableTaskDecisionModuleBytesEqual(row.expectedStateDigest, actual.stateDigest)) {
-      throw admission("BASE_CAS_CONFLICT");
-    }
-  }
-}
-
-function verifyTaskDecisionModulePathCas(
-  claimed: ReadonlyArray<PathCasV2>,
-  required: ReadonlyArray<{ readonly path: string; readonly snapshot: HostedDocumentSnapshotV2 }>
-): void {
-  if (claimed.length !== required.length) throw admission("BASE_CAS_CONFLICT");
-  const byPath = new Map(claimed.map((entry) => [entry.path, entry]));
-  if (byPath.size !== claimed.length) throw admission("BASE_CAS_CONFLICT");
-  for (const { path, snapshot } of required) {
-    const row = byPath.get(path);
-    if (!row || row.expectedEpoch !== snapshot.epoch || row.expectedRevision !== snapshot.revision
-      || !taskDecisionModuleBytesEqual(row.expectedBlobDigest, snapshot.blobDigest)) throw admission("BASE_CAS_CONFLICT");
-  }
-}
-
 function parseTaskIndex(body: string): { readonly taskId: string; readonly status: string } {
   const frontmatter = readFrontmatter(body);
   if (!frontmatter || readScalar(frontmatter, "schema", { required: true }) !== "task-package/v2") {
@@ -553,30 +521,6 @@ function taskPath(taskId: string, documentPath: string): string {
   return `tasks/${taskId}/${documentPath}`;
 }
 
-function taskDecisionModulePlan(mutations: RegistryMutationPlanInput["mutations"]): RegistryMutationPlanInput {
-  return { registryVersion, mutations };
-}
-
 function taskDecisionModuleEntityRef(entityKind: string, canonicalRef: string): RegistryEntityRefV2 {
   return { registryVersion, entityKind, canonicalRef };
-}
-
-function taskDecisionModuleEntityRefKey(ref: RegistryEntityRefV2): string {
-  return `${ref.registryVersion}\0${ref.entityKind}\0${ref.canonicalRef}`;
-}
-
-function uniqueTaskDecisionModuleRefs(refs: ReadonlyArray<RegistryEntityRefV2>): ReadonlyArray<RegistryEntityRefV2> {
-  return [...new Map(refs.map((ref) => [taskDecisionModuleEntityRefKey(ref), ref])).values()];
-}
-
-function admission(code: string, message = code): SemanticAdmissionErrorV2 {
-  return new SemanticAdmissionErrorV2(code, message);
-}
-
-function taskDecisionModuleBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  return Buffer.from(left).equals(Buffer.from(right));
-}
-
-function nullableTaskDecisionModuleBytesEqual(left: Uint8Array | null, right: Uint8Array | null): boolean {
-  return left === null || right === null ? left === right : taskDecisionModuleBytesEqual(left, right);
 }

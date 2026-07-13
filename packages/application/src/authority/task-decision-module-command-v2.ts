@@ -6,9 +6,13 @@ import {
 } from "../../../kernel/src/index.ts";
 import { canonicalPayloadDigestV2, decodeRelationV2 } from "./fact-relation-command-v2.ts";
 import {
-  SemanticAdmissionErrorV2,
+  bytesEqual,
   type SemanticMutationEnvelopeV2
 } from "./semantic-mutation-envelope-v2.ts";
+import {
+  semanticAdmissionV2,
+  semanticStringValueV2
+} from "./semantic-authority-helpers-v2.ts";
 
 export const taskDecisionModuleTypedCommandsV2 = [
   "task.create",
@@ -127,31 +131,31 @@ export function decodeTaskDecisionModuleCommandPayloadV2(envelope: SemanticMutat
   readonly payload: TaskDecisionModuleCommandPayloadV2;
   readonly decodedBytes: bigint;
 } {
-  if (envelope.intent.kind !== "typed") throw taskDecisionModulePayloadAdmission("TYPED_COMMAND_REQUIRED");
+  if (envelope.intent.kind !== "typed") throw semanticAdmissionV2("TYPED_COMMAND_REQUIRED");
   if (envelope.intent.command.registryVersion !== 1 || envelope.intent.command.version !== 1) {
-    throw taskDecisionModulePayloadAdmission("TYPED_COMMAND_VERSION_UNSUPPORTED");
+    throw semanticAdmissionV2("TYPED_COMMAND_VERSION_UNSUPPORTED");
   }
   if (!taskDecisionModuleTypedCommandsV2.includes(envelope.intent.command.name as TaskDecisionModuleTypedCommandV2)) {
-    throw taskDecisionModulePayloadAdmission("TYPED_COMMAND_UNREGISTERED");
+    throw semanticAdmissionV2("TYPED_COMMAND_UNREGISTERED");
   }
-  if (envelope.intent.canonicalPayload.kind !== "inline") throw taskDecisionModulePayloadAdmission("AUTHORITY_PAYLOAD_CAS_UNSUPPORTED");
+  if (envelope.intent.canonicalPayload.kind !== "inline") throw semanticAdmissionV2("AUTHORITY_PAYLOAD_CAS_UNSUPPORTED");
   const bytes = envelope.intent.canonicalPayload.bytes;
-  if (envelope.intent.canonicalPayload.size !== BigInt(bytes.length)) throw taskDecisionModulePayloadAdmission("CANONICAL_PAYLOAD_SIZE_MISMATCH");
-  if (!taskDecisionModulePayloadBytesEqual(envelope.intent.canonicalPayloadDigest, canonicalPayloadDigestV2(bytes))) {
-    throw taskDecisionModulePayloadAdmission("CANONICAL_PAYLOAD_DIGEST_MISMATCH");
+  if (envelope.intent.canonicalPayload.size !== BigInt(bytes.length)) throw semanticAdmissionV2("CANONICAL_PAYLOAD_SIZE_MISMATCH");
+  if (!bytesEqual(envelope.intent.canonicalPayloadDigest, canonicalPayloadDigestV2(bytes))) {
+    throw semanticAdmissionV2("CANONICAL_PAYLOAD_DIGEST_MISMATCH");
   }
   let decoded: unknown;
   try {
     decoded = JSON.parse(Buffer.from(bytes).toString("utf8"));
   } catch {
-    throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_INVALID");
+    throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
   }
   const payload = strictTaskDecisionModulePayload(decoded);
-  if (!taskDecisionModulePayloadBytesEqual(bytes, encodeTaskDecisionModuleCommandPayloadV2(payload))) {
-    throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_NON_CANONICAL");
+  if (!bytesEqual(bytes, encodeTaskDecisionModuleCommandPayloadV2(payload))) {
+    throw semanticAdmissionV2("TYPED_PAYLOAD_NON_CANONICAL");
   }
   if (payload.schema.replace("/v1", "") !== envelope.intent.command.name) {
-    throw taskDecisionModulePayloadAdmission("TYPED_COMMAND_PAYLOAD_MISMATCH");
+    throw semanticAdmissionV2("TYPED_COMMAND_PAYLOAD_MISMATCH");
   }
   return { payload, decodedBytes: BigInt(bytes.length) };
 }
@@ -169,7 +173,7 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
         schema: discriminator.schema,
         taskId: taskDecisionModuleText(row.taskId),
         ...(row.packageSlug === undefined ? {} : { packageSlug: taskDecisionModuleText(row.packageSlug) }),
-        indexBody: stringValue(row.indexBody)
+        indexBody: semanticStringValueV2(row.indexBody)
       };
     }
     case "task.transition/v1": {
@@ -182,7 +186,7 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
     }
     case "task.document/v1": {
       const row = exactTaskDecisionModuleObject(value, ["schema", "taskId", "path", "body"]);
-      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), path: taskDecisionModuleText(row.path), body: stringValue(row.body) };
+      return { schema: discriminator.schema, taskId: taskDecisionModuleText(row.taskId), path: taskDecisionModuleText(row.path), body: semanticStringValueV2(row.body) };
     }
     case "decision.propose/v1": {
       const row = exactTaskDecisionModuleObject(value, ["schema", "decision", "body"], false, ["body"]);
@@ -192,7 +196,7 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       const row = exactTaskDecisionModuleObject(value, ["schema", "transition", "decision", "body"], false, ["body"]);
       const transition = taskDecisionModuleText(row.transition);
       if (!["accept", "reject", "defer", "supersede", "retire"].includes(transition)) {
-        throw taskDecisionModulePayloadAdmission("DECISION_STATE_TRANSITION_UNSUPPORTED");
+        throw semanticAdmissionV2("DECISION_STATE_TRANSITION_UNSUPPORTED");
       }
       return {
         schema: discriminator.schema,
@@ -220,7 +224,7 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
     case "module.step/v1": {
       const row = exactTaskDecisionModuleObject(value, ["schema", "moduleKey", "stepId", "state"]);
       const state = taskDecisionModuleText(row.state);
-      if (!["planned", "in-progress", "blocked", "done"].includes(state)) throw taskDecisionModulePayloadAdmission("MODULE_STEP_STATE_INVALID");
+      if (!["planned", "in-progress", "blocked", "done"].includes(state)) throw semanticAdmissionV2("MODULE_STEP_STATE_INVALID");
       return {
         schema: discriminator.schema,
         moduleKey: registryKey(row.moduleKey),
@@ -229,7 +233,7 @@ function strictTaskDecisionModulePayload(value: unknown): TaskDecisionModuleComm
       };
     }
     default:
-      throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_SCHEMA_UNSUPPORTED");
+      throw semanticAdmissionV2("TYPED_PAYLOAD_SCHEMA_UNSUPPORTED");
   }
 }
 
@@ -264,7 +268,7 @@ function decision(value: unknown): DecisionPackage {
   try {
     return Schema.decodeUnknownSync(DecisionPackageSchema)(value);
   } catch {
-    throw taskDecisionModulePayloadAdmission("DECISION_PAYLOAD_INVALID");
+    throw semanticAdmissionV2("DECISION_PAYLOAD_INVALID");
   }
 }
 
@@ -352,22 +356,22 @@ function exactTaskDecisionModuleObject(
   allowAdditional = false,
   optional: ReadonlyArray<string> = []
 ): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_INVALID");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
   const row = value as Record<string, unknown>;
   const actual = Object.keys(row);
   if (keys.some((key) => !optional.includes(key) && !actual.includes(key))
     || (!allowAdditional && actual.some((key) => !keys.includes(key)))) {
-    throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_UNKNOWN_OR_MISSING_FIELD");
+    throw semanticAdmissionV2("TYPED_PAYLOAD_UNKNOWN_OR_MISSING_FIELD");
   }
   return row;
 }
 
 function optionalString(value: unknown, key: string): Readonly<Record<string, string>> {
-  return value === undefined ? {} : { [key]: stringValue(value) };
+  return value === undefined ? {} : { [key]: semanticStringValueV2(value) };
 }
 
 function taskDecisionModuleArray(value: unknown, name: string): ReadonlyArray<unknown> {
-  if (!Array.isArray(value)) throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_INVALID", name);
+  if (!Array.isArray(value)) throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID", name);
   return value;
 }
 
@@ -375,33 +379,20 @@ function stringArray(value: unknown, name: string): ReadonlyArray<string> {
   return taskDecisionModuleArray(value, name).map(taskDecisionModuleText);
 }
 
-function stringValue(value: unknown): string {
-  if (typeof value !== "string") throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_INVALID");
-  return value;
-}
-
 function taskDecisionModuleText(value: unknown): string {
-  const result = stringValue(value);
-  if (!result || result.trim() !== result) throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_INVALID");
+  const result = semanticStringValueV2(value);
+  if (!result || result.trim() !== result) throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
   return result;
 }
 
 function taskDecisionModuleNonBlank(value: unknown): string {
-  const result = stringValue(value);
-  if (!result.trim()) throw taskDecisionModulePayloadAdmission("TYPED_PAYLOAD_INVALID");
+  const result = semanticStringValueV2(value);
+  if (!result.trim()) throw semanticAdmissionV2("TYPED_PAYLOAD_INVALID");
   return result;
 }
 
 function registryKey(value: unknown): string {
   const result = taskDecisionModuleText(value);
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(result)) throw taskDecisionModulePayloadAdmission("MODULE_KEY_INVALID");
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(result)) throw semanticAdmissionV2("MODULE_KEY_INVALID");
   return result;
-}
-
-function taskDecisionModulePayloadAdmission(code: string, message = code): SemanticAdmissionErrorV2 {
-  return new SemanticAdmissionErrorV2(code, message);
-}
-
-function taskDecisionModulePayloadBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  return Buffer.from(left).equals(Buffer.from(right));
 }

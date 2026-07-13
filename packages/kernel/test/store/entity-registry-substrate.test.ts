@@ -277,8 +277,7 @@ test("writable registration fails closed when any required facet is missing or d
     );
   }
   for (const kind of entityRegistryKinds) {
-    const isWritable = kind === "task" || kind === "decision" || kind === "fact" || kind === "relation" || kind === "module";
-    assert.equal(entityRegistry[kind].mutationContract.status, isWritable ? "ready" : "deferred");
+    assert.equal(entityRegistry[kind].mutationContract.status, "ready");
     assert.equal(entityRegistry[kind].projectionFacet.status, "ready", `${kind} derives the W1 union projection from the registry`);
     if (entityRegistry[kind].projectionFacet.status === "ready" && entityRegistry[kind].identityCodec.status === "ready") {
       assert.deepEqual(
@@ -286,16 +285,9 @@ test("writable registration fails closed when any required facet is missing or d
         entityRegistry[kind].identityCodec.codec.decode(canonicalRefs[kind])
       );
     }
-    if (isWritable) {
-      assert.doesNotThrow(() => createWritableEntityRegistry([
-        entityRegistry[kind] as EntityRegistration<string, KernelEntityKind>
-      ]));
-    } else {
-      assert.throws(
-        () => createWritableEntityRegistry([entityRegistry[kind] as EntityRegistration<string, KernelEntityKind>]),
-        new RegExp(`REGISTRY_FACET_NOT_WRITABLE:${kind}:mutationContract`, "u")
-      );
-    }
+    assert.doesNotThrow(() => createWritableEntityRegistry([
+      entityRegistry[kind] as EntityRegistration<string, KernelEntityKind>
+    ]));
   }
   for (const kind of ["session", "execution", "review"] as const) {
     assert.equal(entityRegistry[kind].semanticDiff.status, "typed-only");

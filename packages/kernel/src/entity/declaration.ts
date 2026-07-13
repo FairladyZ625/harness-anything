@@ -36,6 +36,7 @@ export interface DeclaredEntityDocumentWritePayload {
     readonly identity: Readonly<Record<string, string>>;
     readonly body: string;
     readonly blobRef?: DeclaredContentAddressedBlobRef;
+    readonly blobBody?: string;
   };
   readonly companionWrites?: ReadonlyArray<DocumentWrite>;
 }

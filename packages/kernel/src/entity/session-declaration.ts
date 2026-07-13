@@ -1,7 +1,6 @@
 import { SessionManifestSchema, type SessionFieldKey } from "../schemas/session-manifest.ts";
 import type { EntityFieldContract } from "./field-contracts.ts";
 import {
-  deferredRegistryFacet,
   readyIdentityProjectionFacets,
   readyStorageLocator,
   typedOnlySemanticDiff
@@ -65,7 +64,7 @@ export const sessionEntityRegistration = {
       consistencyScope: `entity:session/${identity.sessionId}`
     })
   }),
-  mutationContract: deferredRegistryFacet("W4", "OQ-3 action vocabulary is not registered"),
+  mutationContract: { status: "ready", actions: ["export", "sync", "archive"] },
   semanticDiff: typedOnlySemanticDiff("machine-owned session manifests reject transparent canonical writes"),
   rootResolver: { pathTemplate: "sessions/{sessionId}.md", identity: ["sessionId"] },
   projection: {

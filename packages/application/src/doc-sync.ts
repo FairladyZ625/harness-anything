@@ -131,6 +131,8 @@ export interface DocSyncValidationResult {
 export function classifyTouchedZones(pathInput: string, status: DirtyEntry["status"], baseBody: string | null, currentBody: string | null, rows: ReadonlyArray<RegistryRow>): ReadonlyArray<TouchedZone> {
   if (status === "deleted") return [unresolved("doc sync deletion is not defined in Phase 2")];
   const normalized = pathInput.split(/[\\/]+/u).join("/");
+  const typedOnlyReason = typedOnlyMachineSurfaceReason(normalized);
+  if (typedOnlyReason) return [unresolved(typedOnlyReason)];
   if (normalized === "modules.json") return rowZones(rows, "module-registry", "module-authored-structured");
   if (normalized.startsWith("decisions/")) return rowZones(rows, "decision", "decision-authored-structured");
   if (!normalized.startsWith("tasks/")) return [unresolved("path is outside the registered doc-sync task document surface")];
@@ -141,6 +143,8 @@ export function classifyTouchedZones(pathInput: string, status: DirtyEntry["stat
 
 export function classifyStaticZones(pathInput: string, rows: ReadonlyArray<RegistryRow>): ReadonlyArray<TouchedZone> {
   const normalized = pathInput.split(/[\\/]+/u).join("/");
+  const typedOnlyReason = typedOnlyMachineSurfaceReason(normalized);
+  if (typedOnlyReason) return [unresolved(typedOnlyReason)];
   if (normalized === "modules.json") return rowZones(rows, "module-registry", "module-authored-structured");
   if (normalized.startsWith("decisions/")) return rowZones(rows, "decision", "decision-authored-structured");
   if (!normalized.startsWith("tasks/")) return [unresolved("path is outside the registered doc-sync task document surface")];
@@ -211,4 +215,17 @@ function unresolved(reason: string, bearing?: string, zoneClass?: string): Touch
 
 function frontmatterChanged(baseBody: string | null, currentBody: string | null): boolean {
   return frontmatterBlock(baseBody ?? "") !== frontmatterBlock(currentBody ?? "");
+}
+
+function typedOnlyMachineSurfaceReason(path: string): string | null {
+  if (/^sessions\/[^/]+\.md$/u.test(path)) {
+    return "session manifests are machine-owned and require a typed session command";
+  }
+  if (/^tasks\/[^/]+\/executions\/[^/]+\.md$/u.test(path)) {
+    return "execution documents are machine-owned and require a typed execution command";
+  }
+  if (/^tasks\/[^/]+\/reviews\/[^/]+\.md$/u.test(path)) {
+    return "review documents are machine-owned and require a typed review command";
+  }
+  return null;
 }

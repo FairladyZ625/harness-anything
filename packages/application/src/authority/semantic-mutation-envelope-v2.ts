@@ -395,4 +395,4 @@ function digest(value: CanonicalCborValue, name: string): Uint8Array { return fi
 function nullableDigest(value: CanonicalCborValue, name: string): Uint8Array | null { return value === null ? null : digest(value, name); }
 function uint32(value: CanonicalCborValue | number, name: string): number { if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be uint32`); return value; }
 function uint64(value: CanonicalCborValue, name: string): bigint { if (typeof value !== "number" && typeof value !== "bigint") throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be uint64`); const output = BigInt(value); if (output < 0n) throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be uint64`); return output; }
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean { return Buffer.from(left).equals(Buffer.from(right)); }
+export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean { return Buffer.from(left).equals(Buffer.from(right)); }
