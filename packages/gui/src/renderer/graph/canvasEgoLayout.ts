@@ -303,6 +303,10 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
       id,
       type: "ego",
       position: { x: center.x - w / 2, y: center.y - h / 2 },
+      // 尺寸同时给 style(渲染)和顶层 width/height(RF 内部维度)。少了顶层这对,
+      // node.measured 直到 DOM 观测才有值,MiniMap 的 nodeHasDimensions() 判假 → 一个方块都不画。
+      width: w,
+      height: h,
       style: { width: w, height: h },
       data: {
         entity: meta.entity,

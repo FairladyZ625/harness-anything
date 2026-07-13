@@ -79,6 +79,15 @@ const edgeTypes = {
 
 const EMPTY_LOOP = new Set<string>();
 
+// 换焦点时把焦点摆到视口正中所用的缩放:焦点卡片(360 宽)+ 左右各一列 chip 同屏可读。
+const FOCUS_ZOOM = 0.9;
+
+const MINIMAP_AXIS: Record<string, string> = {
+  task: "var(--color-axis-execution)",
+  decision: "var(--color-axis-authority)",
+  fact: "var(--color-axis-evidence)",
+};
+
 function defaultAxes(): AxisFilter {
   // relates (assoc) 默认关 — dec_01KXA7811SVVT8P66HNDFZQ7DF CH4。
   return { authority: true, evidence: true, execution: true, assoc: false };
@@ -103,7 +112,7 @@ function GraphViewInner({
   onNavigateEntity?: (ref: string) => void;
   focusRef?: string | null;
 }) {
-  const { fitView } = useReactFlow();
+  const { setCenter } = useReactFlow();
   const colorMode = useColorMode();
 
   // 节点焦点(布局重算依赖)+ 边焦点(仅抽屉展示)。修 #3:此前用单一 focusId
@@ -284,18 +293,26 @@ function GraphViewInner({
     expanded,
   ]);
 
-  // fitView 只在换焦点(openFocus)时触发 —— 累积展开 / 长邻居永不重排已有画布
-  // (dec_01KXBGJQFQARSZHHQW1WADFDNC「单击永不重排」)。用 ref 记住上次已 fit 的焦点。
-  const lastFitFocus = useRef<string | null>(null);
+  // 换焦点(openFocus)时把焦点节点摆进视口正中 —— 兑现「以它为中心」,同时躲开左上角
+  // Filters 面板(fitView 全景会按图 bbox 居中,下游更宽时焦点被推到左侧压在面板下)。
+  // 只在焦点变化时触发:累积展开 / 长邻居永不重排已有画布
+  // (dec_01KXBGJQFQARSZHHQW1WADFDNC「单击永不重排」)。用 ref 记住上次已居中的焦点。
+  const lastCenteredFocus = useRef<string | null>(null);
   useEffect(() => {
-    if (!resolvedFocusId || nodes.length === 0) return;
-    if (lastFitFocus.current === resolvedFocusId) return;
-    lastFitFocus.current = resolvedFocusId;
+    if (!resolvedFocusId) return;
+    if (lastCenteredFocus.current === resolvedFocusId) return;
+    const focusNode = nodes.find((n) => n.id === resolvedFocusId);
+    if (!focusNode) return;
+    lastCenteredFocus.current = resolvedFocusId;
+    const w = Number(focusNode.style?.width ?? 0);
+    const h = Number(focusNode.style?.height ?? 0);
+    const cx = focusNode.position.x + w / 2;
+    const cy = focusNode.position.y + h / 2;
     const frame = window.requestAnimationFrame(() => {
-      fitView({ padding: 0.2, duration: 320 });
+      setCenter(cx, cy, { zoom: FOCUS_ZOOM, duration: 320 });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [resolvedFocusId, nodes.length, fitView]);
+  }, [resolvedFocusId, nodes, setCenter]);
 
   // 单击 chip = 就地展开成卡片并长出邻居(累积,永不重排已有画布)。
   // 卡片(已展开)单击不处理 —— 收起 / 详情 / 设为中心 走卡片自身按钮。
@@ -580,6 +597,8 @@ function GraphViewInner({
           <MiniMap
             nodeColor={(n) => {
               if (n.type === "laneBackground") return "rgba(255, 255, 255, 0.04)";
+              // ego 节点按语义轴上色 —— 否则暗色 minimap 上全是暗灰方块,等于隐形。
+              if (n.type === "ego") return MINIMAP_AXIS[(n.data as any)?.entity as string] ?? "var(--color-axis-execution)";
               if (n.type === "decisionFocus" || n.type === "decision") return "var(--color-accent)";
               if (n.type === "fact") return "var(--color-stale)";
               return "var(--color-border-strong)";
