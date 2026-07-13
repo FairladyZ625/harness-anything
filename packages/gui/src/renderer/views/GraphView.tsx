@@ -36,7 +36,11 @@ import { FactNode } from "../graph/nodes/FactNode";
 import { EgoNode } from "../graph/nodes/EgoNode";
 import { ModuleGroupNode } from "../graph/nodes/ModuleGroupNode";
 import { LaneBackgroundNode } from "../graph/nodes/LaneBackgroundNode";
+import { TerritoryZoneNode } from "../graph/nodes/TerritoryZoneNode";
+import { TerritoryChipNode, territoryChipColor } from "../graph/nodes/TerritoryChipNode";
 import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
+import { useTerritoryView } from "../graph/useTerritoryView";
+import { TerritoryModeBar } from "../components/TerritoryModeBar";
 import {
   GraphFilterPanel,
   type GraphFilters,
@@ -54,6 +58,8 @@ const nodeTypes = {
   ego: EgoNode,
   moduleGroup: ModuleGroupNode,
   laneBackground: LaneBackgroundNode,
+  territoryZone: TerritoryZoneNode,
+  territoryChip: TerritoryChipNode,
 };
 
 const edgeTypes = {
@@ -168,6 +174,22 @@ function GraphViewInner({
     resolvedFocusId,
   });
 
+  // L1 领地总览状态机(territory ↔ spotlight 模式切换 + 骨架轴 + zone 折叠态)。
+  const {
+    viewMode,
+    skel,
+    expandedZones,
+    enterSpotlight,
+    setViewMode,
+    setSkel,
+    toggleZone,
+  } = useTerritoryView(openFocus);
+
+  // 跨视图带入的 focusRef → 切到聚光灯(用户「跳到这张图」的足迹 = 要看某实体)。
+  useEffect(() => {
+    if (focusRef) setViewMode("spotlight");
+  }, [focusRef, setViewMode]);
+
   useEffect(() => {
     const ac = new AbortController();
     computeGraphLayout({
@@ -177,12 +199,14 @@ function GraphViewInner({
       facts: facts ?? [],
       coverageRows: coverageRows ?? [],
       factAnchors: factAnchors ?? [],
-      focusNodeId: focusId,
+      focusNodeId: viewMode === "territory" ? null : focusId,
       expandedFacts,
       filters: layoutInputFilters,
       inLoopNodes: EMPTY_LOOP,
       inLoopEdges: EMPTY_LOOP,
-      canvas: { shown, expanded },
+      ...(viewMode === "territory"
+        ? { territory: { skel, expandedZones } }
+        : { canvas: { shown, expanded } }),
     })
       .then(({ nodes: rfNodes, edges: rfEdges, cycleWarning: warning, resolvedFocusId: rid }) => {
         if (ac.signal.aborted) return;
@@ -210,17 +234,35 @@ function GraphViewInner({
     layoutInputFilters,
     shown,
     expanded,
+    viewMode,
+    skel,
+    expandedZones,
   ]);
 
   // 单击 chip = 就地展开成卡片并长出邻居(累积,永不重排已有画布)。
   // 卡片(已展开)单击不处理 —— 收起 / 详情 / 设为中心 走卡片自身按钮。
+  // territory 模式下 territoryChip 单击 → 切到聚光灯(openFocus);fold chip → toggleZone。
   const onNodeClick = useCallback(
     (_evt: any, node: any) => {
+      if (node.type === "territoryChip") {
+        const d = node.data ?? {};
+        if (d.entity === "fold" && d.zoneId) {
+          toggleZone(d.zoneId);
+          return;
+        }
+        if (d.navRef) enterSpotlight(d.navRef);
+        return;
+      }
+      if (node.type === "territoryZone") {
+        // zone header 的折叠按钮走 zoneId;背景点击不处理
+        if (node.data?.zoneId) toggleZone(node.data.zoneId);
+        return;
+      }
       if (node.type !== "ego") return;
       if (node.data?.expanded) return;
       expandNode(node.id);
     },
-    [expandNode],
+    [expandNode, toggleZone, enterSpotlight],
   );
 
   // 双击 = 设为画布中心(openFocus:重排前后各 2 跳,推历史)。
@@ -290,30 +332,44 @@ function GraphViewInner({
     return map;
   }, [nodes]);
 
-  // Node/edge count for header (exclude lane backgrounds)
+  // Node/edge count for header (exclude backgrounds)
   const visibleNodeCount = useMemo(
-    () => nodes.filter((n) => n.type !== "moduleGroup" && n.type !== "laneBackground").length,
+    () =>
+      nodes.filter(
+        (n) =>
+          n.type !== "moduleGroup" &&
+          n.type !== "laneBackground" &&
+          n.type !== "territoryZone",
+      ).length,
     [nodes],
   );
 
   // 注入卡片交互回调(收起 / 设为中心 / 详情跳转)+ id 到 ego 节点 data。
+  // territory 节点注入 onOpen(chip → 聚光灯)+ onFold(zone 折叠)。
   const displayNodes = useMemo(
     () =>
-      nodes.map((n) =>
-        n.type === "ego"
-          ? {
-              ...n,
-              data: {
-                ...n.data,
-                id: n.id,
-                onCollapse: collapseNode,
-                onRefocus: openFocus,
-                onNavigate: onNavigateEntity,
-              },
-            }
-          : n,
-      ),
-    [nodes, collapseNode, openFocus, onNavigateEntity],
+      nodes.map((n) => {
+        if (n.type === "ego") {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              id: n.id,
+              onCollapse: collapseNode,
+              onRefocus: openFocus,
+              onNavigate: onNavigateEntity,
+            },
+          };
+        }
+        if (n.type === "territoryChip" || n.type === "territoryZone") {
+          return {
+            ...n,
+            data: { ...n.data, onOpen: enterSpotlight, onFold: toggleZone },
+          };
+        }
+        return n;
+      }),
+    [nodes, collapseNode, openFocus, onNavigateEntity, enterSpotlight, toggleZone],
   );
 
   // 抽屉里展示的实体(优先 selectedNode,fallback 到 focusNode)。这样单击非焦点
@@ -467,9 +523,10 @@ function GraphViewInner({
           <Controls className="bg-surface-raised border-border" />
           <MiniMap
             nodeColor={(n) => {
-              if (n.type === "laneBackground") return "rgba(255, 255, 255, 0.04)";
-              // ego 节点按语义轴上色 —— 否则暗色 minimap 上全是暗灰方块,等于隐形。
+              if (n.type === "laneBackground" || n.type === "territoryZone") return "rgba(255, 255, 255, 0.04)";
+              // ego / territoryChip 节点按语义轴上色 —— 否则暗色 minimap 上全是暗灰方块,等于隐形。
               if (n.type === "ego") return MINIMAP_AXIS[(n.data as any)?.entity as string] ?? "var(--color-axis-execution)";
+              if (n.type === "territoryChip") return territoryChipColor((n.data as any)?.entity as string) ?? "var(--color-border-strong)";
               if (n.type === "decisionFocus" || n.type === "decision") return "var(--color-accent)";
               if (n.type === "fact") return "var(--color-stale)";
               return "var(--color-border-strong)";
@@ -477,6 +534,12 @@ function GraphViewInner({
             nodeStrokeColor="var(--color-border-strong)"
             maskColor="rgba(0, 0, 0, 0.5)"
             className="bg-surface border border-border rounded overflow-hidden"
+          />
+          <TerritoryModeBar
+            viewMode={viewMode}
+            skel={skel}
+            onModeChange={setViewMode}
+            onSkelChange={setSkel}
           />
           <Panel position="top-left">
             <GraphFilterPanel

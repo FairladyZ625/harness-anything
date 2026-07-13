@@ -50,6 +50,14 @@ export interface LayoutInput {
    *   expanded — 渲染为详情卡片的 node id 集(其余紧凑 chip)。
    */
   canvas?: { shown: Map<string, number>; expanded: Set<string> };
+  /**
+   * L1 领地总览(IA v2 Layer 0)。存在即走 layoutTerritory —— 把台账按 rootTask /
+   * supersede-refine 链分区成「领地块」,一块一块地铺开,点块内实体 → 切到聚光灯(L2)。
+   * 与 canvas(L2)互斥:territory 在则 canvas 不传,反之亦然。
+   *   skel          — 骨架轴(task 按 milestone / decision 按 supersede-refine 家族 + 落地)。
+   *   expandedZones — 已展开(不折叠 done/planned)的 zone id 集;默认折叠 hot-only。
+   */
+  territory?: { skel: "task" | "decision"; expandedZones: Set<string> };
 }
 
 export interface LayoutOutput {

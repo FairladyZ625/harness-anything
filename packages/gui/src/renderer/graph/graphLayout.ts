@@ -2,6 +2,7 @@ import { parseEndpoint } from "./endpoint";
 import { edgePassesAxisFilter, pickDefaultFocus } from "./graphLayoutShared";
 import type { LayoutInput, LayoutOutput } from "./graphLayoutTypes";
 import { layoutCanvasEgo } from "./canvasEgoLayout";
+import { layoutTerritory } from "./territoryLayout";
 import { layoutSimpleEgo } from "./simpleEgoLayout";
 import { layoutThreeLane } from "./threeLaneLayout";
 
@@ -58,6 +59,21 @@ export async function computeGraphLayout(input: LayoutInput): Promise<LayoutOutp
       focusClaims: [],
       bounds: { width: 0, height: 0 },
     };
+  }
+
+  // L1 领地总览(IA v2 Layer 0):存在 territory 入参即走领地布局(分区成块、点实体切聚光灯)。
+  // territory 与 canvas(L2)互斥 —— GraphView 按当前 viewMode 传其一。
+  if (input.territory) {
+    return layoutTerritory({
+      skel: input.territory.skel,
+      tasks,
+      decisions: decisions ?? [],
+      facts: facts ?? [],
+      relations: validEdges,
+      filters,
+      coverageRows,
+      expandedZones: input.territory.expandedZones,
+    });
   }
 
   // 无限画布 ego(dec_01KXBGJQFQARSZHHQW1WADFDNC):存在 canvas 累积态即统一走
