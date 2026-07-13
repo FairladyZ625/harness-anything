@@ -67,7 +67,6 @@ function baseDecision(overrides: Partial<DecisionRow> = {}): DecisionRow {
     urgency: "medium",
     vertical: "software/coding",
     preset: "p",
-    proposedBy: { kind: "system", id: "x" },
     proposedAt: "2026-07-01T00:00:00.000Z",
     question: "Q?",
     chosen: [{ id: "CH1", text: "chosen", evidence: [] }],
@@ -309,7 +308,7 @@ describe("cross-entity navigation projection", () => {
       decisionId: "dec_missing",
       riskTier: undefined,
       urgency: undefined,
-      proposedBy: undefined,
+      attribution: undefined,
       provenance: undefined
     });
   });
