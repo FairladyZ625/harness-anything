@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   buildArchitectureCodeGraph,
   validateArchitectureCodeGraph
@@ -10,7 +11,7 @@ import { compareArchitectureText } from "./architecture-portable-path.mjs";
 
 const toolName = "dependency-cruiser";
 const toolVersion = "17.4.3";
-const defaultExclude = "(^|/)(node_modules|dist|test|tests|__tests__)(/|$)|\\.(test|spec)\\.[cm]?[jt]sx?$";
+const defaultExclude = "(^|/)(\\.git|\\.harness|\\.harness-private|\\.worktrees|harness|node_modules|dist|test|tests|__tests__)(/|$)|\\.(test|spec)\\.[cm]?[jt]sx?$";
 const sourceExtension = /\.(?:[cm]?[jt]s|[jt]sx)$/u;
 const defaultTimeoutMs = 10_000;
 const maxOutputBytes = 64 * 1024 * 1024;
@@ -55,7 +56,10 @@ export async function runJavaScriptTypeScriptCodeGraph(options) {
       tool: missingTool(options.extractor, "not-installed", "Install the pinned @harness-anything/cli dependencies so depcruise is available on PATH.")
     };
   }
-  if (versionExecution.status !== "ok" || versionExecution.stdout.trim() !== toolVersion) {
+  if (versionExecution.status !== "ok") {
+    return invalid("architecture_extractor_process_failed", "extractor.tool.version", `dependency-cruiser version probe failed closed: ${versionExecution.reason}.`);
+  }
+  if (versionExecution.stdout.trim() !== toolVersion) {
     return invalid("architecture_extractor_version_mismatch", "extractor.tool.version", `Expected dependency-cruiser ${toolVersion}.`);
   }
   const execution = await execute({
@@ -104,10 +108,8 @@ export function decodeDependencyCruiserCodeGraph({ raw, executionRoot, extractor
     if (matchingScopes.length > 1) {
       return invalid("architecture_extractor_scope_ambiguous", sourcePath, `Source path matches multiple declared scopes: ${matchingScopes.map((scope) => scope.id).sort(compareArchitectureText).join(", ")}.`);
     }
-    if (matchingScopes.length === 1) {
-      if (candidates.has(sourcePath)) return invalid("architecture_extractor_output_duplicate", sourcePath, "dependency-cruiser returned the same portable source path more than once.");
-      candidates.set(sourcePath, { module, sourceScopeId: matchingScopes[0].id });
-    }
+    if (candidates.has(sourcePath)) return invalid("architecture_extractor_output_duplicate", sourcePath, "dependency-cruiser returned the same portable source path more than once.");
+    candidates.set(sourcePath, { module, sourceScopeId: matchingScopes[0]?.id ?? null });
   }
 
   const packageByManifest = new Map();
@@ -185,7 +187,26 @@ async function executeDependencyCruiser({ executable, argv, cwd, timeoutMs }) {
   return new Promise((resolve) => {
     let stdout = "";
     let settled = false;
-    const child = spawn(executable, argv, { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let resolvedExecutable = executable;
+    let resolvedArgv = argv;
+    try {
+      if (executable === "depcruise") {
+        const packageEntry = fileURLToPath(import.meta.resolve("dependency-cruiser"));
+        const dependencyCruiserEntry = path.resolve(path.dirname(packageEntry), "../../bin/dependency-cruise.mjs");
+        resolvedExecutable = process.execPath;
+        resolvedArgv = [dependencyCruiserEntry, ...argv];
+      }
+    } catch {
+      resolve({ status: "tool-missing" });
+      return;
+    }
+    const child = spawn(resolvedExecutable, resolvedArgv, {
+      cwd,
+      env: { ...process.env, PREFIX: path.dirname(path.dirname(process.execPath)) },
+      shell: false,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
     const finish = (result) => {
       if (settled) return;
       settled = true;

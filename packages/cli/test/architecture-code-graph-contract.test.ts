@@ -18,6 +18,9 @@ test("language-neutral code graphs have a closed, portable contract", async () =
   ]) {
     assert.equal(validateArchitectureCodeGraph(invalid).ok, false);
   }
+  const unmapped = structuredClone(graph);
+  unmapped.files[0].sourceScopeId = null;
+  assert.equal(validateArchitectureCodeGraph(unmapped).ok, true, "raw graphs preserve explicitly unmapped transitive files for the mapping stage");
 });
 
 test("graph construction and digest are stable across input order", async () => {

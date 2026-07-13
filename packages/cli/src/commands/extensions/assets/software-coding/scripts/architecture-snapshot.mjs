@@ -68,7 +68,7 @@ if (!configuration.configured) {
     manifest: configuration.manifestValue,
     configuration,
     projectRoot: context.paths.projectRoot,
-    executionRoot: context.paths.rootDir,
+    executionRoot: context.paths.projectRoot,
     inputs: context.inputs
   });
   if (!extraction.ok) {

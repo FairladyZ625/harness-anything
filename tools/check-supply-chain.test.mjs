@@ -106,6 +106,12 @@ test("supply-chain check accepts reviewed OR-license elections", async () => {
           integrity: "sha512-test",
           license: "WTFPL"
         };
+        lock.packages["node_modules/example/node_modules/type-fest"] = {
+          version: "4.41.0",
+          resolved: "https://registry.npmjs.org/type-fest/-/type-fest-4.41.0.tgz",
+          integrity: "sha512-test",
+          license: "(MIT OR CC0-1.0)"
+        };
       },
       sbomMutator: (sbom) => {
         sbom.components.push(

@@ -19,6 +19,7 @@ export interface ScriptExecutorOptions {
   readonly readPermissions: ReadonlyArray<string>;
   readonly writePermissions: ReadonlyArray<string>;
   readonly allowAddons?: boolean;
+  readonly allowChildProcess?: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly artifactRoots: ReadonlyArray<string>;
   readonly outputBoundary:
@@ -47,6 +48,7 @@ export function executeScript(options: ScriptExecutorOptions): ScriptExecutionRe
   const result = spawnSync(process.execPath, [
     "--permission",
     ...(options.allowAddons ? ["--allow-addons"] : []),
+    ...(options.allowChildProcess ? ["--allow-child-process"] : []),
     ...uniquePermissionPaths(options.readPermissions).map((allowedPath) => `--allow-fs-read=${allowedPath}`),
     ...uniquePermissionPaths(options.writePermissions).map((allowedPath) => `--allow-fs-write=${allowedPath}`),
     options.scriptPath

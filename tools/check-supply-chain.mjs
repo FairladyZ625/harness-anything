@@ -381,7 +381,11 @@ function isWorkspaceLink(packagePath) {
 }
 
 function packageNameFromNodeModules(packagePath) {
-  return packagePath.replace(/^node_modules\//u, "");
+  const nestedMarker = "/node_modules/";
+  const nestedIndex = packagePath.lastIndexOf(nestedMarker);
+  return nestedIndex >= 0
+    ? packagePath.slice(nestedIndex + nestedMarker.length)
+    : packagePath.replace(/^node_modules\//u, "");
 }
 
 function isHarnessWorkspaceComponent(component) {

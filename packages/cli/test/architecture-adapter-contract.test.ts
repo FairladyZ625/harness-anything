@@ -226,22 +226,116 @@ test("the adapter pipeline fails closed on extra fields at every success boundar
   }
 });
 
-test("the production fixed registry preserves deterministic two-tool degradation", async () => {
+test("the production fixed registry consumes LikeC4 intent and a JS/TS graph", async () => {
   const { runDeclaredArchitectureExtractors } = await import(adaptersPath);
+  const options = pipelineOptions();
+  options.executeLikeC4 = async () => ({ status: "ok", version: "1.58.0", raw: likeC4Export() });
+  options.execute = async (call: Record<string, unknown>) => (call.argv as string[]).includes("--version")
+    ? { status: "ok", stdout: "17.4.3\n" }
+    : { status: "ok", stdout: JSON.stringify(cruiseOutput()) };
 
-  const result = await runDeclaredArchitectureExtractors(pipelineOptions());
+  const result = await runDeclaredArchitectureExtractors(options);
 
-  assert.equal(result.ok, false);
-  assert.equal(result.status, "tool-missing");
-  assert.deepEqual(result.missingTools.map((entry: Record<string, unknown>) => entry.role), ["provider", "extractor"]);
-  assert.deepEqual(result.missingTools.map((entry: Record<string, unknown>) => entry.tool), ["likec4", "dependency-cruiser"]);
-  assert.deepEqual(result.missingTools.map((entry: Record<string, unknown>) => entry.reason), [
-    "fixed-adapter-capability-unavailable",
-    "fixed-adapter-capability-unavailable"
-  ]);
-  assert.equal(result.missingTools.every((entry: Record<string, unknown>) =>
-    /not connected in this release/u.test(String(entry.hint)) &&
-    !/install/u.test(String(entry.hint))), true, "P2 stubs must not infer that installing a tool enables an unconnected adapter");
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "ok");
+  assert.deepEqual(result.observations[0].mappings.map((entry: Record<string, unknown>) => entry.nodeId), ["component.api", "component.store"]);
+  assert.equal(result.observations[0].nodeEdges.length, 1);
+  assert.deepEqual(result.comparisons[0].findings, []);
+  assert.deepEqual(result.tools.map((entry: Record<string, unknown>) => entry.tool), ["likec4"]);
+});
+
+test("LikeC4 projection uses archId identity and fails closed on ambiguous model facts", async () => {
+  const { decodeLikeC4ProviderObservation, likeC4Invocation, runLikeC4ProviderAdapter } = await import(
+    "../src/commands/extensions/assets/software-coding/architecture/contracts/architecture-likec4-provider.mjs"
+  );
+  const options = { manifest: pipelineOptions().manifest, modelDigest: `sha256:${"1".repeat(64)}` };
+  const first = decodeLikeC4ProviderObservation({ raw: likeC4Export(), ...options });
+  const presentationOnly: Record<string, any> = likeC4Export();
+  presentationOnly.elements.api.title = "Renamed API";
+  presentationOnly.elements.api.style = { color: "red" };
+  presentationOnly.views = { landscape: { title: "New Layout" } };
+  const second = decodeLikeC4ProviderObservation({ raw: presentationOnly, ...options });
+
+  assert.equal(first.status, "ok");
+  assert.deepEqual(first.observation, second.observation, "titles and layout never become architecture node identity");
+  assert.equal(decodeLikeC4ProviderObservation({ raw: [likeC4Export(), likeC4Export()], ...options }).status, "ok");
+  const ambiguous: Record<string, any> = likeC4Export();
+  ambiguous.elements.api.metadata.archId = "component.other";
+  assert.equal(decodeLikeC4ProviderObservation({ raw: [likeC4Export(), ambiguous], ...options }).issues[0].code, "architecture_provider_project_ambiguous");
+  const unknownExtractor: Record<string, any> = likeC4Export();
+  unknownExtractor.relations.apiStore.metadata.extractorIds = "other-extractor";
+  assert.equal(decodeLikeC4ProviderObservation({ raw: unknownExtractor, ...options }).issues[0].code, "architecture_provider_extractor_reference_invalid");
+  const invalidExtractorMetadata = likeC4Export();
+  invalidExtractorMetadata.relations.apiStore.metadata.extractorIds = [];
+  assert.equal(decodeLikeC4ProviderObservation({ raw: invalidExtractorMetadata, ...options }).issues[0].code, "architecture_provider_extractor_reference_invalid");
+  assert.deepEqual(likeC4Invocation(), {
+    executable: "likec4",
+    versionArgv: ["--version"],
+    api: "LikeC4.fromWorkspace",
+    cwd: "modelRoot",
+    writes: false,
+    shell: false
+  });
+  const missing = await runLikeC4ProviderAdapter({
+    ...pipelineOptions(),
+    executeLikeC4: async () => ({ status: "tool-missing" })
+  });
+  assert.equal(missing.status, "tool-missing");
+  assert.equal(missing.tool.reason, "not-installed");
+  const mismatched = await runLikeC4ProviderAdapter({
+    ...pipelineOptions(),
+    executeLikeC4: async () => ({ status: "ok", version: "1.59.0", raw: likeC4Export() })
+  });
+  assert.equal(mismatched.status, "invalid");
+  assert.equal(mismatched.issues[0].code, "architecture_provider_version_mismatch");
+});
+
+test("source-scope mapping and comparator emit stable forbidden, required, unmapped, reverse, and cycle findings", async () => {
+  const { compareArchitectureObservation, mapArchitectureCodeGraph } = await import(
+    "../src/commands/extensions/assets/software-coding/architecture/contracts/architecture-mapping-comparator.mjs"
+  );
+  const provider = {
+    schema: "architecture-provider-observation/v1",
+    providerId: "likec4",
+    modelDigest: `sha256:${"1".repeat(64)}`,
+    nodes: ["component.api", "component.store", "component.ui"],
+    relationships: [
+      { id: "relation.api-store", sourceNodeId: "component.api", targetNodeId: "component.store", expectation: "forbidden", extractorIds: ["js-ts-imports"] },
+      { id: "relation.api-ui", sourceNodeId: "component.api", targetNodeId: "component.ui", expectation: "required", extractorIds: ["js-ts-imports"] },
+      { id: "relation.ui-store", sourceNodeId: "component.ui", targetNodeId: "component.store", expectation: "allowed", extractorIds: ["js-ts-imports"] }
+    ]
+  };
+  const manifest = pipelineOptions().manifest;
+  manifest.sourceScopes.push({ id: "ui-source", nodeId: "component.ui", include: ["packages/ui/**"], exclude: [] });
+  manifest.extractors[0].sourceScopeIds.push("ui-source");
+  const graph = architectureGraph();
+  const mapped = mapArchitectureCodeGraph({ graph, manifest, providerObservation: provider });
+  assert.equal(mapped.status, "ok");
+  assert.deepEqual(mapped.observation.unmapped.map((entry: Record<string, unknown>) => entry.role), ["target", "source"]);
+
+  const first = compareArchitectureObservation({ providerObservation: provider, codeObservation: mapped.observation });
+  const second = compareArchitectureObservation({ providerObservation: provider, codeObservation: structuredClone(mapped.observation) });
+  assert.deepEqual(first, second, "finding IDs and ordering are byte-stable");
+  assert.deepEqual(new Set(first.findings.map((entry: Record<string, unknown>) => entry.kind)), new Set([
+    "architecture-cycle",
+    "forbidden-dependency",
+    "missing-required-dependency",
+    "reverse-dependency",
+    "unexpected-dependency",
+    "unmapped-source",
+    "unmapped-target"
+  ]));
+  const reverse = first.findings.find((entry: Record<string, unknown>) => entry.kind === "reverse-dependency");
+  assert.equal(reverse.relationshipId, "relation.ui-store");
+  assert.equal(reverse.sourceNodeId, "component.store");
+  assert.equal(reverse.targetNodeId, "component.ui");
+  assert.equal(first.findings.every((entry: Record<string, unknown>) => /^finding\.[a-z0-9.-]+\.[0-9a-f]{20}$/u.test(String(entry.id))), true);
+
+  const unknownManifest = structuredClone(manifest);
+  unknownManifest.sourceScopes[0].nodeId = "component.unknown";
+  const unknown = mapArchitectureCodeGraph({ graph, manifest: unknownManifest, providerObservation: provider });
+  assert.equal(unknown.status, "invalid");
+  assert.equal(unknown.issues[0].code, "architecture_mapping_node_unknown");
 });
 
 test("provider tool provenance is bound to the declared provider", async () => {
@@ -407,20 +501,101 @@ function missingTool(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function pipelineOptions() {
+function pipelineOptions(): Record<string, any> {
   return {
     manifest: {
       provider: { id: "likec4" },
+      sourceScopes: [
+        { id: "api-source", nodeId: "component.api", include: ["packages/api/**"], exclude: [] },
+        { id: "store-source", nodeId: "component.store", include: ["packages/store/**"], exclude: [] }
+      ],
       extractors: [{
         id: "js-ts-imports",
         adapter: "javascript-typescript/imports-v1",
         sourceScopeIds: ["api-source", "store-source"]
       }]
     },
-    configuration: { modelDigest: `sha256:${"1".repeat(64)}` },
+    configuration: { modelDigest: `sha256:${"1".repeat(64)}`, modelRoot: "/model" },
     projectRoot: "/repository",
     executionRoot: "/execution",
     inputs: {}
+  };
+}
+
+function likeC4Export(): Record<string, any> {
+  return {
+    projectId: "repository-architecture",
+    elements: {
+      api: { id: "api", title: "API", metadata: { archId: "component.api" } },
+      store: { id: "store", title: "Store", metadata: { archId: "component.store" } }
+    },
+    relations: {
+      apiStore: {
+        id: "apiStore",
+        source: { model: "api" },
+        target: { model: "store" },
+        metadata: {
+          archId: "relation.api-uses-store",
+          expectation: "allowed",
+          extractorIds: "js-ts-imports"
+        }
+      }
+    }
+  };
+}
+
+function cruiseOutput(): Record<string, any> {
+  return {
+    modules: [
+      {
+        source: "packages/api/src/index.ts",
+        dependencies: [{
+          module: "@fixture/store",
+          resolved: "packages/store/src/index.ts",
+          moduleSystem: "es6",
+          dynamic: false,
+          couldNotResolve: false
+        }]
+      },
+      { source: "packages/store/src/index.ts", dependencies: [] }
+    ],
+    summary: { error: 0 }
+  };
+}
+
+function architectureGraph(): Record<string, any> {
+  return {
+    schema: "architecture-code-graph/v1",
+    extractor: {
+      id: "js-ts-imports",
+      adapter: "javascript-typescript/imports-v1",
+      sourceScopeIds: ["api-source", "store-source", "ui-source"],
+      inputDigest: `sha256:${"2".repeat(64)}`,
+      toolRef: "extractor:js-ts-imports"
+    },
+    tool: {
+      role: "extractor",
+      declarationId: "js-ts-imports",
+      adapter: "javascript-typescript/imports-v1",
+      tool: "dependency-cruiser",
+      version: "17.4.3"
+    },
+    files: [
+      { path: "packages/api/src/index.ts", sourceScopeId: "api-source", packageId: null },
+      { path: "packages/store/src/index.ts", sourceScopeId: "store-source", packageId: null },
+      { path: "packages/ui/src/index.ts", sourceScopeId: "ui-source", packageId: null },
+      { path: "scripts/external.mjs", sourceScopeId: null, packageId: null },
+      { path: "scripts/tool.mjs", sourceScopeId: null, packageId: null }
+    ],
+    packages: [],
+    dependencies: [
+      { sourcePath: "packages/api/src/index.ts", targetPath: "packages/store/src/index.ts", mechanism: "import", specifier: "@fixture/store" },
+      { sourcePath: "packages/api/src/index.ts", targetPath: "scripts/external.mjs", mechanism: "import", specifier: "external" },
+      { sourcePath: "packages/store/src/index.ts", targetPath: "packages/api/src/index.ts", mechanism: "import", specifier: "@fixture/api" },
+      { sourcePath: "packages/store/src/index.ts", targetPath: "packages/ui/src/index.ts", mechanism: "import", specifier: "@fixture/ui" },
+      { sourcePath: "scripts/tool.mjs", targetPath: "packages/api/src/index.ts", mechanism: "import", specifier: "@fixture/api" }
+    ],
+    stats: { sourceFiles: 5, packageCount: 0, dependencyEdges: 5 }
   };
 }
 

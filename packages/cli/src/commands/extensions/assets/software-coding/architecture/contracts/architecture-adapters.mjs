@@ -3,8 +3,12 @@ import {
   validateArchitectureComparisonResult,
   validateArchitectureProviderObservation
 } from "./architecture-adapter-contracts.mjs";
-import { javascriptTypeScriptExtractorBoundary } from "./architecture-code-graph.mjs";
 import { runJavaScriptTypeScriptCodeGraph } from "./architecture-javascript-typescript-extractor.mjs";
+import { runLikeC4ProviderAdapter } from "./architecture-likec4-provider.mjs";
+import {
+  compareArchitectureObservation,
+  mapArchitectureCodeGraph
+} from "./architecture-mapping-comparator.mjs";
 import { compareArchitectureText } from "./architecture-portable-path.mjs";
 import {
   architectureFindingsHaveUniqueIds,
@@ -18,17 +22,16 @@ import {
 const adapterRegistry = new Map([
   ["javascript-typescript/imports-v1", {
     extract: runJavaScriptTypeScriptCodeGraph,
-    run: runMissingJavaScriptTypeScriptAdapter,
-    compare: compareMissingJavaScriptTypeScriptAdapter
+    run: runJavaScriptTypeScriptObservation,
+    compare: compareArchitectureObservation
   }]
 ]);
 const providerRegistry = new Map([
-  ["likec4", runMissingLikeC4ProviderAdapter]
+  ["likec4", runLikeC4ProviderAdapter]
 ]);
 const fixedRegistry = { providers: providerRegistry, extractors: adapterRegistry };
 const contractDigest = `sha256:${"0".repeat(64)}`;
 const likeC4ProviderAdapterId = "likec4/model-v1";
-const jsTsExtractorBoundary = javascriptTypeScriptExtractorBoundary();
 
 export async function runDeclaredArchitectureExtractors(options) {
   return runArchitectureAdapterPipeline(options, fixedRegistry);
@@ -131,6 +134,16 @@ async function runExtractorStage(options, registry, state, extractor) {
     state.issues.push(pipelineIssue("architecture_extractor_adapter_unknown", `extractors.${extractor.id}.adapter`, `No fixed architecture adapter and comparator are registered for ${extractor.adapter}.`));
     return;
   }
+  if (state.providerObservation === null && state.issues.length > 0) return;
+  if (state.providerObservation === null && state.missingTools.length > 0 && typeof entry.extract === "function") {
+    const graphResult = await entry.extract({ ...options, extractor });
+    recordNonSuccessResult(graphResult, {
+      role: "extractor",
+      declarationId: extractor.id,
+      adapter: extractor.adapter
+    }, state);
+    return;
+  }
   const result = await entry.run({ ...options, extractor, providerObservation: state.providerObservation });
   if (recordNonSuccessResult(result, {
     role: "extractor",
@@ -220,14 +233,20 @@ function comparisonMatches(comparison, extractor, toolRef, providerObservation, 
   const observedEvidence = architectureObservedEvidence(codeObservation);
   return comparison.findings.every((finding) => {
     const relationship = finding.relationshipId === null ? null : relationships.get(finding.relationshipId);
+    const relationshipEndpointsMatch = relationship === null
+      ? true
+      : relationship === undefined
+        ? false
+        : finding.kind === "reverse-dependency"
+          ? finding.sourceNodeId === relationship.targetNodeId && finding.targetNodeId === relationship.sourceNodeId
+          : finding.sourceNodeId === relationship.sourceNodeId && finding.targetNodeId === relationship.targetNodeId;
     return finding.extractorId === extractor.id &&
       finding.toolRef === toolRef &&
       (finding.sourceNodeId === null || nodeIds.has(finding.sourceNodeId)) &&
       (finding.targetNodeId === null || nodeIds.has(finding.targetNodeId)) &&
       (finding.relationshipId === null ||
         relationship?.extractorIds.includes(extractor.id) &&
-        finding.sourceNodeId === relationship.sourceNodeId &&
-        finding.targetNodeId === relationship.targetNodeId) &&
+        relationshipEndpointsMatch) &&
       finding.evidence.every((evidence) => evidence.line === null && observedEvidence.some((observed) =>
         evidence.sourcePath === observed.sourcePath &&
         evidence.targetPath === observed.targetPath &&
@@ -306,36 +325,12 @@ function hasExactKeys(value, keys) {
   return actual.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
 }
 
-async function runMissingLikeC4ProviderAdapter({ manifest }) {
-  return {
-    status: "tool-missing",
-    tool: {
-      role: "provider",
-      declarationId: manifest.provider.id,
-      adapter: likeC4ProviderAdapterId,
-      tool: "likec4",
-      version: null,
-      reason: "fixed-adapter-capability-unavailable",
-      hint: "The fixed LikeC4 provider adapter capability is not connected in this release; no local setup action can enable it."
-    }
-  };
-}
-
-async function runMissingJavaScriptTypeScriptAdapter({ extractor }) {
-  return {
-    status: "tool-missing",
-    tool: {
-      role: "extractor",
-      declarationId: extractor.id,
-      adapter: extractor.adapter,
-      tool: jsTsExtractorBoundary.tool,
-      version: null,
-      reason: "fixed-adapter-capability-unavailable",
-      hint: "The fixed JavaScript/TypeScript extractor adapter capability is not connected in this release; no local setup action can enable it."
-    }
-  };
-}
-
-async function compareMissingJavaScriptTypeScriptAdapter() {
-  return { schema: "architecture-comparison/v1", findings: [], warnings: [] };
+async function runJavaScriptTypeScriptObservation(options) {
+  const extracted = await runJavaScriptTypeScriptCodeGraph(options);
+  if (extracted.status !== "ok") return extracted;
+  return mapArchitectureCodeGraph({
+    graph: extracted.graph,
+    manifest: options.manifest,
+    providerObservation: options.providerObservation
+  });
 }

@@ -71,7 +71,7 @@ function validateReferences(value, issues) {
   const packageIds = new Set(value.packages.map((entry) => entry.id));
   const filePaths = new Set(value.files.map((entry) => entry.path));
   for (const [index, file] of value.files.entries()) {
-    if (!scopeIds.has(file.sourceScopeId)) issues.push(issue(`files[${index}].sourceScopeId`, "File source scope must be declared by the extractor."));
+    if (file.sourceScopeId !== null && !scopeIds.has(file.sourceScopeId)) issues.push(issue(`files[${index}].sourceScopeId`, "Mapped file source scopes must be declared by the extractor."));
     if (file.packageId !== null && !packageIds.has(file.packageId)) issues.push(issue(`files[${index}].packageId`, "File package must resolve inside this graph."));
   }
   for (const [index, dependency] of value.dependencies.entries()) {
@@ -130,7 +130,7 @@ function validExtractorTool(tool, extractor) {
 
 function validFile(value) {
   return hasExactKeys(value, fileKeys) && isPortablePhysicalPath(value.path) &&
-    isArchitectureStableId(value.sourceScopeId) &&
+    (value.sourceScopeId === null || isArchitectureStableId(value.sourceScopeId)) &&
     (value.packageId === null || isArchitectureStableId(value.packageId));
 }
 

@@ -26,8 +26,10 @@ test("dependency-cruiser output normalizes to a byte-stable scoped graph", async
     assert.equal(architectureCodeGraphDigest(first.graph), architectureCodeGraphDigest(reordered.graph));
     assert.deepEqual(first.graph.files.map((entry: Record<string, unknown>) => entry.path), [
       "packages/api/src/index.ts",
-      "packages/store/src/index.ts"
+      "packages/store/src/index.ts",
+      "scripts/release.mjs"
     ]);
+    assert.equal(first.graph.files[2].sourceScopeId, null, "transitive repository files outside explicit scopes remain available as unmapped evidence");
     assert.deepEqual(first.graph.dependencies, [{
       sourcePath: "packages/api/src/index.ts",
       targetPath: "packages/store/src/index.ts",
@@ -35,7 +37,7 @@ test("dependency-cruiser output normalizes to a byte-stable scoped graph", async
       specifier: "@fixture/store"
     }]);
     assert.equal(first.graph.packages.length, 2);
-    assert.deepEqual(first.graph.stats, { sourceFiles: 2, packageCount: 2, dependencyEdges: 1 });
+    assert.deepEqual(first.graph.stats, { sourceFiles: 3, packageCount: 2, dependencyEdges: 1 });
     assert.equal(JSON.stringify(first.graph).includes(executionRoot), false);
   });
 });
@@ -50,7 +52,7 @@ test("fixed invocation disables repository config and never uses a shell", async
     executable: "depcruise",
     argv: [
       "--no-config", "--output-type", "json", "--progress", "none", "--exclude",
-      "(^|/)(node_modules|dist|test|tests|__tests__)(/|$)|\\.(test|spec)\\.[cm]?[jt]sx?$",
+      "(^|/)(\\.git|\\.harness|\\.harness-private|\\.worktrees|harness|node_modules|dist|test|tests|__tests__)(/|$)|\\.(test|spec)\\.[cm]?[jt]sx?$",
       "--",
       "packages"
     ],
