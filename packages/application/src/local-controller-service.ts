@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import type { ArtifactDocumentKind, ArtifactStore, AuthoredDocumentDescriptor, EngineError, FactRecord, HarnessLayout, WriteError } from "../../kernel/src/index.ts";
 import {
   parseFactFlowRecords,
+  queryExecutionEvidencePage,
   queryDecisionProjection,
   queryExecutionProjection,
   queryExecutions,
@@ -116,6 +117,15 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
     getExecutions: () => ({
       ok: true,
       executions: queryExecutions({ rootDir, layoutOverrides: options.layoutOverrides })
+    }),
+    getExecutionEvidencePage: (payload) => ({
+      ok: true,
+      ...queryExecutionEvidencePage({
+        rootDir,
+        layoutOverrides: options.layoutOverrides,
+        limit: payload.limit,
+        ...(payload.cursor ? { cursor: payload.cursor } : {})
+      })
     }),
     getExecutionDetail: (payload) => {
       validateLocalControllerDecisionId(payload.executionId);

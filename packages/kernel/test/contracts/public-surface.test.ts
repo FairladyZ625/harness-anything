@@ -160,6 +160,7 @@ const publicRuntimeSurface = [
   "priorityTiers",
   "privateTextScannerVersion",
   "queryDecisionProjection",
+  "queryExecutionEvidencePage",
   "queryExecutionProjection",
   "queryExecutions",
   "queryExecutionsByTask",

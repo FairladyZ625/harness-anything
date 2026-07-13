@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { SqlClient } from "@effect/sql";
 import { Effect } from "effect";
 import { createHarnessRuntimeContext } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -15,6 +16,7 @@ import {
   queryTaskSubtreeRows,
   readAttributionProjectionStateHash,
   readRelationGraphRows,
+  runSqlite,
   writeProjectionDatabase,
   tryReadProjectionDatabase
 } from "./sqlite-projection-store.ts";
@@ -28,6 +30,10 @@ import {
   replaceDeclaredSourceManifestRows
 } from "./sqlite-declared-source-manifest.ts";
 import { updateProjectionDatabase } from "./sqlite-projection-update-store.ts";
+import {
+  hashExecutionEvidenceProjectionState,
+  replaceExecutionEvidenceProjectionRows
+} from "./sqlite-execution-evidence-projection.ts";
 import {
   captureProjectionSourceCacheSnapshot,
   readProjectionSourceCacheSnapshot,
@@ -117,6 +123,8 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
     for (const table of snapshot.declaredTables) {
       yield* replaceDeclaredProjectionRows(sql, table.declaration, table.rows);
     }
+    yield* replaceExecutionEvidenceProjectionRows(sql, snapshot.declaredTables
+      .find((table) => table.table === "execution_projection")?.rows ?? []);
     yield* replaceDeclaredSourceManifestRows(sql, declaredManifestRows);
     yield* replaceProjectionSourceCacheRows(sql, sourceCache);
     yield* replaceAttributionProjectionRows(sql, snapshot.attributionEvents);
@@ -251,6 +259,29 @@ export function readTaskProjection(options: TaskProjectionOptions): ProjectionRe
       "projection_tampered",
       "Declared entity projection rows no longer match authored entity state.",
       "Discard the generated cache and rebuild it from authored entities; do not merge generated projection edits."
+    ));
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
+    return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };
+  }
+
+  let executionEvidenceRowsMatch = true;
+  if (!cachedValidation) {
+    try {
+      const actualHash = runSqlite(projectionPath, Effect.flatMap(
+        SqlClient.SqlClient,
+        hashExecutionEvidenceProjectionState
+      ));
+      executionEvidenceRowsMatch = existing.meta.executionEvidenceRowsHash === actualHash;
+    } catch {
+      executionEvidenceRowsMatch = false;
+    }
+  }
+  if (!executionEvidenceRowsMatch) {
+    warnings.push(hardFail(
+      "generated-cache",
+      "projection_tampered",
+      "Execution evidence read-model rows no longer match their recorded hash.",
+      "Discard the generated cache and rebuild it from authored Execution entities; do not trust edited projection rows."
     ));
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     return { rows: rebuilt.rows, warnings: [...warnings, ...rebuilt.warnings] };

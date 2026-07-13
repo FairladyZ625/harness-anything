@@ -115,6 +115,21 @@ test("GUI daemon bridge rejects malformed payload contracts before request dispa
   assert.equal(malformedRecord.error?.code, "invalid_payload");
   assert.match(malformedRecord.error?.hint ?? "", /valid status/u);
 
+  const malformedPage = await bridge.invoke("getExecutionEvidencePage", { limit: 1_000 }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+  assert.equal(malformedPage.ok, false);
+  assert.equal(malformedPage.error?.code, "invalid_payload");
+  assert.match(malformedPage.error?.hint ?? "", /limit/u);
+
+  const staleShape = await bridge.invoke("getExecutionEvidencePage", {
+    limit: 25,
+    cursor: {
+      latestAt: "2026-07-13T00:00:00.000Z",
+      executionId: "exe_00000000000000000000000001"
+    }
+  }) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+  assert.equal(staleShape.ok, false);
+  assert.match(staleShape.error?.hint ?? "", /generation/u);
+
   assert.equal(requests, 0);
 });
 
@@ -125,11 +140,12 @@ test("GUI daemon bridge exposes execution and review projection readers", async 
     return { ok: true, details: { data: { ok: true, routeId: route.id } } };
   });
 
-    assert.equal((await bridge.invoke("getExecutions", null) as { readonly routeId?: string }).routeId, "executions.list");
-    assert.equal((await bridge.invoke("getTaskExecutions", { taskId: "task-1" }) as { readonly routeId?: string }).routeId, "executions.taskList");
+  assert.equal((await bridge.invoke("getExecutions", null) as { readonly routeId?: string }).routeId, "executions.list");
+  assert.equal((await bridge.invoke("getExecutionEvidencePage", { limit: 40 }) as { readonly routeId?: string }).routeId, "executions.evidencePage");
+  assert.equal((await bridge.invoke("getTaskExecutions", { taskId: "task-1" }) as { readonly routeId?: string }).routeId, "executions.taskList");
   assert.equal((await bridge.invoke("getExecutionDetail", { executionId: "exe-1" }) as { readonly routeId?: string }).routeId, "executions.detail");
   assert.equal((await bridge.invoke("getReviewDetail", { reviewId: "rev-1" }) as { readonly routeId?: string }).routeId, "reviews.detail");
-    assert.deepEqual(routeIds, ["executions.list", "executions.taskList", "executions.detail", "reviews.detail"]);
+  assert.deepEqual(routeIds, ["executions.list", "executions.evidencePage", "executions.taskList", "executions.detail", "reviews.detail"]);
 });
 
 test("GUI daemon bridge exposes one batched facts reader", async () => {

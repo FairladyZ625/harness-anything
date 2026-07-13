@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "groups": [],
+  "stats": {
+    "totalExecutions": 0,
+    "archivalExecutions": 0,
+    "realExecutions": 0,
+    "totalOutputs": 0,
+    "passingReceiptOutputs": 0,
+    "tasksWithExecutions": 0
+  },
+  "nextCursor": null
+}

@@ -9,6 +9,7 @@ import type {
   TaskListResult,
   TaskExecutionListResult,
   ExecutionDetailResult,
+  ExecutionEvidencePagePayload,
   ExecutionIdPayload,
   ExecutionProjectionRow,
   DecisionIdPayload,
@@ -26,6 +27,11 @@ import type {
   ProjectionWarning,
   TaskProjectionRow
 } from "../api/renderer-dto.ts";
+import {
+  readExecutionEvidencePageResult,
+  type ExecutionEvidencePageSuccess
+} from "./execution-evidence-api-contract.ts";
+export type { ExecutionEvidencePageSuccess } from "./execution-evidence-api-contract.ts";
 
 type HarnessBridgeMethod =
   | "getTasks"
@@ -39,6 +45,7 @@ type HarnessBridgeMethod =
   | "getFacts"
   | "getTaskExecutions"
   | "getExecutions"
+  | "getExecutionEvidencePage"
   | "getExecutionDetail"
   | "setTaskStatus"
   | "reviewTask"
@@ -185,6 +192,10 @@ export const harnessClient = {
   async getExecutions(): Promise<ExecutionListSuccess> {
     const result = await invokeBridge("getExecutions", null);
     return readExecutionListResult(result);
+  },
+  async getExecutionEvidencePage(payload: ExecutionEvidencePagePayload): Promise<ExecutionEvidencePageSuccess> {
+    const result = await invokeBridge("getExecutionEvidencePage", payload);
+    return readExecutionEvidencePageResult(result);
   },
   async getExecutionDetail(payload: ExecutionIdPayload): Promise<ExecutionDetailSuccess> {
     const result = await invokeBridge("getExecutionDetail", payload);

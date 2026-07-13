@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { Funnel, Clipboard, Check, CaretDown, Package, Lightning } from "@phosphor-icons/react";
-import type { TaskProjectionRow } from "../../api/renderer-dto.ts";
-import { useTasksQuery } from "../task-data.ts";
 import {
-  useTaskExecutionsAggregation,
+  useExecutionEvidenceAggregation,
+  loadExecutionEvidenceOutputs,
   type ExecutionAggregation,
   type ExecutionOutputRow,
   type ExecutionRow,
@@ -17,7 +16,7 @@ import {
  * 排序信号 = checker receipt 状态:无 passing receipt 的交付浮顶(说做完了但没证据)。
  * 诚实呈现:几乎全是迁移归档(fact-execution-migration),outputs 是 inline 文本、无 receipt。
  *
- * 数据流：一次拉取全局 execution 投影，再按 task 在前端聚合。
+ * 数据流：按 task 分组读取固定大小的 keyset page，空闲时预取下一页；DOM 只保留当前页。
  */
 
 type FilterKey = "receiptPass" | "receiptNone" | "execArchival" | "execReal";
@@ -30,9 +29,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 };
 
 export function ExecutionEvidenceView() {
-  const tasksQuery = useTasksQuery();
-  const tasks: ReadonlyArray<TaskProjectionRow> = tasksQuery.data?.tasks ?? [];
-  const aggregation = useTaskExecutionsAggregation(tasks, tasksQuery.isLoading);
+  const aggregation = useExecutionEvidenceAggregation();
 
   const [filters, setFilters] = useState<Record<FilterKey, boolean>>({
     receiptPass: true,
@@ -74,7 +71,7 @@ export function ExecutionEvidenceView() {
         aggregation={aggregation.data}
         filters={filters}
         onToggle={toggleFilter}
-        loading={aggregation.isLoading}
+        loading={aggregation.isLoading || aggregation.isFetching}
       />
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -172,7 +169,7 @@ function FilterBar({
         />
       ))}
       <span className="ml-auto inline-flex items-center gap-2 font-mono text-[11px] text-text-faint">
-        {loading ? "加载中…" : `${visibleTasks} task · ${visibleOutputs} output visible`}
+        {loading ? "加载中…" : `本页 ${visibleTasks} task · ${visibleOutputs} output preview visible`}
       </span>
     </div>
   );
@@ -208,7 +205,7 @@ function ExecutionContent({
   filters,
   onToast
 }: {
-  readonly aggregation: ReturnType<typeof useTaskExecutionsAggregation>;
+  readonly aggregation: ReturnType<typeof useExecutionEvidenceAggregation>;
   readonly filters: Record<FilterKey, boolean>;
   readonly onToast: (message: string) => void;
 }) {
@@ -222,7 +219,14 @@ function ExecutionContent({
   if (aggregation.isError) {
     return (
       <div className="rounded-lg border border-dashed border-danger/40 bg-danger/5 px-4 py-8 text-center text-[14px] text-danger">
-        读取执行投影失败。请确认 daemon 已挂账本且 bridge 路由可用。
+        <div>读取执行投影失败，数据 generation 可能已更新。</div>
+        <button
+          type="button"
+          className="mt-3 rounded border border-danger/40 px-3 py-1.5 font-mono text-[12px]"
+          onClick={aggregation.restartPagination}
+        >
+          从第一页重新加载
+        </button>
       </div>
     );
   }
@@ -233,8 +237,11 @@ function ExecutionContent({
 
   if (visibleGroups.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
-        当前 filter chips 下没有可见的执行证据。调整上方 filter chips(至少留一个 receipt 档 + 一个执行档)。
+      <div className="space-y-3.5">
+        <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
+          当前页在这些 filter chips 下没有可见的执行证据。可调整过滤条件，或继续翻页查找。
+        </div>
+        <PageControls aggregation={aggregation} />
       </div>
     );
   }
@@ -244,7 +251,37 @@ function ExecutionContent({
       {visibleGroups.map((group) => (
         <TaskSection key={group.taskId} group={group} filters={filters} onToast={onToast} />
       ))}
+      <PageControls aggregation={aggregation} />
     </div>
+  );
+}
+
+function PageControls({
+  aggregation
+}: {
+  readonly aggregation: ReturnType<typeof useExecutionEvidenceAggregation>;
+}) {
+  if (!aggregation.hasPreviousPage && !aggregation.hasNextPage) return null;
+  return (
+    <nav aria-label="执行证据分页" className="flex items-center justify-center gap-2 py-2 font-mono text-[12px]">
+      <button
+        type="button"
+        className="rounded border border-border px-3 py-1.5 text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={!aggregation.hasPreviousPage || aggregation.isFetching}
+        onClick={aggregation.previousPage}
+      >
+        上一页
+      </button>
+      <span className="min-w-16 text-center text-text-faint">第 {aggregation.pageNumber} 页</span>
+      <button
+        type="button"
+        className="rounded border border-border px-3 py-1.5 text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={!aggregation.hasNextPage || aggregation.isFetching}
+        onClick={aggregation.nextPage}
+      >
+        下一页
+      </button>
+    </nav>
   );
 }
 
@@ -281,7 +318,7 @@ function TaskSection({
   const [collapsed, setCollapsed] = useState(false);
 
   // 整 task 段的"全部无 receipt"汇总(用于 header 元信息)。
-  const totalOutputs = group.executions.reduce((sum, execution) => sum + execution.outputs.length, 0);
+  const totalOutputs = group.executions.reduce((sum, execution) => sum + execution.outputCount, 0);
   const hasAnyPassing = group.executions.some((execution) => execution.hasAnyPassingReceipt);
 
   return (
@@ -296,7 +333,7 @@ function TaskSection({
           <div className="ee-ts-title">{group.title}</div>
           <div className="ee-ts-meta">
             <span className="ee-ts-taskid">{group.taskId}</span>
-            <span className="ee-ts-exec-count">{group.executions.length} 轮执行</span>
+            <span className="ee-ts-exec-count">本页 {group.executions.length} 轮执行</span>
             <span className={`ee-ts-out-count ${hasAnyPassing ? "" : "text-stale"}`}>
               {totalOutputs} 输出 · {hasAnyPassing ? "部分有 receipt" : "全部无 receipt"}
             </span>
@@ -332,7 +369,22 @@ function ExecutionBlock({
   readonly filters: Record<FilterKey, boolean>;
   readonly onToast: (message: string) => void;
 }) {
-  const visibleOutputs = execution.outputs.filter((output) => outputVisible(output, filters));
+  const [loadedOutputs, setLoadedOutputs] = useState<ReadonlyArray<ExecutionOutputRow> | null>(null);
+  const [loadingOutputs, setLoadingOutputs] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const outputs = loadedOutputs ?? execution.outputs;
+  const visibleOutputs = outputs.filter((output) => outputVisible(output, filters));
+  const loadAllOutputs = async () => {
+    setLoadingOutputs(true);
+    setLoadError(false);
+    try {
+      setLoadedOutputs(await loadExecutionEvidenceOutputs(execution.executionId));
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoadingOutputs(false);
+    }
+  };
   return (
     <div className="ee-exec-block">
       <div className="ee-exec-header">
@@ -362,6 +414,19 @@ function ExecutionBlock({
           该轮暂无可见输出
           {(!filters.receiptNone || !filters.receiptPass) ? "(受 receipt 过滤影响)。" : "。"}
         </div>
+      )}
+      {execution.hasMoreOutputs && loadedOutputs === null && (
+        <button
+          type="button"
+          className="mx-3 mb-3 rounded border border-border px-3 py-1.5 font-mono text-[11px] text-text-muted disabled:opacity-50"
+          disabled={loadingOutputs}
+          onClick={() => void loadAllOutputs()}
+        >
+          {loadingOutputs ? "加载全部输出…" : `按需加载全部 ${execution.outputCount} 个输出`}
+        </button>
+      )}
+      {loadError && (
+        <div className="mx-3 mb-3 font-mono text-[11px] text-danger">输出详情加载失败，可重试。</div>
       )}
     </div>
   );

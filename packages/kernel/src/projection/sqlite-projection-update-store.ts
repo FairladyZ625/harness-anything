@@ -5,6 +5,10 @@ import type { ProjectionGraphRows } from "./sqlite-projection-store.ts";
 import { deleteDeclaredProjectionRows, upsertDeclaredProjectionRows } from "./entity-declaration-projection.ts";
 import { applyDeclaredSourceManifestDelta, type DeclaredProjectionDelta } from "./sqlite-declared-source-manifest.ts";
 import {
+  applyExecutionEvidenceProjectionDelta,
+  hashExecutionEvidenceProjectionState
+} from "./sqlite-execution-evidence-projection.ts";
+import {
   applyProjectionSourceCacheChange,
   type ProjectionSourceCacheChange
 } from "./sqlite-projection-source-cache.ts";
@@ -70,6 +74,7 @@ export function updateProjectionDatabase(
         yield* deleteDeclaredProjectionRows(sql, table.declaration, table.deletePrimaryKeys);
         yield* upsertDeclaredProjectionRows(sql, table.declaration, table.upsertRows);
       }
+      yield* applyExecutionEvidenceProjectionDelta(sql, change.declaredDelta);
       yield* applyDeclaredSourceManifestDelta(sql, change.declaredDelta.manifest);
       if (change.sourceCache) yield* applyProjectionSourceCacheChange(sql, change.sourceCache);
       if (change.attributionDelta) {
@@ -84,6 +89,10 @@ export function updateProjectionDatabase(
       yield* upsertMeta(sql, "decisionRowsHash", change.meta.decisionRowsHash ?? "");
       yield* upsertMeta(sql, "declaredRowsHash", change.meta.declaredRowsHash ?? "");
       yield* upsertMeta(sql, "declaredManifestHash", change.meta.declaredManifestHash ?? "");
+      const executionEvidenceRowsHash = executionEvidenceChanged(change.declaredDelta) || !change.meta.executionEvidenceRowsHash
+        ? yield* hashExecutionEvidenceProjectionState(sql)
+        : change.meta.executionEvidenceRowsHash;
+      yield* upsertMeta(sql, "executionEvidenceRowsHash", executionEvidenceRowsHash);
       const attributionRowsHash = reuseAttributionRowsHash && change.meta.attributionRowsHash
         ? change.meta.attributionRowsHash
         : yield* hashAttributionProjectionState(sql);
@@ -98,6 +107,11 @@ export function updateProjectionDatabase(
       throw error;
     }
   }));
+}
+
+function executionEvidenceChanged(delta: DeclaredProjectionDelta): boolean {
+  const executionTable = delta.tables.find((table) => table.declaration.projection.table === "execution_projection");
+  return Boolean(executionTable && (executionTable.deletePrimaryKeys.length > 0 || executionTable.upsertRows.length > 0));
 }
 
 function canReuseAttributionRowsHash(

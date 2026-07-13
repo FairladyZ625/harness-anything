@@ -30,6 +30,7 @@ test("preload exposes only the approved API methods", () => {
     "getFacts",
     "getTaskFacts",
     "getExecutions",
+    "getExecutionEvidencePage",
     "getTaskExecutions",
     "getExecutionDetail",
     "getReviewDetail",
@@ -60,6 +61,7 @@ test("preload capabilities distinguish shipped methods from deferred placeholder
     "getFacts",
     "getTaskFacts",
     "getExecutions",
+    "getExecutionEvidencePage",
     "getTaskExecutions",
     "getExecutionDetail",
     "getReviewDetail"
