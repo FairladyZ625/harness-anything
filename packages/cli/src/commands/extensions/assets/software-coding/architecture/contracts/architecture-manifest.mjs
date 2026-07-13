@@ -272,6 +272,14 @@ export function architectureModelContract() {
   return structuredClone(ArchitectureModelContract);
 }
 
+export function isArchitectureStableId(value) {
+  return typeof value === "string" && new RegExp(stableIdPattern, "u").test(value);
+}
+
+export function isPortablePhysicalPath(value) {
+  return typeof value === "string" && portablePhysicalPathIssue(value) === undefined;
+}
+
 function validateAgainstSchema(value, schema, path, rootSchema) {
   const issues = [];
   if (schema.const !== undefined && !Object.is(value, schema.const)) {
