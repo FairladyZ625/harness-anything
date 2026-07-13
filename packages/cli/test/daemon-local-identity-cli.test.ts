@@ -74,6 +74,7 @@ test("linked worktree writes route to the canonical daemon with transport-derive
     ];
     const progressed = runRawJsonMaybeFail(worktreeCommandRoot, progressArgs, {
       HARNESS_ACTOR: "",
+      HARNESS_DAEMON_MODE: "local",
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
 
