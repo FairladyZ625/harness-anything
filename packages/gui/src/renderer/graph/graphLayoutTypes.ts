@@ -48,16 +48,26 @@ export interface LayoutInput {
    * (三类实体统一、按跳级分层列、原地展开累计保留),旁路 simpleEgo/threeLane。
    *   shown    — 累积可见集 node id → 距焦点跳数。
    *   expanded — 渲染为详情卡片的 node id 集(其余紧凑 chip)。
+   *   sizeOverrides — 用户拖拽调整后的卡片尺寸(node id → {w,h});D4 NodeResizer 持久化。
    */
-  canvas?: { shown: Map<string, number>; expanded: Set<string> };
+  canvas?: {
+    shown: Map<string, number>;
+    expanded: Set<string>;
+    sizeOverrides?: ReadonlyMap<string, { w: number; h: number }>;
+  };
   /**
    * L1 领地总览(IA v2 Layer 0)。存在即走 layoutTerritory —— 把台账按 rootTask /
    * supersede-refine 链分区成「领地块」,一块一块地铺开,点块内实体 → 切到聚光灯(L2)。
    * 与 canvas(L2)互斥:territory 在则 canvas 不传,反之亦然。
    *   skel          — 骨架轴(task 按 milestone / decision 按 supersede-refine 家族 + 落地)。
    *   expandedZones — 已展开(不折叠 done/planned)的 zone id 集;默认折叠 hot-only。
+   *   containerWidth — D3:领地摆放区的容器宽度(像素),用于派生列数。未传 → 兜底 3 列。
    */
-  territory?: { skel: "task" | "decision"; expandedZones: Set<string> };
+  territory?: {
+    skel: "task" | "decision";
+    expandedZones: Set<string>;
+    containerWidth?: number;
+  };
 }
 
 export interface LayoutOutput {

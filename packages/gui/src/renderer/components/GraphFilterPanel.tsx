@@ -88,7 +88,9 @@ export function GraphFilterPanel({ filters, setFilters, availableModules }: Prop
         )}
       </button>
 
-      <div className={`px-3 pb-3 flex-col gap-4 ${open ? "flex" : "hidden"}`}>
+      {/* D4:nowheel + max-h + overflow-y-auto。此面板浮在画布上(ReactFlow Panel),滚轮原本会被
+          d3-zoom 吞掉缩放画布;加 nowheel 让滚轮滚动面板内容,max-h 防止模块多时撑出视口。*/}
+      <div className={`nowheel px-3 pb-3 flex-col gap-4 ${open ? "flex max-h-[60vh] overflow-y-auto" : "hidden"}`}>
         {/* Semantic Axis Filter */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-[11px] text-text-muted font-mono uppercase tracking-wide">

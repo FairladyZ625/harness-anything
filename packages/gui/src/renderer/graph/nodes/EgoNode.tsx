@@ -1,5 +1,5 @@
 import type { MouseEvent } from "react";
-import { Handle, Position } from "@xyflow/react";
+import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
 import {
   StatusBadge,
@@ -31,6 +31,10 @@ const AXIS_VAR: Record<Entity, string> = {
   fact: "var(--color-axis-evidence)",
 };
 const KD_LETTER: Record<Entity, string> = { task: "T", decision: "D", fact: "F" };
+
+// NodeResizer 下限:卡片不能拖到比 chip 还小(否则内容无法装下)。
+const CARD_MIN_W = 240;
+const CARD_MIN_H = 100;
 
 const HANDLE_CLS =
   "!h-2 !w-2 !min-w-2 !min-h-2 !border-0 !bg-[var(--color-border-strong)]";
@@ -99,6 +103,20 @@ export function EgoNode({ data, selected }: any) {
         boxShadow: focus ? `0 0 0 2px ${axis}, 0 8px 28px rgba(0,0,0,0.28)` : undefined,
       }}
     >
+      {/* D4:NodeResizer —— 用户「手动拖放大缩小组件」的入口。只在展开卡片上显示。
+          onResizeEnd 把最终尺寸持久化到 sizeOverrides(localStorage),布局器下次按此尺寸渲染。
+          minWidth/minHeight 防止拖到 0;nodesDraggable={false} 不影响 resize(RF 独立处理)。*/}
+      <NodeResizer
+        isVisible={true}
+        minWidth={CARD_MIN_W}
+        minHeight={CARD_MIN_H}
+        onResizeEnd={(_evt, params) => {
+          if (data.onResizeEnd) {
+            data.onResizeEnd(data.id, params.width, params.height);
+          }
+        }}
+        handleClassName="!border-[var(--color-border-strong)] !bg-surface-raised"
+      />
       <Handles />
       {/* header */}
       <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-1.5">
@@ -145,7 +163,9 @@ export function EgoNode({ data, selected }: any) {
       </div>
 
       {/* scrollable body */}
-      <div className="mt-1.5 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2.5 pb-2">
+      {/* D4:nowheel 类让 React Flow 的 d3-zoom filter 把滚轮让给此容器(否则滚轮被拿去缩放画布,
+          overflow-y-auto 形同虚设)。noWheelClassName 默认就是 "nowheel",无需在 ReactFlow 上配置。*/}
+      <div className="nowheel mt-1.5 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2.5 pb-2">
         {entity === "task" && <TaskBody t={data.raw as TaskRow} />}
         {entity === "decision" && <DecisionBody d={data.raw as DecisionRow} />}
         {entity === "fact" && <FactBody f={data.raw as FactRef} />}

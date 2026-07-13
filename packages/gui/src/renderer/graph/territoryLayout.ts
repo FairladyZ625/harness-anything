@@ -34,13 +34,28 @@ const ZONE_W = 340;
 const ZONE_HEADER_H = 78;
 const ZONE_BODY_PAD_Y = 8;
 const ZONE_BODY_PAD_X = 8;
-const GRID_COLS = 3;
+const DEFAULT_GRID_COLS = 3;
+const GRID_COLS_MAX = 6;
 const ZONE_GAP_X = 20;
 const ZONE_GAP_Y = 20;
 const SECTION_HEADER_H = 34;
 const SECTION_GAP_Y = 40;
 const TOP_PAD = 16;
 const LEFT_PAD = 24;
+
+/**
+ * D3:由容器宽度派生领地列数(取代硬编码 GRID_COLS=3)。
+ *
+ * 接受「zone 摆放区」净宽(已扣除 LEFT_PAD*2)。每列净宽 = ZONE_W + ZONE_GAP_X
+ * (末列无 gap,但保守按等量整除,留一点右侧呼吸空间)。宽屏能并排 4-5 列,窄屏回落 1-2 列。
+ * 无效/未测量(width ≤ 0)→ 兜底 DEFAULT_GRID_COLS,保持既有首屏体验。
+ */
+export function deriveGridCols(zoneAreaWidth: number): number {
+  if (!Number.isFinite(zoneAreaWidth) || zoneAreaWidth <= 0) return DEFAULT_GRID_COLS;
+  const perCol = ZONE_W + ZONE_GAP_X;
+  const cols = Math.floor((zoneAreaWidth + ZONE_GAP_X) / perCol);
+  return Math.max(1, Math.min(GRID_COLS_MAX, cols));
+}
 
 export interface TerritoryInput {
   skel: "task" | "decision";
@@ -52,10 +67,17 @@ export interface TerritoryInput {
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
   /** 已展开(不折叠)的 zone id 集;默认折叠 hot-only。 */
   expandedZones: Set<string>;
+  /**
+   * D3:领地摆放区的容器宽度(像素,含两侧 LEFT_PAD)。测量后由 GraphView 传入;
+   * 未传( undefined / 0)→ 兜底 DEFAULT_GRID_COLS=3,保持纯函数对老调用方的兼容。
+   */
+  containerWidth?: number;
 }
 
 export function layoutTerritory(input: TerritoryInput): LayoutOutput {
   const { skel, expandedZones, filters } = input;
+  // D3:列数由容器宽度派生;未测量时兜底 DEFAULT_GRID_COLS。
+  const gridCols = deriveGridCols((input.containerWidth ?? 0) - LEFT_PAD * 2);
   const partitionInput = {
     tasks: input.tasks,
     decisions: input.decisions,
@@ -81,7 +103,7 @@ export function layoutTerritory(input: TerritoryInput): LayoutOutput {
     if (section.zones.length === 0) continue;
 
     // section header
-    const sectionW = GRID_COLS * ZONE_W + (GRID_COLS - 1) * ZONE_GAP_X;
+    const sectionW = gridCols * ZONE_W + (gridCols - 1) * ZONE_GAP_X;
     rfNodes.push({
       id: `territory-section:${section.id}`,
       type: "territoryZone",
@@ -96,7 +118,7 @@ export function layoutTerritory(input: TerritoryInput): LayoutOutput {
     });
     cursorY += SECTION_HEADER_H + 8;
 
-    const rows = chunk(section.zones, GRID_COLS);
+    const rows = chunk(section.zones, gridCols);
     for (const row of rows) {
       for (const zone of row) {
         const folded = !expandedZones.has(zone.id);
@@ -179,7 +201,7 @@ export function layoutTerritory(input: TerritoryInput): LayoutOutput {
   }
 
   const bounds = {
-    width: Math.max(maxX, LEFT_PAD + GRID_COLS * ZONE_W) - LEFT_PAD,
+    width: Math.max(maxX, LEFT_PAD + gridCols * ZONE_W) - LEFT_PAD,
     height: cursorY - TOP_PAD,
   };
 
@@ -232,6 +254,13 @@ function buildChipNode(
 
 // ── 几何辅助 ──
 
+/**
+ * D2:zone 盒高 = 实际发射 chip 的总高(盒子与孩子同源)。
+ *
+ * 修复前:Math.min(ZONE_MAX_BODY_H, h) 把盒子夹在 460,但 chip 发射按真实成员数(不夹),
+ * 行推进按夹过的高度 → chip 溢出到下一个 zone/section。现在盒子跟着 chip 走,零溢出;
+ * ZONE_MAX_BODY_H 仅作极端上界(2400,容纳 50 个 decision 卡片),正常场景触不到。
+ */
 function computeBodyH(zone: Zone, folded: boolean): number {
   const memberH = zone.skel === "task" ? GEO.TASK_CHIP_H : GEO.DECISION_CARD_H;
   const memberGap = zone.skel === "task" ? GEO.TASK_CHIP_GAP : GEO.DECISION_CARD_GAP;
@@ -243,8 +272,10 @@ function computeBodyH(zone: Zone, folded: boolean): number {
 
 function visibleMembers(zone: Zone, folded: boolean): Member[] {
   if (!folded) return zone.members.slice(0, 50);
-  if (zone.skel === "decision") return zone.members;
-  return zone.members.slice(0, GEO.FOLDED_TASK_CAP);
+  // D2:decision zone 修复前不折叠(直接 return zone.members)→ ≥5 家族默认就重叠。
+  // 现在与 task 同源 —— 折叠态按 score 排序后只显前 N 个,其余进 fold 提示。
+  const cap = zone.skel === "decision" ? GEO.FOLDED_DECISION_CAP : GEO.FOLDED_TASK_CAP;
+  return zone.members.slice(0, cap);
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {

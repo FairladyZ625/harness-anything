@@ -20,13 +20,8 @@ import type {
   RelationCoverageRow,
   FactAnchorRow,
 } from "../../api/renderer-dto.ts";
-import { endpointToNodeId } from "../graph/endpoint";
 import { GraphDrawer } from "../graph/GraphDrawer";
-import {
-  computeGraphLayout,
-  type AxisFilter,
-  type GraphFilterInput,
-} from "../graph/graphLayout";
+import { type GraphFilterInput } from "../graph/graphLayout";
 import { useEgoCanvas } from "../graph/useEgoCanvas";
 
 import { TaskNode } from "../graph/nodes/TaskNode";
@@ -49,6 +44,13 @@ import { FocusSwitcher } from "../components/FocusSwitcher";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { useColorMode } from "./graphColorMode";
 import { GraphLegend } from "./GraphLegend";
+import {
+  useGraphLayout,
+  useCenterOnFocus,
+  useGraphDrawer,
+  useContainerWidth,
+  useNodeSizeOverrides,
+} from "./graphViewHooks";
 
 const nodeTypes = {
   task: TaskNode,
@@ -66,15 +68,13 @@ const edgeTypes = {
   interactive: InteractiveEdge,
 };
 
-const EMPTY_LOOP = new Set<string>();
-
 const MINIMAP_AXIS: Record<string, string> = {
   task: "var(--color-axis-execution)",
   decision: "var(--color-axis-authority)",
   fact: "var(--color-axis-evidence)",
 };
 
-function defaultAxes(): AxisFilter {
+function defaultAxes() {
   // relates (assoc) 默认关 — dec_01KXA7811SVVT8P66HNDFZQ7DF CH4。
   return { authority: true, evidence: true, execution: true, assoc: false };
 }
@@ -100,22 +100,13 @@ function GraphViewInner({
 }) {
   const colorMode = useColorMode();
 
-  // 边焦点(仅抽屉展示)独立于节点焦点。修 #3:此前用单一 focusId 同时承载节点和边,
-  // 点边时把 edge id 当 focusNodeId 传给布局器,导致布局器拿不到节点 → 整张图塌成
-  // 单个空节点。节点焦点 / 画布累积态现在整块住在 useEgoCanvas 里。
-  //   selectedId — 抽屉里展示的节点。点空白 / Esc / 抽屉关闭即清空。
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
-  const [resolvedFocusId, setResolvedFocusId] = useState<string | null>(null);
-  const [expandedFacts] = useState<Set<string>>(new Set());
+  // D3:测领地容器宽度 → deriveGridCols 派生列数(取代硬编码 GRID_COLS=3)。
+  const { ref: canvasContainerRef, width: containerWidth } = useContainerWidth<HTMLDivElement>();
+  // D4:用户拖拽的卡片尺寸(NodeResizer)+ localStorage 持久化。
+  const { sizeOverrides, setSizeOverride } = useNodeSizeOverrides();
 
-  const [nodes, setNodes] = useState<any[]>([]);
-  const [edges, setEdges] = useState<any[]>([]);
-  const [cycleWarning, setCycleWarning] = useState<{
-    count: number;
-    cycles: string[][];
-  }>({ count: 0, cycles: [] });
-  const [error, setError] = useState<string | null>(null);
+  // expandedFacts 是既有入口(三泳道/fact 折叠徽章),聚光灯模式下不参与布局,保持空集常量。
+  const expandedFacts = useMemo(() => new Set<string>(), []);
 
   const availableModules = useMemo(
     () => Array.from(new Set(tasks.map((t) => t.module))).sort(),
@@ -170,8 +161,6 @@ function GraphViewInner({
     relations,
     axes: filters.axes,
     focusRef,
-    nodes,
-    resolvedFocusId,
   });
 
   // L1 领地总览状态机(territory ↔ spotlight 模式切换 + 骨架轴 + zone 折叠态)。
@@ -190,58 +179,33 @@ function GraphViewInner({
     if (focusRef) setViewMode("spotlight");
   }, [focusRef, setViewMode]);
 
-  useEffect(() => {
-    const ac = new AbortController();
-    computeGraphLayout({
-      tasks,
-      relations,
-      decisions: decisions ?? [],
-      facts: facts ?? [],
-      coverageRows: coverageRows ?? [],
-      factAnchors: factAnchors ?? [],
-      focusNodeId: viewMode === "territory" ? null : focusId,
-      expandedFacts,
-      filters: layoutInputFilters,
-      inLoopNodes: EMPTY_LOOP,
-      inLoopEdges: EMPTY_LOOP,
-      ...(viewMode === "territory"
-        ? { territory: { skel, expandedZones } }
-        : { canvas: { shown, expanded } }),
-    })
-      .then(({ nodes: rfNodes, edges: rfEdges, cycleWarning: warning, resolvedFocusId: rid }) => {
-        if (ac.signal.aborted) return;
-        setError(null);
-        setNodes(rfNodes);
-        setEdges(rfEdges);
-        setCycleWarning(warning);
-        setResolvedFocusId(rid);
-      })
-      .catch((err) => {
-        if (ac.signal.aborted) return;
-        console.error("Failed to compute graph layout", err);
-        setError(err instanceof Error ? err.stack || err.message : String(err));
-      });
-    return () => ac.abort();
-  }, [
+  // 布局调度(异步 + AbortController)外置到 useGraphLayout;GraphView 只消费结果。
+  // 传 containerWidth(D3 领地列数)和 sizeOverrides(D4 卡片尺寸)过布局链。
+  const { nodes, edges, cycleWarning, error, resolvedFocusId } = useGraphLayout({
     tasks,
     relations,
-    decisions,
-    facts,
+    decisions: decisions ?? [],
+    facts: facts ?? [],
     coverageRows,
     factAnchors,
     focusId,
     expandedFacts,
-    layoutInputFilters,
+    filters: layoutInputFilters,
     shown,
     expanded,
     viewMode,
     skel,
     expandedZones,
-  ]);
+    containerWidth,
+    sizeOverrides,
+  });
+
+  // 「换焦点即居中」:布局后的 nodes + resolvedFocusId 驱动 setCenter。
+  // 从 useEgoCanvas 抽出来放这儿,因为此 hook 在 useGraphLayout 之后调用,能拿到真实节点盒子。
+  useCenterOnFocus(nodes, resolvedFocusId);
 
   // 单击 chip = 就地展开成卡片并长出邻居(累积,永不重排已有画布)。
-  // 卡片(已展开)单击不处理 —— 收起 / 详情 / 设为中心 走卡片自身按钮。
-  // territory 模式下 territoryChip 单击 → 切到聚光灯(openFocus);fold chip → toggleZone。
+  // territory 模式下 territoryChip 单击 → 切到聚光灯(enterSpotlight);fold chip → toggleZone。
   const onNodeClick = useCallback(
     (_evt: any, node: any) => {
       if (node.type === "territoryChip") {
@@ -254,7 +218,6 @@ function GraphViewInner({
         return;
       }
       if (node.type === "territoryZone") {
-        // zone header 的折叠按钮走 zoneId;背景点击不处理
         if (node.data?.zoneId) toggleZone(node.data.zoneId);
         return;
       }
@@ -275,15 +238,15 @@ function GraphViewInner({
   );
 
   const onEdgeClick = useCallback((_: any, edge: any) => {
-    // 修 #3:边焦点独立成 focusEdgeId,不再混入 focusId,布局不会重算。
-    setSelectedId(null);
-    setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
+    setDrawerState((prev) => ({
+      ...prev,
+      selectedId: null,
+      focusEdgeId: prev.focusEdgeId === edge.id ? null : edge.id,
+    }));
   }, []);
 
   const onPaneClick = useCallback(() => {
-    // 点空白只关抽屉,不动焦点(让用户「跳过去回得来」)。
-    setSelectedId(null);
-    setFocusEdgeId(null);
+    setDrawerState((prev) => ({ ...prev, selectedId: null, focusEdgeId: null }));
   }, []);
 
   // Esc = 关抽屉(不退焦点;焦点有显式「退出聚焦」按钮)。
@@ -291,48 +254,44 @@ function GraphViewInner({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (e.target instanceof HTMLElement && e.target.closest("input,textarea,select")) return;
-      setSelectedId(null);
-      setFocusEdgeId(null);
+      setDrawerState((prev) => ({ ...prev, selectedId: null, focusEdgeId: null }));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Drawer
+  // 抽屉状态(节点选中 / 边选中)+ 派生数据 + 回调,外置到 useGraphDrawer。
+  // onEdgeClick / onPaneClick / Esc 通过 setDrawerState 原子更新两个 id(避免竞态)。
+  const [drawerState, setDrawerState] = useState<{ selectedId: string | null; focusEdgeId: string | null }>(
+    { selectedId: null, focusEdgeId: null },
+  );
+  const setSelectedId = useCallback(
+    (id: string | null) => setDrawerState((prev) => ({ ...prev, selectedId: id })),
+    [],
+  );
+  const setFocusEdgeId = useCallback(
+    (id: string | null) => setDrawerState((prev) => ({ ...prev, focusEdgeId: id })),
+    [],
+  );
+  const drawer = useGraphDrawer({
+    nodes,
+    focusId,
+    relations,
+    openFocus,
+    selectedId: drawerState.selectedId,
+    focusEdgeId: drawerState.focusEdgeId,
+    setSelectedId,
+    setFocusEdgeId,
+  });
+
+  // 面包屑节点:用户没显式设焦点时,fallback 到布局器挑的默认焦点(resolvedFocusId)。
   const focusNode = focusId ? nodes.find((n) => n.id === focusId) : null;
-  const selectedNode = selectedId ? nodes.find((n) => n.id === selectedId) : null;
-  const focusEdge = focusEdgeId ? edges.find((e) => e.id === focusEdgeId) : null;
-  // 面包屑节点:用户没显式设焦点时,fallback 到布局器挑的默认焦点
-  // (resolvedFocusId),让用户始终知道「当前在看谁的图」。
   const breadcrumbNode =
     focusNode ?? (resolvedFocusId ? nodes.find((n) => n.id === resolvedFocusId) ?? null : null);
+  const selectedNode = drawer.selectedId ? nodes.find((n) => n.id === drawer.selectedId) : null;
+  const focusEdge = drawer.focusEdgeId ? edges.find((e) => e.id === drawer.focusEdgeId) : null;
 
-  const drawerNodesMap = useMemo(() => {
-    const map = new Map();
-    nodes.forEach((n) => {
-      if (n.type === "moduleGroup" || n.type === "laneBackground") return;
-      map.set(n.id, {
-        id: n.id,
-        entity: n.type === "decisionFocus" ? "decision" : n.type,
-        label: n.data.label,
-        sub: n.data.sub,
-        // GraphDrawer 读 closeoutReadiness/engine/freshness/module 等字段,
-        // 这些只存在于完整 TaskRow (n.data.raw) 上,不在 React Flow 节点的
-        // 顶层 data 上。修 #1:此前误传 n.data,导致 CloseoutBadge/EngineBadge
-        // 拿到 undefined,CLOSEOUT_META[undefined] 直接抛 → 点 task 节点必崩。
-        task: n.type === "task" ? n.data.raw : undefined,
-        // 修 GUI 可用性(dec_01KXA7811SVVT8P66HNDFZQ7DF):抽屉现在可被任何
-        // 节点打开(单击=选中),包括 lineage lane 里的 decision / fact 节点。
-        // 这些节点的 n.data 不带 chosen/rejected/claims 等字段(只有 n.data.raw
-        // 才是完整 DecisionRow/FactRef)。raw 优先取 n.data.raw,fallback n.data
-        // 兼容老的 simpleEgoLayout 节点(其 data 即实体本身)。
-        raw: (n.data?.raw ?? n.data) as typeof n.data,
-      });
-    });
-    return map;
-  }, [nodes]);
-
-  // Node/edge count for header (exclude backgrounds)
+  // Node/edge count for header (exclude backgrounds).
   const visibleNodeCount = useMemo(
     () =>
       nodes.filter(
@@ -344,7 +303,7 @@ function GraphViewInner({
     [nodes],
   );
 
-  // 注入卡片交互回调(收起 / 设为中心 / 详情跳转)+ id 到 ego 节点 data。
+  // 注入卡片交互回调(收起 / 设为中心 / 详情跳转 / 拖拽 resize)+ id 到 ego 节点 data。
   // territory 节点注入 onOpen(chip → 聚光灯)+ onFold(zone 折叠)。
   const displayNodes = useMemo(
     () =>
@@ -358,6 +317,7 @@ function GraphViewInner({
               onCollapse: collapseNode,
               onRefocus: openFocus,
               onNavigate: onNavigateEntity,
+              onResizeEnd: (id: string, w: number, h: number) => setSizeOverride(id, { w, h }),
             },
           };
         }
@@ -369,70 +329,29 @@ function GraphViewInner({
         }
         return n;
       }),
-    [nodes, collapseNode, openFocus, onNavigateEntity, enterSpotlight, toggleZone],
+    [nodes, collapseNode, openFocus, onNavigateEntity, setSizeOverride, enterSpotlight, toggleZone],
   );
-
-  // 抽屉里展示的实体(优先 selectedNode,fallback 到 focusNode)。这样单击非焦点
-  // 节点能看抽屉,focus 节点也能看抽屉。upCount/downCount 跟随「抽屉里那个」。
-  const drawerNodeId = selectedNode?.id ?? focusNode?.id ?? null;
-
-  // 上游 / 下游 1-hop 邻居计数 (供 GraphDrawer「链路」展示)。绑定到 drawerNodeId,
-  // 而不是 focusId,确保抽屉展示与计数口径一致。
-  const { upCount, downCount } = useMemo(() => {
-    if (!drawerNodeId) return { upCount: 0, downCount: 0 };
-    let up = 0;
-    let down = 0;
-    for (const e of relations) {
-      const from = endpointToNodeId(e.from);
-      const to = endpointToNodeId(e.to);
-      if (from === drawerNodeId) down += 1;
-      if (to === drawerNodeId) up += 1;
-    }
-    return { upCount: up, downCount: down };
-  }, [drawerNodeId, relations]);
-
-  const closeDrawer = useCallback(() => {
-    setSelectedId(null);
-    setFocusEdgeId(null);
-  }, []);
-  // 边抽屉里「跳转源/目标节点」= 把该节点设为画布中心(openFocus 重排 ±2),并关边抽屉。
-  const focusFromDrawer = useCallback(
-    (id: string | null) => {
-      if (!id) {
-        closeDrawer();
-        return;
-      }
-      setFocusEdgeId(null);
-      openFocus(id);
-    },
-    [closeDrawer, openFocus],
-  );
-  // 抽屉里「设为焦点」按钮 = 把当前抽屉里的节点设为画布中心。
-  const setDrawerAsFocus = useCallback(() => {
-    if (!drawerNodeId) return;
-    openFocus(drawerNodeId);
-  }, [drawerNodeId, openFocus]);
 
   // Switcher 入口:点选 = 设为画布中心(openFocus 重排 ±2)。
   const switchFocusFromList = useCallback(
     (nodeId: string) => {
       openFocus(nodeId);
-      setFocusEdgeId(null);
+      setDrawerState((prev) => ({ ...prev, focusEdgeId: null }));
     },
     [openFocus],
   );
 
-  // 面包屑数据:显示当前焦点(显式 or 布局默认)。kind 用 type 反推
-  // (decisionFocus/decision=decision)。
+  // 面包屑数据:显示当前焦点(显式 or 布局默认)。
   const breadcrumb = useMemo(() => {
     if (!breadcrumbNode) return null;
-    const kindRaw = breadcrumbNode.type === "decisionFocus" || breadcrumbNode.type === "decision"
-      ? "decision"
-      : breadcrumbNode.type === "task"
-        ? "task"
-        : breadcrumbNode.type === "fact"
-          ? "fact"
-          : (breadcrumbNode.type ?? "node");
+    const kindRaw =
+      breadcrumbNode.type === "decisionFocus" || breadcrumbNode.type === "decision"
+        ? "decision"
+        : breadcrumbNode.type === "task"
+          ? "task"
+          : breadcrumbNode.type === "fact"
+            ? "fact"
+            : (breadcrumbNode.type ?? "node");
     const title = breadcrumbNode.data?.label ?? breadcrumbNode.id;
     return {
       kindLabel: kindRaw,
@@ -474,7 +393,7 @@ function GraphViewInner({
         edgeCount={edges.length}
         resolvedFocusId={resolvedFocusId}
         cycleWarning={cycleWarning}
-        hasFocus={Boolean(focusId || focusEdgeId)}
+        hasFocus={Boolean(focusId || drawer.focusEdgeId)}
       />
 
       <FocusHistoryBar
@@ -486,7 +405,7 @@ function GraphViewInner({
         onClear={clearFocus}
       />
 
-      <div className="flex min-h-0 flex-1 relative">
+      <div ref={canvasContainerRef} className="flex min-h-0 flex-1 relative">
         <FocusSwitcher
           decisions={decisions ?? []}
           tasks={tasks}
@@ -503,12 +422,8 @@ function GraphViewInner({
           onEdgeClick={onEdgeClick}
           onPaneClick={onPaneClick}
           colorMode={colorMode}
-          // 不用 fitView:画布视口由 useEgoCanvas 在换焦点时 setCenter 到焦点节点。
-          // 留着 fitView prop 会在节点测量完成后按整图 bbox 复位,把刚居中的焦点重新
-          // 推到一侧(下游更宽时压在左上角 Filters 面板底下),并把缩放改回 fit 值。
           minZoom={0.1}
           maxZoom={2}
-          // 双击 = 设为画布中心。默认的 d3 双击缩放会和 setCenter 抢同一次手势。
           zoomOnDoubleClick={false}
           nodesDraggable={false}
           nodesConnectable={false}
@@ -524,7 +439,6 @@ function GraphViewInner({
           <MiniMap
             nodeColor={(n) => {
               if (n.type === "laneBackground" || n.type === "territoryZone") return "rgba(255, 255, 255, 0.04)";
-              // ego / territoryChip 节点按语义轴上色 —— 否则暗色 minimap 上全是暗灰方块,等于隐形。
               if (n.type === "ego") return MINIMAP_AXIS[(n.data as any)?.entity as string] ?? "var(--color-axis-execution)";
               if (n.type === "territoryChip") return territoryChipColor((n.data as any)?.entity as string) ?? "var(--color-border-strong)";
               if (n.type === "decisionFocus" || n.type === "decision") return "var(--color-accent)";
@@ -553,17 +467,17 @@ function GraphViewInner({
         {/* 节点详情已就地进卡片;抽屉仅保留「边详情」(点关系边)这一路。 */}
         {(selectedNode || focusEdge) && (
           <GraphDrawer
-            focusNode={selectedNode ? drawerNodesMap.get(selectedId) : undefined}
+            focusNode={selectedNode ? drawer.drawerNodesMap.get(drawer.selectedId) : undefined}
             focusEdge={focusEdge ? focusEdge.data : undefined}
-            nodes={drawerNodesMap}
+            nodes={drawer.drawerNodesMap}
             edges={relations}
-            upCount={upCount}
-            downCount={downCount}
-            onClose={closeDrawer}
-            onFocus={focusFromDrawer}
+            upCount={drawer.upCount}
+            downCount={drawer.downCount}
+            onClose={drawer.closeDrawer}
+            onFocus={drawer.focusFromDrawer}
             onNavigateEntity={onNavigateEntity}
-            isFocused={drawerNodeId !== null && drawerNodeId === focusId}
-            onSetAsFocus={setDrawerAsFocus}
+            isFocused={drawer.drawerNodeId !== null && drawer.drawerNodeId === focusId}
+            onSetAsFocus={drawer.setDrawerAsFocus}
           />
         )}
       </div>
