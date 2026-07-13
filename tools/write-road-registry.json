@@ -11,608 +11,1413 @@
   ],
   "rowCountReconciliation": {
     "phase1FunctionalRows": 26,
-    "registryRows": 40,
-    "difference": "Six additional rows split mixed write functions and infrastructure: module canonical/view, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road. Two further ADR-0028 P4 rows register the attributed doc_sync_submit coordinator road and the preset script staging-mirror ingest road. One ADR-0028 P5 row registers the coordinator-owned immutable attribution event trail. One ADR-0029 TW-01 row registers the authority replication submission road (attributed-coordinator entry over forced-command SSH). One ADR-0029 TW-02 row registers the compound receipt durable store (client-side crash-recovery receipt records, fsync + atomic rename). One ADR-0029 TW-03 row registers the broker local-view native applier (crash-safe transparent view materialization). One ADR-0029 TW-04 row registers the platform semantic-probe scratch writes (temporary qualification probes, created and removed inside one probe run). One ADR-0029 TW-06 row registers the authority fence enrollment anchor and durability boundary stores."
+    "registryRows": 41,
+    "difference": "Six additional rows split mixed write functions and infrastructure: module canonical/view, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road. Two further ADR-0028 P4 rows register the attributed doc_sync_submit coordinator road and the preset script staging-mirror ingest road. One ADR-0028 P5 row registers the coordinator-owned immutable attribution event trail. One ADR-0029 TW-01 row registers the authority replication submission road (attributed-coordinator entry over forced-command SSH). One ADR-0029 TW-02 row registers the compound receipt durable store (client-side crash-recovery receipt records, fsync + atomic rename). One ADR-0029 TW-03 row registers the broker local-view native applier (crash-safe transparent view materialization). One ADR-0029 TW-04 row registers the platform semantic-probe scratch writes (temporary qualification probes, created and removed inside one probe run). One ADR-0029 TW-06 row registers the authority fence enrollment anchor and durability boundary stores. One daemon transport row registers the socket owner-lock lifecycle state (task_01KXD0A37NN8ZQEJ2ENG5K313V): ephemeral single-instance mutex outside SoT, not entity data."
   },
   "rows": [
     {
       "id": "task.package.create",
-      "sourceInventoryRows": [1],
+      "sourceInventoryRows": [
+        1
+      ],
       "road": "A",
       "bearing": "task-lifecycle",
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["cli", "daemon-rpc", "preset-internal"],
-      "writeKinds": ["package_create"],
-      "cliActions": ["new-task"],
-      "evidence": ["packages/adapters/local/src/index.ts:122", "packages/cli/src/commands/preset-task.ts:208", "packages/cli/src/commands/legacy-rebuild.ts:74"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "task-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc",
+        "preset-internal"
+      ],
+      "writeKinds": [
+        "package_create"
+      ],
+      "cliActions": [
+        "new-task"
+      ],
+      "evidence": [
+        "packages/adapters/local/src/index.ts:122",
+        "packages/cli/src/commands/preset-task.ts:208",
+        "packages/cli/src/commands/legacy-rebuild.ts:74"
+      ],
       "freshness": "coordinator-batch-document"
     },
     {
       "id": "task.lifecycle.transition",
-      "sourceInventoryRows": [2],
+      "sourceInventoryRows": [
+        2
+      ],
       "road": "A",
       "bearing": "task-lifecycle",
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["cli", "daemon-rpc", "gui-bridge"],
-      "writeKinds": ["transition_local", "package_archive", "package_tombstone", "package_reopen", "package_supersede", "package_delete_hard"],
-      "cliActions": ["status-set", "task-archive", "task-delete", "task-reopen", "task-supersede", "task-complete", "task-review", "task-review-execution"],
-      "apiRoutes": ["tasks.status.set", "tasks.review"],
-      "guiBridgeMethods": ["setTaskStatus", "reviewTask"],
-      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
-      "evidence": ["packages/adapters/local/src/index.ts:182", "packages/adapters/local/src/index.ts:310", "packages/application/src/local-controller-service.ts:95"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "task-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc",
+        "gui-bridge"
+      ],
+      "writeKinds": [
+        "transition_local",
+        "package_archive",
+        "package_tombstone",
+        "package_reopen",
+        "package_supersede",
+        "package_delete_hard"
+      ],
+      "cliActions": [
+        "status-set",
+        "task-archive",
+        "task-delete",
+        "task-reopen",
+        "task-supersede",
+        "task-complete",
+        "task-review",
+        "task-review-execution"
+      ],
+      "apiRoutes": [
+        "tasks.status.set",
+        "tasks.review"
+      ],
+      "guiBridgeMethods": [
+        "setTaskStatus",
+        "reviewTask"
+      ],
+      "callsiteFiles": [
+        "packages/adapters/local/src/task-writes.ts"
+      ],
+      "evidence": [
+        "packages/adapters/local/src/index.ts:182",
+        "packages/adapters/local/src/index.ts:310",
+        "packages/application/src/local-controller-service.ts:95"
+      ],
       "freshness": "coordinator-conditional-task-state"
     },
     {
       "id": "task.progress.append",
-      "sourceInventoryRows": [3],
+      "sourceInventoryRows": [
+        3
+      ],
       "road": "A",
       "bearing": "task-progress",
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["cli", "daemon-rpc", "gui-bridge"],
-      "writeKinds": ["progress_append"],
-      "cliActions": ["progress-append"],
-      "apiRoutes": ["tasks.progress.append"],
-      "guiBridgeMethods": ["appendTaskProgress"],
-      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
-      "evidence": ["packages/cli/src/commands/core/task-lifecycle.ts:49", "packages/adapters/local/src/task-writes.ts:54", "packages/kernel/src/store/write-journal-operations.ts:256"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "task-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc",
+        "gui-bridge"
+      ],
+      "writeKinds": [
+        "progress_append"
+      ],
+      "cliActions": [
+        "progress-append"
+      ],
+      "apiRoutes": [
+        "tasks.progress.append"
+      ],
+      "guiBridgeMethods": [
+        "appendTaskProgress"
+      ],
+      "callsiteFiles": [
+        "packages/adapters/local/src/task-writes.ts"
+      ],
+      "evidence": [
+        "packages/cli/src/commands/core/task-lifecycle.ts:49",
+        "packages/adapters/local/src/task-writes.ts:54",
+        "packages/kernel/src/store/write-journal-operations.ts:256"
+      ],
       "freshness": "append-delta"
     },
     {
       "id": "task.force-terminal-audit",
-      "sourceInventoryRows": [4],
+      "sourceInventoryRows": [
+        4
+      ],
       "road": "A",
       "bearing": "task-lifecycle",
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["cli"],
-      "cliActions": ["task-complete"],
-      "evidence": ["packages/cli/src/commands/core/task-lifecycle.ts:87", "packages/cli/src/commands/core/task-lifecycle.ts:122"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "task-authored-structured"
+      },
+      "entry": [
+        "cli"
+      ],
+      "cliActions": [
+        "task-complete"
+      ],
+      "evidence": [
+        "packages/cli/src/commands/core/task-lifecycle.ts:87",
+        "packages/cli/src/commands/core/task-lifecycle.ts:122"
+      ],
       "freshness": "progress-append-plus-transition"
     },
     {
       "id": "task.holder.runtime-state",
-      "sourceInventoryRows": [2],
+      "sourceInventoryRows": [
+        2
+      ],
       "road": "A",
       "bearing": "task-holder",
-      "channel": { "pathClass": "coordinator-runtime-state", "zoneClass": "task-holder-runtime-state" },
-      "entry": ["daemon-rpc", "cli"],
-      "cliActions": ["task-claim", "task-release"],
-      "directWrites": [{ "file": "packages/kernel/src/local/local-layout-file-system.ts" }],
-      "evidence": ["packages/kernel/src/local/task-holder-state.ts:410", "packages/kernel/src/local/local-layout-file-system.ts:16"],
+      "channel": {
+        "pathClass": "coordinator-runtime-state",
+        "zoneClass": "task-holder-runtime-state"
+      },
+      "entry": [
+        "daemon-rpc",
+        "cli"
+      ],
+      "cliActions": [
+        "task-claim",
+        "task-release"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/kernel/src/local/local-layout-file-system.ts"
+        }
+      ],
+      "evidence": [
+        "packages/kernel/src/local/task-holder-state.ts:410",
+        "packages/kernel/src/local/local-layout-file-system.ts:16"
+      ],
       "freshness": "runtime-state-cas"
     },
     {
       "id": "task.document.write-stage",
-      "sourceInventoryRows": [5],
+      "sourceInventoryRows": [
+        5
+      ],
       "road": "D",
       "bearing": "task-document",
-      "channel": { "pathClass": "doc-sync-allowed", "zoneClass": "task-authored-prose-or-stage" },
-      "entry": ["cli", "daemon-rpc", "internal", "gui-review"],
-      "writeKinds": ["doc_write", "doc_stage", "task_tree_stage", "code_doc_reconcile"],
-      "cliActions": ["task-amend", "task-code-doc-reconcile", "task-relate"],
-      "callsiteFiles": ["packages/adapters/local/src/task-writes.ts"],
-      "directWrites": [
-        { "file": "packages/cli/src/daemon/doc-sync-service.ts" },
-        { "file": "packages/cli/src/daemon/doc-sync-service.ts", "command": "git" }
+      "channel": {
+        "pathClass": "doc-sync-allowed",
+        "zoneClass": "task-authored-prose-or-stage"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc",
+        "internal",
+        "gui-review"
       ],
-      "evidence": ["packages/adapters/local/src/index.ts:224", "packages/adapters/local/src/task-writes.ts:67", "packages/application/src/task-lifecycle-orchestrator.ts:115", "packages/cli/src/commands/core/task-gates.ts:93", "packages/cli/src/daemon/doc-sync-service.ts:166"],
+      "writeKinds": [
+        "doc_write",
+        "doc_stage",
+        "task_tree_stage",
+        "code_doc_reconcile"
+      ],
+      "cliActions": [
+        "task-amend",
+        "task-code-doc-reconcile",
+        "task-relate"
+      ],
+      "callsiteFiles": [
+        "packages/adapters/local/src/task-writes.ts"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/daemon/doc-sync-service.ts"
+        },
+        {
+          "file": "packages/cli/src/daemon/doc-sync-service.ts",
+          "command": "git"
+        }
+      ],
+      "evidence": [
+        "packages/adapters/local/src/index.ts:224",
+        "packages/adapters/local/src/task-writes.ts:67",
+        "packages/application/src/task-lifecycle-orchestrator.ts:115",
+        "packages/cli/src/commands/core/task-gates.ts:93",
+        "packages/cli/src/daemon/doc-sync-service.ts:166"
+      ],
       "freshness": "doc-sync-submit-cas-post-apply"
     },
     {
       "id": "write-coordinator.runtime-substrate",
-      "sourceInventoryRows": [1, 2, 3, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24],
+      "sourceInventoryRows": [
+        1,
+        2,
+        3,
+        5,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        24
+      ],
       "road": "A",
       "bearing": "write-coordinator-runtime",
       "leaseRequired": false,
-      "channel": { "pathClass": "coordinator-runtime-state", "zoneClass": "wal-locks-and-flush-substrate" },
-      "entry": ["write-coordinator"],
+      "channel": {
+        "pathClass": "coordinator-runtime-state",
+        "zoneClass": "wal-locks-and-flush-substrate"
+      },
+      "entry": [
+        "write-coordinator"
+      ],
       "callsiteFiles": [
         "packages/cli/src/commands/core/coordinated-machine-write.ts",
         "packages/kernel/src/store/daemon-runtime-queue.ts",
         "packages/kernel/src/write-coordination/write-helpers.ts"
       ],
       "directWrites": [
-        { "file": "packages/kernel/src/store/local-lock-registry.ts" },
-        { "file": "packages/kernel/src/store/markdown-artifact-store.ts" },
-        { "file": "packages/kernel/src/store/write-journal-decision-documents.ts" },
-        { "file": "packages/kernel/src/store/write-journal-durable.ts" },
-        { "file": "packages/kernel/src/store/write-journal-locks.ts" },
-        { "file": "packages/kernel/src/store/write-journal-operations.ts" }
+        {
+          "file": "packages/kernel/src/store/local-lock-registry.ts"
+        },
+        {
+          "file": "packages/kernel/src/store/markdown-artifact-store.ts"
+        },
+        {
+          "file": "packages/kernel/src/store/write-journal-decision-documents.ts"
+        },
+        {
+          "file": "packages/kernel/src/store/write-journal-durable.ts"
+        },
+        {
+          "file": "packages/kernel/src/store/write-journal-locks.ts"
+        },
+        {
+          "file": "packages/kernel/src/store/write-journal-operations.ts"
+        }
       ],
-      "evidence": ["packages/kernel/src/write-coordination/write-helpers.ts:20", "packages/kernel/src/store/write-journal-durable.ts:109", "packages/kernel/src/store/write-journal-locks.ts:125"],
+      "evidence": [
+        "packages/kernel/src/write-coordination/write-helpers.ts:20",
+        "packages/kernel/src/store/write-journal-durable.ts:109",
+        "packages/kernel/src/store/write-journal-locks.ts:125"
+      ],
       "freshness": "wal-lock-and-atomic-flush"
     },
     {
       "id": "attribution.event.immutable-store",
-      "sourceInventoryRows": [1],
+      "sourceInventoryRows": [
+        1
+      ],
       "road": "A",
       "bearing": "attribution-audit",
       "leaseRequired": false,
-      "channel": { "pathClass": "coordinator-authored", "zoneClass": "immutable-attribution-event-trail" },
-      "entry": ["write-coordinator", "ledger-materializer"],
+      "channel": {
+        "pathClass": "coordinator-authored",
+        "zoneClass": "immutable-attribution-event-trail"
+      },
+      "entry": [
+        "write-coordinator",
+        "ledger-materializer"
+      ],
       "cliActions": [],
       "directWrites": [
-        { "file": "packages/kernel/src/store/write-journal-durable.ts" }
+        {
+          "file": "packages/kernel/src/store/write-journal-durable.ts"
+        }
       ],
-      "evidence": ["packages/kernel/src/store/write-journal-attribution-events.ts:28", "packages/kernel/src/store/write-journal-durable.ts:117"],
+      "evidence": [
+        "packages/kernel/src/store/write-journal-attribution-events.ts:28",
+        "packages/kernel/src/store/write-journal-durable.ts:117"
+      ],
       "freshness": "append-only-op-id-shard"
     },
     {
       "id": "task.migration.backfill",
-      "sourceInventoryRows": [6],
+      "sourceInventoryRows": [
+        6
+      ],
       "road": "D",
       "bearing": "admin-migration",
       "leaseRequired": false,
-      "channel": { "pathClass": "admin-rpc", "zoneClass": "task-authored-prose" },
-      "entry": ["cli-migration"],
-      "cliActions": ["migrate-anchors", "migrate-provenance"],
-      "callsiteFiles": ["packages/cli/src/commands/anchor-backfill.ts", "packages/cli/src/commands/core/provenance-backfill.ts"],
-      "evidence": ["packages/cli/src/commands/anchor-backfill.ts:132", "packages/cli/src/commands/core/provenance-backfill.ts:75"],
+      "channel": {
+        "pathClass": "admin-rpc",
+        "zoneClass": "task-authored-prose"
+      },
+      "entry": [
+        "cli-migration"
+      ],
+      "cliActions": [
+        "migrate-anchors",
+        "migrate-provenance"
+      ],
+      "callsiteFiles": [
+        "packages/cli/src/commands/anchor-backfill.ts",
+        "packages/cli/src/commands/core/provenance-backfill.ts"
+      ],
+      "evidence": [
+        "packages/cli/src/commands/anchor-backfill.ts:132",
+        "packages/cli/src/commands/core/provenance-backfill.ts:75"
+      ],
       "freshness": "migration-full-body"
     },
     {
       "id": "fact.execution-migration",
-      "sourceInventoryRows": [6],
+      "sourceInventoryRows": [
+        6
+      ],
       "road": "D",
       "bearing": "task-fact-execution",
       "leaseRequired": false,
-      "channel": { "pathClass": "admin-rpc", "zoneClass": "task-authored-structured" },
-      "entry": ["cli-migration"],
-      "cliActions": ["migrate-fact-execution"],
-      "callsiteFiles": ["packages/cli/src/commands/fact-execution-migration.ts"],
-      "evidence": ["packages/cli/src/commands/fact-execution-migration.ts:71", "packages/cli/src/commands/fact-execution-migration.ts:185"],
+      "channel": {
+        "pathClass": "admin-rpc",
+        "zoneClass": "task-authored-structured"
+      },
+      "entry": [
+        "cli-migration"
+      ],
+      "cliActions": [
+        "migrate-fact-execution"
+      ],
+      "callsiteFiles": [
+        "packages/cli/src/commands/fact-execution-migration.ts"
+      ],
+      "evidence": [
+        "packages/cli/src/commands/fact-execution-migration.ts:71",
+        "packages/cli/src/commands/fact-execution-migration.ts:185"
+      ],
       "freshness": "confirmed-plan-coordinator-batch"
     },
     {
       "id": "fact.record",
-      "sourceInventoryRows": [7],
+      "sourceInventoryRows": [
+        7
+      ],
       "road": "A",
       "bearing": "task-fact",
       "leaseRequired": true,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["cli", "decision-reckon", "distill-promote"],
-      "writeKinds": ["doc_write"],
-      "cliActions": ["record-fact", "decision-reckon", "distill-commit"],
-      "callsiteFiles": ["packages/application/src/fact-write-service.ts"],
-      "evidence": ["packages/application/src/fact-write-service.ts:85", "packages/application/src/fact-write-service.ts:107", "packages/cli/src/commands/core/decision-reckon.ts:44"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "task-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "decision-reckon",
+        "distill-promote"
+      ],
+      "writeKinds": [
+        "doc_write"
+      ],
+      "cliActions": [
+        "record-fact",
+        "decision-reckon",
+        "distill-commit"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/fact-write-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/fact-write-service.ts:85",
+        "packages/application/src/fact-write-service.ts:107",
+        "packages/cli/src/commands/core/decision-reckon.ts:44"
+      ],
       "freshness": "append-record-delta"
     },
     {
       "id": "fact.invalidate",
-      "sourceInventoryRows": [8],
+      "sourceInventoryRows": [
+        8
+      ],
       "road": "A",
       "bearing": "task-fact",
       "leaseRequired": true,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "task-authored-structured" },
-      "entry": ["cli"],
-      "writeKinds": ["fact_invalidate"],
-      "cliActions": ["fact-invalidate"],
-      "callsiteFiles": ["packages/application/src/fact-write-service.ts"],
-      "evidence": ["packages/application/src/fact-write-service.ts:128", "packages/application/src/fact-write-service.ts:151", "packages/kernel/src/store/write-journal-operations.ts:296"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "task-authored-structured"
+      },
+      "entry": [
+        "cli"
+      ],
+      "writeKinds": [
+        "fact_invalidate"
+      ],
+      "cliActions": [
+        "fact-invalidate"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/fact-write-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/fact-write-service.ts:128",
+        "packages/application/src/fact-write-service.ts:151",
+        "packages/kernel/src/store/write-journal-operations.ts:296"
+      ],
       "freshness": "append-relation-delta-with-required-facts"
     },
     {
       "id": "decision.propose",
-      "sourceInventoryRows": [9],
+      "sourceInventoryRows": [
+        9
+      ],
       "road": "A",
       "bearing": "decision",
       "leaseRequired": false,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "decision-authored-structured" },
-      "entry": ["cli", "daemon-rpc"],
-      "writeKinds": ["decision_propose"],
-      "cliActions": ["decision-propose"],
-      "callsiteFiles": ["packages/application/src/decision-write-service.ts"],
-      "evidence": ["packages/application/src/decision-write-service.ts:104", "packages/application/src/decision-write-service.ts:285"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "decision-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc"
+      ],
+      "writeKinds": [
+        "decision_propose"
+      ],
+      "cliActions": [
+        "decision-propose"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/decision-write-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/decision-write-service.ts:104",
+        "packages/application/src/decision-write-service.ts:285"
+      ],
       "freshness": "decision-watermark-cas"
     },
     {
       "id": "decision.state.transition",
-      "sourceInventoryRows": [10],
+      "sourceInventoryRows": [
+        10
+      ],
       "road": "A",
       "bearing": "decision",
       "leaseRequired": false,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "decision-authored-structured" },
-      "entry": ["cli", "daemon-rpc"],
-      "writeKinds": ["decision_accept", "decision_reject", "decision_defer", "decision_supersede", "decision_retire"],
-      "cliActions": ["decision-accept", "decision-reject", "decision-defer", "decision-supersede", "decision-retire"],
-      "callsiteFiles": ["packages/application/src/decision-write-service.ts"],
-      "evidence": ["packages/application/src/decision-write-service.ts:113", "packages/application/src/decision-write-service.ts:200", "packages/application/src/decision-write-service.ts:267"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "decision-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc"
+      ],
+      "writeKinds": [
+        "decision_accept",
+        "decision_reject",
+        "decision_defer",
+        "decision_supersede",
+        "decision_retire"
+      ],
+      "cliActions": [
+        "decision-accept",
+        "decision-reject",
+        "decision-defer",
+        "decision-supersede",
+        "decision-retire"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/decision-write-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/decision-write-service.ts:113",
+        "packages/application/src/decision-write-service.ts:200",
+        "packages/application/src/decision-write-service.ts:267"
+      ],
       "freshness": "decision-watermark-cas"
     },
     {
       "id": "decision.amend",
-      "sourceInventoryRows": [11],
+      "sourceInventoryRows": [
+        11
+      ],
       "road": "A",
       "bearing": "decision",
       "leaseRequired": false,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "decision-authored-structured" },
-      "entry": ["cli", "daemon-rpc"],
-      "writeKinds": ["decision_amend"],
-      "cliActions": ["decision-amend"],
-      "callsiteFiles": ["packages/application/src/decision-write-service.ts"],
-      "evidence": ["packages/application/src/decision-write-service.ts:119", "packages/application/src/decision-write-service.ts:267"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "decision-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc"
+      ],
+      "writeKinds": [
+        "decision_amend"
+      ],
+      "cliActions": [
+        "decision-amend"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/decision-write-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/decision-write-service.ts:119",
+        "packages/application/src/decision-write-service.ts:267"
+      ],
       "freshness": "decision-watermark-cas"
     },
     {
       "id": "decision.relate",
-      "sourceInventoryRows": [12],
+      "sourceInventoryRows": [
+        12
+      ],
       "road": "A",
       "bearing": "decision",
       "leaseRequired": false,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "decision-authored-structured" },
-      "entry": ["cli", "daemon-rpc"],
-      "writeKinds": ["decision_relate"],
-      "cliActions": ["decision-relate"],
-      "callsiteFiles": ["packages/application/src/decision-write-service.ts"],
-      "evidence": ["packages/application/src/decision-write-service.ts:56", "packages/application/src/decision-write-service.ts:124", "packages/kernel/src/store/write-journal-decision-documents.ts:61"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "decision-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc"
+      ],
+      "writeKinds": [
+        "decision_relate"
+      ],
+      "cliActions": [
+        "decision-relate"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/decision-write-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/decision-write-service.ts:56",
+        "packages/application/src/decision-write-service.ts:124",
+        "packages/kernel/src/store/write-journal-decision-documents.ts:61"
+      ],
       "freshness": "append-relation"
     },
     {
       "id": "decision.relation.mutate",
-      "sourceInventoryRows": [13],
+      "sourceInventoryRows": [
+        13
+      ],
       "road": "A",
       "bearing": "decision",
       "leaseRequired": false,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "decision-authored-structured" },
-      "entry": ["cli", "daemon-rpc"],
-      "writeKinds": ["relation_retire", "relation_replace"],
-      "cliActions": ["decision-relation-retire", "decision-relation-replace"],
-      "callsiteFiles": ["packages/application/src/decision-write-service.ts"],
-      "evidence": ["packages/application/src/decision-write-service.ts:134", "packages/application/src/decision-write-service.ts:267"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "decision-authored-structured"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc"
+      ],
+      "writeKinds": [
+        "relation_retire",
+        "relation_replace"
+      ],
+      "cliActions": [
+        "decision-relation-retire",
+        "decision-relation-replace"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/decision-write-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/decision-write-service.ts:134",
+        "packages/application/src/decision-write-service.ts:267"
+      ],
       "freshness": "decision-watermark-cas"
     },
     {
       "id": "module.registry.canonical",
-      "sourceInventoryRows": [14],
+      "sourceInventoryRows": [
+        14
+      ],
       "road": "A",
       "bearing": "module-registry",
       "leaseRequired": false,
-      "channel": { "pathClass": "rpc-only", "zoneClass": "module-authored-structured" },
-      "entry": ["cli"],
-      "writeKinds": ["module_registry_write"],
-      "cliActions": ["module-register", "module-unregister", "module-step"],
-      "evidence": ["packages/cli/src/commands/extensions/module.ts:43", "packages/cli/src/commands/extensions/state.ts:380"],
+      "channel": {
+        "pathClass": "rpc-only",
+        "zoneClass": "module-authored-structured"
+      },
+      "entry": [
+        "cli"
+      ],
+      "writeKinds": [
+        "module_registry_write"
+      ],
+      "cliActions": [
+        "module-register",
+        "module-unregister",
+        "module-step"
+      ],
+      "evidence": [
+        "packages/cli/src/commands/extensions/module.ts:43",
+        "packages/cli/src/commands/extensions/state.ts:380"
+      ],
       "freshness": "coordinator-registry-replace"
     },
     {
       "id": "module.registry.generated-view",
-      "sourceInventoryRows": [14],
+      "sourceInventoryRows": [
+        14
+      ],
       "road": "D",
       "bearing": "generated-view",
       "leaseRequired": false,
-      "channel": { "pathClass": "generated-local", "zoneClass": "non-sot-projection" },
-      "entry": ["cli"],
-      "directWrites": [{ "file": "packages/cli/src/commands/extensions/module-registry-view.ts" }],
-      "evidence": ["packages/cli/src/commands/extensions/state.ts:389", "packages/cli/src/commands/extensions/module-registry-view.ts:7"],
+      "channel": {
+        "pathClass": "generated-local",
+        "zoneClass": "non-sot-projection"
+      },
+      "entry": [
+        "cli"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/extensions/module-registry-view.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/extensions/state.ts:389",
+        "packages/cli/src/commands/extensions/module-registry-view.ts:7"
+      ],
       "freshness": "derived-view"
     },
     {
       "id": "module.scaffold",
-      "sourceInventoryRows": [15],
+      "sourceInventoryRows": [
+        15
+      ],
       "road": "D",
       "bearing": "admin-scaffold",
       "leaseRequired": false,
-      "channel": { "pathClass": "admin-rpc", "zoneClass": "module-authored-docs" },
-      "entry": ["cli"],
-      "writeKinds": ["module_scaffold_write"],
-      "cliActions": ["module-scaffold"],
-      "evidence": ["packages/cli/src/commands/extensions/module.ts:71", "packages/kernel/src/store/write-journal-operations.ts:394"],
+      "channel": {
+        "pathClass": "admin-rpc",
+        "zoneClass": "module-authored-docs"
+      },
+      "entry": [
+        "cli"
+      ],
+      "writeKinds": [
+        "module_scaffold_write"
+      ],
+      "cliActions": [
+        "module-scaffold"
+      ],
+      "evidence": [
+        "packages/cli/src/commands/extensions/module.ts:71",
+        "packages/kernel/src/store/write-journal-operations.ts:394"
+      ],
       "freshness": "scaffold-template-write"
     },
     {
       "id": "session.provenance.claim-check",
-      "sourceInventoryRows": [16],
+      "sourceInventoryRows": [
+        16
+      ],
       "road": "B",
       "bearing": "session-composite-manifest-blob",
       "leaseRequired": false,
-      "channel": { "pathClass": "declared-manifest-plus-claim-check", "zoneClass": "session-provenance" },
-      "entry": ["cli", "internal"],
-      "writeKinds": ["doc_write", "machine_artifact_write"],
-      "machineArtifactBoundaries": ["provenance-session"],
-      "cliActions": ["session-backfill", "session-export", "session-sync"],
-      "callsiteFiles": ["packages/kernel/src/entity/declaration.ts"],
-      "evidence": ["packages/application/src/provenance-session-exporter.ts:134", "packages/kernel/src/entity/declaration.ts:53", "packages/cli/src/commands/core/session.ts:16", "packages/cli/src/commands/core/session.ts:91", "packages/cli/src/commands/core/session-cutover.ts:38"],
+      "channel": {
+        "pathClass": "declared-manifest-plus-claim-check",
+        "zoneClass": "session-provenance"
+      },
+      "entry": [
+        "cli",
+        "internal"
+      ],
+      "writeKinds": [
+        "doc_write",
+        "machine_artifact_write"
+      ],
+      "machineArtifactBoundaries": [
+        "provenance-session"
+      ],
+      "cliActions": [
+        "session-backfill",
+        "session-export",
+        "session-sync"
+      ],
+      "callsiteFiles": [
+        "packages/kernel/src/entity/declaration.ts"
+      ],
+      "evidence": [
+        "packages/application/src/provenance-session-exporter.ts:134",
+        "packages/kernel/src/entity/declaration.ts:53",
+        "packages/cli/src/commands/core/session.ts:16",
+        "packages/cli/src/commands/core/session.ts:91",
+        "packages/cli/src/commands/core/session-cutover.ts:38"
+      ],
       "freshness": "coordinated-manifest-plus-content-addressed-blob-ref"
     },
     {
       "id": "runtime-event.coordinated-jsonl",
-      "sourceInventoryRows": [17],
+      "sourceInventoryRows": [
+        17
+      ],
       "road": "D",
       "bearing": "runtime-event-audit",
       "leaseRequired": false,
-      "channel": { "pathClass": "generated-local", "zoneClass": "runtime-event-telemetry" },
-      "entry": ["cli", "internal"],
-      "writeKinds": ["machine_artifact_append_jsonl"],
-      "machineArtifactBoundaries": ["runtime-event-ledger"],
-      "cliActions": ["runtime-event-append"],
-      "callsiteFiles": ["packages/application/src/runtime-event-ledger-service.ts"],
-      "evidence": ["packages/application/src/runtime-event-ledger-service.ts:145", "packages/application/src/runtime-event-ledger-service.ts:174"],
+      "channel": {
+        "pathClass": "generated-local",
+        "zoneClass": "runtime-event-telemetry"
+      },
+      "entry": [
+        "cli",
+        "internal"
+      ],
+      "writeKinds": [
+        "machine_artifact_append_jsonl"
+      ],
+      "machineArtifactBoundaries": [
+        "runtime-event-ledger"
+      ],
+      "cliActions": [
+        "runtime-event-append"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/runtime-event-ledger-service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/runtime-event-ledger-service.ts:145",
+        "packages/application/src/runtime-event-ledger-service.ts:174"
+      ],
       "freshness": "append-jsonl-telemetry"
     },
     {
       "id": "docmap.derived-write",
-      "sourceInventoryRows": [18],
+      "sourceInventoryRows": [
+        18
+      ],
       "road": "D",
       "bearing": "derived-projection",
       "leaseRequired": false,
-      "channel": { "pathClass": "generated-or-authored-derived", "zoneClass": "non-sot-projection" },
-      "entry": ["cli"],
-      "machineArtifactBoundaries": ["docmap-derived"],
-      "cliActions": ["doc-generate"],
-      "evidence": ["packages/cli/src/commands/core/doc.ts:13", "packages/cli/src/commands/core/docmap-generate.ts:37"],
+      "channel": {
+        "pathClass": "generated-or-authored-derived",
+        "zoneClass": "non-sot-projection"
+      },
+      "entry": [
+        "cli"
+      ],
+      "machineArtifactBoundaries": [
+        "docmap-derived"
+      ],
+      "cliActions": [
+        "doc-generate"
+      ],
+      "evidence": [
+        "packages/cli/src/commands/core/doc.ts:13",
+        "packages/cli/src/commands/core/docmap-generate.ts:37"
+      ],
       "freshness": "derived-json"
     },
     {
       "id": "distill.lesson.artifacts",
-      "sourceInventoryRows": [19],
+      "sourceInventoryRows": [
+        19
+      ],
       "road": "D",
       "bearing": "derived-artifact",
       "leaseRequired": false,
-      "channel": { "pathClass": "generated-local", "zoneClass": "non-sot-artifact" },
-      "entry": ["cli"],
-      "machineArtifactBoundaries": ["distill-candidate"],
-      "cliActions": ["distill-candidate", "lesson-promote", "lesson-sediment"],
-      "directWrites": [{ "file": "packages/cli/src/commands/lesson.ts" }],
-      "evidence": ["packages/cli/src/commands/core/distill.ts:37", "packages/cli/src/commands/lesson.ts:16"],
+      "channel": {
+        "pathClass": "generated-local",
+        "zoneClass": "non-sot-artifact"
+      },
+      "entry": [
+        "cli"
+      ],
+      "machineArtifactBoundaries": [
+        "distill-candidate"
+      ],
+      "cliActions": [
+        "distill-candidate",
+        "lesson-promote",
+        "lesson-sediment"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/lesson.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/core/distill.ts:37",
+        "packages/cli/src/commands/lesson.ts:16"
+      ],
       "freshness": "derived-json"
     },
     {
       "id": "legacy.migration.artifacts",
-      "sourceInventoryRows": [20],
+      "sourceInventoryRows": [
+        20
+      ],
       "road": "D",
       "bearing": "admin-import",
       "leaseRequired": false,
-      "channel": { "pathClass": "admin-import", "zoneClass": "legacy-forward-or-report" },
-      "entry": ["cli-migration"],
-      "machineArtifactBoundaries": ["legacy-forward"],
-      "cliActions": ["legacy-copy-safe-docs", "legacy-index", "legacy-intake-plan", "migrate-run", "migrate-structure"],
-      "directWrites": [
-        { "file": "packages/cli/src/commands/migration-collision.ts" },
-        { "file": "packages/cli/src/commands/migration-scan.ts" },
-        { "file": "packages/cli/src/commands/migration.ts" }
+      "channel": {
+        "pathClass": "admin-import",
+        "zoneClass": "legacy-forward-or-report"
+      },
+      "entry": [
+        "cli-migration"
       ],
-      "evidence": ["packages/cli/src/commands/migration.ts:337", "packages/cli/src/commands/migration-collision.ts:60", "packages/cli/src/commands/migration-scan.ts:267"],
+      "machineArtifactBoundaries": [
+        "legacy-forward"
+      ],
+      "cliActions": [
+        "legacy-copy-safe-docs",
+        "legacy-index",
+        "legacy-intake-plan",
+        "migrate-run",
+        "migrate-structure"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/migration-collision.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/migration-scan.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/migration.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/migration.ts:337",
+        "packages/cli/src/commands/migration-collision.ts:60",
+        "packages/cli/src/commands/migration-scan.ts:267"
+      ],
       "freshness": "admin-copy-or-report"
     },
     {
       "id": "governance.projection.rebuild",
-      "sourceInventoryRows": [21],
+      "sourceInventoryRows": [
+        21
+      ],
       "road": "D",
       "bearing": "derived-projection",
       "leaseRequired": false,
-      "channel": { "pathClass": "generated-local", "zoneClass": "non-sot-projection" },
-      "entry": ["cli", "read-path-auto-rebuild", "gui-bridge"],
-      "cliActions": ["governance-rebuild", "materializer-run"],
-      "apiRoutes": ["governance.rebuild"],
-      "guiBridgeMethods": ["rebuildGovernance"],
-      "directWrites": [
-        { "file": "packages/cli/src/commands/governance.ts" },
-        { "file": "packages/kernel/src/projection/sqlite-projection-store.ts" }
+      "channel": {
+        "pathClass": "generated-local",
+        "zoneClass": "non-sot-projection"
+      },
+      "entry": [
+        "cli",
+        "read-path-auto-rebuild",
+        "gui-bridge"
       ],
-      "evidence": ["packages/kernel/src/projection/sqlite-task-projection.ts:45", "packages/kernel/src/projection/sqlite-projection-store.ts:49", "packages/cli/src/commands/governance.ts:29"],
+      "cliActions": [
+        "governance-rebuild",
+        "materializer-run"
+      ],
+      "apiRoutes": [
+        "governance.rebuild"
+      ],
+      "guiBridgeMethods": [
+        "rebuildGovernance"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/governance.ts"
+        },
+        {
+          "file": "packages/kernel/src/projection/sqlite-projection-store.ts"
+        }
+      ],
+      "evidence": [
+        "packages/kernel/src/projection/sqlite-task-projection.ts:45",
+        "packages/kernel/src/projection/sqlite-projection-store.ts:49",
+        "packages/cli/src/commands/governance.ts:29"
+      ],
       "freshness": "rebuildable-projection"
     },
     {
       "id": "graph.panorama.generated",
-      "sourceInventoryRows": [22],
+      "sourceInventoryRows": [
+        22
+      ],
       "road": "D",
       "bearing": "derived-projection",
       "leaseRequired": false,
-      "channel": { "pathClass": "generated-local", "zoneClass": "non-sot-projection" },
-      "entry": ["cli"],
-      "cliActions": ["graph"],
-      "directWrites": [{ "file": "packages/cli/src/commands/graph-panorama.ts" }],
-      "evidence": ["packages/cli/src/commands/graph-panorama.ts:32"],
+      "channel": {
+        "pathClass": "generated-local",
+        "zoneClass": "non-sot-projection"
+      },
+      "entry": [
+        "cli"
+      ],
+      "cliActions": [
+        "graph"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/graph-panorama.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/graph-panorama.ts:32"
+      ],
       "freshness": "derived-html"
     },
     {
       "id": "repository.bootstrap.admin",
-      "sourceInventoryRows": [23],
+      "sourceInventoryRows": [
+        23
+      ],
       "road": "D",
       "bearing": "admin-bootstrap",
       "leaseRequired": false,
-      "channel": { "pathClass": "admin-bootstrap", "zoneClass": "repository-local" },
-      "entry": ["cli"],
-      "cliActions": ["init", "gui"],
-      "apiRoutes": ["terminal.sessions.create", "terminal.sessions.resize", "terminal.sessions.close"],
-      "directWrites": [
-        { "file": "packages/cli/src/commands/core/init.ts" },
-        { "file": "packages/cli/src/commands/init.ts" },
-        { "file": "packages/cli/src/commands/extensions/repository-scaffold.ts" },
-        { "file": "packages/cli/src/commands/daemon/productization.ts" },
-        { "file": "packages/daemon/src/transport/unix-socket.ts" },
-        { "file": "packages/kernel/src/daemon/registry.ts" }
+      "channel": {
+        "pathClass": "admin-bootstrap",
+        "zoneClass": "repository-local"
+      },
+      "entry": [
+        "cli"
       ],
-      "evidence": ["packages/cli/src/commands/init.ts:184", "packages/cli/src/commands/extensions/repository-scaffold.ts:21", "packages/cli/src/commands/daemon/productization.ts:338"],
+      "cliActions": [
+        "init",
+        "gui"
+      ],
+      "apiRoutes": [
+        "terminal.sessions.create",
+        "terminal.sessions.resize",
+        "terminal.sessions.close"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/core/init.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/init.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/repository-scaffold.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/daemon/productization.ts"
+        },
+        {
+          "file": "packages/daemon/src/transport/unix-socket.ts"
+        },
+        {
+          "file": "packages/kernel/src/daemon/registry.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/init.ts:184",
+        "packages/cli/src/commands/extensions/repository-scaffold.ts:21",
+        "packages/cli/src/commands/daemon/productization.ts:338"
+      ],
       "freshness": "admin-bootstrap-direct"
     },
     {
       "id": "preset.config.evidence",
-      "sourceInventoryRows": [24],
+      "sourceInventoryRows": [
+        24
+      ],
       "road": "D",
       "bearing": "admin-config",
       "leaseRequired": false,
-      "channel": { "pathClass": "admin-config", "zoneClass": "preset-local" },
-      "entry": ["cli"],
-      "writeKinds": ["machine_artifact_write"],
-      "machineArtifactBoundaries": ["preset-evidence-registry"],
-      "cliActions": ["preset-action", "preset-install", "preset-run", "preset-seed", "preset-uninstall"],
-      "directWrites": [
-        { "file": "packages/cli/src/commands/extensions/machine-evidence-registry.ts" },
-        { "file": "packages/cli/src/commands/extensions/preset.ts" },
-        { "file": "packages/cli/src/commands/extensions/preset-evidence.ts" },
-        { "file": "packages/cli/src/commands/extensions/state.ts" }
+      "channel": {
+        "pathClass": "admin-config",
+        "zoneClass": "preset-local"
+      },
+      "entry": [
+        "cli"
       ],
-      "evidence": ["packages/cli/src/commands/extensions/preset.ts:135", "packages/cli/src/commands/extensions/state.ts:348"],
+      "writeKinds": [
+        "machine_artifact_write"
+      ],
+      "machineArtifactBoundaries": [
+        "preset-evidence-registry"
+      ],
+      "cliActions": [
+        "preset-action",
+        "preset-install",
+        "preset-run",
+        "preset-seed",
+        "preset-uninstall"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/extensions/machine-evidence-registry.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/preset.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/preset-evidence.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/state.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/extensions/preset.ts:135",
+        "packages/cli/src/commands/extensions/state.ts:348"
+      ],
       "freshness": "admin-config-or-evidence"
     },
     {
       "id": "script-run.declared-write-scopes",
-      "sourceInventoryRows": [25],
+      "sourceInventoryRows": [
+        25
+      ],
       "road": "D",
       "bearing": "script-dynamic-output",
       "leaseRequired": false,
-      "channel": { "pathClass": "declared-script-scope", "zoneClass": "dynamic-output" },
-      "entry": ["cli", "preset-runner"],
-      "cliActions": ["script-run"],
+      "channel": {
+        "pathClass": "declared-script-scope",
+        "zoneClass": "dynamic-output"
+      },
+      "entry": [
+        "cli",
+        "preset-runner"
+      ],
+      "cliActions": [
+        "script-run"
+      ],
       "directWrites": [
-        { "file": "packages/cli/src/commands/extensions/preset-script-runner.ts" },
-        { "file": "packages/cli/src/commands/extensions/script-host.ts" },
-        { "file": "packages/cli/src/commands/extensions/shared.ts" }
+        {
+          "file": "packages/cli/src/commands/extensions/preset-script-runner.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/script-host.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/shared.ts"
+        }
       ],
       "presetWriteScopes": [
         "{{outputRoot}}/**",
         "{{paths.adrRoot}}/**",
         "{{paths.milestonesRoot}}/**"
       ],
-      "evidence": ["packages/cli/src/commands/extensions/script-host.ts:75", "packages/cli/src/commands/extensions/preset-script-runner.ts:95"],
+      "evidence": [
+        "packages/cli/src/commands/extensions/script-host.ts:75",
+        "packages/cli/src/commands/extensions/preset-script-runner.ts:95"
+      ],
       "freshness": "declared-writes"
     },
     {
       "id": "script-run.declared-produces",
-      "sourceInventoryRows": [25],
+      "sourceInventoryRows": [
+        25
+      ],
       "road": "D",
       "bearing": "script-dynamic-output",
       "leaseRequired": false,
-      "channel": { "pathClass": "declared-script-produce", "zoneClass": "dynamic-output" },
-      "entry": ["cli"],
+      "channel": {
+        "pathClass": "declared-script-produce",
+        "zoneClass": "dynamic-output"
+      },
+      "entry": [
+        "cli"
+      ],
       "presetProduces": [
         "{{paths.adrRoot}}/*.md",
         "{{paths.adrRoot}}/0000-template.md",
         "{{paths.adrRoot}}/README.md"
       ],
-      "evidence": ["packages/cli/src/commands/extensions/script-host.ts:186", "packages/cli/src/commands/extensions/assets/software-coding/vertical.json:250"],
+      "evidence": [
+        "packages/cli/src/commands/extensions/script-host.ts:186",
+        "packages/cli/src/commands/extensions/assets/software-coding/vertical.json:250"
+      ],
       "freshness": "declared-produces"
     },
     {
       "id": "public-code-change.git",
-      "sourceInventoryRows": [26],
+      "sourceInventoryRows": [
+        26
+      ],
       "road": "C",
       "bearing": "code-change",
       "leaseRequired": false,
-      "channel": { "pathClass": "git-worktree", "zoneClass": "code-truth" },
-      "entry": ["cli", "external-git"],
-      "cliActions": ["adopt-multica", "git-diff", "worktree-create"],
-      "directWrites": [
-        { "file": "packages/adapters/local/src/git-diff-evidence.ts", "command": "git" },
-        { "file": "packages/adapters/local/src/index.ts", "command": "git" },
-        { "file": "packages/cli/src/commands/core/authored-git.ts", "command": "git" },
-        { "file": "packages/cli/src/commands/doctor.ts", "command": "git" },
-        { "file": "packages/kernel/src/projection/post-merge-checks.ts", "command": "git" },
-        { "file": "packages/kernel/src/store/local-version-control-system.ts", "command": "git" }
+      "channel": {
+        "pathClass": "git-worktree",
+        "zoneClass": "code-truth"
+      },
+      "entry": [
+        "cli",
+        "external-git"
       ],
-      "evidence": ["packages/cli/src/commands/core/worktree.ts:183", "packages/kernel/src/store/local-version-control-system.ts:21"],
+      "cliActions": [
+        "adopt-multica",
+        "git-diff",
+        "worktree-create"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/adapters/local/src/git-diff-evidence.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/adapters/local/src/index.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/cli/src/commands/core/authored-git.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/cli/src/commands/doctor.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/kernel/src/projection/post-merge-checks.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/kernel/src/store/local-version-control-system.ts",
+          "command": "git"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/core/worktree.ts:183",
+        "packages/kernel/src/store/local-version-control-system.ts:21"
+      ],
       "freshness": "git-ref"
     },
     {
       "id": "worktree.binding-cache",
-      "sourceInventoryRows": [26],
+      "sourceInventoryRows": [
+        26
+      ],
       "road": "D",
       "bearing": "generated-cache",
       "leaseRequired": false,
-      "channel": { "pathClass": "generated-local", "zoneClass": "non-sot-cache" },
-      "entry": ["cli"],
-      "directWrites": [{ "file": "packages/cli/src/commands/core/worktree.ts" }],
-      "evidence": ["packages/cli/src/commands/core/worktree.ts:183"],
+      "channel": {
+        "pathClass": "generated-local",
+        "zoneClass": "non-sot-cache"
+      },
+      "entry": [
+        "cli"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/core/worktree.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/core/worktree.ts:183"
+      ],
       "freshness": "local-binding-cache"
     },
     {
       "id": "doc.sync.submit",
-      "sourceInventoryRows": [5],
+      "sourceInventoryRows": [
+        5
+      ],
       "road": "A",
       "bearing": "task-document",
-      "channel": { "pathClass": "doc-sync-allowed", "zoneClass": "task-authored-prose-canonical" },
-      "entry": ["cli", "daemon-rpc"],
-      "writeKinds": ["doc_sync_submit"],
-      "evidence": ["packages/cli/src/daemon/doc-sync-service.ts:243", "packages/kernel/src/domain/write-op-kind.ts:1"],
+      "channel": {
+        "pathClass": "doc-sync-allowed",
+        "zoneClass": "task-authored-prose-canonical"
+      },
+      "entry": [
+        "cli",
+        "daemon-rpc"
+      ],
+      "writeKinds": [
+        "doc_sync_submit"
+      ],
+      "evidence": [
+        "packages/cli/src/daemon/doc-sync-service.ts:243",
+        "packages/kernel/src/domain/write-op-kind.ts:1"
+      ],
       "freshness": "doc-sync-submit-cas-post-apply"
     },
     {
       "id": "preset.script.staging-ingest",
-      "sourceInventoryRows": [25],
+      "sourceInventoryRows": [
+        25
+      ],
       "road": "A",
       "bearing": "script-canonical-ingest",
-      "channel": { "pathClass": "coordinator-ingest", "zoneClass": "script-staging-mirror-to-canonical" },
-      "entry": ["cli", "preset-runner"],
-      "writeKinds": ["script_ingest"],
-      "callsiteFiles": ["packages/cli/src/commands/core/extension.ts"],
-      "directWrites": [
-        { "file": "packages/cli/src/commands/extensions/script-staging.ts", "api": "mkdirSync" },
-        { "file": "packages/cli/src/commands/extensions/script-staging.ts", "api": "cpSync" }
+      "channel": {
+        "pathClass": "coordinator-ingest",
+        "zoneClass": "script-staging-mirror-to-canonical"
+      },
+      "entry": [
+        "cli",
+        "preset-runner"
       ],
-      "evidence": ["packages/cli/src/commands/extensions/script-staging.ts:32", "packages/cli/src/commands/core/extension.ts:10"],
+      "writeKinds": [
+        "script_ingest"
+      ],
+      "callsiteFiles": [
+        "packages/cli/src/commands/core/extension.ts"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/extensions/script-staging.ts",
+          "api": "mkdirSync"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/script-staging.ts",
+          "api": "cpSync"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/extensions/script-staging.ts:32",
+        "packages/cli/src/commands/core/extension.ts:10"
+      ],
       "freshness": "staging-mirror-ingest"
     },
     {
       "id": "authority.replication.submit",
-      "sourceInventoryRows": [1],
+      "sourceInventoryRows": [
+        1
+      ],
       "road": "A",
       "bearing": "authority-replication",
       "leaseRequired": false,
-      "channel": { "pathClass": "coordinator-attributed", "zoneClass": "canonical-entity-via-attributed-coordinator" },
-      "entry": ["forced-command-ssh", "authority-daemon"],
-      "callsiteFiles": ["packages/application/src/authority/service.ts"],
-      "evidence": ["packages/application/src/authority/service.ts:86", "packages/daemon/src/authority/forced-command-session.ts:1"],
+      "channel": {
+        "pathClass": "coordinator-attributed",
+        "zoneClass": "canonical-entity-via-attributed-coordinator"
+      },
+      "entry": [
+        "forced-command-ssh",
+        "authority-daemon"
+      ],
+      "callsiteFiles": [
+        "packages/application/src/authority/service.ts"
+      ],
+      "evidence": [
+        "packages/application/src/authority/service.ts:86",
+        "packages/daemon/src/authority/forced-command-session.ts:1"
+      ],
       "freshness": "authority-serialized-first-parent"
     },
     {
       "id": "receipt.compound.durable-store",
-      "sourceInventoryRows": [1],
+      "sourceInventoryRows": [
+        1
+      ],
       "road": "A",
       "bearing": "receipt-durability",
       "leaseRequired": false,
-      "channel": { "pathClass": "runtime-local-durable", "zoneClass": "compound-receipt-crash-recovery" },
-      "entry": ["cli"],
-      "directWrites": [
-        { "file": "packages/cli/src/receipt/durable-store.ts" }
+      "channel": {
+        "pathClass": "runtime-local-durable",
+        "zoneClass": "compound-receipt-crash-recovery"
+      },
+      "entry": [
+        "cli"
       ],
-      "evidence": ["packages/cli/src/receipt/durable-store.ts:76", "packages/application/src/receipt/service.ts:1"],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/receipt/durable-store.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/receipt/durable-store.ts:76",
+        "packages/application/src/receipt/service.ts:1"
+      ],
       "freshness": "fsync-atomic-rename"
     },
     {
       "id": "broker.local-view.native-apply",
-      "sourceInventoryRows": [1],
+      "sourceInventoryRows": [
+        1
+      ],
       "road": "A",
       "bearing": "broker-local-view",
       "leaseRequired": false,
-      "channel": { "pathClass": "broker-local-view", "zoneClass": "transparent-view-materialization" },
-      "entry": ["broker"],
-      "directWrites": [
-        { "file": "packages/daemon/src/broker/native-applier.ts" },
-        { "file": "packages/daemon/src/broker/durable-state-store.ts" },
-        { "file": "packages/daemon/src/broker/conflict-store.ts" },
-        { "file": "packages/daemon/src/broker/cas-store.ts" }
+      "channel": {
+        "pathClass": "broker-local-view",
+        "zoneClass": "transparent-view-materialization"
+      },
+      "entry": [
+        "broker"
       ],
-      "evidence": ["packages/daemon/src/broker/native-applier.ts:168", "packages/daemon/src/broker/durable-state-store.ts:1"],
+      "directWrites": [
+        {
+          "file": "packages/daemon/src/broker/native-applier.ts"
+        },
+        {
+          "file": "packages/daemon/src/broker/durable-state-store.ts"
+        },
+        {
+          "file": "packages/daemon/src/broker/conflict-store.ts"
+        },
+        {
+          "file": "packages/daemon/src/broker/cas-store.ts"
+        }
+      ],
+      "evidence": [
+        "packages/daemon/src/broker/native-applier.ts:168",
+        "packages/daemon/src/broker/durable-state-store.ts:1"
+      ],
       "freshness": "crash-safe-cut-apply"
     },
     {
       "id": "platform.qualification.semantic-probe",
-      "sourceInventoryRows": [1],
+      "sourceInventoryRows": [
+        1
+      ],
       "road": "D",
       "bearing": "platform-probe",
       "leaseRequired": false,
-      "channel": { "pathClass": "probe-scratch", "zoneClass": "ephemeral-qualification-probe" },
-      "entry": ["daemon"],
-      "directWrites": [
-        { "file": "packages/daemon/src/platform/semantic-probe.ts" }
+      "channel": {
+        "pathClass": "probe-scratch",
+        "zoneClass": "ephemeral-qualification-probe"
+      },
+      "entry": [
+        "daemon"
       ],
-      "evidence": ["packages/daemon/src/platform/semantic-probe.ts:19", "packages/daemon/src/platform/qualification.ts:1"],
+      "directWrites": [
+        {
+          "file": "packages/daemon/src/platform/semantic-probe.ts"
+        }
+      ],
+      "evidence": [
+        "packages/daemon/src/platform/semantic-probe.ts:19",
+        "packages/daemon/src/platform/qualification.ts:1"
+      ],
       "freshness": "ephemeral-probe-create-and-remove"
     },
     {
       "id": "fence.authority.enrollment-and-durability",
-      "sourceInventoryRows": [1],
+      "sourceInventoryRows": [
+        1
+      ],
       "road": "A",
       "bearing": "authority-fence",
       "leaseRequired": false,
-      "channel": { "pathClass": "runtime-local-durable", "zoneClass": "fence-enrollment-and-durability-boundary" },
-      "entry": ["daemon"],
-      "directWrites": [
-        { "file": "packages/daemon/src/fence/authority-fence.ts" },
-        { "file": "packages/daemon/src/fence/durability.ts" }
+      "channel": {
+        "pathClass": "runtime-local-durable",
+        "zoneClass": "fence-enrollment-and-durability-boundary"
+      },
+      "entry": [
+        "daemon"
       ],
-      "evidence": ["packages/daemon/src/fence/authority-fence.ts:42", "packages/daemon/src/fence/durability.ts:145"],
+      "directWrites": [
+        {
+          "file": "packages/daemon/src/fence/authority-fence.ts"
+        },
+        {
+          "file": "packages/daemon/src/fence/durability.ts"
+        }
+      ],
+      "evidence": [
+        "packages/daemon/src/fence/authority-fence.ts:42",
+        "packages/daemon/src/fence/durability.ts:145"
+      ],
       "freshness": "fenced-fsync-ordered-boundary"
+    },
+    {
+      "id": "daemon.socket-ownership.lock",
+      "sourceInventoryRows": [
+        26
+      ],
+      "road": "D",
+      "bearing": "generated-cache",
+      "leaseRequired": false,
+      "channel": {
+        "pathClass": "generated-local",
+        "zoneClass": "non-sot-cache"
+      },
+      "entry": [
+        "cli"
+      ],
+      "directWrites": [
+        {
+          "file": "packages/cli/src/commands/daemon/serve-transport.ts"
+        }
+      ],
+      "evidence": [
+        "packages/cli/src/commands/daemon/serve-transport.ts:1"
+      ],
+      "freshness": "daemon-socket-owner-lock"
     }
   ]
 }

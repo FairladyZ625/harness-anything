@@ -674,6 +674,48 @@
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
       }
+    ],
+    "daemonTransportLifecycle": [
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#rmSync@1",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#openSync@1",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#writeSync@1",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#fsyncSync@1",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#closeSync@1",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#renameSync@1",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#renameSync@2",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      },
+      {
+        "value": "packages/cli/src/commands/daemon/serve-transport.ts#rmSync@2",
+        "ref": "task_01KXD0A37NN8ZQEJ2ENG5K313V",
+        "reason": "Daemon socket ownership lock: operational transport lifecycle state (owner-lock claim/verify/release for single-instance daemon serve), not entity data; coordinator cannot govern its own transport bootstrap. Anchored to autostart socket-race fix."
+      }
     ]
   }
 }
