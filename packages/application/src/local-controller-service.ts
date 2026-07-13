@@ -52,7 +52,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       return {
         ok: true,
         task,
-        documents: await Effect.runPromise(listKnownTaskDocuments(options.artifactStore, payload.taskId))
+        documents: await Effect.runPromise(listTaskDocuments(options.artifactStore, payload.taskId))
       };
     },
     getTaskDocument: async (payload) => {
@@ -201,12 +201,9 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
   };
 }
 
-const knownTaskDocuments = new Set(["INDEX.md", "progress.md", "review.md", "findings.md"]);
-
-function listKnownTaskDocuments(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<ReadonlyArray<{ readonly path: string }>> {
+function listTaskDocuments(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<ReadonlyArray<{ readonly path: string }>> {
   return artifactStore.readTaskPackage(taskId).pipe(
     Effect.map((taskPackage) => taskPackage.documents
-      .filter((document) => knownTaskDocuments.has(document.path))
       .map((document) => ({ path: document.path }))
       .sort((left, right) => left.path.localeCompare(right.path))),
     Effect.catchAll(() => Effect.succeed([]))

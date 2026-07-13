@@ -13,6 +13,8 @@ test("local controller service reads projection and writes through injected task
   try {
     writeTaskIndex(rootDir, "task-1", "Task One", "planned");
     writeTaskIndex(rootDir, "task-archived", "Archived Task", "done", "harness", "archived");
+    writeTaskDocument(rootDir, "task-1", "task_plan.md", "# Task plan\n");
+    writeTaskDocument(rootDir, "task-1", "artifacts/research/evidence.md", "# Evidence\n");
     const writes: string[] = [];
     const service = makeLocalControllerService({
       rootDir,
@@ -39,7 +41,11 @@ test("local controller service reads projection and writes through injected task
 
     const detail = await service.getTaskDetail({ taskId: "task-1" });
     assert.equal(detail.ok, true);
-    assert.deepEqual(detail.documents, [{ path: "INDEX.md" }]);
+    assert.deepEqual(detail.documents, [
+      { path: "artifacts/research/evidence.md" },
+      { path: "INDEX.md" },
+      { path: "task_plan.md" }
+    ]);
 
     const document = await service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
     assert.equal(document.ok, true);
@@ -177,6 +183,12 @@ function writeTaskIndex(rootDir: string, taskId: string, title: string, status: 
     "---",
     ""
   ].join("\n"), "utf8");
+}
+
+function writeTaskDocument(rootDir: string, taskId: string, documentPath: string, body: string): void {
+  const target = path.join(rootDir, "harness/tasks", taskId, documentPath);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, body, "utf8");
 }
 
 function patchTaskStatus(rootDir: string, taskId: string, status: string): void {
