@@ -1,8 +1,8 @@
 import { SessionManifestSchema, type SessionFieldKey } from "../schemas/session-manifest.ts";
 import type { EntityFieldContract } from "./field-contracts.ts";
 import {
-  canonicalIdentityCodec,
   deferredRegistryFacet,
+  readyIdentityProjectionFacets,
   readyStorageLocator,
   typedOnlySemanticDiff
 } from "./registry-compiler.ts";
@@ -53,7 +53,9 @@ export const sessionEntityRegistration = {
     }
   },
   storageForm: "composite-manifest-blob",
-  identityCodec: canonicalIdentityCodec("session", ["sessionId"]),
+  ...readyIdentityProjectionFacets("session", ["sessionId"], {
+    table: "session_projection", idColumn: "session_id", identityField: "sessionId"
+  }),
   storageLocator: readyStorageLocator({
     locate: (identity) => ({
       targets: [
@@ -65,7 +67,6 @@ export const sessionEntityRegistration = {
   }),
   mutationContract: deferredRegistryFacet("W4", "OQ-3 action vocabulary is not registered"),
   semanticDiff: typedOnlySemanticDiff("machine-owned session manifests reject transparent canonical writes"),
-  projectionFacet: deferredRegistryFacet("W1", "canonical v1/v2 union projection is not installed"),
   rootResolver: { pathTemplate: "sessions/{sessionId}.md", identity: ["sessionId"] },
   projection: {
     table: "session_projection",

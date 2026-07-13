@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { readAttributionEvents } from "../../kernel/src/index.ts";
+import { readUnionAttributionEvents } from "../../kernel/src/index.ts";
 import {
   defaultDaemonUserRoot,
   runDaemonCommand,
@@ -79,7 +79,7 @@ test("linked worktree writes route to the canonical daemon with transport-derive
     });
 
     assert.equal(progressed.receipt.ok, true, JSON.stringify(progressed.receipt));
-    const progressEvent = readAttributionEvents(rootDir)
+    const progressEvent = readUnionAttributionEvents(rootDir)
       .findLast((event) => event.actor.executor?.id === "worktree-worker");
     assert.deepEqual(progressEvent?.actor, {
       principal: { kind: "person", personId: "person_owner" },

@@ -3,7 +3,7 @@ import path from "node:path";
 import { SqlClient } from "@effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Effect } from "effect";
-import { stablePayloadHash } from "../integrity/stable-hash.ts";
+import { hashAttributionProjectionState } from "./sqlite-attribution-state-hash.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
 import {
@@ -400,50 +400,6 @@ export function insertDecisionRow(sql: SqlClient.SqlClient, row: DecisionProject
 
 export function readAttributionProjectionStateHash(projectionPath: string): string {
   return runSqlite(projectionPath, Effect.flatMap(SqlClient.SqlClient, hashAttributionProjectionState));
-}
-
-export function hashAttributionProjectionState(sql: SqlClient.SqlClient): Effect.Effect<string, unknown> {
-  return Effect.gen(function* () {
-    const tableRecords = yield* sql<{ readonly name: unknown }>`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`;
-    const tableNames = tableRecords.map((record) => String(record.name));
-    const entities: Array<{
-      readonly table: string;
-      readonly rows: ReadonlyArray<{ readonly id: string; readonly attribution: string }>;
-    }> = [];
-    for (const table of tableNames) {
-      const columns = yield* sql.unsafe<{ readonly name: unknown; readonly pk: unknown }>(`PRAGMA table_info(${quoteIdentifier(table)})`);
-      if (!columns.some((column) => String(column.name) === "attribution_json")) continue;
-      const primaryKey = columns.find((column) => Number(column.pk) > 0);
-      if (!primaryKey) throw new Error(`attributed projection table ${table} has no primary key`);
-      const idColumn = String(primaryKey.name);
-      const records = yield* sql.unsafe<Record<string, unknown>>(
-        `SELECT ${quoteIdentifier(idColumn)} AS entity_id, attribution_json FROM ${quoteIdentifier(table)} ORDER BY ${quoteIdentifier(idColumn)}`
-      );
-      entities.push({
-        table,
-        rows: records.map((record) => ({ id: String(record.entity_id), attribution: String(record.attribution_json) }))
-      });
-    }
-    const events = tableNames.includes("attribution_events")
-      ? (yield* sql<Record<string, unknown>>`
-          SELECT event_id, op_id, subject_ref, operation, principal_person_id,
-                 executor_agent_id, occurred_at, recorded_at, source_json
-          FROM attribution_events
-          ORDER BY occurred_at, event_id
-        `).map((record) => ({
-          eventId: String(record.event_id),
-          opId: String(record.op_id),
-          subjectRef: String(record.subject_ref),
-          operation: String(record.operation),
-          principalPersonId: String(record.principal_person_id),
-          executorAgentId: record.executor_agent_id === null ? null : String(record.executor_agent_id),
-          occurredAt: String(record.occurred_at),
-          recordedAt: String(record.recorded_at),
-          source: String(record.source_json)
-        }))
-      : [];
-    return stablePayloadHash({ schema: "projection-attribution-state/v1", entities, events });
-  });
 }
 
 export function insertRelationEdge(sql: SqlClient.SqlClient, edge: RelationGraphEdgeRow): Effect.Effect<unknown, unknown> {

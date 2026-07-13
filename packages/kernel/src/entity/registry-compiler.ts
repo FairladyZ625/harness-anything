@@ -8,6 +8,7 @@ import type {
   EntityStorageLocator,
   LocatedEntityStorage,
   ReadyIdentityCodecFacet,
+  ReadyProjectionFacet,
   ReadyStorageLocatorFacet,
   StorageTarget,
   TypedOnlySemanticDiffFacet
@@ -83,6 +84,30 @@ export function canonicalIdentityCodec(
 
 export function readyStorageLocator(locator: EntityStorageLocator): ReadyStorageLocatorFacet {
   return { status: "ready", locator };
+}
+
+export function readyUnionProjectionFacet(
+  identityCodec: ReadyIdentityCodecFacet,
+  attributionTarget?: ReadyProjectionFacet["attributionTarget"]
+): ReadyProjectionFacet {
+  return {
+    status: "ready",
+    project: (entity) => entity,
+    resolveCanonicalRef: identityCodec.codec.decode,
+    ...(attributionTarget ? { attributionTarget } : {})
+  };
+}
+
+export function readyIdentityProjectionFacets(
+  kind: CanonicalEntityKind,
+  identityKeys: ReadonlyArray<string>,
+  attributionTarget?: ReadyProjectionFacet["attributionTarget"]
+): { readonly identityCodec: ReadyIdentityCodecFacet; readonly projectionFacet: ReadyProjectionFacet } {
+  const identityCodec = canonicalIdentityCodec(kind, identityKeys);
+  return {
+    identityCodec,
+    projectionFacet: readyUnionProjectionFacet(identityCodec, attributionTarget)
+  };
 }
 
 export function deferredRegistryFacet(owner: string, reason: string): DeferredRegistryFacet {
@@ -176,6 +201,10 @@ function assertWritableRegistration(registration: EntityRegistration<string, Can
   }
   if (new Set(registration.mutationContract.actions).size !== registration.mutationContract.actions.length) {
     throw new Error(`REGISTRY_ACTIONS_DUPLICATE:${registration.kind}`);
+  }
+  if (registration.projectionFacet.status !== "ready"
+      || typeof registration.projectionFacet.resolveCanonicalRef !== "function") {
+    throw new Error(`REGISTRY_PROJECTION_RESOLVER_REQUIRED:${registration.kind}`);
   }
 }
 

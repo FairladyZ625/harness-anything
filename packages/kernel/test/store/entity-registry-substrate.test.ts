@@ -257,6 +257,16 @@ test("all eight identity codecs and storage locators are total without standalon
 });
 
 test("writable registration fails closed when any required facet is missing or deferred", () => {
+  const canonicalRefs: Readonly<Record<KernelEntityKind, string>> = {
+    task: "task/task_T",
+    decision: "decision/dec_D",
+    fact: "fact/task_T/F-1",
+    relation: "relation/rel_0123456789abcdef",
+    module: "module/software%2Fcoding",
+    session: "session/session_S",
+    execution: "execution/task_T/exe_E",
+    review: "review/task_T/rev_R"
+  };
   const complete = writableRegistration("fact");
   for (const facet of ["identityCodec", "storageLocator", "mutationContract", "semanticDiff", "projectionFacet"] as const) {
     const missing = { ...complete } as Record<string, unknown>;
@@ -272,7 +282,13 @@ test("writable registration fails closed when any required facet is missing or d
   );
   for (const kind of entityRegistryKinds) {
     assert.equal(entityRegistry[kind].mutationContract.status, "deferred", `${kind} must not enable a W0 writer`);
-    assert.equal(entityRegistry[kind].projectionFacet.status, "deferred", `${kind} waits for the W1 projection`);
+    assert.equal(entityRegistry[kind].projectionFacet.status, "ready", `${kind} derives the W1 union projection from the registry`);
+    if (entityRegistry[kind].projectionFacet.status === "ready" && entityRegistry[kind].identityCodec.status === "ready") {
+      assert.deepEqual(
+        entityRegistry[kind].projectionFacet.resolveCanonicalRef(canonicalRefs[kind]),
+        entityRegistry[kind].identityCodec.codec.decode(canonicalRefs[kind])
+      );
+    }
     assert.throws(
       () => createWritableEntityRegistry([entityRegistry[kind] as EntityRegistration<string, KernelEntityKind>]),
       new RegExp(`REGISTRY_FACET_NOT_WRITABLE:${kind}:mutationContract`, "u")
@@ -353,6 +369,6 @@ function writableRegistration(kind: KernelEntityKind): EntityRegistration<string
     ...entityRegistry[kind] as EntityRegistration<string, KernelEntityKind>,
     mutationContract: { status: "ready", actions: ["fixture-write"] },
     semanticDiff: { status: "ready", compile: () => [] },
-    projectionFacet: { status: "ready", project: () => undefined }
+    projectionFacet: { status: "ready", project: () => undefined, resolveCanonicalRef: () => ({}) }
   };
 }

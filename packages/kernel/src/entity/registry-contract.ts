@@ -76,6 +76,12 @@ export interface TypedOnlySemanticDiffFacet {
 export interface ReadyProjectionFacet {
   readonly status: "ready";
   readonly project: (entity: unknown) => unknown;
+  readonly resolveCanonicalRef: (canonicalRef: string) => EntityIdentity;
+  readonly attributionTarget?: {
+    readonly table: string;
+    readonly idColumn: string;
+    readonly identityField: string;
+  };
 }
 
 export type IdentityCodecFacet = ReadyIdentityCodecFacet | DeferredRegistryFacet;

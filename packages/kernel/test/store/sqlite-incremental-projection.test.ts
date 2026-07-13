@@ -275,7 +275,7 @@ test("deleted attribution events clear stale projected attribution", () => {
     seedHarness(rootDir);
     const eventPath = writeAttributionEvent(rootDir, "event-delete", "task/task-a");
     rebuildTaskProjection({ rootDir });
-    assert.equal(readTaskProjection({ rootDir }).rows.find((row) => row.taskId === "task-a")?.attribution.completeness, "complete");
+    assert.equal(readTaskProjection({ rootDir }).rows.find((row) => row.taskId === "task-a")?.attribution.completeness, "host-only");
     const previousSourceFingerprint = captureProjectionSourceSnapshot(rootDir).fingerprint;
     rmSync(eventPath);
 

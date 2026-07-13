@@ -105,7 +105,7 @@ test("local controller service reads projection and writes through injected task
         executor: null
       },
       trailCount: 2,
-      completeness: "complete"
+      completeness: "host-only"
     });
     assert.deepEqual(decisions.decisions[0]?.provenance, [{ runtime: "codex", sessionId: "session-1", boundAt: "2026-07-07T00:00:00.000Z" }]);
     const executions = service.getExecutions();

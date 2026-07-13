@@ -24,7 +24,7 @@ test("new-task records attribution events independently of local git author conf
     assert.equal(indexBody.includes("createdBy:"), false);
 
     const listed = runJson(rootDir, ["task", "list"]);
-    assert.equal(listed.tasks[0].attribution.completeness, "complete");
+    assert.equal(listed.tasks[0].attribution.completeness, "host-only");
     assert.equal(listed.tasks[0].attribution.trailCount, 1);
     assert.equal(listed.tasks[0].attribution.originator.principal.kind, "person");
     assert.equal(listed.tasks[0].canonicalStatus, "planned");

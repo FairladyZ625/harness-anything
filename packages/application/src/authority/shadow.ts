@@ -1,5 +1,6 @@
 export const shadowPublicationSchema = "shadow-publication/v1" as const;
 export const shadowReconciliationSchema = "shadow-reconciliation-report/v1" as const;
+export const attributionShadowComparisonSchema = "attribution-shadow-comparison/v1" as const;
 
 export interface CanonicalPublicationObservation {
   readonly commitSha: string;
@@ -44,6 +45,65 @@ export interface ShadowReconciliationReport {
   readonly shadowPublications: number;
   readonly status: "MATCH" | "DIFFERENT";
   readonly differences: ReadonlyArray<ShadowDifference>;
+}
+
+export interface AttributionShadowDigestObservation {
+  readonly opId: string;
+  readonly semanticMutationSetDigest: string;
+  readonly actorAxesBindingDigest: string;
+  readonly changeSetDigest: string;
+  readonly canonicalEventDigest: string;
+}
+
+export type AttributionShadowMismatchField =
+  | "semanticMutationSetDigest"
+  | "actorAxesBindingDigest"
+  | "changeSetDigest"
+  | "canonicalEventDigest";
+
+export interface AttributionShadowComparison {
+  readonly schema: typeof attributionShadowComparisonSchema;
+  readonly workspaceId: string;
+  readonly opId: string;
+  readonly status: "MATCH" | "MISMATCH";
+  readonly mismatches: ReadonlyArray<AttributionShadowMismatchField>;
+  readonly observedAt: string;
+}
+
+export interface AttributionShadowTelemetry {
+  readonly emitMismatch: (comparison: AttributionShadowComparison) => void;
+}
+
+/**
+ * Pure read-side comparison for one already-admitted operation. The only
+ * callback is mismatch telemetry; no cursor, receipt, commit, or authority
+ * state is accepted by this API, so comparison cannot advance canonical state.
+ */
+export function compareAttributionShadow(input: {
+  readonly workspaceId: string;
+  readonly canonical: AttributionShadowDigestObservation;
+  readonly shadow: AttributionShadowDigestObservation;
+  readonly telemetry: AttributionShadowTelemetry;
+  readonly observedAt?: string;
+}): AttributionShadowComparison {
+  if (input.canonical.opId !== input.shadow.opId) throw new Error("ATTRIBUTION_SHADOW_OPERATION_MISMATCH");
+  const fields = [
+    "semanticMutationSetDigest",
+    "actorAxesBindingDigest",
+    "changeSetDigest",
+    "canonicalEventDigest"
+  ] as const;
+  const mismatches = fields.filter((field) => input.canonical[field] !== input.shadow[field]);
+  const comparison: AttributionShadowComparison = {
+    schema: attributionShadowComparisonSchema,
+    workspaceId: input.workspaceId,
+    opId: input.canonical.opId,
+    status: mismatches.length === 0 ? "MATCH" : "MISMATCH",
+    mismatches,
+    observedAt: input.observedAt ?? new Date().toISOString()
+  };
+  if (comparison.status === "MISMATCH") input.telemetry.emitMismatch(comparison);
+  return comparison;
 }
 
 export function createInMemoryShadowPublicationLog(): ShadowPublicationLog {

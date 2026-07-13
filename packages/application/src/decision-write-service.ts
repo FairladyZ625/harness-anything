@@ -12,6 +12,7 @@ import {
   type DecisionState,
   type ActorAxes,
   type AttributionEvent,
+  type UnionAttributionEvent,
   type EntityRelationRecord,
   type ProvenancePayload,
   type WriteCoordinator,
@@ -20,7 +21,7 @@ import {
   type WriteOpKind
 } from "../../kernel/src/index.ts";
 import type { DocumentWrite } from "../../kernel/src/index.ts";
-import { readAttributionEvents } from "../../kernel/src/index.ts";
+import { readUnionAttributionEvents } from "../../kernel/src/index.ts";
 import { harnessRuntimeRoot, type HarnessLayoutInput } from "../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload, type PayloadHasher } from "../../kernel/src/write-coordination/write-helpers.ts";
 import { bindCreateProvenance, type ProvenanceBindingOptions } from "./provenance-binding.ts";
@@ -31,6 +32,7 @@ export interface DecisionWriteServiceOptions extends ProvenanceBindingOptions {
   readonly rootInput?: HarnessLayoutInput;
   readonly attribution?: WriteAttribution;
   readonly readAttributionEvents?: () => ReadonlyArray<AttributionEvent>;
+  readonly readUnionAttributionEvents?: () => ReadonlyArray<UnionAttributionEvent>;
   readonly hashPayload?: PayloadHasher;
   readonly now?: () => string;
 }
@@ -386,11 +388,13 @@ function assertIndependentJudgmentActor(options: DecisionWriteServiceOptions, de
   const currentActor = options.attribution?.actor;
   if (!currentActor) return rejection(decisionId, "decision judgment requires request attribution");
   try {
-    const events = options.readAttributionEvents?.() ?? (options.rootInput ? readAttributionEvents(options.rootInput) : []);
-    const propose = events.find((event) =>
-      event.kind === "decision_propose" &&
-      (event.entityId === decisionId || event.entityId === `decision/${decisionId}`)
-    );
+    const events: ReadonlyArray<UnionAttributionEvent> = options.readUnionAttributionEvents?.()
+      ?? options.readAttributionEvents?.()
+      ?? (options.rootInput ? readUnionAttributionEvents(options.rootInput) : []);
+    const propose = events.find((event) => event.schema === "attribution-event/v1"
+      ? event.kind === "decision_propose" && (event.entityId === decisionId || event.entityId === `decision/${decisionId}`)
+      : event.mutationSet.mutations.some((mutation) =>
+          mutation.action.action === "decision_propose" && mutation.entity.canonicalRef === `decision/${decisionId}`));
     // 溯源仍然 fail-closed,对谁都一样:判定前必须能验到那条不可变的 propose 事件。
     // 下面豁免的只是「判定者与提议者不得同一」,不是「提议事件必须存在」。
     if (!propose) return rejection(decisionId, "decision judgment requires an immutable decision_propose attribution event");
@@ -399,7 +403,15 @@ function assertIndependentJudgmentActor(options: DecisionWriteServiceOptions, de
     // **agent** 给自己签字 —— 那是问责层的核心承诺 —— 不是阻止人给自己签字。单人
     // 操作者是绝大多数决策的唯一提议者兼唯一权威,一律分离等于把他锁在自己的台账外面。
     if (!currentActor.executor) return null;
-    return sameActorAxes(propose.actor, currentActor)
+    const proposeActor: ActorAxes = propose.schema === "attribution-event/v1"
+      ? propose.actor
+      : {
+          principal: { kind: "person", personId: propose.actorAxesBinding.principalPersonId },
+          executor: propose.actorAxesBinding.executorAgentId === null
+            ? null
+            : { kind: "agent", id: propose.actorAxesBinding.executorAgentId }
+        };
+    return sameActorAxes(proposeActor, currentActor)
       ? rejection(decisionId, "an agent may not judge the decision it proposed; a human must sign off")
       : null;
   } catch (error) {

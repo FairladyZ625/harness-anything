@@ -234,7 +234,7 @@ test("GUI bridge projects a hermetic decision-task-fact ledger into renderer dat
         executor: null
       },
       trailCount: 2,
-      completeness: "complete"
+      completeness: "host-only"
     });
     assert.deepEqual(projection.decisions[0]?.provenance, [{ runtime: "codex", sessionId: "session-gui", boundAt: "2026-07-10T00:00:00.000Z" }]);
     assert.deepEqual(projection.facts.map((fact) => fact.anchor), ["task-1/F-12345678"]);

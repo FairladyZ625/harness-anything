@@ -5,11 +5,11 @@ import { sessionEntityDeclaration } from "../entity/session.ts";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import {
-  readAttributionEventsFromSource,
+  readUnionAttributionEventsFromSource,
   readAttributionEventSource,
   type AttributionEventSource
 } from "../local/attribution-event-source.ts";
-import type { AttributionEvent } from "../schemas/attribution-event.ts";
+import type { UnionAttributionEvent } from "../schemas/attribution-event-union.ts";
 import {
   projectDeclaredEntitySource,
   readDeclaredProjectionRows,
@@ -54,7 +54,7 @@ export interface ProjectionSourceFingerprint {
 export interface ProjectionSourceSnapshot extends ProjectionSourceFingerprint {
   readonly decisionRows: ReadonlyArray<DecisionProjectionRow>;
   readonly declaredTables: ReadonlyArray<DeclaredProjectionSnapshot>;
-  readonly attributionEvents: ReadonlyArray<AttributionEvent>;
+  readonly attributionEvents: ReadonlyArray<UnionAttributionEvent>;
 }
 
 export function captureProjectionSourceFingerprint(
@@ -97,7 +97,7 @@ export function captureProjectionSourceSnapshot(rootInput: HarnessLayoutInput): 
       documents: projected.documents
     };
   });
-  const attributionEvents = readAttributionEventsFromSource(source.attributionSource);
+  const attributionEvents = readUnionAttributionEventsFromSource(source.attributionSource);
   return {
     ...source,
     decisionRows,

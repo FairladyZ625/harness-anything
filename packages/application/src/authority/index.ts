@@ -2,6 +2,8 @@
 export { createInMemoryAuthorityOperationRegistry, createInMemoryReplicaChangeLog } from "./memory-stores.ts";
 export { canonicalAuthorityRequestDigest, createAuthoritySubmissionService } from "./service.ts";
 export {
+  attributionShadowComparisonSchema,
+  compareAttributionShadow,
   createInMemoryShadowPublicationLog,
   reconcileShadowPublications,
   shadowPublicationSchema,
@@ -36,6 +38,10 @@ export type {
   ReplicaChangeRecord
 } from "./types.ts";
 export type {
+  AttributionShadowComparison,
+  AttributionShadowDigestObservation,
+  AttributionShadowMismatchField,
+  AttributionShadowTelemetry,
   CanonicalPublicationObservation,
   ShadowDifference,
   ShadowDifferenceCode,

@@ -5,7 +5,12 @@ import {
   verify,
   type KeyObject
 } from "node:crypto";
-import type { WriteAttribution } from "../../../kernel/src/index.ts";
+import {
+  actorAxesBindingCoreDigestV2,
+  actorAxesBindingCoreV2Domain,
+  type WriteAttribution,
+  type ProtocolSchemaTupleV2Core
+} from "../../../kernel/src/index.ts";
 import {
   canonicalCborBytesEqual,
   decodeCanonicalCbor,
@@ -17,20 +22,9 @@ import {
 export const actorAxesBindingV2Schema = "actor-axes-binding/v2" as const;
 export const actorAxesBindingV2Domain = "ha/actor-axes-binding/v2\0";
 export const actorAxesBindingTokenDigestV2Domain = "ha/actor-axes-binding-token-digest/v2\0";
-export const actorAxesBindingCoreV2Domain = "ha/actor-axes-binding-core/v2\0";
+export { actorAxesBindingCoreV2Domain };
 
-export interface ProtocolSchemaTupleV2 {
-  readonly wire: number;
-  readonly event: number;
-  readonly receipt: number;
-  readonly digest: number;
-  readonly policy: number;
-  readonly commandRegistry: number;
-  readonly entityRegistry: number;
-  readonly mutationRegistry: number;
-  readonly localState: number;
-  readonly applyJournal: number;
-}
+export type ProtocolSchemaTupleV2 = ProtocolSchemaTupleV2Core;
 
 export interface RevocationEpochTupleV2 {
   readonly global: bigint;
@@ -265,8 +259,7 @@ export function actorAxesBindingTokenDigestV2(bytes: Uint8Array): Uint8Array {
 
 export function actorAxesBindingDigestV2(claims: ActorAxesBindingClaimsV2): Uint8Array {
   validateClaims(claims);
-  return domainHash(actorAxesBindingCoreV2Domain, encodeCanonicalCbor({
-    schema: "actor-axes-binding-core/v2",
+  return actorAxesBindingCoreDigestV2({
     bindingId: claims.bindingId,
     principalPersonId: claims.principalPersonId,
     executorAgentId: claims.executorAgentId,
@@ -274,8 +267,8 @@ export function actorAxesBindingDigestV2(claims: ActorAxesBindingClaimsV2): Uint
     deviceId: claims.deviceId,
     viewId: claims.viewId,
     sessionId: claims.sessionId,
-    schemaTuple: schemaTupleWire(claims.schemaTuple)
-  }));
+    schemaTuple: claims.schemaTuple
+  });
 }
 
 export function sameProtocolSchemaTupleV2(left: ProtocolSchemaTupleV2, right: ProtocolSchemaTupleV2): boolean {

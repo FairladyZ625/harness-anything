@@ -35,7 +35,7 @@ export interface EntityAttributionProjection {
   readonly originator: ActorAxes | null;
   readonly latestActor: ActorAxes | null;
   readonly trailCount: number;
-  readonly completeness: "complete" | "legacy-partial" | "unresolved";
+  readonly completeness: "complete" | "host-only" | "legacy-partial" | "unresolved";
 }
 
 export interface TaskFieldExtensionProjection {

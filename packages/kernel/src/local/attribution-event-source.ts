@@ -1,9 +1,13 @@
 import path from "node:path";
-import { Schema } from "effect";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { sha256Text, stablePayloadHash } from "../integrity/stable-hash.ts";
-import { AttributionEventSchema, type AttributionEvent } from "../schemas/attribution-event.ts";
+import type { AttributionEvent } from "../schemas/attribution-event.ts";
+import {
+  decodeStrictAttributionEventV1,
+  decodeUnionAttributionEvent,
+  type UnionAttributionEvent
+} from "../schemas/attribution-event-union.ts";
 import { isSafeRelativeSourceCachePath } from "./persistent-source-cache-paths.ts";
 import { localLayoutFileSystem, localProjectionSourceFileSystem } from "./local-layout-file-system.ts";
 
@@ -73,6 +77,10 @@ export interface AttributionEventSource {
 
 export function readAttributionEvents(rootInput: HarnessLayoutInput): ReadonlyArray<AttributionEvent> {
   return readAttributionEventsFromSource(readAttributionEventSource(rootInput));
+}
+
+export function readUnionAttributionEvents(rootInput: HarnessLayoutInput): ReadonlyArray<UnionAttributionEvent> {
+  return readUnionAttributionEventsFromSource(readAttributionEventSource(rootInput));
 }
 
 export function readAttributionEventSource(rootInput: HarnessLayoutInput): AttributionEventSource {
@@ -216,6 +224,16 @@ export function readAttributionEventsFromSource(source: AttributionEventSource):
     .sort((left, right) => left.eventId.localeCompare(right.eventId));
 }
 
+export function readUnionAttributionEventsFromSource(source: AttributionEventSource): ReadonlyArray<UnionAttributionEvent> {
+  return source.inputs
+    .map((input) => decodeUnionAttributionEventBody(input.body))
+    .sort((left, right) => {
+      const leftRevision = left.schema === "attribution-event/v2" ? left.revision : Number.NEGATIVE_INFINITY;
+      const rightRevision = right.schema === "attribution-event/v2" ? right.revision : Number.NEGATIVE_INFINITY;
+      return leftRevision - rightRevision || left.eventId.localeCompare(right.eventId);
+    });
+}
+
 export function attributionEventSourceHash(rootInput: HarnessLayoutInput): string {
   return readAttributionEventSource(rootInput).hash;
 }
@@ -223,5 +241,11 @@ export function attributionEventSourceHash(rootInput: HarnessLayoutInput): strin
 export function decodeAttributionEventBody(body: string): AttributionEvent {
   const lines = body.trim().split("\n").filter(Boolean);
   if (lines.length !== 1) throw new Error("immutable attribution event shard must contain exactly one event");
-  return Schema.decodeUnknownSync(AttributionEventSchema)(JSON.parse(lines[0]!));
+  return decodeStrictAttributionEventV1(JSON.parse(lines[0]!));
+}
+
+export function decodeUnionAttributionEventBody(body: string): UnionAttributionEvent {
+  const lines = body.trim().split("\n").filter(Boolean);
+  if (lines.length !== 1) throw new Error("immutable attribution event shard must contain exactly one event");
+  return decodeUnionAttributionEvent(JSON.parse(lines[0]!));
 }

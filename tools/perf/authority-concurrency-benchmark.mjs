@@ -92,7 +92,7 @@ function benchmarkRegistry() {
     ...entityRegistry[kind],
     mutationContract: { status: "ready", actions: ["benchmark-only"] },
     semanticDiff: { status: "ready", compile: () => [] },
-    projectionFacet: { status: "ready", project: () => undefined }
+    projectionFacet: { status: "ready", project: () => undefined, resolveCanonicalRef: () => ({}) }
   });
   return createWritableEntityRegistry([writable("fact"), writable("relation")]);
 }

@@ -13,8 +13,8 @@ import { canonicalEntityKinds, type CanonicalEntityKind } from "./canonical-kind
 import { executionDeclaration } from "./execution-declaration.ts";
 import { reviewDeclaration } from "./review-declaration.ts";
 import {
-  canonicalIdentityCodec,
   deferredRegistryFacet,
+  readyIdentityProjectionFacets,
   readyStorageLocator
 } from "./registry-compiler.ts";
 import { sessionEntityRegistration } from "./session-declaration.ts";
@@ -45,6 +45,7 @@ export type {
   HostedEntityDeclaration
 } from "./registry-contract.ts";
 export type KernelEntityKind = CanonicalEntityKind;
+export const entityRegistryVersion = 1 as const;
 
 export type EntityRegistryShape = {
   readonly decision: EntityRegistration<DecisionFieldKey>;
@@ -79,7 +80,9 @@ export const entityRegistry = {
       unsupported("D4", "hard-delete", "decision is why-memory and must never be physically deleted")
     ]),
     storageForm: "lifecycle",
-    identityCodec: canonicalIdentityCodec("decision", ["decisionId"]),
+    ...readyIdentityProjectionFacets("decision", ["decisionId"], {
+      table: "decision_projection", idColumn: "decision_id", identityField: "decisionId"
+    }),
     storageLocator: readyStorageLocator({
       locate: (identity) => {
         const documentPath = `decisions/decision-${identity.decisionId}/decision.md`;
@@ -91,7 +94,6 @@ export const entityRegistry = {
     }),
     mutationContract: deferredRegistryFacet("W3", "OQ-3 action vocabulary is not registered"),
     semanticDiff: deferredRegistryFacet("W5", "managed decision semanticDiff is not installed"),
-    projectionFacet: deferredRegistryFacet("W1", "canonical v1/v2 union projection is not installed")
   },
   task: {
     kind: "task",
@@ -110,7 +112,9 @@ export const entityRegistry = {
       supported("D4", "hard-delete", ["package_delete_hard"], "task hard delete is allowed only after lower-bound checks and explicit confirmation")
     ]),
     storageForm: "lifecycle",
-    identityCodec: canonicalIdentityCodec("task", ["taskId"]),
+    ...readyIdentityProjectionFacets("task", ["taskId"], {
+      table: "task_projection", idColumn: "task_id", identityField: "taskId"
+    }),
     storageLocator: readyStorageLocator({
       locate: (identity) => ({
         targets: [{ kind: "document", path: `tasks/${identity.taskId}`, access: "prefix" }],
@@ -119,7 +123,6 @@ export const entityRegistry = {
     }),
     mutationContract: deferredRegistryFacet("W3", "OQ-3 action vocabulary is not registered"),
     semanticDiff: deferredRegistryFacet("W5", "managed task semanticDiff is not installed"),
-    projectionFacet: deferredRegistryFacet("W1", "canonical v1/v2 union projection is not installed")
   },
   fact: {
     kind: "fact",
@@ -138,7 +141,7 @@ export const entityRegistry = {
       unsupported("D4", "hard-delete", "fact must never be physically deleted as a standalone entity")
     ]),
     storageForm: "schema",
-    identityCodec: canonicalIdentityCodec("fact", ["taskId", "factId"]),
+    ...readyIdentityProjectionFacets("fact", ["taskId", "factId"]),
     storageLocator: readyStorageLocator({
       locate: (identity) => {
         const documentPath = `tasks/${identity.taskId}/facts.md`;
@@ -150,7 +153,6 @@ export const entityRegistry = {
     }),
     mutationContract: deferredRegistryFacet("W2", "OQ-3 action vocabulary is not registered"),
     semanticDiff: deferredRegistryFacet("W5", "facts-region semanticDiff is not installed"),
-    projectionFacet: deferredRegistryFacet("W1", "canonical v1/v2 union projection is not installed")
   },
   relation: {
     kind: "relation",
@@ -169,11 +171,10 @@ export const entityRegistry = {
       unsupported("D4", "hard-delete", "relation records are provenance-bearing and are not physically deleted")
     ]),
     storageForm: "host_frontmatter",
-    identityCodec: canonicalIdentityCodec("relation", ["relationId"]),
+    ...readyIdentityProjectionFacets("relation", ["relationId"]),
     storageLocator: readyStorageLocator({ locate: locateRelationStorage }),
     mutationContract: deferredRegistryFacet("W2", "OQ-3 action vocabulary is not registered"),
     semanticDiff: deferredRegistryFacet("W5", "relation-bearing semanticDiff is not installed"),
-    projectionFacet: deferredRegistryFacet("W1", "canonical v1/v2 union projection is not installed")
   },
   module: {
     kind: "module",
@@ -192,7 +193,7 @@ export const entityRegistry = {
       unsupported("D4", "hard-delete", "module registry history is retained")
     ]),
     storageForm: "schema",
-    identityCodec: canonicalIdentityCodec("module", ["moduleKey"]),
+    ...readyIdentityProjectionFacets("module", ["moduleKey"]),
     storageLocator: readyStorageLocator({
       locate: () => ({
         targets: [{ kind: "document", path: "modules.json", access: "exact" }],
@@ -201,7 +202,6 @@ export const entityRegistry = {
     }),
     mutationContract: deferredRegistryFacet("W3", "OQ-3 action vocabulary is not registered"),
     semanticDiff: deferredRegistryFacet("W5", "module registry semanticDiff is not installed"),
-    projectionFacet: deferredRegistryFacet("W1", "module canonical union projection is not installed")
   },
   session: sessionEntityRegistration,
   execution: executionDeclaration,

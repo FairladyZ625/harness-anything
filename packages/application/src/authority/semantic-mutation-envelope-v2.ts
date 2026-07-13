@@ -1,5 +1,13 @@
 import type { RegistryMutationPlanInput, StoragePlan, WriteOp } from "../../../kernel/src/index.ts";
 import {
+  semanticMutationSetBytesV2,
+  semanticMutationSetDigestV2,
+  semanticMutationSetWireV2,
+  validateSemanticMutationSetV2,
+  type RegistryEntityRefV2,
+  type SemanticMutationSetV2
+} from "../../../kernel/src/index.ts";
+import {
   actorAxesBindingDigestV2,
   type ActorAxesBindingClaimsV2,
   type ProtocolSchemaTupleV2
@@ -13,29 +21,19 @@ import {
 } from "./canonical-cbor.ts";
 
 export const semanticMutationEnvelopeV2Schema = "semantic-mutation-envelope/v2" as const;
-export const semanticMutationSetV2Domain = "ha/semantic-mutation-set/v2\0";
 export const semanticRequestV2Domain = "ha/semantic-request/v2\0";
 
-export interface RegistryEntityRefV2 {
-  readonly registryVersion: number;
-  readonly entityKind: string;
-  readonly canonicalRef: string;
-}
-
-export interface RegisteredSemanticActionV2 {
-  readonly registryVersion: number;
-  readonly action: string;
-}
-
-export interface SemanticMutationV2 {
-  readonly entity: RegistryEntityRefV2;
-  readonly action: RegisteredSemanticActionV2;
-}
-
-export interface SemanticMutationSetV2 {
-  readonly registryVersion: number;
-  readonly mutations: ReadonlyArray<SemanticMutationV2>;
-}
+export {
+  semanticMutationSetBytesV2,
+  semanticMutationSetDigestV2,
+  semanticMutationSetV2Domain
+} from "../../../kernel/src/index.ts";
+export type {
+  RegisteredSemanticActionV2,
+  RegistryEntityRefV2,
+  SemanticMutationSetV2,
+  SemanticMutationV2
+} from "../../../kernel/src/index.ts";
 
 export type ContentValueV2 =
   | { readonly kind: "inline"; readonly size: bigint; readonly bytes: Uint8Array }
@@ -160,15 +158,6 @@ export function decodeSemanticMutationEnvelopeV2(bytes: Uint8Array): SemanticMut
     throw new SemanticAdmissionErrorV2("ENVELOPE_CBOR_NON_CANONICAL");
   }
   return envelope;
-}
-
-export function semanticMutationSetBytesV2(set: SemanticMutationSetV2): Uint8Array {
-  validateMutationSet(set);
-  return encodeCanonicalCbor(mutationSetWire(set));
-}
-
-export function semanticMutationSetDigestV2(set: SemanticMutationSetV2): Uint8Array {
-  return domainHash(semanticMutationSetV2Domain, semanticMutationSetBytesV2(set));
 }
 
 export function semanticRequestDigestV2(envelope: Omit<SemanticMutationEnvelopeV2, "claimedSemanticRequestDigest">): Uint8Array {
@@ -367,8 +356,7 @@ function intentFromWire(value: CanonicalCborValue): SemanticIntentV2 {
   throw new SemanticAdmissionErrorV2("SEMANTIC_INTENT_VARIANT_REQUIRED");
 }
 
-function mutationSetWire(set: SemanticMutationSetV2): CanonicalCborValue { return { registryVersion: set.registryVersion, mutations: set.mutations.map(mutationWire) }; }
-function mutationWire(mutation: SemanticMutationV2): CanonicalCborValue { return { entity: entityWire(mutation.entity), action: { registryVersion: mutation.action.registryVersion, action: mutation.action.action } }; }
+function mutationSetWire(set: SemanticMutationSetV2): CanonicalCborValue { return semanticMutationSetWireV2(set); }
 function entityWire(entity: RegistryEntityRefV2): CanonicalCborValue { return { registryVersion: entity.registryVersion, entityKind: entity.entityKind, canonicalRef: entity.canonicalRef }; }
 function mutationSetFromWire(value: CanonicalCborValue): SemanticMutationSetV2 { const wire = exactRecord(value, ["registryVersion", "mutations"], "SemanticMutationSetV2"); return { registryVersion: uint32(wire.registryVersion, "registryVersion"), mutations: list(wire.mutations, "mutations").map((entry) => { const row = exactRecord(entry, ["entity", "action"], "SemanticMutationV2"); const action = exactRecord(row.action, ["registryVersion", "action"], "RegisteredSemanticActionV2"); return { entity: entityFromWire(row.entity), action: { registryVersion: uint32(action.registryVersion, "action.registryVersion"), action: text(action.action, "action") } }; }) }; }
 function entityFromWire(value: CanonicalCborValue): RegistryEntityRefV2 { const row = exactRecord(value, ["registryVersion", "entityKind", "canonicalRef"], "RegistryEntityRefV2"); return { registryVersion: uint32(row.registryVersion, "entity.registryVersion"), entityKind: text(row.entityKind, "entityKind"), canonicalRef: text(row.canonicalRef, "canonicalRef") }; }
@@ -388,14 +376,11 @@ function validateEnvelope(envelope: SemanticMutationEnvelopeV2): void {
 }
 
 function validateMutationSet(set: SemanticMutationSetV2): void {
-  uint32(set.registryVersion, "registryVersion");
-  let previous: Uint8Array | undefined;
-  for (const mutation of set.mutations) {
-    if (mutation.entity.registryVersion !== set.registryVersion || mutation.action.registryVersion !== set.registryVersion) throw new SemanticAdmissionErrorV2("MUTATION_REGISTRY_VERSION_MISMATCH");
-    text(mutation.entity.entityKind, "entityKind"); text(mutation.entity.canonicalRef, "canonicalRef"); text(mutation.action.action, "action");
-    const encoded = encodeCanonicalCbor(mutationWire(mutation));
-    if (previous && Buffer.compare(Buffer.from(previous), Buffer.from(encoded)) >= 0) throw new SemanticAdmissionErrorV2("MUTATIONS_NOT_CANONICAL_SET");
-    previous = encoded;
+  try {
+    validateSemanticMutationSetV2(set);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_MUTATION_SET";
+    throw new SemanticAdmissionErrorV2(code, code);
   }
 }
 

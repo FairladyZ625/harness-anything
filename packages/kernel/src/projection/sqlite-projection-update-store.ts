@@ -24,10 +24,10 @@ import {
   insertFactAnchor,
   insertRelationEdge,
   insertTaskRow,
-  hashAttributionProjectionState,
   queryableTaskFieldExtensions,
   runSqlite
 } from "./sqlite-projection-store.ts";
+import { hashAttributionProjectionState } from "./sqlite-attribution-state-hash.ts";
 
 export function updateProjectionDatabase(
   projectionPath: string,

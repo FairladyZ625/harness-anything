@@ -35,7 +35,7 @@ import {
 import {
   entityRegistry,
   makeJournaledWriteCoordinator,
-  readAttributionEvents,
+  readUnionAttributionEvents,
   taskEntityId,
   type WriteAttribution
 } from "../../kernel/src/index.ts";
@@ -72,7 +72,7 @@ const v2EntityRegistrations = [{
   ...entityRegistry.task,
   mutationContract: { status: "ready", actions: ["update"] },
   semanticDiff: { status: "ready", compile: () => [] },
-  projectionFacet: { status: "ready", project: () => undefined }
+  projectionFacet: { status: "ready", project: () => undefined, resolveCanonicalRef: () => ({}) }
 }] as const;
 
 test("portable-ascii-v2 rejects reserved, non-ASCII, overlong, and Windows-budget paths", () => {
@@ -146,7 +146,7 @@ test("authority microbatches concurrent admissions into one linear publication w
     assert.deepEqual(changes.map((change) => change.revision), [1, 2, 3, 4, 5, 6, 7, 8]);
     assert.equal(changes.every((change) => change.commitSha === receipts[0]?.commitSha), true);
     assert.equal(changes.every((change) => change.previousCommit === seedHead), true);
-    const attributionEvents = readAttributionEvents(rootDir);
+    const attributionEvents = readUnionAttributionEvents(rootDir);
     assert.deepEqual(attributionEvents.map((event) => event.opId), envelopes.map((envelope) => envelope.opId));
     assert.deepEqual(
       attributionEvents.map((event) => event.actor.principal.personId),
@@ -310,7 +310,7 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
       opId: receipt.opId,
       semanticMutationSetDigest: receipt.tag === "COMMITTED" ? receipt.authorityIntegrity!.semanticMutationSetDigest : ""
     })));
-    const events = readAttributionEvents(rootDir);
+    const events = readUnionAttributionEvents(rootDir);
     assert.deepEqual(events.map((event) => event.authorityIntegrity?.semanticMutationSetDigest), trailerEntries.map((entry) => entry.semanticMutationSetDigest));
     assert.deepEqual(events.map((event) => event.authorityIntegrity?.canonicalMutationSet), envelopes.map((envelope) => envelope.claimedMutationSet));
     assert.equal((await changeLog.changesAfter(workspaceId, 0)).every((change) => Boolean(change.authorityIntegrity)), true);
