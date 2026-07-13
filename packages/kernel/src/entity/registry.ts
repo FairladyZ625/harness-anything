@@ -15,7 +15,8 @@ import { reviewDeclaration } from "./review-declaration.ts";
 import {
   deferredRegistryFacet,
   readyIdentityProjectionFacets,
-  readyStorageLocator
+  readyStorageLocator,
+  typedOnlySemanticDiff
 } from "./registry-compiler.ts";
 import { sessionEntityRegistration } from "./session-declaration.ts";
 import type { DispositionAction, DispositionLevel, DispositionMatrixEntry, EntityDispositionMatrix, EntityRegistration } from "./registry-contract.ts";
@@ -151,8 +152,8 @@ export const entityRegistry = {
         };
       }
     }),
-    mutationContract: deferredRegistryFacet("W2", "OQ-3 action vocabulary is not registered"),
-    semanticDiff: deferredRegistryFacet("W5", "facts-region semanticDiff is not installed"),
+    mutationContract: { status: "ready", actions: ["create", "invalidate"] },
+    semanticDiff: typedOnlySemanticDiff("W2 enables typed commands only; facts-region semanticDiff remains owned by W5"),
   },
   relation: {
     kind: "relation",
@@ -173,8 +174,8 @@ export const entityRegistry = {
     storageForm: "host_frontmatter",
     ...readyIdentityProjectionFacets("relation", ["relationId"]),
     storageLocator: readyStorageLocator({ locate: locateRelationStorage }),
-    mutationContract: deferredRegistryFacet("W2", "OQ-3 action vocabulary is not registered"),
-    semanticDiff: deferredRegistryFacet("W5", "relation-bearing semanticDiff is not installed"),
+    mutationContract: { status: "ready", actions: ["create", "retire"] },
+    semanticDiff: typedOnlySemanticDiff("W2 enables typed commands only; relation-bearing semanticDiff remains owned by W5"),
   },
   module: {
     kind: "module",

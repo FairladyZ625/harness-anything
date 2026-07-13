@@ -1,4 +1,5 @@
 export * from "./domain/index.ts";
+export { parseDecisionDocument } from "./domain/decision-document.ts";
 export { executionStates } from "./domain/execution.ts";
 export type {
   ExecutionRecord,
@@ -49,6 +50,7 @@ export {
   actorAxesBindingCoreV2Domain
 } from "./integrity/actor-axes-binding-integrity-v2.ts";
 export type { ProtocolSchemaTupleV2Core } from "./integrity/actor-axes-binding-integrity-v2.ts";
+export type { ActorAxesBindingCoreV2 } from "./integrity/actor-axes-binding-integrity-v2.ts";
 export {
   canonicalCborBytesEqual,
   decodeCanonicalCbor,
@@ -97,7 +99,10 @@ export {
 export { queryExecutionEvidencePage } from "./projection/sqlite-execution-evidence-reader.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
-export { readAttributionProjection } from "./projection/sqlite-attribution-projection.ts";
+export {
+  materializeAttributionProjectionFromEvents,
+  readAttributionProjection
+} from "./projection/sqlite-attribution-projection.ts";
 export type { EntityAttributionProjection } from "./projection/types.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
@@ -113,8 +118,10 @@ export type { AttributionEvent } from "./schemas/attribution-event.ts";
 export type { UnionAttributionEvent } from "./schemas/attribution-event-union.ts";
 export {
   canonicalAttributionEventDigestV2,
-  physicalChangeSetDigestV2
+  decodeAndVerifyAttributionEventV2,
+  physicalChangeSetDigestV2,
 } from "./schemas/attribution-event-union.ts";
+export type { AttributionEventV2, PhysicalChangeV2 } from "./schemas/attribution-event-union.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
   makeJournaledWriteCoordinator,

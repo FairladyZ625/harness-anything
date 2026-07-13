@@ -1,4 +1,5 @@
 import { isCanonicalEntityKind, type CanonicalEntityKind } from "./canonical-kinds.ts";
+import { encodeCanonicalCbor } from "../integrity/canonical-cbor.ts";
 import type {
   DeferredRegistryFacet,
   EntityIdentity,
@@ -151,7 +152,7 @@ export function compileRegistryMutationPlan(
     throw new Error(`INVALID_REGISTRY_VERSION:${input.registryVersion}`);
   }
   const compiled = input.mutations.map((intent) => compileIntent(registry, input.registryVersion, intent));
-  compiled.sort((left, right) => mutationKey(left.mutation).localeCompare(mutationKey(right.mutation), "en"));
+  compiled.sort((left, right) => compareCanonicalBytes(mutationWire(left.mutation), mutationWire(right.mutation)));
   const seenMutations = new Set<string>();
   for (const entry of compiled) {
     const key = mutationKey(entry.mutation);
@@ -161,7 +162,8 @@ export function compileRegistryMutationPlan(
   const mutations = compiled.map((entry) => entry.mutation);
   const targets = uniqueSorted(compiled.flatMap((entry) => entry.storage.targets), storageTargetKey);
   const touchedPaths = targets.flatMap((target) => target.path ? [target.path] : []);
-  const consistencyScopes = [...new Set(compiled.map((entry) => entry.storage.consistencyScope))].sort();
+  const consistencyScopes = [...new Set(compiled.map((entry) => entry.storage.consistencyScope))]
+    .sort(compareUtf8Bytes);
   const mutationSet: RegistrySemanticMutationSet = { registryVersion: input.registryVersion, mutations };
   const storagePlan: StoragePlan = {
     schema: "storage-plan/v1",
@@ -260,7 +262,29 @@ function storageTargetKey(target: StorageTarget): string {
   return `${target.kind}\0${target.path ?? ""}\0${target.access}\0${target.referenceField ?? ""}`;
 }
 
+function mutationWire(mutation: RegistrySemanticMutation): Uint8Array {
+  return encodeCanonicalCbor({
+    entity: {
+      registryVersion: mutation.entity.registryVersion,
+      entityKind: mutation.entity.entityKind,
+      canonicalRef: mutation.entity.canonicalRef
+    },
+    action: {
+      registryVersion: mutation.action.registryVersion,
+      action: mutation.action.action
+    }
+  });
+}
+
+function compareCanonicalBytes(left: Uint8Array, right: Uint8Array): number {
+  return Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
+
+function compareUtf8Bytes(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
+}
+
 function uniqueSorted<T>(values: ReadonlyArray<T>, keyOf: (value: T) => string): ReadonlyArray<T> {
   const byKey = new Map(values.map((value) => [keyOf(value), value]));
-  return [...byKey.entries()].sort(([left], [right]) => left.localeCompare(right, "en")).map(([, value]) => value);
+  return [...byKey.entries()].sort(([left], [right]) => compareUtf8Bytes(left, right)).map(([, value]) => value);
 }

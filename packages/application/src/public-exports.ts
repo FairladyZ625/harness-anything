@@ -42,6 +42,8 @@ export type {
 export * from "./authority/actor-axes-binding-v2.ts";
 export * from "./authority/canonical-cbor.ts";
 export * from "./authority/semantic-mutation-envelope-v2.ts";
+export * from "./authority/fact-relation-semantic-compiler-v2.ts";
+export * from "./authority/committed-attribution-event-v2.ts";
 export type { AuthoritySubmissionV2Options } from "./authority/service.ts";
 export type {
   CanonicalPublicationObservation,
