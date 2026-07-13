@@ -19,8 +19,9 @@ const SCALE_OPTIONS: { key: UiScale; label: string }[] = [
   { key: "comfortable", get label() { return t("views.settingsView.loose"); } },
 ];
 
-// 已实现的快捷键(其余 ⌘K/⌘1..5/R/X 暂未实现,已从此清单移除以免假承诺)。
+// 已实现的快捷键。Cmd+K 全局命令面板(gui-b);其余 ⌘1..5/R/X 暂未实现,不在此清单中假承诺。
 const SHORTCUTS: { keys: string[]; desc: string }[] = [
+  { keys: ["⌘", "K"], get desc() { return t("views.settingsView.openCommandPalette"); } },
   { keys: ["Esc"], get desc() { return t("views.settingsView.closePreviewDrawer"); } },
   { keys: ["Enter"], get desc() { return t("views.settingsView.openTaskDetailsList"); } },
 ];

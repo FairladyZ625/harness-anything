@@ -1,95 +1,49 @@
-import { useMemo, useState } from "react";
-import { MagnifyingGlass, Graph } from "@phosphor-icons/react";
-import type { DecisionRow, TaskRow } from "../model/types";
+import { Graph, MagnifyingGlass } from "@phosphor-icons/react";
+import type { EntityHit } from "../model/entitySearch";
 import { t } from "../i18n/index.tsx";
 
 /**
- * GraphView 焦点切换器(dec_01KXA7811SVVT8P66HNDFZQ7DF — 关系图可用性)。
+ * GraphView 左栏:Cmd+K 触发器 + 最近焦点实体(≤12)。
  *
- * 移植原型 .harness/generated/triadic-graph/index.html 的左栏交互:
- *   - 顶部搜索框(标题子串匹配,空格分词 AND);
- *   - 列表按「关系度数」(claim / 边数)降序,承接原型 decs.sort(byDeg);
- *   - 点选 = 换焦点(setFocusId),并显示当前焦点高亮(active);
- *   - decisions 优先(tasks 在它之后,facts 不进列表——锚点而非焦点候选)。
+ * gui-b 之前是「全量列表 + 搜索框」(~400 行线性滚动,结构性排除 fact);
+ * 现在统一查找入口已迁移到 Cmd+K 命令面板(三原语都进索引)。本组件降级为
+ * 「打开面板的按钮 + Recent」——Recent 仍允许单击直接切换画布焦点,
+ * 让常用实体不用每次都开面板。
  *
- * 不调后端、不读写 IPC;纯展示组件,焦点变更由父组件 GraphView 走 setFocusId。
+ * Recent 的真源在 App.tsx:任何 focusEntityInGraph / focusEntityInWorkspace
+ * 触发时把 ref 推到最前,App 通过 GraphView 把解析好的 EntityHit[] 传进来。
+ *
+ * 焦点切换的 navRef 形态:task/<id> | decision/<id> | fact/<task>/<anchor>。
+ * useEgoCanvas.openFocus 内部经 egoFocusIdOf 归一到 byId 键空间,这里直接透传。
  */
 
-interface Props {
-  decisions: DecisionRow[];
-  tasks: TaskRow[];
-  /** 当前焦点节点 id(decision/<id> | task/<id> | fact/...);列表命中即高亮。 */
-  focusId: string | null;
-  /** 用户点选实体时触发;父组件负责推焦点历史 + 触发布局重算。 */
-  onFocus: (nodeId: string) => void;
-}
+const RECENT_MAX = 12;
 
-const KIND_LABEL: Record<"decision" | "task", string> = {
+const KIND_LABEL: Record<EntityHit["kind"], string> = {
   decision: "decision",
   task: "task",
+  fact: "fact",
 };
 
-const KIND_COLOR: Record<"decision" | "task", string> = {
+const KIND_COLOR: Record<EntityHit["kind"], string> = {
   decision: "var(--color-accent)",
   task: "var(--color-axis-execution)",
+  fact: "var(--color-axis-evidence)",
 };
 
-interface ListItem {
-  kind: "decision" | "task";
-  id: string;
-  nodeId: string;
-  title: string;
-  meta: string;
-  weight: number;
+interface Props {
+  /** 最近访问的实体(权重最高的 RECENT_MAX 个,已解析好 title/subtitle)。 */
+  recentHits: readonly EntityHit[];
+  /** 当前焦点节点的 byId key(裸 task id / decision/<id> / fact/...);列表命中即高亮。 */
+  focusId: string | null;
+  /** 用户点 Recent 项触发;父组件把 ref 翻译成画布焦点。 */
+  onFocus: (navRef: string) => void;
+  /** 点击触发器或快捷键提示时打开 Cmd+K 面板。 */
+  onOpenPalette: () => void;
 }
 
-/** 把搜索串切成查询段,空返回 null(表示不过滤)。 */
-function splitQueryTerms(query: string): string[] | null {
-  const trimmed = query.trim().toLowerCase();
-  if (!trimmed) return null;
-  return trimmed.split(/\s+/u);
-}
-
-function matchesQuery(title: string, id: string, terms: string[] | null): boolean {
-  if (!terms) return true;
-  const hay = `${title} ${id}`.toLowerCase();
-  return terms.every((term) => hay.includes(term));
-}
-
-export function FocusSwitcher({ decisions, tasks, focusId, onFocus }: Props) {
-  const [query, setQuery] = useState("");
-
-  const items = useMemo<ListItem[]>(() => {
-    const decisionItems: ListItem[] = decisions.map((d) => ({
-      kind: "decision",
-      id: d.decisionId,
-      nodeId: `decision/${d.decisionId}`,
-      title: d.title,
-      meta: `${d.state} · ${d.claims.length} claim`,
-      // claim 数 + 状态权重:active/proposed 优先。
-      weight: d.claims.length * 10 + (d.state === "active" ? 5 : d.state === "proposed" ? 3 : 0),
-    }));
-    const taskItems: ListItem[] = tasks.map((t) => ({
-      kind: "task",
-      id: t.taskId,
-      nodeId: t.taskId,
-      title: t.title,
-      meta: `${t.coordinationStatus} · ${t.module || "—"}`,
-      // task 排在 decision 之后;同 kind 内按 module/title 稳定。
-      weight: 0,
-    }));
-    // decisions 按 weight 降序;tasks 保留输入顺序(已按 module/project 排好)。
-    decisionItems.sort((a, b) => b.weight - a.weight);
-    return [...decisionItems, ...taskItems];
-  }, [decisions, tasks]);
-
-  const terms = splitQueryTerms(query);
-  const visible = useMemo(
-    () => items.filter((it) => matchesQuery(it.title, it.id, terms)),
-    [items, terms],
-  );
-
-  const decisionCount = items.filter((it) => it.kind === "decision").length;
+export function FocusSwitcher({ recentHits, focusId, onFocus, onOpenPalette }: Props) {
+  const recent = recentHits.slice(0, RECENT_MAX);
 
   return (
     <aside
@@ -99,43 +53,50 @@ export function FocusSwitcher({ decisions, tasks, focusId, onFocus }: Props) {
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Graph weight="duotone" className="shrink-0 text-text-muted" />
         <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-          {t("components.focusSwitcher.focusSwitch")}</span>
-        <span className="ml-auto font-mono text-[11px] text-text-faint">
-          {decisionCount} {t("components.focusSwitcher.decision")}{items.length - decisionCount} {t("components.focusSwitcher.task")}</span>
+          {t("components.focusSwitcher.focusSwitch")}
+        </span>
       </div>
 
-      <label className="relative block border-b border-border px-2 py-2">
-        <span className="sr-only">{t("components.focusSwitcher.searchFocusEntity")}</span>
-        <MagnifyingGlass
-          weight="bold"
-          className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-text-faint"
-        />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("components.focusSwitcher.searchDecisionsTasks")}
-          className="w-full rounded-md border border-border bg-surface-raised py-1.5 pl-7 pr-2 text-[12px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </label>
+      {/* Cmd+K 触发器:代替原来的搜索框。点击打开命令面板。 */}
+      <button
+        type="button"
+        onClick={onOpenPalette}
+        data-testid="focus-switcher-palette-trigger"
+        className="m-2 flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-left text-[12px] text-text-muted transition-colors hover:border-border-strong hover:text-text"
+      >
+        <MagnifyingGlass weight="bold" className="size-3.5 shrink-0 text-text-faint" />
+        <span className="flex-1 truncate">{t("components.focusSwitcher.searchEntityPlaceholder")}</span>
+        <span className="font-mono text-[10px] text-text-faint">⌘K</span>
+      </button>
+
+      <div className="flex items-center justify-between px-3 pb-1 pt-1">
+        <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+          {t("components.focusSwitcher.recent")}
+        </span>
+        <span className="font-mono text-[10px] text-text-faint">
+          {t("components.focusSwitcher.recentCount", { count: recent.length })}
+        </span>
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {visible.length === 0 ? (
+        {recent.length === 0 ? (
           <div className="px-3 py-3 text-[12px] leading-relaxed text-text-faint">
-            {t("components.focusSwitcher.noHitEntitiesClearSearchSeeThem")}</div>
+            {t("components.focusSwitcher.recentEmptyHint")}
+          </div>
         ) : (
           <ul className="flex flex-col py-1">
-            {visible.map((it) => {
-              const active = it.nodeId === focusId;
-              const accent = KIND_COLOR[it.kind];
+            {recent.map((hit) => {
+              // focusId 是 ego byId key;hit.ref 是 navRef。对 decision/fact 两者同形,
+              // 只 task 不同(裸 id vs task/<id>)。统一对比时归一一下。
+              const hitFocusKey = hit.kind === "task" ? hit.id : hit.ref;
+              const active = hitFocusKey === focusId;
+              const accent = KIND_COLOR[hit.kind];
               return (
-                <li key={`${it.kind}/${it.id}`}>
+                <li key={hit.ref}>
                   <button
                     type="button"
-                    onClick={() => onFocus(it.nodeId)}
-                    title={it.title}
+                    onClick={() => onFocus(hit.ref)}
+                    title={hit.title}
                     aria-pressed={active}
                     className={`group flex w-full flex-col gap-0.5 border-l-2 px-3 py-1.5 text-left transition-colors ${
                       active
@@ -155,14 +116,14 @@ export function FocusSwitcher({ decisions, tasks, focusId, onFocus }: Props) {
                           active ? "text-accent" : "text-text-faint"
                         }`}
                       >
-                        {KIND_LABEL[it.kind]}
+                        {KIND_LABEL[hit.kind]}
                       </span>
                       <span className="ml-auto truncate font-mono text-[10px] text-text-faint">
-                        {it.meta}
+                        {hit.id}
                       </span>
                     </span>
                     <span className="line-clamp-2 text-[12px] leading-snug">
-                      {it.title}
+                      {hit.title}
                     </span>
                   </button>
                 </li>

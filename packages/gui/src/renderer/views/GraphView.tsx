@@ -41,6 +41,7 @@ import {
   type GraphFilters,
 } from "../components/GraphFilterPanel";
 import { FocusSwitcher } from "../components/FocusSwitcher";
+import type { EntityHit } from "../model/entitySearch";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { useColorMode } from "./graphColorMode";
 import { GraphLegend } from "./GraphLegend";
@@ -90,6 +91,8 @@ function GraphViewInner({
   onNavigateEntity,
   onFocusEntityChange,
   focusRef,
+  recentHits,
+  onOpenPalette,
 }: {
   tasks: TaskRow[];
   relations: RelationEdge[];
@@ -104,6 +107,10 @@ function GraphViewInner({
    */
   onFocusEntityChange?: (id: string | null) => void;
   focusRef?: string | null;
+  /** FocusSwitcher 退役后:Recent 列表由 App.tsx 派生,GraphView 只透传。 */
+  recentHits?: readonly EntityHit[];
+  /** Cmd+K 命令面板触发器,打开全局面板。 */
+  onOpenPalette?: () => void;
 }) {
   const colorMode = useColorMode();
 
@@ -414,10 +421,10 @@ function GraphViewInner({
 
       <div ref={canvasContainerRef} className="flex min-h-0 flex-1 relative">
         <FocusSwitcher
-          decisions={decisions ?? []}
-          tasks={tasks}
+          recentHits={recentHits ?? []}
           focusId={focusId}
           onFocus={switchFocusFromList}
+          onOpenPalette={onOpenPalette ?? (() => undefined)}
         />
         <ReactFlow
           nodes={displayNodes}

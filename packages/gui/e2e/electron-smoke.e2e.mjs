@@ -1,77 +1,23 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import test from "node:test";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
+import {
+  repoRoot,
+  guiRoot,
+  localeLiteral,
+  localeText,
+  localeRe,
+  escapeRegex,
+  captureGraphEvidence,
+  writeTriadicLedger,
+  closeElectronApp,
+  sleep,
+} from "./harness-fixture.mjs";
 
-const repoRoot = resolve(import.meta.dirname, "../../..");
-const guiRoot = resolve(repoRoot, "packages/gui");
-
-// The smoke test pins the renderer to zh-CN below, so it must expect zh-CN copy.
-// Read it from the catalog rather than hardcoding it: the copy is not the contract,
-// the key is. Copy edits must not break this test; a deleted key must.
-// The catalog is sharded by namespace (components / graph / model / renderer / views),
-// mirroring how i18n/core.ts merges them into one flat key→message map.
-const localeDir = resolve(guiRoot, "src/renderer/i18n/locales/zh-CN");
-const readLocale = (name) => JSON.parse(readFileSync(resolve(localeDir, name), "utf8"));
-const smokeLocale = {
-  ...readLocale("components.json"),
-  ...readLocale("graph.json"),
-  ...readLocale("model.json"),
-  ...readLocale("renderer.json"),
-  ...readLocale("views.json"),
-};
-
-function localeLiteral(key) {
-  const template = smokeLocale[key];
-  assert.ok(typeof template === "string", `smoke test expects locale key ${key} to exist`);
-  // Keep only the leading placeholder-free run so interpolated counts do not couple
-  // the assertion to whatever the fixture ledger happens to contain.
-  const literal = template.split("{")[0].trim();
-  assert.ok(literal.length > 0, `locale key ${key} starts with a placeholder, cannot anchor on it`);
-  return literal;
-}
-
-// Some assertions need the full interpolated string (e.g. when a {placeholder}
-// value is known and stable from the fixture). Use sparingly — prefer localeLiteral
-// so copy tweaks don't break the test.
-function localeText(key, params = {}) {
-  const template = smokeLocale[key];
-  assert.ok(typeof template === "string", `smoke test expects locale key ${key} to exist`);
-  return template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/gu, (_, name) =>
-    params[name] !== undefined ? String(params[name]) : `{${name}}`,
-  );
-}
-
-// Build a case-insensitive regex that matches the locale literal for a key,
-// tolerating arbitrary whitespace between the leading words. Used for button /
-// heading selectors where the accessible name is locale copy, not an English id.
-function localeRe(key, flags = "u") {
-  return new RegExp(escapeRegex(localeLiteral(key)), flags);
-}
-
-function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
-// dec_01KXA7811SVVT8P66HNDFZQ7DF GUI usability evidence shots. The directory
-// is a sibling of the hermetic ledger so it gets cleaned up with the test run
-// but stays readable from a developer machine. Set HARNESS_GUI_E2E_SHOTS to
-// a stable absolute path to retain shots across runs (used for closeout evidence).
-const screenshotDir = process.env.HARNESS_GUI_E2E_SHOTS
-  ? resolve(process.env.HARNESS_GUI_E2E_SHOTS)
-  : mkdtempSync(path.join(tmpdir(), "ha-gui-e2e-shots-"));
-
-async function captureGraphEvidence(page, name) {
-  const file = path.join(screenshotDir, `${name}.png`);
-  await page.screenshot({ path: file, fullPage: false }).catch((error) => {
-    console.warn(`[screenshot] ${name} failed: ${error.message}`);
-  });
-  return file;
-}
 test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async (t) => {
   const ledgerRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-e2e-"));
   writeTriadicLedger(ledgerRoot);
@@ -178,11 +124,14 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // a white SVG box. The legacy permanent multi-view switcher was retired
   // (G3 §③2): genealogy is now a facet of the entity workspace, not a
   // separate top-level view.
+  // FocusSwitcher retired (gui-b): the left rail is now a ⌘K trigger +
+  // Recent list (empty until the user picks an entity). Search moved into
+  // the Cmd+K command palette, which indexes all three primitives.
   const focusSwitcher = page.getByTestId("focus-switcher");
   await focusSwitcher.waitFor();
-  await focusSwitcher.getByRole("searchbox").waitFor();
-  await focusSwitcher.getByText("Expose the triadic projection to the GUI", { exact: false }).waitFor();
-  await focusSwitcher.getByText("Render the real triadic projection", { exact: false }).waitFor();
+  await focusSwitcher.getByTestId("focus-switcher-palette-trigger").waitFor();
+  // No full-list searchbox anymore — the linear 100+ row list is gone.
+  assert.equal(await focusSwitcher.getByRole("searchbox").count(), 0, "FocusSwitcher must not ship a full-list searchbox after gui-b retirement");
   const focusHistoryBar = page.getByTestId("focus-history-bar");
   await focusHistoryBar.waitFor();
   // Default-picked focus is on the graph but not yet in history; back/forward disabled.
@@ -281,35 +230,79 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // Collapse the task card (keep expanded neighbours, per useEgoCanvas invariant).
   await taskChip.locator(`button[title="${localeLiteral("graph.egoNode.collapseKeepExpandedNeighbors")}"]`).click();
 
-  // === Focus switcher: type-to-search ===
-  const switcherInput = focusSwitcher.getByRole("searchbox");
-  await switcherInput.fill("ancestor");
-  await focusSwitcher.getByText("Earlier GUI projection decision", { exact: false }).waitFor();
-  await focusSwitcher.getByText("Expose the triadic projection to the GUI", { exact: false })
-    .waitFor({ state: "detached" });
-  await captureGraphEvidence(page, "04-focus-switcher-search");
-  await switcherInput.clear();
-
-  // Pick the ancestor decision through the switcher (verifies openFocus).
-  await focusSwitcher.getByRole("button").filter({ hasText: "Earlier GUI projection decision" }).click();
+  // Command palette (gui-b): replaces the FocusSwitcher full-list search.
+  // Cmd+K opens a modal that indexes task / decision / fact together.
+  // Typing narrows by title/id substring; clicking a hit focuses it in the graph.
+  await page.keyboard.press("Meta+K");
+  // Some Linux hosts route Meta to Super; fall back to Ctrl+K if the palette
+  // did not open under Meta.
+  if (await page.getByTestId("command-palette").count() === 0) {
+    await page.keyboard.press("Control+K");
+  }
+  const commandPalette = page.getByTestId("command-palette");
+  await commandPalette.waitFor();
+  const paletteInput = commandPalette.getByTestId("command-palette-input");
+  await paletteInput.waitFor();
+  await paletteInput.fill("ancestor");
+  await commandPalette.getByText("Earlier GUI projection decision", { exact: false }).waitFor();
+  // The unrelated smoke decision must NOT appear under the "ancestor" filter.
+  assert.equal(
+    await commandPalette.getByTestId("command-palette-item").filter({ hasText: "Expose the triadic projection to the GUI" }).count(),
+    0,
+    "command palette must narrow hits by substring (smoke decision should be filtered out by 'ancestor')",
+  );
+  // Evidence: palette search narrows the list (replaces the legacy switcher screenshot).
+  await captureGraphEvidence(page, "03-command-palette-search");
+  // Pick the ancestor decision through the palette (verifies focusEntityInGraph).
+  await commandPalette.getByTestId("command-palette-item").filter({ hasText: "Earlier GUI projection decision" }).click();
   await focusHistoryBar.getByText("decision/dec_gui_ancestor", { exact: true })
     .waitFor()
     .catch(async () => {
       const bodyText = await page.locator("body").innerText().catch(() => "<empty>");
       throw new Error(
-        `breadcrumb did not show dec_gui_ancestor after switcher click.\n`
+        `breadcrumb did not show dec_gui_ancestor after command palette selection.\n`
         + `consoleFailures:\n${consoleFailures.join("\n")}\n`
         + `bodyText (first 2000 chars):\n${bodyText.slice(0, 2000)}`,
       );
     });
-  // History now has [ancestor] — back stays disabled. Set a second focus to
-  // exercise back/forward.
-  await focusSwitcher.getByRole("button").filter({ hasText: "Expose the triadic projection to the GUI" }).click();
-  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
   const prevFocusLabel = localeLiteral("components.focusHistoryBar.previousFocus");
   const nextFocusLabel = localeLiteral("components.focusHistoryBar.nextFocus");
+  // Recent list in the left rail now reflects the picked ancestor (gui-b:
+  // FocusSwitcher shows Recent instead of the full list).
+  await focusSwitcher.getByText("Earlier GUI projection decision", { exact: false }).waitFor();
+  // History now has [ancestor] — back stays disabled because there is nothing
+  // earlier in the user-navigated stack. Set a second focus to exercise back.
+  await page.keyboard.press("Meta+K");
+  if (await page.getByTestId("command-palette").count() === 0) {
+    await page.keyboard.press("Control+K");
+  }
+  await page.getByTestId("command-palette-input").fill("expose");
+  await page.getByTestId("command-palette-item").filter({ hasText: "Expose the triadic projection to the GUI" }).click();
+  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
   assert.equal(await focusHistoryBar.getByRole("button", { name: prevFocusLabel }).isDisabled(), false);
-  await captureGraphEvidence(page, "05-focus-history-back-forward-enabled");
+  // Evidence: history now has two entries with back/forward enabled.
+  await captureGraphEvidence(page, "04-focus-history-back-forward-enabled");
+  // Fact-in-index proof (gui-b): the legacy FocusSwitcher structurally
+  // excluded facts; the command palette must surface them. The smoke fixture
+  // has one fact (F-ABCDEFGH, "The GUI renderer received real triadic rows
+  // through the public bridge.") — typing its substring must surface a fact
+  // hit. Verifies the f: prefix as well.
+  await page.keyboard.press("Meta+K");
+  if (await page.getByTestId("command-palette").count() === 0) {
+    await page.keyboard.press("Control+K");
+  }
+  const factPalette = page.getByTestId("command-palette");
+  await factPalette.getByTestId("command-palette-input").fill("f:renderer received");
+  await factPalette.getByText(localeLiteral("components.commandPalette.groupFact"), { exact: true }).waitFor();
+  const factItem = factPalette.getByTestId("command-palette-item").filter({ hasText: "renderer received" });
+  await factItem.waitFor();
+  // data-hit-kind sits on the palette item itself, not on a descendant — locator() would look past it.
+  assert.equal(await factItem.getAttribute("data-hit-kind"), "fact", "palette item matching fact substring must be tagged kind=fact");
+  // Evidence: fact enters the unified index.
+  await captureGraphEvidence(page, "04b-command-palette-fact-in-index");
+  // Close the palette without selecting — Esc keyboard path.
+  await page.keyboard.press("Escape");
+  await page.getByTestId("command-palette").waitFor({ state: "detached" });
   // Back returns to the ancestor; forward restores the smoke decision.
   await focusHistoryBar.getByRole("button", { name: prevFocusLabel }).click();
   await focusHistoryBar.getByText("decision/dec_gui_ancestor", { exact: true }).waitFor();
@@ -393,6 +386,29 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
     throw new Error(`${error.message}\nCurrent renderer text:\n${await page.locator("body").innerText()}`);
   });
 
+  // Decision pool title/id search (gui-b): the pool previously had seven select
+  // dimensions but no text search. Typing an id prefix must locate the card.
+  // Reset filters first, then type the id; only the smoke decision matches.
+  await page.getByTestId("decision-pool-reset-filters").click();
+  const poolSearch = page.getByTestId("decision-pool-search");
+  await poolSearch.fill("dec_gui_smoke");
+  assert.equal(
+    await page.locator('[id^="decision-card-"]').count(),
+    1,
+    "decision pool search by id prefix must narrow to exactly one card",
+  );
+  await page.getByRole("heading", { name: "Expose the triadic projection to the GUI", exact: true }).waitFor();
+  // Evidence: id-prefix search pins one decision card.
+  await captureGraphEvidence(page, "08-decision-pool-id-search");
+  await poolSearch.fill("");
+  // Restore the focus highlight on the smoke decision for the next assertions.
+  // (The reset above cleared the focused state; the select path re-establishes it.)
+  await poolFilters.nth(1).selectOption("high");
+  await poolFilters.nth(2).selectOption("high");
+  // Do NOT touch the originator filter here: as noted above, the hermetic
+  // fixture leaves originator.executor unpopulated, so selecting "agent"
+  // empties the list and the focused card disappears.
+
   // Entity surfaces can focus the same decision in GraphView.
   await focusedDecision.locator(
     `button[title="${localeLiteral("views.decisionPoolView.focusDecisionDiagram")}"]`,
@@ -411,142 +427,3 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
 });
 
-function writeTriadicLedger(rootDir) {
-  const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");
-  const assocTaskDir = path.join(rootDir, "harness/tasks/task-gui-assoc");
-  const decisionDir = path.join(rootDir, "harness/decisions/decision-dec_gui_smoke");
-  const ancestorDecisionDir = path.join(rootDir, "harness/decisions/decision-dec_gui_ancestor");
-  mkdirSync(taskDir, { recursive: true });
-  mkdirSync(assocTaskDir, { recursive: true });
-  mkdirSync(decisionDir, { recursive: true });
-  mkdirSync(ancestorDecisionDir, { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
-    "schema: harness-anything/v1",
-    "name: gui-triadic-smoke",
-    "layout:",
-    "  authoredRoot: harness",
-    "  localRoot: .harness",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(taskDir, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    "task_id: task-gui-smoke",
-    "title: Render the real triadic projection",
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
-    "  status: active",
-    "  ref:",
-    "  titleSnapshot: Render the real triadic projection",
-    "  url:",
-    "  bindingCreatedAt: 2026-07-10T00:00:00.000Z",
-    "  bindingFingerprint: sha256:gui-smoke",
-    "packageDisposition: active",
-    "vertical: software/coding",
-    "preset: implementation",
-    "relations:",
-    "  - {relation_id: rel_bfa32bfd7f399b66, source: task/task-gui-smoke, target: fact/task-gui-smoke/F-ABCDEFGH, type: produces, strength: strong, direction: directed, origin: declared, rationale: \"Task produced the renderer projection evidence\", state: active}",
-    "---",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(taskDir, "facts.md"), [
-    "- {fact_id: F-ABCDEFGH, statement: \"The GUI renderer received real triadic rows through the public bridge.\", source: \"GUI E2E\", observedAt: \"2026-07-10T00:30:00.000Z\", confidence: low, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: \"codex\", sessionId: \"fg-p1-07-e2e\", boundAt: \"2026-07-10T00:30:00.000Z\"}]}",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(assocTaskDir, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    "task_id: task-gui-assoc",
-    "title: Render optional association context",
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
-    "  status: active",
-    "  ref:",
-    "  titleSnapshot: Render optional association context",
-    "  url:",
-    "  bindingCreatedAt: 2026-07-10T00:10:00.000Z",
-    "  bindingFingerprint: sha256:gui-assoc",
-    "packageDisposition: active",
-    "vertical: software/coding",
-    "preset: implementation",
-    "---",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(decisionDir, "decision.md"), [
-    "---",
-    "schema: decision-package/v1",
-    "decision_id: dec_gui_smoke",
-    "_coordinatorWatermark: gui-smoke-watermark",
-    "title: \"Expose the triadic projection to the GUI\"",
-    "state: proposed",
-    "riskTier: high",
-    "urgency: high",
-    "vertical: \"software/coding\"",
-    "preset: \"architecture-decision\"",
-    "applies_to:",
-    "  modules: [\"gui\"]",
-    "  productLines: []",
-    "proposedAt: \"2026-07-10T00:00:00.000Z\"",
-    "provenance:",
-    "  - {runtime: \"codex\", sessionId: \"fg-p1-07-e2e\", boundAt: \"2026-07-10T00:00:00.000Z\"}",
-    "question: \"Should the GUI consume the public relation graph?\"",
-    "chosen:",
-    "  - {id: \"CH1\", text: \"Use the existing daemon/service bridge\"}",
-    "  - {id: \"CH2\", text: \"Keep loose associations optional\"}",
-    "rejected:",
-    "  - {id: \"RJ1\", text: \"Keep the global hairball\", why_not: \"Focused graph is more legible\"}",
-    "claims:",
-    "  - {id: \"CH1\", text: \"The public path preserves kernel relation names\", load_bearing: true}",
-    "  - {id: \"CH2\", text: \"Loose associations stay optional\", load_bearing: true}",
-    "  - {id: \"RJ1\", text: \"The global hairball should remain rejected\", load_bearing: true}",
-    "relations:",
-    "  - {relation_id: rel_5287143733cccbd9, source: decision/dec_gui_smoke, target: task/task-gui-smoke, type: derives, strength: strong, direction: directed, origin: declared, rationale: \"Decision derived the GUI task\", state: active}",
-    "  - {relation_id: rel_f0e4909f80e86478, source: decision/dec_gui_smoke/CH1, target: fact/task-gui-smoke/F-ABCDEFGH, type: evidenced-by, strength: strong, direction: directed, origin: declared, rationale: \"Fact evidences the public projection\", state: active}",
-    "  - {relation_id: rel_58f5525aa9196c13, source: decision/dec_gui_smoke/CH2, target: task/task-gui-assoc, type: relates, strength: weak, direction: directed, origin: declared, rationale: \"Optional association exercises the default-off axis\", state: active}",
-    "  - {relation_id: rel_6f844b22a6cc8a74, source: decision/dec_gui_smoke/CH2, target: decision/dec_gui_ancestor, type: refines, strength: strong, direction: directed, origin: declared, rationale: \"The focused graph refines the earlier projection\", state: active}",
-    "---",
-    ""
-  ].join("\n"));
-  writeFileSync(path.join(ancestorDecisionDir, "decision.md"), [
-    "---",
-    "schema: decision-package/v1",
-    "decision_id: dec_gui_ancestor",
-    "_coordinatorWatermark: gui-ancestor-watermark",
-    "title: \"Earlier GUI projection decision\"",
-    "state: active",
-    "riskTier: medium",
-    "urgency: medium",
-    "vertical: \"software/coding\"",
-    "preset: \"architecture-decision\"",
-    "applies_to:",
-    "  modules: [\"gui\"]",
-    "  productLines: []",
-    "proposedAt: \"2026-07-01T00:00:00.000Z\"",
-    "decidedAt: \"2026-07-02T00:00:00.000Z\"",
-    "provenance:",
-    "  - {runtime: \"codex\", sessionId: \"fg-p1-07-ancestor\", boundAt: \"2026-07-01T00:00:00.000Z\"}",
-    "question: \"How should the first GUI relation projection render?\"",
-    "chosen:",
-    "  - {id: \"CH1\", text: \"Render a single global projection\"}",
-    "rejected: []",
-    "claims:",
-    "  - {id: \"CH1\", text: \"The first projection is globally visible\", load_bearing: true}",
-    "relations: []",
-    "---",
-    ""
-  ].join("\n"));
-}
-
-async function closeElectronApp(electronApp) {
-  const child = electronApp.process();
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, "exit");
-  child.kill("SIGKILL");
-  await Promise.race([exited, sleep(5_000)]);
-}
-
-function sleep(ms) {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
-}

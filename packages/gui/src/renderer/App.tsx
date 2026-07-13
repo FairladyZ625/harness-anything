@@ -21,7 +21,11 @@ import { useFavorites } from "./model/favorites.ts";
 import { MOCK_BACKED_VIEWS, type ViewId } from "./shell-config.tsx";
 import { useNavigationHistory } from "./navigation/useNavigationHistory.ts";
 import type { EntityFacet } from "./navigation/navigationHistory.ts";
+import { buildEntityIndex, type EntityHit } from "./model/entitySearch.ts";
+import { CommandPalette } from "./components/CommandPalette.tsx";
 import { t, useI18n } from "./i18n/index.tsx";
+
+const RECENT_LIMIT = 12;
 
 function AppShell() {
   const { locale } = useI18n();
@@ -75,6 +79,10 @@ function AppShell() {
   const coverageRows = triadicQuery.coverageRows;
   const factAnchors = triadicQuery.factAnchors;
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
+  // Cmd+K 命令面板开态;Cmd+K / Ctrl+K 全局切换,面板内 Esc / Cmd+K 关闭。
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // 最近焦点实体队列(用户在面板/画布/详情之间跳过哪些 navRef)。first = 最新。
+  const [recentRefs, setRecentRefs] = useState<string[]>([]);
 
   const projectTasks = useMemo(
     () => tasks.filter((t) => t.projectId === projectId),
@@ -209,6 +217,7 @@ function AppShell() {
     }
     // 把 ego byId key 翻译成 navRef:task 是裸 id,其他与 byId key 同形。
     const navRef = ref.includes("/") ? ref : `task/${ref}`;
+    pushRecent(navRef);
     // 走 navigate 而非 updateLocation:焦点变更应推栈(用户「回到上一个焦点」)。
     // locationsEqual 防重复推同位置,useEgoCanvas 收到新 focusRef 再上游时也不会循环。
     navigate({ focusedEntityRef: navRef });
@@ -223,6 +232,7 @@ function AppShell() {
   // 跨视图「在关系图中聚焦」入口(Fact Triage / Decision Pool 等的「在关系图中看此实体」按钮)。
   // 跳进 Graph facet,默认 relations 面。
   const focusEntityInGraph = (ref: string) => {
+    pushRecent(ref);
     navigate({
       focusedEntityRef: ref,
       view: "graph",
@@ -231,6 +241,34 @@ function AppShell() {
       previewId: null,
     });
   };
+
+  // Cmd+K 面板选中实体 = 关闭面板 + 走 focusEntityInGraph(满足 mission 「Enter → 图聚焦」)。
+  const selectFromPalette = (ref: string) => {
+    setPaletteOpen(false);
+    focusEntityInGraph(ref);
+  };
+
+  // 把 navRef 推到 Recent 头部,去重 + 截 RECENT_LIMIT 个。
+  // focusEntityInGraph / focusEntityInWorkspace / Cmd+K 选中都走这个,所以 Recent
+  // 反映「用户真正打开过的实体」,不只是面板选中的。
+  const pushRecent = (ref: string) => {
+    setRecentRefs((prev) => {
+      const next = [ref, ...prev.filter((r) => r !== ref)].slice(0, RECENT_LIMIT);
+      return next;
+    });
+  };
+
+  // 全局 Cmd+K / Ctrl+K:打开 / 关闭命令面板。Mac 走 metaKey,Win/Linux 走 ctrlKey。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // 全局快捷键:Cmd+[ / Cmd+] (Mac) / Ctrl+[ / Ctrl+] (Win/Linux)
   useEffect(() => {
@@ -263,6 +301,24 @@ function AppShell() {
   }, [back, forward]);
 
   const showMockBanner = !selected && MOCK_BACKED_VIEWS.has(location.view);
+
+  // Recent 列表:把 navRef 反解为 EntityHit(供 FocusSwitcher 显示标题/副标题)。
+  // 从全局索引 by ref 查,这样 Recent 顺序与索引解析一致;索引外的 ref(已删除实体)自动过滤掉。
+  const recentHits = useMemo<EntityHit[]>(() => {
+    const all = buildEntityIndex({
+      tasks: projectTasks,
+      decisions,
+      facts,
+    });
+    const byRef = new Map(all.map((h) => [h.ref, h]));
+    const out: EntityHit[] = [];
+    for (const ref of recentRefs) {
+      const hit = byRef.get(ref);
+      if (hit) out.push(hit);
+      if (out.length >= RECENT_LIMIT) break;
+    }
+    return out;
+  }, [projectTasks, decisions, facts, recentRefs]);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
@@ -332,6 +388,8 @@ function AppShell() {
               }
               onToggleFavorite={toggleFavorite}
               onOpenProject={openProject}
+              recentHits={recentHits}
+              onOpenPalette={() => setPaletteOpen(true)}
             />
           </div>
         </div>
@@ -344,6 +402,14 @@ function AppShell() {
         onClose={() => updateLocation({ previewId: null })}
         onOpenDetail={openTaskDetail}
         onPreviewTask={openTaskPreview}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        tasks={projectTasks}
+        decisions={decisions}
+        facts={facts}
+        onClose={() => setPaletteOpen(false)}
+        onSelectedRef={selectFromPalette}
       />
     </div>
   );
