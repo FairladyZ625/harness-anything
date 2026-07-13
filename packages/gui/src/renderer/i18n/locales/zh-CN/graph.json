@@ -35,8 +35,6 @@
   "graph.threeLaneLayout.claimsClaimsCoverage": "主张 · claims + 覆盖",
   "graph.threeLaneLayout.deriveDerivesTask": "派生 · derives → task",
   "graph.graphDrawer.exitFocusEsc": "退出聚焦 (Esc)",
-  "graph.graphDrawer.message": "这是一个",
-  "graph.graphDrawer.relationshipSide": "关系边。",
   "graph.graphDrawer.jumpSourceNode": "跳转源节点",
   "graph.graphDrawer.jumpTargetNode": "跳转目标节点",
   "graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool": "在侧栏打开(task→详情, decision→决策池, fact→分诊)",
@@ -57,11 +55,6 @@
   "graph.egoNode.openExclusiveDetailsPageTaskDetailsDecision": "打开专属详情页(task→详情 · decision→决策池 · fact→分诊)",
   "graph.egoNode.details": "详情 ↗",
   "graph.egoNode.collapseKeepExpandedNeighbors": "收起(保留已展开邻居)",
-  "graph.egoNode.degree": "度数",
-  "graph.egoNode.no": "· 第",
-  "graph.egoNode.jump": "跳",
-  "graph.egoNode.message": "还有 +",
-  "graph.egoNode.notExpanded": "未展开",
   "graph.egoNode.evidenceValue": "证据 · {value}",
   "graph.egoNode.unknown": "未知",
   "graph.territoryZoneNode.seal": "封存",
@@ -122,5 +115,8 @@
   "graph.nodes.relationCycleTraversalTruncated": "INV-3：检测到关系环，已截断遍历",
   "graph.nodes.relationCycleDetected": "INV-3：检测到关系环",
   "graph.moduleGroupNode.module": "模块：",
-  "graph.territoryZoneNode.claimCoverage": "{covered}/{total} 个论点"
+  "graph.territoryZoneNode.claimCoverage": "{covered}/{total} 个论点",
+  "graph.graphDrawer.edgeKindMessage": "这是一个 {kind} 关系边。",
+  "graph.egoNode.hiddenNotExpanded": "还有 +{count} 未展开",
+  "graph.egoNode.degreeHop": "度数 {degree} · 第 {hop} 跳"
 }

@@ -144,7 +144,7 @@ describe("renderer app model", () => {
     );
 
     expect(markup).toContain("triadic-graph-empty-state");
-    expect(markup).toContain("No triadic relationship data yet");
+    expect(markup).toContain("No triadic relation data yet");
   });
 });
 

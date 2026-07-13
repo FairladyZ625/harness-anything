@@ -114,7 +114,7 @@ export function FactTriageView({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="border-b border-border px-4 py-3">
           <div className="flex flex-wrap items-baseline gap-3">
-            <h1 className="ui-title font-semibold">{t("views.factTriageView.factualTriage")}</h1>
+            <h1 className="ui-title font-semibold">{t("views.factTriageView.factTriage")}</h1>
             <span className="font-mono text-[13px] text-text-faint">
               {t("views.factTriageView.sortByRedFlagsMachineDiscoversCandidates")}</span>
           </div>

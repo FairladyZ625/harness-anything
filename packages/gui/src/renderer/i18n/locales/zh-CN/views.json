@@ -56,7 +56,7 @@
   "views.graphView.currentLedgerHasNoTasksDecisionsFacts": "当前 ledger 没有可投影的 task、decision 或 fact。记录出现后，关系图会自动显示真实节点与 kernel relation 边。",
   "views.genealogyTimelineView.evolutionDecisionMaking": "决策演化史",
   "views.genealogyTimelineView.decisionMakingParticipationGenealogy": "决策参与谱系 ·",
-  "views.genealogyTimelineView.evolutionaryEdge": "条演化边",
+  "views.genealogyTimelineView.genealogyEdge": "条演化边",
   "views.genealogyTimelineView.genealogyRingWarning": "谱系环警告 ·",
   "views.genealogyTimelineView.headerStats": "{participants} 决策参与谱系 · {edges} 条演化边",
   "views.genealogyTimelineView.headerStatsOne": "{participants} 决策参与谱系 · {count} 条演化边",
@@ -205,7 +205,7 @@
   "views.graphLegend.inv3RingWarning": "INV-3 环警告 ·",
   "views.graphLegend.escClickBlankSpaceCloseDrawerSingle": "Esc / 点击空白处关抽屉 · 单击=选中 · 双击=设焦点 · 点击 claim 行展开证据 fact",
   "views.graphLegend.defaultFocusedEgoSearchLeftColumnDouble": "默认聚焦式 ego · 左栏搜索/双击节点换焦点 (Powered by React Flow)",
-  "views.factTriageView.factualTriage": "事实分诊",
+  "views.factTriageView.factTriage": "事实分诊",
   "views.factTriageView.sortByRedFlagsMachineDiscoversCandidates": "按危险信号排序 · 机器发现候选,人判",
   "views.factTriageView.triageDimensionCalculatedFromCoverageRowsFactAnchorsRelation": "triage 维度从 coverageRows、factAnchors 与 relation 图投影现算,不改 kernel fact schema。\n            健康 fact(severity=0)不进池——只顶有异常信号的到最前。",
   "views.factTriageView.clickHideTypeSignal": "点击隐藏此类信号",
@@ -245,8 +245,6 @@
   "views.executionEvidenceView.nextPage": "下一页",
   "views.executionEvidenceView.clickExpand": "点击展开",
   "views.executionEvidenceView.clickCollapse": "点击折叠",
-  "views.executionEvidenceView.page2": "本页",
-  "views.executionEvidenceView.roundExecution": "轮执行",
   "views.executionEvidenceView.output": "输出 ·",
   "views.executionEvidenceView.someHaveReceipts": "部分有 receipt",
   "views.executionEvidenceView.allWithoutReceipt": "全部无 receipt",
@@ -447,5 +445,6 @@
   "views.decisionsVerdict.codeValue": "代码：{code}",
   "views.decisionsView.traceValue": "追踪 → {value}…",
   "views.decisionsVerdict.factTooltip": "事实：{fact}{expired}{rationale}",
-  "views.decisionsVerdict.rationaleValue": "\n理由：{rationale}"
+  "views.decisionsVerdict.rationaleValue": "\n理由：{rationale}",
+  "views.executionEvidenceView.pageExecutions": "本页 {count} 轮执行"
 }

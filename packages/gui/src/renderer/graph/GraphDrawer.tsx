@@ -11,7 +11,7 @@ import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
 import type { NodePos } from "./endpoint";
 import { endpointToNodeId } from "./endpoint";
 import type { DecisionRow, FactRef } from "../model/types";
-import { t } from "../i18n/index.tsx";
+import { t, Trans } from "../i18n/index.tsx";
 
 const truncate = (s: string, n: number) =>
   s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -68,7 +68,11 @@ export function GraphDrawer({
         </div>
         <div className="flex flex-col gap-3 px-3 py-3">
           <p className="ui-body leading-snug text-text">
-            {t("graph.graphDrawer.message")}<strong>{KIND_LABEL[focusEdge.kind] ?? focusEdge.kind}</strong> {t("graph.graphDrawer.relationshipSide")}</p>
+            <Trans
+              message="graph.graphDrawer.edgeKindMessage"
+              values={{ kind: <strong>{KIND_LABEL[focusEdge.kind] ?? focusEdge.kind}</strong> }}
+            />
+          </p>
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-2 ui-meta text-text-muted">
              <div><span className="font-bold text-text">{t("graph.graphDrawer.from")}</span> {focusEdge.from}</div>
              <div><span className="font-bold text-text">{t("graph.graphDrawer.to")}</span> {focusEdge.to}</div>

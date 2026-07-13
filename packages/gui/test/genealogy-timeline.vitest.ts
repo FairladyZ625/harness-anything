@@ -59,7 +59,7 @@ describe("GenealogyTimelineView empty-state", () => {
     );
 
     expect(markup).toContain("genealogy-timeline-empty-state");
-    expect(markup).toContain("There is currently no decision-making pedigree to display");
+    expect(markup).toContain("No decision genealogy to display yet");
   });
 
   it("still shows the empty state when only non-genealogy edges exist (derives/evidenced-by/depends-on)", () => {
@@ -133,7 +133,7 @@ describe("GenealogyTimelineView filter correctness", () => {
 
     // header 统计:2 决策参与,1 演化边
     expect(markup).toContain("2 decisions in lineage");
-    expect(markup).toContain("1 evolution edge");
+    expect(markup).toContain("1 genealogy edge");
     // 左栏 participant 列表里两个 decision 都出现
     expect(markup).toContain("dec_mrcaa7tp");
     expect(markup).toContain("dec_01KXA7811SVVT8P66HNDFZQ7DF");
@@ -162,7 +162,7 @@ describe("GenealogyTimelineView filter correctness", () => {
 
     // 4 个唯一 from|to|kind 组合(b/d/c supersedes + a supports b 都各算一条;
     // dec_b refines dec_a 多个 claim 锚去重为一条)。
-    expect(markup).toContain("4 evolution edges");
+    expect(markup).toContain("4 genealogy edges");
     expect(markup).toContain("4 decisions in lineage");
   });
 });

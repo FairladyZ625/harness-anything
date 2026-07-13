@@ -108,8 +108,8 @@ export function ViewSwitch(props: ViewSwitchProps) {
             {t("components.viewSwitch.multipleViews")}</span>
           <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
             {([
-              { id: "graph", label: t("components.viewSwitch.relationshipDiagram") },
-              { id: "genealogy", label: t("components.viewSwitch.evolutionaryHistory") },
+              { id: "graph", label: t("components.viewSwitch.graph") },
+              { id: "genealogy", label: t("components.viewSwitch.genealogy") },
             ] as const).map((item) => (
               <button
                 key={item.id}

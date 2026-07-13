@@ -172,8 +172,8 @@ export function EgoNode({ data, selected }: any) {
 
       {/* footer */}
       <div className="flex shrink-0 items-center justify-between border-t border-border px-2.5 py-1 font-mono text-[10px] text-text-faint">
-        <span>{t("graph.egoNode.degree")}{data.degree ?? 0} {t("graph.egoNode.no")}{data.hop ?? 0} {t("graph.egoNode.jump")}</span>
-        {data.hiddenCount > 0 && <span>{t("graph.egoNode.message")}{data.hiddenCount} {t("graph.egoNode.notExpanded")}</span>}
+        <span>{t("graph.egoNode.degreeHop", { degree: data.degree ?? 0, hop: data.hop ?? 0 })}</span>
+        {data.hiddenCount > 0 && <span>{t("graph.egoNode.hiddenNotExpanded", { count: data.hiddenCount })}</span>}
       </div>
     </div>
   );

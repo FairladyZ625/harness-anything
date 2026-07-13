@@ -298,7 +298,7 @@ describe("layoutTerritory · decision skel", () => {
       expandedZones: new Set(),
     });
     const sections = out.nodes.filter((n) => n.type === "territoryZone" && n.data?.variant === "section");
-    expect(sections.some((s) => s.data.title.includes("⚠ Not yet implemented"))).toBe(true);
+    expect(sections.some((s) => s.data.title.includes("⚠ Not landed"))).toBe(true);
   });
 
   it("coverage 灯数据正确(有 evidence = covered)", () => {

@@ -326,7 +326,7 @@ function TaskSection({
           <div className="ee-ts-title">{group.title}</div>
           <div className="ee-ts-meta">
             <span className="ee-ts-taskid">{group.taskId}</span>
-            <span className="ee-ts-exec-count">{t("views.executionEvidenceView.page2")}{group.executions.length} {t("views.executionEvidenceView.roundExecution")}</span>
+            <span className="ee-ts-exec-count">{t("views.executionEvidenceView.pageExecutions", { count: group.executions.length })}</span>
             <span className={`ee-ts-out-count ${hasAnyPassing ? "" : "text-stale"}`}>
               {totalOutputs} {t("views.executionEvidenceView.output")}{hasAnyPassing ? t("views.executionEvidenceView.someHaveReceipts") : t("views.executionEvidenceView.allWithoutReceipt")}
             </span>
