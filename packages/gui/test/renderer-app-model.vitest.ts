@@ -65,7 +65,7 @@ describe("renderer app model", () => {
     const detail = readGuiTaskDetailResult({
       ok: true,
       task: taskRow({ taskId: "task-1", title: "One" }),
-      documents: [{ path: "INDEX.md" }, { label: "ignored" }]
+      documents: [{ path: "INDEX.md", kind: "document" }, { label: "ignored" }]
     });
     const document = readGuiTaskDocumentResult({ ok: true, taskId: "task-1", path: "INDEX.md" });
     const invalid = readGuiTaskListResult({ ok: true, tasks: [{ taskId: "task-1", title: "One" }] });
@@ -73,7 +73,7 @@ describe("renderer app model", () => {
     expect(list).toMatchObject({ ok: true, warnings: [] });
     expect(list.ok && list.rows[0]).toMatchObject({ taskId: "task-1", title: "One" });
     expect(list.ok && list.rows.map((row) => row.taskId)).toEqual(["task-1"]);
-    expect(detail.ok && detail.documents).toEqual([{ path: "INDEX.md" }]);
+    expect(detail.ok && detail.documents).toEqual([{ path: "INDEX.md", kind: "document" }]);
     expect(document).toEqual({ ok: true, taskId: "task-1", path: "INDEX.md", body: "" });
     expect(invalid).toEqual({
       ok: false,

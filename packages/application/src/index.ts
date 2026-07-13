@@ -8,273 +8,13 @@ import type {
   WriteError
 } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
-export { commandReceiptEnvelope } from "./command-receipt.ts";
-export {
-  authorityProtocolTuple,
-  canonicalAuthorityRequestDigest,
-  createAuthoritySubmissionService,
-  createInMemoryShadowPublicationLog,
-  createInMemoryAuthorityOperationRegistry,
-  createInMemoryReplicaChangeLog,
-  reconcileShadowPublications,
-  shadowPublicationSchema,
-  shadowReconciliationSchema
-} from "./authority/index.ts";
-export type {
-  AttributedCoordinatorFactory,
-  AuthorityCommittedReceipt,
-  AuthorityFenceWitness,
-  AuthorityIndeterminateReceipt,
-  AuthorityOperationEnvelope,
-  AuthorityOperationReceipt,
-  AuthorityOperationRecord,
-  AuthorityOperationRegistry,
-  AuthorityOperationState,
-  AuthorityProtocolTuple,
-  AuthorityRejectedReceipt,
-  AuthorityRetryableReceipt,
-  AuthoritySubmissionService,
-  AuthoritySubmissionServiceOptions,
-  CanonicalPublication,
-  CanonicalPublicationInspector,
-  DelegationTokenClaims,
-  DelegationTokenVerification,
-  DelegationTokenVerifier,
-  ReplicaChangeLog,
-  ReplicaChangeRecord
-} from "./authority/index.ts";
-export type {
-  CanonicalPublicationObservation,
-  ShadowDifference,
-  ShadowDifferenceCode,
-  ShadowPublicationLog,
-  ShadowPublicationRecord,
-  ShadowReconciliationReport
-} from "./authority/index.ts";
-export {
-  classifyCompoundExit,
-  compoundExitCodes,
-  compoundExitDefinitions,
-  CompoundReceiptTransitionError,
-  compoundReceiptPhases,
-  compoundReceiptSchema,
-  createCompoundReceiptService,
-  isCompoundOperationReceipt
-} from "./receipt/index.ts";
-export type {
-  AppliedExactAtCut,
-  ApplyBlockedOrigin,
-  CompoundExitCode,
-  CompoundExitDefinition,
-  CompoundExitInput,
-  CompoundExitSymbol,
-  CompoundOperationReceipt,
-  CompoundReceiptPhase,
-  CompoundReceiptService,
-  CompoundReceiptServiceOptions,
-  CompoundReceiptStore,
-  CurrentLeaseState,
-  ImmutableReceiptAcknowledgement,
-  LocalConflictOrigin,
-  NonquiescentOrigin,
-  OriginResolution,
-  ReceiptDeliveryState,
-  ReceiptIdentity,
-  SupersededOrigin,
-  ViewUnavailableOrigin
-} from "./receipt/index.ts";
-export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
-export {
-  compareCanonicalPathBytes,
-  createNamespaceAdmissionService,
-  foldPortableComponent,
-  FoldedComponentTrie,
-  NamespaceAdmissionError,
-  portableAsciiV2,
-  validatePortableManagedPath
-} from "./namespace/index.ts";
-export type {
-  ExistingManagedPath,
-  ManagedObjectKind,
-  NamespaceAdmissionCode,
-  NamespaceAdmissionService,
-  PortablePathDescriptor,
-  PortablePathOptions
-} from "./namespace/index.ts";
-export { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, renderCodeDocReconciliationDraft } from "./code-doc-reconciliation.ts";
-export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
-export { bindCreateProvenance } from "./provenance-binding.ts";
-export { makeDecisionWriteService } from "./decision-write-service.ts";
-export { makeExecutionReservationReconciler, makeExecutionSagaService } from "./execution-saga-service.ts";
-export { makeCoordinatedExecutionAuthoredStore } from "./coordinated-execution-authored-store.ts";
-export { makeReviewExecutionService } from "./review-execution-service.ts";
-export type { ReviewExecutionService } from "./review-execution-service.ts";
-export { makeExecutionCompletionService } from "./execution-completion-service.ts";
-export type { ExecutionCompletionService } from "./execution-completion-service.ts";
-export { makeFactWriteService } from "./fact-write-service.ts";
-export {
-  taskWriteApiRoutePolicies,
-  taskWriteCliRoutePolicies,
-  taskWriteCliRoutePolicy
-} from "./task-write-route-policy.ts";
-export type {
-  ExecutionAuthoredStore,
-  ExecutionClaimResult,
-  ExecutionSagaService,
-  ExecutionSagaServiceOptions,
-  ExecutionSessionBinding,
-  ExecutionSessionRole,
-  ExecutionSubmission
-} from "./execution-saga-service.ts";
-export type {
-  TaskWriteApiRoutePolicy,
-  TaskWriteCliRoutePolicy,
-  TaskWriteCommandClass
-} from "./task-write-route-policy.ts";
-export {
-  TaskClaimCollisionError,
-  ExecutionLeaseCollisionError,
-  TaskLeaseRequiredError,
-  TaskReleaseNotHolderError,
-  isTaskHolderError,
-  makeTaskHolderService,
-  runtimeEventActorFromTaskHolderPrincipal,
-  taskHolderActor,
-  taskHolderExecutorFromJournalActor,
-  taskHolderPrincipalFromActor
-} from "../../kernel/src/index.ts";
-export { makeProvenanceSessionExporter } from "./provenance-session-exporter.ts";
-export { readSessionEntity } from "./session-entity-reader.ts";
-export type { SessionEntityReadResult } from "./session-entity-reader.ts";
-export { classifyStaticZones, classifyTouchedZones, forbiddenTouchesForZones } from "./doc-sync.ts";
-export { makeRuntimeEventAppendPromise, makeRuntimeEventLedgerService } from "./runtime-event-ledger-service.ts";
-export { listDecisionDocuments, readDecisionDocument } from "./decision-document-reader.ts";
-export type { CodeDocDocument, CodeDocReconciliationDraft, CodeDocReconciliationDraftInput, CodeDocReconciliationInput, CodeDocReconciliationIssue, CodeDocReconciliationResult, CodeDocReconciliationWarning } from "./code-doc-reconciliation.ts";
-export type { EnvironmentCurrentSessionProbeOptions, HumanFallbackSessionProbeOptions, RuntimeSessionEnvCandidate } from "./current-session-probe.ts";
-export type { ProvenanceBindingOptions } from "./provenance-binding.ts";
-export type {
-  DecisionDocumentListResult,
-  DecisionDocumentReadResult
-} from "./decision-document-reader.ts";
-export type {
-  DecisionCreateInput,
-  DecisionAmendRequest,
-  DecisionTransitionRequest,
-  DecisionWriteRejected,
-  DecisionWriteRequest,
-  DecisionWriteResult,
-  DecisionWriteService,
-  DecisionWriteServiceOptions
-} from "./decision-write-service.ts";
-export type {
-  FactInvalidateRequest,
-  FactInvalidateResult,
-  FactRecordRequest,
-  FactWriteRejected,
-  FactWriteResult,
-  FactWriteService,
-  FactWriteServiceOptions
-} from "./fact-write-service.ts";
-export type {
-  ExecutionLeaseContext,
-  ExecutionLeaseRecord,
-  ExecutionLeaseReservation,
-  TaskHolderAcquiredVia,
-  TaskHolderClaimResult,
-  TaskHolderCredential,
-  TaskHolderExecutor,
-  TaskHolderPersonPrincipal,
-  TaskHolderPrincipal,
-  TaskHolderRecord,
-  TaskHolderReleaseResult,
-  TaskHolderService,
-  TaskHolderServiceOptions,
-  TaskHolderSnapshot
-} from "../../kernel/src/index.ts";
-export { executionDeclaration, executionStates, resolveEntityDocumentPath } from "../../kernel/src/index.ts";
-export { makeJournaledWriteCoordinator, makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
-export type { ExecutionRecord, ExecutionState } from "../../kernel/src/index.ts";
-export type {
-  ProvenanceSessionBackfillOptions,
-  ProvenanceSessionBackfillResult,
-  ProvenanceSessionDocument,
-  ProvenanceSessionExporter,
-  ProvenanceSessionExportOptions,
-  ProvenanceSessionExporterOptions,
-  ProvenanceSessionExporterRejected,
-  ProvenanceSessionExportResult
-} from "./provenance-session-exporter.ts";
-export type {
-  DocSyncChangeV1,
-  DocSyncConflictV1,
-  DocSyncForbiddenTouchV1,
-  DocSyncSubmitRequestV1,
-  DocSyncSubmitResultV1,
-  DocSyncValidationResult
-} from "./doc-sync.ts";
-export type {
-  RuntimeEventAppendInput,
-  RuntimeEventExportPort,
-  RuntimeEventLedgerAppendResult,
-  RuntimeEventLedgerReadResult,
-  RuntimeEventLedgerRejected,
-  RuntimeEventLedgerService,
-  RuntimeEventLedgerServiceOptions
-} from "./runtime-event-ledger-service.ts";
-export { makeLocalControllerService } from "./local-controller-service.ts";
-export {
-  readAppendProgressPayload,
-  validateLocalControllerDecisionId,
-  readSetStatusPayload,
-  readTaskDocumentPayload,
-  readTaskIdPayload
-} from "./local-controller-payloads.ts";
-export {
-  evaluateDecisionReckonGate,
-  evaluateCompletionGate,
-  evaluateReviewGate,
-  extractMarkdownSection,
-  isCloseoutPlaceholderMarkdown,
-  isReviewPlaceholderMarkdown,
-  isTaskDocumentPlaceholderMarkdown,
-  parseReviewMarkdown,
-  validatePhaseRows
-} from "./task-lifecycle-gates.ts";
-export {
-  makeTaskLifecycleOrchestrator,
-  readTaskLifecyclePolicy
-} from "./task-lifecycle-orchestrator.ts";
-export type {
-  CompletionGateInput,
-  DecisionReckonGateInput,
-  DecisionReckonGateResult,
-  PhaseRow,
-  ReviewFinding,
-  ReviewGateInput,
-  ReviewGateResult,
-  TaskDocumentPlaceholderPolicy,
-  TaskDocumentPlaceholderSectionFingerprint,
-  VerifierBackedReviewContract
-} from "./task-lifecycle-gates.ts";
-export type {
-  TaskLifecycleError,
-  TaskLifecycleFailure,
-  TaskLifecycleOrchestrator,
-  TaskLifecycleOrchestratorOptions,
-  TaskLifecyclePolicy,
-  TaskLifecycleProgressWriteResult,
-  TaskLifecycleResult,
-  TaskLifecycleStatusWriteResult,
-  TaskLifecycleTreeStatusResult,
-  TaskLifecycleSuccess,
-  TaskLifecycleWriter
-} from "./task-lifecycle-orchestrator.ts";
+export * from "./public-exports.ts";
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly taskWriter: LocalControllerTaskWriter;
-  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage" | "readAuthoredDocument">;
+  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage" | "listAuthoredDocuments" | "readAuthoredDocument">;
 }
 
 export interface LocalControllerSuccess {
@@ -300,8 +40,14 @@ export interface TaskListSuccess extends LocalControllerSuccess {
 
 export type TaskListResult = TaskListSuccess | LocalControllerFailure;
 
+/** 服务面自己的文档种类,不直接摆 kernel 的 ArtifactDocumentKind —— controller 的
+ *  DTO 面不许泄漏 kernel 类型(check-service-mappability)。两者是同一组字面量,
+ *  kernel 的值可直接赋进来;真要分叉时,分叉点会显形在这里而不是悄悄穿透。 */
+export type TaskDocumentKind = "document" | "attachment";
+
 export interface TaskDocumentDescriptor {
   readonly path: string;
+  readonly kind: TaskDocumentKind;
 }
 
 export interface TaskDetailSuccess extends LocalControllerSuccess {
@@ -310,6 +56,27 @@ export interface TaskDetailSuccess extends LocalControllerSuccess {
 }
 
 export type TaskDetailResult = TaskDetailSuccess | LocalControllerFailure;
+
+export interface PeripheralDocumentListSuccess extends LocalControllerSuccess {
+  readonly documents: ReadonlyArray<PeripheralDocumentDescriptor>;
+}
+
+export type PeripheralDocumentListResult = PeripheralDocumentListSuccess | LocalControllerFailure;
+
+export interface PeripheralDocumentDescriptor {
+  readonly path: string;
+}
+
+export interface PeripheralDocumentPayload {
+  readonly path: string;
+}
+
+export interface PeripheralDocumentSuccess extends LocalControllerSuccess {
+  readonly path: string;
+  readonly body: string;
+}
+
+export type PeripheralDocumentResult = PeripheralDocumentSuccess | LocalControllerFailure;
 
 export interface DecisionProjectionRejected {
   readonly text: string;
@@ -571,6 +338,8 @@ export interface LocalControllerService {
   readonly getTasks: () => TaskListResult;
   readonly getTaskDetail: (payload: TaskIdPayload) => Promise<TaskDetailResult>;
   readonly getTaskDocument: (payload: TaskDocumentPayload) => Promise<TaskDocumentResult>;
+  readonly getPeripheralDocuments: () => Promise<PeripheralDocumentListResult>;
+  readonly getPeripheralDocument: (payload: PeripheralDocumentPayload) => Promise<PeripheralDocumentResult>;
   readonly getRelationGraph: () => RelationGraphReadResult;
   readonly getDecisions: () => DecisionListResult;
   readonly getDecisionDetail: (payload: DecisionIdPayload) => DecisionDetailResult;

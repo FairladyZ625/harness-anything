@@ -28,6 +28,17 @@ export function readTaskDocumentPayload(payload: unknown): { readonly ok: true; 
   }
 }
 
+export function readPeripheralDocumentPayload(payload: unknown): { readonly ok: true; readonly path: string } | LocalControllerFailure {
+  if (!isRecord(payload) || typeof payload.path !== "string") {
+    return invalidPayload("path is required.");
+  }
+  try {
+    return { ok: true, path: normalizeRelativeDocumentPath(payload.path) };
+  } catch {
+    return invalidPayload("portable document path is required.");
+  }
+}
+
 export function readSetStatusPayload(payload: unknown): { readonly ok: true; readonly taskId: string; readonly status: DomainStatus } | LocalControllerFailure {
   const taskPayload = readTaskIdPayload(payload);
   if (!taskPayload.ok) return taskPayload;
