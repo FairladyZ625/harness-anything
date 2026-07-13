@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClockCounterClockwise } from "@phosphor-icons/react";
 import type { DecisionRow, RelationEdge } from "../model/types";
 import {
+  ENCODING_META,
   KIND_META,
   buildGenealogyEdges,
   collectLineage,
@@ -16,14 +17,10 @@ import { ParticipantsSidebar } from "./genealogy/ParticipantsSidebar";
 import { TimelinePlot } from "./genealogy/TimelinePlot";
 
 /**
- * 决策谱系「演化史」视图入口壳（Jaeger-timeline 式）。
+ * 决策谱系「演化史」视图入口壳。
  *
- * 纯前端派生：从 triadicQuery.relations 里筛 kind ∈ 谱系四类且两端皆 decision，
- * 以选中 decision 为焦点上溯祖先 / 下溯后代。不改后端、不换图库、不碰 graph/**。
- *
- * 本文件只做编排（状态 / 派生 memo / 布局计算 / 子组件装配），职责细节见
- * ./genealogy/ 下的 layout（纯逻辑）、ParticipantsSidebar / TimelinePlot /
- * DecisionDetailPanel / EmptyStates（展示子组件）。
+ * 纯前端派生：从 relations 筛谱系四类边，焦点上溯/下溯。
+ * 布局 = DAG 拓扑（x = 谱系深度），同列内同日节点过多时自动折成簇（可展开）。
  */
 export function GenealogyTimelineView({
   decisions,
@@ -34,7 +31,6 @@ export function GenealogyTimelineView({
 }: {
   decisions: DecisionRow[];
   relations: RelationEdge[];
-  /** 跨视图带入的聚焦实体（decision/<id>）；用于多视图切换同一实体。 */
   focusRef?: string | null;
   onNavigateEntity?: (ref: string) => void;
   onFocusGraph?: (ref: string) => void;
@@ -47,14 +43,11 @@ export function GenealogyTimelineView({
 
   const edges = useMemo(() => buildGenealogyEdges(relations, byId), [relations, byId]);
 
-  // 修 #11:refines/narrows/supersedes/supports 边集若成环,collectLineage 会静默
-  // 截断。cycle 警告与 focus 无关(只要边集成环就告警),独立于 layout 计算。
   const cycleWarning = useMemo(() => {
     const cycles = findGenealogyCycles(edges);
     return { count: cycles.length, cycles };
   }, [edges]);
 
-  // 参与谱系（有任一谱系边）的 decision——左栏候选焦点集。
   const participants = useMemo(() => {
     const ids = new Set<string>();
     for (const edge of edges) {
@@ -67,7 +60,6 @@ export function GenealogyTimelineView({
       .sort((a, b) => (timeMsOf(b) ?? 0) - (timeMsOf(a) ?? 0));
   }, [edges, byId]);
 
-  // 每个 decision 的谱系规模（祖先+后代数），用于默认挑一个「最有料」的焦点。
   const lineageSize = useMemo(() => {
     const size = new Map<string, number>();
     for (const decision of participants) {
@@ -79,8 +71,8 @@ export function GenealogyTimelineView({
   const [focusId, setFocusId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set());
 
-  // 跨视图带入的焦点优先；否则挑谱系最大的一个。
   useEffect(() => {
     const incoming = focusRef ? decisionIdOf(focusRef) : null;
     if (incoming && byId.has(incoming)) {
@@ -103,9 +95,14 @@ export function GenealogyTimelineView({
     });
   }, [focusRef, byId, participants, lineageSize]);
 
+  // 换焦点时收起日簇，避免状态串台。
+  useEffect(() => {
+    setExpandedDays(new Set());
+    setSelectedId(null);
+  }, [focusId]);
+
   const focus = focusId ? byId.get(focusId) ?? null : null;
 
-  // 容器宽度测量（时间轴需要具体像素宽）。
   const plotRef = useRef<HTMLDivElement | null>(null);
   const [plotWidth, setPlotWidth] = useState(900);
   useLayoutEffect(() => {
@@ -118,10 +115,12 @@ export function GenealogyTimelineView({
     return () => observer.disconnect();
   }, []);
 
-  // 焦点谱系的布局。
   const layout = useMemo(
-    () => computeLayout(focus, edges, byId, plotWidth),
-    [focus, edges, byId, plotWidth],
+    () =>
+      computeLayout(focus, edges, byId, plotWidth, {
+        expandedDays,
+      }),
+    [focus, edges, byId, plotWidth, expandedDays],
   );
 
   const nodeById = useMemo(() => {
@@ -130,15 +129,22 @@ export function GenealogyTimelineView({
     return map;
   }, [layout.nodes]);
 
-  // 焦点谱系内的边（两端都在布局集合里）。
   const lineageEdges = useMemo(
-    () => edges.filter((edge) => nodeById.has(edge.from) && nodeById.has(edge.to)),
-    [edges, nodeById],
+    () => edges.filter((edge) => {
+      // 边端点在布局集合，或被折叠进某个可见簇。
+      const covered = (id: string) =>
+        nodeById.has(id) ||
+        layout.nodes.some((n) => n.isCluster && n.memberIds?.includes(id));
+      return covered(edge.from) && covered(edge.to);
+    }),
+    [edges, nodeById, layout.nodes],
   );
 
   const selected = selectedId ? byId.get(selectedId) ?? null : null;
-  const ancestorCount = layout.nodes.filter((node) => node.depth < 0).length;
-  const descendantCount = layout.nodes.filter((node) => node.depth > 0).length;
+  const ancestorCount = layout.nodes.filter((node) => !node.isCluster && node.depth < 0).length;
+  const descendantCount = layout.nodes.filter((node) => !node.isCluster && node.depth > 0).length;
+  const visibleCards = layout.nodes.filter((n) => !n.isCluster).length;
+  const visibleClusters = layout.nodes.filter((n) => n.isCluster).length;
 
   const filteredParticipants = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -155,7 +161,7 @@ export function GenealogyTimelineView({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="genealogy-timeline">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2.5">
         <h1 className="ui-title inline-flex items-center gap-1.5 font-semibold">
           <ClockCounterClockwise weight="duotone" className="text-accent" />
@@ -175,19 +181,39 @@ export function GenealogyTimelineView({
         {focus && (
           <span className="font-mono text-[11px] text-text-faint">
             焦点谱系：{ancestorCount} 祖先 · {descendantCount} 后代
+            {visibleClusters > 0
+              ? ` · ${visibleClusters} 日簇 / ${visibleCards} 卡`
+              : ""}
           </span>
         )}
-        <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px]">
-          {(["refines", "narrows", "supersedes", "supports"] as const).map((kind) => (
-            <span key={kind} className="inline-flex items-center gap-1 text-text-muted">
-              <svg width="18" height="6" aria-hidden>
-                <line x1="0" y1="3" x2="18" y2="3" stroke={KIND_META[kind].color} strokeWidth="2" />
-              </svg>
-              {KIND_META[kind].label}
-            </span>
-          ))}
-        </div>
       </header>
+
+      <div className="flex items-center gap-3 border-b border-border px-4 py-1.5">
+        <span className="font-mono text-[11px] text-text-faint">
+          {ENCODING_META.dag.label}：{ENCODING_META.dag.blurb}
+        </span>
+        <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px]">
+          {(["refines", "narrows", "supersedes", "supports"] as const).map((kind) => {
+            const meta = KIND_META[kind];
+            return (
+              <span key={kind} className="inline-flex items-center gap-1 text-text-muted">
+                <svg width="22" height="8" aria-hidden>
+                  <line
+                    x1="0"
+                    y1="4"
+                    x2="22"
+                    y2="4"
+                    stroke={meta.color}
+                    strokeWidth={meta.strokeWidth}
+                    strokeDasharray={meta.dash || undefined}
+                  />
+                </svg>
+                {meta.label}
+              </span>
+            );
+          })}
+        </div>
+      </div>
 
       <div className="flex min-h-0 flex-1">
         <ParticipantsSidebar
@@ -202,9 +228,8 @@ export function GenealogyTimelineView({
           }}
         />
 
-        {/* 主区：时间轴谱系。 */}
         <div ref={plotRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-bg">
-          {focus && layout.nodes.length <= 1 ? (
+          {focus && layout.nodes.length <= 1 && !layout.nodes[0]?.isCluster ? (
             <IsolatedNodeMessage decision={focus} />
           ) : (
             <TimelinePlot
@@ -212,9 +237,18 @@ export function GenealogyTimelineView({
               nodeById={nodeById}
               lineageEdges={lineageEdges}
               selectedId={selectedId}
+              expandedDays={expandedDays}
               onToggleSelect={(id) =>
                 setSelectedId((prev) => (prev === id ? null : id))
               }
+              onToggleCluster={(dayKey) => {
+                setExpandedDays((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(dayKey)) next.delete(dayKey);
+                  else next.add(dayKey);
+                  return next;
+                });
+              }}
             />
           )}
         </div>

@@ -1,15 +1,12 @@
 import type { DecisionRow, RelationEdge, RelationKind } from "../../model/types";
 
 /**
- * 决策谱系「演化史」视图的纯逻辑层：常量、类型、关系筛选、深度优先谱系收集、
- * 时间轴布局计算。无 React、无 JSX，方便单测与复用。
+ * 决策谱系「演化史」视图的纯逻辑层：常量、类型、关系筛选、深度优先谱系收集。
+ * 布局编码实现见 layout-encodings.ts。
  *
- * 承接 dec_01KXA7811SVVT8P66HNDFZQ7DF 原则 6：关系图解决「结构」，而 decision
- * 谱系（refines/narrows/supersedes/supports）本质是**时间演化**，用一条时间轴
- * 更清晰——X=decidedAt（缺则 fallback proposedAt），行=谱系深度，节点=决策卡。
+ * 时间维度是对的，但线性 wall-clock x 轴对点事件+成簇数据是错的。
  */
 
-// 谱系边：只认权威轴里表达「思想演化」的四类关系，两端必须都是 decision。
 export const GENEALOGY_KINDS = new Set<RelationKind>([
   "refines",
   "narrows",
@@ -17,29 +14,69 @@ export const GENEALOGY_KINDS = new Set<RelationKind>([
   "supports",
 ]);
 
-// 每类边的语义标签 + 语义色（复用 styles.css 里已定义的 CSS 变量，绝不新造）。
+/** 边语义：色 + 线型，不靠回头读图例也能分。 */
 export const KIND_META: Record<
   string,
-  { label: string; color: string; verb: string }
+  { label: string; color: string; verb: string; dash: string; strokeWidth: number }
 > = {
-  refines: { label: "细化", color: "var(--color-accent)", verb: "细化了" },
-  narrows: { label: "收窄", color: "var(--color-status-in-review)", verb: "收窄了" },
-  supersedes: { label: "推翻", color: "var(--color-danger)", verb: "推翻了" },
-  supports: { label: "支撑", color: "var(--color-status-done)", verb: "支撑了" },
+  refines: {
+    label: "细化",
+    color: "var(--color-accent)",
+    verb: "细化了",
+    dash: "",
+    strokeWidth: 1.6,
+  },
+  narrows: {
+    label: "收窄",
+    color: "var(--color-status-in-review)",
+    verb: "收窄了",
+    dash: "5 3",
+    strokeWidth: 1.6,
+  },
+  supersedes: {
+    label: "推翻",
+    color: "var(--color-danger)",
+    verb: "推翻了",
+    dash: "",
+    strokeWidth: 2.4,
+  },
+  supports: {
+    label: "支撑",
+    color: "var(--color-status-done)",
+    verb: "支撑了",
+    dash: "1.5 2.5",
+    strokeWidth: 1.4,
+  },
+};
+
+/** 编码模式：DAG 拓扑（唯一布局），日簇是同列内同日节点过多时的自动收敛策略。 */
+export type EncodingMode = "dag";
+
+export const ENCODING_META: Record<
+  EncodingMode,
+  { label: string; short: string; blurb: string }
+> = {
+  dag: {
+    label: "DAG 拓扑",
+    short: "DAG",
+    blurb: "谱系拓扑排版，时间只做排序；同列同日过多时自动折簇",
+  },
 };
 
 // ---- 布局常量（px）----
-export const CARD_W = 210;
-export const CARD_H = 60;
-export const ROW_H = 82;
+// 卡片加宽加高，让真实账本里 80–100 字标题能完整显示（3 行 × ~28 字）。
+export const CARD_W = 280;
+export const CARD_H = 96;
+export const ROW_H = 118;
 export const AXIS_H = 34;
 export const PAD_X = 28;
 export const PAD_Y = 20;
-export const LANE_GAP = 26; // 同一深度带内两卡的最小水平间隙
+export const CLUSTER_W = 188;
+export const CLUSTER_H = 72;
 
 export interface GenealogyEdge {
-  from: string; // 后代（较新，refines/narrows/... 的一方）
-  to: string; // 祖先（较旧，被 refine 的一方）
+  from: string;
+  to: string;
   kind: RelationKind;
   rationale?: string;
 }
@@ -47,10 +84,14 @@ export interface GenealogyEdge {
 export interface LaidOutNode {
   id: string;
   decision: DecisionRow;
-  depth: number; // 相对焦点：祖先为负、焦点为 0、后代为正
+  depth: number;
   timeMs: number | null;
-  x: number; // 卡片左上角 x（含 PAD）
-  y: number; // 卡片左上角 y（含 AXIS + PAD）
+  x: number;
+  y: number;
+  dayKey?: string;
+  isCluster?: boolean;
+  clusterSize?: number;
+  memberIds?: string[];
 }
 
 export interface TimelineLayout {
@@ -60,11 +101,10 @@ export interface TimelineLayout {
   ticks: { x: number; label: string }[];
   minT: number;
   maxT: number;
-  /** 修 #11:谱系边成环时,显式带出 cycle 列表供视图告警(此前 BFS 静默截断)。 */
+  encoding: EncodingMode;
   cycleWarning: { count: number; cycles: string[][] };
 }
 
-/** 把 `decision/dec_x/CH1` 之类的 ref 归一成裸 decision id；非 decision 端返回 null。 */
 export function decisionIdOf(ref: string): string | null {
   if (!ref.startsWith("decision/")) return null;
   const rest = ref.slice("decision/".length);
@@ -72,12 +112,17 @@ export function decisionIdOf(ref: string): string | null {
   return id.length > 0 ? id : null;
 }
 
-/** decidedAt 优先，缺则 proposedAt；都无 → null（优雅降级）。 */
 export function timeMsOf(decision: DecisionRow): number | null {
   const raw = decision.decidedAt ?? decision.proposedAt;
   if (!raw) return null;
   const ms = new Date(raw).getTime();
   return Number.isFinite(ms) ? ms : null;
+}
+
+export function dayKeyOf(decision: DecisionRow): string {
+  const raw = decision.decidedAt ?? decision.proposedAt;
+  if (!raw) return "NO_TIME";
+  return raw.slice(0, 10);
 }
 
 export function shortTime(decision: DecisionRow): string {
@@ -86,7 +131,6 @@ export function shortTime(decision: DecisionRow): string {
   return raw.slice(0, 10);
 }
 
-/** 全量谱系边（decision→decision），去重。 */
 export function buildGenealogyEdges(
   relations: RelationEdge[],
   byId: Map<string, DecisionRow>,
@@ -107,7 +151,6 @@ export function buildGenealogyEdges(
   return edges;
 }
 
-/** 以 focus 为中心，上溯祖先（沿 from→to）+ 下溯后代（沿 to→from），返回带 depth 的谱系集合。 */
 export function collectLineage(
   focusId: string,
   edges: GenealogyEdge[],
@@ -121,7 +164,6 @@ export function collectLineage(
 
   const depth = new Map<string, number>([[focusId, 0]]);
 
-  // 上溯祖先：focus --refines--> ancestor，祖先更旧 → 负 depth。
   const upQueue: string[] = [focusId];
   while (upQueue.length > 0) {
     const current = upQueue.shift()!;
@@ -134,7 +176,6 @@ export function collectLineage(
     }
   }
 
-  // 下溯后代：descendant --refines--> focus，后代更新 → 正 depth。
   const downQueue: string[] = [focusId];
   while (downQueue.length > 0) {
     const current = downQueue.shift()!;
@@ -150,14 +191,6 @@ export function collectLineage(
   return depth;
 }
 
-/**
- * 修 #11:在谱系边集里检测环。collectLineage 的 BFS 遇到环会静默终止(已访问
- * 节点跳过),导致环里的节点拿到任意 depth,但调用方完全不知数据里有环。
- * 此函数显式找出所有简单环,供视图发 INV 风格的告警。
- *
- * 注:仅按 GenealogyEdge.from/to 形成的有向图找环,与 graphLayoutShared 的
- * findRelationCycles 同思路,但保持谱系视图自包含(不引入 graph/** 依赖)。
- */
 export function findGenealogyCycles(edges: GenealogyEdge[]): string[][] {
   const byFrom = new Map<string, string[]>();
   for (const edge of edges) {
@@ -197,102 +230,49 @@ export function findGenealogyCycles(edges: GenealogyEdge[]): string[][] {
   return cycles;
 }
 
-/** 时间轴上做 3–6 个刻度。 */
-export function axisTicks(minT: number, maxT: number): { t: number; label: string }[] {
-  if (!(maxT > minT)) return [];
-  const count = 5;
-  const ticks: { t: number; label: string }[] = [];
-  for (let i = 0; i <= count; i += 1) {
-    const t = minT + ((maxT - minT) * i) / count;
-    ticks.push({ t, label: new Date(t).toISOString().slice(0, 10) });
-  }
-  return ticks;
+export interface RawLineageNode {
+  id: string;
+  decision: DecisionRow;
+  depth: number;
+  timeMs: number | null;
+  dayKey: string;
 }
 
-const EMPTY_LAYOUT: TimelineLayout = {
+export function collectRawNodes(
+  focus: DecisionRow,
+  edges: GenealogyEdge[],
+  byId: Map<string, DecisionRow>,
+): RawLineageNode[] {
+  const depthMap = collectLineage(focus.decisionId, edges);
+  return [...depthMap.entries()]
+    .map(([id, depth]) => {
+      const decision = byId.get(id);
+      if (!decision) return null;
+      return {
+        id,
+        decision,
+        depth,
+        timeMs: timeMsOf(decision),
+        dayKey: dayKeyOf(decision),
+      };
+    })
+    .filter((node): node is RawLineageNode => node !== null);
+}
+
+export const EMPTY_LAYOUT: TimelineLayout = {
   nodes: [],
   width: 0,
   height: 0,
   ticks: [],
   minT: 0,
   maxT: 0,
+  encoding: "dag",
   cycleWarning: { count: 0, cycles: [] },
 };
 
-/**
- * 焦点谱系的时间轴布局：按 depth 升序（祖先在上）分带，带内按 x 排序后贪心装道，
- * 保证零重叠。无焦点 → 空布局。
- */
-export function computeLayout(
-  focus: DecisionRow | null,
-  edges: GenealogyEdge[],
-  byId: Map<string, DecisionRow>,
-  plotWidth: number,
-): TimelineLayout {
-  if (!focus) return EMPTY_LAYOUT;
+export type LayoutOptions = {
+  expandedDays?: ReadonlySet<string>;
+};
 
-  const depthMap = collectLineage(focus.decisionId, edges);
-  const rawNodes = [...depthMap.entries()]
-    .map(([id, depth]) => {
-      const decision = byId.get(id);
-      if (!decision) return null;
-      return { id, decision, depth, timeMs: timeMsOf(decision) };
-    })
-    .filter((node): node is Omit<LaidOutNode, "x" | "y"> => node !== null);
-
-  const times = rawNodes.map((node) => node.timeMs).filter((t): t is number => t !== null);
-  const minT = times.length > 0 ? Math.min(...times) : 0;
-  const maxT = times.length > 0 ? Math.max(...times) : 0;
-  const span = maxT - minT;
-
-  const plotW = Math.max(360, plotWidth - PAD_X * 2 - CARD_W);
-  const xOfTime = (timeMs: number | null): number => {
-    if (timeMs === null) return 0; // 无时间 → 贴最左，并在卡上标注
-    if (span <= 0) return plotW / 2;
-    return ((timeMs - minT) / span) * plotW;
-  };
-
-  const depths = [...new Set(rawNodes.map((node) => node.depth))].sort((a, b) => a - b);
-  const placed: LaidOutNode[] = [];
-  let rowCursor = 0;
-  for (const depth of depths) {
-    const group = rawNodes
-      .filter((node) => node.depth === depth)
-      .sort((a, b) => xOfTime(a.timeMs) - xOfTime(b.timeMs));
-    const laneRight: number[] = [];
-    for (const node of group) {
-      const nx = xOfTime(node.timeMs);
-      let lane = laneRight.findIndex((right) => nx >= right + LANE_GAP);
-      if (lane === -1) {
-        lane = laneRight.length;
-        laneRight.push(0);
-      }
-      laneRight[lane] = nx + CARD_W;
-      placed.push({
-        ...node,
-        x: PAD_X + nx,
-        y: AXIS_H + PAD_Y + (rowCursor + lane) * ROW_H,
-      });
-    }
-    rowCursor += Math.max(1, laneRight.length);
-  }
-
-  const width = PAD_X * 2 + plotW + CARD_W;
-  const height = AXIS_H + PAD_Y * 2 + rowCursor * ROW_H;
-  const ticks = axisTicks(minT, maxT).map((tick) => ({
-    x: PAD_X + xOfTime(tick.t),
-    label: tick.label,
-  }));
-  // 修 #11:refines/narrows/supersedes/supports 边集里若成环,collectLineage 会
-  // 静默截断(depth 任意赋),视图此前毫无提示。现在显式计算 cycle 列表上抛。
-  const cycles = findGenealogyCycles(edges);
-  return {
-    nodes: placed,
-    width,
-    height,
-    ticks,
-    minT,
-    maxT,
-    cycleWarning: { count: cycles.length, cycles },
-  };
-}
+// re-export dispatcher so现有 import { computeLayout } from "./layout" 仍可用
+export { computeLayout } from "./layout-encodings";

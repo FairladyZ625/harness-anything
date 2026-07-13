@@ -7,10 +7,13 @@ import type {
 } from "../src/renderer/model/types.ts";
 import { GenealogyTimelineView } from "../src/renderer/views/GenealogyTimelineView.tsx";
 import {
+  CARD_H,
+  CARD_W,
   buildGenealogyEdges,
   computeLayout,
   findGenealogyCycles,
 } from "../src/renderer/views/genealogy/layout.ts";
+import { TimelinePlot } from "../src/renderer/views/genealogy/TimelinePlot.tsx";
 
 /**
  * 谱系 timeline 视图的组件级测试。验证:
@@ -198,6 +201,226 @@ describe("Genealogy cycle warning (修 #11)", () => {
     const layout = computeLayout(decisions[0], edges, byId, 900);
     expect(layout.cycleWarning.count).toBeGreaterThan(0);
     expect(layout.cycleWarning.cycles.length).toBe(layout.cycleWarning.count);
+  });
+});
+
+describe("Genealogy layout (DAG 拓扑)", () => {
+  function chainFixture() {
+    // 同日 3 点 + 隔日 1 点，复现成簇；线性轴会把 3 点叠成柱。
+    const decisions: DecisionRow[] = [
+      baseDecision({
+        decisionId: "dec_old",
+        title: "祖先决策标题足够长不应被截成一截省略号",
+        decidedAt: "2026-07-03T10:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_mid_a",
+        title: "同日细化 A",
+        decidedAt: "2026-07-03T12:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_mid_b",
+        title: "同日细化 B",
+        decidedAt: "2026-07-03T14:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_new",
+        title: "隔日收窄",
+        decidedAt: "2026-07-09T09:00:00.000Z",
+      }),
+    ];
+    const relations: RelationEdge[] = [
+      edge("decision/dec_mid_a", "decision/dec_old", "refines"),
+      edge("decision/dec_mid_b", "decision/dec_old", "refines"),
+      edge("decision/dec_new", "decision/dec_mid_a", "narrows"),
+    ];
+    const byId = new Map(decisions.map((d) => [d.decisionId, d]));
+    const edges = buildGenealogyEdges(relations, byId);
+    // 焦点放根祖先，BFS 才能把 mid_a/mid_b/new 全收进谱系。
+    return { decisions, byId, edges, focus: decisions[0]! };
+  }
+
+  it("dag：祖先在左、后代在右（rank = depth 平移）", () => {
+    const { byId, edges, focus } = chainFixture();
+    const layout = computeLayout(focus, edges, byId, 900);
+    expect(layout.encoding).toBe("dag");
+    // dec_old(rank0, 07-03 单点) + cluster rank1:2026-07-03(mid_a,mid_b) + dec_new(rank2)
+    const old = layout.nodes.find((n) => n.id === "dec_old");
+    const cluster = layout.nodes.find((n) => n.isCluster && n.dayKey === "2026-07-03");
+    const neu = layout.nodes.find((n) => n.id === "dec_new");
+    expect(old).toBeDefined();
+    expect(cluster).toBeDefined();
+    expect(neu).toBeDefined();
+    expect(cluster?.id).toMatch(/^cluster:\d+:2026-07-03$/);
+    expect(old?.x).toBeLessThan(cluster?.x ?? Infinity);
+    expect(cluster?.x).toBeLessThanOrEqual(neu?.x ?? -1);
+  });
+
+  it("同日节点自动收敛为簇（阈值 ≥ 2），展开后恢复成员卡", () => {
+    // 3 个同日节点落在同一深度（都是 mid 的细化）
+    const decisions: DecisionRow[] = [
+      baseDecision({
+        decisionId: "dec_root",
+        title: "根决策",
+        decidedAt: "2026-07-02T10:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_mid",
+        title: "中间决策",
+        decidedAt: "2026-07-03T12:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_child_a",
+        title: "同日细化 A",
+        decidedAt: "2026-07-03T14:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_child_b",
+        title: "同日细化 B",
+        decidedAt: "2026-07-03T15:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_child_c",
+        title: "同日细化 C",
+        decidedAt: "2026-07-03T16:00:00.000Z",
+      }),
+    ];
+    const relations: RelationEdge[] = [
+      edge("decision/dec_child_a", "decision/dec_mid", "refines"),
+      edge("decision/dec_child_b", "decision/dec_mid", "refines"),
+      edge("decision/dec_child_c", "decision/dec_mid", "refines"),
+      edge("decision/dec_mid", "decision/dec_root", "refines"),
+    ];
+    const byId = new Map(decisions.map((d) => [d.decisionId, d]));
+    const edges = buildGenealogyEdges(relations, byId);
+    const focus = byId.get("dec_root")!;
+
+    // 同日 3 个节点（dec_child_*）在同一深度应自动折叠
+    const collapsed = computeLayout(focus, edges, byId, 900);
+    const clusters = collapsed.nodes.filter((n) => n.isCluster);
+    expect(clusters.length).toBeGreaterThanOrEqual(1);
+    const july3 = clusters.find((c) => c.dayKey === "2026-07-03");
+    expect(july3?.clusterSize).toBe(3);
+    expect(july3?.id).toMatch(/^cluster:\d+:2026-07-03$/);
+    // 折叠后可见节点：root + mid + 1 cluster = 3
+    expect(collapsed.nodes).toHaveLength(3);
+
+    // 展开后恢复成员卡
+    const expanded = computeLayout(focus, edges, byId, 900, {
+      expandedDays: new Set(["2026-07-03"]),
+    });
+    expect(expanded.nodes.every((n) => !n.isCluster)).toBe(true);
+    expect(expanded.nodes).toHaveLength(5);
+  });
+
+  it("跨列同日各成独立簇且 id 不撞车", () => {
+    const decisions: DecisionRow[] = [
+      baseDecision({
+        decisionId: "dec_root",
+        title: "根",
+        decidedAt: "2026-07-02T10:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_m1",
+        title: "中层 1",
+        decidedAt: "2026-07-03T11:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_m2",
+        title: "中层 2",
+        decidedAt: "2026-07-03T12:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_c1",
+        title: "子层 1",
+        decidedAt: "2026-07-03T14:00:00.000Z",
+      }),
+      baseDecision({
+        decisionId: "dec_c2",
+        title: "子层 2",
+        decidedAt: "2026-07-03T15:00:00.000Z",
+      }),
+    ];
+    const relations: RelationEdge[] = [
+      edge("decision/dec_m1", "decision/dec_root", "refines"),
+      edge("decision/dec_m2", "decision/dec_root", "refines"),
+      edge("decision/dec_c1", "decision/dec_m1", "refines"),
+      edge("decision/dec_c2", "decision/dec_m2", "refines"),
+    ];
+    const byId = new Map(decisions.map((d) => [d.decisionId, d]));
+    const edges = buildGenealogyEdges(relations, byId);
+    const layout = computeLayout(byId.get("dec_root")!, edges, byId, 900);
+    const clusters = layout.nodes.filter((n) => n.isCluster && n.dayKey === "2026-07-03");
+    expect(clusters.length).toBe(2);
+    const ids = new Set(clusters.map((c) => c.id));
+    expect(ids.size).toBe(2);
+    expect([...ids].every((id) => id.startsWith("cluster:"))).toBe(true);
+  });
+
+  it("视图不再渲染编码 tab（只有一个 dag 布局）", () => {
+    const { decisions } = chainFixture();
+    const relations: RelationEdge[] = [
+      edge("decision/dec_mid_a", "decision/dec_old", "refines"),
+      edge("decision/dec_mid_b", "decision/dec_old", "refines"),
+      edge("decision/dec_new", "decision/dec_mid_a", "narrows"),
+    ];
+    const markup = renderToStaticMarkup(
+      createElement(GenealogyTimelineView, { decisions, relations }),
+    );
+    expect(markup).not.toContain('data-encoding-tab="ordinal"');
+    expect(markup).not.toContain('data-encoding-tab="day-cluster"');
+    expect(markup).not.toContain('data-encoding-tab="dag"');
+    expect(markup).toContain("DAG 拓扑");
+    expect(markup).toContain('data-encoding="dag"');
+  });
+
+  it("卡片标题用 3 行 clamp + 加宽加高卡片，长标题不再被硬截", () => {
+    // 卡面：宽 280 / 高 96 / 3 行，覆盖真实账本最长标题（~97 字）。
+    expect(CARD_W).toBeGreaterThanOrEqual(280);
+    expect(CARD_H).toBeGreaterThanOrEqual(96);
+
+    const longTitle =
+      "E1 内容与引擎正交:Vertical 选模板、TemplateLibrary 存正文/locale、Preset 覆盖";
+    const decision = baseDecision({
+      decisionId: "dec_a",
+      title: longTitle,
+      decidedAt: "2026-07-03T10:00:00.000Z",
+    });
+    const layout = {
+      nodes: [
+        {
+          id: "dec_a",
+          decision,
+          depth: 0,
+          timeMs: Date.parse("2026-07-03T10:00:00.000Z"),
+          x: 28,
+          y: 54,
+          dayKey: "2026-07-03",
+          isCluster: false,
+        },
+      ],
+      width: 400,
+      height: 200,
+      ticks: [{ x: 28, label: "祖先" }],
+      minT: 0,
+      maxT: 0,
+      encoding: "dag" as const,
+      cycleWarning: { count: 0, cycles: [] as string[][] },
+    };
+    const nodeById = new Map([["dec_a", layout.nodes[0]!]]);
+    const markup = renderToStaticMarkup(
+      createElement(TimelinePlot, {
+        layout,
+        nodeById,
+        lineageEdges: [],
+        selectedId: null,
+        onToggleSelect: () => undefined,
+      }),
+    );
+    // 完整标题进 DOM（不是 JS 层硬截）；卡面用 line-clamp-3。
+    expect(markup).toContain(longTitle);
+    expect(markup).toContain("line-clamp-3");
+    expect(markup).not.toContain("line-clamp-2");
   });
 
   it("渲染时 header 显示「谱系环警告 · N」(SSR 快照)", () => {
