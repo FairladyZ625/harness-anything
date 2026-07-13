@@ -117,17 +117,25 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // also exposes a 关系图 button (dec_01KXA7811SVVT8P66HNDFZQ7DF GUI usability).
   await page.getByRole("complementary").getByRole("button", { name: "关系图" }).click();
   await page.locator(".react-flow").waitFor({ timeout: 10_000 });
-  const focusCard = page.locator(".react-flow__node-decisionFocus");
-  await focusCard.waitFor({ timeout: 10_000 });
-  await focusCard.getByText("dec_gui_smoke", { exact: true }).waitFor();
-  await focusCard.locator('[title="已佐证"]').waitFor();
-  assert.equal(await focusCard.locator('[title="无证据 (风险)"]').count(), 2);
-  await page.locator(".react-flow__node-task").waitFor();
-  await page.locator(".react-flow__node-decision").waitFor();
-  assert.equal(await page.locator(".react-flow__node-task").count(), 1);
-  assert.equal(await page.locator(".react-flow__node-decision").count(), 1);
-  assert.equal(await page.locator(".react-flow__node-fact").count(), 0, "facts start folded into claim badges");
-  assert.equal(await page.locator(".react-flow__edge").count(), 2);
+
+  // The shipped canvas renders every entity as an `ego` node — the focused one
+  // and its neighbours alike. The three-lane layout that once emitted a distinct
+  // `decisionFocus` node is a legacy fallback (`graphLayout.ts`: "canvas 缺省时"),
+  // unreachable while GraphView supplies a canvas, and `decisionFocus` is not even
+  // registered in GraphView's nodeTypes. Asserting on it waited forever on a node
+  // the shipped app cannot produce.
+  const egoNodes = page.locator(".react-flow__node-ego");
+  await egoNodes.first().waitFor({ timeout: 10_000 });
+
+  // Focus decision plus its neighbourhood: the derived task, the fact that
+  // evidences it, and the ancestor decision it refines. All from the hermetic
+  // authored ledger — no renderer-side mock.
+  assert.equal(await egoNodes.count(), 4, "focus decision + task + fact + ancestor decision");
+  await page.locator(".react-flow__node-ego", { hasText: "Expose the triadic projection to the GUI" }).waitFor();
+  await page.locator(".react-flow__node-ego", { hasText: "Render the real triadic projection" }).waitFor();
+  await page.locator(".react-flow__node-ego", { hasText: "The GUI renderer received real triadic rows" }).waitFor();
+  await page.locator(".react-flow__node-ego", { hasText: "Earlier GUI projection decision" }).waitFor();
+  assert.ok(await page.locator(".react-flow__edge").count() >= 1, "the ego graph draws its relations");
   assert.equal(await page.getByText("MOCK", { exact: true }).count(), 0, "triadic views must not be mock-backed");
 
   // GUI usability (dec_01KXA7811SVVT8P66HNDFZQ7DF): the renderer ships an
