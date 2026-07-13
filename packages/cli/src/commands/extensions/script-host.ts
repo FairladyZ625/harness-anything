@@ -102,10 +102,13 @@ export function runScriptHost(options: {
   }
 
   const outputRoot = options.outputRoot ?? path.join(layout.authoredRoot, "context");
+  const scopeOptions = reportsNoOverwriteLeafConflicts(options.script.entry)
+    ? { reportLeafConflicts: true as const }
+    : {};
   const readScope = options.script.entry.reads.length > 0
-    ? resolveDeclaredReadScopes(options.script.entry.reads, layout, outputRoot)
+    ? resolveDeclaredReadScopes(options.script.entry.reads, layout, outputRoot, scopeOptions)
     : { ok: true as const, roots: [], permissions: [] };
-  const writeScope = resolveDeclaredWriteScopes(options.script.entry.writes, layout, outputRoot);
+  const writeScope = resolveDeclaredWriteScopes(options.script.entry.writes, layout, outputRoot, scopeOptions);
   if (!readScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script reads must declare supported project-local scopes.");
   if (!writeScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidWrite, "Script writes must declare approved authored content scopes.");
 
@@ -179,6 +182,10 @@ export function runScriptHost(options: {
     inputs: mergedInputs,
     readScopes: executionReadScope.roots,
     writeScopes: executionWriteScope.roots,
+    declaredScopeConflicts: {
+      read: executionReadScope.reportedLeafConflicts ?? [],
+      write: executionWriteScope.reportedLeafConflicts ?? []
+    },
     resultPath,
     outputRoot: executionOutputRoot,
     policy: policy.policy
@@ -275,6 +282,19 @@ export function runScriptHost(options: {
     scriptId: options.script.entry.id
   });
   if (!scriptedResult.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptResultInvalid, scriptedResult.hint, runDir, layout.rootDir);
+  const declaredLeafConflicts = [
+    ...(executionReadScope.reportedLeafConflicts ?? []),
+    ...(executionWriteScope.reportedLeafConflicts ?? [])
+  ];
+  if (declaredLeafConflicts.length > 0 && (scriptedResult.value.ok !== false || execution.generated.length > 0)) {
+    return scriptFailure(
+      options.commandName,
+      CliErrorCode.ScriptResultInvalid,
+      "A no-overwrite scaffold with declared leaf conflicts must fail without producing files.",
+      runDir,
+      layout.rootDir
+    );
+  }
   const generatedPaths = stage ? canonicalGeneratedPaths(stage, execution.generated) : execution.generated;
   const ingestOp = stage ? scriptIngestOp(stage, executionWriteScope.roots, runId) : undefined;
   const canonicalResult = stage ? canonicalizeScriptResult(stage, scriptedResult.value) : scriptedResult.value;
@@ -304,6 +324,12 @@ export function runScriptHost(options: {
     scriptedResult: canonicalResult,
     ...(ingestOp ? { ingestOp } : {})
   };
+}
+
+function reportsNoOverwriteLeafConflicts(entry: ScriptEntry): boolean {
+  return entry.metadata.purpose === "scaffold" &&
+    entry.writes.length > 0 &&
+    entry.writes.every((scope) => scope.endsWith("/**") && entry.reads.includes(scope));
 }
 
 export function scriptHostCliResult(options: {

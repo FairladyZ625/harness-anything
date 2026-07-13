@@ -79,7 +79,9 @@ test("bundled software coding assets have consistent template and process-preset
     readonly projectionSchemas: ReadonlyArray<{ readonly schemaRef: string }>;
     readonly scripts: ReadonlyArray<{
       readonly id: string;
-      readonly metadata: { readonly purpose: string };
+      readonly reads: ReadonlyArray<string>;
+      readonly writes: ReadonlyArray<string>;
+      readonly metadata: { readonly purpose: string; readonly kind?: string };
     }>;
   };
   const index = JSON.parse(readFileSync(path.join(assetRoot, "presets/index.json"), "utf8")) as {
@@ -148,6 +150,17 @@ test("bundled software coding assets have consistent template and process-preset
   }
   assert.equal(vertical.projectionSchemas.some((projection) => projection.schemaRef.includes("architecture-manifest")), false);
   assert.equal(vertical.scripts.some((script) => script.id === "vertical:software-coding:adr-seed" && script.metadata.purpose === "scaffold"), true);
+  const architectureScripts = vertical.scripts.filter((script) => script.id.startsWith("vertical:software-coding:architecture-"));
+  assert.deepEqual(architectureScripts.map((script) => script.id).sort(), [
+    "vertical:software-coding:architecture-check",
+    "vertical:software-coding:architecture-init",
+    "vertical:software-coding:architecture-snapshot"
+  ]);
+  assert.equal(architectureScripts.every((script) => script.metadata.kind === undefined), true, "architecture actions stay out of ordinary ha check");
+  assert.deepEqual(architectureScripts.find((script) => script.id.endsWith(":architecture-init"))?.writes, ["{{outputRoot}}/architecture/**"]);
+  assert.deepEqual(architectureScripts.find((script) => script.id.endsWith(":architecture-snapshot"))?.writes, ["{{outputRoot}}/artifacts/architecture/**"]);
+  assert.deepEqual(architectureScripts.find((script) => script.id.endsWith(":architecture-check"))?.writes, []);
+  assert.equal(architectureScripts.some((script) => script.reads.some((scope) => scope.includes("/.git"))), false, "trusted host context owns commit provenance");
   assert.deepEqual([...index.presets].sort(), bundledPresetIds, "bundled preset ids must match the approved public distribution list");
 
   for (const presetId of index.presets) {

@@ -1052,6 +1052,8 @@
       ],
       "presetWriteScopes": [
         "{{outputRoot}}/**",
+        "{{outputRoot}}/architecture/**",
+        "{{outputRoot}}/artifacts/architecture/**",
         "{{paths.adrRoot}}/**",
         "{{paths.milestonesRoot}}/**"
       ],
@@ -1077,6 +1079,8 @@
         "cli"
       ],
       "presetProduces": [
+        "{{outputRoot}}/architecture/**",
+        "{{outputRoot}}/artifacts/architecture/**",
         "{{paths.adrRoot}}/*.md",
         "{{paths.adrRoot}}/0000-template.md",
         "{{paths.adrRoot}}/README.md"

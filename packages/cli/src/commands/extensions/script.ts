@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
@@ -66,6 +67,17 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
       error: cliError(CliErrorCode.ScriptContractInvalid, "Preset script run requires --task <id> unless --dry-run is used.")
     };
   }
+  if (action.taskId && scriptUsesTaskOwnedArtifacts(script) && !action.dryRun) {
+    const candidate = taskPackagePath(rootInput, action.taskId);
+    if (!existsSync(path.join(candidate, "INDEX.md"))) {
+      return {
+        ok: false,
+        command: "script-run",
+        script: publicScriptSummary(script),
+        error: cliError(CliErrorCode.TaskNotFound, `task not found: ${action.taskId}`)
+      };
+    }
+  }
   const outputRoot = action.taskId ? taskPackagePath(rootInput, action.taskId) : undefined;
   const run = runScriptHost({
     rootInput,
@@ -93,6 +105,14 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
     script: publicScriptSummary(script),
     run
   });
+}
+
+function scriptUsesTaskOwnedArtifacts(script: ResolvedScriptEntry): boolean {
+  return [
+    ...script.entry.reads,
+    ...script.entry.writes,
+    ...script.entry.metadata.produces
+  ].some((scope) => scope.startsWith("{{outputRoot}}/artifacts/") && scope.endsWith("/**"));
 }
 
 export function discoverScriptEntries(

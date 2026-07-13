@@ -2,7 +2,7 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "entityFieldExtensions": [
     {
       "extends": "task",
@@ -242,6 +242,51 @@
     }
   },
   "scripts": [
+    {
+      "id": "vertical:software-coding:architecture-init",
+      "type": "script",
+      "command": "scripts/architecture-init.mjs",
+      "reads": ["{{outputRoot}}/architecture/**"],
+      "writes": ["{{outputRoot}}/architecture/**"],
+      "inputs": {},
+      "metadata": {
+        "description": "Explicitly materialize the opt-in repository architecture manifest and LikeC4 scaffold without overwriting authored content.",
+        "purpose": "scaffold",
+        "contractVersion": "script-entry/v1",
+        "produces": ["{{outputRoot}}/architecture/**"]
+      }
+    },
+    {
+      "id": "vertical:software-coding:architecture-snapshot",
+      "type": "script",
+      "command": "scripts/architecture-snapshot.mjs",
+      "reads": ["{{paths.authoredRoot}}/context/architecture/**"],
+      "writes": ["{{outputRoot}}/artifacts/architecture/**"],
+      "inputs": {},
+      "metadata": {
+        "description": "Run fixed declared architecture adapters and write a reproducible code-fact snapshot as a task artifact.",
+        "purpose": "generate",
+        "contractVersion": "script-entry/v1",
+        "produces": ["{{outputRoot}}/artifacts/architecture/**"]
+      }
+    },
+    {
+      "id": "vertical:software-coding:architecture-check",
+      "type": "script",
+      "command": "scripts/architecture-check.mjs",
+      "reads": [
+        "{{paths.authoredRoot}}/context/architecture/**",
+        "{{outputRoot}}/artifacts/architecture/**"
+      ],
+      "writes": [],
+      "inputs": {},
+      "metadata": {
+        "description": "Return deterministic architecture configuration, tool, freshness, and drift state without joining ordinary repository checks.",
+        "purpose": "audit",
+        "contractVersion": "script-entry/v1",
+        "produces": []
+      }
+    },
     {
       "id": "vertical:software-coding:repository-audit",
       "type": "script",

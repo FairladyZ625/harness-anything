@@ -339,6 +339,40 @@ test("script scopes reject portable aliases in declared path components", () => 
   }
 });
 
+test("no-overwrite scaffold scopes surface only non-symlink leaf conflicts", () => {
+  const rootDir = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-scaffold-leaf-conflict-"));
+  try {
+    const layout = resolveHarnessLayout(rootDir);
+    const outputRoot = path.join(rootDir, "harness/context");
+    mkdirSync(outputRoot, { recursive: true });
+    const aliasPath = path.join(outputRoot, "Architecture");
+    writeFileSync(aliasPath, "portable alias file\n", "utf8");
+
+    const resolved = resolveDeclaredWriteScopes(
+      ["{{outputRoot}}/architecture/**"],
+      layout,
+      outputRoot,
+      { reportLeafConflicts: true }
+    );
+    assert.equal(resolved.ok, true);
+    assert.deepEqual(resolved.ok ? resolved.reportedLeafConflicts : [], [aliasPath]);
+
+    rmSync(aliasPath);
+    const canonicalPath = path.join(outputRoot, "architecture");
+    writeFileSync(canonicalPath, "canonical root file\n", "utf8");
+    const canonical = resolveDeclaredWriteScopes(
+      ["{{outputRoot}}/architecture/**"],
+      layout,
+      outputRoot,
+      { reportLeafConflicts: true }
+    );
+    assert.equal(canonical.ok, true);
+    assert.deepEqual(canonical.ok ? canonical.reportedLeafConflicts : [], [canonicalPath]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("non-recursive script scopes accept only regular files or an absent write file leaf", () => {
   const rootDir = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-file-scope-"));
   try {

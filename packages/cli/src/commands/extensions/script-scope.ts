@@ -8,6 +8,11 @@ export { isPathInside } from "../../cli/path.ts";
 export interface ResolvedScopeSet {
   readonly roots: ReadonlyArray<string>;
   readonly permissions: ReadonlyArray<string>;
+  readonly reportedLeafConflicts?: ReadonlyArray<string>;
+}
+
+interface ScopeResolutionOptions {
+  readonly reportLeafConflicts?: boolean;
 }
 
 export function listGeneratedFiles(rootDir: string): ReadonlyArray<string> {
@@ -32,17 +37,19 @@ export function listGeneratedFiles(rootDir: string): ReadonlyArray<string> {
 export function resolveDeclaredWriteScopes(
   scopes: ReadonlyArray<string>,
   layout: ReturnType<typeof resolveHarnessLayout>,
-  outputRoot: string
+  outputRoot: string,
+  options: ScopeResolutionOptions = {}
 ): { readonly ok: true } & ResolvedScopeSet | { readonly ok: false } {
-  return resolveDeclaredScopes(scopes, layout, outputRoot, false, "write");
+  return resolveDeclaredScopes(scopes, layout, outputRoot, false, "write", options);
 }
 
 export function resolveDeclaredReadScopes(
   scopes: ReadonlyArray<string>,
   layout: ReturnType<typeof resolveHarnessLayout>,
-  outputRoot: string
+  outputRoot: string,
+  options: ScopeResolutionOptions = {}
 ): { readonly ok: true } & ResolvedScopeSet | { readonly ok: false } {
-  return resolveDeclaredScopes(scopes, layout, outputRoot, true, "read");
+  return resolveDeclaredScopes(scopes, layout, outputRoot, true, "read", options);
 }
 
 function resolveDeclaredScopes(
@@ -50,10 +57,12 @@ function resolveDeclaredScopes(
   layout: ReturnType<typeof resolveHarnessLayout>,
   outputRoot: string,
   allowRootRead: boolean,
-  mode: "read" | "write"
+  mode: "read" | "write",
+  options: ScopeResolutionOptions
 ): { readonly ok: true } & ResolvedScopeSet | { readonly ok: false } {
   const roots: string[] = [];
   const permissions: string[] = [];
+  const reportedLeafConflicts: string[] = [];
   for (const scope of scopes) {
     const recursive = scope.endsWith("/**");
     const root = recursive ? scope.slice(0, -3) : scope;
@@ -76,21 +85,26 @@ function resolveDeclaredScopes(
       if (!isPathInside(layout.rootDir, absolute)) return { ok: false };
       if (recursive && absolute === path.resolve(layout.rootDir)) return { ok: false };
       if (mode === "write" && !isAllowedWriteScope(absolute, layout, outputRoot)) return { ok: false };
-      if (scopePathContainsUnsafeComponent(absolute, layout.rootDir)) return { ok: false };
-      if (recursive && recursiveScopeContainsSymlink(absolute)) return { ok: false };
-      if (!validScopeTarget(absolute, recursive, mode)) return { ok: false };
+      if (scopePathContainsUnsafeComponent(absolute, layout.rootDir, options)) return { ok: false };
+      const leafConflicts = reportableLeafConflicts(absolute, layout.rootDir, recursive, options.reportLeafConflicts === true);
+      if (leafConflicts === null) return { ok: false };
+      if (recursive && filesystemKind(absolute) === "directory" && recursiveScopeContainsSymlink(absolute)) return { ok: false };
+      if (!validScopeTarget(absolute, recursive, mode) && leafConflicts.length === 0) return { ok: false };
       roots.push(absolute);
       permissions.push(...permissionPathsForScope(absolute, recursive));
+      reportedLeafConflicts.push(...leafConflicts);
     }
   }
   return mode === "write" && roots.length === 0 ? {
     ok: true,
     roots: [],
-    permissions: []
+    permissions: [],
+    ...(reportedLeafConflicts.length > 0 ? { reportedLeafConflicts: uniquePermissionPaths(reportedLeafConflicts) } : {})
   } : roots.length > 0 ? {
     ok: true,
     roots: uniquePermissionPaths(roots),
-    permissions: uniquePermissionPaths(permissions)
+    permissions: uniquePermissionPaths(permissions),
+    ...(reportedLeafConflicts.length > 0 ? { reportedLeafConflicts: uniquePermissionPaths(reportedLeafConflicts) } : {})
   } : { ok: false };
 }
 
@@ -116,15 +130,17 @@ export function scopePathContainsSymlink(root: string, projectRoot: string): boo
 
 export function scopePathContainsUnsafeComponent(
   root: string,
-  projectRoot: string
+  projectRoot: string,
+  options: ScopeResolutionOptions = {}
 ): boolean {
-  return scopePathComponentsAreUnsafe(root, projectRoot, true);
+  return scopePathComponentsAreUnsafe(root, projectRoot, true, options.reportLeafConflicts === true);
 }
 
 function scopePathComponentsAreUnsafe(
   root: string,
   projectRoot: string,
-  rejectPortableAliases: boolean
+  rejectPortableAliases: boolean,
+  allowPortableLeafAliases = false
 ): boolean {
   const boundary = path.resolve(projectRoot);
   const target = path.resolve(root);
@@ -137,9 +153,10 @@ function scopePathComponentsAreUnsafe(
   }
   let current = boundary;
   const segments = relative.split(path.sep).filter(Boolean);
-  for (const segment of segments) {
+  for (const [index, segment] of segments.entries()) {
     const aliases = rejectPortableAliases ? portableSiblingAliases(current, segment) : [];
-    if (aliases.length > 0) return true;
+    const reportableLeaf = allowPortableLeafAliases && index === segments.length - 1;
+    if (aliases.length > 0 && !reportableLeaf) return true;
     if (aliases.some((alias) => pathIsSymlink(path.join(current, alias)))) return true;
     current = path.join(current, segment);
     try {
@@ -150,6 +167,40 @@ function scopePathComponentsAreUnsafe(
     }
   }
   return false;
+}
+
+function reportableLeafConflicts(
+  root: string,
+  projectRoot: string,
+  recursive: boolean,
+  enabled: boolean
+): ReadonlyArray<string> | null {
+  if (!enabled) return [];
+  if (!recursive) return null;
+  const target = path.resolve(root);
+  const boundary = path.resolve(projectRoot);
+  if (!sameOrInside(boundary, target)) return null;
+  const aliases = portableSiblingAliases(path.dirname(target), path.basename(target))
+    .map((entry) => path.join(path.dirname(target), entry));
+  if (aliases.some(pathIsSymlink)) return null;
+  const targetKind = filesystemKind(target);
+  if (targetKind === "symlink" || targetKind === "other") return null;
+  return [
+    ...(aliases.length === 0 && targetKind !== "missing" && targetKind !== "directory" ? [target] : []),
+    ...aliases
+  ];
+}
+
+function filesystemKind(candidate: string): "missing" | "file" | "directory" | "symlink" | "other" {
+  try {
+    const stat = lstatSync(candidate);
+    if (stat.isSymbolicLink()) return "symlink";
+    if (stat.isFile()) return "file";
+    if (stat.isDirectory()) return "directory";
+    return "other";
+  } catch {
+    return "missing";
+  }
 }
 
 function portableSiblingAliases(parent: string, canonicalName: string): ReadonlyArray<string> {
@@ -219,9 +270,15 @@ export function resolvedScopeSetIsSafe(
     const boundary = boundaries.find((candidate) => sameOrInside(candidate, root));
     if (!boundary) return false;
     const recursive = scopeRootIsRecursive(scope, root);
-    return !scopePathContainsUnsafeComponent(root, boundary) &&
-      (!recursive || !recursiveScopeContainsSymlink(root)) &&
-      validScopeTarget(root, recursive, mode);
+    const options = { reportLeafConflicts: scope.reportedLeafConflicts !== undefined };
+    const currentConflicts = reportableLeafConflicts(root, boundary, recursive, options.reportLeafConflicts);
+    const conflictsRemainDeclared = currentConflicts !== null && currentConflicts.every((candidate) =>
+      scope.reportedLeafConflicts?.some((declared) => path.resolve(declared) === path.resolve(candidate))
+    );
+    return !scopePathContainsUnsafeComponent(root, boundary, options) &&
+      conflictsRemainDeclared &&
+      (!recursive || filesystemKind(root) !== "directory" || !recursiveScopeContainsSymlink(root)) &&
+      (validScopeTarget(root, recursive, mode) || (currentConflicts?.length ?? 0) > 0);
   });
 }
 

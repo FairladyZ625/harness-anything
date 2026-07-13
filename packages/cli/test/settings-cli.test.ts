@@ -211,6 +211,16 @@ test("CLI script discovery fails closed before exposing coding scripts for a non
     assert.equal(listed.ok, false);
     assert.equal(listed.error.code, "custom_vertical_user_dev_mode_required");
     assert.equal(listed.scripts, undefined);
+
+    const directRun = runJson(rootDir, [
+      "script", "run", "vertical:software-coding:architecture-init"
+    ], false, {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test"
+    });
+    assert.equal(directRun.ok, false);
+    assert.equal(directRun.error.code, "custom_vertical_user_dev_mode_required");
+    assert.equal(existsSync(path.join(rootDir, "harness/context/architecture/architecture-manifest.json")), false);
   });
 });
 

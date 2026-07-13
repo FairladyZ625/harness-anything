@@ -154,6 +154,9 @@ export function remapScope(
   return {
     ok: true as const,
     roots,
+    ...(scope.reportedLeafConflicts ? {
+      reportedLeafConflicts: scope.reportedLeafConflicts.map((candidate) => stageMirrorPath(stage, candidate))
+    } : {}),
     permissions: [...new Set([
       ...(options.retainOriginalPermissions === false ? [] : scope.permissions),
       ...remappedPermissions
