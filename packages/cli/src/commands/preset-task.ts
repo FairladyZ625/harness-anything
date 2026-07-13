@@ -263,7 +263,7 @@ export function materializePresetTaskScaffold(
   if (input.vertical !== "software/coding") {
     return { ok: false, result: customVerticalGateResult(rootInput, input.command, settings) };
   }
-  const preset = resolvePresetEntry(rootInput, input.presetId);
+  const preset = resolvePresetEntry(rootInput, input.presetId, input.vertical);
   if (!preset) return { ok: false, result: presetNotFound(input.command, input.presetId) };
   if (isInvalidPreset(preset)) {
     return {

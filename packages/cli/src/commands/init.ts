@@ -6,7 +6,7 @@ import type { CliGitCommitAuthor } from "../composition/actor-attribution.ts";
 import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import { normalizeSlashes } from "../cli/path.ts";
 import type { CliResult } from "../cli/types.ts";
-import { bundledVerticalDefinition } from "./extensions/bundled.ts";
+import { resolveActiveVertical } from "./extensions/active-vertical.ts";
 import { materializeRepositoryScaffold } from "./extensions/repository-scaffold.ts";
 
 export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts = false, projectName?: string, commitAuthor?: CliGitCommitAuthor): CliResult {
@@ -14,8 +14,9 @@ export function initializeHarness(rootInput: HarnessLayoutInput, addNpmScripts =
   const rootDir = layout.rootDir;
   const warnings: unknown[] = [];
   const resolvedProjectName = projectName ?? path.basename(rootDir);
-  const vertical = bundledVerticalDefinition();
-  if (!vertical) throw new Error("bundled software/coding vertical definition missing");
+  const activeVertical = resolveActiveVertical(rootInput, "init");
+  if (!activeVertical.ok) return activeVertical.result;
+  const vertical = activeVertical.definition.manifest;
   for (const directory of [
     layout.localRoot,
     layout.generatedRoot,

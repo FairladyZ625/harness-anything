@@ -167,6 +167,41 @@ test("host and preset runner reject the same conflicting vertical policy owners"
   });
 });
 
+test("off-vertical policy owners cannot affect the active vertical script host", () => {
+  withCanonicalTempRoot((rootDir) => {
+    const sharedCapability = "vertical:software-coding:repository-audit";
+    for (const presetId of ["custom-policy-owner-a", "custom-policy-owner-b"]) {
+      writePolicyCapturePreset(rootDir, presetId, undefined, [
+        { id: sharedCapability, kind: "checker", version: "1", required: true },
+        { id: PRESET_POLICY_SCHEMA_CREATE_MILESTONE, kind: "command", version: "1", required: true }
+      ], "custom/acme");
+    }
+    writePolicyCapturePreset(rootDir, "active-policy-runner", undefined, [
+      { id: sharedCapability, kind: "checker", version: "1", required: true }
+    ]);
+
+    const host = runJson(rootDir, ["script", "run", sharedCapability, "--dry-run"], false);
+    const runner = runJson(rootDir, [
+      "preset", "action", "active-policy-runner", "capture", "--task", "task-active-policy", "--allow-scripts"
+    ], false);
+
+    assert.equal(host.ok, true, JSON.stringify(host));
+    assert.equal(runner.ok, true, JSON.stringify(runner));
+  });
+});
+
+test("off-vertical same-id preset blocks builtin fallback", () => {
+  withCanonicalTempRoot((rootDir) => {
+    writePolicyCapturePreset(rootDir, "standard-task", undefined, [], "custom/acme");
+
+    const inspected = runJson(rootDir, ["preset", "inspect", "standard-task"], false);
+
+    assert.equal(inspected.ok, false, JSON.stringify(inspected));
+    assert.equal(inspected.error.code, "preset_manifest_invalid");
+    assert.equal(inspected.issues.some((issue: Record<string, unknown>) => issue.code === "custom_vertical_forbidden"), true);
+  });
+});
+
 test("missing policy is public-default null while malformed, unknown-key, wrong-preset, and escape fixtures fail closed", () => {
   withCanonicalTempRoot((rootDir) => {
     writePolicyCapturePreset(rootDir, "create-milestone");
@@ -468,13 +503,14 @@ function writePolicyCapturePreset(
   rootDir: string,
   id: string,
   policyPath = `{{paths.authoredRoot}}/policies/presets/${id}.policy.json`,
-  capabilityImports: ReadonlyArray<CapturePresetCapability> = policyPresetCapabilities[id] ?? []
+  capabilityImports: ReadonlyArray<CapturePresetCapability> = policyPresetCapabilities[id] ?? [],
+  vertical = "software/coding"
 ): void {
   writeFile(rootDir, `.harness/presets/${id}/preset.json`, JSON.stringify({
     schema: "preset-manifest/v2",
     id,
     title: "Policy Capture",
-    vertical: "software/coding",
+    vertical,
     version: "1.0.0",
     kind: "process-action",
     policyPath,

@@ -3,7 +3,7 @@ import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.t
 import { resolveHarnessLayout, taskPackagePath } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
-import { bundledVerticalDefinitionEntry } from "./bundled.ts";
+import { resolveActiveVertical } from "./active-vertical.ts";
 import { discoverPresets, publicPresetSummary } from "./state.ts";
 import { presetScriptEntry } from "./preset-script-runner.ts";
 import { runScriptHost, scriptHostCliResult, type ResolvedScriptEntry, type ScriptKind, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
@@ -24,7 +24,9 @@ export function runScriptCommand(rootInput: HarnessLayoutInput, action: ScriptAc
 }
 
 function runScriptList(rootInput: HarnessLayoutInput, action: Extract<ScriptAction, { readonly kind: "script-list" }>): CliResult {
-  const scripts = discoverScriptEntries(rootInput)
+  const discovered = discoverScriptEntries(rootInput, "script-list");
+  if (!discovered.ok) return discovered.result;
+  const scripts = discovered.scripts
     .filter((script) => !action.source || script.entry.source === action.source)
     .filter((script) => !action.purpose || script.entry.metadata.purpose === action.purpose)
     .filter((script) => !action.scriptKind || (script.entry.metadata.kind ?? "action") === action.scriptKind)
@@ -38,7 +40,9 @@ function runScriptList(rootInput: HarnessLayoutInput, action: Extract<ScriptActi
 }
 
 function runScriptInspect(rootInput: HarnessLayoutInput, scriptId: string): CliResult {
-  const script = resolveScript(rootInput, scriptId);
+  const discovered = discoverScriptEntries(rootInput, "script-inspect");
+  if (!discovered.ok) return discovered.result;
+  const script = resolveScript(discovered.scripts, scriptId);
   if (!script) return scriptNotFound("script-inspect", scriptId);
   return {
     ok: true,
@@ -48,7 +52,9 @@ function runScriptInspect(rootInput: HarnessLayoutInput, scriptId: string): CliR
 }
 
 function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptAction, { readonly kind: "script-run" }>, pendingOps: WriteOp[]): CliResult {
-  const script = resolveScript(rootInput, action.scriptId);
+  const discovered = discoverScriptEntries(rootInput, "script-run");
+  if (!discovered.ok) return discovered.result;
+  const script = resolveScript(discovered.scripts, action.scriptId);
   if (!script) return scriptNotFound("script-run", action.scriptId);
   const layout = resolveHarnessLayout(rootInput);
   if (script.entry.source === "preset" && !action.taskId && !action.dryRun) {
@@ -88,13 +94,20 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
   });
 }
 
-export function discoverScriptEntries(rootInput: HarnessLayoutInput): ReadonlyArray<ResolvedScriptEntry> {
-  const vertical = bundledVerticalDefinitionEntry();
-  const verticalScripts = (vertical?.manifest.scripts ?? []).map((script): ResolvedScriptEntry => ({
+export function discoverScriptEntries(
+  rootInput: HarnessLayoutInput,
+  command: string
+): { readonly ok: true; readonly scripts: ReadonlyArray<ResolvedScriptEntry> } | { readonly ok: false; readonly result: CliResult } {
+  const activeVertical = resolveActiveVertical(rootInput, command);
+  if (!activeVertical.ok) return activeVertical;
+
+  const vertical = activeVertical.definition;
+  const verticalScripts = vertical.manifest.scripts.map((script): ResolvedScriptEntry => ({
     entry: {
       ...script,
       source: "vertical"
     },
+    verticalId: activeVertical.id,
     manifestRoot: vertical ? path.dirname(vertical.sourcePath) : "",
     owner: vertical ? {
       id: vertical.manifest.id,
@@ -107,11 +120,12 @@ export function discoverScriptEntries(rootInput: HarnessLayoutInput): ReadonlyAr
       verticalTitle: vertical.manifest.title
     } : undefined
   }));
-  const presetScripts = discoverPresets(rootInput)
+  const presetScripts = discoverPresets(rootInput, activeVertical.id)
     .flatMap((preset) => Object.entries(preset.manifest.entrypoints ?? {})
       .flatMap(([entrypointName, entrypoint]) => entrypoint.type === "script"
         ? [{
           entry: presetScriptEntry(preset, entrypoint, entrypointName),
+          verticalId: activeVertical.id,
           manifestRoot: path.dirname(preset.sourcePath),
           owner: publicPresetSummary(preset),
           context: {
@@ -121,11 +135,14 @@ export function discoverScriptEntries(rootInput: HarnessLayoutInput): ReadonlyAr
           }
         }]
         : []));
-  return [...verticalScripts, ...presetScripts].sort((left, right) => left.entry.id.localeCompare(right.entry.id));
+  return {
+    ok: true,
+    scripts: [...verticalScripts, ...presetScripts].sort((left, right) => left.entry.id.localeCompare(right.entry.id))
+  };
 }
 
-function resolveScript(rootInput: HarnessLayoutInput, scriptId: string): ResolvedScriptEntry | undefined {
-  return discoverScriptEntries(rootInput).find((script) => script.entry.id === scriptId);
+function resolveScript(scripts: ReadonlyArray<ResolvedScriptEntry>, scriptId: string): ResolvedScriptEntry | undefined {
+  return scripts.find((script) => script.entry.id === scriptId);
 }
 
 function publicScriptSummary(script: ResolvedScriptEntry): Record<string, unknown> {

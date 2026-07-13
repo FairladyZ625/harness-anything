@@ -59,7 +59,7 @@ export function runExtensionCommand(command: ParsedCommand, coordinator: WriteCo
     }
     switch (group) {
       case "template":
-        return runTemplateCommand(action as Extract<ExtensionAction, { readonly kind: "template-list" | "template-render" }>);
+        return runTemplateCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: "template-list" | "template-render" }>);
       case "preset":
         return runPresetCommand(layoutInput, action as Extract<ExtensionAction, { readonly kind: `preset-${string}` }>, pendingOps);
       case "script":

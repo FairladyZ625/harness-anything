@@ -32,7 +32,8 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       artifactStore: context.artifactStore
     }),
     completionGateResolver: ({ vertical, preset, profile }) => {
-      const resolved = resolvePreset(context.layoutInput, preset!);
+      if (!vertical || !preset) throw new Error("Task vertical and preset are required for completion gate resolution");
+      const resolved = resolvePreset(context.layoutInput, preset, vertical);
       if (!resolved) throw new Error(`Task preset is not resolvable in the current registry: ${preset}`);
       if (resolved.manifest.vertical !== vertical) throw new Error(`Task preset ${preset} does not belong to vertical ${vertical}`);
       if (resolved.manifest.schema !== "preset-manifest/v2") {

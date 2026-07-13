@@ -148,6 +148,40 @@ test("CLI init keeps existing harness config unchanged without explicit name", (
   });
 });
 
+test("CLI init does not materialize coding scaffold for an unresolved non-coding active vertical", () => {
+  withTempRoot((rootDir) => {
+    const configPath = path.join(rootDir, "harness/harness.yaml");
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(configPath, [
+      "schema: harness-anything/v1",
+      "name: custom-project",
+      "settings:",
+      "  locale: zh-CN",
+      "  defaultVertical: custom/acme",
+      "  defaultPreset: standard-task",
+      "  identity:",
+      "    personId: person_test",
+      "    displayName: Harness Test",
+      "  customVerticals:",
+      "    enabled: false",
+      ""
+    ].join("\n"));
+
+    const result = runJson(rootDir, ["init"], {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test",
+      HARNESS_ACTOR: "agent:init-test",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+      HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test"
+    }, false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "custom_vertical_user_dev_mode_required", JSON.stringify(result));
+    assert.equal(existsSync(path.join(rootDir, "AGENTS.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness/context")), false);
+  });
+});
+
 test("CLI init updates only the project name when explicitly requested", () => {
   withTempRoot((rootDir) => {
     const configPath = writeExistingHarnessConfig(rootDir, "old-project");

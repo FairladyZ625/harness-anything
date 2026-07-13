@@ -30,8 +30,8 @@ export function materializeRepositoryScaffold(rootInput: HarnessLayoutInput, ver
   for (const directory of vertical.repositoryScaffold.dirs) {
     if (directory.create === "init") mkdirSync(resolveScaffoldPath(directory.path, layout), { recursive: true });
   }
-  const catalog = bundledTemplateCatalog();
-  if (!catalog) throw new Error("bundled software/coding template catalog missing");
+  const catalog = bundledTemplateCatalog(vertical.id);
+  if (!catalog) throw new Error(`bundled template catalog missing for vertical ${vertical.id}`);
   const materialized = planTemplateMaterialization({
     catalog,
     locale,

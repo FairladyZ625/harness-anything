@@ -88,7 +88,25 @@ function runCheckScripts(rootInput: HarnessLayoutInput): {
   const layout = resolveHarnessLayout(rootInput);
   const issues: ProfileValidationIssue[] = [];
   const reports: Record<string, unknown>[] = [];
-  const checkScripts = discoverScriptEntries(rootInput).filter((script) => script.entry.metadata.kind === "check");
+  const discovered = discoverScriptEntries(rootInput, "check");
+  if (!discovered.ok) {
+    const code = discovered.result.error?.code ?? "active_vertical_resolution_failed";
+    const hint = discovered.result.error?.hint ?? "The active vertical could not be resolved.";
+    issues.push(profileIssue(
+      "vertical-check",
+      code,
+      "hard-fail",
+      hint,
+      "Fix project active-vertical settings and authorization before running repository checks."
+    ));
+    reports.push({
+      scriptId: null,
+      ok: false,
+      error: discovered.result.error
+    });
+    return { issues, reports };
+  }
+  const checkScripts = discovered.scripts.filter((script) => script.entry.metadata.kind === "check");
   for (const script of checkScripts) {
     const run = runScriptHost({
       rootInput,
@@ -363,7 +381,7 @@ function validateMetadataDrivenTaskPackage(
   }
   const profile = readScalar(frontmatter, "profile") || undefined;
 
-  const preset = resolvePresetEntry(rootInput, presetId);
+  const preset = resolvePresetEntry(rootInput, presetId, vertical);
   if (!preset) {
     return [profileIssue(
       "metadata-preset",
