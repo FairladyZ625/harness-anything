@@ -16,7 +16,7 @@ import {
   taskEntityId
 } from "../../packages/kernel/src/index.ts";
 
-const writerCounts = [2, 4, 8];
+const writerCounts = positiveIntegerListOption("--writers", [2, 4, 8]);
 const rounds = positiveIntegerOption("--rounds", 10);
 const workspaceId = "workspace-authority-perf";
 const channelNonceDigest = "sha256:authority-perf-channel";
@@ -223,6 +223,18 @@ function positiveIntegerOption(name, fallback) {
   const value = Number(process.argv[index + 1]);
   if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
   return value;
+}
+
+function positiveIntegerListOption(name, fallback) {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return fallback;
+  const values = String(process.argv[index + 1] ?? "")
+    .split(",")
+    .map(Number);
+  if (values.length === 0 || values.some((value) => !Number.isInteger(value) || value < 1)) {
+    throw new Error(`${name} must be a comma-separated list of positive integers`);
+  }
+  return [...new Set(values)];
 }
 
 function restoreEnvironment(previous) {
