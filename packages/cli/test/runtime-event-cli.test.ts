@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
 import { appendCommandRuntimeEvent } from "../src/cli/command-runtime-events.ts";
+import { appendParseFailureRuntimeEvent } from "../src/cli/parse-failure-runtime-event.ts";
 import type { CommandRunnerContext } from "../src/cli/runner-registry.ts";
 import type { ParsedCommand } from "../src/cli/types.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
@@ -167,24 +168,62 @@ test("CLI entity write fails closed before runtime event append when principal c
   });
 });
 
-test("CLI parse failures append safe failed command events", () => {
+test("CLI parse failures append operational events without business actor attribution", () => {
   withTempRoot((rootDir) => {
     const sessionId = "codex-w2-parse-failure";
-    const result = runJson(rootDir, ["definitely-not-a-command", "--secret", "do-not-store"], false, {
+    const output = runJsonWithStderr(rootDir, [
+      "decision", "propose",
+      "--title", "Malformed rejection",
+      "--question", "Which option?",
+      "--chosen", "Chosen option",
+      "--rejected", '{"badfield":"do-not-store"}'
+    ], {
       CODEX_SESSION_ID: sessionId,
-      CODEX_THREAD_ID: ""
-    });
+      CODEX_THREAD_ID: "",
+      HARNESS_ACTOR: "",
+      HARNESS_GIT_AUTHOR_NAME: "",
+      HARNESS_GIT_AUTHOR_EMAIL: "",
+      GIT_AUTHOR_NAME: "",
+      GIT_AUTHOR_EMAIL: ""
+    }, 2);
     const ledgerPath = path.join(rootDir, ".harness/generated/runtime-events", `${sessionId}.jsonl`);
     const body = readFileSync(ledgerPath, "utf8");
     const events = readJsonl(ledgerPath);
 
-    assert.equal(result.ok, false);
+    assert.equal(output.result.ok, false);
+    assert.equal(output.result.error?.code, "invalid_decision_amend_patch");
+    assert.match(output.result.error?.hint ?? "", /rejected JSON requires text/u);
+    assert.doesNotMatch(output.stderr, /CliActorAttributionError/u);
     assert.equal(events.length, 1);
+    assert.equal(events[0].actor, undefined);
+    assert.equal(events[0].actorAxes, undefined);
     assert.equal(events[0].tool.toolName, "parse");
     assert.equal(events[0].result.status, "failed");
-    assert.equal(events[0].result.errorCode, "unknown_command");
+    assert.equal(events[0].result.errorCode, "invalid_decision_amend_patch");
     assert.equal(body.includes("do-not-store"), false);
   });
+});
+
+test("parse-failure diagnostic injection failures preserve the primary error and emit a warning", async () => {
+  const primaryError = {
+    code: "invalid_json_input",
+    category: "parse",
+    hint: "rejected JSON requires text"
+  } as const;
+  const warnings: string[] = [];
+
+  await appendParseFailureRuntimeEvent([], primaryError, {
+    append: async (_argv, error) => {
+      assert.equal(error, primaryError);
+      throw new Error("injected runtime-event failure");
+    },
+    warn: (message) => warnings.push(message)
+  });
+
+  assert.equal(primaryError.hint, "rejected JSON requires text");
+  assert.deepEqual(warnings, [
+    "warning: unable to append CLI parse-failure diagnostic: injected runtime-event failure"
+  ]);
 });
 
 test("CLI event append and list write local JSONL without task lifecycle mutation", () => {
