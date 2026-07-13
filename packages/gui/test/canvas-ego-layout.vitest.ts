@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { layoutCanvasEgo, buildEgoGraph, bfsShown } from "../src/renderer/graph/canvasEgoLayout";
+import {
+  layoutCanvasEgo,
+  buildEgoGraph,
+  bfsShown,
+  egoFocusIdOf,
+  estimateCardHeight,
+} from "../src/renderer/graph/canvasEgoLayout";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../src/renderer/model/types";
 import type { AxisFilter, GraphFilterInput } from "../src/renderer/graph/graphLayoutTypes";
 
@@ -150,5 +156,102 @@ describe("layoutCanvasEgo", () => {
     expect(byId.get(FOCUS)!.style.width).toBe(360); // CARD_W
     expect(byId.get("task_C")!.data.expanded).toBe(false);
     expect(byId.get("task_C")!.style.width).toBe(216); // CHIP_W
+  });
+});
+
+// ══ D1:领地→聚光灯 ID 命名空间归一 ══
+// 复现:territoryLayout.buildChipNode 给 task chip 发射的 navRef 是 `task/<id>` 形态,
+// 而 ego 图 byId 的 task 键是裸 id(canvasEgoLayout.buildEgoGraph)。
+// 修复前 useEgoCanvas.openFocus 直接把 navRef 当 focusId → bfsShown 从 task/<id> 出发,
+// adj/byId 都键不上 → 焦点不在 byId → layoutCanvasEgo 丢弃 → 0 节点(空白画布)。
+// 修复:导出 egoFocusIdOf 作为 ego 图入口不变量,openFocus 必须经它归一。
+describe("D1 · egoFocusIdOf (territory chip → ego 焦点归一)", () => {
+  it("task/<id> 归一为裸 id(territory chip navRef 形态)", () => {
+    // territoryLayout.buildChipNode:m.entity === "task" ? `task/${m.id}` : m.id
+    expect(egoFocusIdOf("task/task_01ABC")).toBe("task_01ABC");
+  });
+
+  it("decision/<id> 与裸 task id 原样通过(其他入口形态)", () => {
+    // decision chip navRef = `decision/${id}`(已与 byId 键对齐)
+    expect(egoFocusIdOf("decision/dec_X")).toBe("decision/dec_X");
+    // FocusSwitcher / 双击 / 抽屉「设为焦点」传的是裸 task id
+    expect(egoFocusIdOf("task_01ABC")).toBe("task_01ABC");
+    // fact ref 原样通过
+    expect(egoFocusIdOf("fact/task_x/F1")).toBe("fact/task_x/F1");
+  });
+
+  it("领地 task chip navRef 经 egoFocusIdOf 后喂进 ego 图 >0 节点(集成)", () => {
+    // 真实场景:task_C 有子任务 C1/C2;从领地点 task_C chip 进聚光灯。
+    const { tasks, decisions, facts, relations } = scene();
+    const navRef = "task/task_C"; // territoryLayout 给 task_C chip 的 navRef
+    const focusId = egoFocusIdOf(navRef); // 修复后 openFocus 内部做这步
+    const graph = buildEgoGraph(tasks, decisions, facts, relations);
+    const shown = bfsShown(graph, focusId, 2, ALL_AXES);
+    const out = layoutCanvasEgo({
+      focusId,
+      tasks,
+      decisions,
+      facts,
+      relations,
+      filters: filters(),
+      inLoopEdges: new Set(),
+      shown,
+      expanded: new Set([focusId]),
+    });
+    expect(out.nodes.length).toBeGreaterThan(0);
+    expect(out.nodes.some((n) => n.id === "task_C")).toBe(true);
+    // 焦点本身必须渲染为卡片
+    const focus = out.nodes.find((n) => n.id === "task_C");
+    expect(focus?.data.expanded).toBe(true);
+  });
+
+  it("阴性对照:不经归一直接用 navRef 当 focusId → 0 节点(复现 D1 bug)", () => {
+    // 这是修复前 useEgoCanvas.openFocus 的行为:直接 setFocusId(navRef)。
+    const { tasks, decisions, facts, relations } = scene();
+    const navRef = "task/task_C"; // 未经 egoFocusIdOf 归一
+    const graph = buildEgoGraph(tasks, decisions, facts, relations);
+    // byId 键为裸 task id,task/task_C 不在里面
+    expect(graph.byId.has(navRef)).toBe(false);
+    expect(graph.byId.has(egoFocusIdOf(navRef))).toBe(true);
+    const out = layoutCanvasEgo({
+      focusId: navRef,
+      tasks,
+      decisions,
+      facts,
+      relations,
+      filters: filters(),
+      inLoopEdges: new Set(),
+      shown: bfsShown(graph, navRef, 2, ALL_AXES),
+      expanded: new Set([navRef]),
+    });
+    // bug:焦点不在 byId → vis 集为空 → 0 节点
+    expect(out.nodes.length).toBe(0);
+  });
+});
+
+// ══ D4:task 卡片高度内容感知 ══
+// 修复前 estimateCardHeight 对 task 永远返回 150,长标题被截、短标题浪费空间。
+describe("D4 · estimateCardHeight(task 内容感知)", () => {
+  it("短标题 task 卡片高度基线", () => {
+    const t = task("t_short", { title: "短标题" });
+    const h = estimateCardHeight("task", t);
+    expect(h).toBeGreaterThan(0);
+    expect(h).toBeLessThanOrEqual(260); // 合理上限
+  });
+
+  it("长标题 task 卡片比短标题高(内容感知)", () => {
+    const shortT = task("t_s", { title: "short" });
+    const longT = task("t_l", { title: "X".repeat(120) });
+    const shortH = estimateCardHeight("task", shortT);
+    const longH = estimateCardHeight("task", longT);
+    // 修复前:两者都返回 150(完全相等,bug)。修复后:长标题需要更多行 → 更高。
+    expect(longH).toBeGreaterThan(shortH);
+  });
+
+  it("task 卡片高度不再是无视内容的常量 150(回归)", () => {
+    // 修复前:任何 task 都返回 exactly 150。修复后:基线随内容浮动。
+    const t = task("t", { title: "a".repeat(80) });
+    const h = estimateCardHeight("task", t);
+    expect(h).not.toBe(150);
   });
 });

@@ -73,6 +73,7 @@ export async function computeGraphLayout(input: LayoutInput): Promise<LayoutOutp
       filters,
       coverageRows,
       expandedZones: input.territory.expandedZones,
+      containerWidth: input.territory.containerWidth,
     });
   }
 
@@ -89,6 +90,7 @@ export async function computeGraphLayout(input: LayoutInput): Promise<LayoutOutp
       inLoopEdges,
       shown: input.canvas.shown,
       expanded: input.canvas.expanded,
+      sizeOverrides: input.canvas.sizeOverrides,
     });
   }
 

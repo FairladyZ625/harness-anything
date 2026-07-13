@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useReactFlow } from "@xyflow/react";
 
 import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types";
 import type { AxisFilter } from "./graphLayoutTypes";
 import { endpointToNodeId } from "./endpoint";
-import { buildEgoGraph, bfsShown, neighborsOf, type EgoGraph } from "./canvasEgoLayout";
+import { buildEgoGraph, bfsShown, neighborsOf, egoFocusIdOf, type EgoGraph } from "./canvasEgoLayout";
 import { pickDefaultFocus } from "./graphLayoutShared";
 import {
   createFocusHistory,
@@ -30,8 +29,6 @@ import {
  * 收起都只增不减,永不重排已铺开的画布。
  */
 
-// 换焦点时把焦点摆到视口正中所用的缩放:焦点卡片(360 宽)+ 左右各一列 chip 同屏可读。
-const FOCUS_ZOOM = 0.9;
 // openFocus 默认铺开的跳数(上游 2 跳 + 下游 2 跳)。
 const DEFAULT_HOPS = 2;
 
@@ -60,8 +57,6 @@ export function useEgoCanvas({
   relations,
   axes,
   focusRef,
-  nodes,
-  resolvedFocusId,
 }: {
   tasks: TaskRow[];
   decisions: DecisionRow[];
@@ -69,13 +64,7 @@ export function useEgoCanvas({
   relations: RelationEdge[];
   axes: AxisFilter;
   focusRef?: string | null;
-  /** 布局器算出的 React Flow 节点(用于「换焦点即居中」读焦点节点的实际盒子)。 */
-  nodes: ReadonlyArray<any>;
-  /** 布局器最终采用的焦点(用户未显式聚焦时是默认焦点)。 */
-  resolvedFocusId: string | null;
 }): EgoCanvas {
-  const { setCenter } = useReactFlow();
-
   const [focusId, setFocusId] = useState<string | null>(null);
   const [history, setHistory] = useState<FocusHistoryState>(createFocusHistory);
   const [shown, setShown] = useState<Map<string, number>>(() => new Map());
@@ -98,9 +87,14 @@ export function useEgoCanvas({
 
   const openFocus = useCallback(
     (id: string) => {
-      setFocusId(id);
-      setHistory((prev) => pushFocus(prev, id)); // 重复推同 id 会被 pushFocus 折叠
-      resetCanvasTo(id);
+      // D1:ego 图入口不变量。territory chip 发射的 navRef 是 `task/<id>` 形态,而 ego
+      // byId 键为裸 task id —— 不归一直接传会让焦点命中失败 → 空白画布。所有入口
+      // (territory chip / FocusSwitcher / 双击 / 抽屉「设为焦点」/ 历史前后退)都经此归一,
+      // 把 endpoint 形态收敛到 byId 键空间。裸 id 原样通过(幂等)。
+      const canonical = egoFocusIdOf(id);
+      setFocusId(canonical);
+      setHistory((prev) => pushFocus(prev, canonical)); // 重复推同 id 会被 pushFocus 折叠
+      resetCanvasTo(canonical);
     },
     [resetCanvasTo],
   );
@@ -168,24 +162,6 @@ export function useEgoCanvas({
     const def = pickDefaultFocus(decisions, tasks);
     if (def) openFocusRef.current(def);
   }, [focusId, focusRef, decisions, tasks]);
-
-  // 换焦点时把焦点节点摆进视口正中 —— 兑现「以它为中心」,同时躲开左上角 Filters 面板
-  // (fitView 按整图 bbox 居中,下游更宽时会把焦点推到左侧压在面板底下)。
-  // 只在焦点变化时触发:累积展开 / 长邻居永不重排已有画布。
-  const lastCenteredFocus = useRef<string | null>(null);
-  useEffect(() => {
-    if (!resolvedFocusId) return;
-    if (lastCenteredFocus.current === resolvedFocusId) return;
-    const focusNode = nodes.find((n) => n.id === resolvedFocusId);
-    if (!focusNode) return;
-    lastCenteredFocus.current = resolvedFocusId;
-    const cx = focusNode.position.x + Number(focusNode.width ?? 0) / 2;
-    const cy = focusNode.position.y + Number(focusNode.height ?? 0) / 2;
-    const frame = window.requestAnimationFrame(() => {
-      setCenter(cx, cy, { zoom: FOCUS_ZOOM, duration: 320 });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [resolvedFocusId, nodes, setCenter]);
 
   return {
     focusId,

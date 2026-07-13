@@ -148,6 +148,25 @@ export interface CanvasEgoInput {
   shown: Map<string, number>;
   /** 渲染为详情卡片的 node id 集(其余为紧凑 chip)。 */
   expanded: Set<string>;
+  /** 用户拖拽调整后的卡片尺寸覆盖(node id → {w,h});未覆盖的走内容估算。 */
+  sizeOverrides?: ReadonlyMap<string, { w: number; h: number }>;
+}
+
+/**
+ * Ego 图的入口不变量:把任何 endpoint 形态(decision/<id>、task/<id>、fact/<...>)
+ * 或裸 task id 归一为 ego 图 byId 的键空间。
+ *
+ * D1 根因:territory chip 发射的 navRef 是 `task/<id>`(territoryLayout.buildChipNode),
+ * 而 ego 图 byId 的 task 键是裸 id(buildEgoGraph)。useEgoCanvas.openFocus 修复前直接把
+ * navRef 当 focusId → bfsShown 从 `task/<id>` 出发,adj/byId 都键不上 → 焦点命中失败 →
+ * layoutCanvasEgo 在 `if (!meta) continue` 处丢弃 → 0 节点(空白画布)。
+ *
+ * 修复:openFocus 内部强制经此函数归一,使任何入口形态都收敛到 byId 键空间。territory
+ * chip / FocusSwitcher / 双击 / 抽屉「设为焦点」/ 历史前后退都共用同一个入口不变量,
+ * 下一个入口不会再踩同一个坑。
+ */
+export function egoFocusIdOf(ref: string): string {
+  return endpointToNodeId(ref);
 }
 
 // 节点尺寸(确定性布局用)。chip 紧凑一条;card 固定宽,高按内容估算并封顶。
@@ -157,9 +176,20 @@ const CARD_W = 360;
 const GAP_X = 72;
 const GAP_Y = 26;
 
-/** 卡片高度:内容感知估算 + 封顶。节点即以此高渲染,分区溢出内滚 → 零重叠。 */
-function estimateCardHeight(entity: Entity, row: TaskRow | DecisionRow | FactRef): number {
-  if (entity === "task") return 150;
+/**
+ * 卡片高度:内容感知估算 + 封顶。节点即以此高渲染,分区溢出内滚 → 零重叠。
+ *
+ * D4:task 高度修复前是常量 150(无视标题长度)—— 长标题被截、内容溢出。
+ * 现在按标题行数 + body 徽章/新鲜度/meta 的固定开销估算,与 decision/fact 同源。
+ */
+export function estimateCardHeight(entity: Entity, row: TaskRow | DecisionRow | FactRef): number {
+  if (entity === "task") {
+    const t = row as TaskRow;
+    // header(32) + body(badges 24 + freshness 20 + meta 20 + gaps 16 ≈ 80) + footer(20) ≈ 130
+    // + title 每行 22px(卡片宽 360,padding 后 ~320,约 30 字符/行)
+    const titleLines = Math.max(1, Math.ceil((t.title ?? "").length / 30));
+    return Math.min(260, 130 + titleLines * 22);
+  }
   if (entity === "fact") {
     const f = row as FactRef;
     const obs = Math.min(160, 56 + Math.ceil((f.text?.length ?? 0) / 42) * 20);
@@ -177,13 +207,16 @@ function nodeDims(
   entity: Entity,
   expanded: boolean,
   row: NodeMeta["row"] | undefined,
+  override?: { w: number; h: number },
 ): { w: number; h: number } {
+  if (override) return override;
   if (expanded && row) return { w: CARD_W, h: estimateCardHeight(entity, row) };
   return { w: CHIP_W, h: CHIP_H };
 }
 
 export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
   const { focusId, filters, shown, expanded } = input;
+  const sizeOverrides = input.sizeOverrides;
   const { byId, adj, synthEdges } = buildEgoGraph(
     input.tasks,
     input.decisions,
@@ -193,6 +226,10 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
 
   const axisOn = (axis: SemanticAxis): boolean => filters.axes[axis];
   const typeOn = (entity: Entity): boolean => filters.types.has(entity);
+  const dimOf = (id: string) => {
+    const meta = byId.get(id);
+    return nodeDims(meta?.entity ?? "task", expanded.has(id), meta?.row, sizeOverrides?.get(id));
+  };
 
   // ── 可见集:shown 中通过类型过滤者;焦点恒可见(不被自身类型开关抹掉) ──
   const vis = new Set<string>();
@@ -232,10 +269,6 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
 
   // ── 分列:按 side:level 聚列,barycenter 排序,竖排居中于 y=0 ──
   const pos = new Map<string, { x: number; y: number }>();
-  const dimOf = (id: string) => {
-    const meta = byId.get(id);
-    return nodeDims(meta?.entity ?? "task", expanded.has(id), meta?.row);
-  };
   const cols = new Map<string, string[]>();
   for (const id of vis) {
     const k = `${side.get(id)}:${lvl.get(id)}`;
@@ -286,7 +319,7 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
     if (!meta) continue;
     const center = pos.get(id) ?? { x: 0, y: 0 };
     const isExpanded = expanded.has(id);
-    const { w, h } = nodeDims(meta.entity, isExpanded, meta.row);
+    const { w, h } = nodeDims(meta.entity, isExpanded, meta.row, sizeOverrides?.get(id));
     let hiddenCount = 0;
     for (const a of adj.get(id) ?? []) {
       if (
