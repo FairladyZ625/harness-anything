@@ -25,6 +25,7 @@ export type {
 
 export { WriteCoordinator } from "./write-coordinator.ts";
 export type {
+  AuthorityOperationIntegrity,
   WriteOp,
   WriteOpKind,
   TaskWriteOpKind,

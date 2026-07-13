@@ -47,6 +47,7 @@ import {
   writeOpTouchedPaths
 } from "./write-journal-operations.ts";
 import { reconcileDurableFlush, shouldWaitForForeignCommitter } from "./write-journal-receipt.ts";
+import { semanticCommitMessage } from "./write-journal-authority-trailer.ts";
 import { memoizePublicationVcs } from "./write-journal-publication-vcs.ts";
 import type { ApplyMarkerRecord, DeleteAuditRecord, GitCommitAuthor, JournalRecordKind, JournaledWriteCoordinatorOptions, JournalRecoveryOptions, LockConflictRetryOptions, LockTakeoverRecord, OperationalActor, OperationalJournaledWriteCoordinatorOptions, ReadableJournalRecord, WriteWatermark } from "./write-journal-types.ts";
 export type {
@@ -331,7 +332,10 @@ function flushRecords(
     [...touchedPaths, ...eventPaths],
     committedOpIds,
     rootInput,
-    semanticCommitMessage(rootDir, plannedRecords.map((entry) => entry.record)),
+    semanticCommitMessage(
+      plannedRecords.map((entry) => entry.record),
+      plannedRecords.map((entry) => recordCommitSummary(rootDir, entry.record))
+    ),
     sessionId,
     {
       author: commitAuthor,
@@ -431,7 +435,8 @@ function recordToOp(rootDir: string, record: ReadableJournalRecord): WriteOp {
     opId: record.opId,
     entityId: record.entityId,
     kind: record.kind,
-    payload
+    payload,
+    ...(record.authorityIntegrity ? { authorityIntegrity: record.authorityIntegrity } : {})
   };
 }
 
@@ -447,13 +452,6 @@ function readVerifiedPayload(rootDir: string, record: ReadableJournalRecord): Re
     rejectWrite(`payload hash mismatch for op ${record.opId}`, record.entityId);
   }
   return payload;
-}
-
-function semanticCommitMessage(rootDir: string, records: ReadonlyArray<ReadableJournalRecord>): string | undefined {
-  if (records.length === 0) return undefined;
-  const summaries = records.map((record) => recordCommitSummary(rootDir, record));
-  if (summaries.length === 1) return `${summaries[0]} [${records[0]?.opId}]`;
-  return `harness write: ${summaries.slice(0, 3).join("; ")}${summaries.length > 3 ? `; +${summaries.length - 3} more` : ""} [${records.map((record) => record.opId).join(",")}]`;
 }
 
 function recordCommitSummary(rootDir: string, record: ReadableJournalRecord): string {

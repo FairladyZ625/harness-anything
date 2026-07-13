@@ -5,12 +5,13 @@ import type {
   AuthorityOperationEnvelope,
   AuthorityOperationRecord,
   AuthorityOperationReceipt,
-  AuthorityProtocolTuple,
+  AuthorizedOperationAttemptV2,
   ReplicaChangeRecord
 } from "../../../application/src/index.ts";
 import {
   authorityWireFrameType,
   isAuthorityServerFrame,
+  type AuthorityNegotiatedProtocol,
   type AuthorityRequestFrame,
   type AuthorityResponseFrame
 } from "../authority/protocol.ts";
@@ -46,7 +47,7 @@ export interface PersistentSshAuthorityClientOptions {
   readonly target: AuthoritySshTarget;
   readonly workspaceId: string;
   readonly channelNonceDigest: () => string;
-  readonly protocol: AuthorityProtocolTuple;
+  readonly protocol: AuthorityNegotiatedProtocol;
   readonly childFactory?: SshAuthorityChildFactory;
   readonly limits?: Partial<TransportFlowLimits>;
   readonly onNotification?: (change: ReplicaChangeRecord) => void;
@@ -142,6 +143,20 @@ export class PersistentSshAuthorityClient {
       envelope
     }, envelope.opId);
     if (!response.ok || !response.result) throw new Error(response.error?.message ?? "authority submit failed without receipt");
+    return response.result as AuthorityOperationReceipt;
+  }
+
+  async submitV2(attempt: AuthorizedOperationAttemptV2): Promise<AuthorityOperationReceipt> {
+    this.assertReady();
+    const response = await this.request({
+      type: authorityWireFrameType,
+      kind: "submit_v2",
+      requestId: this.nextRequestId(),
+      connectionGeneration: this.generation,
+      presentationToken: Buffer.from(attempt.presentationToken).toString("base64url"),
+      envelope: Buffer.from(attempt.envelope).toString("base64url")
+    });
+    if (!response.ok || !response.result) throw new Error(response.error?.message ?? "authority V2 submit failed without receipt");
     return response.result as AuthorityOperationReceipt;
   }
 

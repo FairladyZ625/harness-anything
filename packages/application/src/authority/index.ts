@@ -7,7 +7,10 @@ export {
   shadowPublicationSchema,
   shadowReconciliationSchema
 } from "./shadow.ts";
-export type { AuthoritySubmissionServiceOptions } from "./service.ts";
+export type { AuthoritySubmissionServiceOptions, AuthoritySubmissionV2Options } from "./service.ts";
+export * from "./actor-axes-binding-v2.ts";
+export * from "./canonical-cbor.ts";
+export * from "./semantic-mutation-envelope-v2.ts";
 export { authorityProtocolTuple } from "./types.ts";
 export type {
   AttributedCoordinatorFactory,
@@ -17,6 +20,7 @@ export type {
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
   AuthorityOperationRecord,
+  AuthorityStoredOperationRecord,
   AuthorityOperationRegistry,
   AuthorityOperationState,
   AuthorityProtocolTuple,

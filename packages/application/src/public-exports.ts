@@ -23,6 +23,7 @@ export type {
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
   AuthorityOperationRecord,
+  AuthorityStoredOperationRecord,
   AuthorityOperationRegistry,
   AuthorityOperationState,
   AuthorityProtocolTuple,
@@ -38,6 +39,10 @@ export type {
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "./authority/index.ts";
+export * from "./authority/actor-axes-binding-v2.ts";
+export * from "./authority/canonical-cbor.ts";
+export * from "./authority/semantic-mutation-envelope-v2.ts";
+export type { AuthoritySubmissionV2Options } from "./authority/service.ts";
 export type {
   CanonicalPublicationObservation,
   ShadowDifference,

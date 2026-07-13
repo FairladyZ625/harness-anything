@@ -1,13 +1,14 @@
 import type { Readable, Writable } from "node:stream";
-import type {
-  AuthorityProtocolTuple,
-  AuthoritySubmissionService,
-  ReplicaChangeLog
+import {
+  decodeActorAxesBindingV2,
+  type AuthoritySubmissionService,
+  type ReplicaChangeLog
 } from "../../../application/src/index.ts";
 import {
   authorityWireFrameType,
   isAuthorityRequestFrame,
   sameAuthorityProtocol,
+  type AuthorityNegotiatedProtocol,
   type AuthorityResponseFrame,
   type AuthorityServerFrame
 } from "./protocol.ts";
@@ -32,7 +33,7 @@ export interface AuthorityForcedCommandOptions {
   readonly input: Readable;
   readonly output: Writable;
   readonly workspaceId: string;
-  readonly protocol: AuthorityProtocolTuple;
+  readonly protocol: AuthorityNegotiatedProtocol;
   readonly submissionService: AuthoritySubmissionService;
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly maxFrameBytes?: number;
@@ -51,6 +52,7 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   let handshaken = false;
   let generation = 0;
   let negotiatedChannelNonceDigest: string | undefined;
+  let negotiatedV2 = false;
   let queueDepth = 0;
   let closed = false;
   let queue = Promise.resolve();
@@ -108,10 +110,17 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
       }
       handshaken = true;
       negotiatedChannelNonceDigest = value.channelNonceDigest;
+      negotiatedV2 = "policy" in value.protocol;
       write(response(value.requestId, generation, true, {
         accepted: true,
         protocol: options.protocol,
-        capabilities: ["single-writer", "op-id-dedupe", "replica-change/v1", "view-scoped-delegation-token"]
+        capabilities: [
+          "single-writer",
+          "op-id-dedupe",
+          "replica-change/v1",
+          "view-scoped-delegation-token",
+          ...(negotiatedV2 ? ["actor-axes-binding/v2", "semantic-mutation-envelope/v2"] : [])
+        ]
       }));
       options.observer?.observe({ kind: "connected", connectionGeneration: generation, requestId: value.requestId, queueDepth });
       return;
@@ -123,8 +132,55 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
     if (value.connectionGeneration !== generation) return;
     options.observer?.observe({ kind: "request", connectionGeneration: generation, requestId: value.requestId, opId: value.kind === "submit" ? value.envelope.opId : undefined, queueDepth });
     if (value.kind === "get_operation") {
+      if (negotiatedV2) {
+        write(response(value.requestId, generation, false, undefined, "AUTHORIZATION_REQUIRED", "V2 outcome queries require a current coarse-authority presentation."));
+        return;
+      }
       const record = await options.submissionService.getOperation(value.workspaceId, value.opId);
       write(response(value.requestId, generation, true, record ?? null));
+      return;
+    }
+    if (value.kind === "submit_v2") {
+      if (!negotiatedV2) {
+        write(response(value.requestId, generation, false, undefined, "UPGRADE_REQUIRED", "submit_v2 requires the exact V2 protocol tuple."));
+        return;
+      }
+      if (!options.submissionService.submitV2) {
+        write(response(value.requestId, generation, false, undefined, "UPGRADE_REQUIRED", "V2 authority submission is not enabled for this negotiated tuple."));
+        return;
+      }
+      try {
+        const presentationToken = decodeBase64Url(value.presentationToken);
+        const tokenChannel = Buffer.from(decodeActorAxesBindingV2(presentationToken).claims.channelNonceDigest).toString("hex");
+        if (tokenChannel !== negotiatedChannelNonceDigest) {
+          write(response(value.requestId, generation, false, undefined, "CHANNEL_BINDING_MISMATCH", "V2 token is not bound to this connection generation."));
+          return;
+        }
+        const receipt = await options.submissionService.submitV2({
+          requestId: value.requestId,
+          presentationToken,
+          envelope: decodeBase64Url(value.envelope)
+        });
+        write(response(value.requestId, generation, true, receipt));
+        options.observer?.observe({
+          kind: receipt.tag === "COMMITTED" ? "committed" : "rejected",
+          connectionGeneration: generation,
+          requestId: value.requestId,
+          opId: receipt.opId,
+          ...(receipt.tag === "COMMITTED" ? { revision: receipt.revision } : {}),
+          queueDepth
+        });
+        if (receipt.tag === "COMMITTED") {
+          const change = await options.replicaChangeLog.getByOperation(receipt.workspaceId, receipt.opId);
+          if (change) write({ type: authorityWireFrameType, kind: "replica_change", connectionGeneration: generation, change });
+        }
+      } catch (error) {
+        write(response(value.requestId, generation, false, undefined, "AUTHORITY_REJECTED", safeErrorMessage(error)));
+      }
+      return;
+    }
+    if (negotiatedV2) {
+      write(response(value.requestId, generation, false, undefined, "UPGRADE_REQUIRED", "Legacy submit is not valid under a V2 protocol negotiation."));
       return;
     }
     if (value.envelope.channelNonceDigest !== negotiatedChannelNonceDigest) {
@@ -190,4 +246,15 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
   function write(frame: AuthorityServerFrame): void {
     if (!closed) options.output.write(encodeLengthPrefixedFrame(frame, maxFrameBytes));
   }
+}
+
+function decodeBase64Url(value: string): Uint8Array {
+  if (!value || !/^[A-Za-z0-9_-]+$/u.test(value)) throw new Error("invalid base64url authority payload");
+  const decoded = Buffer.from(value, "base64url");
+  if (decoded.toString("base64url") !== value) throw new Error("non-canonical base64url authority payload");
+  return decoded;
+}
+
+function safeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "authority admission rejected";
 }

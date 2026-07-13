@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
+import type { WriteOp } from "../ports/write-coordinator.ts";
 import { WriteAttributionSchema, type WriteAttribution } from "../schemas/actor-attribution.ts";
 import { rejectWrite } from "./write-journal-rejection.ts";
 import { writePayloadRef } from "./write-journal-durable.ts";
@@ -17,6 +18,7 @@ interface JournalRecordInput {
   readonly entityId: ReadableJournalRecord["entityId"];
   readonly kind: JournalRecordKind;
   readonly payload?: unknown;
+  readonly authorityIntegrity?: WriteOp["authorityIntegrity"];
 }
 
 export function decodeWriteAttribution(value: unknown, entityId?: ReadableJournalRecord["entityId"]): WriteAttribution {
@@ -43,6 +45,7 @@ export function createAttributedJournalRecord(
     principalSource: attribution.principalSource,
     executorSource: attribution.executorSource,
     at: new Date().toISOString(),
+    ...(op.authorityIntegrity ? { authorityIntegrity: op.authorityIntegrity } : {}),
     payloadRef: writePayloadRef(rootDir, journalPath, op.opId, payload),
     payload: { payloadHash: stablePayloadHash(payload) }
   };
@@ -64,6 +67,7 @@ export function createOperationalJournalRecord(
     kind: op.kind,
     actor: { kind: actor.kind, id: actor.id },
     at: new Date().toISOString(),
+    ...(op.authorityIntegrity ? { authorityIntegrity: op.authorityIntegrity } : {}),
     payloadRef: writePayloadRef(rootDir, journalPath, op.opId, payload),
     payload: { payloadHash: stablePayloadHash(payload) }
   };
@@ -112,6 +116,7 @@ function inputFingerprint(op: JournalRecordInput, attribution: WriteAttribution 
     entityId: op.entityId,
     kind: op.kind,
     payloadHash: stablePayloadHash(journalPayload(op)),
+    authorityIntegrity: op.authorityIntegrity,
     attribution
   });
 }
@@ -128,6 +133,7 @@ function recordFingerprint(record: ReadableJournalRecord): string {
     entityId: record.entityId,
     kind: record.kind,
     payloadHash: record.payload?.payloadHash,
+    authorityIntegrity: record.authorityIntegrity,
     attribution
   });
 }

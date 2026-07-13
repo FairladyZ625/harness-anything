@@ -3,6 +3,7 @@ import type {
   AuthorityOperationRecord,
   AuthorityOperationReceipt,
   AuthorityProtocolTuple,
+  ProtocolSchemaTupleV2,
   ReplicaChangeRecord
 } from "../../../application/src/index.ts";
 
@@ -18,13 +19,20 @@ export interface AuthorityHelloFrame extends AuthorityWireFrameBase {
   readonly requestId: string;
   readonly workspaceId: string;
   readonly channelNonceDigest: string;
-  readonly protocol: AuthorityProtocolTuple;
+  readonly protocol: AuthorityNegotiatedProtocol;
 }
 
 export interface AuthoritySubmitFrame extends AuthorityWireFrameBase {
   readonly kind: "submit";
   readonly requestId: string;
   readonly envelope: AuthorityOperationEnvelope;
+}
+
+export interface AuthoritySubmitV2Frame extends AuthorityWireFrameBase {
+  readonly kind: "submit_v2";
+  readonly requestId: string;
+  readonly presentationToken: string;
+  readonly envelope: string;
 }
 
 export interface AuthorityGetOperationFrame extends AuthorityWireFrameBase {
@@ -34,7 +42,7 @@ export interface AuthorityGetOperationFrame extends AuthorityWireFrameBase {
   readonly opId: string;
 }
 
-export type AuthorityRequestFrame = AuthorityHelloFrame | AuthoritySubmitFrame | AuthorityGetOperationFrame;
+export type AuthorityRequestFrame = AuthorityHelloFrame | AuthoritySubmitFrame | AuthoritySubmitV2Frame | AuthorityGetOperationFrame;
 
 export interface AuthorityResponseFrame extends AuthorityWireFrameBase {
   readonly kind: "response";
@@ -58,11 +66,12 @@ export interface AuthorityStreamClosedFrame extends AuthorityWireFrameBase {
 
 export interface AuthorityHelloResult {
   readonly accepted: true;
-  readonly protocol: AuthorityProtocolTuple;
+  readonly protocol: AuthorityNegotiatedProtocol;
   readonly capabilities: ReadonlyArray<string>;
 }
 
 export type AuthorityServerFrame = AuthorityResponseFrame | AuthorityReplicaChangeFrame | AuthorityStreamClosedFrame;
+export type AuthorityNegotiatedProtocol = AuthorityProtocolTuple | ProtocolSchemaTupleV2;
 
 export function isAuthorityRequestFrame(value: unknown): value is AuthorityRequestFrame {
   if (!isBase(value) || typeof value.kind !== "string" || typeof value.requestId !== "string") return false;
@@ -72,6 +81,7 @@ export function isAuthorityRequestFrame(value: unknown): value is AuthorityReque
       && isProtocolTuple(value.protocol);
   }
   if (value.kind === "submit") return isObject(value.envelope);
+  if (value.kind === "submit_v2") return typeof value.presentationToken === "string" && typeof value.envelope === "string";
   if (value.kind === "get_operation") return typeof value.workspaceId === "string" && typeof value.opId === "string";
   return false;
 }
@@ -86,12 +96,11 @@ export function isAuthorityServerFrame(value: unknown): value is AuthorityServer
     && typeof value.message === "string";
 }
 
-export function sameAuthorityProtocol(left: AuthorityProtocolTuple, right: AuthorityProtocolTuple): boolean {
-  return left.wire === right.wire
-    && left.event === right.event
-    && left.receipt === right.receipt
-    && left.digest === right.digest
-    && left.commandRegistry === right.commandRegistry;
+export function sameAuthorityProtocol(left: AuthorityNegotiatedProtocol, right: AuthorityNegotiatedProtocol): boolean {
+  const leftEntries = Object.entries(left).sort(([a], [b]) => a.localeCompare(b));
+  const rightEntries = Object.entries(right).sort(([a], [b]) => a.localeCompare(b));
+  return leftEntries.length === rightEntries.length
+    && leftEntries.every(([key, value], index) => rightEntries[index]?.[0] === key && rightEntries[index]?.[1] === value);
 }
 
 function isBase(value: unknown): value is Record<string, unknown> & AuthorityWireFrameBase {
@@ -100,13 +109,18 @@ function isBase(value: unknown): value is Record<string, unknown> & AuthorityWir
     && typeof value.connectionGeneration === "number";
 }
 
-function isProtocolTuple(value: unknown): value is AuthorityProtocolTuple {
-  return isObject(value)
-    && typeof value.wire === "number"
-    && typeof value.event === "number"
-    && typeof value.receipt === "number"
-    && typeof value.digest === "number"
-    && typeof value.commandRegistry === "number";
+function isProtocolTuple(value: unknown): value is AuthorityNegotiatedProtocol {
+  if (!isObject(value)) return false;
+  const v1 = ["wire", "event", "receipt", "digest", "commandRegistry"];
+  const v2 = [...v1, "policy", "entityRegistry", "mutationRegistry", "localState", "applyJournal"];
+  const keys = Object.keys(value);
+  const expected = keys.length === v1.length ? v1 : keys.length === v2.length ? v2 : undefined;
+  return Boolean(expected)
+    && expected!.every((key) => keys.includes(key)
+      && typeof value[key] === "number"
+      && Number.isInteger(value[key])
+      && value[key] >= 0
+      && value[key] <= 0xffff_ffff);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

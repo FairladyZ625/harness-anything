@@ -1,0 +1,12 @@
+{
+  "schema": "authority-concurrency-comparison/v1",
+  "baselineArtifact": "artifacts/a1-authority-concurrency-pre-implementation.json",
+  "postImplementationArtifact": "artifacts/a1-authority-concurrency-post-implementation.json",
+  "baseline8WriterP95Ms": 1375.66,
+  "postImplementation8WriterP95Ms": 1352.2,
+  "degradationPercent": -1.71,
+  "relativeRedlineP95Ms": 1650.79,
+  "absoluteRedlineP95Ms": 2000,
+  "relativeRedlinePassed": true,
+  "absoluteRedlinePassed": true
+}

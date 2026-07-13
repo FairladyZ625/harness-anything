@@ -21,6 +21,32 @@ export const JournalPayloadRefSchema = Schema.Struct({
   sha256: Schema.String
 });
 
+export const AuthorityOperationIntegritySchema = Schema.Struct({
+  schema: Schema.Literal("authority-operation-integrity/v2"),
+  semanticRequestDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)),
+  semanticMutationSetDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)),
+  mutationRegistryVersion: Schema.Number.pipe(
+    Schema.int(),
+    Schema.greaterThanOrEqualTo(0),
+    Schema.lessThanOrEqualTo(0xffff_ffff)
+  ),
+  actorAxesBindingDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)),
+  canonicalMutationSet: Schema.Struct({
+    registryVersion: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0), Schema.lessThanOrEqualTo(0xffff_ffff)),
+    mutations: Schema.Array(Schema.Struct({
+      entity: Schema.Struct({
+        registryVersion: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0), Schema.lessThanOrEqualTo(0xffff_ffff)),
+        entityKind: Schema.String.pipe(Schema.pattern(/\S/u)),
+        canonicalRef: Schema.String.pipe(Schema.pattern(/\S/u))
+      }),
+      action: Schema.Struct({
+        registryVersion: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0), Schema.lessThanOrEqualTo(0xffff_ffff)),
+        action: Schema.String.pipe(Schema.pattern(/\S/u))
+      })
+    }))
+  })
+});
+
 const JournalPayloadSummarySchema = Schema.Record({
   key: Schema.String,
   value: Schema.Unknown
@@ -32,7 +58,8 @@ const JournalRecordFields = {
   kind: WriteJournalOpKindSchema,
   at: Schema.String,
   payloadRef: Schema.optional(JournalPayloadRefSchema),
-  payload: Schema.optional(JournalPayloadSummarySchema)
+  payload: Schema.optional(JournalPayloadSummarySchema),
+  authorityIntegrity: Schema.optional(AuthorityOperationIntegritySchema)
 } as const;
 
 export const JournalRecordV1Schema = Schema.Struct({

@@ -1,5 +1,10 @@
 import { Effect } from "effect";
-import { stablePayloadHash, type WriteCoordinator } from "../../../kernel/src/index.ts";
+import {
+  stablePayloadHash,
+  type AuthorityOperationIntegrity,
+  type WriteCoordinator,
+  type WriteOp
+} from "../../../kernel/src/index.ts";
 import type {
   AuthorityIndeterminateReceipt,
   AuthorityOperationEnvelope,
@@ -16,6 +21,33 @@ import type {
   DelegationTokenVerifier,
   ReplicaChangeLog
 } from "./types.ts";
+import {
+  actorAxesBindingDigestV2,
+  consumeActorAxesBindingOperationV2,
+  sameProtocolSchemaTupleV2,
+  validateActorAxesBindingPresentationV2,
+  type ActorAxesBindingRuntimeV2,
+  type ProtocolSchemaTupleV2,
+  type VerifiedActorAxesBindingV2
+} from "./actor-axes-binding-v2.ts";
+import {
+  assertMutationClaimMatchesV2,
+  decodeSemanticMutationEnvelopeV2,
+  operationIdDiagnosticV2,
+  semanticMutationSetDigestV2,
+  semanticRequestDigestV2,
+  SemanticAdmissionErrorV2,
+  validateEnvelopeBindingV2,
+  type AuthoritySemanticCompilerV2,
+  type AuthorizedOperationAttemptV2,
+  type OperationNamespaceVerifierV2,
+  type SemanticMutationEnvelopeV2
+} from "./semantic-mutation-envelope-v2.ts";
+import { BoundedAuthorityBatcher, KeyedSerialAuthorityExecutor } from "./authority-batcher.ts";
+import {
+  authorizeSemanticCompilationV2,
+  type EntityRefPrefixMatcherV2
+} from "./semantic-authorizer-v2.ts";
 import { shadowPublicationSchema, type ShadowPublicationLog } from "./shadow.ts";
 
 export interface AuthoritySubmissionServiceOptions {
@@ -28,6 +60,16 @@ export interface AuthoritySubmissionServiceOptions {
   readonly fenceWitness: AuthorityFenceWitness;
   readonly shadowPublicationLog?: ShadowPublicationLog;
   readonly now?: () => string;
+  readonly v2?: AuthoritySubmissionV2Options;
+}
+
+export interface AuthoritySubmissionV2Options {
+  readonly schemaTuple: ProtocolSchemaTupleV2;
+  readonly channelNonceDigest: Uint8Array;
+  readonly bindingRuntime: ActorAxesBindingRuntimeV2;
+  readonly semanticCompiler: AuthoritySemanticCompilerV2;
+  readonly operationNamespaceVerifier: OperationNamespaceVerifierV2;
+  readonly matchEntityRefPrefix?: EntityRefPrefixMatcherV2;
 }
 
 const authorityPublicationBatchSize = 8;
@@ -35,9 +77,13 @@ const authorityPublicationMaxWaitMs = 10;
 
 interface PreparedAuthoritySubmission {
   readonly kind: "prepared";
-  readonly envelope: AuthorityOperationEnvelope;
+  readonly workspaceId: string;
+  readonly opId: string;
+  readonly operation: WriteOp;
   readonly semanticDigest: string;
   readonly coordinator: WriteCoordinator;
+  readonly authorityIntegrity?: AuthorityOperationIntegrity;
+  readonly canonicalRequestEnvelope?: string;
 }
 
 interface TerminalAuthoritySubmission {
@@ -72,8 +118,124 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       `${envelope.workspaceId}\0${envelope.opId}`,
       () => publications.run(prepare(envelope))
     ),
-    getOperation: (workspaceId, opId) => options.operationRegistry.get(workspaceId, opId)
+    ...(options.v2 ? { submitV2 } : {}),
+    getOperation: async (workspaceId, opId) => {
+      const stored = await options.operationRegistry.get(workspaceId, opId);
+      if (!stored) return undefined;
+      const { canonicalRequestEnvelope: _canonicalRequestEnvelope, ...publicRecord } = stored;
+      return publicRecord;
+    }
   };
+
+  async function submitV2(attempt: AuthorizedOperationAttemptV2): Promise<AuthorityOperationReceipt> {
+    const v2 = options.v2;
+    if (!v2) throw new Error("AUTHORITY_V2_NOT_NEGOTIATED");
+    if (!attempt.requestId) throw new Error("AUTHORITY_V2_REQUEST_ID_REQUIRED");
+
+    // The presentation token is authenticated before the semantic payload is
+    // decoded. A reconnect may present a newer token for the same protected
+    // binding; the envelope's original admissionTokenRef is checked separately.
+    const verified = await validateActorAxesBindingPresentationV2(attempt.presentationToken, v2.bindingRuntime, {
+      workspaceId: options.workspaceId,
+      channelNonceDigest: v2.channelNonceDigest,
+      schemaTuple: v2.schemaTuple
+    });
+    const envelope = decodeSemanticMutationEnvelopeV2(attempt.envelope);
+    const opId = operationIdDiagnosticV2(envelope.operationId);
+    return byOperation.run(
+      `${envelope.workspaceId}\0${opId}`,
+      () => publications.run(prepareV2(envelope, verified, Buffer.from(attempt.envelope).toString("base64url")))
+    );
+  }
+
+  async function prepareV2(
+    envelope: SemanticMutationEnvelopeV2,
+    verified: VerifiedActorAxesBindingV2,
+    canonicalRequestEnvelope: string
+  ): Promise<AuthorityAdmission> {
+    const v2 = options.v2!;
+    const opId = operationIdDiagnosticV2(envelope.operationId);
+    const identity = { workspaceId: envelope.workspaceId, opId };
+    const semanticDigest = hex(semanticRequestDigestV2(envelope));
+    const known = await options.operationRegistry.get(envelope.workspaceId, opId);
+    if (!known) await put(identity, semanticDigest, "RECEIVED", undefined, undefined, undefined, canonicalRequestEnvelope);
+    let computedIntegrity: AuthorityOperationIntegrity | undefined;
+    try {
+      if (!sameProtocolSchemaTupleV2(envelope.schemaTuple, v2.schemaTuple)) {
+        throw new SemanticAdmissionErrorV2("ENVELOPE_SCHEMA_TUPLE_MISMATCH");
+      }
+      validateEnvelopeBindingV2(envelope, verified.token.claims);
+      if (envelope.operationId.namespace.authorityGeneration !== verified.token.claims.authorityGeneration) {
+        throw new SemanticAdmissionErrorV2("OP_NAMESPACE_AUTHORITY_GENERATION_MISMATCH");
+      }
+      if (!await v2.bindingRuntime.validateAdmissionTokenRef({
+        bindingId: envelope.binding.bindingId,
+        tokenId: envelope.binding.admissionTokenRef.tokenId,
+        tokenDigest: envelope.binding.admissionTokenRef.tokenDigest
+      })) throw new SemanticAdmissionErrorV2("ADMISSION_TOKEN_REF_MISMATCH");
+      await v2.operationNamespaceVerifier.verify(envelope.operationId);
+
+      const compilation = await v2.semanticCompiler.compile(envelope);
+      assertMutationClaimMatchesV2(envelope, compilation.mutationSet);
+      authorizeSemanticCompilationV2(envelope, compilation.touchedPaths, compilation.decodedBytes, verified, v2.matchEntityRefPrefix);
+
+      const mutationDigest = hex(semanticMutationSetDigestV2(compilation.mutationSet));
+      const bindingDigest = hex(actorAxesBindingDigestV2(verified.token.claims));
+      const authorityIntegrity: AuthorityOperationIntegrity = {
+        schema: "authority-operation-integrity/v2",
+        semanticRequestDigest: semanticDigest,
+        semanticMutationSetDigest: mutationDigest,
+        mutationRegistryVersion: compilation.mutationSet.registryVersion,
+        actorAxesBindingDigest: bindingDigest,
+        canonicalMutationSet: compilation.mutationSet
+      };
+      computedIntegrity = authorityIntegrity;
+      if (known) {
+        if (known.semanticDigest !== semanticDigest) return terminal(rejected(identity, semanticDigest, "OP_ID_REUSE"));
+        if (known.receipt) return terminal(known.receipt);
+        return terminal(indeterminate(identity, semanticDigest, `operation remains ${known.state}`));
+      }
+
+      await consumeActorAxesBindingOperationV2(verified, v2.bindingRuntime);
+      try {
+        await options.fenceWitness.assertHeld();
+      } catch (error) {
+        return terminal(await persistTerminal(
+          identity,
+          semanticDigest,
+          "INDETERMINATE",
+          indeterminate(identity, semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`),
+          authorityIntegrity,
+          canonicalRequestEnvelope
+        ));
+      }
+      const operation: WriteOp = { ...compilation.operation, opId, authorityIntegrity };
+      const coordinator = options.coordinatorFactory.create({
+        attribution: verified.attribution,
+        sessionId: verified.token.claims.sessionId
+      });
+      return {
+        kind: "prepared",
+        workspaceId: envelope.workspaceId,
+        opId,
+        operation,
+        semanticDigest,
+        coordinator,
+        authorityIntegrity,
+        canonicalRequestEnvelope
+      };
+    } catch (error) {
+      const reason = error instanceof SemanticAdmissionErrorV2 ? error.code : `ADMISSION_REJECTED:${describe(error)}`;
+      return terminal(await persistTerminal(
+        identity,
+        semanticDigest,
+        "REJECTED",
+        rejected(identity, semanticDigest, reason),
+        computedIntegrity,
+        canonicalRequestEnvelope
+      ));
+    }
+  }
 
   async function prepare(envelope: AuthorityOperationEnvelope): Promise<AuthorityAdmission> {
     const semanticDigest = canonicalAuthorityRequestDigest(envelope);
@@ -108,13 +270,43 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       attribution: verification.attribution,
       sessionId: verification.claims.sessionId
     });
-    return { kind: "prepared", envelope, semanticDigest, coordinator };
+    return {
+      kind: "prepared",
+      workspaceId: envelope.workspaceId,
+      opId: envelope.opId,
+      operation: envelope.operation,
+      semanticDigest,
+      coordinator
+    };
   }
 
   async function publishBatch(admissions: ReadonlyArray<AuthorityAdmission>): Promise<ReadonlyArray<AuthorityOperationReceipt>> {
     const receipts = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
     const prepared = admissions.filter((admission): admission is PreparedAuthoritySubmission => admission.kind === "prepared");
     if (prepared.length === 0) return admissions.map((admission) => (admission as TerminalAuthoritySubmission).receipt);
+    if (prepared.some((entry) => entry.authorityIntegrity) && prepared.some((entry) => !entry.authorityIntegrity)) {
+      // V1 and V2 may coexist after explicit schema negotiation, but one Git
+      // commit cannot truthfully anchor a V2 "exactly this batch" vector while
+      // also containing unanchored legacy operations. Preserve FIFO and split
+      // only at the provenance boundary.
+      const settled = new Map<PreparedAuthoritySubmission, AuthorityOperationReceipt>();
+      let segment: PreparedAuthoritySubmission[] = [];
+      for (const entry of prepared) {
+        if (segment.length > 0 && Boolean(segment[0]!.authorityIntegrity) !== Boolean(entry.authorityIntegrity)) {
+          const segmentReceipts = await publishBatch(segment);
+          segment.forEach((candidate, index) => settled.set(candidate, segmentReceipts[index]!));
+          segment = [];
+        }
+        segment.push(entry);
+      }
+      if (segment.length > 0) {
+        const segmentReceipts = await publishBatch(segment);
+        segment.forEach((candidate, index) => settled.set(candidate, segmentReceipts[index]!));
+      }
+      return admissions.map((admission) => admission.kind === "terminal"
+        ? admission.receipt
+        : settled.get(admission)!);
+    }
 
     let previousHead: string | null;
     try {
@@ -122,22 +314,22 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       previousHead = await options.publicationInspector.currentHead();
     } catch (error) {
       await settlePrepared(prepared, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry.envelope, entry.semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`));
+        indeterminate(entry, entry.semanticDigest, `AUTHORITY_FENCE_LOST:${describe(error)}`));
       return batchReceipts(admissions, receipts);
     }
 
     const candidates: PreparedAuthoritySubmission[] = [];
     for (const entry of prepared) {
       try {
-        await Effect.runPromise(entry.coordinator.enqueue(entry.envelope.operation));
-        await put(entry.envelope, entry.semanticDigest, "PREPARED");
+        await Effect.runPromise(entry.coordinator.enqueue(entry.operation));
+        await put(entry, entry.semanticDigest, "PREPARED", undefined, undefined, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
         candidates.push(entry);
       } catch (error) {
         receipts.set(entry, await persistTerminal(
-          entry.envelope,
+          entry,
           entry.semanticDigest,
           "REJECTED",
-          rejected(entry.envelope, entry.semanticDigest, `ADMISSION_REJECTED:${describe(error)}`)
+          rejected(entry, entry.semanticDigest, `ADMISSION_REJECTED:${describe(error)}`)
         ));
       }
     }
@@ -149,12 +341,12 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         // Keep the v1 wire reason stable; the invariant now means exactly the
         // operation set owned by this publication batch, still never a subset.
         await settlePrepared(candidates, receipts, "RETRYABLE_NOT_COMMITTED", (entry) =>
-          retryable(entry.envelope, entry.semanticDigest, "PUBLICATION_DID_NOT_COMMIT_EXACTLY_ONE_OPERATION"));
+          retryable(entry, entry.semanticDigest, "PUBLICATION_DID_NOT_COMMIT_EXACTLY_ONE_OPERATION"));
         return batchReceipts(admissions, receipts);
       }
     } catch (error) {
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry.envelope, entry.semanticDigest, `PUBLICATION_OUTCOME_UNKNOWN:${describe(error)}`));
+        indeterminate(entry, entry.semanticDigest, `PUBLICATION_OUTCOME_UNKNOWN:${describe(error)}`));
       return batchReceipts(admissions, receipts);
     }
 
@@ -165,55 +357,56 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       if (publication.parentCommits.length !== (previousHead ? 1 : 0)
         || (previousHead && publication.parentCommits[0] !== previousHead)) {
         await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-          indeterminate(entry.envelope, entry.semanticDigest, "NON_LINEAR_CANONICAL_PUBLICATION", publication.commitSha));
+          indeterminate(entry, entry.semanticDigest, "NON_LINEAR_CANONICAL_PUBLICATION", publication.commitSha));
         return batchReceipts(admissions, receipts);
       }
       commitSha = publication.commitSha;
       for (const entry of candidates) {
-        await put(entry.envelope, entry.semanticDigest, "PUBLISHED", undefined, commitSha);
+        await put(entry, entry.semanticDigest, "PUBLISHED", undefined, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
       }
     } catch (error) {
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry.envelope, entry.semanticDigest, `PUBLICATION_PROOF_FAILED:${describe(error)}`));
+        indeterminate(entry, entry.semanticDigest, `PUBLICATION_PROOF_FAILED:${describe(error)}`));
       return batchReceipts(admissions, receipts);
     }
 
-    const latest = await options.replicaChangeLog.latest(candidates[0]!.envelope.workspaceId);
+    const latest = await options.replicaChangeLog.latest(candidates[0]!.workspaceId);
     if (latest && latest.commitSha !== previousHead) {
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry.envelope, entry.semanticDigest, "REPLICA_CHANGE_LOG_DIVERGED", commitSha));
+        indeterminate(entry, entry.semanticDigest, "REPLICA_CHANGE_LOG_DIVERGED", commitSha));
       return batchReceipts(admissions, receipts);
     }
     const changes = candidates.map((entry, index) => ({
       schema: "replica-change/v1" as const,
-      workspaceId: entry.envelope.workspaceId,
+      workspaceId: entry.workspaceId,
       revision: (latest?.revision ?? 0) + index + 1,
-      opId: entry.envelope.opId,
+      opId: entry.opId,
       semanticDigest: entry.semanticDigest,
       commitSha,
       previousCommit: previousHead,
-      changedAt: now()
+      changedAt: now(),
+      ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
     }));
     try {
       for (const change of changes) await options.replicaChangeLog.append(change);
       if (options.shadowPublicationLog) {
-        const priorShadow = await options.shadowPublicationLog.list(candidates[0]!.envelope.workspaceId);
+        const priorShadow = await options.shadowPublicationLog.list(candidates[0]!.workspaceId);
         await options.shadowPublicationLog.append({
           schema: shadowPublicationSchema,
-          workspaceId: candidates[0]!.envelope.workspaceId,
+          workspaceId: candidates[0]!.workspaceId,
           sequence: priorShadow.length + 1,
           commitSha,
           previousCommit: previousHead,
-          opIds: candidates.map((entry) => entry.envelope.opId),
+          opIds: candidates.map((entry) => entry.opId),
           observedAt: changes[0]!.changedAt
         });
       }
       for (const entry of candidates) {
-        await put(entry.envelope, entry.semanticDigest, "INDEXED", undefined, commitSha);
+        await put(entry, entry.semanticDigest, "INDEXED", undefined, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
       }
     } catch (error) {
       await settlePrepared(candidates, receipts, "INDETERMINATE", (entry) =>
-        indeterminate(entry.envelope, entry.semanticDigest, `INDEX_RECOVERY_REQUIRED:${describe(error)}`, commitSha));
+        indeterminate(entry, entry.semanticDigest, `INDEX_RECOVERY_REQUIRED:${describe(error)}`, commitSha));
       return batchReceipts(admissions, receipts);
     }
 
@@ -221,14 +414,15 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       const entry = candidates[index]!;
       const receipt = {
         tag: "COMMITTED" as const,
-        workspaceId: entry.envelope.workspaceId,
-        opId: entry.envelope.opId,
+        workspaceId: entry.workspaceId,
+        opId: entry.opId,
         semanticDigest: entry.semanticDigest,
         revision: changes[index]!.revision,
         commitSha,
-        previousCommit: previousHead
+        previousCommit: previousHead,
+        ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
       };
-      await put(entry.envelope, entry.semanticDigest, "COMMITTED", receipt, commitSha);
+      await put(entry, entry.semanticDigest, "COMMITTED", receipt, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
       receipts.set(entry, receipt);
     }
     return batchReceipts(admissions, receipts);
@@ -241,26 +435,37 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     makeReceipt: (entry: PreparedAuthoritySubmission) => AuthorityOperationReceipt
   ): Promise<void> {
     for (const entry of entries) {
-      receipts.set(entry, await persistTerminal(entry.envelope, entry.semanticDigest, state, makeReceipt(entry)));
+      receipts.set(entry, await persistTerminal(
+        entry,
+        entry.semanticDigest,
+        state,
+        makeReceipt(entry),
+        entry.authorityIntegrity,
+        entry.canonicalRequestEnvelope
+      ));
     }
   }
 
   async function persistTerminal(
-    envelope: AuthorityOperationEnvelope,
+    envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">,
     digest: string,
     state: Extract<AuthorityOperationState, "REJECTED" | "RETRYABLE_NOT_COMMITTED" | "INDETERMINATE">,
-    receipt: AuthorityOperationReceipt
+    receipt: AuthorityOperationReceipt,
+    authorityIntegrity?: AuthorityOperationIntegrity,
+    canonicalRequestEnvelope?: string
   ): Promise<AuthorityOperationReceipt> {
-    await put(envelope, digest, state, receipt, "commitSha" in receipt ? receipt.commitSha : undefined);
+    await put(envelope, digest, state, receipt, "commitSha" in receipt ? receipt.commitSha : undefined, authorityIntegrity, canonicalRequestEnvelope);
     return receipt;
   }
 
   function put(
-    envelope: AuthorityOperationEnvelope,
+    envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">,
     semanticDigest: string,
     state: AuthorityOperationState,
     receipt?: AuthorityOperationReceipt,
-    commitSha?: string
+    commitSha?: string,
+    authorityIntegrity?: AuthorityOperationIntegrity,
+    canonicalRequestEnvelope?: string
   ): Promise<void> {
     return options.operationRegistry.put({
       workspaceId: envelope.workspaceId,
@@ -268,13 +473,19 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
       semanticDigest,
       state,
       ...(receipt ? { receipt } : {}),
-      ...(commitSha ? { commitSha } : {})
+      ...(commitSha ? { commitSha } : {}),
+      ...(authorityIntegrity ? { authorityIntegrity } : {}),
+      ...(canonicalRequestEnvelope ? { canonicalRequestEnvelope } : {})
     });
   }
 }
 
 function terminal(receipt: AuthorityOperationReceipt): TerminalAuthoritySubmission {
   return { kind: "terminal", receipt };
+}
+
+function hex(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("hex");
 }
 
 function batchReceipts(
@@ -284,135 +495,9 @@ function batchReceipts(
   return admissions.map((admission) => {
     if (admission.kind === "terminal") return admission.receipt;
     const receipt = receipts.get(admission);
-    if (!receipt) throw new Error(`authority batch did not settle operation ${admission.envelope.opId}`);
+    if (!receipt) throw new Error(`authority batch did not settle operation ${admission.opId}`);
     return receipt;
   });
-}
-
-class KeyedSerialAuthorityExecutor {
-  private readonly tails = new Map<string, Promise<void>>();
-
-  run<Result>(key: string, work: () => Promise<Result>): Promise<Result> {
-    const previous = this.tails.get(key) ?? Promise.resolve();
-    const result = previous.then(work, work);
-    const tail = result.then(() => undefined, () => undefined);
-    this.tails.set(key, tail);
-    void tail.then(() => {
-      if (this.tails.get(key) === tail) this.tails.delete(key);
-    });
-    return result;
-  }
-}
-
-interface AuthorityBatchItem<Input, Result> {
-  readonly resolve: (result: Result) => void;
-  readonly reject: (error: unknown) => void;
-  outcome?: PromiseSettledResult<Input>;
-}
-
-class BoundedAuthorityBatcher<Input, Result> {
-  private readonly queue: AuthorityBatchItem<Input, Result>[] = [];
-  private draining = false;
-  private drainScheduled = false;
-  private timer: NodeJS.Timeout | undefined;
-  private readonly runBatch: (inputs: ReadonlyArray<Input>) => Promise<ReadonlyArray<Result>>;
-  private readonly maxBatchSize: number;
-  private readonly maxWaitMs: number;
-
-  constructor(
-    runBatch: (inputs: ReadonlyArray<Input>) => Promise<ReadonlyArray<Result>>,
-    maxBatchSize: number,
-    maxWaitMs: number
-  ) {
-    this.runBatch = runBatch;
-    this.maxBatchSize = maxBatchSize;
-    this.maxWaitMs = maxWaitMs;
-  }
-
-  run(input: Promise<Input>): Promise<Result> {
-    return new Promise<Result>((resolve, reject) => {
-      const item: AuthorityBatchItem<Input, Result> = { resolve, reject };
-      this.queue.push(item);
-      void input.then(
-        (value) => {
-          item.outcome = { status: "fulfilled", value };
-          this.scheduleIfReady();
-        },
-        (reason) => {
-          item.outcome = { status: "rejected", reason };
-          this.scheduleIfReady();
-        }
-      );
-      this.ensureTimer();
-    });
-  }
-
-  private scheduleIfReady(): void {
-    if (this.draining || this.drainScheduled || this.queue.length === 0) return;
-    const readyPrefix = this.readyPrefixLength();
-    if (readyPrefix === 0) return;
-    if (readyPrefix >= this.maxBatchSize || readyPrefix === this.queue.length) this.scheduleDrain();
-  }
-
-  private scheduleDrain(): void {
-    if (this.drainScheduled) return;
-    this.drainScheduled = true;
-    queueMicrotask(() => {
-      this.drainScheduled = false;
-      void this.drain();
-    });
-  }
-
-  private async drain(): Promise<void> {
-    if (this.draining || this.queue.length === 0) return;
-    const count = Math.min(this.readyPrefixLength(), this.maxBatchSize);
-    if (count === 0) {
-      this.ensureTimer();
-      return;
-    }
-    this.draining = true;
-    this.clearTimer();
-    const items = this.queue.splice(0, count);
-    const fulfilled = items.filter((item): item is AuthorityBatchItem<Input, Result> & { outcome: PromiseFulfilledResult<Input> } =>
-      item.outcome?.status === "fulfilled");
-    for (const item of items) {
-      if (item.outcome?.status === "rejected") item.reject(item.outcome.reason);
-    }
-    try {
-      if (fulfilled.length > 0) {
-        const results = await this.runBatch(fulfilled.map((item) => item.outcome.value));
-        if (results.length !== fulfilled.length) throw new Error("authority batch result count mismatch");
-        fulfilled.forEach((item, index) => item.resolve(results[index]!));
-      }
-    } catch (error) {
-      for (const item of fulfilled) item.reject(error);
-    } finally {
-      this.draining = false;
-      this.scheduleIfReady();
-      this.ensureTimer();
-    }
-  }
-
-  private readyPrefixLength(): number {
-    let count = 0;
-    while (count < this.queue.length && this.queue[count]?.outcome) count += 1;
-    return count;
-  }
-
-  private ensureTimer(): void {
-    if (this.timer || this.draining || this.queue.length === 0) return;
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      if (this.readyPrefixLength() > 0) this.scheduleDrain();
-      else this.ensureTimer();
-    }, this.maxWaitMs);
-  }
-
-  private clearTimer(): void {
-    if (!this.timer) return;
-    clearTimeout(this.timer);
-    this.timer = undefined;
-  }
 }
 
 function validateIngress(envelope: AuthorityOperationEnvelope, digest: string, workspaceId: string): AuthorityRejectedReceipt | undefined {

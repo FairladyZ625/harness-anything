@@ -1,16 +1,17 @@
 import type {
-  AuthorityOperationRecord,
+  AuthorityStoredOperationRecord,
   AuthorityOperationRegistry,
   ReplicaChangeLog,
   ReplicaChangeRecord
 } from "./types.ts";
 
 export function createInMemoryAuthorityOperationRegistry(): AuthorityOperationRegistry {
-  const records = new Map<string, AuthorityOperationRecord>();
+  const records = new Map<string, AuthorityStoredOperationRecord>();
   return {
     get: async (workspaceId, opId) => cloneOptional(records.get(key(workspaceId, opId))),
     put: async (record) => {
-      records.set(key(record.workspaceId, record.opId), structuredClone(record));
+      const recordKey = key(record.workspaceId, record.opId);
+      records.set(recordKey, structuredClone({ ...records.get(recordKey), ...record }));
     }
   };
 }

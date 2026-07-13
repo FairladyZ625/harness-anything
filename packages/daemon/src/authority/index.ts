@@ -9,12 +9,14 @@ export type {
   AuthorityGetOperationFrame,
   AuthorityHelloFrame,
   AuthorityHelloResult,
+  AuthorityNegotiatedProtocol,
   AuthorityReplicaChangeFrame,
   AuthorityRequestFrame,
   AuthorityResponseFrame,
   AuthorityServerFrame,
   AuthorityStreamClosedFrame,
-  AuthoritySubmitFrame
+  AuthoritySubmitFrame,
+  AuthoritySubmitV2Frame
 } from "./protocol.ts";
 export { serveAuthorityForcedCommand } from "./forced-command-session.ts";
 export type {

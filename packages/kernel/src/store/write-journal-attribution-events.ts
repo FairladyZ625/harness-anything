@@ -78,7 +78,8 @@ function createAttributionEventRecordedAt(record: JournalRecordV2, recordedAt: s
     at: record.at,
     recordedAt,
     payloadHash: record.payload.payloadHash,
-    payloadRef: record.payloadRef
+    payloadRef: record.payloadRef,
+    ...(record.authorityIntegrity ? { authorityIntegrity: record.authorityIntegrity } : {})
   });
 }
 

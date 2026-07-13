@@ -9,6 +9,7 @@ import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import {
   authorityProtocolTuple,
+  actorAxesBindingTokenDigestV2,
   canonicalAuthorityRequestDigest,
   compareCanonicalPathBytes,
   createAuthoritySubmissionService,
@@ -16,13 +17,19 @@ import {
   createInMemoryReplicaChangeLog,
   createInMemoryShadowPublicationLog,
   createNamespaceAdmissionService,
+  encodeSemanticMutationEnvelopeV2,
+  issueActorAxesBindingV2,
   reconcileShadowPublications,
+  semanticMutationSetDigestV2,
+  semanticRequestDigestV2,
+  SemanticAdmissionErrorV2,
   NamespaceAdmissionError,
   validatePortableManagedPath,
   type AuthorityOperationEnvelope,
   type CanonicalPublicationInspector,
   type DelegationTokenVerifier,
   type ReplicaChangeLog,
+  type ProtocolSchemaTupleV2,
   type ShadowPublicationLog
 } from "../../application/src/index.ts";
 import {
@@ -41,10 +48,25 @@ import {
   type SshAuthorityChild,
   type SshAuthorityChildFactory
 } from "../src/index.ts";
+import { v2Claims, v2Envelope, v2MutationSet } from "./authority-v2-fixtures.ts";
 
 const workspaceId = "workspace-tw01";
 const channelNonceDigest = "sha256:channel-generation";
 const opaqueToken = "opaque-token-must-not-leak";
+const authorityBatchTrailerName = "Harness-Authority-Batch";
+const v2SchemaTuple: ProtocolSchemaTupleV2 = {
+  wire: 2, event: 2, receipt: 2, digest: 2, policy: 2,
+  commandRegistry: 1, entityRegistry: 1, mutationRegistry: 1,
+  localState: 1, applyJournal: 1
+};
+const v2Attribution: WriteAttribution = {
+  actor: {
+    principal: { kind: "person", personId: "person_v2" },
+    executor: { kind: "agent", id: "agent_v2" }
+  },
+  principalSource: { kind: "daemon-authenticated", providerId: "v2-test", credentialFingerprint: "sha256:redacted" },
+  executorSource: "client-asserted"
+};
 
 test("portable-ascii-v2 rejects reserved, non-ASCII, overlong, and Windows-budget paths", () => {
   for (const candidate of ["tasks/CON.md", "tasks/naïve.md", `tasks/${"a".repeat(113)}.md`, `${"a".repeat(181)}`]) {
@@ -175,6 +197,167 @@ test("persistent forced-command SSH reconnect replays the same opId without anot
       "ha-authority-connect"
     ]);
     assert.equal(notifications.some((notification) => notification.includes(opaqueToken)), false);
+    await client.close();
+  });
+});
+
+test("V2 forced-command admission recomputes mutations and anchors one exact ordered batch trailer", async () => {
+  await withHermeticGit(async ({ rootDir, env }) => {
+    const changeLog = createInMemoryReplicaChangeLog();
+    const operationRegistry = createInMemoryAuthorityOperationRegistry();
+    const secret = Buffer.from("authority-v2-integration-secret");
+    const nonce = Buffer.alloc(32, 12);
+    const claims = v2Claims(workspaceId, nonce, v2SchemaTuple);
+    const token = issueActorAxesBindingV2(claims, {
+      algorithm: "HMAC-SHA-256", issuer: "authority.test", keyId: "key-1", secret
+    });
+    const tokenDigest = actorAxesBindingTokenDigestV2(token);
+    let consumed = 0;
+    const service = createAuthoritySubmissionService({
+      workspaceId,
+      coordinatorFactory: {
+        create: ({ attribution }) => makeJournaledWriteCoordinator({
+          rootDir,
+          attribution,
+          commitAuthor: { name: "Authenticated Person", email: "person@example.test" },
+          autoMaterialize: false
+        })
+      },
+      tokenVerifier: { verify: async () => { throw new Error("legacy token path disabled"); } },
+      operationRegistry,
+      replicaChangeLog: changeLog,
+      publicationInspector: gitPublicationInspector(rootDir, env),
+      fenceWitness: { assertHeld: async () => undefined },
+      v2: {
+        schemaTuple: v2SchemaTuple,
+        channelNonceDigest: nonce,
+        bindingRuntime: {
+          proofKeys: { resolve: () => ({ algorithm: "HMAC-SHA-256", secret }) },
+          validatePresentationToken: async (input) => input.tokenId === claims.tokenId
+            && Buffer.from(input.tokenDigest).equals(Buffer.from(tokenDigest)),
+          getBinding: async () => ({
+            bindingId: claims.bindingId,
+            principalPersonId: claims.principalPersonId,
+            executorAgentId: claims.executorAgentId,
+            workspaceId: claims.workspaceId,
+            deviceId: claims.deviceId,
+            viewId: claims.viewId,
+            sessionId: claims.sessionId,
+            active: true,
+            attribution: v2Attribution
+          }),
+          currentAuthorityGeneration: () => claims.authorityGeneration,
+          currentRevocationEpochs: async () => claims.revocationEpochs,
+          nowMs: () => 2_000n,
+          consumeOperation: async (_tokenId, maximum) => ++consumed <= maximum,
+          validateAdmissionTokenRef: async (input) => input.tokenId === claims.tokenId
+            && Buffer.from(input.tokenDigest).equals(Buffer.from(tokenDigest))
+        },
+        operationNamespaceVerifier: { verify: async () => undefined },
+        semanticCompiler: {
+          compile: async (envelope) => {
+            assert.equal(envelope.intent.kind, "typed");
+            if (envelope.intent.kind !== "typed" || envelope.intent.canonicalPayload.kind !== "inline") {
+              throw new Error("typed inline payload required");
+            }
+            const payload = JSON.parse(Buffer.from(envelope.intent.canonicalPayload.bytes).toString("utf8")) as { taskId: string; body: string };
+            if (payload.body === "SEMANTIC_DIFF_REQUIRED") throw new SemanticAdmissionErrorV2("SEMANTIC_DIFF_REQUIRED");
+            if (payload.body === "SEMANTIC_DIFF_AMBIGUOUS") throw new SemanticAdmissionErrorV2("SEMANTIC_DIFF_AMBIGUOUS");
+            const mutationSet = v2MutationSet(payload.taskId);
+            return {
+              mutationSet,
+              operation: {
+                opId: "authority-overrides-this",
+                entityId: taskEntityId(payload.taskId),
+                kind: "doc_write",
+                payload: { path: "notes.md", body: payload.body }
+              },
+              touchedPaths: [`harness/tasks/${payload.taskId}/notes.md`],
+              decodedBytes: BigInt(envelope.intent.canonicalPayload.bytes.length)
+            };
+          }
+        }
+      }
+    });
+    const envelopes = [
+      v2Envelope(claims, tokenDigest, "task-v2-one", "one\n", 1),
+      v2Envelope(claims, tokenDigest, "task-v2-two", "two\n", 2)
+    ];
+
+    const receipts = await Promise.all(envelopes.map((envelope, index) => service.submitV2!({
+      requestId: `attempt-${index}`,
+      presentationToken: token,
+      envelope: encodeSemanticMutationEnvelopeV2(envelope)
+    })));
+
+    assert.equal(receipts.every((receipt) => receipt.tag === "COMMITTED"), true, JSON.stringify(receipts));
+    assert.equal(new Set(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.commitSha : "")).size, 1);
+    assert.equal(consumed, 2);
+    const commitMessage = git(rootDir, env, "log", "-1", "--format=%B");
+    const trailerLines = commitMessage.split("\n").filter((line) => line.startsWith(`${authorityBatchTrailerName}: `));
+    assert.equal(trailerLines.length, 1);
+    const trailerEntries = readBatchTrailerEntries(trailerLines[0]!.slice(authorityBatchTrailerName.length + 2));
+    assert.deepEqual(trailerEntries, receipts.map((receipt) => ({
+      opId: receipt.opId,
+      semanticMutationSetDigest: receipt.tag === "COMMITTED" ? receipt.authorityIntegrity!.semanticMutationSetDigest : ""
+    })));
+    const events = readAttributionEvents(rootDir);
+    assert.deepEqual(events.map((event) => event.authorityIntegrity?.semanticMutationSetDigest), trailerEntries.map((entry) => entry.semanticMutationSetDigest));
+    assert.deepEqual(events.map((event) => event.authorityIntegrity?.canonicalMutationSet), envelopes.map((envelope) => envelope.claimedMutationSet));
+    assert.equal((await changeLog.changesAfter(workspaceId, 0)).every((change) => Boolean(change.authorityIntegrity)), true);
+    const stored = await operationRegistry.get(workspaceId, receipts[0]!.opId);
+    assert.equal(stored?.canonicalRequestEnvelope, Buffer.from(encodeSemanticMutationEnvelopeV2(envelopes[0]!)).toString("base64url"));
+    assert.equal("canonicalRequestEnvelope" in (await service.getOperation(workspaceId, receipts[0]!.opId))!, false);
+
+    const headAfterBatch = git(rootDir, env, "rev-parse", "HEAD");
+    const mismatchDraft = v2Envelope(claims, tokenDigest, "task-v2-mismatch", "mismatch\n", 3);
+    const falseClaim = v2MutationSet("task-v2-not-the-payload-subject");
+    const mismatchCore = {
+      ...mismatchDraft,
+      claimedMutationSet: falseClaim,
+      claimedSemanticMutationSetDigest: semanticMutationSetDigestV2(falseClaim),
+      claimedSemanticRequestDigest: Buffer.alloc(32)
+    };
+    const mismatch = {
+      ...mismatchCore,
+      claimedSemanticRequestDigest: semanticRequestDigestV2(mismatchCore)
+    };
+    const rejectedAttempts = [
+      mismatch,
+      v2Envelope(claims, tokenDigest, "task-v2-required", "SEMANTIC_DIFF_REQUIRED", 4),
+      v2Envelope(claims, tokenDigest, "task-v2-ambiguous", "SEMANTIC_DIFF_AMBIGUOUS", 5)
+    ];
+    const rejectedReceipts = await Promise.all(rejectedAttempts.map((envelope, index) => service.submitV2!({
+      requestId: `rejected-${index}`,
+      presentationToken: token,
+      envelope: encodeSemanticMutationEnvelopeV2(envelope)
+    })));
+    assert.deepEqual(rejectedReceipts.map((receipt) => receipt.tag === "REJECTED" ? receipt.reason : receipt.tag), [
+      "SEMANTIC_MUTATION_MISMATCH",
+      "SEMANTIC_DIFF_REQUIRED",
+      "SEMANTIC_DIFF_AMBIGUOUS"
+    ]);
+    assert.equal(git(rootDir, env, "rev-parse", "HEAD"), headAfterBatch, "semantic failures reject before PREPARED/publication");
+    assert.equal(consumed, 2, "semantic failures do not consume token operation slots");
+
+    const childFactory = loopbackV2ChildFactory(service, changeLog, v2SchemaTuple);
+    const client = new PersistentSshAuthorityClient({
+      target: { destination: "authority.internal", fixedCommand: "ha-authority-connect" },
+      workspaceId,
+      channelNonceDigest: () => Buffer.from(nonce).toString("hex"),
+      protocol: v2SchemaTuple,
+      childFactory
+    });
+    await client.connect();
+    await assert.rejects(client.submit(operationEnvelope("legacy-under-v2", "task-legacy-under-v2", "denied\n")), /Legacy submit is not valid/u);
+    await assert.rejects(client.getOperation(receipts[0]!.opId), /current coarse-authority presentation/u);
+    const retry = await client.submitV2({
+      requestId: "transport-retry",
+      presentationToken: token,
+      envelope: encodeSemanticMutationEnvelopeV2(envelopes[0]!)
+    });
+    assert.deepEqual(retry, receipts[0], "V2 daemon route replays without consuming or publishing again");
+    assert.equal(consumed, 2);
     await client.close();
   });
 });
@@ -337,6 +520,40 @@ function loopbackChildFactory(
   };
 }
 
+function loopbackV2ChildFactory(
+  submissionService: ReturnType<typeof createAuthoritySubmissionService>,
+  replicaChangeLog: ReplicaChangeLog,
+  protocol: ProtocolSchemaTupleV2
+): SshAuthorityChildFactory {
+  return {
+    spawn: () => {
+      const clientToServer = new PassThrough();
+      const serverToClient = new PassThrough();
+      const stderr = new PassThrough();
+      const events = new EventEmitter();
+      const session = serveAuthorityForcedCommand({
+        input: clientToServer,
+        output: serverToClient,
+        workspaceId,
+        protocol,
+        submissionService,
+        replicaChangeLog
+      });
+      return {
+        stdin: clientToServer,
+        stdout: serverToClient,
+        stderr,
+        on: (event, listener) => events.on(event, listener),
+        kill: () => {
+          void session.close();
+          queueMicrotask(() => events.emit("exit", 0, null));
+          return true;
+        }
+      } satisfies SshAuthorityChild;
+    }
+  };
+}
+
 function dropAfterHelloResponse(output: PassThrough, events: EventEmitter): Writable {
   const reader = createLengthPrefixedFrameReader();
   let responseCount = 0;
@@ -367,6 +584,26 @@ function dropAfterHelloResponse(output: PassThrough, events: EventEmitter): Writ
 
 function isResponseFrame(value: unknown): value is { readonly kind: "response" } {
   return typeof value === "object" && value !== null && "kind" in value && value.kind === "response";
+}
+
+function readBatchTrailerEntries(value: string): ReadonlyArray<{ readonly opId: string; readonly semanticMutationSetDigest: string }> {
+  const match = /^v1:[0-9a-f]{64}:([A-Za-z0-9_-]+)$/u.exec(value);
+  assert.ok(match);
+  const bytes = Buffer.from(match[1]!, "base64url");
+  let offset = 0;
+  const count = bytes.readUInt32BE(offset);
+  offset += 4;
+  const entries = Array.from({ length: count }, () => {
+    const length = bytes.readUInt32BE(offset);
+    offset += 4;
+    const opId = bytes.subarray(offset, offset + length).toString("utf8");
+    offset += length;
+    const semanticMutationSetDigest = bytes.subarray(offset, offset + 32).toString("hex");
+    offset += 32;
+    return { opId, semanticMutationSetDigest };
+  });
+  assert.equal(offset, bytes.length);
+  return entries;
 }
 
 async function withHermeticGit(

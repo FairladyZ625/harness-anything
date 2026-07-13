@@ -1,4 +1,10 @@
-import type { WriteAttribution, WriteCoordinator, WriteOp } from "../../../kernel/src/index.ts";
+import type {
+  AuthorityOperationIntegrity,
+  WriteAttribution,
+  WriteCoordinator,
+  WriteOp
+} from "../../../kernel/src/index.ts";
+import type { AuthorizedOperationAttemptV2 } from "./semantic-mutation-envelope-v2.ts";
 
 export const authorityProtocolTuple = {
   wire: 1,
@@ -80,6 +86,7 @@ export interface AuthorityCommittedReceipt {
   readonly revision: number;
   readonly commitSha: string;
   readonly previousCommit: string | null;
+  readonly authorityIntegrity?: AuthorityOperationIntegrity;
 }
 
 export interface AuthorityRejectedReceipt {
@@ -120,11 +127,16 @@ export interface AuthorityOperationRecord {
   readonly state: AuthorityOperationState;
   readonly receipt?: AuthorityOperationReceipt;
   readonly commitSha?: string;
+  readonly authorityIntegrity?: AuthorityOperationIntegrity;
+}
+
+export interface AuthorityStoredOperationRecord extends AuthorityOperationRecord {
+  readonly canonicalRequestEnvelope?: string;
 }
 
 export interface AuthorityOperationRegistry {
-  readonly get: (workspaceId: string, opId: string) => Promise<AuthorityOperationRecord | undefined>;
-  readonly put: (record: AuthorityOperationRecord) => Promise<void>;
+  readonly get: (workspaceId: string, opId: string) => Promise<AuthorityStoredOperationRecord | undefined>;
+  readonly put: (record: AuthorityStoredOperationRecord) => Promise<void>;
 }
 
 export interface ReplicaChangeRecord {
@@ -136,6 +148,7 @@ export interface ReplicaChangeRecord {
   readonly commitSha: string;
   readonly previousCommit: string | null;
   readonly changedAt: string;
+  readonly authorityIntegrity?: AuthorityOperationIntegrity;
 }
 
 export interface ReplicaChangeLog {
@@ -168,5 +181,6 @@ export interface AttributedCoordinatorFactory {
 
 export interface AuthoritySubmissionService {
   readonly submit: (envelope: AuthorityOperationEnvelope) => Promise<AuthorityOperationReceipt>;
+  readonly submitV2?: (attempt: AuthorizedOperationAttemptV2) => Promise<AuthorityOperationReceipt>;
   readonly getOperation: (workspaceId: string, opId: string) => Promise<AuthorityOperationRecord | undefined>;
 }

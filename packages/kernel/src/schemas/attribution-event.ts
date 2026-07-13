@@ -5,7 +5,7 @@ import {
   ExecutorSourceSchema,
   PrincipalSourceSchema
 } from "./actor-attribution.ts";
-import { JournalPayloadRefSchema, WriteJournalOpKindSchema } from "./write-journal.ts";
+import { AuthorityOperationIntegritySchema, JournalPayloadRefSchema, WriteJournalOpKindSchema } from "./write-journal.ts";
 
 export const AttributionEventSchema = Schema.Struct({
   schema: Schema.Literal("attribution-event/v1"),
@@ -20,7 +20,8 @@ export const AttributionEventSchema = Schema.Struct({
   at: NonBlankStringSchema,
   recordedAt: NonBlankStringSchema,
   payloadHash: NonBlankStringSchema,
-  payloadRef: JournalPayloadRefSchema
+  payloadRef: JournalPayloadRefSchema,
+  authorityIntegrity: Schema.optional(AuthorityOperationIntegritySchema)
 }).pipe(Schema.filter((event) => (
   event.actor.executor === null
     ? event.executorSource === "none"

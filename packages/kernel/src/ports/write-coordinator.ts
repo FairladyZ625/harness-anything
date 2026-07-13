@@ -68,6 +68,24 @@ export interface WriteOp {
   readonly kind: WriteOpKind;
   readonly payload?: unknown;
   readonly provenance?: ProvenancePayload;
+  readonly authorityIntegrity?: AuthorityOperationIntegrity;
+}
+
+export interface AuthorityOperationIntegrity {
+  readonly schema: "authority-operation-integrity/v2";
+  readonly semanticRequestDigest: string;
+  readonly semanticMutationSetDigest: string;
+  readonly mutationRegistryVersion: number;
+  readonly actorAxesBindingDigest: string;
+  readonly canonicalMutationSet: AuthorityCanonicalMutationSet;
+}
+
+export interface AuthorityCanonicalMutationSet {
+  readonly registryVersion: number;
+  readonly mutations: ReadonlyArray<{
+    readonly entity: { readonly registryVersion: number; readonly entityKind: string; readonly canonicalRef: string };
+    readonly action: { readonly registryVersion: number; readonly action: string };
+  }>;
 }
 
 export interface LocalTransitionWriteOp extends WriteOp {

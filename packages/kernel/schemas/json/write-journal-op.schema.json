@@ -111,6 +111,128 @@
         "title": "unknown"
       }
     },
+    "authorityIntegrity": {
+      "type": "object",
+      "required": [
+        "schema",
+        "semanticRequestDigest",
+        "semanticMutationSetDigest",
+        "mutationRegistryVersion",
+        "actorAxesBindingDigest",
+        "canonicalMutationSet"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "authority-operation-integrity/v2"
+          ]
+        },
+        "semanticRequestDigest": {
+          "type": "string",
+          "description": "a string matching the pattern ^[0-9a-f]{64}$",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "semanticMutationSetDigest": {
+          "type": "string",
+          "description": "a string matching the pattern ^[0-9a-f]{64}$",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mutationRegistryVersion": {
+          "type": "integer",
+          "description": "a number less than or equal to 4294967295",
+          "title": "lessThanOrEqualTo(4294967295)",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "actorAxesBindingDigest": {
+          "type": "string",
+          "description": "a string matching the pattern ^[0-9a-f]{64}$",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "canonicalMutationSet": {
+          "type": "object",
+          "required": [
+            "registryVersion",
+            "mutations"
+          ],
+          "properties": {
+            "registryVersion": {
+              "type": "integer",
+              "description": "a number less than or equal to 4294967295",
+              "title": "lessThanOrEqualTo(4294967295)",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "mutations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "entity",
+                  "action"
+                ],
+                "properties": {
+                  "entity": {
+                    "type": "object",
+                    "required": [
+                      "registryVersion",
+                      "entityKind",
+                      "canonicalRef"
+                    ],
+                    "properties": {
+                      "registryVersion": {
+                        "type": "integer",
+                        "description": "a number less than or equal to 4294967295",
+                        "title": "lessThanOrEqualTo(4294967295)",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "entityKind": {
+                        "type": "string",
+                        "description": "a string matching the pattern \\S",
+                        "pattern": "\\S"
+                      },
+                      "canonicalRef": {
+                        "type": "string",
+                        "description": "a string matching the pattern \\S",
+                        "pattern": "\\S"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "action": {
+                    "type": "object",
+                    "required": [
+                      "registryVersion",
+                      "action"
+                    ],
+                    "properties": {
+                      "registryVersion": {
+                        "type": "integer",
+                        "description": "a number less than or equal to 4294967295",
+                        "title": "lessThanOrEqualTo(4294967295)",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "action": {
+                        "type": "string",
+                        "description": "a string matching the pattern \\S",
+                        "pattern": "\\S"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "actor": {
       "type": "object",
       "required": [
