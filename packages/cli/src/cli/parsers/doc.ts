@@ -1,4 +1,4 @@
-import { readOption, readRepeatedOption } from "../parse-options.ts";
+import { readRepeatedOption } from "../parse-options.ts";
 import type { ParsedCommand } from "../types.ts";
 
 type ParseResult = { readonly ok: true; readonly value: ParsedCommand };
@@ -15,34 +15,5 @@ export function parseDocArgs(args: ReadonlyArray<string>, rootDir: string, json:
   if (subcommand === "sync" && args.includes("--submit")) {
     return { ok: true, value: { rootDir, json, action: { kind: "doc-sync-submit", paths: readRepeatedOption(args, "--path") } } };
   }
-  if (subcommand !== "list" && subcommand !== "map" && subcommand !== "generate") return null;
-  const filters = {
-    moduleKey: readOption(args, "--module"),
-    productLine: readOption(args, "--product-line")
-  };
-  if (subcommand === "generate") {
-    return {
-      ok: true,
-      value: {
-        rootDir,
-        json,
-        action: {
-          kind: "doc-generate",
-          filters,
-          write: args.includes("--write")
-        }
-      }
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      rootDir,
-      json,
-      action: {
-        kind: subcommand === "list" ? "doc-list" : "doc-map",
-        filters
-      }
-    }
-  };
+  return null;
 }

@@ -29,7 +29,6 @@ const expectedConflictPreflightKinds = [
   "distill-candidate",
   "distill-commit",
   "fact-invalidate",
-  "doc-generate",
   "doc-sync-submit",
   "governance-rebuild",
   "init",

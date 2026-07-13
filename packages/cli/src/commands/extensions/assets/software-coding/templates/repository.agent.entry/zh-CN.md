@@ -1,11 +1,11 @@
 # Harness Agent Entry
 
-这个 standalone 入口只为兼容保留。当前里程碑和临时读集属于当前任务包，不放进 AGENTS.md。
+这个 standalone 入口只为兼容保留。当前里程碑属于当前任务包，不放进 AGENTS.md。
 
 ## Context loading
 
 - 读取 `harness/harness.yaml`。
-- 如果已有 task，读取 `task_plan.md`、`read_set.md`，以及其中明确列出的文件。
+- 如果已有 task，读取 `task_plan.md` 以及其中明确列出的文件。
 - 只加载当前任务相关的标准或文件夹 README。
 
 ## Worktree discipline

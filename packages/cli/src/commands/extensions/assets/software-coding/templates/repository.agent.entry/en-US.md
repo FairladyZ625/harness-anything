@@ -1,11 +1,11 @@
 # Harness Agent Entry
 
-This standalone entry is kept for compatibility. Current milestone context and temporary read sets belong in the active task package, not in AGENTS.md.
+This standalone entry is kept for compatibility. Current milestone context belongs in the active task package, not in AGENTS.md.
 
 ## Context loading
 
 - Read `harness/harness.yaml`.
-- If a task is assigned, read `task_plan.md`, `read_set.md`, and the files explicitly named there.
+- If a task is assigned, read `task_plan.md` and the files explicitly named there.
 - Load only the standards or folder README files relevant to the task.
 
 ## Worktree discipline

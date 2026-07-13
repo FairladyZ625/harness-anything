@@ -1,11 +1,11 @@
 # Harness Agent Entry
 
-本入口只放稳定运行规则。当前里程碑、roadmap 状态、临时读集和任务背景属于当前任务包或 docmap，不放进 AGENTS.md。
+本入口只放稳定运行规则。当前里程碑、roadmap 状态和任务背景属于当前任务包，不放进 AGENTS.md。
 
 ## Context loading
 
 - 读取 `harness/harness.yaml`。
-- 如果已有 task，先读该 task 的 `task_plan.md`、`read_set.md`，以及其中明确列出的文件。
+- 如果已有 task，先读该 task 的 `task_plan.md` 以及其中明确列出的文件。
 - 从任务路由到最小必要的标准或文件夹 README。不要预载整个 ADR、decision、milestone 或 standards 树。
 
 ## Worktree discipline

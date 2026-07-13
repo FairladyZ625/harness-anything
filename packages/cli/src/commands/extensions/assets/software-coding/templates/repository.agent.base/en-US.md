@@ -1,11 +1,11 @@
 # Harness Agent Entry
 
-This entry holds stable operating rules only. Current milestone context, roadmap state, temporary read sets, and task-specific background belong in the active task package or docmap, not in AGENTS.md.
+This entry holds stable operating rules only. Current milestone context, roadmap state, and task-specific background belong in the active task package, not in AGENTS.md.
 
 ## Context loading
 
 - Read `harness/harness.yaml`.
-- If a task is assigned, read that task package first: `task_plan.md`, `read_set.md`, and any files explicitly named there.
+- If a task is assigned, read that task package first: `task_plan.md` and any files explicitly named there.
 - Route from the task to the smallest relevant standard or folder README. Do not preload the full ADR, decision, milestone, or standards tree.
 
 ## Worktree discipline

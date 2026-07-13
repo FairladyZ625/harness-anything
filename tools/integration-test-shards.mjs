@@ -19,7 +19,7 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/decision-task-metadata-cli.test.ts": 13473.5,
   "packages/cli/test/diagnostics-cli.test.ts": 551.7,
   "packages/cli/test/distill-cli.test.ts": 5975.6,
-  "packages/cli/test/docmap-cli.test.ts": 4214.7,
+  "packages/cli/test/doc-sync-cli.test.ts": 4214.7,
   "packages/cli/test/doctor-cli.test.ts": 3606.3,
   "packages/cli/test/extension-cli.test.ts": 7000.4,
   "packages/cli/test/fact-cli.test.ts": 11411.7,

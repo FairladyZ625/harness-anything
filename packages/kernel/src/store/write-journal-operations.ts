@@ -492,7 +492,6 @@ function writeModuleScaffold(rootInput: HarnessLayoutInput, op: WriteOp): void {
 export type MachineArtifactBoundary =
   | "runtime-event-ledger"
   | "provenance-session"
-  | "docmap-derived"
   | "distill-candidate"
   | "legacy-forward"
   | "preset-evidence-registry";

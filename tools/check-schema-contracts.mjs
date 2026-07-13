@@ -12,7 +12,6 @@ const expectedSchemaIds = [
   "entity-relations",
   "fact-record",
   "runtime-event-record",
-  "docmap",
   "write-journal-op",
   "task-snapshot",
   "publishable-projection",

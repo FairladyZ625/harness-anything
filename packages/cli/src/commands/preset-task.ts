@@ -19,7 +19,6 @@ import {
 } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
-import { buildDerivedDocmapReadSet, renderDocmapReadSetMarkdown } from "./core/docmap-generate.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated, type ResolvedPreset } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 
@@ -118,25 +117,10 @@ export function runNewTaskWithPreset(
     }
 
     const createdAt = new Date().toISOString();
-    const docmap = resolveTaskReadSet(rootInput, action.moduleKey);
-    const readSetCount = docmap.readSet.mandatory.length + docmap.readSet.recommended.length;
-    const readSetWrite = readSetCount > 0
-      ? [{
-        taskId,
-        path: "read_set.md",
-        body: renderDocmapReadSetMarkdown(docmap.readSet, {
-          title: action.title,
-          moduleKey: action.moduleKey,
-          source: docmap.source
-        }),
-        packageSlug: action.slug
-      }]
-      : [];
     const generated = [
       "INDEX.md",
       ...materialized.documents.map((document) => document.materializeAs),
-      ...(module ? ["module.md"] : []),
-      ...readSetWrite.map((write) => write.path)
+      ...(module ? ["module.md"] : [])
     ];
     if (action.dryRun) {
       return {
@@ -157,13 +141,7 @@ export function runNewTaskWithPreset(
           profile: materialized.profile.id,
           module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
           longRunning: action.longRunning,
-          templateCount: materialized.documents.length,
-          docmap: {
-            source: docmap.source,
-            readSetCount,
-            mandatory: docmap.readSet.mandatory.length,
-            recommended: docmap.readSet.recommended.length
-          }
+          templateCount: materialized.documents.length
         }
       } satisfies CliResult;
     }
@@ -201,8 +179,7 @@ export function runNewTaskWithPreset(
         path: "module.md",
         body: renderModuleSelection(module),
         packageSlug: action.slug
-      }] : []),
-      ...readSetWrite
+      }] : [])
     ];
     const coordinator = makeWriteCoordinator?.({ scope: "operational", kind: "agent", id: "preset-task" });
     if (!coordinator) return yield* Effect.fail({ _tag: "JournalUnavailable", cause: new Error("write coordinator factory is required") } satisfies WriteError);
@@ -243,13 +220,7 @@ export function runNewTaskWithPreset(
         preset: preset.manifest.id,
         profile: materialized.profile.id,
         module: module ? { key: module.key, title: module.title, scopes: module.scopes } : undefined,
-        templateCount: materialized.documents.length,
-        docmap: {
-          source: docmap.source,
-          readSetCount,
-          mandatory: docmap.readSet.mandatory.length,
-          recommended: docmap.readSet.recommended.length
-        }
+        templateCount: materialized.documents.length
       }
     } satisfies CliResult;
   });
@@ -306,13 +277,6 @@ export function materializePresetTaskScaffold(
       issues: materialized.issues
     }
   };
-}
-
-function resolveTaskReadSet(
-  rootInput: HarnessLayoutInput,
-  moduleKey: string | undefined
-): ReturnType<typeof buildDerivedDocmapReadSet> {
-  return buildDerivedDocmapReadSet(rootInput, moduleKey);
 }
 
 function renderModuleSelection(module: { readonly key: string; readonly title: string; readonly scopes: ReadonlyArray<string> }): string {

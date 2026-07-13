@@ -123,57 +123,6 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     }
   },
   {
-    "kind": "doc-list",
-    "usage": "doc list [--module <key>] [--product-line <key>] [--json]",
-    "options": [{"flag":"--module","description":"Select a registered module key; use module list to discover keys."},{"flag":"--product-line","description":"Attach a comma-separated product line list to a decision."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "List canonical documents declared in the docmap manifest.",
-    "examples": ["harness-anything doc list --module m4-loadbearing --json"],
-    "parse": parseDocArgs,
-    "run": runDocCommand,
-    "receiptContract": {
-      "data": ["rows", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    }
-  },
-  {
-    "kind": "doc-map",
-    "usage": "doc map [--module <key>] [--product-line <key>] [--json]",
-    "options": [{"flag":"--module","description":"Select a registered module key; use module list to discover keys."},{"flag":"--product-line","description":"Attach a comma-separated product line list to a decision."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Compute the docmap minimum read set for a module or product line.",
-    "examples": ["harness-anything doc map --module m4-loadbearing --product-line kernel --json"],
-    "parse": parseDocArgs,
-    "run": runDocCommand,
-    "receiptContract": {
-      "data": ["rows", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": false,
-      "runtimeEvent": "none"
-    }
-  },
-  {
-    "kind": "doc-generate",
-    "usage": "doc generate [--module <key>] [--product-line <key>] [--write] [--json]",
-    "options": [{"flag":"--module","description":"Select a registered module key; use module list to discover keys."},{"flag":"--product-line","description":"Attach a comma-separated product line list to a decision."},{"flag":"--write","description":"Persist the generated artifact instead of returning a dry-run report."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Derive and optionally persist docmap.json from canonical document declarations and frontmatter.",
-    "examples": ["harness-anything doc generate --write --json"],
-    "parse": parseDocArgs,
-    "run": runDocCommand,
-    "receiptContract": {
-      "data": ["rows", "report"],
-      "paths": ["primary"]
-    },
-    "eventPolicy": {
-      "conflictMarkerPreflight": true,
-      "runtimeEvent": "none"
-    }
-  },
-  {
     "kind": "doc-status",
     "usage": "doc status [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],

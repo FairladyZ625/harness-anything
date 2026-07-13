@@ -7,8 +7,6 @@ export type {
 } from "./domain/execution.ts";
 export { executionDeclaration } from "./entity/execution-declaration.ts";
 export { reviewDeclaration } from "./entity/review-declaration.ts";
-export * from "./docmap/index.ts";
-export * from "./docmap/docmap-unique.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export * from "./entity/registry.ts";
@@ -57,7 +55,6 @@ export type {
   WriteAttribution
 } from "./schemas/actor-attribution.ts";
 export type { AttributionEvent } from "./schemas/attribution-event.ts";
-export * from "./schemas/docmap.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
   makeJournaledWriteCoordinator,

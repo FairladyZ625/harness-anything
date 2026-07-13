@@ -159,46 +159,6 @@
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
       },
       {
-        "value": "DocmapDocumentKind",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "docmapDocumentKinds",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapDocumentSchema",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapManifestContract",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapManifestDocument",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapReadResult",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapReadSetFilters",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
-        "value": "DocmapScope",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."
-      },
-      {
         "value": "DocsReleasePromotionBundle",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence."

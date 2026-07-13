@@ -574,10 +574,10 @@
         "head": "da5c205837740cfa3f9078e0a851605073a08af4",
         "executionOutcome": "completed",
         "exitCode": 1,
-        "stdout": "{\"prDeclaredButNotRunBeforeMerge\":11,\"gates\":[\"check-cli-help-contract\",\"check-cli-error-codes\",\"check-error-classification\",\"check-duplicate-definitions\",\"check-integrity-single-source\",\"check-docs-release-map\",\"check-docmap-fresh\",\"check-template-command-surface\",\"check-service-mappability\",\"check-api-contract-registry\",\"check-schema-field-coverage\"]}\n",
+        "stdout": "{\"prDeclaredButNotRunBeforeMerge\":10,\"gates\":[\"check-cli-help-contract\",\"check-cli-error-codes\",\"check-error-classification\",\"check-duplicate-definitions\",\"check-integrity-single-source\",\"check-docs-release-map\",\"check-template-command-surface\",\"check-service-mappability\",\"check-api-contract-registry\",\"check-schema-field-coverage\"]}\n",
         "stderr": "",
         "mechanismVerdict": "fail",
-        "interpretation": "Eleven non-aggregate checks are declared in check:pr but have no pull-request workflow job and first run in full-check."
+        "interpretation": "Ten non-aggregate checks are declared in check:pr but have no pull-request workflow job and first run in full-check."
       }
     },
     {

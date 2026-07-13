@@ -115,8 +115,8 @@ test("machine_artifact_write bodyRef documentWrites is cwd independent", () => {
       entityId: taskEntityId("task_machine_artifact_bodyref"),
       kind: "machine_artifact_write",
       payload: {
-        boundary: "docmap-derived",
-        path: path.relative(layout.rootDir, path.join(layout.authoredRoot, "docmap.json")),
+        boundary: "distill-candidate",
+        path: path.relative(layout.rootDir, path.join(layout.generatedRoot, "distill", "task_artifact", "candidate.json")),
         bodyRef
       }
     };
@@ -516,8 +516,8 @@ function allReconciliationCases(rootDir: string): ReconciliationCase[] {
         entityId: taskEntityId("task_artifact"),
         kind: "machine_artifact_write",
         payload: {
-          boundary: "docmap-derived",
-          path: path.relative(layout.rootDir, path.join(layout.authoredRoot, "docmap.json")),
+          boundary: "distill-candidate",
+          path: path.relative(layout.rootDir, path.join(layout.generatedRoot, "distill", "task_artifact", "candidate.json")),
           body: "{}"
         }
       },

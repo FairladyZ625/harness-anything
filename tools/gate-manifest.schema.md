@@ -162,16 +162,16 @@ Release-policy gate sample:
 
 The registry records:
 
-- 52 gates: 43 deterministic and 9 non-deterministic/composite.
-- 37 `harness:*` leaf gates from `package.json`; 35 are in `check`, 33 are in
-  `check:pr`, and 36 execute in pull-request workflow jobs. The only
+- 51 gates: 42 deterministic and 9 non-deterministic/composite.
+- 36 `harness:*` leaf gates from `package.json`; 34 are in `check`, 32 are in
+  `check:pr`, and 35 execute in pull-request workflow jobs. The only
   `harness:*` gate outside the PR workflow is the non-deterministic,
   schedule-only `check-enforcement-debt-sunset`.
-- 12 formerly main-only deterministic gates added to the existing `boundaries`
+- 11 formerly main-only deterministic gates added to the existing `boundaries`
   required context: `check-cli-help-contract`, `check-cli-error-codes`,
   `check-error-classification`, `check-duplicate-definitions`,
   `check-integrity-single-source`, `check-docs-release-map`,
-  `check-docmap-fresh`, `check-template-command-surface`,
+  `check-template-command-surface`,
   `check-service-mappability`, `check-api-contract-registry`,
   `check-schema-field-coverage`, and `smoke-legacy-intake`.
 - `check-gate-manifest-invariants` executes locally, in `boundaries`, and in

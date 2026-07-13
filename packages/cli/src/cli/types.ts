@@ -26,11 +26,6 @@ export type TaskListLessonFilter = "present" | "missing";
 export type SessionExportRuntime = "claude-code" | "codex" | "zcode" | "antigravity";
 export type SessionExportSource = "runtime" | "manual";
 
-export interface DocmapFilters {
-  readonly moduleKey?: string;
-  readonly productLine?: string;
-}
-
 export interface TaskListFilters {
   readonly state?: string;
   readonly moduleKey?: string;
@@ -242,9 +237,6 @@ export interface ParsedCommand {
     | { readonly kind: "session-export"; readonly sessionId?: string; readonly runtime?: SessionExportRuntime; readonly source?: SessionExportSource; readonly detectedAt?: string; readonly user?: string; readonly transcriptFile?: string }
     | { readonly kind: "session-backfill"; readonly runtime?: SessionExportRuntime; readonly limit?: number }
     | { readonly kind: "session-sync"; readonly mode: "dry-run" | "apply" }
-    | { readonly kind: "doc-list"; readonly filters: DocmapFilters }
-    | { readonly kind: "doc-map"; readonly filters: DocmapFilters }
-    | { readonly kind: "doc-generate"; readonly filters: DocmapFilters; readonly write: boolean }
     | { readonly kind: "doc-status" }
     | { readonly kind: "doc-sync-dry-run" }
     | { readonly kind: "doc-sync-submit"; readonly paths: ReadonlyArray<string> }

@@ -38,7 +38,9 @@ test("CLI init dogfoods coding vertical defaults for new tasks", () => {
     assert.equal(result.report.preset, "standard-task");
     assert.equal(result.report.profile, "baseline");
     assert.equal(result.generated.includes("task_plan.md"), true);
+    assert.equal(result.generated.includes("read_set.md"), false);
     assert.equal(result.generated.some((entry: string) => entry.startsWith("references/")), false);
+    assert.equal(existsSync(path.join(rootDir, result.packagePath, "read_set.md")), false);
     assert.equal(existsSync(path.join(rootDir, result.packagePath, "references")), false);
     assert.match(index, /vertical: software\/coding/);
     assert.match(index, /preset: standard-task/);
