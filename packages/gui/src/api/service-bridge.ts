@@ -17,10 +17,13 @@ type LocalControllerGuiMethod =
   | "getTaskDetail"
   | "getTaskDocument"
   | "getRelationGraph"
+  | "getTriadicProjection"
   | "getDecisions"
   | "getDecisionDetail"
   | "getTaskFacts"
+  | "getFacts"
   | "getTaskExecutions"
+  | "getExecutions"
   | "getExecutionDetail"
   | "getReviewDetail"
   | "setTaskStatus"
@@ -33,10 +36,13 @@ interface GuiBridgeServiceProxy {
   readonly getTaskDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly getTaskDocument: (payload: unknown) => Promise<unknown> | unknown;
   readonly getRelationGraph: () => Promise<unknown> | unknown;
+  readonly getTriadicProjection: () => Promise<unknown> | unknown;
   readonly getDecisions: () => Promise<unknown> | unknown;
   readonly getDecisionDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly getTaskFacts: (payload: unknown) => Promise<unknown> | unknown;
+  readonly getFacts: () => Promise<unknown> | unknown;
   readonly getTaskExecutions: (payload: unknown) => Promise<unknown> | unknown;
+  readonly getExecutions: () => Promise<unknown> | unknown;
   readonly getExecutionDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly getReviewDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly setTaskStatus: (payload: unknown) => Promise<unknown> | unknown;
@@ -72,6 +78,10 @@ export const guiBridgeHandlerImplementations = {
     serviceMethod: "getRelationGraph",
     invoke: ({ service }) => service.getRelationGraph()
   },
+  getTriadicProjection: {
+    serviceMethod: "getTriadicProjection",
+    invoke: ({ service }) => service.getTriadicProjection()
+  },
   getDecisions: {
     serviceMethod: "getDecisions",
     invoke: ({ service }) => service.getDecisions()
@@ -84,9 +94,17 @@ export const guiBridgeHandlerImplementations = {
     serviceMethod: "getTaskFacts",
     invoke: ({ service, payload }) => service.getTaskFacts(payload)
   },
+  getFacts: {
+    serviceMethod: "getFacts",
+    invoke: ({ service }) => service.getFacts()
+  },
   getTaskExecutions: {
     serviceMethod: "getTaskExecutions",
     invoke: ({ service, payload }) => service.getTaskExecutions(payload)
+  },
+  getExecutions: {
+    serviceMethod: "getExecutions",
+    invoke: ({ service }) => service.getExecutions()
   },
   getExecutionDetail: {
     serviceMethod: "getExecutionDetail",
@@ -169,10 +187,13 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     getTaskDetail: (payload) => invokeDaemonGuiRoute(request, "getTaskDetail", payload),
     getTaskDocument: (payload) => invokeDaemonGuiRoute(request, "getTaskDocument", payload),
     getRelationGraph: () => invokeDaemonGuiRoute(request, "getRelationGraph", undefined),
+    getTriadicProjection: () => invokeDaemonGuiRoute(request, "getTriadicProjection", undefined),
     getDecisions: () => invokeDaemonGuiRoute(request, "getDecisions", undefined),
     getDecisionDetail: (payload) => invokeDaemonGuiRoute(request, "getDecisionDetail", payload),
     getTaskFacts: (payload) => invokeDaemonGuiRoute(request, "getTaskFacts", payload),
+    getFacts: () => invokeDaemonGuiRoute(request, "getFacts", undefined),
     getTaskExecutions: (payload) => invokeDaemonGuiRoute(request, "getTaskExecutions", payload),
+    getExecutions: () => invokeDaemonGuiRoute(request, "getExecutions", undefined),
     getExecutionDetail: (payload) => invokeDaemonGuiRoute(request, "getExecutionDetail", payload),
     getReviewDetail: (payload) => invokeDaemonGuiRoute(request, "getReviewDetail", payload),
     setTaskStatus: (payload) => invokeDaemonGuiRoute(request, "setTaskStatus", payload),

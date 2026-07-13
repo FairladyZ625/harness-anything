@@ -31,6 +31,7 @@
     "lint": "eslint .",
     "test": "node tools/run-node-tests.mjs",
     "test:gui": "node tools/run-gui-tests.mjs",
+    "perf:gui": "node tools/perf/gui-projection-benchmark.mjs",
     "test:gui:e2e": "node tools/run-gui-e2e-tests.mjs",
     "package:gui:mac:arm64": "npm run package:mac:arm64 -w @harness-anything/gui",
     "test:fast": "node tools/run-node-tests.mjs --tier fast",

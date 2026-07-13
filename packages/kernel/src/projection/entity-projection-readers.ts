@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import type { HarnessLayoutOverrides } from "../layout/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutOverrides } from "../layout/index.ts";
 import { defaultTaskProjectionPath, readTaskProjection } from "./sqlite-task-projection.ts";
 import type { EntityAttributionProjection } from "./types.ts";
 
@@ -111,6 +111,16 @@ export function queryExecutionsByTask(options: ProjectionReaderOptions & { reado
   try {
     return (db.prepare("SELECT * FROM execution_projection WHERE task_ref = ? ORDER BY claimed_at, execution_id")
       .all(`task/${options.taskId}`) as Record<string, unknown>[]).map(toExecution);
+  } finally {
+    db.close();
+  }
+}
+
+export function queryExecutions(options: ProjectionReaderOptions): ReadonlyArray<ExecutionProjectionRow> {
+  const db = openFreshProjection(options);
+  try {
+    return (db.prepare("SELECT * FROM execution_projection ORDER BY claimed_at, execution_id")
+      .all() as Record<string, unknown>[]).map(toExecution);
   } finally {
     db.close();
   }
@@ -256,7 +266,13 @@ export function querySessionExecutionTrace(options: ProjectionReaderOptions & { 
 function openFreshProjection(options: ProjectionReaderOptions): DatabaseSync {
   const rootDir = path.resolve(options.rootDir);
   readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides });
-  return new DatabaseSync(defaultTaskProjectionPath(rootDir), { readOnly: true });
+  return new DatabaseSync(projectionPath(options), { readOnly: true });
+}
+
+function projectionPath(options: ProjectionReaderOptions): string {
+  return options.layoutOverrides
+    ? resolveHarnessLayout({ rootDir: path.resolve(options.rootDir), layoutOverrides: options.layoutOverrides }).projectionPath
+    : defaultTaskProjectionPath(path.resolve(options.rootDir));
 }
 
 function toSession(row: Record<string, unknown>): SessionProjectionRow {

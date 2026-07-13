@@ -307,6 +307,39 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
   }
 }
 
+export function readTriadicProjectionSnapshot(options: TaskProjectionOptions): {
+  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
+  readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly warnings: ProjectionReadResult["warnings"];
+} {
+  const rootDir = path.resolve(options.rootDir);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath ? path.resolve(options.projectionPath) : resolveHarnessLayout(runtimeContext).projectionPath;
+  const projection = readTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
+  try {
+    const graph = readRelationGraphRows(projectionPath);
+    return {
+      decisions: queryDecisionProjectionRows(projectionPath, {}),
+      edges: graph.relationEdges,
+      coverageRows: graph.coverageRows,
+      factAnchors: graph.factAnchors,
+      warnings: projection.warnings
+    };
+  } catch {
+    const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
+    const graph = readRelationGraphRows(projectionPath);
+    return {
+      decisions: queryDecisionProjectionRows(projectionPath, {}),
+      edges: graph.relationEdges,
+      coverageRows: graph.coverageRows,
+      factAnchors: graph.factAnchors,
+      warnings: [...projection.warnings, ...rebuilt.warnings]
+    };
+  }
+}
+
 export function readDecisionFactCoverage(options: TaskProjectionOptions & { readonly decisionId: string }): {
   readonly rows: ReadonlyArray<RelationCoverageRow>;
   readonly warnings: ProjectionReadResult["warnings"];

@@ -21,6 +21,7 @@ export type {
   ExecutionIdPayload,
   ExecutionProjectionRow,
   FactAnchorRow,
+  FactListResult,
   FactProjectionRow,
   LocalControllerResult,
   ProjectionJsonObject,
@@ -36,5 +37,6 @@ export type {
   TaskExecutionListSuccess,
   TaskIdPayload,
   TaskFactListResult,
-  TaskListResult
+  TaskListResult,
+  TriadicProjectionResult
 } from "../../../application/src/index.ts";

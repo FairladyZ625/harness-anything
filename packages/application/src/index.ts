@@ -245,7 +245,7 @@ export interface LocalControllerServiceOptions {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly taskWriter: LocalControllerTaskWriter;
-  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage">;
+  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage" | "readAuthoredDocument">;
 }
 
 export interface LocalControllerSuccess {
@@ -430,6 +430,12 @@ export interface TaskExecutionListSuccess extends LocalControllerSuccess {
 
 export type TaskExecutionListResult = TaskExecutionListSuccess | LocalControllerFailure;
 
+export interface ExecutionListSuccess extends LocalControllerSuccess {
+  readonly executions: ReadonlyArray<ExecutionProjectionRow>;
+}
+
+export type ExecutionListResult = ExecutionListSuccess | LocalControllerFailure;
+
 export interface ExecutionDetailSuccess extends LocalControllerSuccess {
   readonly execution: ExecutionProjectionRow;
 }
@@ -463,6 +469,23 @@ export interface TaskFactListSuccess extends LocalControllerSuccess {
 }
 
 export type TaskFactListResult = TaskFactListSuccess | LocalControllerFailure;
+
+export interface FactListSuccess extends LocalControllerSuccess {
+  readonly facts: ReadonlyArray<FactProjectionRow>;
+}
+
+export type FactListResult = FactListSuccess | LocalControllerFailure;
+
+export interface TriadicProjectionSuccess extends LocalControllerSuccess {
+  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
+  readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly facts: ReadonlyArray<FactProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+}
+
+export type TriadicProjectionResult = TriadicProjectionSuccess | LocalControllerFailure;
 
 export interface TaskIdPayload {
   readonly taskId: string;
@@ -523,9 +546,12 @@ export interface LocalControllerService {
   readonly getDecisions: () => DecisionListResult;
   readonly getDecisionDetail: (payload: DecisionIdPayload) => DecisionDetailResult;
   readonly getTaskExecutions: (payload: TaskIdPayload) => TaskExecutionListResult;
+  readonly getExecutions: () => ExecutionListResult;
   readonly getExecutionDetail: (payload: ExecutionIdPayload) => ExecutionDetailResult;
   readonly getReviewDetail: (payload: ReviewIdPayload) => ReviewDetailResult;
   readonly getTaskFacts: (payload: TaskIdPayload) => Promise<TaskFactListResult>;
+  readonly getFacts: () => Promise<FactListResult>;
+  readonly getTriadicProjection: () => Promise<TriadicProjectionResult>;
   readonly setTaskStatus: (payload: SetTaskStatusPayload) => Promise<LocalControllerResult>;
   readonly reviewTask: (payload: TaskIdPayload) => Promise<LocalControllerResult>;
   readonly appendTaskProgress: (payload: AppendTaskProgressPayload) => Promise<LocalControllerResult>;

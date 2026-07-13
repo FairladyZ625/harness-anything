@@ -125,10 +125,33 @@ test("GUI daemon bridge exposes execution and review projection readers", async 
     return { ok: true, details: { data: { ok: true, routeId: route.id } } };
   });
 
-  assert.equal((await bridge.invoke("getTaskExecutions", { taskId: "task-1" }) as { readonly routeId?: string }).routeId, "executions.taskList");
+    assert.equal((await bridge.invoke("getExecutions", null) as { readonly routeId?: string }).routeId, "executions.list");
+    assert.equal((await bridge.invoke("getTaskExecutions", { taskId: "task-1" }) as { readonly routeId?: string }).routeId, "executions.taskList");
   assert.equal((await bridge.invoke("getExecutionDetail", { executionId: "exe-1" }) as { readonly routeId?: string }).routeId, "executions.detail");
   assert.equal((await bridge.invoke("getReviewDetail", { reviewId: "rev-1" }) as { readonly routeId?: string }).routeId, "reviews.detail");
-  assert.deepEqual(routeIds, ["executions.taskList", "executions.detail", "reviews.detail"]);
+    assert.deepEqual(routeIds, ["executions.list", "executions.taskList", "executions.detail", "reviews.detail"]);
+});
+
+test("GUI daemon bridge exposes one batched facts reader", async () => {
+  const routeIds: string[] = [];
+  const bridge = createGuiServiceBridgeForDaemon(async (route) => {
+    routeIds.push(route.id);
+    return { ok: true, details: { data: { ok: true, routeId: route.id } } };
+  });
+
+  assert.equal((await bridge.invoke("getFacts", null) as { readonly routeId?: string }).routeId, "facts.list");
+  assert.deepEqual(routeIds, ["facts.list"]);
+});
+
+test("GUI daemon bridge exposes one triadic projection snapshot", async () => {
+  const routeIds: string[] = [];
+  const bridge = createGuiServiceBridgeForDaemon(async (route) => {
+    routeIds.push(route.id);
+    return { ok: true, details: { data: { ok: true, routeId: route.id } } };
+  });
+
+  assert.equal((await bridge.invoke("getTriadicProjection", null) as { readonly routeId?: string }).routeId, "triadic.snapshot");
+  assert.deepEqual(routeIds, ["triadic.snapshot"]);
 });
 
 test("GUI service bridge reaches application service through the daemon client", async () => {

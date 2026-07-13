@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type {
   DecisionProjectionRow,
   FactProjectionRow,
@@ -6,53 +6,31 @@ import type {
   RelationGraphEdgeRow
 } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
-import type {
-  DecisionListSuccess,
-  RelationGraphSuccess,
-  TaskFactListSuccess
-} from "./api-client.ts";
+import type { DecisionListSuccess, FactListSuccess, RelationGraphSuccess } from "./api-client.ts";
 import { KIND_LABEL } from "./graph/constants.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 
 export const triadicQueryKeys = {
   all: ["harness", "triadic"] as const,
-  graph: () => [...triadicQueryKeys.all, "relation-graph"] as const,
-  decisions: () => [...triadicQueryKeys.all, "decisions"] as const,
-  facts: (taskId: string) => [...triadicQueryKeys.all, "task-facts", taskId] as const
+  snapshot: () => [...triadicQueryKeys.all, "snapshot"] as const
 };
 
 export function useTriadicProjectionQuery() {
-  const graph = useQuery({
-    queryKey: triadicQueryKeys.graph(),
-    queryFn: () => harnessClient.getRelationGraph(),
+  const snapshot = useQuery({
+    queryKey: triadicQueryKeys.snapshot(),
+    queryFn: () => harnessClient.getTriadicProjection(),
     staleTime: 10_000
-  });
-  const decisions = useQuery({
-    queryKey: triadicQueryKeys.decisions(),
-    queryFn: () => harnessClient.getDecisions(),
-    staleTime: 10_000
-  });
-  const taskIds = graph.data ? [...new Set(graph.data.factAnchors.map((anchor) => anchor.taskId))].sort() : [];
-  const factQueries = useQueries({
-    queries: taskIds.map((taskId) => ({
-      queryKey: triadicQueryKeys.facts(taskId),
-      queryFn: () => harnessClient.getTaskFacts({ taskId }),
-      staleTime: 10_000,
-      enabled: graph.isSuccess
-    }))
   });
 
   const rendererData = buildTriadicRendererData({
-    graph: graph.data ?? emptyRelationGraph,
-    decisions: decisions.data ?? emptyDecisionList,
-    factResults: factQueries.flatMap((query) => query.data ? [query.data] : [])
+    graph: snapshot.data ?? emptyTriadicSnapshot,
+    decisions: snapshot.data ?? emptyTriadicSnapshot,
+    factResults: snapshot.data ? [snapshot.data] : []
   });
-  const isLoading = graph.isLoading || decisions.isLoading || factQueries.some((query) => query.isLoading);
-  const isError = graph.isError || decisions.isError || factQueries.some((query) => query.isError);
 
   return {
-    isLoading,
-    isError,
+    isLoading: snapshot.isLoading,
+    isError: snapshot.isError,
     ...rendererData
   };
 }
@@ -74,7 +52,7 @@ export interface TriadicRendererData {
 export function buildTriadicRendererData(input: {
   readonly graph: RelationGraphSuccess;
   readonly decisions: DecisionListSuccess;
-  readonly factResults: ReadonlyArray<TaskFactListSuccess>;
+  readonly factResults: ReadonlyArray<Pick<FactListSuccess, "facts">>;
 }): TriadicRendererData {
   const relationRows = input.graph.edges;
   const factRows = input.factResults.flatMap((result) => result.facts);
@@ -88,17 +66,13 @@ export function buildTriadicRendererData(input: {
   };
 }
 
-const emptyRelationGraph: RelationGraphSuccess = {
+const emptyTriadicSnapshot: RelationGraphSuccess & DecisionListSuccess & FactListSuccess = {
   ok: true,
   edges: [],
   coverageRows: [],
   factAnchors: [],
-  warnings: []
-};
-
-const emptyDecisionList: DecisionListSuccess = {
-  ok: true,
   decisions: [],
+  facts: [],
   warnings: []
 };
 

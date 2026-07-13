@@ -36,6 +36,7 @@ export * from "./projection/relation-graph-projection.ts";
 export {
   auditTaskProvenance,
   queryExecutionProjection,
+  queryExecutions,
   queryExecutionsByTask,
   queryReviewProjection,
   querySessionExecutionTrace,

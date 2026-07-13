@@ -17,7 +17,7 @@ import {
  * 排序信号 = checker receipt 状态:无 passing receipt 的交付浮顶(说做完了但没证据)。
  * 诚实呈现:几乎全是迁移归档(fact-execution-migration),outputs 是 inline 文本、无 receipt。
  *
- * 数据流 v1:per-task 迭代 getTaskExecutions(全局端点后端 Codex 后续)。
+ * 数据流：一次拉取全局 execution 投影，再按 task 在前端聚合。
  */
 
 type FilterKey = "receiptPass" | "receiptNone" | "execArchival" | "execReal";
@@ -215,7 +215,7 @@ function ExecutionContent({
   if (aggregation.isLoading && aggregation.data.groups.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
-        正在通过 per-task 端点拉取执行投影(可能涉及数百次调用,稍候)…
+        正在加载执行投影…
       </div>
     );
   }

@@ -16,6 +16,8 @@ import type {
   DecisionProjectionRow,
   DecisionDetailResult,
   FactProjectionRow,
+  FactListResult,
+  TriadicProjectionResult,
   RelationGraphReadResult,
   RelationGraphEdgeRow,
   RelationCoverageRow,
@@ -30,10 +32,13 @@ type HarnessBridgeMethod =
   | "getTaskDetail"
   | "getTaskDocument"
   | "getRelationGraph"
+  | "getTriadicProjection"
   | "getDecisions"
   | "getDecisionDetail"
   | "getTaskFacts"
+  | "getFacts"
   | "getTaskExecutions"
+  | "getExecutions"
   | "getExecutionDetail"
   | "setTaskStatus"
   | "reviewTask"
@@ -96,9 +101,24 @@ export interface TaskFactListSuccess {
   readonly facts: ReadonlyArray<FactProjectionRow>;
 }
 
+export interface FactListSuccess {
+  readonly ok: true;
+  readonly facts: ReadonlyArray<FactProjectionRow>;
+}
+
+export interface TriadicProjectionSuccess extends RelationGraphSuccess {
+  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
+  readonly facts: ReadonlyArray<FactProjectionRow>;
+}
+
 export interface TaskExecutionListSuccess {
   readonly ok: true;
   readonly taskId: string;
+  readonly executions: ReadonlyArray<ExecutionProjectionRow>;
+}
+
+export interface ExecutionListSuccess {
+  readonly ok: true;
   readonly executions: ReadonlyArray<ExecutionProjectionRow>;
 }
 
@@ -138,6 +158,10 @@ export const harnessClient = {
     const result = await invokeBridge("getRelationGraph", null);
     return readRelationGraphResult(result);
   },
+  async getTriadicProjection(): Promise<TriadicProjectionSuccess> {
+    const result = await invokeBridge("getTriadicProjection", null);
+    return readTriadicProjectionResult(result);
+  },
   async getDecisions(): Promise<DecisionListSuccess> {
     const result = await invokeBridge("getDecisions", null);
     return readDecisionListResult(result);
@@ -150,9 +174,17 @@ export const harnessClient = {
     const result = await invokeBridge("getTaskFacts", payload);
     return readTaskFactListResult(result);
   },
+  async getFacts(): Promise<FactListSuccess> {
+    const result = await invokeBridge("getFacts", null);
+    return readFactListResult(result);
+  },
   async getTaskExecutions(payload: TaskIdPayload): Promise<TaskExecutionListSuccess> {
     const result = await invokeBridge("getTaskExecutions", payload);
     return readTaskExecutionListResult(result);
+  },
+  async getExecutions(): Promise<ExecutionListSuccess> {
+    const result = await invokeBridge("getExecutions", null);
+    return readExecutionListResult(result);
   },
   async getExecutionDetail(payload: ExecutionIdPayload): Promise<ExecutionDetailSuccess> {
     const result = await invokeBridge("getExecutionDetail", payload);
@@ -238,6 +270,39 @@ function readRelationGraphResult(value: unknown): RelationGraphSuccess {
   };
 }
 
+function readTriadicProjectionResult(value: unknown): TriadicProjectionSuccess {
+  const result = value as TriadicProjectionResult;
+  if (
+    !result || typeof result !== "object" || result.ok !== true ||
+    !Array.isArray(result.decisions) || !Array.isArray(result.edges) ||
+    !Array.isArray(result.coverageRows) || !Array.isArray(result.factAnchors) ||
+    !Array.isArray(result.facts)
+  ) {
+    throw new Error(localErrorHint(value, "Triadic projection bridge returned an invalid result."));
+  }
+  const decisions = result.decisions.filter(isDecisionProjectionRow);
+  const edges = result.edges.filter(isRelationGraphEdgeRow);
+  const coverageRows = result.coverageRows.filter(isRelationCoverageRow);
+  const factAnchors = result.factAnchors.filter(isFactAnchorRow);
+  const facts = result.facts.filter(isFactProjectionRow);
+  if (
+    decisions.length !== result.decisions.length || edges.length !== result.edges.length ||
+    coverageRows.length !== result.coverageRows.length || factAnchors.length !== result.factAnchors.length ||
+    facts.length !== result.facts.length
+  ) {
+    throw new Error("Triadic projection bridge returned rows outside projection DTO shapes.");
+  }
+  return {
+    ok: true,
+    decisions,
+    edges,
+    coverageRows,
+    factAnchors,
+    facts,
+    warnings: Array.isArray(result.warnings) ? result.warnings : []
+  };
+}
+
 function readDecisionListResult(value: unknown): DecisionListSuccess {
   const result = value as DecisionListResult;
   if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.decisions)) {
@@ -279,6 +344,18 @@ function readTaskFactListResult(value: unknown): TaskFactListSuccess {
   };
 }
 
+function readFactListResult(value: unknown): FactListSuccess {
+  const result = value as FactListResult;
+  if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.facts)) {
+    throw new Error(localErrorHint(value, "Facts bridge returned an invalid result."));
+  }
+  const facts = result.facts.filter(isFactProjectionRow);
+  if (facts.length !== result.facts.length) {
+    throw new Error("Facts bridge returned rows outside fact projection shape.");
+  }
+  return { ok: true, facts };
+}
+
 function readTaskExecutionListResult(value: unknown): TaskExecutionListSuccess {
   const result = value as TaskExecutionListResult;
   if (!result || typeof result !== "object" || result.ok !== true || typeof result.taskId !== "string" || !Array.isArray(result.executions)) {
@@ -293,6 +370,18 @@ function readTaskExecutionListResult(value: unknown): TaskExecutionListSuccess {
     taskId: result.taskId,
     executions
   };
+}
+
+function readExecutionListResult(value: unknown): ExecutionListSuccess {
+  const result = value as { readonly ok?: boolean; readonly executions?: ReadonlyArray<unknown> };
+  if (!result || typeof result !== "object" || result.ok !== true || !Array.isArray(result.executions)) {
+    throw new Error(localErrorHint(value, "Executions bridge returned an invalid result."));
+  }
+  const executions = result.executions.filter(isExecutionProjectionRow);
+  if (executions.length !== result.executions.length) {
+    throw new Error("Executions bridge returned rows outside execution projection shape.");
+  }
+  return { ok: true, executions };
 }
 
 function readExecutionDetailResult(value: unknown): ExecutionDetailSuccess {

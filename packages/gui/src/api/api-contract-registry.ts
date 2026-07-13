@@ -46,7 +46,9 @@ export const apiSchemaContracts = [
   { id: "application.decision-list-result/v1", owner: "application", typeName: "DecisionListResult" },
   { id: "application.execution-detail-result/v1", owner: "application", typeName: "ExecutionDetailResult" },
   { id: "application.execution-id-payload/v1", owner: "application", typeName: "ExecutionIdPayload" },
+  { id: "application.execution-list-result/v1", owner: "application", typeName: "ExecutionListResult" },
   { id: "application.fact-list-result/v1", owner: "application", typeName: "TaskFactListResult" },
+  { id: "application.all-facts-list-result/v1", owner: "application", typeName: "FactListResult" },
   { id: "application.local-controller-error/v1", owner: "application", typeName: "LocalControllerError" },
   { id: "application.local-controller-result/v1", owner: "application", typeName: "LocalControllerResult" },
   { id: "application.relation-graph-result/v1", owner: "application", typeName: "RelationGraphReadResult" },
@@ -58,6 +60,7 @@ export const apiSchemaContracts = [
   { id: "application.task-document-result/v1", owner: "application", typeName: "TaskDocumentResult" },
   { id: "application.task-id-payload/v1", owner: "application", typeName: "TaskIdPayload" },
   { id: "application.task-list-result/v1", owner: "application", typeName: "TaskListResult" },
+  { id: "application.triadic-projection-result/v1", owner: "application", typeName: "TriadicProjectionResult" },
   { id: "application.task-execution-list-result/v1", owner: "application", typeName: "TaskExecutionListResult" },
   { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
   { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
@@ -119,6 +122,18 @@ export const apiRouteContracts = [
     guiBridgeMethod: "rebuildGovernance"
   },
   {
+    id: "triadic.snapshot",
+    method: "GET",
+    path: "/api/triadic",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.triadic-projection-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getTriadicProjection",
+    auth: "local-session-token",
+    guiBridgeMethod: "getTriadicProjection"
+  },
+  {
     id: "triadic.relationGraph",
     method: "GET",
     path: "/api/triadic/relation-graph",
@@ -155,6 +170,18 @@ export const apiRouteContracts = [
     guiBridgeMethod: "getDecisionDetail"
   },
   {
+    id: "facts.list",
+    method: "GET",
+    path: "/api/facts",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.all-facts-list-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getFacts",
+    auth: "local-session-token",
+    guiBridgeMethod: "getFacts"
+  },
+  {
     id: "facts.taskList",
     method: "GET",
     path: "/api/tasks/:taskId/facts",
@@ -165,6 +192,18 @@ export const apiRouteContracts = [
     serviceMethod: "getTaskFacts",
     auth: "local-session-token",
     guiBridgeMethod: "getTaskFacts"
+  },
+  {
+    id: "executions.list",
+    method: "GET",
+    path: "/api/executions",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.execution-list-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getExecutions",
+    auth: "local-session-token",
+    guiBridgeMethod: "getExecutions"
   },
   {
     id: "executions.taskList",

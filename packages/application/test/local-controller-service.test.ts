@@ -65,6 +65,9 @@ test("local controller service reads projection and writes through injected task
       completeness: "complete"
     });
     assert.deepEqual(decisions.decisions[0]?.provenance, [{ runtime: "codex", sessionId: "session-1", boundAt: "2026-07-07T00:00:00.000Z" }]);
+    const executions = service.getExecutions();
+    assert.equal(executions.ok, true);
+    assert.deepEqual(executions.executions, []);
     const decisionDetail = service.getDecisionDetail({ decisionId: "dec_test" });
     assert.equal(decisionDetail.ok, true);
     assert.equal(decisionDetail.decision.title, "Projection Decision");
@@ -72,6 +75,14 @@ test("local controller service reads projection and writes through injected task
     assert.equal(facts.ok, true);
     assert.deepEqual(facts.facts.map((fact) => fact.ref), ["fact/task-1/F-12345678"]);
     assert.deepEqual(facts.facts[0]?.provenance, [{ runtime: "codex", sessionId: "session-1", boundAt: "2026-07-07T00:00:00.000Z" }]);
+    const allFacts = await service.getFacts();
+    assert.equal(allFacts.ok, true);
+    assert.deepEqual(allFacts.facts.map((fact) => fact.ref), ["fact/task-1/F-12345678"]);
+    const triadic = await service.getTriadicProjection();
+    assert.equal(triadic.ok, true);
+    assert.deepEqual(triadic.decisions.map((decision) => decision.decisionId), ["dec_test"]);
+    assert.deepEqual(triadic.factAnchors.map((anchor) => anchor.factRef), ["fact/task-1/F-12345678"]);
+    assert.deepEqual(triadic.facts.map((fact) => fact.ref), ["fact/task-1/F-12345678"]);
     assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "C:\\Users\\name\\secret.md" }), {
       ok: false,
       error: {

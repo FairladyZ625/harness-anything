@@ -1,26 +1,25 @@
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import type {
   ExecutionProjectionRow,
   ProjectionJsonObject,
   ProjectionJsonValue,
   TaskProjectionRow
 } from "../api/renderer-dto.ts";
-import { harnessClient, type TaskExecutionListSuccess } from "./api-client.ts";
+import { harnessClient } from "./api-client.ts";
 
 /**
- * 执行证据视图数据 hook(per-task 迭代聚合)。
+ * 执行证据视图数据 hook（全局 execution 投影聚合）。
  *
- * 数据流(mission B2):getTasks → 对每个 task 调 getTaskExecutions → 前端聚合。
- * 全局 executions 端点本轮不做(后端 Codex 后续),per-task 迭代可能产生数百次调用,
- * react-query 会批量发起,staleTime 给 10s 避免反复重算。
+ * 数据流：getTasks + getExecutions → 前端按 task 聚合。请求数固定为 2，
+ * 不再随 task 数量增长。
  *
  * DTO 的 outputs/primaryActor 字段是 ProjectionJsonValue(不透明 JSON),
  * 在此文件用 narrow* helpers 现场解析为 ExecutionOutput / Actor。
  */
 
 export const executionQueryKeys = {
-  all: ["harness", "executions"] as const,
-  byTask: (taskId: string) => [...executionQueryKeys.all, "task", taskId] as const
+  all: ["harness", "executions"] as const
 };
 
 /** 迁移归档执行者的 executor.id(kernel 中写死的历史归档源)。 */
@@ -78,19 +77,19 @@ export function useTaskExecutionsAggregation(
   readonly error: unknown;
   readonly data: ExecutionAggregation;
 } {
-  // per-task 迭代调用 getTaskExecutions;react-query 会按 key 去重+缓存。
-  const executionQueries = useQueries({
-    queries: tasks.map((task) => ({
-      queryKey: executionQueryKeys.byTask(task.taskId),
-      queryFn: () => harnessClient.getTaskExecutions({ taskId: task.taskId }),
-      staleTime: 10_000
-    }))
+  const executionsQuery = useQuery({
+    queryKey: executionQueryKeys.all,
+    queryFn: () => harnessClient.getExecutions(),
+    staleTime: 10_000
   });
 
-  const data = aggregateExecutions(tasks, executionQueries.flatMap((query) => (query.isSuccess ? [query.data] : [])));
-  const isLoading = tasksLoading || executionQueries.some((query) => query.isLoading);
-  const isError = executionQueries.some((query) => query.isError);
-  const error = executionQueries.find((query) => query.isError)?.error ?? null;
+  const data = useMemo(
+    () => aggregateExecutions(tasks, executionsQuery.data?.executions ?? []),
+    [tasks, executionsQuery.data?.executions]
+  );
+  const isLoading = tasksLoading || executionsQuery.isLoading;
+  const isError = executionsQuery.isError;
+  const error = executionsQuery.error ?? null;
 
   return { isLoading, isError, error, data };
 }
@@ -101,7 +100,7 @@ export function useTaskExecutionsAggregation(
  */
 export function aggregateExecutions(
   tasks: ReadonlyArray<TaskProjectionRow>,
-  taskResults: ReadonlyArray<TaskExecutionListSuccess>
+  executions: ReadonlyArray<ExecutionProjectionRow>
 ): ExecutionAggregation {
   const titleByTaskId = new Map<string, string>();
   for (const task of tasks) titleByTaskId.set(task.taskId, task.title);
@@ -114,10 +113,16 @@ export function aggregateExecutions(
   let passingReceiptOutputs = 0;
   let tasksWithExecutions = 0;
 
-  for (const result of taskResults) {
-    if (!result.executions || result.executions.length === 0) continue;
+  const executionsByTask = new Map<string, ExecutionProjectionRow[]>();
+  for (const execution of executions) {
+    const rows = executionsByTask.get(execution.taskId) ?? [];
+    rows.push(execution);
+    executionsByTask.set(execution.taskId, rows);
+  }
+
+  for (const [taskId, taskExecutions] of executionsByTask) {
     tasksWithExecutions += 1;
-    const adaptedRows: ExecutionRow[] = result.executions.map(adaptExecutionRow);
+    const adaptedRows: ExecutionRow[] = taskExecutions.map(adaptExecutionRow);
     for (const row of adaptedRows) {
       totalExecutions += 1;
       if (row.archival) archivalExecutions += 1;
@@ -128,8 +133,8 @@ export function aggregateExecutions(
       }
     }
     groups.push({
-      taskId: result.taskId,
-      title: titleByTaskId.get(result.taskId) ?? result.taskId,
+      taskId,
+      title: titleByTaskId.get(taskId) ?? taskId,
       executions: adaptedRows
     });
   }
