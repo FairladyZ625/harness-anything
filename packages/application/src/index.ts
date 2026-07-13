@@ -1,8 +1,6 @@
 import type { Effect } from "effect";
 import type {
-  ArtifactDocumentKind,
   ArtifactStore,
-  AuthoredDocumentDescriptor,
   DomainStatus,
   EngineError,
   ProjectionWarning,
@@ -42,9 +40,14 @@ export interface TaskListSuccess extends LocalControllerSuccess {
 
 export type TaskListResult = TaskListSuccess | LocalControllerFailure;
 
+/** 服务面自己的文档种类,不直接摆 kernel 的 ArtifactDocumentKind —— controller 的
+ *  DTO 面不许泄漏 kernel 类型(check-service-mappability)。两者是同一组字面量,
+ *  kernel 的值可直接赋进来;真要分叉时,分叉点会显形在这里而不是悄悄穿透。 */
+export type TaskDocumentKind = "document" | "attachment";
+
 export interface TaskDocumentDescriptor {
   readonly path: string;
-  readonly kind: ArtifactDocumentKind;
+  readonly kind: TaskDocumentKind;
 }
 
 export interface TaskDetailSuccess extends LocalControllerSuccess {
@@ -60,9 +63,9 @@ export interface PeripheralDocumentListSuccess extends LocalControllerSuccess {
 
 export type PeripheralDocumentListResult = PeripheralDocumentListSuccess | LocalControllerFailure;
 
-// 外围文档描述符就是 kernel 的 authored 文档描述符;这里不另立一份同形结构,
-// 否则「存在性权威在 kernel」这条边界会随时间漂移成两套各自演化的类型。
-export type PeripheralDocumentDescriptor = AuthoredDocumentDescriptor;
+export interface PeripheralDocumentDescriptor {
+  readonly path: string;
+}
 
 export interface PeripheralDocumentPayload {
   readonly path: string;

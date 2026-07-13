@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactStore, EngineError, FactRecord, HarnessLayout, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactDocumentKind, ArtifactStore, AuthoredDocumentDescriptor, EngineError, FactRecord, HarnessLayout, WriteError } from "../../kernel/src/index.ts";
 import {
   parseFactFlowRecords,
   queryDecisionProjection,
@@ -28,7 +28,8 @@ import type {
   LocalControllerService,
   LocalControllerServiceOptions,
   PeripheralDocumentResult,
-  TaskDocumentDescriptor
+  TaskDocumentDescriptor,
+  TaskDocumentKind
 } from "./index.ts";
 import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 
@@ -68,8 +69,13 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       const layout = resolveHarnessLayout({ rootDir, layoutOverrides: options.layoutOverrides });
       const boundary = peripheralDocumentBoundary(layout);
       if (!boundary.ok) return boundary;
+      // kernel 的 AuthoredDocumentDescriptor 只在这一层(实现)被消费,不上服务面 DTO ——
+      // controller 的 DTO 面不许泄漏 kernel 类型(check-service-mappability),所以这里
+      // 显式收窄成 application 自己的 { path } 描述符。
       const documents = await Effect.runPromise(options.artifactStore.listAuthoredDocuments().pipe(
-        Effect.map((authoredDocuments) => authoredDocuments.filter((document) => boundary.includes(document.path))),
+        Effect.map((authoredDocuments: ReadonlyArray<AuthoredDocumentDescriptor>) => authoredDocuments
+          .filter((document) => boundary.includes(document.path))
+          .map((document) => ({ path: document.path }))),
         Effect.catchAll(() => Effect.succeed([]))
       ));
       return { ok: true, documents };
@@ -225,10 +231,17 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
 function listTaskDocuments(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<ReadonlyArray<TaskDocumentDescriptor>> {
   return artifactStore.readTaskPackage(taskId).pipe(
     Effect.map((taskPackage) => taskPackage.documents
-      .map((document) => ({ path: document.path, kind: document.kind }))
+      .map((document) => ({ path: document.path, kind: toTaskDocumentKind(document.kind) }))
       .sort((left, right) => left.path.localeCompare(right.path))),
     Effect.catchAll(() => Effect.succeed([]))
   );
+}
+
+// kernel 的分类翻成服务面自己的分类。今天两者字面量相同,这个函数看着多余 ——
+// 它的作用是让「kernel 的种类」与「controller DTO 的种类」在类型上是两件事:
+// kernel 将来加一种(比如 diagram),这里会立刻编译不过,而不是悄悄穿透到 GUI。
+function toTaskDocumentKind(kind: ArtifactDocumentKind): TaskDocumentKind {
+  return kind === "document" ? "document" : "attachment";
 }
 
 function taskNotFound(taskId: string): LocalControllerFailure {
