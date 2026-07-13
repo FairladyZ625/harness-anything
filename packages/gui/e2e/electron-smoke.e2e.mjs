@@ -178,11 +178,14 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // a white SVG box. The legacy permanent multi-view switcher was retired
   // (G3 §③2): genealogy is now a facet of the entity workspace, not a
   // separate top-level view.
+  // FocusSwitcher retired (gui-b): the left rail is now a ⌘K trigger +
+  // Recent list (empty until the user picks an entity). Search moved into
+  // the Cmd+K command palette, which indexes all three primitives.
   const focusSwitcher = page.getByTestId("focus-switcher");
   await focusSwitcher.waitFor();
-  await focusSwitcher.getByRole("searchbox").waitFor();
-  await focusSwitcher.getByText("Expose the triadic projection to the GUI", { exact: false }).waitFor();
-  await focusSwitcher.getByText("Render the real triadic projection", { exact: false }).waitFor();
+  await focusSwitcher.getByTestId("focus-switcher-palette-trigger").waitFor();
+  // No full-list searchbox anymore — the linear 100+ row list is gone.
+  assert.equal(await focusSwitcher.getByRole("searchbox").count(), 0, "FocusSwitcher must not ship a full-list searchbox after gui-b retirement");
   const focusHistoryBar = page.getByTestId("focus-history-bar");
   await focusHistoryBar.waitFor();
   // Default-picked focus is on the graph but not yet in history; back/forward disabled.
@@ -281,35 +284,78 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // Collapse the task card (keep expanded neighbours, per useEgoCanvas invariant).
   await taskChip.locator(`button[title="${localeLiteral("graph.egoNode.collapseKeepExpandedNeighbors")}"]`).click();
 
-  // === Focus switcher: type-to-search ===
-  const switcherInput = focusSwitcher.getByRole("searchbox");
-  await switcherInput.fill("ancestor");
-  await focusSwitcher.getByText("Earlier GUI projection decision", { exact: false }).waitFor();
-  await focusSwitcher.getByText("Expose the triadic projection to the GUI", { exact: false })
-    .waitFor({ state: "detached" });
-  await captureGraphEvidence(page, "04-focus-switcher-search");
-  await switcherInput.clear();
-
-  // Pick the ancestor decision through the switcher (verifies openFocus).
-  await focusSwitcher.getByRole("button").filter({ hasText: "Earlier GUI projection decision" }).click();
+  // Command palette (gui-b): replaces the FocusSwitcher full-list search.
+  // Cmd+K opens a modal that indexes task / decision / fact together.
+  // Typing narrows by title/id substring; clicking a hit focuses it in the graph.
+  await page.keyboard.press("Meta+K");
+  // Some Linux hosts route Meta to Super; fall back to Ctrl+K if the palette
+  // did not open under Meta.
+  if (await page.getByTestId("command-palette").count() === 0) {
+    await page.keyboard.press("Control+K");
+  }
+  const commandPalette = page.getByTestId("command-palette");
+  await commandPalette.waitFor();
+  const paletteInput = commandPalette.getByTestId("command-palette-input");
+  await paletteInput.waitFor();
+  await paletteInput.fill("ancestor");
+  await commandPalette.getByText("Earlier GUI projection decision", { exact: false }).waitFor();
+  // The unrelated smoke decision must NOT appear under the "ancestor" filter.
+  assert.equal(
+    await commandPalette.getByTestId("command-palette-item").filter({ hasText: "Expose the triadic projection to the GUI" }).count(),
+    0,
+    "command palette must narrow hits by substring (smoke decision should be filtered out by 'ancestor')",
+  );
+  // Evidence: palette search narrows the list (replaces the legacy switcher screenshot).
+  await captureGraphEvidence(page, "03-command-palette-search");
+  // Pick the ancestor decision through the palette (verifies focusEntityInGraph).
+  await commandPalette.getByTestId("command-palette-item").filter({ hasText: "Earlier GUI projection decision" }).click();
   await focusHistoryBar.getByText("decision/dec_gui_ancestor", { exact: true })
     .waitFor()
     .catch(async () => {
       const bodyText = await page.locator("body").innerText().catch(() => "<empty>");
       throw new Error(
-        `breadcrumb did not show dec_gui_ancestor after switcher click.\n`
+        `breadcrumb did not show dec_gui_ancestor after command palette selection.\n`
         + `consoleFailures:\n${consoleFailures.join("\n")}\n`
         + `bodyText (first 2000 chars):\n${bodyText.slice(0, 2000)}`,
       );
     });
-  // History now has [ancestor] — back stays disabled. Set a second focus to
-  // exercise back/forward.
-  await focusSwitcher.getByRole("button").filter({ hasText: "Expose the triadic projection to the GUI" }).click();
-  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
   const prevFocusLabel = localeLiteral("components.focusHistoryBar.previousFocus");
   const nextFocusLabel = localeLiteral("components.focusHistoryBar.nextFocus");
+  // Recent list in the left rail now reflects the picked ancestor (gui-b:
+  // FocusSwitcher shows Recent instead of the full list).
+  await focusSwitcher.getByText("Earlier GUI projection decision", { exact: false }).waitFor();
+  // History now has [ancestor] — back stays disabled because there is nothing
+  // earlier in the user-navigated stack. Set a second focus to exercise back.
+  await page.keyboard.press("Meta+K");
+  if (await page.getByTestId("command-palette").count() === 0) {
+    await page.keyboard.press("Control+K");
+  }
+  await page.getByTestId("command-palette-input").fill("expose");
+  await page.getByTestId("command-palette-item").filter({ hasText: "Expose the triadic projection to the GUI" }).click();
+  await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
   assert.equal(await focusHistoryBar.getByRole("button", { name: prevFocusLabel }).isDisabled(), false);
-  await captureGraphEvidence(page, "05-focus-history-back-forward-enabled");
+  // Evidence: history now has two entries with back/forward enabled.
+  await captureGraphEvidence(page, "04-focus-history-back-forward-enabled");
+  // Fact-in-index proof (gui-b): the legacy FocusSwitcher structurally
+  // excluded facts; the command palette must surface them. The smoke fixture
+  // has one fact (F-ABCDEFGH, "The GUI renderer received real triadic rows
+  // through the public bridge.") — typing its substring must surface a fact
+  // hit. Verifies the f: prefix as well.
+  await page.keyboard.press("Meta+K");
+  if (await page.getByTestId("command-palette").count() === 0) {
+    await page.keyboard.press("Control+K");
+  }
+  const factPalette = page.getByTestId("command-palette");
+  await factPalette.getByTestId("command-palette-input").fill("f:renderer received");
+  await factPalette.getByText("Fact", { exact: true }).waitFor();
+  const factItem = factPalette.getByTestId("command-palette-item").filter({ hasText: "renderer received" });
+  await factItem.waitFor();
+  assert.equal(await factItem.locator("[data-hit-kind]").getAttribute("data-hit-kind"), "fact", "palette item matching fact substring must be tagged kind=fact");
+  // Evidence: fact enters the unified index.
+  await captureGraphEvidence(page, "04b-command-palette-fact-in-index");
+  // Close the palette without selecting — Esc keyboard path.
+  await page.keyboard.press("Escape");
+  await page.getByTestId("command-palette").waitFor({ state: "detached" });
   // Back returns to the ancestor; forward restores the smoke decision.
   await focusHistoryBar.getByRole("button", { name: prevFocusLabel }).click();
   await focusHistoryBar.getByText("decision/dec_gui_ancestor", { exact: true }).waitFor();
@@ -392,6 +438,27 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   await focusedDecision.waitFor({ timeout: 10_000 }).catch(async (error) => {
     throw new Error(`${error.message}\nCurrent renderer text:\n${await page.locator("body").innerText()}`);
   });
+
+  // Decision pool title/id search (gui-b): the pool previously had seven select
+  // dimensions but no text search. Typing an id prefix must locate the card.
+  // Reset filters first, then type the id; only the smoke decision matches.
+  await page.getByTestId("decision-pool-reset-filters").click();
+  const poolSearch = page.getByTestId("decision-pool-search");
+  await poolSearch.fill("dec_gui_smoke");
+  assert.equal(
+    await page.locator('[id^="decision-card-"]').count(),
+    1,
+    "decision pool search by id prefix must narrow to exactly one card",
+  );
+  await page.getByRole("heading", { name: "Expose the triadic projection to the GUI", exact: true }).waitFor();
+  // Evidence: id-prefix search pins one decision card.
+  await captureGraphEvidence(page, "08-decision-pool-id-search");
+  await poolSearch.fill("");
+  // Restore the focus highlight on the smoke decision for the next assertions.
+  // (The reset above cleared the focused state; the select path re-establishes it.)
+  await poolFilters.nth(1).selectOption("high");
+  await poolFilters.nth(2).selectOption("high");
+  await poolFilters.nth(5).selectOption("agent");
 
   // Entity surfaces can focus the same decision in GraphView.
   await focusedDecision.locator(

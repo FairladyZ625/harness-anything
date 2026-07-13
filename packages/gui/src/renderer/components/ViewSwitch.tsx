@@ -1,4 +1,5 @@
 import type { TaskRow, Project, EventEntry, SnapshotStatus } from "../model/types.ts";
+import type { EntityHit } from "../model/entitySearch";
 import type { TaskFilters } from "../model/taskFilters.ts";
 import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 import type { TriadicRendererData } from "../triadic-data.ts";
@@ -67,6 +68,10 @@ export interface ViewSwitchProps {
   onFiltersChange: (filters: TaskFilters) => void;
   onToggleFavorite: (taskId: string) => void;
   onOpenProject: () => void;
+  /** Cmd+K 派生的最近焦点,GraphView 左栏 Recent 直接消费。 */
+  recentHits?: readonly EntityHit[];
+  /** 用户点 GraphView 左栏「⌘K」触发器 → 打开全局命令面板。 */
+  onOpenPalette?: () => void;
 }
 
 export function ViewSwitch(props: ViewSwitchProps) {
@@ -103,6 +108,8 @@ export function ViewSwitch(props: ViewSwitchProps) {
     onFiltersChange,
     onToggleFavorite,
     onOpenProject,
+    recentHits,
+    onOpenPalette,
   } = props;
 
   const { decisions, facts, relations, coverageRows, factAnchors } = triadic;
@@ -169,6 +176,8 @@ export function ViewSwitch(props: ViewSwitchProps) {
           onNavigateEntity={onNavigateEntity}
           onFacetChange={onEntityFacetChange}
           onFocusEntityChange={onFocusEntityChange}
+          recentHits={recentHits}
+          onOpenPalette={onOpenPalette}
         />
       ) : view === "factTriage" ? (
         <FactTriageView

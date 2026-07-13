@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowClockwise,
   ArrowRight,
   CheckCircle,
   Funnel,
   Graph,
   GitBranch,
+  MagnifyingGlass,
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { DecisionRow, DecisionState, FactRef, RelationEdge } from "../model/types";
@@ -121,6 +123,9 @@ export function DecisionPoolView({
   const [presetFilter, setPresetFilter] = useState("all");
   const [originatorFilter, setOriginatorFilter] = useState<"person" | "agent" | "unknown" | "all">("all");
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
+  // 文本搜索:title / decisionId / question / chosen/rejected claims 子串。
+  // gui-b 之前决策池有 7 个 select 维度却搜不了标题,严重缺口。
+  const [searchQuery, setSearchQuery] = useState("");
   const handledFocusRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -159,6 +164,36 @@ export function DecisionPoolView({
   const verticals = useMemo(() => [...new Set(decisions.flatMap((decision) => decision.vertical ? [decision.vertical] : []))].sort(), [decisions]);
   const presets = useMemo(() => [...new Set(decisions.flatMap((decision) => decision.preset ? [decision.preset] : []))].sort(), [decisions]);
 
+  // 文本搜索 terms:空格分词 AND,跟 entitySearch 的查询语义保持一致。
+  // 命中域:title / decisionId / question / chosen/rejected claims 文本。
+  const searchTerms = useMemo(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed) return null;
+    return trimmed.split(/\s+/u).filter(Boolean);
+  }, [searchQuery]);
+
+  // 是否有非默认筛选(给「重置」按钮的 disabled 状态用)。
+  const hasActiveFilters =
+    stateFilter !== "all"
+    || riskFilter !== "all"
+    || urgencyFilter !== "all"
+    || verticalFilter !== "all"
+    || presetFilter !== "all"
+    || originatorFilter !== "all"
+    || timeRange !== "all"
+    || searchQuery !== "";
+
+  const resetAllFilters = () => {
+    setStateFilter("all");
+    setRiskFilter("all");
+    setUrgencyFilter("all");
+    setVerticalFilter("all");
+    setPresetFilter("all");
+    setOriginatorFilter("all");
+    setTimeRange("all");
+    setSearchQuery("");
+  };
+
   const rows = useMemo(() => {
     const tabStates = new Set(TAB_STATE[tab]);
     // 修 #2(预存 bug,归属 dec_mrf2nzvf):三元 `||`/`?:` 优先级让 riskFilter="all"
@@ -185,8 +220,13 @@ export function DecisionPoolView({
         if (originatorFilter === "unknown") return !originator;
         return originatorFilter === "agent" ? Boolean(originator?.executor) : Boolean(originator && !originator.executor);
       })
-      .filter((decision) => withinRange(decision, timeRange));
-  }, [decisions, originatorFilter, presetFilter, riskFilter, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
+      .filter((decision) => withinRange(decision, timeRange))
+      .filter((decision) => {
+        if (!searchTerms) return true;
+        const hay = decisionSearchHaystack(decision);
+        return searchTerms.every((term) => hay.includes(term));
+      });
+  }, [decisions, originatorFilter, presetFilter, riskFilter, searchTerms, stateFilter, tab, timeRange, urgencyFilter, verticalFilter]);
 
   const counts = {
     proposed: decisions.filter((decision) => TAB_STATE.proposed.includes(decision.state)).length,
@@ -226,6 +266,23 @@ export function DecisionPoolView({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+        <label className="relative inline-flex items-center">
+          <span className="sr-only">{t("views.decisionPoolView.searchTitleIdQuestion")}</span>
+          <MagnifyingGlass
+            weight="bold"
+            className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-text-faint"
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            data-testid="decision-pool-search"
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={t("views.decisionPoolView.searchTitleIdQuestion")}
+            className={`${selectClass} pl-6`}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
         <select className={selectClass} value={stateFilter} onChange={(event) => setStateFilter(event.target.value as DecisionState | "all")}>
           <option value="all">{t("views.decisionPoolView.stateAll")}</option>
           {TAB_STATE[tab].map((state) => (
@@ -265,6 +322,21 @@ export function DecisionPoolView({
           <option value="14d">{t("views.decisionPoolView.timeLast14Days")}</option>
           <option value="30d">{t("views.decisionPoolView.timeLast30Days")}</option>
         </select>
+        <button
+          type="button"
+          onClick={resetAllFilters}
+          disabled={!hasActiveFilters}
+          title={t("views.decisionPoolView.resetAllFilters")}
+          data-testid="decision-pool-reset-filters"
+          className={`inline-flex items-center gap-1 rounded border border-border px-2 py-1 font-mono text-[12px] transition-colors ${
+            hasActiveFilters
+              ? "text-text-muted hover:border-border-strong hover:text-text"
+              : "cursor-not-allowed text-text-faint opacity-60"
+          }`}
+        >
+          <ArrowClockwise weight="bold" className="size-3" />
+          {t("views.decisionPoolView.reset")}
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -326,4 +398,12 @@ export function DecisionPoolView({
 function formatActorAxes(actor: DecisionRow["attribution"]["originator"]): string {
   if (!actor) return t("views.decisionPoolView.unknown");
   return `person:${actor.principal.personId} / ${actor.executor ? `agent:${actor.executor.id}` : "executor:none"}`;
+}
+
+/** 文本搜索的命中域:title / decisionId / question / chosen/rejected claims。小写化。 */
+function decisionSearchHaystack(d: DecisionRow): string {
+  const chosenText = d.chosen.map((c) => c.text).join(" ");
+  const rejectedText = d.rejected.map((c) => `${c.text} ${c.whyNot ?? ""}`).join(" ");
+  const claimsText = d.claims.map((c) => c.text).join(" ");
+  return `${d.title} ${d.decisionId} ${d.question} ${chosenText} ${rejectedText} ${claimsText}`.toLowerCase();
 }

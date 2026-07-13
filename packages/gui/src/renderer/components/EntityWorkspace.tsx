@@ -4,6 +4,7 @@ import type {
   RelationCoverageRow,
   FactAnchorRow,
 } from "../../api/renderer-dto.ts";
+import type { EntityHit } from "../model/entitySearch";
 import { GraphView } from "../views/GraphView.tsx";
 import { GenealogyTimelineView } from "../views/GenealogyTimelineView.tsx";
 import { t } from "../i18n/index.tsx";
@@ -36,6 +37,10 @@ export interface EntityWorkspaceProps {
   onFacetChange: (facet: EntityFacet) => void;
   /** 画布内焦点变更上行(useEgoCanvas.openFocus → AppLocation.focusedEntityRef)。 */
   onFocusEntityChange: (ref: string | null) => void;
+  /** Cmd+K 面板派生的最近焦点实体,GraphView 左栏 Recent 直接消费。 */
+  recentHits?: readonly EntityHit[];
+  /** 用户在 GraphView 左栏点「⌘K」触发器 → 打开全局命令面板。 */
+  onOpenPalette?: () => void;
 }
 
 const FOCUS_REF_DECISION = /^decision\//u;
@@ -52,6 +57,8 @@ export function EntityWorkspace({
   onNavigateEntity,
   onFacetChange,
   onFocusEntityChange,
+  recentHits,
+  onOpenPalette,
 }: EntityWorkspaceProps) {
   // lineage 仅 decision 有谱系 —— 非 decision 焦点时强制 relations,不显示 lineage tab。
   // focusedEntityRef 为 null 时也允许 relations(Graph 自己挑默认焦点 + 引导用户选)。
@@ -108,6 +115,8 @@ export function EntityWorkspace({
             onNavigateEntity={onNavigateEntity}
             onFocusEntityChange={onFocusEntityChange}
             focusRef={focusedEntityRef}
+            recentHits={recentHits}
+            onOpenPalette={onOpenPalette}
           />
         )}
       </div>
