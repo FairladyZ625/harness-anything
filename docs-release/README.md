@@ -106,6 +106,11 @@ and the vertical engine.
 
 → **[architecture/](architecture/en/00-overview.md)**
 
+Coding repositories can also opt in to an agent-queryable architecture map and
+deterministic import-drift checks. The setup, tool boundary, failure recovery,
+and removal path are documented in
+**[architecture/07](architecture/en/07-agent-architecture-map.md)**.
+
 ## Check the release posture
 
 Before using release, GUI, daemon, remote, adapter, or packaging language in

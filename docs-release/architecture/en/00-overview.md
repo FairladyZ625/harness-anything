@@ -134,3 +134,6 @@ Each remaining chapter zooms into one layer of this stack.
 - [06 · Provenance, verdicts, and the event ledger](06-provenance-and-events.md) —
   how every entity is bound to what produced it, and how "what happened" is
   recorded.
+- [07 · Give coding agents an architecture map](07-agent-architecture-map.md) —
+  opt-in architecture intent, deterministic code snapshots, drift states, and
+  the maintenance and removal path.

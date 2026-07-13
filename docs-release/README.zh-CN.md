@@ -97,6 +97,10 @@ npx harness-anything init
 
 → **[architecture/](architecture/zh/00-overview.md)**
 
+Coding 仓库还可以显式启用 Agent 可查询的架构地图与确定性 import 漂移检查。初始化、工具边界、
+故障恢复和卸载路径见
+**[architecture/07](architecture/zh/07-agent-architecture-map.md)**。
+
 ## 检查发布状态边界
 
 在公开文档里使用 release、GUI、daemon、remote、adapter 或 packaging 相关表述之前，先检查唯一状态权威。
