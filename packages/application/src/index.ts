@@ -232,6 +232,67 @@ export interface ExecutionListSuccess extends LocalControllerSuccess {
 
 export type ExecutionListResult = ExecutionListSuccess | LocalControllerFailure;
 
+export interface ExecutionEvidenceCursor {
+  readonly generation: string;
+  readonly latestAt: string;
+  readonly executionId: string;
+}
+
+export interface ExecutionEvidencePagePayload {
+  readonly limit: number;
+  readonly cursor?: ExecutionEvidenceCursor;
+}
+
+export interface ExecutionEvidenceOutputRow {
+  readonly evidenceId: string;
+  readonly text: string;
+  readonly substrate: string;
+  readonly hasPassingReceipt: boolean;
+  readonly hasReceiptRef: boolean;
+}
+
+export interface ExecutionEvidenceExecutionRow {
+  readonly executionId: string;
+  readonly taskRef: string;
+  readonly taskId: string;
+  readonly state: string;
+  readonly executorId: string;
+  readonly executorKind: string;
+  readonly responsibleHuman: string;
+  readonly claimedAt: string;
+  readonly submittedAt: string | null;
+  readonly closedAt: string | null;
+  readonly outputs: ReadonlyArray<ExecutionEvidenceOutputRow>;
+  readonly outputCount: number;
+  readonly hasMoreOutputs: boolean;
+  readonly hasAnyPassingReceipt: boolean;
+  readonly archival: boolean;
+}
+
+export interface ExecutionEvidenceTaskGroup {
+  readonly taskId: string;
+  readonly title: string;
+  readonly latestAt: string;
+  readonly executions: ReadonlyArray<ExecutionEvidenceExecutionRow>;
+}
+
+export interface ExecutionEvidenceStats {
+  readonly totalExecutions: number;
+  readonly archivalExecutions: number;
+  readonly realExecutions: number;
+  readonly totalOutputs: number;
+  readonly passingReceiptOutputs: number;
+  readonly tasksWithExecutions: number;
+}
+
+export interface ExecutionEvidencePageSuccess extends LocalControllerSuccess {
+  readonly groups: ReadonlyArray<ExecutionEvidenceTaskGroup>;
+  readonly stats: ExecutionEvidenceStats;
+  readonly nextCursor: ExecutionEvidenceCursor | null;
+}
+
+export type ExecutionEvidencePageResult = ExecutionEvidencePageSuccess | LocalControllerFailure;
+
 export interface ExecutionDetailSuccess extends LocalControllerSuccess {
   readonly execution: ExecutionProjectionRow;
 }
@@ -345,6 +406,7 @@ export interface LocalControllerService {
   readonly getDecisionDetail: (payload: DecisionIdPayload) => DecisionDetailResult;
   readonly getTaskExecutions: (payload: TaskIdPayload) => TaskExecutionListResult;
   readonly getExecutions: () => ExecutionListResult;
+  readonly getExecutionEvidencePage: (payload: ExecutionEvidencePagePayload) => ExecutionEvidencePageResult;
   readonly getExecutionDetail: (payload: ExecutionIdPayload) => ExecutionDetailResult;
   readonly getReviewDetail: (payload: ReviewIdPayload) => ReviewDetailResult;
   readonly getTaskFacts: (payload: TaskIdPayload) => Promise<TaskFactListResult>;

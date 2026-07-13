@@ -111,6 +111,11 @@ test("local controller service reads projection and writes through injected task
     const executions = service.getExecutions();
     assert.equal(executions.ok, true);
     assert.deepEqual(executions.executions, []);
+    const executionEvidence = service.getExecutionEvidencePage({ limit: 40 });
+    assert.equal(executionEvidence.ok, true);
+    assert.deepEqual(executionEvidence.groups, []);
+    assert.equal(executionEvidence.stats.totalExecutions, 0);
+    assert.equal(executionEvidence.nextCursor, null);
     const decisionDetail = service.getDecisionDetail({ decisionId: "dec_test" });
     assert.equal(decisionDetail.ok, true);
     assert.equal(decisionDetail.decision.title, "Projection Decision");

@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { aggregateExecutions } from "../../packages/gui/src/renderer/execution-data.ts";
-import { queryExecutions, rebuildTaskProjection } from "../../packages/kernel/src/index.ts";
+import { queryExecutionEvidencePage, queryExecutions, rebuildTaskProjection } from "../../packages/kernel/src/index.ts";
+import { queryExecutionEvidencePageFromReadyProjection } from "../../packages/kernel/src/projection/sqlite-execution-evidence-reader.ts";
 import { captureProjectionSourceFingerprint } from "../../packages/kernel/src/projection/projection-source-snapshot.ts";
 import { readDeclaredSourceManifestRows } from "../../packages/kernel/src/projection/sqlite-declared-source-manifest.ts";
 import { updateTaskProjectionIncrementally } from "../../packages/kernel/src/projection/sqlite-task-incremental-projection.ts";
@@ -26,7 +27,16 @@ try {
 
   const querySamples = sample(20, () => queryExecutions({ rootDir }));
   const executions = querySamples.value;
+  const legacyExecutionsPayloadBytes = Buffer.byteLength(JSON.stringify({ ok: true, executions }), "utf8");
   const warmQueryP95 = percentile(querySamples.samples, 0.95);
+  const evidencePageSamples = sample(20, () => queryExecutionEvidencePage({ rootDir, limit: 25 }));
+  const evidencePage = evidencePageSamples.value;
+  const readyEvidencePageSamples = sample(20, () => queryExecutionEvidencePageFromReadyProjection({ rootDir, limit: 25 }));
+  const readyEvidencePageP95 = percentile(readyEvidencePageSamples.samples, 0.95);
+  const evidencePagePayloadBytes = Buffer.byteLength(JSON.stringify(evidencePage), "utf8");
+  const evidencePageVisibleItems = evidencePage.groups.length +
+    evidencePage.groups.reduce((count, group) => count + group.executions.length, 0) +
+    evidencePage.groups.reduce((count, group) => count + group.executions.reduce((outputs, execution) => outputs + execution.outputs.length, 0), 0);
   const aggregateSamples = sample(20, () => aggregateExecutions(rebuilt.rows, executions));
   const changedExecution = fixtureRows[0];
   const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
@@ -54,12 +64,27 @@ try {
       fixture: rounded(fixtureMs),
       rebuild: rounded(rebuildMs),
       queryExecutions: summarize(querySamples.samples),
+      queryExecutionEvidencePage: summarize(evidencePageSamples.samples),
+      queryExecutionEvidencePageFromReadyProjection: summarize(readyEvidencePageSamples.samples),
       aggregateExecutions: summarize(aggregateSamples.samples),
       incrementalExecution: rounded(incrementalExecutionMs)
     },
     assertions: {
       executionCount: executions.length === size,
       outputCount: aggregateSamples.value.totalOutputs === size * outputsPerExecution,
+      evidencePageGroupCount: evidencePage.groups.length,
+      evidencePagePayloadBytes,
+      legacyExecutionsPayloadBytes,
+      evidencePagePayloadReductionRatio: rounded(legacyExecutionsPayloadBytes / Math.max(1, evidencePagePayloadBytes)),
+      evidencePagePayloadWithinBudget: evidencePagePayloadBytes <= 250 * 1024,
+      evidencePageVisibleItems,
+      evidencePageVisibleItemsWithinBudget: evidencePageVisibleItems <= 200,
+      readyEvidencePageP95BudgetMs: size === 1_000 ? 15 : size === 5_000 ? 60 : null,
+      readyEvidencePageWithinBudget: size === 1_000
+        ? readyEvidencePageP95 <= 15
+        : size === 5_000
+          ? readyEvidencePageP95 <= 60
+          : null,
       oneThousandWarmQueryP95BudgetMs: size === 1_000 ? 100 : null,
       warmQueryWithinBudget: size === 1_000
         ? warmQueryP95 <= 100
@@ -75,6 +100,9 @@ try {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (!result.assertions.executionCount ||
       !result.assertions.outputCount ||
+      !result.assertions.evidencePagePayloadWithinBudget ||
+      !result.assertions.evidencePageVisibleItemsWithinBudget ||
+      result.assertions.readyEvidencePageWithinBudget === false ||
       result.assertions.warmQueryWithinBudget === false ||
       result.assertions.coldProjectionReadyWithinBudget === false ||
       incremental.mode !== "incremental") {

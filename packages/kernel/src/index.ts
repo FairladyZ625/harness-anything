@@ -41,6 +41,7 @@ export {
   querySessionProjection,
   queryTaskExecutionTrace
 } from "./projection/entity-projection-readers.ts";
+export { queryExecutionEvidencePage } from "./projection/sqlite-execution-evidence-reader.ts";
 export * from "./publish/index.ts";
 export * from "./projection/sqlite-task-projection.ts";
 export type { EntityAttributionProjection } from "./projection/types.ts";

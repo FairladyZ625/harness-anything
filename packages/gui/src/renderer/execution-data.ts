@@ -1,6 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  ExecutionEvidenceCursor,
+  ExecutionEvidencePagePayload,
   ExecutionProjectionRow,
   ProjectionJsonObject,
   ProjectionJsonValue,
@@ -9,18 +11,20 @@ import type {
 import { harnessClient } from "./api-client.ts";
 
 /**
- * 执行证据视图数据 hook（全局 execution 投影聚合）。
+ * 执行证据兼容聚合与分页数据 hooks。
  *
- * 数据流：getTasks + getExecutions → 前端按 task 聚合。请求数固定为 2，
- * 不再随 task 数量增长。
+ * 新页面使用一个 SQL-backed keyset page route；旧聚合函数保留给兼容消费者和纯函数测试。
  *
  * DTO 的 outputs/primaryActor 字段是 ProjectionJsonValue(不透明 JSON),
  * 在此文件用 narrow* helpers 现场解析为 ExecutionOutput / Actor。
  */
 
 export const executionQueryKeys = {
-  all: ["harness", "executions"] as const
+  all: ["harness", "executions"] as const,
+  evidencePage: (cursor?: ExecutionEvidenceCursor) => ["harness", "execution-evidence", cursor ?? "first"] as const
 };
+
+const executionEvidencePageSize = 25;
 
 /** 迁移归档执行者的 executor.id(kernel 中写死的历史归档源)。 */
 export const ARCHIVAL_EXECUTOR_ID = "fact-execution-migration";
@@ -37,6 +41,8 @@ export interface ExecutionRow {
   readonly submittedAt: string | null;
   readonly closedAt: string | null;
   readonly outputs: ReadonlyArray<ExecutionOutputRow>;
+  readonly outputCount: number;
+  readonly hasMoreOutputs: boolean;
   /** 是否任一输出带 passing checker receipt。 */
   readonly hasAnyPassingReceipt: boolean;
   readonly archival: boolean;
@@ -68,30 +74,81 @@ export interface ExecutionAggregation {
   readonly tasksWithExecutions: number;
 }
 
-export function useTaskExecutionsAggregation(
-  tasks: ReadonlyArray<TaskProjectionRow>,
-  tasksLoading: boolean
-): {
+export function useExecutionEvidenceAggregation(): {
   readonly isLoading: boolean;
+  readonly isFetching: boolean;
   readonly isError: boolean;
   readonly error: unknown;
   readonly data: ExecutionAggregation;
+  readonly pageNumber: number;
+  readonly hasPreviousPage: boolean;
+  readonly hasNextPage: boolean;
+  readonly previousPage: () => void;
+  readonly nextPage: () => void;
+  readonly restartPagination: () => void;
 } {
-  const executionsQuery = useQuery({
-    queryKey: executionQueryKeys.all,
-    queryFn: () => harnessClient.getExecutions(),
+  const queryClient = useQueryClient();
+  const [cursor, setCursor] = useState<ExecutionEvidenceCursor | undefined>();
+  const [history, setHistory] = useState<ReadonlyArray<ExecutionEvidenceCursor | undefined>>([]);
+  const payload = evidencePagePayload(cursor);
+  const query = useQuery({
+    queryKey: executionQueryKeys.evidencePage(cursor),
+    queryFn: () => harnessClient.getExecutionEvidencePage(payload),
     staleTime: 10_000
   });
+  const nextCursor = query.data?.nextCursor ?? null;
 
-  const data = useMemo(
-    () => aggregateExecutions(tasks, executionsQuery.data?.executions ?? []),
-    [tasks, executionsQuery.data?.executions]
-  );
-  const isLoading = tasksLoading || executionsQuery.isLoading;
-  const isError = executionsQuery.isError;
-  const error = executionsQuery.error ?? null;
+  useEffect(() => {
+    if (!nextCursor) return;
+    const prefetch = () => queryClient.prefetchQuery({
+      queryKey: executionQueryKeys.evidencePage(nextCursor),
+      queryFn: () => harnessClient.getExecutionEvidencePage(evidencePagePayload(nextCursor)),
+      staleTime: 10_000
+    });
+    const idleId = window.requestIdleCallback(() => void prefetch(), { timeout: 750 });
+    return () => window.cancelIdleCallback(idleId);
+  }, [nextCursor, queryClient]);
 
-  return { isLoading, isError, error, data };
+  const previousPage = useCallback(() => {
+    setHistory((previous) => {
+      if (previous.length === 0) return previous;
+      setCursor(previous.at(-1));
+      return previous.slice(0, -1);
+    });
+  }, []);
+  const nextPage = useCallback(() => {
+    if (!nextCursor) return;
+    setHistory((previous) => [...previous, cursor]);
+    setCursor(nextCursor);
+  }, [cursor, nextCursor]);
+  const restartPagination = useCallback(() => {
+    setCursor(undefined);
+    setHistory([]);
+    void queryClient.invalidateQueries({ queryKey: ["harness", "execution-evidence"] });
+  }, [queryClient]);
+  const data = useMemo<ExecutionAggregation>(() => ({
+    groups: query.data?.groups ?? [],
+    totalExecutions: query.data?.stats.totalExecutions ?? 0,
+    archivalExecutions: query.data?.stats.archivalExecutions ?? 0,
+    realExecutions: query.data?.stats.realExecutions ?? 0,
+    totalOutputs: query.data?.stats.totalOutputs ?? 0,
+    passingReceiptOutputs: query.data?.stats.passingReceiptOutputs ?? 0,
+    tasksWithExecutions: query.data?.stats.tasksWithExecutions ?? 0
+  }), [query.data]);
+
+  return {
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isError: query.isError,
+    error: query.error ?? null,
+    data,
+    pageNumber: history.length + 1,
+    hasPreviousPage: history.length > 0,
+    hasNextPage: nextCursor !== null,
+    previousPage,
+    nextPage,
+    restartPagination
+  };
 }
 
 /**
@@ -170,11 +227,7 @@ function adaptExecutionRow(row: ExecutionProjectionRow): ExecutionRow {
   const responsibleHuman = typeof actor?.responsibleHuman === "string" ? actor.responsibleHuman : "";
   const archival = executorId === ARCHIVAL_EXECUTOR_ID;
 
-  const outputs = (row.outputs ?? [])
-    .map(adaptOutputRow)
-    .filter((output): output is ExecutionOutputRow => output !== null)
-    // 排序:no-receipt 浮顶(核心排序信号)。
-    .sort((a, b) => (a.hasPassingReceipt === b.hasPassingReceipt ? 0 : a.hasPassingReceipt ? 1 : -1));
+  const outputs = adaptOutputRows(row.outputs ?? []);
 
   const hasAnyPassingReceipt = outputs.some((output) => output.hasPassingReceipt);
 
@@ -190,9 +243,23 @@ function adaptExecutionRow(row: ExecutionProjectionRow): ExecutionRow {
     submittedAt: row.submittedAt,
     closedAt: row.closedAt,
     outputs,
+    outputCount: outputs.length,
+    hasMoreOutputs: false,
     hasAnyPassingReceipt,
     archival
   };
+}
+
+export async function loadExecutionEvidenceOutputs(executionId: string): Promise<ReadonlyArray<ExecutionOutputRow>> {
+  const detail = await harnessClient.getExecutionDetail({ executionId });
+  return adaptOutputRows(detail.execution.outputs ?? []);
+}
+
+function adaptOutputRows(values: ReadonlyArray<ProjectionJsonValue>): ReadonlyArray<ExecutionOutputRow> {
+  return values
+    .map(adaptOutputRow)
+    .filter((output): output is ExecutionOutputRow => output !== null)
+    .sort((a, b) => (a.hasPassingReceipt === b.hasPassingReceipt ? 0 : a.hasPassingReceipt ? 1 : -1));
 }
 
 function adaptOutputRow(value: ProjectionJsonValue): ExecutionOutputRow | null {
@@ -244,4 +311,11 @@ function readField(parent: ProjectionJsonObject, field: string): ProjectionJsonV
 function narrowObject(value: ProjectionJsonValue): ProjectionJsonObject | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   return value as ProjectionJsonObject;
+}
+
+function evidencePagePayload(cursor?: ExecutionEvidenceCursor): ExecutionEvidencePagePayload {
+  return {
+    limit: executionEvidencePageSize,
+    ...(cursor ? { cursor } : {})
+  };
 }

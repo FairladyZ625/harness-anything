@@ -26,6 +26,7 @@ type LocalControllerGuiMethod =
   | "getFacts"
   | "getTaskExecutions"
   | "getExecutions"
+  | "getExecutionEvidencePage"
   | "getExecutionDetail"
   | "getReviewDetail"
   | "setTaskStatus"
@@ -47,6 +48,7 @@ interface GuiBridgeServiceProxy {
   readonly getFacts: () => Promise<unknown> | unknown;
   readonly getTaskExecutions: (payload: unknown) => Promise<unknown> | unknown;
   readonly getExecutions: () => Promise<unknown> | unknown;
+  readonly getExecutionEvidencePage: (payload: unknown) => Promise<unknown> | unknown;
   readonly getExecutionDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly getReviewDetail: (payload: unknown) => Promise<unknown> | unknown;
   readonly setTaskStatus: (payload: unknown) => Promise<unknown> | unknown;
@@ -117,6 +119,10 @@ export const guiBridgeHandlerImplementations = {
   getExecutions: {
     serviceMethod: "getExecutions",
     invoke: ({ service }) => service.getExecutions()
+  },
+  getExecutionEvidencePage: {
+    serviceMethod: "getExecutionEvidencePage",
+    invoke: ({ service, payload }) => service.getExecutionEvidencePage(payload)
   },
   getExecutionDetail: {
     serviceMethod: "getExecutionDetail",
@@ -208,6 +214,7 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     getFacts: () => invokeDaemonGuiRoute(request, "getFacts", undefined),
     getTaskExecutions: (payload) => invokeDaemonGuiRoute(request, "getTaskExecutions", payload),
     getExecutions: () => invokeDaemonGuiRoute(request, "getExecutions", undefined),
+    getExecutionEvidencePage: (payload) => invokeDaemonGuiRoute(request, "getExecutionEvidencePage", payload),
     getExecutionDetail: (payload) => invokeDaemonGuiRoute(request, "getExecutionDetail", payload),
     getReviewDetail: (payload) => invokeDaemonGuiRoute(request, "getReviewDetail", payload),
     setTaskStatus: (payload) => invokeDaemonGuiRoute(request, "setTaskStatus", payload),
@@ -253,6 +260,8 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
       return validateDecisionIdPayload(payload);
     case "application.execution-id-payload/v1":
       return validateEntityIdPayload(payload, "executionId");
+    case "application.execution-evidence-page-payload/v1":
+      return validateExecutionEvidencePagePayload(payload);
     case "application.review-id-payload/v1":
       return validateEntityIdPayload(payload, "reviewId");
     case "application.task-document-payload/v1":
@@ -283,6 +292,20 @@ function validateDecisionIdPayload(payload: unknown): PayloadValidation {
 function validateEntityIdPayload(payload: unknown, field: "executionId" | "reviewId"): PayloadValidation {
   if (!isServicePayloadRecord(payload) || typeof payload[field] !== "string") return invalidPayload(`${field} is required.`);
   if (!isValidEntityId(payload[field])) return invalidPayload(`${field} is invalid.`);
+  return { ok: true, payload };
+}
+
+function validateExecutionEvidencePagePayload(payload: unknown): PayloadValidation {
+  if (!isServicePayloadRecord(payload) || !Number.isInteger(payload.limit) || Number(payload.limit) < 1 || Number(payload.limit) > 100) {
+    return invalidPayload("limit must be an integer between 1 and 100.");
+  }
+  if (payload.cursor === undefined) return { ok: true, payload };
+  if (!isServicePayloadRecord(payload.cursor) ||
+      typeof payload.cursor.generation !== "string" || payload.cursor.generation.length === 0 ||
+      typeof payload.cursor.latestAt !== "string" || !Number.isFinite(Date.parse(payload.cursor.latestAt)) ||
+      typeof payload.cursor.executionId !== "string" || !isValidEntityId(payload.cursor.executionId)) {
+    return invalidPayload("cursor must contain a valid generation, latestAt, and executionId.");
+  }
   return { ok: true, payload };
 }
 

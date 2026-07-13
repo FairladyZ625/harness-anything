@@ -45,6 +45,8 @@ export const apiSchemaContracts = [
   { id: "application.decision-id-payload/v1", owner: "application", typeName: "DecisionIdPayload" },
   { id: "application.decision-list-result/v1", owner: "application", typeName: "DecisionListResult" },
   { id: "application.execution-detail-result/v1", owner: "application", typeName: "ExecutionDetailResult" },
+  { id: "application.execution-evidence-page-payload/v1", owner: "application", typeName: "ExecutionEvidencePagePayload" },
+  { id: "application.execution-evidence-page-result/v1", owner: "application", typeName: "ExecutionEvidencePageResult" },
   { id: "application.execution-id-payload/v1", owner: "application", typeName: "ExecutionIdPayload" },
   { id: "application.execution-list-result/v1", owner: "application", typeName: "ExecutionListResult" },
   { id: "application.fact-list-result/v1", owner: "application", typeName: "TaskFactListResult" },
@@ -231,6 +233,18 @@ export const apiRouteContracts = [
     serviceMethod: "getExecutions",
     auth: "local-session-token",
     guiBridgeMethod: "getExecutions"
+  },
+  {
+    id: "executions.evidencePage",
+    method: "GET",
+    path: "/api/executions/evidence",
+    inputSchemaId: "application.execution-evidence-page-payload/v1",
+    outputSchemaId: "application.execution-evidence-page-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getExecutionEvidencePage",
+    auth: "local-session-token",
+    guiBridgeMethod: "getExecutionEvidencePage"
   },
   {
     id: "executions.taskList",
