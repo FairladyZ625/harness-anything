@@ -21,7 +21,7 @@ import type {
   TaskProjectionRow
 } from "./types.ts";
 
-export const projectionVersion = "entity-projection/d4-v10";
+export const projectionVersion = "entity-projection/d4-v11";
 const baseTaskProjectionColumns = [
   "task_id",
   "title",
@@ -163,6 +163,7 @@ export function writeProjectionDatabase(
     yield* insertMeta(sql, "attributionRowsHash", meta.attributionRowsHash ?? "");
     yield* insertMeta(sql, "attributionSourceHash", meta.attributionSourceHash ?? "");
     yield* insertMeta(sql, "taskSourceHash", meta.taskSourceHash ?? "");
+    yield* insertMeta(sql, "sourceCacheHash", meta.sourceCacheHash ?? "");
     yield* insertMeta(sql, "legacyPersonIdsHash", meta.legacyPersonIdsHash ?? "");
     for (const row of rows) yield* insertTaskRow(sql, row, projectedTaskFieldExtensions);
     for (const row of decisionRows) yield* insertDecisionRow(sql, row);
@@ -294,6 +295,7 @@ function readProjectionDatabase(
         attributionRowsHash: meta.get("attributionRowsHash") ?? "",
         attributionSourceHash: meta.get("attributionSourceHash") ?? "",
         taskSourceHash: meta.get("taskSourceHash") ?? "",
+        sourceCacheHash: meta.get("sourceCacheHash") ?? "",
         legacyPersonIdsHash: meta.get("legacyPersonIdsHash") ?? ""
       },
       rows: taskRecords.map((record) => recordToTaskRow(record, taskFieldExtensions)),

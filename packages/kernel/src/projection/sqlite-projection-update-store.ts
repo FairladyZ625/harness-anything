@@ -2,14 +2,18 @@ import { SqlClient } from "@effect/sql";
 import { Effect } from "effect";
 import type { ProjectionMeta, TaskFieldExtensionProjection, TaskProjectionRow, DecisionProjectionRow } from "./types.ts";
 import type { ProjectionGraphRows } from "./sqlite-projection-store.ts";
-import type { AttributionEvent } from "../schemas/attribution-event.ts";
 import { deleteDeclaredProjectionRows, upsertDeclaredProjectionRows } from "./entity-declaration-projection.ts";
 import { applyDeclaredSourceManifestDelta, type DeclaredProjectionDelta } from "./sqlite-declared-source-manifest.ts";
+import {
+  applyProjectionSourceCacheChange,
+  type ProjectionSourceCacheChange
+} from "./sqlite-projection-source-cache.ts";
 import {
   applyAttributionProjectionDelta,
   materializeEntityAttributionSubjects,
   materializeEntityAttributionTargets,
 } from "./sqlite-attribution-projection.ts";
+import type { AttributionProjectionDelta } from "./sqlite-attribution-projection.ts";
 import {
   insertCoverageRow,
   insertDecisionRow,
@@ -31,7 +35,8 @@ export function updateProjectionDatabase(
     readonly meta: ProjectionMeta;
     readonly graphRows?: ProjectionGraphRows;
     readonly declaredDelta: DeclaredProjectionDelta;
-    readonly attributionEvents?: ReadonlyArray<AttributionEvent>;
+    readonly attributionDelta?: AttributionProjectionDelta;
+    readonly sourceCache?: ProjectionSourceCacheChange;
     readonly taskFieldExtensions?: ReadonlyArray<TaskFieldExtensionProjection>;
   }
 ): void {
@@ -40,6 +45,7 @@ export function updateProjectionDatabase(
     const projectedTaskFieldExtensions = queryableTaskFieldExtensions(change.taskFieldExtensions ?? []);
     yield* sql`BEGIN IMMEDIATE`;
     try {
+      const reuseAttributionRowsHash = yield* canReuseAttributionRowsHash(sql, change);
       for (const taskId of uniqueProjectionIds(change.deleteTaskIds)) {
         yield* sql`DELETE FROM task_projection WHERE task_id = ${taskId}`;
       }
@@ -65,8 +71,9 @@ export function updateProjectionDatabase(
         yield* upsertDeclaredProjectionRows(sql, table.declaration, table.upsertRows);
       }
       yield* applyDeclaredSourceManifestDelta(sql, change.declaredDelta.manifest);
-      if (change.attributionEvents) {
-        const affectedSubjects = yield* applyAttributionProjectionDelta(sql, change.attributionEvents);
+      if (change.sourceCache) yield* applyProjectionSourceCacheChange(sql, change.sourceCache);
+      if (change.attributionDelta) {
+        const affectedSubjects = yield* applyAttributionProjectionDelta(sql, change.attributionDelta);
         yield* materializeEntityAttributionSubjects(sql, affectedSubjects);
         yield* materializeEntityAttributionTargets(sql, changedAttributionTargets(change));
       } else {
@@ -77,10 +84,13 @@ export function updateProjectionDatabase(
       yield* upsertMeta(sql, "decisionRowsHash", change.meta.decisionRowsHash ?? "");
       yield* upsertMeta(sql, "declaredRowsHash", change.meta.declaredRowsHash ?? "");
       yield* upsertMeta(sql, "declaredManifestHash", change.meta.declaredManifestHash ?? "");
-      const attributionRowsHash = yield* hashAttributionProjectionState(sql);
+      const attributionRowsHash = reuseAttributionRowsHash && change.meta.attributionRowsHash
+        ? change.meta.attributionRowsHash
+        : yield* hashAttributionProjectionState(sql);
       yield* upsertMeta(sql, "attributionRowsHash", attributionRowsHash);
       yield* upsertMeta(sql, "attributionSourceHash", change.meta.attributionSourceHash ?? "");
       yield* upsertMeta(sql, "taskSourceHash", change.meta.taskSourceHash ?? "");
+      if (change.sourceCache) yield* upsertMeta(sql, "sourceCacheHash", change.sourceCache.current.hash);
       yield* upsertMeta(sql, "legacyPersonIdsHash", change.meta.legacyPersonIdsHash ?? "");
       yield* sql`COMMIT`;
     } catch (error) {
@@ -88,6 +98,38 @@ export function updateProjectionDatabase(
       throw error;
     }
   }));
+}
+
+function canReuseAttributionRowsHash(
+  sql: SqlClient.SqlClient,
+  change: {
+    readonly deleteTaskIds: ReadonlyArray<string>;
+    readonly upsertTaskRows: ReadonlyArray<TaskProjectionRow>;
+    readonly deleteDecisionIds: ReadonlyArray<string>;
+    readonly upsertDecisionRows: ReadonlyArray<DecisionProjectionRow>;
+    readonly declaredDelta: DeclaredProjectionDelta;
+    readonly attributionDelta?: AttributionProjectionDelta;
+  }
+): Effect.Effect<boolean, unknown> {
+  return Effect.gen(function* () {
+    if (change.attributionDelta) return false;
+    const finalTaskIds = new Set(change.upsertTaskRows.map((row) => row.taskId));
+    if (change.deleteTaskIds.some((taskId) => !finalTaskIds.has(taskId))) return false;
+    const finalDecisionIds = new Set(change.upsertDecisionRows.map((row) => row.decisionId));
+    if (change.deleteDecisionIds.some((decisionId) => !finalDecisionIds.has(decisionId))) return false;
+    for (const table of change.declaredDelta.tables) {
+      const primaryKey = table.declaration.projection.columns.find((column) => column.primaryKey)!;
+      const finalIds = new Set(table.upsertRows.map((row) => String(row[primaryKey.name])));
+      if (table.deletePrimaryKeys.some((id) => !finalIds.has(id))) return false;
+    }
+    for (const target of changedAttributionTargets(change)) {
+      const idColumn = attributionEntityIdColumns.get(target.table);
+      if (!idColumn) throw new Error(`unknown attributed projection table: ${target.table}`);
+      const records = yield* sql.unsafe(`SELECT 1 FROM ${target.table} WHERE ${idColumn} = ? LIMIT 1`, [target.id]);
+      if (records.length === 0) return false;
+    }
+    return true;
+  });
 }
 
 function changedAttributionTargets(change: {
@@ -115,3 +157,11 @@ function upsertMeta(sql: SqlClient.SqlClient, key: string, value: string): Effec
 function uniqueProjectionIds(values: ReadonlyArray<string>): ReadonlyArray<string> {
   return [...new Set(values)];
 }
+
+const attributionEntityIdColumns = new Map([
+  ["task_projection", "task_id"],
+  ["decision_projection", "decision_id"],
+  ["session_projection", "session_id"],
+  ["execution_projection", "execution_id"],
+  ["review_projection", "review_id"]
+]);

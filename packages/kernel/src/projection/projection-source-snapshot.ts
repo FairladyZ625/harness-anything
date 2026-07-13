@@ -20,7 +20,7 @@ import {
   type DeclaredProjectionRow
 } from "./entity-declaration-projection.ts";
 import { readLegacyPersonIds } from "./entity-attribution-projection.ts";
-import { readDecisionProjectionRows } from "./sqlite-decision-source.ts";
+import { readDecisionProjectionRowsFromSource } from "./sqlite-decision-source.ts";
 import { readMarkdownSource } from "./sqlite-task-source.ts";
 import type { DecisionProjectionRow } from "./types.ts";
 
@@ -87,7 +87,7 @@ export function captureProjectionSourceFingerprint(
 
 export function captureProjectionSourceSnapshot(rootInput: HarnessLayoutInput): ProjectionSourceSnapshot {
   const source = captureProjectionSourceFingerprint(rootInput);
-  const decisionRows = readDecisionProjectionRows(rootInput);
+  const decisionRows = readDecisionProjectionRowsFromSource(rootInput, source.taskSource.sourceInputs);
   const declaredTables = source.declaredSources.map(({ declaration, table, source: declaredSource }) => {
     const projected = projectDeclaredEntitySource(rootInput, declaration, declaredSource);
     return {

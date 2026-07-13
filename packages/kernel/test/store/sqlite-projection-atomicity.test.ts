@@ -92,6 +92,32 @@ test("task cache rejects a concurrent rewrite between signature passes", () => {
   });
 });
 
+test("task cache rejects an atomic rewrite after a stable body read", () => {
+  withTempStore((rootDir) => {
+    const taskPath = writeCacheTask(rootDir, "Task A");
+    const originalReadStableText = localProjectionSourceFileSystem.readStableText;
+    let mutated = false;
+    localProjectionSourceFileSystem.readStableText = (inputPath) => {
+      const stable = originalReadStableText(inputPath);
+      if (!mutated && inputPath === taskPath) {
+        mutated = true;
+        writeCacheTask(rootDir, "Task B");
+      }
+      return stable;
+    };
+    let result: ReturnType<typeof rebuildTaskProjection>;
+    try {
+      result = rebuildTaskProjection({ rootDir });
+    } finally {
+      localProjectionSourceFileSystem.readStableText = originalReadStableText;
+    }
+
+    assert.equal(mutated, true);
+    assert.equal(result.rows[0]?.title, "Task B");
+    assert.equal(readTaskProjection({ rootDir }).rows[0]?.title, "Task B");
+  });
+});
+
 test("declared source cache rejects a concurrent rewrite between signature passes", () => {
   withTempStore((rootDir) => {
     const executionPath = writeCacheExecution(rootDir, "submitted");

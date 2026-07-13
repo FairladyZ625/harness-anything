@@ -11,7 +11,7 @@ import {
   relationDecisionAuthoredSourceKind,
   type RelationAuthoredSourceKind
 } from "./relation-source-manifest.ts";
-import { sourcePath } from "./sqlite-task-source.ts";
+import { sourcePath, type TaskProjectionSourceHashInput } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 import { buildClaimFulfillmentRows } from "./claim-fulfillment-projection.ts";
 
@@ -92,10 +92,14 @@ export interface RelationRecordValidationIssue {
   };
 }
 
-export function buildRelationGraphProjection(rootInput: HarnessLayoutInput): RelationGraphProjection {
-  const decisions = readDecisionSources(rootInput);
-  const refIndex = buildGraphRefIndex(rootInput, decisions);
-  const entries = collectRelationRecordEntries(rootInput, decisions);
+export function buildRelationGraphProjection(
+  rootInput: HarnessLayoutInput,
+  sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput> = []
+): RelationGraphProjection {
+  const sourceBodies = sourceBodyHints(rootInput, sourceInputs);
+  const decisions = readDecisionSources(rootInput, sourceBodies);
+  const refIndex = buildGraphRefIndex(rootInput, decisions, sourceBodies);
+  const entries = collectRelationRecordEntries(rootInput, decisions, sourceBodies);
   const edges = relationEntriesToEdges(entries, refIndex);
   return {
     edges,
@@ -161,17 +165,18 @@ export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdge
 
 function collectRelationRecordEntries(
   rootInput: HarnessLayoutInput,
-  decisions: ReadonlyArray<DecisionSource>
+  decisions: ReadonlyArray<DecisionSource>,
+  sourceBodies: ReadonlyMap<string, string> = new Map()
 ): ReadonlyArray<RelationRecordEntry> {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
   const entries: RelationRecordEntry[] = [];
 
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
-    const taskId = readTaskPackageId(taskDir);
+    const taskId = readTaskPackageId(taskDir, sourceBodies);
     for (const source of deriveRelationTaskAuthoredSources(taskDir)) {
       if (!existsSync(source.filePath)) continue;
-      const body = readTextFileIfPresent(source.filePath);
+      const body = readSourceBody(source.filePath, sourceBodies);
       if (body === null) continue;
       if (source.content === "frontmatter") {
         const frontmatter = readFrontmatter(body);
@@ -340,14 +345,17 @@ function canonicalRelationRecord(record: EntityRelationRecord): string {
   return formatRelationFlowRecord(record);
 }
 
-function readDecisionSources(rootInput: HarnessLayoutInput): ReadonlyArray<DecisionSource> {
+function readDecisionSources(
+  rootInput: HarnessLayoutInput,
+  sourceBodies: ReadonlyMap<string, string> = new Map()
+): ReadonlyArray<DecisionSource> {
   const layout = resolveHarnessLayout(rootInput);
   const decisions: Array<Omit<DecisionSource, "visible"> & { readonly watermark: string }> = [];
   const watermarkCounts = new Map<string, number>();
   for (const filePath of listTextFiles(layout.decisionsRoot)) {
     const sourceKind = relationDecisionAuthoredSourceKind(filePath);
     if (sourceKind === null) continue;
-    const body = readTextFileIfPresent(filePath);
+    const body = readSourceBody(filePath, sourceBodies);
     if (body === null) continue;
     const frontmatter = readFrontmatter(body);
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") continue;
@@ -373,20 +381,24 @@ function readDecisionSources(rootInput: HarnessLayoutInput): ReadonlyArray<Decis
   })).sort((a, b) => a.decisionRef.localeCompare(b.decisionRef));
 }
 
-function buildGraphRefIndex(rootInput: HarnessLayoutInput, decisions: ReadonlyArray<DecisionSource>): GraphRefIndex {
+function buildGraphRefIndex(
+  rootInput: HarnessLayoutInput,
+  decisions: ReadonlyArray<DecisionSource>,
+  sourceBodies: ReadonlyMap<string, string> = new Map()
+): GraphRefIndex {
   const layout = resolveHarnessLayout(rootInput);
   const taskIds = new Set<string>();
   const doneTaskIds = new Set<string>();
   const factRefs = new Set<string>();
   const factAnchors: FactAnchorRow[] = [];
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
-    const taskId = readTaskPackageId(taskDir);
+    const taskId = readTaskPackageId(taskDir, sourceBodies);
     taskIds.add(taskId);
-    if (readTaskPackageStatus(taskDir) === "done") doneTaskIds.add(taskId);
+    if (readTaskPackageStatus(taskDir, sourceBodies) === "done") doneTaskIds.add(taskId);
     const factsPath = deriveRelationTaskAuthoredSources(taskDir)
       .find((source) => source.kind === "task-facts")?.filePath;
     if (!factsPath || !existsSync(factsPath)) continue;
-    const factsBody = readTextFileIfPresent(factsPath);
+    const factsBody = readSourceBody(factsPath, sourceBodies);
     if (factsBody === null) continue;
     for (const record of parseFactFlowRecords(factsBody)) {
       const factKey = `${taskId}/${record.fact_id}`;
@@ -457,16 +469,16 @@ function readFlowObjectBlock(frontmatter: string, key: string): string {
   return output.join("\n");
 }
 
-function readTaskPackageId(taskDir: string): string {
+function readTaskPackageId(taskDir: string, sourceBodies: ReadonlyMap<string, string> = new Map()): string {
   const indexPath = path.join(taskDir, "INDEX.md");
   if (!existsSync(indexPath)) return path.basename(taskDir);
-  const body = readTextFileIfPresent(indexPath);
+  const body = readSourceBody(indexPath, sourceBodies);
   const frontmatter = body === null ? null : readFrontmatter(body);
   return (frontmatter ? readScalar(frontmatter, "task_id") : "") || path.basename(taskDir);
 }
 
-function readTaskPackageStatus(taskDir: string): string {
-  const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md"));
+function readTaskPackageStatus(taskDir: string, sourceBodies: ReadonlyMap<string, string> = new Map()): string {
+  const body = readSourceBody(path.join(taskDir, "INDEX.md"), sourceBodies);
   const frontmatter = body === null ? null : readFrontmatter(body);
   return frontmatter ? readScalar(frontmatter, "  status") : "";
 }
@@ -493,6 +505,18 @@ function listTextFiles(inputPath: string): ReadonlyArray<string> {
     .filter((entry) => entry.name !== ".git" && entry.name !== "node_modules")
     .flatMap((entry) => listTextFiles(path.join(inputPath, entry.name)))
     .sort();
+}
+
+function sourceBodyHints(
+  rootInput: HarnessLayoutInput,
+  sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>
+): ReadonlyMap<string, string> {
+  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  return new Map(sourceInputs.map((input) => [path.resolve(rootDir, input.sourcePath), input.body]));
+}
+
+function readSourceBody(filePath: string, sourceBodies: ReadonlyMap<string, string>): string | null {
+  return sourceBodies.get(filePath) ?? readTextFileIfPresent(filePath);
 }
 
 function isRelationGraphTextLikePath(filePath: string): boolean {

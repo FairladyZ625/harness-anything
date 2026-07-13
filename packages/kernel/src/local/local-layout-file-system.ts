@@ -1,5 +1,6 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
+import path from "node:path";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
@@ -37,6 +38,17 @@ export const localProjectionSourceFileSystem = {
     return projectionSourceStatSignature(inputPath);
   }
 };
+
+export function listProjectionSourceDirectoryPaths(rootPath: string): ReadonlyArray<string> {
+  try {
+    if (!statSync(rootPath).isDirectory()) return [];
+    return [rootPath, ...readdirSync(rootPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== ".git" && entry.name !== "node_modules")
+      .flatMap((entry) => listProjectionSourceDirectoryPaths(path.join(rootPath, entry.name)))];
+  } catch {
+    return [];
+  }
+}
 
 function projectionSourceStatSignature(inputPath: string): string | null {
   try {

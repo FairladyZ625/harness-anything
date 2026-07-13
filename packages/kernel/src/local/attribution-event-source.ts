@@ -4,6 +4,7 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { sha256Text, stablePayloadHash } from "../integrity/stable-hash.ts";
 import { AttributionEventSchema, type AttributionEvent } from "../schemas/attribution-event.ts";
+import { isSafeRelativeSourceCachePath } from "./persistent-source-cache-paths.ts";
 import { localLayoutFileSystem, localProjectionSourceFileSystem } from "./local-layout-file-system.ts";
 
 export interface AttributionEventSourceInput {
@@ -15,11 +16,55 @@ export interface AttributionEventSourceInput {
 
 interface AttributionEventSourceCacheEntry {
   readonly source: AttributionEventSource;
-  readonly signatures: ReadonlyMap<string, string>;
+  readonly signatures: ReadonlyMap<string, string | null>;
 }
+
+export interface AttributionEventSourcePersistentCache {
+  readonly schema: "attribution-event-source-cache/v1";
+  readonly layoutIdentity: string;
+  readonly source: AttributionEventSource;
+  readonly signatures: ReadonlyArray<{ readonly relativePath: string; readonly signature: string | null }>;
+}
+
+export type AttributionSourceCacheRestore = "fresh" | "stale" | "invalid";
 
 const attributionEventSourceCache = new Map<string, AttributionEventSourceCacheEntry>();
 const attributionEventSourceCacheLimit = 16;
+
+export function captureAttributionEventSourcePersistentCache(
+  rootInput: HarnessLayoutInput
+): AttributionEventSourcePersistentCache | null {
+  const layout = resolveHarnessLayout(rootInput);
+  const cached = attributionEventSourceCache.get(layout.attributionEventsRoot);
+  if (!cached || !stableAttributionSignatures(cached.signatures)) return null;
+  return {
+    schema: "attribution-event-source-cache/v1",
+    layoutIdentity: layout.attributionEventsRoot,
+    source: cached.source,
+    signatures: [...cached.signatures].map(([inputPath, signature]) => ({
+      relativePath: path.relative(layout.rootDir, inputPath).split(path.sep).join("/"),
+      signature
+    }))
+  };
+}
+
+export function restoreAttributionEventSourcePersistentCache(
+  rootInput: HarnessLayoutInput,
+  persisted: AttributionEventSourcePersistentCache
+): AttributionSourceCacheRestore {
+  if (!validPersistentAttributionCache(persisted)) return "invalid";
+  const layout = resolveHarnessLayout(rootInput);
+  if (persisted.layoutIdentity !== layout.attributionEventsRoot) return "stale";
+  const signatures = new Map(persisted.signatures.map(({ relativePath, signature }) => [
+    path.resolve(layout.rootDir, relativePath),
+    signature
+  ]));
+  rememberAttributionEventSourceCache(layout.attributionEventsRoot, {
+    source: persisted.source,
+    signatures
+  });
+  return stableAttributionSignatures(signatures) ? "fresh" : "stale";
+}
 
 export interface AttributionEventSource {
   readonly inputs: ReadonlyArray<AttributionEventSourceInput>;
@@ -37,8 +82,12 @@ export function readAttributionEventSource(rootInput: HarnessLayoutInput): Attri
 function readAttributionEventSourceAttempt(rootInput: HarnessLayoutInput, attempt: number): AttributionEventSource {
   const eventsRoot = resolveHarnessLayout(rootInput).attributionEventsRoot;
   if (!localLayoutFileSystem.exists(eventsRoot)) {
-    attributionEventSourceCache.delete(eventsRoot);
-    return emptyAttributionEventSource();
+    const source = emptyAttributionEventSource();
+    rememberAttributionEventSourceCache(eventsRoot, {
+      source,
+      signatures: new Map([[eventsRoot, null]])
+    });
+    return source;
   }
   const cached = attributionEventSourceCache.get(eventsRoot);
   if (cached && stableAttributionSignatures(cached.signatures)) {
@@ -77,7 +126,7 @@ function readAttributionEventSourceAttempt(rootInput: HarnessLayoutInput, attemp
       return retryAttributionEventSource(rootInput, eventsRoot, attempt);
     }
   }
-  const signatures = new Map<string, string>([
+  const signatures = new Map<string, string | null>([
     [eventsRoot, directory.signature],
     ...inputs.map((input) => [path.join(eventsRoot, input.relativePath), input.statSignature] as const)
   ]);
@@ -89,21 +138,28 @@ function readAttributionEventSourceAttempt(rootInput: HarnessLayoutInput, attemp
       inputs: inputs.map(({ relativePath, contentSha256 }) => ({ relativePath, contentSha256 }))
     })
   };
+  rememberAttributionEventSourceCache(eventsRoot, { source, signatures });
+  return source;
+}
+
+function rememberAttributionEventSourceCache(
+  eventsRoot: string,
+  entry: AttributionEventSourceCacheEntry
+): void {
   attributionEventSourceCache.delete(eventsRoot);
-  attributionEventSourceCache.set(eventsRoot, { source, signatures });
+  attributionEventSourceCache.set(eventsRoot, entry);
   while (attributionEventSourceCache.size > attributionEventSourceCacheLimit) {
     const oldest = attributionEventSourceCache.keys().next().value as string | undefined;
     if (oldest === undefined) break;
     attributionEventSourceCache.delete(oldest);
   }
-  return source;
 }
 
-function stableAttributionSignatures(signatures: ReadonlyMap<string, string>): boolean {
+function stableAttributionSignatures(signatures: ReadonlyMap<string, string | null>): boolean {
   return attributionSignaturesMatch(signatures) && attributionSignaturesMatch(signatures);
 }
 
-function attributionSignaturesMatch(signatures: ReadonlyMap<string, string>): boolean {
+function attributionSignaturesMatch(signatures: ReadonlyMap<string, string | null>): boolean {
   for (const [inputPath, expected] of signatures) {
     if (localProjectionSourceFileSystem.statSignature(inputPath) !== expected) return false;
   }
@@ -127,9 +183,36 @@ function emptyAttributionEventSource(): AttributionEventSource {
   };
 }
 
+function validPersistentAttributionSource(source: AttributionEventSource): boolean {
+  if (source.inputs.some((input) => sha256Text(input.body) !== input.contentSha256)) return false;
+  return source.hash === stablePayloadHash({
+    schema: "attribution-event-source/v2",
+    inputs: source.inputs.map(({ relativePath, contentSha256 }) => ({ relativePath, contentSha256 }))
+  });
+}
+
+function validPersistentAttributionCache(persisted: AttributionEventSourcePersistentCache): boolean {
+  if (persisted.schema !== "attribution-event-source-cache/v1" ||
+      typeof persisted.layoutIdentity !== "string" ||
+      !Array.isArray(persisted.source?.inputs) ||
+      !Array.isArray(persisted.signatures)) return false;
+  if (persisted.source.inputs.some((input) =>
+    typeof input.relativePath !== "string" ||
+    !isSafeRelativeSourceCachePath(input.relativePath) ||
+    typeof input.body !== "string" ||
+    typeof input.statSignature !== "string" ||
+    typeof input.contentSha256 !== "string")) return false;
+  if (persisted.signatures.some((entry) =>
+    typeof entry.relativePath !== "string" ||
+    !isSafeRelativeSourceCachePath(entry.relativePath) ||
+    (entry.signature !== null && typeof entry.signature !== "string"))) return false;
+  return validPersistentAttributionSource(persisted.source);
+}
+
+
 export function readAttributionEventsFromSource(source: AttributionEventSource): ReadonlyArray<AttributionEvent> {
   return source.inputs
-    .map((input) => decodeAttributionEvent(input.body))
+    .map((input) => decodeAttributionEventBody(input.body))
     .sort((left, right) => left.eventId.localeCompare(right.eventId));
 }
 
@@ -137,7 +220,7 @@ export function attributionEventSourceHash(rootInput: HarnessLayoutInput): strin
   return readAttributionEventSource(rootInput).hash;
 }
 
-function decodeAttributionEvent(body: string): AttributionEvent {
+export function decodeAttributionEventBody(body: string): AttributionEvent {
   const lines = body.trim().split("\n").filter(Boolean);
   if (lines.length !== 1) throw new Error("immutable attribution event shard must contain exactly one event");
   return Schema.decodeUnknownSync(AttributionEventSchema)(JSON.parse(lines[0]!));

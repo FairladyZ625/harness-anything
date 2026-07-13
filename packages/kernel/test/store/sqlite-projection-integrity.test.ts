@@ -87,6 +87,33 @@ test("projection reads reject attribution event table tampering", () => {
   });
 });
 
+test("projection reads reject persisted source cache tampering", () => {
+  withTempStore((rootDir) => {
+    writeIntegrityTask(rootDir, "task-a", "Task A", "active");
+    writeIntegrityAttribution(rootDir, "event-task", "task/task-a", "progress_append");
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const db = new DatabaseSync(projectionPath);
+    try {
+      db.prepare("UPDATE projection_source_cache_metadata SET payload_json = ? WHERE cache_kind = 'task'")
+        .run(JSON.stringify({ schema: "task-source-cache-metadata/v1", warnings: [] }));
+    } finally {
+      db.close();
+    }
+
+    const rejected = readTaskProjection({ rootDir });
+
+    assert.equal(rejected.warnings.some((warning) => warning.code === "projection_tampered"), true);
+    assert.equal(rejected.rows[0]?.taskId, "task-a");
+    const rebuilt = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(rebuilt.prepare("SELECT COUNT(*) AS count FROM projection_source_cache_metadata").get()?.count, 2);
+    } finally {
+      rebuilt.close();
+    }
+  });
+});
+
 test("legacy sessions coexist with incremental execution updates", () => {
   withTempStore((rootDir) => {
     const taskId = "task_00000000000000000000000001";

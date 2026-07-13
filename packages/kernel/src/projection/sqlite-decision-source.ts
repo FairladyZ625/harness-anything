@@ -8,11 +8,23 @@ import { parseObjectList, parseStringArray, readBlockScalar, unquote } from "../
 import type { DecisionPackage } from "../schemas/decision-package.ts";
 import type { DecisionProjectionRow } from "./types.ts";
 import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
+import type { TaskProjectionSourceHashInput } from "./sqlite-task-source.ts";
 
 export function readDecisionProjectionRows(rootInput: HarnessLayoutInput): ReadonlyArray<DecisionProjectionRow> {
   const layout = resolveHarnessLayout(rootInput);
   return listDecisionDocumentPaths(layout.decisionsRoot)
     .map((documentPath) => decisionDocumentToProjectionRow(layout.rootDir, documentPath))
+    .sort(compareDecisionRows);
+}
+
+export function readDecisionProjectionRowsFromSource(
+  rootInput: HarnessLayoutInput,
+  sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>
+): ReadonlyArray<DecisionProjectionRow> {
+  const layout = resolveHarnessLayout(rootInput);
+  return sourceInputs
+    .filter((input) => input.kind === "decision-document" && path.basename(input.sourcePath) === "decision.md")
+    .map((input) => decisionDocumentBodyToProjectionRow(layout.rootDir, path.resolve(layout.rootDir, input.sourcePath), input.body))
     .sort(compareDecisionRows);
 }
 
@@ -24,6 +36,21 @@ export function readDecisionProjectionRowsForPaths(
   return uniqueDecisionDocumentPaths(documentPaths.map((documentPath) => path.resolve(documentPath)))
     .filter((documentPath) => existsSync(documentPath) && path.basename(documentPath) === "decision.md")
     .map((documentPath) => decisionDocumentToProjectionRow(layout.rootDir, documentPath))
+    .sort(compareDecisionRows);
+}
+
+export function readDecisionProjectionRowsForPathsFromSource(
+  rootInput: HarnessLayoutInput,
+  documentPaths: ReadonlyArray<string>,
+  sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>
+): ReadonlyArray<DecisionProjectionRow> {
+  const layout = resolveHarnessLayout(rootInput);
+  const bodiesByPath = new Map(sourceInputs
+    .filter((input) => input.kind === "decision-document")
+    .map((input) => [path.resolve(layout.rootDir, input.sourcePath), input.body]));
+  return uniqueDecisionDocumentPaths(documentPaths.map((documentPath) => path.resolve(documentPath)))
+    .filter((documentPath) => path.basename(documentPath) === "decision.md" && bodiesByPath.has(documentPath))
+    .map((documentPath) => decisionDocumentBodyToProjectionRow(layout.rootDir, documentPath, bodiesByPath.get(documentPath)!))
     .sort(compareDecisionRows);
 }
 
@@ -42,6 +69,14 @@ export function compareDecisionRows(a: DecisionProjectionRow, b: DecisionProject
 
 function decisionDocumentToProjectionRow(rootDir: string, documentPath: string): DecisionProjectionRow {
   const body = readFileSync(documentPath, "utf8");
+  return decisionDocumentBodyToProjectionRow(rootDir, documentPath, body);
+}
+
+function decisionDocumentBodyToProjectionRow(
+  rootDir: string,
+  documentPath: string,
+  body: string
+): DecisionProjectionRow {
   const frontmatter = readFrontmatter(body) ?? "";
   const decision = readDecisionSourceFields(frontmatter);
   const legacyId = legacyIdFromDecisionId(decision.decision_id);

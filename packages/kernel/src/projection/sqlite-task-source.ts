@@ -1,67 +1,186 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { CloseoutReadiness } from "../domain/index.ts";
-import { isDomainStatus, isPackageDisposition, isPriorityTier, isTaskWorkKind, isTerminalStatus } from "../domain/index.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { localProjectionSourceFileSystem } from "../local/local-layout-file-system.ts";
-import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
+import { readFrontmatter } from "../markdown/frontmatter.ts";
 import {
   deriveRelationTaskAuthoredSources,
   relationDecisionAuthoredSourceKind,
   type RelationAuthoredSourceKind
 } from "./relation-source-manifest.ts";
-import type { ProjectionCanonicalStatus, CoordinationStatus, ProjectionWarning, TaskFieldExtensionProjection, TaskProjectionRow } from "./types.ts";
-import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
-import { readDirIfPresent, readDirNamesIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
+import type { ProjectionWarning, TaskProjectionRow } from "./types.ts";
+import {
+  isSafeRelativeSourceCachePath,
+  captureRequiredSourceCacheSignatures,
+  captureSourceCacheWatchSignatures,
+  listSourceCacheDirectoryPaths,
+  restoreSourceCacheSignatures,
+  sameSourceCacheSignatures,
+  sourceCacheSignaturesMatch,
+  serializeSourceCacheSignatures
+} from "../local/persistent-source-cache-paths.ts";
+import { readDirIfPresent, readDirNamesIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
+import { sourcePath, taskEntryToRow, type TaskSourceEntry } from "./sqlite-task-row.ts";
+
+export { sourcePath, taskEntryToRow };
+export type { TaskSourceEntry };
 
 interface MarkdownSourceCacheEntry {
-  readonly result: ReturnType<typeof markdownSourceResult>;
+  readonly result: MarkdownSourceResult;
   readonly fileSignatures: ReadonlyMap<string, string>;
-  readonly directorySignatures: ReadonlyMap<string, string>;
+  readonly directorySignatures: ReadonlyMap<string, string | null>;
 }
+
+type MarkdownSourceResult = ReturnType<typeof markdownSourceResult>;
+
+export interface MarkdownSourcePersistentCache {
+  readonly schema: "markdown-source-cache/v1";
+  readonly layoutIdentity: string;
+  readonly result: {
+    readonly entries: ReadonlyArray<{
+      readonly taskId: string;
+      readonly indexPath: string;
+      readonly body: string;
+      readonly frontmatter: string;
+      readonly statSignature: string;
+    }>;
+    readonly hash: string;
+    readonly warnings: ReadonlyArray<ProjectionWarning>;
+    readonly sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>;
+  };
+  readonly fileSignatures: ReadonlyArray<{ readonly relativePath: string; readonly signature: string }>;
+  readonly directorySignatures: ReadonlyArray<{ readonly relativePath: string; readonly signature: string | null }>;
+}
+
+export type PersistentSourceCacheRestore = "fresh" | "stale" | "invalid";
 
 const markdownSourceCache = new Map<string, MarkdownSourceCacheEntry>();
 const markdownSourceCacheLimit = 16;
+
+export function captureMarkdownSourcePersistentCache(
+  rootInput: HarnessLayoutInput
+): MarkdownSourcePersistentCache | null {
+  const layout = resolveHarnessLayout(rootInput);
+  const cacheKey = markdownSourceCacheKey(layout);
+  const cached = markdownSourceCache.get(cacheKey);
+  if (!cached || !markdownSourceCacheEntryMatches(cached)) return null;
+  return {
+    schema: "markdown-source-cache/v1",
+    layoutIdentity: cacheKey,
+    result: {
+      ...cached.result,
+      entries: cached.result.entries.map((entry) => ({
+        ...entry,
+        indexPath: sourcePath(layout.rootDir, entry.indexPath)
+      }))
+    },
+    fileSignatures: serializeSourceCacheSignatures(layout.rootDir, cached.fileSignatures),
+    directorySignatures: serializeSourceCacheSignatures(layout.rootDir, cached.directorySignatures)
+  };
+}
+
+export function restoreMarkdownSourcePersistentCache(
+  rootInput: HarnessLayoutInput,
+  persisted: MarkdownSourcePersistentCache
+): PersistentSourceCacheRestore {
+  if (!validPersistentMarkdownSource(persisted)) return "invalid";
+  const layout = resolveHarnessLayout(rootInput);
+  const cacheKey = markdownSourceCacheKey(layout);
+  if (persisted.layoutIdentity !== cacheKey) return "stale";
+  const entry: MarkdownSourceCacheEntry = {
+    result: {
+      ...persisted.result,
+      entries: persisted.result.entries.map((source) => ({
+        ...source,
+        indexPath: path.resolve(layout.rootDir, source.indexPath)
+      }))
+    },
+    fileSignatures: restoreSourceCacheSignatures(layout.rootDir, persisted.fileSignatures),
+    directorySignatures: restoreSourceCacheSignatures(layout.rootDir, persisted.directorySignatures)
+  };
+  rememberMarkdownSourceCache(cacheKey, entry);
+  return markdownSourceCacheEntryMatches(entry) ? "fresh" : "stale";
+}
+
+function validPersistentMarkdownSource(persisted: MarkdownSourcePersistentCache): boolean {
+  if (persisted.schema !== "markdown-source-cache/v1" ||
+      typeof persisted.layoutIdentity !== "string" ||
+      !Array.isArray(persisted.result?.entries) ||
+      !Array.isArray(persisted.result?.sourceInputs) ||
+      !Array.isArray(persisted.fileSignatures) ||
+      !Array.isArray(persisted.directorySignatures)) return false;
+  if (persisted.result.sourceInputs.some((input) =>
+    typeof input.kind !== "string" ||
+    typeof input.sourcePath !== "string" ||
+    !isSafeRelativeSourceCachePath(input.sourcePath) ||
+    typeof input.body !== "string" ||
+    typeof input.statSignature !== "string")) return false;
+  if (persisted.result.entries.some((entry) =>
+    typeof entry.taskId !== "string" ||
+    typeof entry.indexPath !== "string" ||
+    !isSafeRelativeSourceCachePath(entry.indexPath) ||
+    typeof entry.body !== "string" ||
+    typeof entry.frontmatter !== "string" ||
+    typeof entry.statSignature !== "string")) return false;
+  if (persisted.fileSignatures.some((entry) =>
+    !isSafeRelativeSourceCachePath(entry.relativePath) || typeof entry.signature !== "string")) return false;
+  if (persisted.directorySignatures.some((entry) =>
+    !isSafeRelativeSourceCachePath(entry.relativePath) ||
+    (entry.signature !== null && typeof entry.signature !== "string"))) return false;
+  if (hashTaskSourceInputs(persisted.result.sourceInputs) !== persisted.result.hash) return false;
+  const bodiesByPath = new Map(persisted.result.sourceInputs.map((input) => [input.sourcePath, input.body]));
+  return persisted.result.entries.every((entry) => bodiesByPath.get(entry.indexPath) === entry.body);
+}
 
 export function readMarkdownSource(rootInput: HarnessLayoutInput): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
   readonly hash: string;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
+  readonly sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>;
 } {
   const layout = resolveHarnessLayout(rootInput);
-  const cacheKey = layout.rootDir;
+  const cacheKey = markdownSourceCacheKey(layout);
   const cached = markdownSourceCache.get(cacheKey);
   if (cached && markdownSourceCacheEntryMatches(cached)) {
     markdownSourceCache.delete(cacheKey);
     markdownSourceCache.set(cacheKey, cached);
     return cached.result;
   }
-  const source = readTaskProjectionSource(rootInput);
+  const source = readTaskProjectionSource(rootInput, cached);
   const result = markdownSourceResult(source);
   const cacheEntry = createMarkdownSourceCacheEntry(layout, source, result);
   markdownSourceCache.delete(cacheKey);
-  if (cacheEntry) {
-    markdownSourceCache.set(cacheKey, cacheEntry);
-    while (markdownSourceCache.size > markdownSourceCacheLimit) {
-      const oldest = markdownSourceCache.keys().next().value as string | undefined;
-      if (oldest === undefined) break;
-      markdownSourceCache.delete(oldest);
-    }
-  }
+  if (cacheEntry) rememberMarkdownSourceCache(cacheKey, cacheEntry);
   return result;
+}
+
+function markdownSourceCacheKey(layout: ReturnType<typeof resolveHarnessLayout>): string {
+  return [layout.rootDir, layout.authoredRoot, layout.tasksRoot, layout.decisionsRoot].join("\0");
+}
+
+function rememberMarkdownSourceCache(cacheKey: string, entry: MarkdownSourceCacheEntry): void {
+  markdownSourceCache.delete(cacheKey);
+  markdownSourceCache.set(cacheKey, entry);
+  while (markdownSourceCache.size > markdownSourceCacheLimit) {
+    const oldest = markdownSourceCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    markdownSourceCache.delete(oldest);
+  }
 }
 
 function markdownSourceResult(source: ReturnType<typeof readTaskProjectionSource>): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
   readonly hash: string;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
+  readonly sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>;
 } {
   return {
     entries: source.entries,
-    hash: hashText(JSON.stringify(source.sourceInputs)),
-    warnings: source.warnings
+    hash: hashTaskSourceInputs(source.sourceInputs),
+    warnings: source.warnings,
+    sourceInputs: source.sourceInputs
   };
 }
 
@@ -78,70 +197,60 @@ function createMarkdownSourceCacheEntry(
     layout.authoredRoot,
     layout.tasksRoot,
     layout.decisionsRoot,
+    ...source.taskPackagePaths,
     ...source.entries.map((entry) => path.dirname(entry.indexPath)),
     ...[...files.keys()].map(path.dirname),
-    ...listSourceDirectoryPaths(layout.decisionsRoot)
+    ...listSourceCacheDirectoryPaths(layout.decisionsRoot)
   ]);
-  const beforeFiles = capturePathSignatures(files.keys());
-  const beforeDirectories = captureExistingPathSignatures(directories);
+  const beforeFiles = captureRequiredSourceCacheSignatures(files.keys());
+  const beforeDirectories = captureSourceCacheWatchSignatures(directories);
   if (beforeFiles === null) return null;
-  for (const [filePath, body] of files) {
-    if (readTextFileIfPresent(filePath) !== body) return null;
-  }
-  const afterFiles = capturePathSignatures(files.keys());
-  const afterDirectories = captureExistingPathSignatures(directories);
+  const afterFiles = captureRequiredSourceCacheSignatures(files.keys());
+  const afterDirectories = captureSourceCacheWatchSignatures(directories);
   if (afterFiles === null ||
-      !samePathSignatures(beforeFiles, afterFiles) ||
-      !samePathSignatures(beforeDirectories, afterDirectories)) return null;
-  return { result, fileSignatures: afterFiles, directorySignatures: afterDirectories };
+      !sameSourceCacheSignatures(beforeFiles, afterFiles) ||
+      !sameSourceCacheSignatures(beforeDirectories, afterDirectories) ||
+      source.sourceInputs.some((input) =>
+        afterFiles.get(path.join(layout.rootDir, input.sourcePath)) !== input.statSignature)) return null;
+  return {
+    result,
+    fileSignatures: afterFiles,
+    directorySignatures: afterDirectories
+  };
 }
 
 function markdownSourceCacheEntryMatches(entry: MarkdownSourceCacheEntry): boolean {
-  const signatures = new Map([...entry.directorySignatures, ...entry.fileSignatures]);
-  return cachedPathSignaturesMatch(signatures) && cachedPathSignaturesMatch(signatures);
+  const signatures = new Map<string, string | null>([...entry.directorySignatures, ...entry.fileSignatures]);
+  return sourceCacheSignaturesMatch(signatures) && sourceCacheSignaturesMatch(signatures);
 }
 
-function capturePathSignatures(paths: Iterable<string>): ReadonlyMap<string, string> | null {
-  const signatures = new Map<string, string>();
-  for (const filePath of new Set(paths)) {
-    const signature = localProjectionSourceFileSystem.statSignature(filePath);
-    if (signature === null) return null;
-    signatures.set(filePath, signature);
+function reusableSourceBodies(
+  rootDir: string,
+  reusable: MarkdownSourceCacheEntry | undefined
+): ReadonlyMap<string, string> {
+  if (!reusable) return new Map();
+  return new Map(reusable.result.sourceInputs.map((input) => [
+    path.resolve(rootDir, input.sourcePath),
+    input.body
+  ]));
+}
+
+function readReusableSourceText(
+  filePath: string,
+  reusableBodies: ReadonlyMap<string, string>,
+  reusableSignatures: ReadonlyMap<string, string> | undefined
+): { readonly body: string; readonly signature: string } | null {
+  const currentSignature = localProjectionSourceFileSystem.statSignature(filePath);
+  if (currentSignature === null) return null;
+  const reusableBody = reusableBodies.get(filePath);
+  if (reusableBody !== undefined && reusableSignatures?.get(filePath) === currentSignature) {
+    return { body: reusableBody, signature: currentSignature };
   }
-  return signatures;
-}
-
-function captureExistingPathSignatures(paths: Iterable<string>): ReadonlyMap<string, string> {
-  const signatures = new Map<string, string>();
-  for (const filePath of new Set(paths)) {
-    const signature = localProjectionSourceFileSystem.statSignature(filePath);
-    if (signature !== null) signatures.set(filePath, signature);
+  try {
+    return localProjectionSourceFileSystem.readStableText(filePath);
+  } catch {
+    return null;
   }
-  return signatures;
-}
-
-function cachedPathSignaturesMatch(signatures: ReadonlyMap<string, string>): boolean {
-  for (const [filePath, expected] of signatures) {
-    if (localProjectionSourceFileSystem.statSignature(filePath) !== expected) return false;
-  }
-  return true;
-}
-
-function samePathSignatures(
-  left: ReadonlyMap<string, string>,
-  right: ReadonlyMap<string, string>
-): boolean {
-  return left.size === right.size && [...left].every(([filePath, signature]) => right.get(filePath) === signature);
-}
-
-function listSourceDirectoryPaths(rootPath: string): ReadonlyArray<string> {
-  const stat = statPathIfPresent(rootPath);
-  if (!stat?.isDirectory()) return [];
-  const entries = readDirIfPresent(rootPath);
-  if (entries === null) return [];
-  return [rootPath, ...entries
-    .filter((entry) => entry.isDirectory() && entry.name !== ".git" && entry.name !== "node_modules")
-    .flatMap((entry) => listSourceDirectoryPaths(path.join(rootPath, entry.name)))];
 }
 
 export function readTaskProjectionSourceHashInputs(rootInput: HarnessLayoutInput): ReadonlyArray<TaskProjectionSourceHashInput> {
@@ -152,8 +261,9 @@ export function readRelationGraphSourceHashInputKinds(rootInput: HarnessLayoutIn
   return [...new Set(readTaskProjectionSource(rootInput).relationSourceInputs.map((input) => input.kind))].sort();
 }
 
-function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
+function readTaskProjectionSource(rootInput: HarnessLayoutInput, reusable?: MarkdownSourceCacheEntry): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
+  readonly taskPackagePaths: ReadonlyArray<string>;
   readonly sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>;
   readonly relationSourceInputs: ReadonlyArray<RelationSourceHashInput>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
@@ -163,18 +273,23 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
   const tasksDir = layout.tasksRoot;
   const warnings: ProjectionWarning[] = [];
   const entries: TaskSourceEntry[] = [];
+  const reusableBodies = reusableSourceBodies(rootDir, reusable);
   const taskEntries = existsSync(tasksDir) ? readDirNamesIfPresent(tasksDir) : [];
+  const taskPackagePaths = (taskEntries ?? [])
+    .map((name) => path.join(tasksDir, name))
+    .filter((inputPath) => statPathIfPresent(inputPath)?.isDirectory());
   for (const name of (taskEntries ?? []).sort()) {
     const indexPath = path.join(tasksDir, name, "INDEX.md");
     if (!existsSync(indexPath)) continue;
-    const body = readTextFileIfPresent(indexPath);
-    if (body === null) continue;
+    const sourceText = readReusableSourceText(indexPath, reusableBodies, reusable?.fileSignatures);
+    if (sourceText === null) continue;
     try {
       entries.push({
         taskId: name,
         indexPath,
-        body,
-        frontmatter: parseFrontmatter(body)
+        body: sourceText.body,
+        frontmatter: parseFrontmatter(sourceText.body),
+        statSignature: sourceText.signature
       });
     } catch (error) {
       warnings.push({
@@ -187,8 +302,8 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
     }
   }
 
-  const relationSourceInputs = readRelationGraphSourceInputs(rootDir, layout, entries);
-  const supplementalSourceInputs = readTaskSupplementalSourceInputs(rootDir, entries);
+  const relationSourceInputs = readRelationGraphSourceInputs(rootDir, layout, entries, reusableBodies, reusable?.fileSignatures);
+  const supplementalSourceInputs = readTaskSupplementalSourceInputs(rootDir, entries, reusableBodies, reusable?.fileSignatures);
   const taskIndexInputs = entries.flatMap((entry) => relationSourceInputs.filter((input) =>
     input.kind === "task-index" && input.taskId === entry.taskId
   ));
@@ -198,65 +313,23 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
   ].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
   return {
     entries,
+    taskPackagePaths,
     sourceInputs: [...taskIndexInputs, ...remainingSourceInputs],
     relationSourceInputs,
     warnings
   };
 }
 
-export interface TaskSourceEntry {
-  readonly taskId: string;
-  readonly indexPath: string;
-  readonly body: string;
-  readonly frontmatter: string;
-}
-
 export interface TaskProjectionSourceHashInput {
   readonly kind: string;
   readonly sourcePath: string;
   readonly body: string;
+  readonly statSignature: string;
 }
 
 interface RelationSourceHashInput extends TaskProjectionSourceHashInput {
   readonly kind: RelationAuthoredSourceKind;
   readonly taskId?: string;
-}
-
-export function taskEntryToRow(
-  rootInput: HarnessLayoutInput,
-  entry: TaskSourceEntry,
-  fieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = []
-): TaskProjectionRow {
-  const rootDir = resolveHarnessLayout(rootInput).rootDir;
-  const rawStatus = readScalar(entry.frontmatter, "  status") || "unknown";
-  const canonicalStatus = isDomainStatus(rawStatus) ? rawStatus : "unknown";
-  const rawDisposition = readScalar(entry.frontmatter, "packageDisposition") || "active";
-  const packageDisposition = isPackageDisposition(rawDisposition) ? rawDisposition : "active";
-  const lifecycleEngine = readScalar(entry.frontmatter, "  engine") || "local";
-  const source = sourcePath(rootDir, entry.indexPath);
-  const taskDir = path.dirname(entry.indexPath);
-  return {
-    schema: "sqlite-task-row/v1",
-    taskId: readScalar(entry.frontmatter, "task_id") || entry.taskId,
-    title: readScalar(entry.frontmatter, "title") || entry.taskId,
-    ...readParent(entry.frontmatter),
-    canonicalStatus,
-    coordinationStatus: coordinationStatus(canonicalStatus),
-    rawStatus,
-    packageDisposition,
-    closeoutReadiness: closeoutReadiness(rootInput, entry.taskId, canonicalStatus),
-    lifecycleEngine,
-    freshness: canonicalStatus === "unknown" || !isPackageDisposition(rawDisposition) ? "stale-but-usable" : "fresh",
-    updatedAt: (statPathIfPresent(entry.indexPath)?.mtime ?? new Date(0)).toISOString(),
-    source: lifecycleEngine === "local" ? "local-document" : "external-engine",
-    sourcePath: source,
-    ...readExtensionMetadata(entry.frontmatter),
-    ...readFieldExtensions(entry.frontmatter, fieldExtensions),
-    ...readTaskMetadata(entry.frontmatter),
-    ...readModuleMetadata(taskDir),
-    hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
-    attribution: unresolvedEntityAttribution()
-  };
 }
 
 function parseFrontmatter(body: string): string {
@@ -265,96 +338,47 @@ function parseFrontmatter(body: string): string {
   return frontmatter;
 }
 
-function readParent(frontmatter: string): { readonly parentTaskId?: string } {
-  const parentTaskId = readScalar(frontmatter, "parent");
-  return parentTaskId ? { parentTaskId } : {};
-}
-
-function readExtensionMetadata(frontmatter: string): { readonly vertical?: string; readonly preset?: string; readonly profile?: string } {
-  const vertical = readScalar(frontmatter, "vertical");
-  const preset = readScalar(frontmatter, "preset");
-  const profile = readScalar(frontmatter, "profile");
-  return {
-    ...(vertical ? { vertical } : {}),
-    ...(preset ? { preset } : {}),
-    ...(profile ? { profile } : {})
-  };
-}
-
-function readFieldExtensions(
-  frontmatter: string,
-  extensions: ReadonlyArray<TaskFieldExtensionProjection>
-): { readonly fieldExtensions?: Readonly<Record<string, string | null>> } {
-  if (extensions.length === 0) return {};
-  const values = Object.fromEntries(extensions.map((extension) => {
-    const rawValue = readScalar(frontmatter, extension.field);
-    return [
-      extension.field,
-      extension.values.includes(rawValue) ? rawValue : extension.default
-    ];
-  }));
-  return Object.values(values).some((value) => value !== null) ? { fieldExtensions: values } : {};
-}
-
-function readTaskMetadata(frontmatter: string): Pick<TaskProjectionRow, "workKind" | "riskTier" | "urgency"> {
-  const workKind = readScalar(frontmatter, "workKind");
-  const riskTier = readScalar(frontmatter, "riskTier");
-  const urgency = readScalar(frontmatter, "urgency");
-  return {
-    ...(isTaskWorkKind(workKind) ? { workKind } : {}),
-    ...(isPriorityTier(riskTier) ? { riskTier } : {}),
-    ...(isPriorityTier(urgency) ? { urgency } : {})
-  };
-}
-
-function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; readonly moduleTitle?: string } {
-  const modulePath = path.join(taskDir, "module.md");
-  if (!existsSync(modulePath)) return {};
-  const body = readTextFileIfPresent(modulePath);
-  if (body === null) return {};
-  const moduleKey = body.match(/^Module key:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
-  const moduleTitle = body.match(/^Module title:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
-  return {
-    ...(moduleKey ? { moduleKey } : {}),
-    ...(moduleTitle ? { moduleTitle } : {})
-  };
-}
-
 function readRelationGraphSourceInputs(
   rootDir: string,
   layout: ReturnType<typeof resolveHarnessLayout>,
-  entries: ReadonlyArray<TaskSourceEntry>
+  entries: ReadonlyArray<TaskSourceEntry>,
+  reusableBodies: ReadonlyMap<string, string>,
+  reusableSignatures: ReadonlyMap<string, string> | undefined
 ): ReadonlyArray<RelationSourceHashInput> {
   const taskDocumentInputs = entries
     .flatMap((entry) => deriveRelationTaskAuthoredSources(path.dirname(entry.indexPath)).map((source) => ({
       kind: source.kind,
       path: source.filePath,
       ...(source.kind === "task-index" ? { taskId: entry.taskId } : {}),
-      ...(source.filePath === entry.indexPath ? { body: entry.body } : {})
+      ...(source.filePath === entry.indexPath ? { body: entry.body, statSignature: entry.statSignature } : {})
     })))
     .filter((input) => input.body !== undefined || existsSync(input.path))
     .flatMap((input) => {
-      const body = input.body ?? readTextFileIfPresent(input.path);
-      return body === null
+      const sourceText = input.body === undefined
+        ? readReusableSourceText(input.path, reusableBodies, reusableSignatures)
+        : { body: input.body, signature: input.statSignature! };
+      return sourceText === null
         ? []
         : [{
           kind: input.kind,
           ...(input.taskId ? { taskId: input.taskId } : {}),
           sourcePath: sourcePath(rootDir, input.path),
-          body
+          body: sourceText.body,
+          statSignature: sourceText.signature
         }];
     });
   const decisionInputs = listDecisionDocuments(layout.decisionsRoot)
     .flatMap((decisionPath) => {
       const kind = relationDecisionAuthoredSourceKind(decisionPath);
       if (kind === null) return [];
-      const body = readTextFileIfPresent(decisionPath);
-      return body === null
+      const sourceText = readReusableSourceText(decisionPath, reusableBodies, reusableSignatures);
+      return sourceText === null
         ? []
         : [{
           kind,
           sourcePath: sourcePath(rootDir, decisionPath),
-          body
+          body: sourceText.body,
+          statSignature: sourceText.signature
         }];
     });
   return [...taskDocumentInputs, ...decisionInputs];
@@ -362,7 +386,9 @@ function readRelationGraphSourceInputs(
 
 function readTaskSupplementalSourceInputs(
   rootDir: string,
-  entries: ReadonlyArray<TaskSourceEntry>
+  entries: ReadonlyArray<TaskSourceEntry>,
+  reusableBodies: ReadonlyMap<string, string>,
+  reusableSignatures: ReadonlyMap<string, string> | undefined
 ): ReadonlyArray<TaskProjectionSourceHashInput> {
   return entries
     .flatMap((entry) => [
@@ -372,13 +398,14 @@ function readTaskSupplementalSourceInputs(
     ])
     .filter((input) => existsSync(input.path))
     .flatMap((input) => {
-      const body = readTextFileIfPresent(input.path);
-      return body === null
+      const sourceText = readReusableSourceText(input.path, reusableBodies, reusableSignatures);
+      return sourceText === null
         ? []
         : [{
           kind: input.kind,
           sourcePath: sourcePath(rootDir, input.path),
-          body
+          body: sourceText.body,
+          statSignature: sourceText.signature
         }];
     });
 }
@@ -397,25 +424,6 @@ function listDecisionDocuments(decisionsRoot: string): ReadonlyArray<string> {
     .sort();
 }
 
-function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStatus {
-  if (status === "unknown") return "unknown";
-  if (status === "blocked") return "blocked";
-  if (status === "in_review") return "in_review";
-  return isTerminalStatus(status) ? "terminal" : "open";
-}
-
-function closeoutReadiness(rootInput: HarnessLayoutInput, taskId: string, status: ProjectionCanonicalStatus): CloseoutReadiness {
-  if (status === "unknown") return "missing";
-  if (!isTerminalStatus(status) && status !== "in_review") return "not_required";
-  const taskDir = path.join(resolveHarnessLayout(rootInput).tasksRoot, taskId);
-  if (existsSync(path.join(taskDir, "closeout.md"))) return "ready";
-  return "missing";
-}
-
-export function sourcePath(rootDir: string, filePath: string): string {
-  return path.relative(rootDir, filePath).split(path.sep).join("/");
-}
-
 export function hashExactRows(rows: ReadonlyArray<TaskProjectionRow>): string {
   return hashText(JSON.stringify([...rows].sort(compareRows).map(canonicalTaskProjectionRow)));
 }
@@ -429,6 +437,14 @@ export function hashTaskProjectionRows(rows: ReadonlyArray<TaskProjectionRow>): 
 
 function hashText(text: string): string {
   return `sha256:${sha256Text(text)}`;
+}
+
+function hashTaskSourceInputs(inputs: ReadonlyArray<TaskProjectionSourceHashInput>): string {
+  return hashText(JSON.stringify(inputs.map(({ kind, sourcePath: inputPath, body }) => ({
+    kind,
+    sourcePath: inputPath,
+    body
+  }))));
 }
 
 export function compareRows(a: TaskProjectionRow, b: TaskProjectionRow): number {

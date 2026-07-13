@@ -1,12 +1,13 @@
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
-import { readAttributionEvents } from "../local/attribution-event-source.ts";
+import { decodeAttributionEventBody, readAttributionEvents } from "../local/attribution-event-source.ts";
 import type { ActorAxes, ExecutorSource, PrincipalSource } from "../schemas/actor-attribution.ts";
 import type { AttributionEvent } from "../schemas/attribution-event.ts";
 import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
 import type { EntityAttributionProjection } from "./types.ts";
 import { runSqlite } from "./sqlite-projection-store.ts";
+import type { ProjectionSourceCacheChange } from "./sqlite-projection-source-cache.ts";
 import { SqlClient } from "@effect/sql";
 import { Effect } from "effect";
 
@@ -58,37 +59,55 @@ export function replaceAttributionProjectionRows(
 
 export function applyAttributionProjectionDelta(
   sql: SqlClient.SqlClient,
-  events: ReadonlyArray<AttributionEvent>
+  delta: AttributionProjectionDelta
 ): Effect.Effect<ReadonlyArray<string>, unknown> {
   return Effect.gen(function* () {
     yield* createAttributionTable(sql);
-    const existingRecords = yield* sql<AttributionRecord>`
-      SELECT event_id, op_id, subject_ref, operation, principal_person_id,
-             executor_agent_id, occurred_at, recorded_at, source_json
-      FROM attribution_events
-      ORDER BY occurred_at, event_id
-    `;
-    const existing = existingRecords.map(recordToProjectionRow);
-    const current = events.map(eventToProjectionRow);
-    const existingById = new Map(existing.map((row) => [row.eventId, row]));
-    const currentById = new Map(current.map((row) => [row.eventId, row]));
-    const changedIds = new Set([
-      ...existing.filter((row) => JSON.stringify(row) !== JSON.stringify(currentById.get(row.eventId))).map((row) => row.eventId),
-      ...current.filter((row) => JSON.stringify(row) !== JSON.stringify(existingById.get(row.eventId))).map((row) => row.eventId)
-    ]);
-    const affectedSubjects = new Set<string>();
-    for (const eventId of changedIds) {
-      const previous = existingById.get(eventId);
-      const next = currentById.get(eventId);
-      if (previous) affectedSubjects.add(previous.subjectRef);
-      if (next) affectedSubjects.add(next.subjectRef);
+    for (const eventId of delta.deleteEventIds) {
       yield* sql`DELETE FROM attribution_events WHERE event_id = ${eventId}`;
     }
-    for (const event of events) {
-      if (changedIds.has(event.eventId)) yield* insertAttributionEvent(sql, event);
-    }
-    return [...affectedSubjects];
+    for (const event of delta.upsertEvents) yield* insertAttributionEvent(sql, event);
+    return delta.affectedSubjects;
   });
+}
+
+export interface AttributionProjectionDelta {
+  readonly deleteEventIds: ReadonlyArray<string>;
+  readonly upsertEvents: ReadonlyArray<AttributionEvent>;
+  readonly affectedSubjects: ReadonlyArray<string>;
+}
+
+export function buildAttributionProjectionDelta(
+  change: ProjectionSourceCacheChange
+): AttributionProjectionDelta {
+  const previous = new Map(change.previous.files
+    .filter((row) => row.cacheKind === "attribution")
+    .map((row) => [row.sourcePath, row]));
+  const current = new Map(change.current.files
+    .filter((row) => row.cacheKind === "attribution")
+    .map((row) => [row.sourcePath, row]));
+  const deleteEventIds = new Set<string>();
+  const upsertEvents: AttributionEvent[] = [];
+  const affectedSubjects = new Set<string>();
+  for (const [sourcePath, row] of previous) {
+    const next = current.get(sourcePath);
+    if (next?.contentSha256 === row.contentSha256) continue;
+    const event = decodeAttributionEventBody(row.body);
+    deleteEventIds.add(event.eventId);
+    affectedSubjects.add(event.entityId);
+  }
+  for (const [sourcePath, row] of current) {
+    const prior = previous.get(sourcePath);
+    if (prior?.contentSha256 === row.contentSha256) continue;
+    const event = decodeAttributionEventBody(row.body);
+    upsertEvents.push(event);
+    affectedSubjects.add(event.entityId);
+  }
+  return {
+    deleteEventIds: [...deleteEventIds],
+    upsertEvents,
+    affectedSubjects: [...affectedSubjects]
+  };
 }
 
 export function materializeEntityAttributionBlocks(

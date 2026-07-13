@@ -1,11 +1,10 @@
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "../layout/index.ts";
-import { readAttributionEventsFromSource } from "../local/attribution-event-source.ts";
 import { readScalar } from "../markdown/frontmatter.ts";
 import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { buildRelationGraphProjection } from "./relation-graph-projection.ts";
-import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRowsForPaths } from "./sqlite-decision-source.ts";
+import { compareDecisionRows, hashDecisionProjectionRows, readDecisionProjectionRowsForPathsFromSource } from "./sqlite-decision-source.ts";
 import {
   applyDeclaredProjectionDeltaToSnapshots,
   buildDeclaredProjectionDeltaFromSources,
@@ -15,11 +14,24 @@ import {
 import {
   readAttributionProjectionStateHash,
   readRelationGraphRows,
+  projectionVersion,
   tryReadProjectionDatabase
 } from "./sqlite-projection-store.ts";
 import { updateProjectionDatabase } from "./sqlite-projection-update-store.ts";
+import { buildAttributionProjectionDelta } from "./sqlite-attribution-projection.ts";
+import {
+  captureProjectionSourceCacheSnapshot,
+  readProjectionSourceCacheSnapshot,
+  restoreProjectionSourceCacheSnapshot
+} from "./sqlite-projection-source-cache.ts";
 import { compareRows, hashExactRows, readMarkdownSource, sourcePath, taskEntryToRow } from "./sqlite-task-source.ts";
-import { rebuildTaskProjection } from "./sqlite-task-projection.ts";
+import {
+  rebuildTaskProjection
+} from "./sqlite-task-projection.ts";
+import {
+  readCachedProjectionValidation,
+  rememberProjectionValidation
+} from "./sqlite-projection-validation-cache.ts";
 import {
   captureProjectionSourceFingerprint,
   hashDeclaredProjectionSnapshots,
@@ -44,13 +56,29 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   if (!existing.ok) {
     return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
   }
+  if (existing.meta.version !== projectionVersion) {
+    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+  }
+  const cachedValidation = readCachedProjectionValidation(projectionPath);
+  let persistedSourceCache: ReturnType<typeof readProjectionSourceCacheSnapshot> | undefined;
+  if (!cachedValidation) {
+    try {
+      persistedSourceCache = readVerifiedProjectionSourceCache(projectionPath, existing.meta.sourceCacheHash);
+      const restored = restoreProjectionSourceCacheSnapshot(runtimeContext, persistedSourceCache);
+      if (!restored.valid) throw new Error("projection source cache payload invalid");
+    } catch {
+      return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    }
+  }
   let declaredManifest: ReturnType<typeof readDeclaredSourceManifestRows>;
   let existingDeclaredTables: ReturnType<typeof readDeclaredProjectionSnapshots>;
   let attributionRowsHash: string;
   try {
-    declaredManifest = readDeclaredSourceManifestRows(projectionPath);
+    declaredManifest = cachedValidation?.declaredManifest ?? readDeclaredSourceManifestRows(projectionPath);
     existingDeclaredTables = readDeclaredProjectionSnapshots(projectionPath);
-    attributionRowsHash = readAttributionProjectionStateHash(projectionPath);
+    attributionRowsHash = cachedValidation
+      ? existing.meta.attributionRowsHash ?? ""
+      : readAttributionProjectionStateHash(projectionPath);
   } catch {
     return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
   }
@@ -64,7 +92,9 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   const oldGraph = safeReadRelationGraphRows(projectionPath);
   const declaredEntityOnly = options.touchedPaths.length > 0 && options.touchedPaths
     .every((filePath) => isDeclaredEntityFile(resolveHarnessLayout(runtimeContext).authoredRoot, realPathIfExists(filePath)));
-  const newGraph = declaredEntityOnly || options.touchedPaths.length === 0 ? null : buildRelationGraphProjection(runtimeContext);
+  const newGraph = declaredEntityOnly || options.touchedPaths.length === 0
+    ? null
+    : buildRelationGraphProjection(runtimeContext, snapshot.taskSource.sourceInputs);
   const affected = affectedProjectionEntities({
     rootDir,
     rootInput: runtimeContext,
@@ -98,7 +128,13 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   }
 
   const taskChange = incrementalTaskRows(runtimeContext, source.entries, existing.rows, affected.taskIds, options.taskFieldExtensions);
-  const decisionChange = incrementalDecisionRows(runtimeContext, existing.decisionRows, affected.decisionIds, affected.decisionPaths);
+  const decisionChange = incrementalDecisionRows(
+    runtimeContext,
+    existing.decisionRows,
+    affected.decisionIds,
+    affected.decisionPaths,
+    source.sourceInputs
+  );
   const rowsHash = hashExactRows(taskChange.rows);
   const decisionRowsHash = hashDecisionProjectionRows(decisionChange.rows);
   const declaredRowsHash = hashDeclaredProjectionSnapshots(
@@ -117,6 +153,30 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
   if (verifiedSourceHash !== sourceHash) {
     return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
   }
+  const sourceCacheNeedsRefresh = existing.meta.taskSourceHash !== snapshot.taskSource.hash ||
+    existing.meta.attributionSourceHash !== snapshot.attributionSource.hash;
+  if (sourceCacheNeedsRefresh && !persistedSourceCache) {
+    try {
+      persistedSourceCache = readVerifiedProjectionSourceCache(projectionPath, existing.meta.sourceCacheHash);
+    } catch {
+      return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    }
+  }
+  const sourceCache = sourceCacheNeedsRefresh ? captureProjectionSourceCacheSnapshot(runtimeContext) : null;
+  if (sourceCacheNeedsRefresh && !sourceCache) {
+    return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+  }
+  const sourceCacheChange = sourceCache && persistedSourceCache && sourceCache.hash !== persistedSourceCache.hash
+    ? { previous: persistedSourceCache, current: sourceCache }
+    : undefined;
+  const attributionChanged = existing.meta.attributionSourceHash !== snapshot.attributionSource.hash;
+  let attributionDelta: ReturnType<typeof buildAttributionProjectionDelta> | undefined;
+  if (attributionChanged) {
+    if (!sourceCacheChange) {
+      return { ...rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions }), mode: "rebuild" };
+    }
+    attributionDelta = buildAttributionProjectionDelta(sourceCacheChange);
+  }
 
   updateProjectionDatabase(projectionPath, {
     deleteTaskIds: [...taskChange.deleteIds],
@@ -129,8 +189,10 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
       decisionRowsHash,
       declaredRowsHash,
       declaredManifestHash,
+      attributionRowsHash: existing.meta.attributionRowsHash,
       attributionSourceHash: snapshot.attributionSource.hash,
       taskSourceHash: snapshot.taskSource.hash,
+      sourceCacheHash: sourceCache?.hash ?? existing.meta.sourceCacheHash,
       legacyPersonIdsHash: hashProjectionLegacyPersonIds(snapshot.legacyPersonIds)
     },
     ...(newGraph ? { graphRows: {
@@ -139,17 +201,26 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
       factAnchors: newGraph.factAnchors
     } } : {}),
     declaredDelta,
-    ...(existing.meta.attributionSourceHash === snapshot.attributionSource.hash
-      ? {}
-      : { attributionEvents: readAttributionEventsFromSource(snapshot.attributionSource) }),
+    ...(sourceCacheChange ? { sourceCache: sourceCacheChange } : {}),
+    ...(attributionDelta ? { attributionDelta } : {}),
     taskFieldExtensions: options.taskFieldExtensions
   });
+  rememberProjectionValidation(projectionPath, declaredDelta.manifest.currentRows);
 
   return {
     rows: taskChange.rows,
     warnings: source.warnings,
     mode: "incremental"
   };
+}
+
+function readVerifiedProjectionSourceCache(
+  projectionPath: string,
+  expectedHash: string | undefined
+): ReturnType<typeof readProjectionSourceCacheSnapshot> {
+  const snapshot = readProjectionSourceCacheSnapshot(projectionPath);
+  if (snapshot.hash !== expectedHash) throw new Error("projection source cache hash mismatch");
+  return snapshot;
 }
 
 function hasAffectedProjectionEntities(affected: {
@@ -214,16 +285,17 @@ function incrementalTaskRows(
 }
 
 function incrementalDecisionRows(
-  rootInput: Parameters<typeof readDecisionProjectionRowsForPaths>[0],
+  rootInput: Parameters<typeof readDecisionProjectionRowsForPathsFromSource>[0],
   existingRows: ReadonlyArray<DecisionProjectionRow>,
   affectedDecisionIds: ReadonlySet<string>,
-  affectedDecisionPaths: ReadonlySet<string>
+  affectedDecisionPaths: ReadonlySet<string>,
+  sourceInputs: ReturnType<typeof readMarkdownSource>["sourceInputs"]
 ): {
   readonly rows: ReadonlyArray<DecisionProjectionRow>;
   readonly currentRows: ReadonlyArray<DecisionProjectionRow>;
   readonly deleteIds: ReadonlySet<string>;
 } {
-  const currentRows = readDecisionProjectionRowsForPaths(rootInput, [...affectedDecisionPaths]);
+  const currentRows = readDecisionProjectionRowsForPathsFromSource(rootInput, [...affectedDecisionPaths], sourceInputs);
   const deleteIds = new Set([...affectedDecisionIds, ...currentRows.map((row) => row.decisionId)]);
   return {
     rows: [
