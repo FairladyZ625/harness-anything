@@ -185,7 +185,10 @@ test("CLI readonly version and gui commands do not create a lifecycle engine bef
     ].join("\n"), "utf8");
 
     const version = runJson(rootDir, ["version"]);
-    const gui = runJson(rootDir, ["gui"], { HARNESS_GUI_DRY_RUN: "1" });
+    const gui = runJson(rootDir, ["gui"], {
+      HARNESS_GUI_DRY_RUN: "1",
+      HARNESS_DIRECT_WRITE_REASON: "test"
+    });
 
     assert.equal(version.ok, true);
     assert.equal(version.command, "version");

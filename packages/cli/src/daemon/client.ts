@@ -12,7 +12,7 @@ import {
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
   JsonRpcLineClient,
-  commandClassForCliCommandPayload,
+  commandClassForCliActionKind,
   currentDaemonProtocolVersion,
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget,
@@ -245,11 +245,9 @@ function readDirectWriteReason(value: string | undefined): "test" | "recovery" |
 }
 
 function directModeRejection(command: ParsedCommand, config: DaemonClientConfig): CommandFailureReceipt | undefined {
-  if (!isInitializedHarness(command) || config.directWriteReason) return undefined;
-  const commandClass = commandClassForCliCommandPayload({
-    payload: { command: command as unknown as JsonObject }
-  });
+  const commandClass = commandClassForCliActionKind(command.action.kind);
   if (commandClass === "repo-read") return undefined;
+  if (config.directWriteReason || !isInitializedHarness(command)) return undefined;
   const receipt = toCommandReceipt({
     ok: false,
     command: command.action.kind,
