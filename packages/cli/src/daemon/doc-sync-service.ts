@@ -222,17 +222,23 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
     });
   }
   const layout = resolveHarnessLayout(rootInput(options));
-  const beforeFiles = snapshotFiles(layout.authoredRoot);
-  const beforeRpcOnly = snapshotRpcOnlyZones(layout.rootDir, layout.authoredRoot);
+  const beforeFiles = options.afterApplyBeforePostCheck
+    ? snapshotFiles(layout.authoredRoot)
+    : null;
+  const beforeRpcOnly = options.afterApplyBeforePostCheck
+    ? snapshotRpcOnlyZones(layout.rootDir, layout.authoredRoot)
+    : null;
   let coordinatorStarted = false;
   try {
     await options.afterApplyBeforePostCheck?.();
-    const postApplyViolations = changedRpcOnlyZones(layout.rootDir, layout.authoredRoot, beforeRpcOnly);
-    if (postApplyViolations.length > 0) {
+    const postApplyViolations = beforeRpcOnly
+      ? changedRpcOnlyZones(layout.rootDir, layout.authoredRoot, beforeRpcOnly)
+      : [];
+    if (postApplyViolations.length > 0 && beforeFiles) {
       restoreFiles(layout.authoredRoot, beforeFiles);
       return reject(request, "doc_sync_post_apply_bearing_changed", "Post-apply checker detected rpc-only zone changes; restored backups.", false, { postApplyViolations });
     }
-    if (options.afterApplyBeforePostCheck) restoreFiles(layout.authoredRoot, beforeFiles);
+    if (beforeFiles) restoreFiles(layout.authoredRoot, beforeFiles);
     if (validation.acceptedChanges.length > 0 && !options.coordinator) {
       return reject(request, "doc_sync_invalid_payload", "Doc sync submit requires a trusted authenticated person principal.", false, {
         _tag: "WriteRejected"
@@ -272,7 +278,7 @@ async function submitDocSyncRequest(options: DocSyncServiceOptions, request: Doc
       }))
     };
   } catch (error) {
-    if (!coordinatorStarted) restoreFiles(layout.authoredRoot, beforeFiles);
+    if (!coordinatorStarted && beforeFiles) restoreFiles(layout.authoredRoot, beforeFiles);
     return reject(request, "doc_sync_invalid_payload", error instanceof Error ? error.message : String(error), false);
   }
 }

@@ -255,27 +255,30 @@ test("doc sync submit accepts non-markdown task prose when registry bearing reso
   });
 });
 
-test("doc sync snapshot fails closed on a broken symlink child", async () => {
-  await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
+test("doc sync production submit ignores unrelated broken symlinks without a mutation hook", async () => {
+  await withHarnessFixture(async ({ rootDir, harnessRoot, taskId }) => {
     symlinkSync("missing-target", path.join(harnessRoot, "broken-link"));
-    const service = makeDocSyncService({ rootDir });
+    const service = makeDocSyncService({ rootDir, coordinator: attributedCoordinator(rootDir) });
 
-    await assert.rejects(
-      service.submit(submitRequest({
-        baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
-        intentId: "intent-broken-symlink",
-        changes: []
-      })),
-      (error: NodeJS.ErrnoException) => error.code === "ENOENT"
-    );
+    const result = await service.submit(submitRequest({
+      baseLedgerSha: git(harnessRoot, "rev-parse", "HEAD"),
+      intentId: "intent-broken-symlink",
+      changes: [
+        inlineChange(`tasks/${taskId}/task_plan.md`, "# Plan\n\nOriginal prose.\n", "# Plan\n\nUpdated prose.\n")
+      ]
+    }));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "accepted");
+    assert.match(readFileSync(path.join(harnessRoot, "tasks", taskId, "task_plan.md"), "utf8"), /Updated prose/u);
   });
 });
 
-test("doc sync snapshot preserves ENOTDIR for an ordinary-file authored root", async () => {
+test("doc sync mutation hook snapshot preserves ENOTDIR for an ordinary-file authored root", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
     rmSync(harnessRoot, { recursive: true, force: true });
     writeFileSync(harnessRoot, "not a directory", "utf8");
-    const service = makeDocSyncService({ rootDir });
+    const service = makeDocSyncService({ rootDir, afterApplyBeforePostCheck: () => {} });
 
     await assert.rejects(
       service.submit(submitRequest({
@@ -288,10 +291,14 @@ test("doc sync snapshot preserves ENOTDIR for an ordinary-file authored root", a
   });
 });
 
-test("doc sync snapshot traverses an authored root named .git", async () => {
+test("doc sync mutation hook snapshot traverses an authored root named .git", async () => {
   await withHarnessFixture(async ({ rootDir, harnessRoot }) => {
     symlinkSync("missing-target", path.join(harnessRoot, ".git", "broken-link"));
-    const service = makeDocSyncService({ rootDir, layoutOverrides: { authoredRoot: "harness/.git" } });
+    const service = makeDocSyncService({
+      rootDir,
+      layoutOverrides: { authoredRoot: "harness/.git" },
+      afterApplyBeforePostCheck: () => {}
+    });
 
     await assert.rejects(
       service.submit(submitRequest({
