@@ -257,7 +257,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     } catch (error) {
       return terminal(await persistTerminal(envelope, semanticDigest, "REJECTED", rejected(envelope, semanticDigest, `TOKEN_REJECTED:${describe(error)}`)));
     }
-    const claimFailure = validateClaims(envelope, verification);
+    const claimFailure = validateTokenEnvelopeClaims(envelope, verification);
     if (claimFailure) return terminal(await persistTerminal(envelope, semanticDigest, "REJECTED", claimFailure));
 
     try {
@@ -508,7 +508,7 @@ function validateIngress(envelope: AuthorityOperationEnvelope, digest: string, w
   return undefined;
 }
 
-function validateClaims(envelope: AuthorityOperationEnvelope, verification: DelegationTokenVerification): AuthorityRejectedReceipt | undefined {
+function validateTokenEnvelopeClaims(envelope: AuthorityOperationEnvelope, verification: DelegationTokenVerification): AuthorityRejectedReceipt | undefined {
   const claims = verification.claims;
   if (claims.workspaceId !== envelope.workspaceId) return rejected(envelope, envelope.claimedDigest, "TOKEN_WORKSPACE_MISMATCH");
   if (claims.channelNonceDigest !== envelope.channelNonceDigest) return rejected(envelope, envelope.claimedDigest, "TOKEN_CHANNEL_MISMATCH");

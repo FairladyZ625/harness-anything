@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 export type CanonicalCborValue =
   | null
   | boolean
@@ -45,7 +46,7 @@ function encodeValue(value: CanonicalCborValue): Buffer[] {
   if (Array.isArray(value)) {
     return [head(4, BigInt(value.length)), ...value.flatMap((entry) => encodeValue(entry))];
   }
-  if (!isRecord(value)) throw new Error("unsupported canonical CBOR value");
+  if (!isCborRecord(value)) throw new Error("unsupported canonical CBOR value");
   const entries = Object.entries(value).map(([key, entry]) => {
     const encodedKey = Buffer.concat(encodeValue(key));
     return { encodedKey, encodedValue: Buffer.concat(encodeValue(entry)) };
@@ -200,6 +201,10 @@ function compareMapKeys(left: Uint8Array, right: Uint8Array): number {
   return Buffer.compare(Buffer.from(left), Buffer.from(right));
 }
 
-function isRecord(value: unknown): value is { readonly [key: string]: CanonicalCborValue } {
+function isCborRecord(value: unknown): value is { readonly [key: string]: CanonicalCborValue } {
   return typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof Uint8Array);
+}
+
+export function domainHash(domain: string, bytes: Uint8Array): Uint8Array {
+  return createHash("sha256").update(domain, "utf8").update(bytes).digest();
 }

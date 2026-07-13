@@ -1,3 +1,4 @@
+import { isPortablePath } from "./actor-axes-binding-v2.ts";
 import type { VerifiedActorAxesBindingV2, ResourceScopeV2 } from "./actor-axes-binding-v2.ts";
 import {
   SemanticAdmissionErrorV2,
@@ -57,8 +58,3 @@ function segmentPrefix(prefix: string, value: string): boolean {
   return value === prefix || (value.startsWith(prefix) && value.charCodeAt(prefix.length) === 0x2f);
 }
 
-function isPortablePath(path: string): boolean {
-  if (!path || path.startsWith("/") || path.includes("\\") || !/^[\x21-\x7e]+$/.test(path)) return false;
-  if (/[*?[\]{}]/.test(path)) return false;
-  return path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
-}

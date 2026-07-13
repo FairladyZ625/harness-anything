@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { WriteOp } from "../../../kernel/src/index.ts";
 import {
   actorAxesBindingDigestV2,
@@ -9,7 +8,8 @@ import {
   canonicalCborBytesEqual,
   decodeCanonicalCbor,
   encodeCanonicalCbor,
-  type CanonicalCborValue
+  type CanonicalCborValue,
+  domainHash
 } from "./canonical-cbor.ts";
 
 export const semanticMutationEnvelopeV2Schema = "semantic-mutation-envelope/v2" as const;
@@ -248,7 +248,7 @@ function envelopeFromWire(value: CanonicalCborValue): SemanticMutationEnvelopeV2
     workspaceId: text(wire.workspaceId, "workspaceId"),
     operationId: operationIdFromWire(wire.operationId),
     binding: bindingFromWire(wire.binding),
-    schemaTuple: schemaTupleFromWire(wire.schemaTuple),
+    schemaTuple: schemaTupleFromEnvelopeWire(wire.schemaTuple),
     intent: intentFromWire(wire.intent),
     claimedMutationSet: mutationSetFromWire(wire.claimedMutationSet),
     claimedSemanticMutationSetDigest: digest(wire.claimedSemanticMutationSetDigest, "claimedSemanticMutationSetDigest"),
@@ -384,7 +384,7 @@ function validateMutationSet(set: SemanticMutationSetV2): void {
   }
 }
 
-function schemaTupleFromWire(value: CanonicalCborValue): ProtocolSchemaTupleV2 { const keys = ["wire", "event", "receipt", "digest", "policy", "commandRegistry", "entityRegistry", "mutationRegistry", "localState", "applyJournal"] as const; const wire = exactRecord(value, keys, "ProtocolSchemaTupleV2"); return Object.fromEntries(keys.map((key) => [key, uint32(wire[key], key)])) as unknown as ProtocolSchemaTupleV2; }
+function schemaTupleFromEnvelopeWire(value: CanonicalCborValue): ProtocolSchemaTupleV2 { const keys = ["wire", "event", "receipt", "digest", "policy", "commandRegistry", "entityRegistry", "mutationRegistry", "localState", "applyJournal"] as const; const wire = exactRecord(value, keys, "ProtocolSchemaTupleV2"); return Object.fromEntries(keys.map((key) => [key, uint32(wire[key], key)])) as unknown as ProtocolSchemaTupleV2; }
 function exactRecord(value: CanonicalCborValue, keys: ReadonlyArray<string>, name: string): Record<string, CanonicalCborValue> { if (!value || typeof value !== "object" || Array.isArray(value) || value instanceof Uint8Array) throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be a map`); const actual = Object.keys(value); if (actual.length !== keys.length || keys.some((key) => !actual.includes(key))) throw new SemanticAdmissionErrorV2("UNKNOWN_OR_MISSING_FIELD", name); return value as Record<string, CanonicalCborValue>; }
 function list(value: CanonicalCborValue, name: string): ReadonlyArray<CanonicalCborValue> { if (!Array.isArray(value)) throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be array`); return value; }
 function text(value: CanonicalCborValue | undefined, name: string): string { if (typeof value !== "string" || !value || value.trim() !== value) throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be canonical text`); return value; }
@@ -396,4 +396,3 @@ function nullableDigest(value: CanonicalCborValue, name: string): Uint8Array | n
 function uint32(value: CanonicalCborValue | number, name: string): number { if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be uint32`); return value; }
 function uint64(value: CanonicalCborValue, name: string): bigint { if (typeof value !== "number" && typeof value !== "bigint") throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be uint64`); const output = BigInt(value); if (output < 0n) throw new SemanticAdmissionErrorV2("INVALID_ENVELOPE", `${name} must be uint64`); return output; }
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean { return Buffer.from(left).equals(Buffer.from(right)); }
-function domainHash(domain: string, value: Uint8Array): Uint8Array { return createHash("sha256").update(domain, "utf8").update(value).digest(); }

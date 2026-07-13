@@ -1,5 +1,4 @@
 import {
-  createHash,
   createHmac,
   sign,
   timingSafeEqual,
@@ -11,7 +10,8 @@ import {
   canonicalCborBytesEqual,
   decodeCanonicalCbor,
   encodeCanonicalCbor,
-  type CanonicalCborValue
+  type CanonicalCborValue,
+  domainHash
 } from "./canonical-cbor.ts";
 
 export const actorAxesBindingV2Schema = "actor-axes-binding/v2" as const;
@@ -245,8 +245,8 @@ export function decodeActorAxesBindingV2(bytes: Uint8Array): ActorAxesBindingV2 
     schema: actorAxesBindingV2Schema,
     header: {
       algorithm: headerWire.algorithm,
-      issuer: text(headerWire.issuer, "issuer"),
-      keyId: text(headerWire.keyId, "keyId")
+      issuer: bindingText(headerWire.issuer, "issuer"),
+      keyId: bindingText(headerWire.keyId, "keyId")
     },
     claims: claimsFromWire(wire.claims),
     proof: bytesValue(wire.proof, "proof")
@@ -351,20 +351,20 @@ function claimsFromWire(value: CanonicalCborValue): ActorAxesBindingClaimsV2 {
     "allowedEntityKinds", "allowedActions", "resourceScopes", "pathFootprint", "maxBytes", "maxMutations", "maxOperations",
     "authorityGeneration", "channelNonceDigest", "schemaTuple", "issuedAt", "notBefore", "expiresAt", "revocationEpochs"
   ], "ActorAxesBindingClaimsV2");
-  const executor = wire.executorAgentId === null ? null : text(wire.executorAgentId, "executorAgentId");
+  const executor = wire.executorAgentId === null ? null : bindingText(wire.executorAgentId, "executorAgentId");
   return {
-    tokenId: text(wire.tokenId, "tokenId"), bindingId: text(wire.bindingId, "bindingId"),
-    principalPersonId: text(wire.principalPersonId, "principalPersonId"), executorAgentId: executor,
-    workspaceId: text(wire.workspaceId, "workspaceId"), deviceId: text(wire.deviceId, "deviceId"),
-    viewId: text(wire.viewId, "viewId"), sessionId: text(wire.sessionId, "sessionId"),
+    tokenId: bindingText(wire.tokenId, "tokenId"), bindingId: bindingText(wire.bindingId, "bindingId"),
+    principalPersonId: bindingText(wire.principalPersonId, "principalPersonId"), executorAgentId: executor,
+    workspaceId: bindingText(wire.workspaceId, "workspaceId"), deviceId: bindingText(wire.deviceId, "deviceId"),
+    viewId: bindingText(wire.viewId, "viewId"), sessionId: bindingText(wire.sessionId, "sessionId"),
     allowedEntityKinds: textArray(wire.allowedEntityKinds, "allowedEntityKinds"),
     allowedActions: textArray(wire.allowedActions, "allowedActions"),
     resourceScopes: array(wire.resourceScopes, "resourceScopes").map(scopeFromWire),
     pathFootprint: wire.pathFootprint === null ? null : footprintFromWire(wire.pathFootprint),
-    maxBytes: uint64(wire.maxBytes, "maxBytes"), maxMutations: uint32(wire.maxMutations, "maxMutations"),
-    maxOperations: uint32(wire.maxOperations, "maxOperations"), authorityGeneration: uint64(wire.authorityGeneration, "authorityGeneration"),
+    maxBytes: bindingUint64(wire.maxBytes, "maxBytes"), maxMutations: bindingUint32(wire.maxMutations, "maxMutations"),
+    maxOperations: bindingUint32(wire.maxOperations, "maxOperations"), authorityGeneration: bindingUint64(wire.authorityGeneration, "authorityGeneration"),
     channelNonceDigest: bytesValue(wire.channelNonceDigest, "channelNonceDigest"), schemaTuple: schemaTupleFromWire(wire.schemaTuple),
-    issuedAt: uint64(wire.issuedAt, "issuedAt"), notBefore: uint64(wire.notBefore, "notBefore"), expiresAt: uint64(wire.expiresAt, "expiresAt"),
+    issuedAt: bindingUint64(wire.issuedAt, "issuedAt"), notBefore: bindingUint64(wire.notBefore, "notBefore"), expiresAt: bindingUint64(wire.expiresAt, "expiresAt"),
     revocationEpochs: epochsFromWire(wire.revocationEpochs)
   };
 }
@@ -381,7 +381,7 @@ function validateClaims(claims: ActorAxesBindingClaimsV2): void {
   if (claims.resourceScopes.length === 0) throw new Error("resourceScopes must be non-empty");
   for (const scope of claims.resourceScopes) {
     if (scope.kind === "entity-ref") {
-      uint32(scope.entityRef.registryVersion, "resourceScopes.entityRef.registryVersion");
+      bindingUint32(scope.entityRef.registryVersion, "resourceScopes.entityRef.registryVersion");
       nonBlank(scope.entityRef.entityKind, "resourceScopes.entityRef.entityKind");
       nonBlank(scope.entityRef.canonicalRef, "resourceScopes.entityRef.canonicalRef");
     } else if (scope.kind === "entity-ref-prefix") {
@@ -392,8 +392,8 @@ function validateClaims(claims: ActorAxesBindingClaimsV2): void {
     }
   }
   if (claims.channelNonceDigest.length !== 32) throw new Error("channelNonceDigest must be 32 bytes");
-  uint32(claims.maxMutations, "maxMutations");
-  uint32(claims.maxOperations, "maxOperations");
+  bindingUint32(claims.maxMutations, "maxMutations");
+  bindingUint32(claims.maxOperations, "maxOperations");
   if (claims.maxBytes < 0n || claims.authorityGeneration < 0n) throw new Error("token uint64 claims must be non-negative");
   if (claims.notBefore > claims.expiresAt || claims.issuedAt > claims.expiresAt) throw new Error("invalid token time window");
   if (claims.executorAgentId === null && claims.revocationEpochs.executor !== 0n) throw new Error("null executor requires zero executor epoch");
@@ -419,15 +419,15 @@ function scopeWire(scope: ResourceScopeV2): CanonicalCborValue {
 
 function scopeFromWire(value: CanonicalCborValue): ResourceScopeV2 {
   const input = value as Record<string, CanonicalCborValue>;
-  const kind = text(input?.kind, "resourceScopes.kind");
+  const kind = bindingText(input?.kind, "resourceScopes.kind");
   if (kind === "workspace") { record(value, ["kind"], "workspace scope"); return { kind }; }
   if (kind === "entity-ref") {
     const row = record(value, ["kind", "entityRef"], kind);
     const entity = record(row.entityRef, ["registryVersion", "entityKind", "canonicalRef"], "entityRef");
-    return { kind, entityRef: { registryVersion: uint32(entity.registryVersion, "registryVersion"), entityKind: text(entity.entityKind, "entityKind"), canonicalRef: text(entity.canonicalRef, "canonicalRef") } };
+    return { kind, entityRef: { registryVersion: bindingUint32(entity.registryVersion, "registryVersion"), entityKind: bindingText(entity.entityKind, "entityKind"), canonicalRef: bindingText(entity.canonicalRef, "canonicalRef") } };
   }
-  if (kind === "entity-ref-prefix") { const row = record(value, ["kind", "entityKind", "canonicalIdPrefix"], kind); return { kind, entityKind: text(row.entityKind, "entityKind"), canonicalIdPrefix: text(row.canonicalIdPrefix, "canonicalIdPrefix") }; }
-  if (kind === "portable-path" || kind === "portable-path-prefix") { const row = record(value, ["kind", "path"], kind); return { kind, path: text(row.path, "path") }; }
+  if (kind === "entity-ref-prefix") { const row = record(value, ["kind", "entityKind", "canonicalIdPrefix"], kind); return { kind, entityKind: bindingText(row.entityKind, "entityKind"), canonicalIdPrefix: bindingText(row.canonicalIdPrefix, "canonicalIdPrefix") }; }
+  if (kind === "portable-path" || kind === "portable-path-prefix") { const row = record(value, ["kind", "path"], kind); return { kind, path: bindingText(row.path, "path") }; }
   throw new Error("unknown resource scope kind");
 }
 
@@ -443,11 +443,11 @@ function schemaTupleWire(tuple: ProtocolSchemaTupleV2): CanonicalCborValue {
 function schemaTupleFromWire(value: CanonicalCborValue): ProtocolSchemaTupleV2 {
   const keys = ["wire", "event", "receipt", "digest", "policy", "commandRegistry", "entityRegistry", "mutationRegistry", "localState", "applyJournal"] as const;
   const wire = record(value, keys, "ProtocolSchemaTupleV2");
-  return Object.fromEntries(keys.map((key) => [key, uint32(wire[key], key)])) as unknown as ProtocolSchemaTupleV2;
+  return Object.fromEntries(keys.map((key) => [key, bindingUint32(wire[key], key)])) as unknown as ProtocolSchemaTupleV2;
 }
 
 function validateSchemaTuple(tuple: ProtocolSchemaTupleV2): void {
-  for (const [key, value] of Object.entries(tuple)) uint32(value, key);
+  for (const [key, value] of Object.entries(tuple)) bindingUint32(value, key);
   if (Object.keys(tuple).length !== 10) throw new Error("ProtocolSchemaTupleV2 fields mismatch");
 }
 
@@ -455,11 +455,7 @@ function epochWire(epochs: RevocationEpochTupleV2): CanonicalCborValue { return 
 function epochsFromWire(value: CanonicalCborValue): RevocationEpochTupleV2 {
   const keys = ["global", "workspace", "device", "view", "principal", "executor"] as const;
   const wire = record(value, keys, "RevocationEpochTupleV2");
-  return Object.fromEntries(keys.map((key) => [key, uint64(wire[key], key)])) as unknown as RevocationEpochTupleV2;
-}
-
-function domainHash(domain: string, bytes: Uint8Array): Uint8Array {
-  return createHash("sha256").update(domain, "utf8").update(bytes).digest();
+  return Object.fromEntries(keys.map((key) => [key, bindingUint64(wire[key], key)])) as unknown as RevocationEpochTupleV2;
 }
 
 function sameEpochs(left: RevocationEpochTupleV2, right: RevocationEpochTupleV2): boolean {
@@ -471,7 +467,7 @@ function sameEpochs(left: RevocationEpochTupleV2, right: RevocationEpochTupleV2)
     && left.executor === right.executor;
 }
 
-function isPortablePath(path: string): boolean {
+export function isPortablePath(path: string): boolean {
   if (!path || path.startsWith("/") || path.includes("\\") || !/^[\x21-\x7e]+$/.test(path)) return false;
   if (/[*?[\]{}]/.test(path)) return false;
   return path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
@@ -500,9 +496,9 @@ function record(value: CanonicalCborValue, keys: ReadonlyArray<string>, name: st
 }
 
 function array(value: CanonicalCborValue, name: string): ReadonlyArray<CanonicalCborValue> { if (!Array.isArray(value)) throw new Error(`${name} must be an array`); return value; }
-function textArray(value: CanonicalCborValue, name: string): ReadonlyArray<string> { return array(value, name).map((entry) => text(entry, name)); }
-function text(value: CanonicalCborValue | undefined, name: string): string { if (typeof value !== "string") throw new Error(`${name} must be text`); return nonBlank(value, name); }
+function textArray(value: CanonicalCborValue, name: string): ReadonlyArray<string> { return array(value, name).map((entry) => bindingText(entry, name)); }
+function bindingText(value: CanonicalCborValue | undefined, name: string): string { if (typeof value !== "string") throw new Error(`${name} must be text`); return nonBlank(value, name); }
 function nonBlank(value: string, name: string): string { if (!value || value.trim() !== value) throw new Error(`${name} must be non-blank canonical text`); return value; }
 function bytesValue(value: CanonicalCborValue, name: string): Uint8Array { if (!(value instanceof Uint8Array)) throw new Error(`${name} must be bytes`); return value; }
-function uint32(value: CanonicalCborValue | number, name: string): number { if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new Error(`${name} must be uint32`); return value; }
-function uint64(value: CanonicalCborValue, name: string): bigint { if ((typeof value !== "number" && typeof value !== "bigint") || BigInt(value) < 0n) throw new Error(`${name} must be uint64`); return BigInt(value); }
+function bindingUint32(value: CanonicalCborValue | number, name: string): number { if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new Error(`${name} must be uint32`); return value; }
+function bindingUint64(value: CanonicalCborValue, name: string): bigint { if ((typeof value !== "number" && typeof value !== "bigint") || BigInt(value) < 0n) throw new Error(`${name} must be uint64`); return BigInt(value); }
