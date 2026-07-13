@@ -12,6 +12,7 @@ import {
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
   JsonRpcLineClient,
+  commandClassForCliActionKind,
   currentDaemonProtocolVersion,
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget,
@@ -49,6 +50,7 @@ export interface DaemonClientConfig {
   readonly autostartTimeoutMs: number;
   readonly userRoot: string;
   readonly daemonId: string;
+  readonly directWriteReason?: "test" | "recovery";
   readonly remote?: RemoteDaemonConfig;
 }
 
@@ -69,6 +71,8 @@ type TaskHolderParsedCommand = ParsedCommand & {
 export function readDaemonClientConfig(env: NodeJS.ProcessEnv = process.env): DaemonClientConfig {
   const mode = readMode(env.HARNESS_DAEMON_MODE);
   const userRoot = daemonUserRoot(env);
+  const directWriteReason = readDirectWriteReason(env.HARNESS_DIRECT_WRITE_REASON)
+    ?? (env.NODE_TEST_CONTEXT ? "test" : undefined);
   return {
     mode,
     modeExplicit: typeof env.HARNESS_DAEMON_MODE === "string" && env.HARNESS_DAEMON_MODE.trim().length > 0,
@@ -76,6 +80,7 @@ export function readDaemonClientConfig(env: NodeJS.ProcessEnv = process.env): Da
     autostartTimeoutMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS, defaultDaemonAutostartTimeoutMs),
     userRoot,
     daemonId: daemonIdFromEnv(env),
+    ...(directWriteReason ? { directWriteReason } : {}),
     ...(mode === "remote" ? { remote: readRemoteConfig(env) } : {})
   };
 }
@@ -84,7 +89,10 @@ export async function runCommandThroughDaemon(
   command: ParsedCommand,
   config: DaemonClientConfig = readDaemonClientConfig()
 ): Promise<CommandReceipt | CommandFailureReceipt | undefined> {
-  if (config.mode === "direct") return undefined;
+  if (config.mode === "direct") {
+    const rejection = directModeRejection(command, config);
+    return rejection ?? undefined;
+  }
   if (!config.modeExplicit && (command.action.kind === "init" || !isInitializedHarness(command))) return undefined;
   try {
     return config.mode === "remote" && config.remote
@@ -230,6 +238,26 @@ function daemonActorAttributionReceipt(command: ParsedCommand, error: CliActorAt
 function readMode(value: string | undefined): DaemonClientMode {
   if (value === "direct" || value === "local" || value === "remote") return value;
   return "local";
+}
+
+function readDirectWriteReason(value: string | undefined): "test" | "recovery" | undefined {
+  return value === "test" || value === "recovery" ? value : undefined;
+}
+
+function directModeRejection(command: ParsedCommand, config: DaemonClientConfig): CommandFailureReceipt | undefined {
+  const commandClass = commandClassForCliActionKind(command.action.kind);
+  if (commandClass === "repo-read") return undefined;
+  if (config.directWriteReason || !isInitializedHarness(command)) return undefined;
+  const receipt = toCommandReceipt({
+    ok: false,
+    command: command.action.kind,
+    error: cliError(
+      CliErrorCode.JournalUnavailable,
+      "Direct canonical writes are disabled for initialized ledgers. Remove HARNESS_DAEMON_MODE=direct and use the daemon-backed CLI path. Bootstrap is allowed only before initialization; isolated tests or operator recovery must also set HARNESS_DIRECT_WRITE_REASON=test|recovery explicitly."
+    )
+  });
+  if (receipt.ok) throw new Error("direct-mode rejection unexpectedly succeeded");
+  return receipt;
 }
 
 function isInitializedHarness(command: ParsedCommand): boolean {

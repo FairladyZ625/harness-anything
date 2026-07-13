@@ -319,6 +319,10 @@ export function commandClassForCliCommandPayload(params: unknown): DaemonCommand
   const action = isRecord(command) ? command.action : undefined;
   const kind = isRecord(action) && typeof action.kind === "string" ? action.kind : undefined;
   if (!kind) return undefined;
+  return commandClassForCliActionKind(kind);
+}
+
+export function commandClassForCliActionKind(kind: string): DaemonCommandClass | undefined {
   const taskWritePolicy = taskWriteCliRoutePolicy(kind);
   if (taskWritePolicy) return taskWritePolicy.commandClass;
   if (repoReadCliActionKinds.has(kind)) return "repo-read";

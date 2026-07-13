@@ -16,6 +16,7 @@ import type {
   DelegationTokenVerifier,
   ReplicaChangeLog
 } from "./types.ts";
+import { shadowPublicationSchema, type ShadowPublicationLog } from "./shadow.ts";
 
 export interface AuthoritySubmissionServiceOptions {
   readonly workspaceId: string;
@@ -25,6 +26,7 @@ export interface AuthoritySubmissionServiceOptions {
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly publicationInspector: CanonicalPublicationInspector;
   readonly fenceWitness: AuthorityFenceWitness;
+  readonly shadowPublicationLog?: ShadowPublicationLog;
   readonly now?: () => string;
 }
 
@@ -128,6 +130,18 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     };
     try {
       await options.replicaChangeLog.append(change);
+      if (options.shadowPublicationLog) {
+        const priorShadow = await options.shadowPublicationLog.list(envelope.workspaceId);
+        await options.shadowPublicationLog.append({
+          schema: shadowPublicationSchema,
+          workspaceId: envelope.workspaceId,
+          sequence: priorShadow.length + 1,
+          commitSha,
+          previousCommit: previousHead,
+          opIds: [envelope.opId],
+          observedAt: change.changedAt
+        });
+      }
       await put(envelope, semanticDigest, "INDEXED", undefined, commitSha);
     } catch (error) {
       return persistTerminal(envelope, semanticDigest, "INDETERMINATE", indeterminate(envelope, semanticDigest, `INDEX_RECOVERY_REQUIRED:${describe(error)}`, commitSha));

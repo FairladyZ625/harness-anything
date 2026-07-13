@@ -10,13 +10,20 @@ import test from "node:test";
 import {
   authorityProtocolTuple,
   canonicalAuthorityRequestDigest,
+  compareCanonicalPathBytes,
   createAuthoritySubmissionService,
   createInMemoryAuthorityOperationRegistry,
   createInMemoryReplicaChangeLog,
+  createInMemoryShadowPublicationLog,
+  createNamespaceAdmissionService,
+  reconcileShadowPublications,
+  NamespaceAdmissionError,
+  validatePortableManagedPath,
   type AuthorityOperationEnvelope,
   type CanonicalPublicationInspector,
   type DelegationTokenVerifier,
-  type ReplicaChangeLog
+  type ReplicaChangeLog,
+  type ShadowPublicationLog
 } from "../../application/src/index.ts";
 import {
   makeJournaledWriteCoordinator,
@@ -38,13 +45,62 @@ const workspaceId = "workspace-tw01";
 const channelNonceDigest = "sha256:channel-generation";
 const opaqueToken = "opaque-token-must-not-leak";
 
+test("portable-ascii-v2 rejects reserved, non-ASCII, overlong, and Windows-budget paths", () => {
+  for (const candidate of ["tasks/CON.md", "tasks/naïve.md", `tasks/${"a".repeat(113)}.md`, `${"a".repeat(181)}`]) {
+    assert.throws(() => validatePortableManagedPath(candidate), NamespaceAdmissionError, candidate);
+  }
+  assert.throws(
+    () => validatePortableManagedPath("tasks/ok.md", { windowsVisibleRootUnits: 60 }),
+    (error: unknown) => error instanceof NamespaceAdmissionError && error.code === "WINDOWS_ROOT_TOO_LONG"
+  );
+  assert.equal(validatePortableManagedPath("tasks/task_01ABC/INDEX.md", { windowsVisibleRootUnits: 59 }).policy, "portable-ascii-v2");
+  assert.deepEqual(["a", "A", "a-"].sort(compareCanonicalPathBytes), ["A", "a", "a-"]);
+});
+
+test("folded component trie rejects aliases and file ancestors while grandfathering exact legacy paths", () => {
+  const legacy = `tasks/${"legacy-".repeat(30)}.md`;
+  const admission = createNamespaceAdmissionService(["A/x.md", legacy]);
+
+  assert.equal(admission.admitNewPath(legacy), undefined, "an exact legacy update is not a new-path admission");
+  assert.throws(
+    () => admission.admitNewPath("a/y.md"),
+    (error: unknown) => error instanceof NamespaceAdmissionError && error.code === "CASE_COLLISION"
+  );
+  admission.admitNewPath("docs/file");
+  assert.throws(
+    () => admission.admitNewPath("docs/file/child.md"),
+    (error: unknown) => error instanceof NamespaceAdmissionError && error.code === "FILE_ANCESTOR"
+  );
+});
+
+test("shadow reconciliation reports exact matches and names commit divergence", () => {
+  const canonical = [{ commitSha: "a".repeat(40), previousCommit: "b".repeat(40), opIds: ["op-1"] }];
+  const matching = [{
+    schema: "shadow-publication/v1" as const,
+    workspaceId,
+    sequence: 1,
+    ...canonical[0]!,
+    observedAt: "2026-07-13T00:00:00.000Z"
+  }];
+  assert.equal(reconcileShadowPublications({ workspaceId, canonical, shadow: matching }).status, "MATCH");
+
+  const divergent = [{ ...matching[0]!, commitSha: "c".repeat(40) }];
+  const report = reconcileShadowPublications({ workspaceId, canonical, shadow: divergent });
+  assert.equal(report.status, "DIFFERENT");
+  assert.deepEqual(report.differences.map((entry) => entry.code), ["CANONICAL_COMMIT_MISMATCH"]);
+});
+
 test("authority serializes concurrent attributed submissions into a linear one-operation commit chain", async () => {
   await withHermeticGit(async ({ rootDir, env }) => {
     const changeLog = createInMemoryReplicaChangeLog();
-    const service = makeAuthority(rootDir, env, changeLog);
+    const shadowLog = createInMemoryShadowPublicationLog();
+    const service = makeAuthority(rootDir, env, changeLog, shadowLog);
     const envelopes = Array.from({ length: 8 }, (_, index) => operationEnvelope(`op-${index}`, `task-tw01-${index}`, `body-${index}\n`));
 
     const receipts = await Promise.all(envelopes.map((envelope) => service.submit(envelope)));
+    const shadow = await shadowLog.list(workspaceId);
+    assert.equal(shadow.length, envelopes.length);
+    assert.deepEqual(shadow.map((record) => record.opIds), envelopes.map((envelope) => [envelope.opId]));
 
     assert.equal(receipts.every((receipt) => receipt.tag === "COMMITTED"), true, JSON.stringify(receipts));
     assert.deepEqual(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.revision : -1), [1, 2, 3, 4, 5, 6, 7, 8]);
@@ -118,7 +174,7 @@ test("length-prefixed decoder rejects an oversized frame from its header before 
   assert.deepEqual(batch.frames, []);
 });
 
-function makeAuthority(rootDir: string, env: NodeJS.ProcessEnv, replicaChangeLog: ReplicaChangeLog) {
+function makeAuthority(rootDir: string, env: NodeJS.ProcessEnv, replicaChangeLog: ReplicaChangeLog, shadowPublicationLog?: ShadowPublicationLog) {
   return createAuthoritySubmissionService({
     workspaceId,
     coordinatorFactory: {
@@ -132,6 +188,7 @@ function makeAuthority(rootDir: string, env: NodeJS.ProcessEnv, replicaChangeLog
     tokenVerifier: tokenVerifier(),
     operationRegistry: createInMemoryAuthorityOperationRegistry(),
     replicaChangeLog,
+    ...(shadowPublicationLog ? { shadowPublicationLog } : {}),
     publicationInspector: gitPublicationInspector(rootDir, env),
     fenceWitness: { assertHeld: async () => undefined },
     now: () => "2026-07-13T00:00:00.000Z"

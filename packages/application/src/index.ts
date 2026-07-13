@@ -13,8 +13,12 @@ export {
   authorityProtocolTuple,
   canonicalAuthorityRequestDigest,
   createAuthoritySubmissionService,
+  createInMemoryShadowPublicationLog,
   createInMemoryAuthorityOperationRegistry,
-  createInMemoryReplicaChangeLog
+  createInMemoryReplicaChangeLog,
+  reconcileShadowPublications,
+  shadowPublicationSchema,
+  shadowReconciliationSchema
 } from "./authority/index.ts";
 export type {
   AttributedCoordinatorFactory,
@@ -38,6 +42,14 @@ export type {
   DelegationTokenVerifier,
   ReplicaChangeLog,
   ReplicaChangeRecord
+} from "./authority/index.ts";
+export type {
+  CanonicalPublicationObservation,
+  ShadowDifference,
+  ShadowDifferenceCode,
+  ShadowPublicationLog,
+  ShadowPublicationRecord,
+  ShadowReconciliationReport
 } from "./authority/index.ts";
 export {
   classifyCompoundExit,
@@ -72,6 +84,23 @@ export type {
   ViewUnavailableOrigin
 } from "./receipt/index.ts";
 export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
+export {
+  compareCanonicalPathBytes,
+  createNamespaceAdmissionService,
+  foldPortableComponent,
+  FoldedComponentTrie,
+  NamespaceAdmissionError,
+  portableAsciiV2,
+  validatePortableManagedPath
+} from "./namespace/index.ts";
+export type {
+  ExistingManagedPath,
+  ManagedObjectKind,
+  NamespaceAdmissionCode,
+  NamespaceAdmissionService,
+  PortablePathDescriptor,
+  PortablePathOptions
+} from "./namespace/index.ts";
 export { CODE_DOC_RECONCILIATION_DOCUMENT, evaluateCodeDocReconciliationGate, renderCodeDocReconciliationDraft } from "./code-doc-reconciliation.ts";
 export { currentSessionToProvenancePayload, defaultRuntimeSessionEnvCandidates, makeEnvironmentCurrentSessionProbe, makeHumanFallbackSessionProbe } from "./current-session-probe.ts";
 export { bindCreateProvenance } from "./provenance-binding.ts";
