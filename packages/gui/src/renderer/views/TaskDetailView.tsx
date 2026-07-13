@@ -17,7 +17,7 @@ import type {
   TaskRow,
   RelationEdge,
 } from "../model/types";
-import { isExternal, isTerminal, DOC_GROUPS } from "../model/types";
+import { isExternal, isTerminal } from "../model/types";
 import {
   STATUS_META,
   StatusBadge,
@@ -33,9 +33,11 @@ import {
   OUT_LABEL,
   IN_LABEL,
 } from "../components/taskDetail/constants";
-import { AxisRow, DocPresence } from "../components/taskDetail/widgets";
+import { AxisRow } from "../components/taskDetail/widgets";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps";
 import { RelationRow } from "../components/taskDetail/RelationRow";
+import { DocTree } from "../components/taskDetail/DocTree";
+import { buildDocTree } from "../model/docTree";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
 import { useTaskDetailQuery, useTaskDocumentQuery, useReviewTaskMutation } from "../task-data";
 
@@ -177,11 +179,9 @@ export function TaskDetailView({
       };
     });
   }, [detailQuery.data, task.docs]);
-  // 文档清单只看必读/计划/设计/进度/收口/证据 6 组;其他归入进度(滚动日志)。
-  const docGroups = useMemo(
-    () => DOC_GROUPS.filter((g) => realDocs.some((d) => d.group === g)),
-    [realDocs],
-  );
+  // 文档路径分段树:按真实目录结构(artifacts/ 及更深子目录可展开),
+  // 替代原来的 6-组扁平分组(inferDocGroup 把没匹配上的路径全倒进兜底桶)。
+  const docTree = useMemo(() => buildDocTree(realDocs), [realDocs]);
 
   const [activeDoc, setActiveDoc] = useState(
     () => realDocs[0]?.path ?? task.docs[0]?.path ?? "",
@@ -239,57 +239,13 @@ export function TaskDetailView({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 文档目录树 */}
+        {/* 文档目录树(路径分段树,支持展开 artifacts/ 及更深子目录) */}
         <nav className="w-56 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
-          {docGroups.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
-              投影未返回文档清单
-            </div>
-          ) : (
-            docGroups.map((g) => {
-              const groupDocs = realDocs.filter((d) => d.group === g);
-              const presentCount = groupDocs.filter((d) => d.present).length;
-              return (
-                <div key={g} className="mb-3">
-                  <div className="flex items-center justify-between px-1 pb-1">
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                      {g}
-                    </span>
-                    <span className="font-mono text-[10px] text-text-faint">
-                      {presentCount}/{groupDocs.length}
-                    </span>
-                  </div>
-                  {groupDocs.map((d) => (
-                    <button
-                      key={d.path}
-                      onClick={() => setActiveDoc(d.path)}
-                      className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[13px] ${
-                        activeDoc === d.path
-                          ? "bg-surface-raised text-text"
-                          : "text-text-muted hover:text-text"
-                      }`}
-                    >
-                      <DocPresence doc={d} />
-                      <span className="min-w-0 truncate">{d.title}</span>
-                      {d.required && (
-                        <span className="shrink-0 rounded border border-border px-1 text-[9px] text-text-faint">
-                          必需
-                        </span>
-                      )}
-                      {!d.present && d.required && (
-                        <span
-                          className="shrink-0 text-[10px]"
-                          style={{ color: "var(--color-danger)" }}
-                        >
-                          缺失
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              );
-            })
-          )}
+          <DocTree
+            nodes={docTree}
+            activeDoc={activeDoc}
+            onSelectDoc={setActiveDoc}
+          />
         </nav>
 
         {/* 文档阅读区 */}
