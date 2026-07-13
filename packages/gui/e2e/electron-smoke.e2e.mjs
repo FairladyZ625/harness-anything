@@ -347,10 +347,11 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   }
   const factPalette = page.getByTestId("command-palette");
   await factPalette.getByTestId("command-palette-input").fill("f:renderer received");
-  await factPalette.getByText("Fact", { exact: true }).waitFor();
+  await factPalette.getByText(localeLiteral("components.commandPalette.groupFact"), { exact: true }).waitFor();
   const factItem = factPalette.getByTestId("command-palette-item").filter({ hasText: "renderer received" });
   await factItem.waitFor();
-  assert.equal(await factItem.locator("[data-hit-kind]").getAttribute("data-hit-kind"), "fact", "palette item matching fact substring must be tagged kind=fact");
+  // data-hit-kind sits on the palette item itself, not on a descendant — locator() would look past it.
+  assert.equal(await factItem.getAttribute("data-hit-kind"), "fact", "palette item matching fact substring must be tagged kind=fact");
   // Evidence: fact enters the unified index.
   await captureGraphEvidence(page, "04b-command-palette-fact-in-index");
   // Close the palette without selecting — Esc keyboard path.
@@ -458,7 +459,9 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   // (The reset above cleared the focused state; the select path re-establishes it.)
   await poolFilters.nth(1).selectOption("high");
   await poolFilters.nth(2).selectOption("high");
-  await poolFilters.nth(5).selectOption("agent");
+  // Do NOT touch the originator filter here: as noted above, the hermetic
+  // fixture leaves originator.executor unpopulated, so selecting "agent"
+  // empties the list and the focused card disappears.
 
   // Entity surfaces can focus the same decision in GraphView.
   await focusedDecision.locator(
