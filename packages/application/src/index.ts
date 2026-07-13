@@ -15,6 +15,8 @@ export interface LocalControllerServiceOptions {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly taskWriter: LocalControllerTaskWriter;
   readonly artifactStore: Pick<ArtifactStore, "readTaskPackage" | "listAuthoredDocuments" | "readAuthoredDocument">;
+  readonly catalogSnapshotReader?: () => CatalogSnapshotResult;
+  readonly decisionMutationPort?: LocalControllerDecisionMutationPort;
 }
 
 export interface LocalControllerSuccess {
@@ -344,6 +346,146 @@ export interface TriadicProjectionSuccess extends LocalControllerSuccess {
 
 export type TriadicProjectionResult = TriadicProjectionSuccess | LocalControllerFailure;
 
+export interface CatalogTemplateSelection {
+  readonly slot: string;
+  readonly templateRef: string;
+  readonly materializeAs: string;
+  readonly locales: ReadonlyArray<string>;
+}
+
+export interface CatalogPresetEntry {
+  readonly id: string;
+  readonly title?: string;
+  readonly source: "project" | "user" | "builtin";
+  readonly version?: string;
+  readonly kind?: "template-content" | "process-action";
+  readonly vertical?: string;
+  readonly extends?: string;
+  readonly defaultProfile?: string;
+  readonly capabilityImports: ReadonlyArray<string>;
+  readonly selections: ReadonlyArray<CatalogTemplateSelection>;
+  readonly valid: boolean;
+  readonly issueCount: number;
+}
+
+export interface CatalogVerticalEntityKind {
+  readonly id: string;
+  readonly entityType: "lifecycle" | "schema";
+  readonly contractEntity: boolean;
+}
+
+export interface CatalogVerticalEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly version: string;
+  readonly entityKinds: ReadonlyArray<CatalogVerticalEntityKind>;
+  readonly templateSlots: ReadonlyArray<string>;
+}
+
+export interface CatalogTemplateEntry {
+  readonly ref: string;
+  readonly documentKind: string;
+  readonly version: string;
+  readonly locales: ReadonlyArray<string>;
+  readonly usedByPresetIds: ReadonlyArray<string>;
+}
+
+export interface CatalogAdapterEntry {
+  readonly id: "local" | "multica";
+  readonly capabilities: ReadonlyArray<string>;
+  readonly readonly: boolean;
+  readonly writable: boolean;
+  readonly defaultProvider: boolean;
+}
+
+export interface CatalogSnapshotSuccess extends LocalControllerSuccess {
+  readonly activeVerticalId: string;
+  readonly activePresetId?: string;
+  readonly customVerticalsImplemented: false;
+  readonly presets: ReadonlyArray<CatalogPresetEntry>;
+  readonly verticals: ReadonlyArray<CatalogVerticalEntry>;
+  readonly templates: ReadonlyArray<CatalogTemplateEntry>;
+  readonly adapters: ReadonlyArray<CatalogAdapterEntry>;
+}
+
+export type CatalogSnapshotResult = CatalogSnapshotSuccess | LocalControllerFailure;
+
+export interface DecisionChoicePayload {
+  readonly id?: string;
+  readonly text: string;
+  readonly load_bearing?: boolean;
+}
+
+export interface DecisionRejectedPayload extends DecisionChoicePayload {
+  readonly why_not: string;
+}
+
+export interface DecisionClaimPayload extends DecisionChoicePayload {
+  readonly fulfillment?: "evidenced" | "delivered" | "standing-policy";
+}
+
+export interface DecisionEvidenceRelationPayload {
+  readonly anchor: string;
+  readonly type: string;
+  readonly target: string;
+  readonly rationale: string;
+}
+
+export interface DecisionProposePayload {
+  readonly decisionId?: string;
+  readonly title: string;
+  readonly question: string;
+  readonly chosen: ReadonlyArray<DecisionChoicePayload>;
+  readonly rejected: ReadonlyArray<DecisionRejectedPayload>;
+  readonly claims?: ReadonlyArray<DecisionClaimPayload>;
+  readonly riskTier: "low" | "medium" | "high";
+  readonly urgency: "low" | "medium" | "high";
+  readonly modules?: ReadonlyArray<string>;
+  readonly productLines?: ReadonlyArray<string>;
+  readonly evidenceRelations?: ReadonlyArray<DecisionEvidenceRelationPayload>;
+  readonly body?: string;
+}
+
+export interface DecisionTransitionPayload {
+  readonly decisionId: string;
+  readonly decidedAt?: string;
+  readonly judgmentOnlyRationale?: string;
+  readonly standingPolicy?: boolean;
+  readonly body?: string;
+}
+
+export interface DecisionMutationSuccess extends LocalControllerSuccess {
+  readonly decisionId: string;
+  readonly state: string;
+}
+
+export type DecisionMutationResult = DecisionMutationSuccess | LocalControllerFailure;
+
+export interface LocalControllerCredential {
+  readonly kind: string;
+  readonly issuer: string;
+  readonly subject: string;
+}
+
+export interface LocalControllerAuthenticatedActor {
+  readonly personId: string;
+  readonly displayName: string;
+  readonly primaryEmail?: string;
+  readonly resolvedCredential: LocalControllerCredential;
+  readonly providerId: string;
+}
+
+export interface LocalControllerCallContext {
+  readonly actor?: LocalControllerAuthenticatedActor;
+}
+
+export interface LocalControllerDecisionMutationPort {
+  readonly propose: (payload: DecisionProposePayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
+  readonly accept: (payload: DecisionTransitionPayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
+  readonly reject: (payload: DecisionTransitionPayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
+  readonly defer: (payload: DecisionTransitionPayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
+}
+
 export interface TaskIdPayload {
   readonly taskId: string;
 }
@@ -396,6 +538,7 @@ export interface OpenShellSuccess extends LocalControllerSuccess {
 export type OpenShellResult = OpenShellSuccess | LocalControllerFailure;
 
 export interface LocalControllerService {
+  readonly getCatalogSnapshot: () => CatalogSnapshotResult;
   readonly getTasks: () => TaskListResult;
   readonly getTaskDetail: (payload: TaskIdPayload) => Promise<TaskDetailResult>;
   readonly getTaskDocument: (payload: TaskDocumentPayload) => Promise<TaskDocumentResult>;
@@ -404,6 +547,10 @@ export interface LocalControllerService {
   readonly getRelationGraph: () => RelationGraphReadResult;
   readonly getDecisions: () => DecisionListResult;
   readonly getDecisionDetail: (payload: DecisionIdPayload) => DecisionDetailResult;
+  readonly proposeDecision: (payload: DecisionProposePayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
+  readonly acceptDecision: (payload: DecisionTransitionPayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
+  readonly rejectDecision: (payload: DecisionTransitionPayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
+  readonly deferDecision: (payload: DecisionTransitionPayload, context?: LocalControllerCallContext) => Promise<DecisionMutationResult>;
   readonly getTaskExecutions: (payload: TaskIdPayload) => TaskExecutionListResult;
   readonly getExecutions: () => ExecutionListResult;
   readonly getExecutionEvidencePage: (payload: ExecutionEvidencePagePayload) => ExecutionEvidencePageResult;

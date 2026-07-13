@@ -13,7 +13,7 @@ import type { EngineId, Project, TaskRow } from "./model/types.ts";
 
 const REAL_PROJECT_ID = "harness-anything";
 
-const KNOWN_ENGINES: ReadonlySet<string> = new Set(["local", "multica", "github", "linear"]);
+const KNOWN_ENGINES: ReadonlySet<string> = new Set(["local", "multica"]);
 
 function toEngineId(lifecycleEngine: string): EngineId {
   return (KNOWN_ENGINES.has(lifecycleEngine) ? lifecycleEngine : "local") as EngineId;

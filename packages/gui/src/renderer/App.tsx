@@ -16,6 +16,7 @@ import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
 import { useTasksQuery, useSetTaskStatusMutation } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
+import { useCatalogQuery } from "./catalog-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import { MOCK_BACKED_VIEWS, type ViewId } from "./shell-config.tsx";
 import { useNavigationHistory } from "./navigation/useNavigationHistory.ts";
@@ -44,6 +45,7 @@ function AppShell() {
 
   const tasksQuery = useTasksQuery();
   const triadicQuery = useTriadicProjectionQuery();
+  const catalogQuery = useCatalogQuery();
   const realTasks = useMemo(
     () => adaptProjectionRows(tasksQuery.data?.tasks ?? []),
     [tasksQuery.data],
@@ -54,7 +56,11 @@ function AppShell() {
     setTasks(realTasks);
   }, [realTasks]);
 
-  const project = useMemo(() => buildRealProject(realTasks), [realTasks]);
+  const project = useMemo(() => ({
+    ...buildRealProject(realTasks),
+    preset: catalogQuery.data?.activePresetId ?? "未配置",
+    engines: catalogQuery.data?.adapters.map((adapter) => adapter.engine) ?? ["local"]
+  }), [catalogQuery.data, realTasks]);
   const projectId = project.id;
   const projects = useMemo(() => [project], [project]);
   const { favorites, toggleFavorite } = useFavorites(projectId);
@@ -263,6 +269,9 @@ function AppShell() {
               drill={location.drill}
               focusedEntityRef={location.focusedEntityRef}
               project={project}
+              catalog={catalogQuery.data}
+              catalogLoading={catalogQuery.isLoading}
+              catalogError={catalogQuery.isError}
               projectTasks={projectTasks}
               tasks={tasks}
               triadic={{ decisions, facts, relations, coverageRows, factAnchors }}

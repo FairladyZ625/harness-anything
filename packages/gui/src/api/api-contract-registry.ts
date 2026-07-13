@@ -41,9 +41,13 @@ export interface EmptyGuiPayload {
 export const apiSchemaContracts = [
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "application.append-task-progress-payload/v1", owner: "application", typeName: "AppendTaskProgressPayload" },
+  { id: "application.catalog-snapshot-result/v1", owner: "application", typeName: "CatalogSnapshotResult" },
   { id: "application.decision-detail-result/v1", owner: "application", typeName: "DecisionDetailResult" },
   { id: "application.decision-id-payload/v1", owner: "application", typeName: "DecisionIdPayload" },
   { id: "application.decision-list-result/v1", owner: "application", typeName: "DecisionListResult" },
+  { id: "application.decision-mutation-result/v1", owner: "application", typeName: "DecisionMutationResult" },
+  { id: "application.decision-propose-payload/v1", owner: "application", typeName: "DecisionProposePayload" },
+  { id: "application.decision-transition-payload/v1", owner: "application", typeName: "DecisionTransitionPayload" },
   { id: "application.execution-detail-result/v1", owner: "application", typeName: "ExecutionDetailResult" },
   { id: "application.execution-evidence-page-payload/v1", owner: "application", typeName: "ExecutionEvidencePagePayload" },
   { id: "application.execution-evidence-page-result/v1", owner: "application", typeName: "ExecutionEvidencePageResult" },
@@ -77,6 +81,18 @@ export const apiSchemaContracts = [
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
 export const apiRouteContracts = [
+  {
+    id: "catalog.snapshot",
+    method: "GET",
+    path: "/api/catalog",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.catalog-snapshot-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getCatalogSnapshot",
+    auth: "local-session-token",
+    guiBridgeMethod: "getCatalogSnapshot"
+  },
   {
     id: "tasks.list",
     method: "GET",
@@ -281,6 +297,58 @@ export const apiRouteContracts = [
     serviceMethod: "getReviewDetail",
     auth: "local-session-token",
     guiBridgeMethod: "getReviewDetail"
+  },
+  {
+    id: "decisions.propose",
+    method: "POST",
+    path: "/api/decisions",
+    inputSchemaId: "application.decision-propose-payload/v1",
+    outputSchemaId: "application.decision-mutation-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "proposeDecision",
+    auth: "local-session-token",
+    guiBridgeMethod: "proposeDecision",
+    commandClass: "repo-write"
+  },
+  {
+    id: "decisions.accept",
+    method: "POST",
+    path: "/api/decisions/:decisionId/accept",
+    inputSchemaId: "application.decision-transition-payload/v1",
+    outputSchemaId: "application.decision-mutation-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "acceptDecision",
+    auth: "local-session-token",
+    guiBridgeMethod: "acceptDecision",
+    commandClass: "arbiter"
+  },
+  {
+    id: "decisions.reject",
+    method: "POST",
+    path: "/api/decisions/:decisionId/reject",
+    inputSchemaId: "application.decision-transition-payload/v1",
+    outputSchemaId: "application.decision-mutation-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "rejectDecision",
+    auth: "local-session-token",
+    guiBridgeMethod: "rejectDecision",
+    commandClass: "arbiter"
+  },
+  {
+    id: "decisions.defer",
+    method: "POST",
+    path: "/api/decisions/:decisionId/defer",
+    inputSchemaId: "application.decision-transition-payload/v1",
+    outputSchemaId: "application.decision-mutation-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "deferDecision",
+    auth: "local-session-token",
+    guiBridgeMethod: "deferDecision",
+    commandClass: "arbiter"
   },
   {
     id: "terminal.sessions.create",

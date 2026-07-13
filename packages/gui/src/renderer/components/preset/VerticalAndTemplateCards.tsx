@@ -6,9 +6,9 @@ export function VerticalCard({ v }: { v: VerticalInfo }) {
   return (
     <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="font-mono text-[13px] font-semibold">{v.name}</span>
+        <span className="font-mono text-[13px] font-semibold">{v.title}</span>
         <span className="font-mono text-[11px] text-text-faint">v{v.version}</span>
-        <span className="min-w-[14rem] flex-1 text-[11px] text-text-muted">{v.description}</span>
+        <span className="min-w-[14rem] flex-1 text-[11px] text-text-muted">{v.id}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className={SECTION_LABEL}>entityKinds</span>
@@ -22,28 +22,9 @@ export function VerticalCard({ v }: { v: VerticalInfo }) {
           </span>
         ))}
       </div>
-      <table className="mt-2 w-full text-left text-[11px]">
-        <thead>
-          <tr className="text-[10px] text-text-faint">
-            <th className="py-0.5 pr-2 font-normal">slot</th>
-            <th className="py-0.5 font-normal">required</th>
-          </tr>
-        </thead>
-        <tbody>
-          {v.slots.map((s) => (
-            <tr key={s.slot} className="border-t border-border/60">
-              <td className="py-1 pr-2 font-mono text-text">{s.slot}</td>
-              <td className="py-1">
-                {s.required ? (
-                  <span className="font-mono text-[10px] text-accent">required</span>
-                ) : (
-                  <span className="font-mono text-[10px] text-text-faint">optional</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="mt-2 flex flex-wrap gap-1">
+        {v.templateSlots.map((slot) => <span key={slot} className={CHIP}>{slot}</span>)}
+      </div>
       <p className="mt-2 text-[10px] text-text-faint">
         Vertical 不定义 statusMapping；新增 vertical 不得改 kernel entity
       </p>
@@ -67,13 +48,13 @@ export function TemplateCard({
         >
           {shortRef(t.ref)}
         </span>
-        <span className={CHIP}>{t.kind}</span>
+        <span className={CHIP}>{t.documentKind}</span>
         <span className="font-mono text-[11px] text-text-faint">v{t.version}</span>
         <LocaleBadges locales={t.locales} warnMissingZh />
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <span className={SECTION_LABEL}>usedBy</span>
-        {t.usedBy.map((id) => (
+        {t.usedByPresetIds.map((id) => (
           <button
             key={id}
             onClick={() => onJumpToPreset(id)}
@@ -82,7 +63,7 @@ export function TemplateCard({
             {id}
           </button>
         ))}
-        <span className="min-w-[12rem] flex-1 text-[11px] text-text-muted">{t.description}</span>
+        {t.usedByPresetIds.length === 0 && <span className="text-[11px] text-text-faint">未被当前解析后的 preset 直接选用</span>}
       </div>
     </div>
   );

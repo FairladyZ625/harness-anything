@@ -1,6 +1,5 @@
 import { ArrowRight } from "@phosphor-icons/react";
-import type { PresetEntry } from "../../model/types";
-import { MOCK_TEMPLATES, MOCK_VERTICALS } from "../../model/mock";
+import type { PresetEntry, TemplateInfo, VerticalInfo } from "../../model/types";
 import { CHIP, SECTION_LABEL, chainOf, shortRef } from "./shared";
 import type { TabId } from "./shared";
 
@@ -8,22 +7,26 @@ export function PresetContextRail({
   activePreset,
   focusedPreset,
   all,
+  verticals,
+  templates,
   tab,
 }: {
   activePreset: PresetEntry;
   focusedPreset: PresetEntry;
   all: PresetEntry[];
+  verticals: VerticalInfo[];
+  templates: TemplateInfo[];
   tab: TabId;
 }) {
   const chain = chainOf(focusedPreset, all);
-  const vertical = MOCK_VERTICALS.find((v) => v.id === focusedPreset.vertical);
+  const vertical = verticals.find((v) => v.id === focusedPreset.vertical);
   const directSelections = focusedPreset.selections.length;
   const inheritedCount = Math.max(
     0,
     chain.slice(1).reduce((sum, p) => sum + p.selections.length, 0),
   );
   const selectedTemplates = new Set(focusedPreset.selections.map((s) => s.templateRef));
-  const templateCoverage = MOCK_TEMPLATES.filter((t) => selectedTemplates.has(t.ref));
+  const templateCoverage = templates.filter((t) => selectedTemplates.has(t.ref));
 
   return (
     <aside className="sticky top-4 hidden self-start rounded-lg border border-border bg-surface px-3 py-3 lg:block">
@@ -35,7 +38,7 @@ export function PresetContextRail({
       <div className="mt-3 border-b border-border pb-3">
         <div className="text-[10px] text-text-faint">当前激活</div>
         <div className="mt-1 font-mono text-[13px] font-semibold text-text">{activePreset.id}</div>
-        <div className="mt-1 text-[11px] text-text-muted">{activePreset.description}</div>
+        <div className="mt-1 text-[11px] text-text-muted">{activePreset.title ?? "无标题"}</div>
       </div>
 
       <div className="border-b border-border py-3">
@@ -68,7 +71,7 @@ export function PresetContextRail({
       <div className="border-b border-border py-3">
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <div className="font-mono text-[17px] font-semibold text-text">{vertical?.slots.length ?? 0}</div>
+            <div className="font-mono text-[17px] font-semibold text-text">{vertical?.templateSlots.length ?? 0}</div>
             <div className="text-[10px] text-text-faint">vertical slots</div>
           </div>
           <div>

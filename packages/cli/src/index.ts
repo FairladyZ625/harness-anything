@@ -38,6 +38,7 @@ import { daemonActorAttribution } from "./composition/actor-attribution.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator } from "./daemon/queued-write-coordinator.ts";
 import { failClosedReservationReconcilerCoordinator, makeDaemonReservationReconciler } from "./composition/reservation-reconciler.ts";
 import { leaseEnforcementEnabled } from "./commands/settings.ts";
+import { makeDaemonGuiControllerOptions } from "./commands/extensions/gui-controller-options.ts";
 import { makeMarkdownArtifactStore } from "../../kernel/src/index.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
@@ -399,7 +400,8 @@ function createRepoServiceBinding(
     rootDir,
     layoutOverrides,
     taskWriter,
-    artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides })
+    artifactStore: makeMarkdownArtifactStore({ rootDir, layoutOverrides }),
+    ...makeDaemonGuiControllerOptions(runtime, { rootDir, layoutOverrides }, commandOptions)
   });
   const cliCommandService = createCliCommandService(runtime, commandOptions);
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({

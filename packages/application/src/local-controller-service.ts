@@ -45,6 +45,10 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
   });
 
   return {
+    getCatalogSnapshot: () => options.catalogSnapshotReader?.() ?? ({
+      ok: false,
+      error: { code: "catalog_unavailable", hint: "Catalog snapshot reader is not configured." }
+    }),
     getTasks: () => {
       const result = queryTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, filters: {} });
       return { ok: true, tasks: result.rows, warnings: result.warnings };
@@ -110,6 +114,10 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       if (!decision) return decisionNotFound(payload.decisionId);
       return { ok: true, decision, warnings: result.warnings };
     },
+    proposeDecision: (payload, context) => options.decisionMutationPort?.propose(payload, context) ?? decisionMutationUnavailable(),
+    acceptDecision: (payload, context) => options.decisionMutationPort?.accept(payload, context) ?? decisionMutationUnavailable(),
+    rejectDecision: (payload, context) => options.decisionMutationPort?.reject(payload, context) ?? decisionMutationUnavailable(),
+    deferDecision: (payload, context) => options.decisionMutationPort?.defer(payload, context) ?? decisionMutationUnavailable(),
     getTaskExecutions: (payload) => {
       validateLocalControllerTaskId(payload.taskId);
       return { ok: true, taskId: payload.taskId, executions: queryExecutionsByTask({ rootDir, layoutOverrides: options.layoutOverrides, taskId: payload.taskId }) };
@@ -260,6 +268,13 @@ function taskNotFound(taskId: string): LocalControllerFailure {
 
 function decisionNotFound(decisionId: string): LocalControllerFailure {
   return { ok: false, error: { code: "decision_not_found", hint: `decision not found: ${decisionId}` } };
+}
+
+function decisionMutationUnavailable(): Promise<LocalControllerFailure> {
+  return Promise.resolve({
+    ok: false,
+    error: { code: "decision_mutation_unavailable", hint: "Decision mutation port is not configured." }
+  });
 }
 
 function documentNotFound(documentPath: string): LocalControllerFailure {

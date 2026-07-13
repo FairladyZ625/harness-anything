@@ -6,26 +6,31 @@ import { AdapterContextRail } from "../components/adapter/AdapterContextRail";
 export function AdaptersView({
   adapters,
   tasks,
+  loading,
+  failed,
 }: {
   adapters: AdapterInfo[];
   tasks: TaskRow[];
+  loading: boolean;
+  failed: boolean;
 }) {
-  const riskAdapter =
-    adapters.find((a) => a.unmappedRaw.length > 0) ??
-    adapters.find((a) => a.freshness !== "fresh") ??
-    adapters[0];
-  const [focusedEngine, setFocusedEngine] = useState(riskAdapter?.engine);
+  const initialAdapter = adapters[0];
+  const [focusedEngine, setFocusedEngine] = useState(initialAdapter?.engine);
   const focusedAdapter =
-    adapters.find((a) => a.engine === focusedEngine) ?? riskAdapter ?? adapters[0];
+    adapters.find((a) => a.engine === focusedEngine) ?? initialAdapter;
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <h1 className="ui-title font-mono font-semibold">引擎 / Adapter</h1>
         <p className="mt-0.5 text-[11px] text-text-faint">
-          GUI 不直接调外部引擎 API；刷新 = 触发 check 等价调用落缓存。
+          只显示当前代码中实际注册的 provider metadata；连接状态与凭证不在此 snapshot 内。
         </p>
       </header>
+      {loading && <p className="p-4 text-sm text-text-muted">正在读取 adapter registry…</p>}
+      {failed && <p className="p-4 text-sm text-danger">adapter registry 读取失败。</p>}
+      {!loading && !failed && adapters.length === 0 && <p className="p-4 text-sm text-text-muted">没有已注册 adapter。</p>}
+      {!loading && !failed && adapters.length > 0 &&
       <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="flex min-w-0 flex-col gap-3">
           {adapters.map((a) => (
@@ -33,7 +38,7 @@ export function AdaptersView({
               key={a.engine}
               adapter={a}
               projectedCount={tasks.filter((t) => t.engine === a.engine).length}
-              focused={a.engine === focusedAdapter.engine}
+              focused={a.engine === focusedAdapter?.engine}
               onFocus={() => setFocusedEngine(a.engine)}
             />
           ))}
@@ -47,6 +52,7 @@ export function AdaptersView({
           />
         )}
       </div>
+      }
     </div>
   );
 }

@@ -1,0 +1,9 @@
+{
+  "decisionId": "dec_1",
+  "title": "Choose a write path",
+  "question": "Which path should the GUI use?",
+  "chosen": [{ "text": "Use the daemon bridge" }],
+  "rejected": [{ "text": "Write directly", "why_not": "It bypasses authority." }],
+  "riskTier": "medium",
+  "urgency": "medium"
+}

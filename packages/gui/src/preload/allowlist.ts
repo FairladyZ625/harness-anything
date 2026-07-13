@@ -14,6 +14,7 @@ export interface PreloadApiCapability {
 }
 
 export const allowedPreloadApi = Object.freeze({
+  getCatalogSnapshot: "getCatalogSnapshot",
   getTasks: "getTasks",
   getTaskDetail: "getTaskDetail",
   getTaskDocument: "getTaskDocument",
@@ -34,11 +35,16 @@ export const allowedPreloadApi = Object.freeze({
   getTaskExecutions: "getTaskExecutions",
   getExecutionDetail: "getExecutionDetail",
   getReviewDetail: "getReviewDetail",
+  proposeDecision: "proposeDecision",
+  acceptDecision: "acceptDecision",
+  rejectDecision: "rejectDecision",
+  deferDecision: "deferDecision",
   archiveTask: "archiveTask",
   openShell: "openShell"
 } as const satisfies { readonly [Method in PreloadApiMethod]: Method });
 
 export const preloadApiCapabilities = Object.freeze({
+  getCatalogSnapshot: { method: "getCatalogSnapshot", status: "shipped" },
   getTasks: { method: "getTasks", status: "shipped" },
   getTaskDetail: { method: "getTaskDetail", status: "shipped" },
   getTaskDocument: { method: "getTaskDocument", status: "shipped" },
@@ -59,6 +65,10 @@ export const preloadApiCapabilities = Object.freeze({
   getTaskExecutions: { method: "getTaskExecutions", status: "shipped" },
   getExecutionDetail: { method: "getExecutionDetail", status: "shipped" },
   getReviewDetail: { method: "getReviewDetail", status: "shipped" },
+  proposeDecision: { method: "proposeDecision", status: "shipped" },
+  acceptDecision: { method: "acceptDecision", status: "shipped" },
+  rejectDecision: { method: "rejectDecision", status: "shipped" },
+  deferDecision: { method: "deferDecision", status: "shipped" },
   archiveTask: {
     method: "archiveTask",
     status: "deferred",

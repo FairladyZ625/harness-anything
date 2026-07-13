@@ -306,7 +306,7 @@ async function callServiceMethod(
   if (taskLeaseFailure) return taskLeaseFailure;
   const result = contract.service === "TerminalSessionService"
     ? await invokeServiceMethod(services.TerminalSessionService, String(contract.serviceMethod), payload)
-    : await invokeServiceMethod(services.LocalControllerService, String(contract.serviceMethod), payload);
+    : await invokeServiceMethod(services.LocalControllerService, String(contract.serviceMethod), payload, actor);
   return isJsonObject(result)
     ? serviceResultReceipt(contract.method, result)
     : successReceipt(contract.method, `completed ${contract.method}`, { value: toJsonValue(result) });
@@ -539,10 +539,11 @@ function credentialJson(credential: { readonly kind: string; readonly issuer: st
 async function invokeServiceMethod(
   service: object,
   methodName: string,
-  payload: JsonObject | undefined
+  payload: JsonObject | undefined,
+  actor?: AuthenticatedActor
 ): Promise<unknown> {
-  const method = (service as Record<string, (payload?: JsonObject) => unknown>)[methodName];
-  return method.length === 0 ? await method() : await method(payload);
+  const method = (service as Record<string, (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor }) => unknown>)[methodName];
+  return method.length === 0 ? await method() : await method(payload, actor ? { actor } : undefined);
 }
 
 function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
