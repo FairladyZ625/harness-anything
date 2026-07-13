@@ -36,5 +36,6 @@ If this task is not a CI/gate/governance task but requires modifying CI/gate aut
 
 ## Verification
 
-- List required local checks, CI, and review evidence.
+- **Stop point = `npm run check:ci` green + a local commit.** It derives *every* job CI runs on a pull request from `tools/gate-manifest.json` and runs them all. Do not hand-copy a list of gates here: lists rot (`check:local` is only a fast-tier subset, and the `boundaries` job alone carries 35 gates), whereas this command grows with the manifest. Paste the `--json <path>` receipt into this section verbatim rather than writing "all green" — a receipt is an artifact, an assertion is not.
+- List any review and human acceptance conditions this task additionally requires.
 - Per `dec_mrg3z1we/CH4`, Facts are explicit `0..N` promotions, not a review or completion quantity gate; verify delivery through Execution outputs, review, closeout, and the applicable completion gates.

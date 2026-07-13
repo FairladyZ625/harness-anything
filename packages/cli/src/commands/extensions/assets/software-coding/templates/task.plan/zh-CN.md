@@ -36,5 +36,6 @@ Task Contract: harness-task v1
 
 ## Verification
 
-- 列出需要通过的本地检查、CI 和 review。
+- **停止点 = `npm run check:ci` 全绿 + 本地 commit。** 它从 `tools/gate-manifest.json` 派生出 CI 在 pull_request 上跑的**全部** job 并逐个执行——不要在这里手抄一张门的清单：清单会腐烂（`check:local` 只是 fast tier 子集，光 `boundaries` 一个 job 就 35 道门），而这条命令会跟着 manifest 自动长。把 `--json <path>` 回执原样贴进本节，别只写「全绿」——回执是产物，断言不是。
+- 列出本任务额外需要的 review 与人工验收条件。
 - 依据 `dec_mrg3z1we/CH4`，Fact 是 `0..N` 的显式晋升，不是 review 或 completion 的数量门；交付通过 Execution outputs、review、closeout 与适用的 completion gates 验证。
