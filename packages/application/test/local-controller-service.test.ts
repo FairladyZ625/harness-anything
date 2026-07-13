@@ -13,6 +13,12 @@ test("local controller service reads projection and writes through injected task
   try {
     writeTaskIndex(rootDir, "task-1", "Task One", "planned");
     writeTaskIndex(rootDir, "task-archived", "Archived Task", "done", "harness", "archived");
+    writeTaskDocument(rootDir, "task-1", "task_plan.md", "# Task plan\n");
+    writeTaskDocument(rootDir, "task-1", "artifacts/research/evidence.md", "# Evidence\n");
+    writeTaskDocument(rootDir, "task-1", "artifacts/diagram.png", "not really a png");
+    writeAuthoredDocument(rootDir, "adr/ADR-0001.md", "# ADR\n");
+    writeAuthoredDocument(rootDir, "artifacts/.gitkeep", "");
+    writeDecision(rootDir, "dec_test");
     const writes: string[] = [];
     const service = makeLocalControllerService({
       rootDir,
@@ -39,13 +45,50 @@ test("local controller service reads projection and writes through injected task
 
     const detail = await service.getTaskDetail({ taskId: "task-1" });
     assert.equal(detail.ok, true);
-    assert.deepEqual(detail.documents, [{ path: "INDEX.md" }]);
+    assert.deepEqual(detail.documents, [
+      { path: "artifacts/diagram.png", kind: "attachment" },
+      { path: "artifacts/research/evidence.md", kind: "document" },
+      { path: "INDEX.md", kind: "document" },
+      { path: "task_plan.md", kind: "document" }
+    ]);
+    assert.deepEqual(await service.getPeripheralDocuments(), {
+      ok: true,
+      documents: [
+        { path: "adr/ADR-0001.md" },
+        { path: "decisions/decision-dec_test/decision.md" }
+      ]
+    });
+    assert.deepEqual(await service.getPeripheralDocument({ path: "adr/ADR-0001.md" }), {
+      ok: true,
+      path: "adr/ADR-0001.md",
+      body: "# ADR\n"
+    });
+    assert.deepEqual(await service.getPeripheralDocument({ path: "tasks/task-1/INDEX.md" }), {
+      ok: false,
+      error: {
+        code: "document_not_found",
+        hint: "tasks/task-1/INDEX.md"
+      }
+    });
+    assert.deepEqual(await service.getPeripheralDocument({ path: "../secret.md" }), {
+      ok: false,
+      error: {
+        code: "invalid_payload",
+        hint: "portable document path is required."
+      }
+    });
 
     const document = await service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Task One/);
+    assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "artifacts/diagram.png" }), {
+      ok: false,
+      error: {
+        code: "attachment_not_renderable",
+        hint: "artifacts/diagram.png"
+      }
+    });
     writeTaskFacts(rootDir, "task-1");
-    writeDecision(rootDir, "dec_test");
     const relationGraph = service.getRelationGraph();
     assert.equal(relationGraph.ok, true);
     assert.deepEqual(relationGraph.factAnchors.map((anchor) => anchor.factRef), ["fact/task-1/F-12345678"]);
@@ -127,6 +170,7 @@ test("local controller service honors explicit authored root for reads and write
   const layoutOverrides = { authoredRoot: ".custom-harness" };
   try {
     writeTaskIndex(rootDir, "task-1", "Custom Task", "planned", layoutOverrides.authoredRoot);
+    writeAuthoredDocument(rootDir, "adr/custom.md", "# Custom ADR\n", layoutOverrides.authoredRoot);
     const service = makeLocalControllerService({
       rootDir,
       layoutOverrides,
@@ -147,9 +191,51 @@ test("local controller service honors explicit authored root for reads and write
     const document = await service.getTaskDocument({ taskId: "task-1", path: "INDEX.md" });
     assert.equal(document.ok, true);
     assert.match(document.body ?? "", /Custom Task/);
+    assert.deepEqual(await service.getPeripheralDocuments(), {
+      ok: true,
+      documents: [{ path: "adr/custom.md" }]
+    });
+    assert.deepEqual(await service.getPeripheralDocument({ path: "adr/custom.md" }), {
+      ok: true,
+      path: "adr/custom.md",
+      body: "# Custom ADR\n"
+    });
     assert.deepEqual(await service.appendTaskProgress({ taskId: "task-1", text: "custom progress" }), { ok: true });
     assert.match(readFileSync(path.join(rootDir, ".custom-harness/tasks/task-1/progress.md"), "utf8"), /custom progress/);
     assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md")), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("local controller service fails loudly when tasks root equals authored root", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-app-"));
+  try {
+    writeAuthoredDocument(rootDir, "harness.yaml", [
+      "schema: harness-anything/v1",
+      "layout:",
+      "  authoredRoot: harness",
+      "tasks:",
+      "  root: harness",
+      ""
+    ].join("\n"));
+    writeAuthoredDocument(rootDir, "adr.md", "# ADR\n");
+    const service = makeLocalControllerService({
+      rootDir,
+      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      taskWriter: {
+        setStatus: (payload) => Effect.succeed({ taskId: payload.taskId, status: payload.status }),
+        appendProgress: (payload) => Effect.succeed({ taskId: payload.taskId, path: "progress.md" })
+      }
+    });
+
+    assert.deepEqual(await service.getPeripheralDocuments(), {
+      ok: false,
+      error: {
+        code: "invalid_layout",
+        hint: "Peripheral documents require tasksRoot to differ from authoredRoot."
+      }
+    });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -177,6 +263,18 @@ function writeTaskIndex(rootDir: string, taskId: string, title: string, status: 
     "---",
     ""
   ].join("\n"), "utf8");
+}
+
+function writeTaskDocument(rootDir: string, taskId: string, documentPath: string, body: string): void {
+  const target = path.join(rootDir, "harness/tasks", taskId, documentPath);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, body, "utf8");
+}
+
+function writeAuthoredDocument(rootDir: string, documentPath: string, body: string, authoredRoot = "harness"): void {
+  const target = path.join(rootDir, authoredRoot, documentPath);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, body, "utf8");
 }
 
 function patchTaskStatus(rootDir: string, taskId: string, status: string): void {

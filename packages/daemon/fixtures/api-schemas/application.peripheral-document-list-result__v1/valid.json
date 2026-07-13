@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "documents": [
+    { "path": "governance/adr/ADR-0028.md" }
+  ]
+}

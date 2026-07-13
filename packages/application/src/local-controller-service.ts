@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactStore, EngineError, FactRecord, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactDocumentKind, ArtifactStore, AuthoredDocumentDescriptor, EngineError, FactRecord, HarnessLayout, WriteError } from "../../kernel/src/index.ts";
 import {
   parseFactFlowRecords,
   queryDecisionProjection,
@@ -15,6 +15,7 @@ import {
   resolveHarnessLayout
 } from "../../kernel/src/index.ts";
 import {
+  readPeripheralDocumentPayload,
   readTaskDocumentPayload,
   validateLocalControllerDecisionId,
   validateLocalControllerTaskId
@@ -25,7 +26,10 @@ import type {
   LocalControllerFailure,
   LocalControllerResult,
   LocalControllerService,
-  LocalControllerServiceOptions
+  LocalControllerServiceOptions,
+  PeripheralDocumentResult,
+  TaskDocumentDescriptor,
+  TaskDocumentKind
 } from "./index.ts";
 import { makeTaskLifecycleOrchestrator } from "./task-lifecycle-orchestrator.ts";
 
@@ -52,7 +56,7 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       return {
         ok: true,
         task,
-        documents: await Effect.runPromise(listKnownTaskDocuments(options.artifactStore, payload.taskId))
+        documents: await Effect.runPromise(listTaskDocuments(options.artifactStore, payload.taskId))
       };
     },
     getTaskDocument: async (payload) => {
@@ -60,6 +64,29 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       const parsed = readTaskDocumentPayload(payload);
       if (!parsed.ok) return parsed;
       return Effect.runPromise(readControllerTaskDocument(options.artifactStore, parsed.taskId, parsed.path));
+    },
+    getPeripheralDocuments: async () => {
+      const layout = resolveHarnessLayout({ rootDir, layoutOverrides: options.layoutOverrides });
+      const boundary = peripheralDocumentBoundary(layout);
+      if (!boundary.ok) return boundary;
+      // kernel 的 AuthoredDocumentDescriptor 只在这一层(实现)被消费,不上服务面 DTO ——
+      // controller 的 DTO 面不许泄漏 kernel 类型(check-service-mappability),所以这里
+      // 显式收窄成 application 自己的 { path } 描述符。
+      const documents = await Effect.runPromise(options.artifactStore.listAuthoredDocuments().pipe(
+        Effect.map((authoredDocuments: ReadonlyArray<AuthoredDocumentDescriptor>) => authoredDocuments
+          .filter((document) => boundary.includes(document.path))
+          .map((document) => ({ path: document.path }))),
+        Effect.catchAll(() => Effect.succeed([]))
+      ));
+      return { ok: true, documents };
+    },
+    getPeripheralDocument: async (payload) => {
+      const parsed = readPeripheralDocumentPayload(payload);
+      if (!parsed.ok) return parsed;
+      const boundary = peripheralDocumentBoundary(resolveHarnessLayout({ rootDir, layoutOverrides: options.layoutOverrides }));
+      if (!boundary.ok) return boundary;
+      if (!boundary.includes(parsed.path)) return documentNotFound(parsed.path);
+      return Effect.runPromise(readControllerPeripheralDocument(options.artifactStore, parsed.path));
     },
     getRelationGraph: () => {
       const result = readRelationGraphProjection({ rootDir, layoutOverrides: options.layoutOverrides });
@@ -201,16 +228,20 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
   };
 }
 
-const knownTaskDocuments = new Set(["INDEX.md", "progress.md", "review.md", "findings.md"]);
-
-function listKnownTaskDocuments(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<ReadonlyArray<{ readonly path: string }>> {
+function listTaskDocuments(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string): Effect.Effect<ReadonlyArray<TaskDocumentDescriptor>> {
   return artifactStore.readTaskPackage(taskId).pipe(
     Effect.map((taskPackage) => taskPackage.documents
-      .filter((document) => knownTaskDocuments.has(document.path))
-      .map((document) => ({ path: document.path }))
+      .map((document) => ({ path: document.path, kind: toTaskDocumentKind(document.kind) }))
       .sort((left, right) => left.path.localeCompare(right.path))),
     Effect.catchAll(() => Effect.succeed([]))
   );
+}
+
+// kernel 的分类翻成服务面自己的分类。今天两者字面量相同,这个函数看着多余 ——
+// 它的作用是让「kernel 的种类」与「controller DTO 的种类」在类型上是两件事:
+// kernel 将来加一种(比如 diagram),这里会立刻编译不过,而不是悄悄穿透到 GUI。
+function toTaskDocumentKind(kind: ArtifactDocumentKind): TaskDocumentKind {
+  return kind === "document" ? "document" : "attachment";
 }
 
 function taskNotFound(taskId: string): LocalControllerFailure {
@@ -219,6 +250,41 @@ function taskNotFound(taskId: string): LocalControllerFailure {
 
 function decisionNotFound(decisionId: string): LocalControllerFailure {
   return { ok: false, error: { code: "decision_not_found", hint: `decision not found: ${decisionId}` } };
+}
+
+function documentNotFound(documentPath: string): LocalControllerFailure {
+  return { ok: false, error: { code: "document_not_found", hint: documentPath } };
+}
+
+type PeripheralDocumentBoundary =
+  | { readonly ok: true; readonly includes: (documentPath: string) => boolean }
+  | LocalControllerFailure;
+
+function peripheralDocumentBoundary(layout: Pick<HarnessLayout, "authoredRoot" | "tasksRoot">): PeripheralDocumentBoundary {
+  const tasksPrefix = path.relative(layout.authoredRoot, layout.tasksRoot);
+  const authoredPrefix = path.relative(layout.tasksRoot, layout.authoredRoot);
+  if (tasksPrefix === "" || isContainedRelativePath(authoredPrefix)) {
+    return {
+      ok: false,
+      error: {
+        code: "invalid_layout",
+        hint: "Peripheral documents require tasksRoot to differ from authoredRoot."
+      }
+    };
+  }
+  if (!isContainedRelativePath(tasksPrefix)) return { ok: true, includes: () => true };
+  const portableTasksPrefix = tasksPrefix.split(path.sep).join("/");
+  return {
+    ok: true,
+    includes: (documentPath) => documentPath !== portableTasksPrefix
+      && !documentPath.startsWith(`${portableTasksPrefix}/`)
+  };
+}
+
+function isContainedRelativePath(relativePath: string): boolean {
+  return relativePath === "" || (!path.isAbsolute(relativePath)
+    && relativePath !== ".."
+    && !relativePath.startsWith(`..${path.sep}`));
 }
 
 function entityNotFound(kind: string, id: string): LocalControllerFailure {
@@ -243,11 +309,28 @@ function toFactProjectionRow(taskId: string, fact: FactRecord): FactProjectionRo
 
 function readControllerTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {
   return artifactStore.readTaskPackage(taskId).pipe(
-    Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === portablePath)?.body ?? null),
+    Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === portablePath) ?? null),
+    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.map((document) => document === null
+      ? ({ ok: false, error: { code: "document_not_found", hint: portablePath } } satisfies LocalControllerFailure)
+      : document.kind === "attachment"
+        ? ({ ok: false, error: { code: "attachment_not_renderable", hint: portablePath } } satisfies LocalControllerFailure)
+        : ({ ok: true, taskId, path: portablePath, body: document.body }))
+  );
+}
+
+function readControllerPeripheralDocument(
+  artifactStore: Pick<ArtifactStore, "listAuthoredDocuments" | "readAuthoredDocument">,
+  portablePath: string
+): Effect.Effect<PeripheralDocumentResult> {
+  return artifactStore.listAuthoredDocuments().pipe(
+    Effect.flatMap((documents) => documents.some((document) => document.path === portablePath)
+      ? artifactStore.readAuthoredDocument(portablePath).pipe(Effect.map((document) => document.body))
+      : Effect.succeed(null)),
     Effect.catchAll(() => Effect.succeed(null)),
     Effect.map((body) => body === null
-      ? ({ ok: false, error: { code: "document_not_found", hint: portablePath } } satisfies LocalControllerFailure)
-      : ({ ok: true, taskId, path: portablePath, body }))
+      ? documentNotFound(portablePath)
+      : ({ ok: true, path: portablePath, body } satisfies PeripheralDocumentResult))
   );
 }
 

@@ -3,7 +3,9 @@ import path from "node:path";
 import { Effect, Option } from "effect";
 import type {
   ArtifactDocument,
+  ArtifactDocumentKind,
   ArtifactStore,
+  AuthoredDocumentDescriptor,
   TaskPackageRead
 } from "../ports/artifact-store.ts";
 import type {
@@ -35,6 +37,14 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
         cause
       })
     }),
+    listAuthoredDocuments: () => Effect.try({
+      try: () => listAuthoredDocuments(rootInput),
+      catch: (cause): ArtifactStoreError => ({
+        _tag: "ArtifactReadFailed",
+        path: resolveHarnessLayout(rootInput).authoredRoot,
+        cause
+      })
+    }),
     readAuthoredDocument: (documentPath) => Effect.try({
       try: () => readAuthoredDocument(rootInput, documentPath),
       catch: (cause): ArtifactStoreError => ({
@@ -52,6 +62,28 @@ export function makeMarkdownArtifactStore(options: MarkdownArtifactStoreOptions)
       })
     })
   };
+}
+
+function listAuthoredDocuments(rootInput: HarnessLayoutInput): ReadonlyArray<AuthoredDocumentDescriptor> {
+  const authoredRoot = resolveHarnessLayout(rootInput).authoredRoot;
+  if (!existsSync(authoredRoot)) return [];
+  const documents: AuthoredDocumentDescriptor[] = [];
+
+  function visit(current: string): void {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        visit(fullPath);
+        continue;
+      }
+      if (classifyArtifactPath(entry.name) !== "document") continue;
+      documents.push({ path: path.relative(authoredRoot, fullPath).split(path.sep).join("/") });
+    }
+  }
+
+  visit(authoredRoot);
+  assertNoPortablePathCollisions(documents.map((document) => document.path));
+  return documents.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 export function findBindingByExternalRef(
@@ -117,6 +149,7 @@ export function readAuthoredDocument(rootInput: HarnessLayoutInput, documentPath
   const body = readFileSync(fullPath, "utf8");
   return {
     path: safePath,
+    kind: classifyArtifactPath(safePath),
     body,
     sha256: sha256Text(body)
   };
@@ -151,6 +184,7 @@ function readDocuments(rootPath: string): ReadonlyArray<ArtifactDocument> {
       const body = readFileSync(fullPath, "utf8");
       documents.push({
         path: path.relative(rootPath, fullPath).split(path.sep).join("/"),
+        kind: classifyArtifactPath(entry.name),
         body,
         sha256: sha256Text(body)
       });
@@ -160,6 +194,10 @@ function readDocuments(rootPath: string): ReadonlyArray<ArtifactDocument> {
   visit(rootPath);
   assertNoPortablePathCollisions(documents.map((document) => document.path));
   return documents.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function classifyArtifactPath(documentPath: string): ArtifactDocumentKind {
+  return path.extname(documentPath).toLowerCase() === ".md" ? "document" : "attachment";
 }
 
 function documentPath(rootInput: HarnessLayoutInput, write: DocumentWrite): string {

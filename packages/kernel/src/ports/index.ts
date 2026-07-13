@@ -1,7 +1,7 @@
 // Curated port surface. artifact-store-writer.ts is deliberately absent:
 // the write seam is flusher-only and must not be reachable from here.
 export { ArtifactStore } from "./artifact-store.ts";
-export type { ArtifactDocument, TaskPackageRead } from "./artifact-store.ts";
+export type { ArtifactDocument, ArtifactDocumentKind, AuthoredDocumentDescriptor, TaskPackageRead } from "./artifact-store.ts";
 
 export { LifecycleEngine } from "./lifecycle-engine.ts";
 export type { TaskEngineRef, TaskListFilter, EngineCapabilities, NoteRef } from "./lifecycle-engine.ts";
