@@ -50,7 +50,7 @@ export type GuiTaskListReadResult = GuiTaskListRead | GuiTaskRouteFailure;
 export interface GuiTaskDetailRead {
   readonly ok: true;
   readonly task?: GuiTaskRow;
-  readonly documents: readonly { readonly path: string }[];
+  readonly documents: readonly { readonly path: string; readonly kind: "document" | "attachment" }[];
 }
 
 export type GuiTaskDetailReadResult = GuiTaskDetailRead | GuiTaskRouteFailure;
@@ -247,8 +247,10 @@ function isCommandReceiptEnvelope(value: unknown): value is CommandReceiptEnvelo
     && typeof value.ok === "boolean";
 }
 
-function isDocumentDescriptor(value: unknown): value is { readonly path: string } {
-  return isGuiRecord(value) && typeof value.path === "string";
+function isDocumentDescriptor(value: unknown): value is { readonly path: string; readonly kind: "document" | "attachment" } {
+  return isGuiRecord(value)
+    && typeof value.path === "string"
+    && (value.kind === "document" || value.kind === "attachment");
 }
 
 function invalidTaskRouteResult(code: string, hint: string): GuiTaskRouteFailure {
