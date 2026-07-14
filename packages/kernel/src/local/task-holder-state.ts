@@ -232,7 +232,11 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         const at = now();
         const current = readHolderRecord(options.rootInput, input.taskId);
         const snapshot = holderSnapshot(input.taskId, current, at);
-        if (snapshot.effectiveHolder) {
+        const upgradesOwnedV1 = current?.schema === "task-holder/v1"
+          && current.holder
+          && snapshot.effectiveHolder
+          && sameTaskHolderPrincipal(current.holder, input.principal);
+        if (snapshot.effectiveHolder && !upgradesOwnedV1) {
           throw new ExecutionLeaseCollisionError({
             taskId: input.taskId,
             principal: input.principal,
@@ -264,7 +268,9 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         const events: ExecutionLeaseRuntimeEvent[] = previous
           ? [executionLeaseRuntimeEvent(previous, "expired", "expired", { previousHolder: previous.holder })]
           : [];
-        events.push(executionLeaseRuntimeEvent(record, "reserved", "reserving", { previousHolder: previous?.holder }));
+        events.push(executionLeaseRuntimeEvent(record, "reserved", "reserving", {
+          previousHolder: previous?.holder ?? (upgradesOwnedV1 ? current.holder : undefined)
+        }));
         return {
           result: { ...holderSnapshot(input.taskId, record, at), executionId: input.executionId, leaseToken, phase: "reserving" } as ExecutionLeaseReservation,
           events

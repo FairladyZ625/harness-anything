@@ -39,6 +39,10 @@ const aliceClaude = taskHolderActor(
   { personId: "alice", displayName: "Alice" },
   { kind: "agent", id: "claude-code" }
 );
+const bobCodex = taskHolderActor(
+  { personId: "bob", displayName: "Bob" },
+  { kind: "agent", id: "codex" }
+);
 const aliceCodexAttribution = writeAttribution("alice", "codex");
 
 test("Execution is a hosted entity and Holder V2 rejects a second executor", async () => {
@@ -88,6 +92,29 @@ test("Execution is a hosted entity and Holder V2 rejects a second executor", asy
       readFileSync(path.join(rootDir, ".harness/task-holders", `${taskId}.json`), "utf8").includes(reserved.leaseToken),
       false
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Holder V2 reservation upgrades an active Holder V1 lease for the same principal", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-upgrade-"));
+  try {
+    const service = makeTaskHolderService({
+      rootInput: rootDir,
+      now: () => new Date("2026-07-11T00:00:00.000Z")
+    });
+    await service.claim({ taskId, principal: aliceCodex, ttlMs: 60_000 });
+
+    await assert.rejects(
+      service.reserveExecution({ taskId, executionId, principal: bobCodex, ttlMs: 60_000 }),
+      ExecutionLeaseCollisionError
+    );
+    const reserved = await service.reserveExecution({ taskId, executionId, principal: aliceCodex, ttlMs: 60_000 });
+
+    assert.equal(reserved.holder?.schema, "task-holder/v2");
+    assert.equal(reserved.executionId, executionId);
+    assert.match(reserved.leaseToken, /^[0-9a-f]{64}$/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

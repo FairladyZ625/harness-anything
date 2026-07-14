@@ -244,6 +244,43 @@ test("forced-command bootstrap is consumed before JSON-RPC and becomes authConte
   await connection.close();
 });
 
+test("JSON-RPC handler failures preserve the request id and connection", async () => {
+  const clientToServer = new PassThrough();
+  const serverToClient = new PassThrough();
+  let calls = 0;
+  const connection = serveJsonRpcStream({
+    input: clientToServer,
+    output: serverToClient,
+    transportKind: "unix-socket",
+    authContext: { transportKind: "unix-socket" },
+    createProtocolServer: () => ({
+      handle: async (request) => {
+        calls += 1;
+        if (calls === 1) throw new Error("execution lease write exploded");
+        const single = Array.isArray(request) ? request[0]! : request;
+        return { jsonrpc: "2.0", id: single.id ?? null, result: { ok: true } };
+      }
+    })
+  });
+  const client = frameClient(serverToClient, clientToServer);
+
+  client.send(repoRequest("claim-failure", "repo.task.claim"));
+  const failed = await client.read();
+  assert.deepEqual(failed, {
+    jsonrpc: "2.0",
+    id: "claim-failure",
+    error: { code: -32603, message: "execution lease write exploded" }
+  });
+
+  client.send(repoRequest("after-failure", "repo.tasks.list"));
+  assert.deepEqual(await client.read(), {
+    jsonrpc: "2.0",
+    id: "after-failure",
+    result: { ok: true }
+  });
+  await connection.close();
+});
+
 test("people roster rejects legacy unix-uid credentials", () => {
   assert.throws(() => peopleRosterFromDocument([
     "schema: harness-people/v1",

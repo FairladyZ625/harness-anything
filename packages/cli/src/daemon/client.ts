@@ -11,6 +11,7 @@ import {
 import {
   daemonIdFromEnv,
   daemonUserRoot,
+  DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
   JsonRpcLineClient,
@@ -105,6 +106,9 @@ export async function runCommandThroughDaemon(
   } catch (error) {
     if (error instanceof CliActorAttributionError) {
       return daemonActorAttributionReceipt(command, error);
+    }
+    if (error instanceof DaemonJsonRpcResponseError) {
+      return daemonRequestFailureReceipt(command, error);
     }
     return daemonUnavailableReceipt(command, error, config.mode === "remote" ? config.remote : undefined);
   }
@@ -240,6 +244,16 @@ function daemonActorAttributionReceipt(command: ParsedCommand, error: CliActorAt
     error: cliError(CliErrorCode.AuthMissing, error.message)
   });
   if (receipt.ok) throw new Error("daemon actor attribution receipt unexpectedly succeeded");
+  return receipt;
+}
+
+function daemonRequestFailureReceipt(command: ParsedCommand, error: DaemonJsonRpcResponseError): CommandFailureReceipt {
+  const receipt = toCommandReceipt({
+    ok: false,
+    command: command.action.kind,
+    error: cliError(CliErrorCode.WriteRejected, `Daemon JSON-RPC request failed (${error.code}): ${error.message}`)
+  });
+  if (receipt.ok) throw new Error("daemon request failure receipt unexpectedly succeeded");
   return receipt;
 }
 
