@@ -198,7 +198,9 @@ export function updateTaskProjectionIncrementally(options: TaskProjectionOptions
     ...(newGraph ? { graphRows: {
       relationEdges: newGraph.edges,
       coverageRows: newGraph.coverageRows,
-      factAnchors: newGraph.factAnchors
+      factAnchors: newGraph.factAnchors,
+      factRows: newGraph.factRows,
+      warnings: newGraph.warnings
     } } : {}),
     declaredDelta,
     ...(sourceCacheChange ? { sourceCache: sourceCacheChange } : {}),
@@ -369,6 +371,10 @@ function affectedProjectionEntities(input: {
     if (!touchedRelativePaths.has(edge.sourcePath)) continue;
     addEntityRef(edge.sourceRef, taskIds, decisionIds);
     addEntityRef(edge.targetRef, taskIds, decisionIds);
+  }
+
+  for (const row of input.existingDecisionRows) {
+    if (decisionIds.has(row.decisionId)) decisionPaths.add(path.join(input.rootDir, row.path));
   }
 
   return { taskIds, decisionIds, decisionPaths };

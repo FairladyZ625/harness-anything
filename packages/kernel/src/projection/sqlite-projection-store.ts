@@ -4,6 +4,7 @@ import { SqlClient } from "@effect/sql";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Effect } from "effect";
 import { hashAttributionProjectionState } from "./sqlite-attribution-state-hash.ts";
+import type { TaskFactProjectionRow } from "./fact-projection.ts";
 import type { FactAnchorRow, RelationCoverageRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { unresolvedEntityAttribution } from "./entity-attribution-projection.ts";
 import {
@@ -16,6 +17,7 @@ import type {
   DecisionProjectionQueryFilters,
   DecisionProjectionRow,
   ProjectionMeta,
+  ProjectionWarning,
   TaskFieldExtensionProjection,
   TaskProjectionQueryFilters,
   TaskProjectionRow
@@ -52,6 +54,8 @@ export interface ProjectionGraphRows {
   readonly relationEdges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly factRows: ReadonlyArray<TaskFactProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
 export function writeProjectionDatabase(
@@ -59,7 +63,7 @@ export function writeProjectionDatabase(
   rows: ReadonlyArray<TaskProjectionRow>,
   decisionRows: ReadonlyArray<DecisionProjectionRow>,
   meta: ProjectionMeta,
-  graphRows: ProjectionGraphRows = { relationEdges: [], coverageRows: [], factAnchors: [] },
+  graphRows: ProjectionGraphRows = { relationEdges: [], coverageRows: [], factAnchors: [], factRows: [], warnings: [] },
   taskFieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = [],
   materializeSupplemental?: (sql: SqlClient.SqlClient) => Effect.Effect<void, unknown>
 ): void {
@@ -153,6 +157,20 @@ export function writeProjectionDatabase(
         row_json TEXT NOT NULL
       )
     `;
+    yield* sql`
+      CREATE TABLE task_fact_projection (
+        fact_ref TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        fact_id TEXT NOT NULL,
+        row_json TEXT NOT NULL
+      )
+    `;
+    yield* sql`
+      CREATE TABLE relation_projection_warnings (
+        warning_index INTEGER PRIMARY KEY,
+        row_json TEXT NOT NULL
+      )
+    `;
     yield* insertMeta(sql, "version", projectionVersion);
     yield* insertMeta(sql, "sourceHash", meta.sourceHash);
     yield* insertMeta(sql, "rowsHash", meta.rowsHash);
@@ -169,6 +187,8 @@ export function writeProjectionDatabase(
     for (const edge of graphRows.relationEdges) yield* insertRelationEdge(sql, edge);
     for (const row of graphRows.coverageRows) yield* insertCoverageRow(sql, row);
     for (const row of graphRows.factAnchors) yield* insertFactAnchor(sql, row);
+    for (const row of graphRows.factRows) yield* insertTaskFactRow(sql, row);
+    for (const [index, row] of graphRows.warnings.entries()) yield* insertRelationProjectionWarning(sql, index, row);
     yield* sql`CREATE INDEX task_projection_status ON task_projection (canonical_status, coordination_status)`;
     yield* sql`CREATE INDEX task_projection_parent_task_id ON task_projection (parent_task_id)`;
     yield* sql`CREATE INDEX task_projection_module_key ON task_projection (module_key)`;
@@ -178,6 +198,7 @@ export function writeProjectionDatabase(
     yield* sql`CREATE INDEX relation_edges_target_ref ON relation_edges (target_ref)`;
     yield* sql`CREATE INDEX relation_coverage_decision_ref ON relation_coverage (decision_ref)`;
     yield* sql`CREATE INDEX task_fact_anchors_task_id ON task_fact_anchors (task_id)`;
+    yield* sql`CREATE INDEX task_fact_projection_task_id ON task_fact_projection (task_id)`;
     if (materializeSupplemental) yield* materializeSupplemental(sql);
     const attributionRowsHash = yield* hashAttributionProjectionState(sql);
     yield* sql`UPDATE projection_meta SET value = ${attributionRowsHash} WHERE key = 'attributionRowsHash'`;
@@ -273,10 +294,14 @@ export function readRelationGraphRows(projectionPath: string): ProjectionGraphRo
     const edgeRecords = yield* sql`SELECT row_json FROM relation_edges ORDER BY source_ref, target_ref, relation_id`;
     const coverageRecords = yield* sql`SELECT row_json FROM relation_coverage ORDER BY claim_ref`;
     const factAnchorRecords = yield* sql`SELECT row_json FROM task_fact_anchors ORDER BY fact_ref`;
+    const factRecords = yield* sql`SELECT row_json FROM task_fact_projection ORDER BY fact_ref`;
+    const warningRecords = yield* sql`SELECT row_json FROM relation_projection_warnings ORDER BY warning_index`;
     return {
       relationEdges: edgeRecords.map((record) => JSON.parse(String(record.row_json)) as RelationGraphEdgeRow),
       coverageRows: coverageRecords.map((record) => JSON.parse(String(record.row_json)) as RelationCoverageRow),
-      factAnchors: factAnchorRecords.map((record) => JSON.parse(String(record.row_json)) as FactAnchorRow)
+      factAnchors: factAnchorRecords.map((record) => JSON.parse(String(record.row_json)) as FactAnchorRow),
+      factRows: factRecords.map((record) => JSON.parse(String(record.row_json)) as TaskFactProjectionRow),
+      warnings: warningRecords.map((record) => JSON.parse(String(record.row_json)) as ProjectionWarning)
     };
   }));
 }
@@ -426,6 +451,24 @@ export function insertFactAnchor(sql: SqlClient.SqlClient, row: FactAnchorRow): 
   return sql`
     INSERT OR REPLACE INTO task_fact_anchors (fact_ref, task_id, fact_id, source_path, row_json)
     VALUES (${row.factRef}, ${row.taskId}, ${row.factId}, ${row.sourcePath}, ${JSON.stringify(row)})
+  `;
+}
+
+export function insertTaskFactRow(sql: SqlClient.SqlClient, row: TaskFactProjectionRow): Effect.Effect<unknown, unknown> {
+  return sql`
+    INSERT OR REPLACE INTO task_fact_projection (fact_ref, task_id, fact_id, row_json)
+    VALUES (${row.ref}, ${row.taskId}, ${row.factId}, ${JSON.stringify(row)})
+  `;
+}
+
+export function insertRelationProjectionWarning(
+  sql: SqlClient.SqlClient,
+  index: number,
+  row: ProjectionWarning
+): Effect.Effect<unknown, unknown> {
+  return sql`
+    INSERT OR REPLACE INTO relation_projection_warnings (warning_index, row_json)
+    VALUES (${index}, ${JSON.stringify(row)})
   `;
 }
 

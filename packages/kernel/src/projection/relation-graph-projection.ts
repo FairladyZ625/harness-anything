@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { formatRelationFlowRecord, parseFactFlowRecords, parseEntityRef, validateRelationRecordsForHost } from "../domain/index.ts";
+import { formatRelationFlowRecord, parseEntityRef, validateRelationRecordsForHost } from "../domain/index.ts";
 import type { EntityRelationRecord, EntityRelationValidationIssue } from "../domain/index.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
@@ -14,6 +14,8 @@ import {
 import { sourcePath, type TaskProjectionSourceHashInput } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 import { buildClaimFulfillmentRows } from "./claim-fulfillment-projection.ts";
+import { projectFactDocument, type TaskFactProjectionRow } from "./fact-projection.ts";
+import type { ProjectionWarning } from "./types.ts";
 
 export interface RelationGraphEdgeRow {
   readonly relationId: string;
@@ -50,6 +52,8 @@ export interface RelationGraphProjection {
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly factRows: ReadonlyArray<TaskFactProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
 interface DecisionSource {
@@ -68,6 +72,8 @@ interface GraphRefIndex {
   readonly decisionAnchors: ReadonlySet<string>;
   readonly factRefs: ReadonlySet<string>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly factRows: ReadonlyArray<TaskFactProjectionRow>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
 export interface RelationRecordEntry {
@@ -104,7 +110,9 @@ export function buildRelationGraphProjection(
   return {
     edges,
     coverageRows: buildClaimFulfillmentRows({ rootInput, decisions: decisions.filter((decision) => decision.visible), edges, refIndex }),
-    factAnchors: refIndex.factAnchors
+    factAnchors: refIndex.factAnchors,
+    factRows: refIndex.factRows,
+    warnings: refIndex.warnings
   };
 }
 
@@ -391,6 +399,8 @@ function buildGraphRefIndex(
   const doneTaskIds = new Set<string>();
   const factRefs = new Set<string>();
   const factAnchors: FactAnchorRow[] = [];
+  const factRows: TaskFactProjectionRow[] = [];
+  const warnings: ProjectionWarning[] = [];
   for (const taskDir of listTaskDirs(layout.tasksRoot)) {
     const taskId = readTaskPackageId(taskDir, sourceBodies);
     taskIds.add(taskId);
@@ -400,7 +410,10 @@ function buildGraphRefIndex(
     if (!factsPath || !existsSync(factsPath)) continue;
     const factsBody = readSourceBody(factsPath, sourceBodies);
     if (factsBody === null) continue;
-    for (const record of parseFactFlowRecords(factsBody)) {
+    const portableFactsPath = sourcePath(layout.rootDir, factsPath);
+    const projected = projectFactDocument(taskId, portableFactsPath, factsBody);
+    warnings.push(...projected.warnings);
+    for (const record of projected.records) {
       const factKey = `${taskId}/${record.fact_id}`;
       // Migrated facts stay in factRefs so relation records that still reference
       // them (e.g. supersedes-fact hosted on the archived fact) keep resolving
@@ -414,9 +427,10 @@ function buildGraphRefIndex(
         factRef: `fact/${factKey}`,
         taskId,
         factId: record.fact_id,
-        sourcePath: sourcePath(layout.rootDir, factsPath)
+        sourcePath: portableFactsPath
       });
     }
+    factRows.push(...projected.rows);
   }
 
   const decisionIds = new Set<string>();
@@ -428,7 +442,16 @@ function buildGraphRefIndex(
       decisionAnchors.add(`${decision.decisionId}/${anchor}`);
     }
   }
-  return { taskIds, doneTaskIds, decisionIds, decisionAnchors, factRefs, factAnchors: factAnchors.sort((a, b) => a.factRef.localeCompare(b.factRef)) };
+  return {
+    taskIds,
+    doneTaskIds,
+    decisionIds,
+    decisionAnchors,
+    factRefs,
+    factAnchors: factAnchors.sort((a, b) => a.factRef.localeCompare(b.factRef)),
+    factRows: factRows.sort((a, b) => a.ref.localeCompare(b.ref)),
+    warnings
+  };
 }
 
 function isKnownLocalEndpoint(refText: string, refIndex: GraphRefIndex): boolean {

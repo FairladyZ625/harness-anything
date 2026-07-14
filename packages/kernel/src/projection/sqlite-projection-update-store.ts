@@ -18,7 +18,9 @@ import {
   insertCoverageRow,
   insertDecisionRow,
   insertFactAnchor,
+  insertRelationProjectionWarning,
   insertRelationEdge,
+  insertTaskFactRow,
   insertTaskRow,
   queryableTaskFieldExtensions,
   runSqlite
@@ -62,9 +64,13 @@ export function updateProjectionDatabase(
         yield* sql`DELETE FROM relation_edges`;
         yield* sql`DELETE FROM relation_coverage`;
         yield* sql`DELETE FROM task_fact_anchors`;
+        yield* sql`DELETE FROM task_fact_projection`;
+        yield* sql`DELETE FROM relation_projection_warnings`;
         for (const edge of change.graphRows.relationEdges) yield* insertRelationEdge(sql, edge);
         for (const row of change.graphRows.coverageRows) yield* insertCoverageRow(sql, row);
         for (const row of change.graphRows.factAnchors) yield* insertFactAnchor(sql, row);
+        for (const row of change.graphRows.factRows) yield* insertTaskFactRow(sql, row);
+        for (const [index, row] of change.graphRows.warnings.entries()) yield* insertRelationProjectionWarning(sql, index, row);
       }
       for (const table of change.declaredDelta.tables) {
         yield* deleteDeclaredProjectionRows(sql, table.declaration, table.deletePrimaryKeys);

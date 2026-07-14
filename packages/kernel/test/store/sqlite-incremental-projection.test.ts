@@ -532,7 +532,7 @@ function writeFacts(rootDir: string, taskId: string, includeRelation: boolean): 
   writeFileSync(factsPath, [
     "# Facts",
     "",
-    "- {fact_id: F-DEADBEEF, statement: \"Incremental projection fact.\", source: \"test\", observedAt: \"2026-07-07T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"node-test\", sessionId: \"sqlite-incremental\", boundAt: \"2026-07-07T00:00:00.000Z\"}]}",
+    "- {fact_id: F-DEADBEEF, statement: \"Incremental projection fact.\", source: \"test\", observedAt: \"2026-07-07T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"codex\", sessionId: \"sqlite-incremental\", boundAt: \"2026-07-07T00:00:00.000Z\"}]}",
     ...(includeRelation ? [
       "",
       "relations:",

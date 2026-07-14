@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { aggregateExecutions } from "../../packages/gui/src/renderer/execution-data.ts";
-import { queryExecutionEvidencePage, queryExecutions, rebuildTaskProjection } from "../../packages/kernel/src/index.ts";
+import { queryExecutionEvidencePage, queryExecutions, readTriadicProjectionSnapshot, rebuildTaskProjection } from "../../packages/kernel/src/index.ts";
 import { queryExecutionEvidencePageFromReadyGeneration } from "../../packages/kernel/src/projection/sqlite-execution-evidence-reader.ts";
 import {
   ensureExecutionEvidenceGenerationReady,
@@ -62,6 +62,8 @@ try {
     evidencePage.groups.reduce((count, group) => count + group.executions.length, 0) +
     evidencePage.groups.reduce((count, group) => count + group.executions.reduce((outputs, execution) => outputs + execution.outputs.length, 0), 0);
   const aggregateSamples = sample(20, () => aggregateExecutions(rebuilt.rows, executions));
+  const triadicSamples = sample(20, () => readTriadicProjectionSnapshot({ rootDir }));
+  const triadicSnapshotP95 = percentile(triadicSamples.samples, 0.95);
   const changedExecution = fixtureRows[0];
   const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
   const manifest = readDeclaredSourceManifestRows(projectionPath);
@@ -101,6 +103,7 @@ try {
       queryExecutionEvidencePageFromReadyGeneration: summarize(readyEvidencePageSamples.samples),
       queryExecutionEvidencePageFromDaemonGeneration: summarize(daemonEvidencePageSamples.samples),
       daemonGenerationReady: rounded(daemonGenerationReadyMs),
+      readTriadicProjectionSnapshot: summarize(triadicSamples.samples),
       aggregateExecutions: summarize(aggregateSamples.samples),
       incrementalEvidence: rounded(incrementalEvidenceMs),
       incrementalExecution: rounded(incrementalExecutionMs)
@@ -108,6 +111,10 @@ try {
     assertions: {
       executionCount: executions.length === size,
       outputCount: aggregateSamples.value.totalOutputs === size * outputsPerExecution,
+      triadicFactCount: triadicSamples.value.facts.length,
+      triadicFactCountMatchesFixture: triadicSamples.value.facts.length === size,
+      oneThousandTriadicSnapshotP95BudgetMs: size === 1_000 ? 250 : null,
+      triadicSnapshotWithinBudget: size === 1_000 ? triadicSnapshotP95 <= 250 : null,
       evidencePageGroupCount: evidencePage.groups.length,
       evidencePagePayloadBytes,
       legacyExecutionsPayloadBytes,
@@ -164,6 +171,7 @@ try {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (!result.assertions.executionCount ||
       !result.assertions.outputCount ||
+      !result.assertions.triadicFactCountMatchesFixture ||
       !result.assertions.evidencePagePayloadWithinBudget ||
       !result.assertions.evidencePageVisibleItemsWithinBudget ||
       result.assertions.readyEvidencePageWithinBudget === false ||
@@ -175,6 +183,7 @@ try {
       result.assertions.coldFirstUsableWithinBudget === false ||
       result.assertions.incrementalEvidenceWithinBudget === false ||
       incrementalEvidence.mode !== "incremental" ||
+      result.assertions.triadicSnapshotWithinBudget === false ||
       incremental.mode !== "incremental") {
     process.exitCode = 1;
   }
@@ -207,6 +216,12 @@ function writeTask(index) {
     "---",
     "",
     `# Performance Task ${index}`,
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(taskRoot, "facts.md"), [
+    "# Facts",
+    "",
+    `- {fact_id: F-${String(index).padStart(8, "0")}, statement: "Projected performance fact ${index}", source: "benchmark", observedAt: "2026-07-13T00:00:00.000Z", confidence: high, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: "codex", sessionId: "benchmark", boundAt: "2026-07-13T00:00:00.000Z"}]}`,
     ""
   ].join("\n"));
   const executionPath = path.join(taskRoot, "executions", `${executionId}.md`);

@@ -20,9 +20,17 @@ test("local controller service reads projection and writes through injected task
     writeAuthoredDocument(rootDir, "artifacts/.gitkeep", "");
     writeDecision(rootDir, "dec_test");
     const writes: string[] = [];
+    const markdownArtifactStore = makeMarkdownArtifactStore({ rootDir });
+    let authoredDocumentReads = 0;
     const service = makeLocalControllerService({
       rootDir,
-      artifactStore: makeMarkdownArtifactStore({ rootDir }),
+      artifactStore: {
+        ...markdownArtifactStore,
+        readAuthoredDocument: (documentPath) => {
+          authoredDocumentReads += 1;
+          return markdownArtifactStore.readAuthoredDocument(documentPath);
+        }
+      },
       taskWriter: {
         setStatus: (payload) => Effect.sync(() => {
           writes.push(`status:${payload.taskId}:${payload.status}`);
@@ -122,6 +130,7 @@ test("local controller service reads projection and writes through injected task
     assert.equal(decisionDetail.ok, true);
     assert.equal(decisionDetail.decision.title, "Projection Decision");
     const facts = await service.getTaskFacts({ taskId: "task-1" });
+    authoredDocumentReads = 0;
     assert.equal(facts.ok, true);
     assert.deepEqual(facts.facts.map((fact) => fact.ref), ["fact/task-1/F-12345678"]);
     assert.deepEqual(facts.facts[0]?.provenance, [{ runtime: "codex", sessionId: "session-1", boundAt: "2026-07-07T00:00:00.000Z" }]);
@@ -133,6 +142,17 @@ test("local controller service reads projection and writes through injected task
     assert.deepEqual(triadic.decisions.map((decision) => decision.decisionId), ["dec_test"]);
     assert.deepEqual(triadic.factAnchors.map((anchor) => anchor.factRef), ["fact/task-1/F-12345678"]);
     assert.deepEqual(triadic.facts.map((fact) => fact.ref), ["fact/task-1/F-12345678"]);
+    assert.equal(authoredDocumentReads, 0);
+    writeFileSync(path.join(rootDir, "harness/tasks/task-1/facts.md"), [
+      "# Facts",
+      "",
+      "- {fact_id: F-12345678, statement: \"Malformed projection fact\", confidence: high}",
+      ""
+    ].join("\n"));
+    const malformedTriadic = await service.getTriadicProjection();
+    assert.deepEqual(malformedTriadic.facts, []);
+    assert.equal(malformedTriadic.warnings.some((warning) => warning.code === "source_malformed"), true);
+    assert.equal(authoredDocumentReads, 0);
     assert.deepEqual(await service.getTaskDocument({ taskId: "task-1", path: "C:\\Users\\name\\secret.md" }), {
       ok: false,
       error: {

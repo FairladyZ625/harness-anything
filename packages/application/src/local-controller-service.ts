@@ -1,8 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { ArtifactDocumentKind, ArtifactStore, AuthoredDocumentDescriptor, EngineError, FactRecord, HarnessLayout, WriteError } from "../../kernel/src/index.ts";
+import type { ArtifactDocumentKind, ArtifactStore, AuthoredDocumentDescriptor, EngineError, HarnessLayout, WriteError } from "../../kernel/src/index.ts";
 import {
-  parseFactFlowRecords,
   queryExecutionEvidencePage,
   queryDecisionProjection,
   queryExecutionProjection,
@@ -22,7 +21,6 @@ import {
   validateLocalControllerTaskId
 } from "./local-controller-payloads.ts";
 import type {
-  FactProjectionRow,
   LocalControllerError,
   LocalControllerFailure,
   LocalControllerResult,
@@ -151,62 +149,27 @@ export function makeLocalControllerService(options: LocalControllerServiceOption
       validateLocalControllerTaskId(payload.taskId);
       const layout = resolveHarnessLayout({ rootDir, layoutOverrides: options.layoutOverrides });
       const factsPath = path.relative(layout.rootDir, layout.taskFactDocumentPath(payload.taskId)).split(path.sep).join("/");
-      return Effect.runPromise(options.artifactStore.readTaskPackage(payload.taskId).pipe(
-        Effect.map((taskPackage) => taskPackage.documents.find((document) => document.path === layout.factDocumentName)?.body ?? ""),
-        Effect.catchAll(() => Effect.succeed("")),
-        Effect.map((body) => ({
-          ok: true,
-          taskId: payload.taskId,
-          path: factsPath,
-          facts: parseFactFlowRecords(body).map((fact) => toFactProjectionRow(payload.taskId, fact))
-        }))
-      ));
+      const snapshot = readTriadicProjectionSnapshot({ rootDir, layoutOverrides: options.layoutOverrides });
+      return {
+        ok: true,
+        taskId: payload.taskId,
+        path: factsPath,
+        facts: snapshot.facts.filter((fact) => fact.taskId === payload.taskId)
+      };
     },
     getFacts: async () => {
-      const graph = readRelationGraphProjection({ rootDir, layoutOverrides: options.layoutOverrides });
-      const layout = resolveHarnessLayout({ rootDir, layoutOverrides: options.layoutOverrides });
-      const documents = new Map<string, string>();
-      for (const anchor of graph.factAnchors) {
-        if (documents.has(anchor.taskId)) continue;
-        const sourcePath = path.relative(layout.authoredRoot, layout.taskFactDocumentPath(anchor.taskId)).split(path.sep).join("/");
-        documents.set(anchor.taskId, sourcePath);
-      }
-      const facts = await Effect.runPromise(Effect.all(
-        [...documents].map(([taskId, sourcePath]) =>
-          options.artifactStore.readAuthoredDocument(sourcePath).pipe(
-            Effect.map((document) => parseFactFlowRecords(document.body).map((fact) => toFactProjectionRow(taskId, fact))),
-            Effect.catchAll(() => Effect.succeed([]))
-          )
-        ),
-        { concurrency: 8 }
-      ));
-      return { ok: true, facts: facts.flat() };
+      const snapshot = readTriadicProjectionSnapshot({ rootDir, layoutOverrides: options.layoutOverrides });
+      return { ok: true, facts: snapshot.facts };
     },
     getTriadicProjection: async () => {
       const snapshot = readTriadicProjectionSnapshot({ rootDir, layoutOverrides: options.layoutOverrides });
-      const layout = resolveHarnessLayout({ rootDir, layoutOverrides: options.layoutOverrides });
-      const documents = new Map<string, string>();
-      for (const anchor of snapshot.factAnchors) {
-        if (documents.has(anchor.taskId)) continue;
-        const sourcePath = path.relative(layout.authoredRoot, layout.taskFactDocumentPath(anchor.taskId)).split(path.sep).join("/");
-        documents.set(anchor.taskId, sourcePath);
-      }
-      const facts = await Effect.runPromise(Effect.all(
-        [...documents].map(([taskId, sourcePath]) =>
-          options.artifactStore.readAuthoredDocument(sourcePath).pipe(
-            Effect.map((document) => parseFactFlowRecords(document.body).map((fact) => toFactProjectionRow(taskId, fact))),
-            Effect.catchAll(() => Effect.succeed([]))
-          )
-        ),
-        { concurrency: 8 }
-      ));
       return {
         ok: true,
         decisions: snapshot.decisions,
         edges: snapshot.edges,
         coverageRows: snapshot.coverageRows,
         factAnchors: snapshot.factAnchors,
-        facts: facts.flat(),
+        facts: snapshot.facts,
         warnings: snapshot.warnings
       };
     },
@@ -316,22 +279,6 @@ function isContainedRelativePath(relativePath: string): boolean {
 
 function entityNotFound(kind: string, id: string): LocalControllerFailure {
   return { ok: false, error: { code: `${kind}_not_found`, hint: `${kind} not found: ${id}` } };
-}
-
-function toFactProjectionRow(taskId: string, fact: FactRecord): FactProjectionRow {
-  return {
-    schema: "task-fact-row/v1",
-    ref: `fact/${taskId}/${fact.fact_id}`,
-    taskId,
-    factId: fact.fact_id,
-    statement: fact.statement,
-    source: fact.source,
-    observedAt: fact.observedAt,
-    confidence: fact.confidence,
-    memoryClass: fact.memoryClass,
-    memoryTags: fact.memoryTags,
-    provenance: fact.provenance
-  };
 }
 
 function readControllerTaskDocument(artifactStore: Pick<ArtifactStore, "readTaskPackage">, taskId: string, portablePath: string): Effect.Effect<LocalControllerResult & { readonly taskId?: string; readonly path?: string; readonly body?: string }> {

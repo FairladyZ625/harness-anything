@@ -112,7 +112,9 @@ export function rebuildTaskProjection(options: TaskProjectionOptions): Projectio
   }, {
     relationEdges: relationGraph.edges,
     coverageRows: relationGraph.coverageRows,
-    factAnchors: relationGraph.factAnchors
+    factAnchors: relationGraph.factAnchors,
+    factRows: relationGraph.factRows,
+    warnings: relationGraph.warnings
   }, options.taskFieldExtensions, (sql) => Effect.gen(function* () {
     for (const table of snapshot.declaredTables) {
       yield* replaceDeclaredProjectionRows(sql, table.declaration, table.rows);
@@ -429,6 +431,7 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly factRows: ReturnType<typeof readRelationGraphRows>["factRows"];
   readonly warnings: ProjectionReadResult["warnings"];
 } {
   const rootDir = path.resolve(options.rootDir);
@@ -441,16 +444,24 @@ export function readRelationGraphProjection(options: TaskProjectionOptions): {
       edges: graphRows.relationEdges,
       coverageRows: graphRows.coverageRows,
       factAnchors: graphRows.factAnchors,
-      warnings: taskProjection.warnings
+      factRows: graphRows.factRows,
+      warnings: [...taskProjection.warnings, ...graphRows.warnings]
     };
   } catch {
+    const readWarning = hardFail(
+      "generated-cache",
+      "projection_tampered",
+      "Relation or fact projection rows could not be decoded and were rebuilt from authored state.",
+      "Discard the generated cache and rebuild it from authored markdown; do not trust unreadable projection rows."
+    );
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     const graphRows = readRelationGraphRows(projectionPath);
     return {
       edges: graphRows.relationEdges,
       coverageRows: graphRows.coverageRows,
       factAnchors: graphRows.factAnchors,
-      warnings: [...taskProjection.warnings, ...rebuilt.warnings]
+      factRows: graphRows.factRows,
+      warnings: [...taskProjection.warnings, readWarning, ...rebuilt.warnings, ...graphRows.warnings]
     };
   }
 }
@@ -460,6 +471,7 @@ export function readTriadicProjectionSnapshot(options: TaskProjectionOptions): {
   readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly facts: ReturnType<typeof readRelationGraphRows>["factRows"];
   readonly warnings: ProjectionReadResult["warnings"];
 } {
   const rootDir = path.resolve(options.rootDir);
@@ -473,9 +485,16 @@ export function readTriadicProjectionSnapshot(options: TaskProjectionOptions): {
       edges: graph.relationEdges,
       coverageRows: graph.coverageRows,
       factAnchors: graph.factAnchors,
-      warnings: projection.warnings
+      facts: graph.factRows,
+      warnings: [...projection.warnings, ...graph.warnings]
     };
   } catch {
+    const readWarning = hardFail(
+      "generated-cache",
+      "projection_tampered",
+      "Triadic relation or fact projection rows could not be decoded and were rebuilt from authored state.",
+      "Discard the generated cache and rebuild it from authored markdown; do not trust unreadable projection rows."
+    );
     const rebuilt = rebuildTaskProjection({ rootDir, layoutOverrides: options.layoutOverrides, projectionPath, taskFieldExtensions: options.taskFieldExtensions });
     const graph = readRelationGraphRows(projectionPath);
     return {
@@ -483,7 +502,8 @@ export function readTriadicProjectionSnapshot(options: TaskProjectionOptions): {
       edges: graph.relationEdges,
       coverageRows: graph.coverageRows,
       factAnchors: graph.factAnchors,
-      warnings: [...projection.warnings, ...rebuilt.warnings]
+      facts: graph.factRows,
+      warnings: [...projection.warnings, readWarning, ...rebuilt.warnings, ...graph.warnings]
     };
   }
 }
