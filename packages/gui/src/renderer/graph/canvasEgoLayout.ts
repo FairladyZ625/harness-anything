@@ -171,7 +171,8 @@ export function egoFocusIdOf(ref: string): string {
 }
 
 // 节点尺寸(确定性布局用)。chip 紧凑一条;card 按 kind 分档宽,高按内容估算 +
-// 竖优先地板 + 硬 cap。scrollable 写入 data,EgoNode 据此条件挂 overflow-y-auto。
+// 竖优先地板 + 硬 cap。body 的 overflow 始终由 EgoNode 挂 overflow-y-auto(B1),
+// 这里只算几何尺寸,不再产出 scrollable 标志。
 const CHIP_W = 216;
 const CHIP_H = 46;
 // 内容驱动宽:按 kind 分档(fact 窄 / task 中 / decision 宽),不再是一刀切 360。
@@ -180,7 +181,8 @@ const GAP_X = 72;
 const GAP_Y = 36;
 // 竖优先地板:W:H ≤ 0.85(防横条)。短内容也按此垫高,但不再强制统一比例。
 const W_H_FLOOR = 0.85;
-// 硬 cap:超出则内部滚动(DecisionBody 三段满载刚好留余地)。
+// 硬 cap:节点最大高度。超出此高 → 节点保持 640,body 区由 overflow-y-auto 出滚动条。
+// (B1 后,真实内容超过估高也会被 overflow-y-auto 兜底,不会静默剪裁。)
 const H_CAP_ABS = 640;
 
 /** cpl = chars per line,从卡片宽派生(padding 24 + 字宽 8.5px)。 */
@@ -225,8 +227,6 @@ export function estimateCardHeight(entity: Entity, row: TaskRow | DecisionRow | 
 export interface CardDims {
   w: number;
   h: number;
-  /** true = 内容估高超出 H_CAP_ABS,body 区挂 overflow-y-auto。 */
-  scrollable: boolean;
 }
 
 /**
@@ -235,6 +235,9 @@ export interface CardDims {
  * 地板 = round(w / 0.85):竖优先,防横条(W:H > 0.85)。短内容会被垫到此高度,
  * 但不再强制统一比例(避免短 fact 撑成 9:16 的留白装腔)。
  * cap = H_CAP_ABS(640):DecisionBody 三段满载 ≈ 586,留余地不滚;超出才滚。
+ *
+ * B1:不再返 scrollable 标志 —— EgoNode body 始终 overflow-y-auto,内容低于盒子时
+ * Tailwind 不渲染滚动条,超出时自动出。任何估高偏差都降级到「滚动条出现」而非「文本消失」。
  */
 function nodeDims(
   entity: Entity,
@@ -243,17 +246,18 @@ function nodeDims(
   override?: { w: number; h: number },
 ): CardDims {
   if (override) {
-    // 用户已拖拽:尊重其选择,不重算 scrollable(他们看到的就是真相)。
-    return { w: override.w, h: override.h, scrollable: false };
+    // 用户已拖拽:尊重其选择(他们看到的就是真相)。即使拖得比内容小,body 的
+    // overflow-y-auto 会兜底出滚动条,不会被剪。
+    return { w: override.w, h: override.h };
   }
   if (expanded && row) {
     const w = CARD_W[entity];
     const estimated = estimateCardHeight(entity, row);
     const floored = Math.max(estimated, Math.round(w / W_H_FLOOR));
-    const scrollable = floored > H_CAP_ABS;
-    return { w, h: scrollable ? H_CAP_ABS : floored, scrollable };
+    const h = Math.min(floored, H_CAP_ABS);
+    return { w, h };
   }
-  return { w: CHIP_W, h: CHIP_H, scrollable: false };
+  return { w: CHIP_W, h: CHIP_H };
 }
 
 export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
@@ -361,7 +365,7 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
     if (!meta) continue;
     const center = pos.get(id) ?? { x: 0, y: 0 };
     const isExpanded = expanded.has(id);
-    const { w, h, scrollable } = nodeDims(meta.entity, isExpanded, meta.row, sizeOverrides?.get(id));
+    const { w, h } = nodeDims(meta.entity, isExpanded, meta.row, sizeOverrides?.get(id));
     let hiddenCount = 0;
     for (const a of adj.get(id) ?? []) {
       if (
@@ -378,11 +382,12 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
       id,
       type: "ego",
       position: { x: center.x - w / 2, y: center.y - h / 2 },
-      // 尺寸同时给 style(渲染)和顶层 width/height(RF 内部维度)。少了顶层这对,
-      // node.measured 直到 DOM 观测才有值,MiniMap 的 nodeHasDimensions() 判假 → 一个方块都不画。
+      // RF 包装盒的 inline 尺寸派生自 node.width/node.height(getNodeInlineStyleDimensions:
+      // `node.width ?? node.style?.width`)。顶层这对同时喂给 MiniMap 的 nodeHasDimensions
+      // (`node.measured ?? node.width ?? node.initialWidth`)。不再写 style.width/height:
+      // 它只是 node.width 的回退,反而与 NodeResizer 在 drag 期间的中间维度抢道(B2)。
       width: w,
       height: h,
-      style: { width: w, height: h },
       data: {
         entity: meta.entity,
         raw: meta.row,
@@ -394,9 +399,6 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
         hiddenCount,
         color: meta.entity === "task" ? statusColor(meta.row as TaskRow) : undefined,
         navRef,
-        // 内容驱动尺寸的副产物:body 区是否挂 overflow-y-auto。false 时 body 用
-        // overflow-hidden(短内容不滚、不晃),EgoNode 据此条件挂滚动条。
-        scrollable,
       },
       zIndex: id === focusId ? 6 : isExpanded ? 5 : 1,
     });
@@ -435,8 +437,9 @@ export function layoutCanvasEgo(input: CanvasEgoInput): LayoutOutput {
   let maxX = 0;
   let maxY = 0;
   for (const n of rfNodes) {
-    const w = (n.style?.width as number) ?? CHIP_W;
-    const h = (n.style?.height as number) ?? CHIP_H;
+    // B2:顶层 width/height 取代 style.width/height 作为尺寸真相。
+    const w = (n.width as number | undefined) ?? CHIP_W;
+    const h = (n.height as number | undefined) ?? CHIP_H;
     minX = Math.min(minX, n.position.x);
     minY = Math.min(minY, n.position.y);
     maxX = Math.max(maxX, n.position.x + w);

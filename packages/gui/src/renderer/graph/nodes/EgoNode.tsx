@@ -105,12 +105,20 @@ export function EgoNode({ data, selected }: any) {
       }}
     >
       {/* D4:NodeResizer —— 用户「手动拖放大缩小组件」的入口。只在展开卡片上显示。
-          onResizeEnd 把最终尺寸持久化到 sizeOverrides(localStorage),布局器下次按此尺寸渲染。
+          onResize 把每个 drag tick 的中间尺寸同步到 sizeOverrides,使布局器立即按新尺寸
+          重排——可见的实时缩放(RF 受控模式下 NodeResizer 的内部 dimensionChange 不会经
+          onNodesChange 回流到我们的 nodes 状态,所以必须由 EgoNode 主动上报)。
+          onResizeEnd 同样上报一次,确保最终尺寸写入。
           minWidth/minHeight 防止拖到 0;nodesDraggable={false} 不影响 resize(RF 独立处理)。*/}
       <NodeResizer
         isVisible={true}
         minWidth={CARD_MIN_W}
         minHeight={CARD_MIN_H}
+        onResize={(_evt, params) => {
+          if (data.onResizeEnd) {
+            data.onResizeEnd(data.id, params.width, params.height);
+          }
+        }}
         onResizeEnd={(_evt, params) => {
           if (data.onResizeEnd) {
             data.onResizeEnd(data.id, params.width, params.height);
@@ -164,13 +172,11 @@ export function EgoNode({ data, selected }: any) {
       {/* scrollable body */}
       {/* D4:nowheel 类让 React Flow 的 d3-zoom filter 把滚轮让给此容器(否则滚轮被拿去缩放画布,
           overflow-y-auto 形同虚设)。noWheelClassName 默认就是 "nowheel",无需在 ReactFlow 上配置。
-          G1:scrollable 来自内容驱动尺寸(nodeDims)。短内容(fact ≤200 字 / task 单行)scrollable=false,
-          用 overflow-hidden 防止恒挂空滚动条;长内容(decision 三段满载)才挂 overflow-y-auto。*/}
-      <div
-        className={`nowheel mt-1.5 flex min-h-0 flex-1 flex-col gap-2 overscroll-contain px-2.5 pb-2 ${
-          data.scrollable ? "overflow-y-auto" : "overflow-hidden"
-        }`}
-      >
+          B1:始终挂 overflow-y-auto —— 内容适配时 Tailwind 不会渲染滚动条(视觉等价 overflow-hidden),
+          一旦真实内容超过节点盒(高估或被用户拖小),滚动条自然出现。这避免了 estimateCardHeight
+          的启发式低估导致内容被 overflow-hidden 静默剪裁("组件大了,但是滚动不了了")。
+          min-h-0 + flex-1 让 flex 子项在父盒固定高时正确收缩,从而能产生 overflow。*/}
+      <div className="nowheel mt-1.5 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2.5 pb-2">
         {entity === "task" && <TaskBody t={data.raw as TaskRow} />}
         {entity === "decision" && <DecisionBody d={data.raw as DecisionRow} />}
         {entity === "fact" && <FactBody f={data.raw as FactRef} />}

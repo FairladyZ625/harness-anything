@@ -61,10 +61,10 @@ function scene() {
 const FOCUS = "decision/dec_F";
 
 function boxesOverlap(a: any, b: any): boolean {
-  const aw = a.style.width;
-  const ah = a.style.height;
-  const bw = b.style.width;
-  const bh = b.style.height;
+  const aw = a.width;
+  const ah = a.height;
+  const bw = b.width;
+  const bh = b.height;
   return (
     a.position.x < b.position.x + bw &&
     b.position.x < a.position.x + aw &&
@@ -72,7 +72,7 @@ function boxesOverlap(a: any, b: any): boolean {
     b.position.y < a.position.y + ah
   );
 }
-const centerX = (n: any) => n.position.x + n.style.width / 2;
+const centerX = (n: any) => n.position.x + n.width / 2;
 
 describe("layoutCanvasEgo", () => {
   const { tasks, decisions, facts, relations } = scene();
@@ -153,10 +153,10 @@ describe("layoutCanvasEgo", () => {
 
   it("焦点渲染为卡片(expanded),其余为 chip", () => {
     expect(byId.get(FOCUS)!.data.expanded).toBe(true);
-    // G1:决策卡片宽 = 320(按 kind 分档,不再一刀切 360)。
-    expect(byId.get(FOCUS)!.style.width).toBe(320);
+    // G1:决策卡片宽 = 320(按 kind 分档,不再一刀切 360)。B2:改用顶层 width(不再写 style.width)。
+    expect(byId.get(FOCUS)!.width).toBe(320);
     expect(byId.get("task_C")!.data.expanded).toBe(false);
-    expect(byId.get("task_C")!.style.width).toBe(216); // CHIP_W
+    expect(byId.get("task_C")!.width).toBe(216); // CHIP_W
   });
 });
 
@@ -257,10 +257,11 @@ describe("D4 · estimateCardHeight(task 内容感知)", () => {
   });
 });
 
-// ══ G1:内容驱动尺寸 + 竖优先地板 + scrollable 标志 ══
+// ══ G1:内容驱动尺寸 + 竖优先地板 ══
 // 节点宽按 kind 分档(fact 280 / task 300 / decision 320),高按内容估算 + 地板(W:H ≤ 0.85)
-// + 硬 cap(640)。estimateCardHeight 只返内容估高(无地板无 cap);nodeDims 叠地板与 cap,
-// 并输出 scrollable 标志给 EgoNode 决定 overflow。详见 canvasEgoLayout.ts 注释。
+// + 硬 cap(640)。estimateCardHeight 只返内容估高(无地板无 cap);nodeDims 叠地板与 cap。
+// B1:EgoNode body 改为始终 overflow-y-auto(Tailwind 在不溢出时不渲染滚动条),node.data 不再
+// 携带 scrollable —— 真实内容超过估高也会被滚动条兜底,而非 overflow-hidden 静默剪裁。
 describe("G1 · 内容驱动尺寸 + 竖优先地板", () => {
   it("estimateCardHeight 对 decision 包含 rejected 段(原漏算)", () => {
     const dNoRej = decision("d1");
@@ -290,13 +291,13 @@ describe("G1 · 内容驱动尺寸 + 竖优先地板", () => {
       expanded: new Set([id]),
     });
     const node = out.nodes.find((n) => n.id === id)!;
-    const w = node.style?.width as number;
-    const h = node.style?.height as number;
+    // B2:尺寸改用顶层 width/height(不再写 style.width/height)。
+    const w = node.width as number;
+    const h = node.height as number;
     // W:H ≤ 0.85(竖优先地板),允许少许浮点。
     expect(w / h).toBeLessThanOrEqual(0.85 + 0.01);
-    // G1 §④ 验收:fact ≤200 字时 h ≥ 280,无滚动条。
+    // G1 §④ 验收:fact ≤200 字时 h ≥ 280。
     expect(h).toBeGreaterThanOrEqual(280);
-    expect(node.data?.scrollable).toBe(false);
   });
 
   it("expanded task 节点 W:H ≤ 0.85(竖优先地板)", () => {
@@ -314,10 +315,9 @@ describe("G1 · 内容驱动尺寸 + 竖优先地板", () => {
       expanded: new Set([id]),
     });
     const node = out.nodes.find((n) => n.id === id)!;
-    const w = node.style?.width as number;
-    const h = node.style?.height as number;
+    const w = node.width as number;
+    const h = node.height as number;
     expect(w / h).toBeLessThanOrEqual(0.85 + 0.01);
-    expect(node.data?.scrollable).toBe(false);
   });
 
   it("expanded decision 节点 W:H ≤ 0.85(竖优先地板)", () => {
@@ -335,14 +335,14 @@ describe("G1 · 内容驱动尺寸 + 竖优先地板", () => {
       expanded: new Set([id]),
     });
     const node = out.nodes.find((n) => n.id === id)!;
-    const w = node.style?.width as number;
-    const h = node.style?.height as number;
+    const w = node.width as number;
+    const h = node.height as number;
     expect(w / h).toBeLessThanOrEqual(0.85 + 0.01);
-    expect(node.data?.scrollable).toBe(false);
   });
 
-  it("decision 三段内容(Q+chosen+rejected)在 630px 内不滚", () => {
-    // 验证 G1 §④ 验收:decision 三段满载不滚。
+  it("decision 三段内容(Q+chosen+rejected)高度 ≤ 630px", () => {
+    // G1 §④ 验收:decision 三段满载不撑破硬 cap(640)。B1 后即便估高有偏差,
+    // body 始终 overflow-y-auto,真实内容超出时会出现滚动条而非被剪。
     const d = decision("dec_full", {
       question: "x".repeat(80),
       chosen: [
@@ -367,29 +367,25 @@ describe("G1 · 内容驱动尺寸 + 竖优先地板", () => {
       expanded: new Set([id]),
     });
     const node = out.nodes.find((n) => n.id === id)!;
-    expect(node.style?.height).toBeLessThanOrEqual(630);
-    expect(node.data?.scrollable).toBe(false);
+    expect(node.height).toBeLessThanOrEqual(630);
   });
 
-  it("超长 decision(Q+chosen+rejected+claims 都满)触发 scrollable(cap=640)", () => {
-    // 各段都顶到 estimateCardHeight 内部 cap,总和超出 H_CAP_ABS=640 → scrollable=true。
+  it("硬 cap:H_CAP_ABS=640 永远不被超(即便估高顶到各段 internal cap)", () => {
+    // 反向保护:无论内容多,节点高度都受 H_CAP_ABS 卡住;真实溢出由 body 滚动条兜底。
     const huge = decision("dec_huge", {
-      question: "x".repeat(200),  // 估高 +96(internal cap)
+      question: "x".repeat(200),
       chosen: Array.from({ length: 6 }, (_, i) => ({
         id: `CH${i}`, text: "chosen", evidence: [],
-      })) as any,  // 估高 +120(internal cap)
+      })) as any,
       rejected: Array.from({ length: 5 }, (_, i) => ({
         id: `RJ${i}`, text: "nope", evidence: [], whyNot: "why",
-      })) as any,  // 估高 +120(internal cap)
+      })) as any,
       claims: Array.from({ length: 5 }, (_, i) => ({
         id: `CL${i}`, text: "claim",
-      })),  // 估高 +120(internal cap)
+      })),
     });
-    // 估算总和:130 + 96 + 120 + 120 + 120 = 586,刚到不了 640。
-    // 但用 more 内容(Q 接近 200 字 → 96 cap、chosen 8 项 → 仍 120 cap)... 实际 internal
-    // caps 让 decision 很难超 640。改用 multi-section decision with longer Q:
     const huge2 = decision("dec_huge2", {
-      question: "y".repeat(400),  // estimateCardHeight 内部 cap 96
+      question: "y".repeat(400),
       chosen: Array.from({ length: 10 }, (_, i) => ({
         id: `CH${i}`, text: "c", evidence: [],
       })) as any,
@@ -413,11 +409,32 @@ describe("G1 · 内容驱动尺寸 + 竖优先地板", () => {
       expanded: new Set([id]),
     });
     const node = out.nodes.find((n) => n.id === id)!;
-    // nodeDims 永远把 scrollable = floored > 640;floored = max(estimated, w/0.85=376)。
-    // 若 estimateCardHeight 内部 caps 让总估高 ≤ 640,scrollable=false。
-    // 这条测试是**反向保护**:确认我们没意外把所有 decision 都标成 scrollable。
-    expect(node.style?.height).toBeLessThanOrEqual(640);
-    expect(node.data?.scrollable).toBe(false);
+    expect(node.height).toBeLessThanOrEqual(640);
     void huge; // huge 是对照(同样不会撑破 cap,留作文档说明)。
+  });
+
+  // B2:NodeResizer 走 sizeOverrides 通道。override 必须原样落地为顶层 width/height,
+  // 不被内容估高覆盖,且不再写 style.width(避免与 NodeResizer 的中间态打架)。
+  it("B2 · sizeOverride 落地为顶层 width/height(不被内容估高覆盖)", () => {
+    const t = task("task_override", { title: "short" });
+    const id = t.taskId;
+    const out = layoutCanvasEgo({
+      focusId: id,
+      tasks: [t],
+      decisions: [],
+      facts: [],
+      relations: [],
+      filters: filters(),
+      inLoopEdges: new Set(),
+      shown: new Map([[id, 0]]),
+      expanded: new Set([id]),
+      sizeOverrides: new Map([[id, { w: 500, h: 400 }]]),
+    });
+    const node = out.nodes.find((n) => n.id === id)!;
+    expect(node.width).toBe(500);
+    expect(node.height).toBe(400);
+    // B2:不再写 style.width / style.height —— 让 NodeResizer 控盒子。
+    expect(node.style?.width).toBeUndefined();
+    expect(node.style?.height).toBeUndefined();
   });
 });

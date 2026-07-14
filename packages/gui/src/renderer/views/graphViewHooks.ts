@@ -93,21 +93,23 @@ function writeSizes(sizes: ReadonlyMap<string, { w: number; h: number }>): void 
  * NodeResizer 拖拽调整后的卡片尺寸,持久化在 localStorage(复用 favorites.ts 模式)。
  * 串过 useGraphLayout → computeGraphLayout → layoutCanvasEgo.nodeDims,使布局器尊重
  * 用户手动调整的尺寸而非每次按内容估算覆盖掉。
+ *
+ * B2:EgoNode 的 NodeResizer 同时挂了 onResize(drag 每一 tick)与 onResizeEnd(松手),
+ * 让受控模式下也能看到实时缩放。为避免 drag 期间 60Hz 写 localStorage,内存状态立即更新,
+ * 磁盘写入经 setTimeout 防抖(最后一次更新后 250ms)。
  */
 export function useNodeSizeOverrides(): {
   sizeOverrides: ReadonlyMap<string, { w: number; h: number }>;
   setSizeOverride: (id: string, size: { w: number; h: number }) => void;
 } {
   const [sizes, setSizes] = useState<Map<string, { w: number; h: number }>>(() => readSizes());
+  // sizesRef 让防抖的磁盘写入拿到最新值,而不是闭包捕获的旧 sizes。
+  const sizesRef = useRef<Map<string, { w: number; h: number }>>(sizes);
+  const writeTimerRef = useRef<number | null>(null);
 
-  const setSizeOverride = useCallback((id: string, size: { w: number; h: number }) => {
-    setSizes((prev) => {
-      const next = new Map(prev);
-      next.set(id, size);
-      writeSizes(next);
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    sizesRef.current = sizes;
+  }, [sizes]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -116,6 +118,37 @@ export function useNodeSizeOverrides(): {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  // 挂载卸载时把未刷盘的覆盖持久化下去,防 drag 中途关闭/刷新丢失最后一次写入。
+  useEffect(() => {
+    return () => {
+      if (writeTimerRef.current !== null) {
+        window.clearTimeout(writeTimerRef.current);
+        writeTimerRef.current = null;
+        writeSizes(sizesRef.current);
+      }
+    };
+  }, []);
+
+  const setSizeOverride = useCallback((id: string, size: { w: number; h: number }) => {
+    setSizes((prev) => {
+      // 同值短路:drag 末尾的 onResizeEnd 常与上一 tick 同值,跳过避免无谓重排。
+      const existing = prev.get(id);
+      if (existing && existing.w === size.w && existing.h === size.h) return prev;
+      const next = new Map(prev);
+      next.set(id, size);
+      sizesRef.current = next;
+      return next;
+    });
+    // 防抖刷盘:drag 期间 60Hz 触发,只有松手后 250ms 静默期才真正落盘。
+    if (writeTimerRef.current !== null) {
+      window.clearTimeout(writeTimerRef.current);
+    }
+    writeTimerRef.current = window.setTimeout(() => {
+      writeTimerRef.current = null;
+      writeSizes(sizesRef.current);
+    }, 250);
   }, []);
 
   return { sizeOverrides: sizes, setSizeOverride };
