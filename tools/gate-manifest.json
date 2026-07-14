@@ -678,19 +678,26 @@
     {
       "id": "lint",
       "command": "npm run lint",
-      "category": "local-consistency",
+      "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
         "eslint.config.mjs",
+        "tools/eslint-layer-boundaries.mjs",
         "tools/port-physical-io-boundary-known-debt.mjs",
         "package.json:scripts.lint",
+        "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6--gate-binary-boundary-architecture-invariants-vs-local-consistency-formatlocal-coherence",
+        "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d2",
+        "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d5",
+        "task_01KXE0493Q44XTR1DWY3P5VVWX#slice-1",
         "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
         "decision/dec_mr9z0b7m"
       ],
       "consumerScope": [
         "repository JavaScript and TypeScript lint surface",
+        "application triadic/projection consumer boundary: packages/application/src/local-controller-service.ts cannot import runtime ArtifactStore or readAuthoredDocument from kernel authored storage",
+        "GUI renderer kernel-store boundary: packages/gui/src/renderer/** cannot import kernel storage primitives",
         "GUI renderer import boundary: renderer must consume window.harness bridge only",
         "GUI IPC primitive placement: ipcMain.handle and ipcRenderer stay in their approved Electron files",
         "kernel/application production-source physical I/O import boundary: fs/fs/promises/child_process imports are rejected outside explicit port implementation debt files"
@@ -710,18 +717,21 @@
         "allowed": true,
         "location": "tools/kernel-import-boundary-known-debt.mjs; tools/port-physical-io-boundary-known-debt.mjs",
         "adrOrDecisionRequired": true,
-        "notes": "Kernel deep-import known debt and W3 port physical-I/O file exceptions are externalized from eslint.config.mjs; ESLint imports these modules directly and each entry carries decision/task plus reason evidence."
+        "notes": "Kernel deep-import known debt and W3 port physical-I/O file exceptions are externalized from eslint.config.mjs; ESLint imports these modules directly and each entry carries decision/task plus reason evidence. The application projection and renderer kernel-store boundaries add no allowlist or exemption."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "eslint.config.mjs",
+          "tools/eslint-layer-boundaries.mjs",
+          "tools/eslint-layer-boundaries.test.mjs",
+          "tools/fixtures/eslint-layer-boundaries/**",
           "tools/port-physical-io-boundary-known-debt.mjs",
           "package.json:scripts.lint"
         ]
       },
-      "bypassFixtureRequired": false,
+      "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": {
           "check": true,
@@ -752,7 +762,10 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/port-physical-io-eslint-boundary.test.mjs"
+          "tools/port-physical-io-eslint-boundary.test.mjs",
+          "tools/eslint-layer-boundaries.test.mjs",
+          "tools/fixtures/eslint-layer-boundaries/application-triadic-read-authored-document.ts",
+          "tools/fixtures/eslint-layer-boundaries/renderer-kernel-store.ts"
         ]
       }
     },

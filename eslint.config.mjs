@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import { eslintLayerBoundaries } from "./tools/eslint-layer-boundaries.mjs";
 import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-known-debt.mjs";
 import { portPhysicalIoBoundaryKnownDebt } from "./tools/port-physical-io-boundary-known-debt.mjs";
 
@@ -289,6 +290,7 @@ export default tseslint.config(
         {
           paths: guiRendererRestrictedImportPaths,
           patterns: [
+            ...eslintLayerBoundaries.rendererKernelStorage.restrictedImports.patterns,
             {
               group: guiRendererRestrictedImportPatterns,
               message: guiBridgeOnlyMessage
@@ -307,6 +309,26 @@ export default tseslint.config(
           selector: `CallExpression[callee.name='require'][arguments.0.value=/${guiRendererRestrictedImportSourcePattern}/u]`,
           message: guiBridgeOnlyMessage
         }
+      ]
+    }
+  },
+  {
+    files: eslintLayerBoundaries.applicationTriadicProjection.files,
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: physicalIoRestrictedImportPaths,
+          patterns: [
+            ...noRestrictedKernelImportOptions().patterns,
+            ...eslintLayerBoundaries.applicationTriadicProjection.restrictedImports.patterns
+          ]
+        }
+      ],
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        ...physicalIoSyntaxRestrictions
       ]
     }
   },
