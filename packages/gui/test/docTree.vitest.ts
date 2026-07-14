@@ -40,6 +40,35 @@ describe("buildDocTree basic structure", () => {
   });
 });
 
+describe("buildDocTree ignores .gitkeep placeholders", () => {
+  it("drops a root-level .gitkeep", () => {
+    const tree = buildDocTree([
+      doc("INDEX.md"),
+      doc(".gitkeep"),
+    ]);
+    expect(tree.map((n) => n.path)).toEqual(["INDEX.md"]);
+  });
+
+  it("drops a nested .gitkeep but keeps its siblings and directory", () => {
+    const tree = buildDocTree([
+      doc("artifacts/keymgmt-design/.gitkeep"),
+      doc("artifacts/keymgmt-design/design.md"),
+    ]);
+    const artifacts = tree[0];
+    const keymgmt = artifacts.children[0];
+    expect(keymgmt.name).toBe("keymgmt-design");
+    expect(keymgmt.children.map((n) => n.name)).toEqual(["design.md"]);
+  });
+
+  it("removes a directory that only held a .gitkeep", () => {
+    const tree = buildDocTree([
+      doc("INDEX.md"),
+      doc("artifacts/empty-dir/.gitkeep"),
+    ]);
+    expect(tree.map((n) => n.name)).toEqual(["INDEX.md"]);
+  });
+});
+
 describe("buildDocTree nested directories", () => {
   const tree = buildDocTree([
     doc("INDEX.md"),
