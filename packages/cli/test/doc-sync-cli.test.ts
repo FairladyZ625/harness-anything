@@ -44,6 +44,10 @@ test("CLI doc status reports prose candidates and forbidden structured touches",
 
     writeFileSync(path.join(taskRoot, "task_plan.md"), "# Plan\n\nUpdated prose.\n");
     writeFileSync(path.join(taskRoot, "facts.md"), "# Facts\n\n- fact: structured mutation\n");
+    mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
+    mkdirSync(path.join(taskRoot, "reviews"), { recursive: true });
+    writeFileSync(path.join(taskRoot, "executions", "fake.md"), "{}\n");
+    writeFileSync(path.join(taskRoot, "reviews", "fake.md"), "{}\n");
 
     const status = runJson(rootDir, ["doc", "status"]);
     assert.equal(status.ok, true);
@@ -51,6 +55,8 @@ test("CLI doc status reports prose candidates and forbidden structured touches",
     assert.equal(status.report.candidateBlobs.length, 1);
     assert.equal(status.report.candidateBlobs[0].path, "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task_plan.md");
     assert.equal(status.report.forbiddenTouches.some((touch: Record<string, any>) => touch.hunks[0].registryRowId === "fact.record"), true);
+    assert.equal(status.report.forbiddenTouches.some((touch: Record<string, any>) => touch.hunks[0].registryRowId === "task.execution.record"), true);
+    assert.equal(status.report.forbiddenTouches.some((touch: Record<string, any>) => touch.hunks[0].registryRowId === "task.execution-review.record"), true);
 
     const dryRun = runJson(rootDir, ["doc", "sync", "--dry-run"]);
     assert.equal(dryRun.ok, true);

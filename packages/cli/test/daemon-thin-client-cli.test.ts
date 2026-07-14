@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -33,6 +33,17 @@ import {
   runDaemonCliProcess,
   spawnDaemonCli
 } from "./helpers/daemon-transport.ts";
+import {
+  daemonStatusRepoIds,
+  daemonStatusRepos,
+  git,
+  initGitRepo,
+  isRecord,
+  normalizeVolatileReceipt,
+  readCliPackageVersion,
+  receiptPath,
+  waitForCondition
+} from "./helpers/daemon-thin-client-fixtures.ts";
 
 const expectedCliVersion = readCliPackageVersion();
 
@@ -206,6 +217,76 @@ test("daemon client auto-starts, durably writes, and exits after idle", () => {
     sleep(700);
     const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
     assert.equal(status.started, false);
+  });
+});
+
+test("daemon-backed Execution claim preserves the caller session and opens Holder V2", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    writePeopleRoster(rootDir, {
+      personId: "person_execution",
+      displayName: "Execution User",
+      email: "execution@example.test",
+      role: "owner"
+    });
+    const created = runRawJson(rootDir, ["task", "create", "--title", "Daemon Execution Claim"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000"
+    });
+    const taskId = receiptDataString(created, "taskId");
+
+    const claimed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "claiming-codex-session",
+      CODEX_SESSION_ID: "claiming-codex-session"
+    });
+
+    assert.equal(claimed.ok, true, JSON.stringify(claimed));
+    const executionId = receiptDataString(claimed, "executionId");
+    assert.match(executionId, /^exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u, JSON.stringify(claimed));
+    const executionPath = path.posix.join(
+      receiptPath(created, "package").replace(/^harness\//u, ""),
+      "executions",
+      `${executionId}.md`
+    );
+    const execution = JSON.parse(git(
+      path.join(rootDir, "harness"),
+      "show",
+      `sessions/claiming-codex-session:${executionPath}`
+    )) as {
+      readonly session_bindings?: ReadonlyArray<{ readonly session_ref?: string | null }>;
+    };
+    assert.equal(execution.session_bindings?.[0]?.session_ref, "session/claiming-codex-session");
+
+    const holder = runRawJson(rootDir, ["task", "holder", taskId], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000"
+    });
+    const holderData = (holder.details as { readonly data?: { readonly holder?: { readonly schema?: string } } } | undefined)?.data;
+    assert.equal(holderData?.holder?.schema, "task-holder/v2");
+
+    const released = runRawJson(rootDir, ["task", "release", taskId], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "claiming-codex-session",
+      CODEX_SESSION_ID: "claiming-codex-session"
+    });
+    assert.equal(released.ok, true, JSON.stringify(released));
+
+    const releasedHolder = runRawJson(rootDir, ["task", "holder", taskId], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000"
+    });
+    const releasedHolderData = (releasedHolder.details as {
+      readonly data?: { readonly holder?: { readonly schema?: string; readonly holder?: unknown } }
+    } | undefined)?.data;
+    assert.equal(releasedHolderData?.holder?.schema, "task-holder/v1");
+    assert.equal(releasedHolderData?.holder?.holder, null);
   });
 });
 
@@ -605,74 +686,3 @@ test("daemon repo commands register list and unregister the user-level registry"
     assert.equal((unregister.repo as { state?: string }).state, "disabled");
   });
 });
-
-function readCliPackageVersion(): string {
-  const pkg = JSON.parse(readFileSync(path.resolve("packages/cli/package.json"), "utf8")) as { readonly version?: unknown };
-  assert.equal(typeof pkg.version, "string");
-  return pkg.version;
-}
-
-function normalizeVolatileReceipt(receipt: Record<string, unknown>): Record<string, unknown> {
-  const meta = isRecord(receipt.meta) ? { ...receipt.meta } : undefined;
-  if (meta) delete meta.generatedAt;
-  return {
-    ...receipt,
-    ...(meta ? { meta } : {})
-  };
-}
-
-async function waitForCondition(check: () => boolean, timeoutMs = 4_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
-    if (check()) return;
-    await delay(100);
-  }
-  assert.equal(check(), true);
-}
-
-function daemonStatusRepoIds(rootDir: string, userRoot: string, repoId: string): ReadonlyArray<string> {
-  return daemonStatusRepos(rootDir, userRoot, repoId).map((repo) => repo.repoId);
-}
-
-function daemonStatusRepos(rootDir: string, userRoot: string, repoId: string): ReadonlyArray<{ readonly repoId: string; readonly state?: string }> {
-  const status = runDaemonCommand(rootDir, ["--repo", repoId, "daemon", "status", "--user-root", userRoot, "--json"], {
-    HARNESS_DAEMON_USER_ROOT: userRoot
-  });
-  return Array.isArray(status.repos) ? status.repos as Array<{ repoId: string; state?: string }> : [];
-}
-
-function initGitRepo(rootDir: string): void {
-  const env = hermeticGitEnv(rootDir);
-  execFileSync("git", ["-C", rootDir, "init", "-b", "master"], { stdio: "ignore", env });
-  execFileSync("git", ["-C", rootDir, "config", "user.name", "Harness Test"], { stdio: "ignore", env });
-  execFileSync("git", ["-C", rootDir, "config", "user.email", "harness@example.test"], { stdio: "ignore", env });
-}
-
-function git(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-C", rootDir, ...args], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: hermeticGitEnv(rootDir)
-  }).trim();
-}
-
-function hermeticGitEnv(rootDir: string): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    HOME: path.join(rootDir, ".home"),
-    GIT_CONFIG_GLOBAL: "/dev/null"
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function receiptPath(receipt: Record<string, unknown>, role: string): string {
-  const paths = receipt.paths;
-  assert.equal(Array.isArray(paths), true);
-  const value = (paths as ReadonlyArray<{ readonly role?: unknown; readonly path?: unknown }>)
-    .find((entry) => entry.role === role)?.path;
-  assert.equal(typeof value, "string");
-  return value as string;
-}

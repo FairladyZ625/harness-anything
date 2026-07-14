@@ -128,26 +128,46 @@ export interface DocSyncValidationResult {
   readonly currentLedgerSha: string;
 }
 
-export function classifyTouchedZones(pathInput: string, status: DirtyEntry["status"], baseBody: string | null, currentBody: string | null, rows: ReadonlyArray<RegistryRow>): ReadonlyArray<TouchedZone> {
+export function classifyTouchedZones(pathInput: string, status: DirtyEntry["status"], _baseBody: string | null, _currentBody: string | null, rows: ReadonlyArray<RegistryRow>): ReadonlyArray<TouchedZone> {
   if (status === "deleted") return [unresolved("doc sync deletion is not defined in Phase 2")];
   const normalized = pathInput.split(/[\\/]+/u).join("/");
   const typedOnlyReason = typedOnlyMachineSurfaceReason(normalized);
-  if (typedOnlyReason) return [unresolved(typedOnlyReason)];
+  if (typedOnlyReason) {
+    if (/^tasks\/[^/]+\/executions\/[^/]+\.md$/u.test(normalized)) {
+      return typedOnlyZones(rows, typedOnlyReason, "task-execution", "task-authored-structured");
+    }
+    if (/^tasks\/[^/]+\/reviews\/[^/]+\.md$/u.test(normalized)) {
+      return typedOnlyZones(rows, typedOnlyReason, "task-execution-review", "task-authored-structured");
+    }
+    return [unresolved(typedOnlyReason)];
+  }
   if (normalized === "modules.json") return rowZones(rows, "module-registry", "module-authored-structured");
   if (normalized.startsWith("decisions/")) return rowZones(rows, "decision", "decision-authored-structured");
   if (!normalized.startsWith("tasks/")) return [unresolved("path is outside the registered doc-sync task document surface")];
+  if (/^tasks\/[^/]+\/executions(?:\/|$)/u.test(normalized)) return rowZones(rows, "task-execution", "task-authored-structured");
+  if (/^tasks\/[^/]+\/reviews(?:\/|$)/u.test(normalized)) return rowZones(rows, "task-execution-review", "task-authored-structured");
   if (normalized.endsWith("/facts.md")) return rowZones(rows, "task-fact", "task-authored-structured");
-  if (normalized.endsWith("/INDEX.md") && frontmatterChanged(baseBody, currentBody)) return rowZones(rows, "task-lifecycle", "task-authored-structured");
+  if (normalized.endsWith("/INDEX.md")) return rowZones(rows, "task-lifecycle", "task-authored-structured");
   return rowZones(rows, "task-document", "task-authored-prose-or-stage");
 }
 
 export function classifyStaticZones(pathInput: string, rows: ReadonlyArray<RegistryRow>): ReadonlyArray<TouchedZone> {
   const normalized = pathInput.split(/[\\/]+/u).join("/");
   const typedOnlyReason = typedOnlyMachineSurfaceReason(normalized);
-  if (typedOnlyReason) return [unresolved(typedOnlyReason)];
+  if (typedOnlyReason) {
+    if (/^tasks\/[^/]+\/executions\/[^/]+\.md$/u.test(normalized)) {
+      return typedOnlyZones(rows, typedOnlyReason, "task-execution", "task-authored-structured");
+    }
+    if (/^tasks\/[^/]+\/reviews\/[^/]+\.md$/u.test(normalized)) {
+      return typedOnlyZones(rows, typedOnlyReason, "task-execution-review", "task-authored-structured");
+    }
+    return [unresolved(typedOnlyReason)];
+  }
   if (normalized === "modules.json") return rowZones(rows, "module-registry", "module-authored-structured");
   if (normalized.startsWith("decisions/")) return rowZones(rows, "decision", "decision-authored-structured");
   if (!normalized.startsWith("tasks/")) return [unresolved("path is outside the registered doc-sync task document surface")];
+  if (/^tasks\/[^/]+\/executions(?:\/|$)/u.test(normalized)) return rowZones(rows, "task-execution", "task-authored-structured");
+  if (/^tasks\/[^/]+\/reviews(?:\/|$)/u.test(normalized)) return rowZones(rows, "task-execution-review", "task-authored-structured");
   if (normalized.endsWith("/facts.md")) return rowZones(rows, "task-fact", "task-authored-structured");
   if (normalized.endsWith("/INDEX.md")) return rowZones(rows, "task-lifecycle", "task-authored-structured");
   return rowZones(rows, "task-document", "task-authored-prose-or-stage");
@@ -213,8 +233,14 @@ function unresolved(reason: string, bearing?: string, zoneClass?: string): Touch
   return { ok: false, reason, ...(bearing ? { bearing } : {}), ...(zoneClass ? { zoneClass } : {}) };
 }
 
-function frontmatterChanged(baseBody: string | null, currentBody: string | null): boolean {
-  return frontmatterBlock(baseBody ?? "") !== frontmatterBlock(currentBody ?? "");
+function typedOnlyZones(
+  rows: ReadonlyArray<RegistryRow>,
+  reason: string,
+  bearing: string,
+  zoneClass: string
+): ReadonlyArray<TouchedZone> {
+  const zones = rowZones(rows, bearing, zoneClass);
+  return zones.some((zone) => zone.ok) ? zones : [unresolved(reason, bearing, zoneClass)];
 }
 
 function typedOnlyMachineSurfaceReason(path: string): string | null {

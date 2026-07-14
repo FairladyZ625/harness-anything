@@ -140,15 +140,15 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
   }, {
     command: "task-claim",
     field: "data.executionId",
-    reason: "Only emitted when --execution opens a Holder V2 round."
+    reason: "Only emitted when a work claim opens a Holder V2 Execution round."
   }, {
     command: "status-set",
     field: "data.forced",
-    reason: "Only emitted for audited terminal recovery transitions invoked with --force."
+    reason: "Only emitted for audited cancellation recovery invoked with --force."
   }, {
     command: "status-set",
     field: "data.forceAudit",
-    reason: "Only emitted for audited terminal recovery transitions that append force audit evidence."
+    reason: "Only emitted for audited cancellation recovery that appends force audit evidence."
   }, {
     command: "status-set",
     field: "data.executionId",
@@ -160,11 +160,11 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
   }, {
     command: "status-set",
     field: "paths.primary",
-    reason: "Only emitted for audited terminal recovery transitions where the audit progress path is returned as the primary path."
+    reason: "Only emitted for audited cancellation recovery where the audit progress path is returned as the primary path."
   }, {
     command: "status-set",
     field: "paths.forceAudit",
-    reason: "Only emitted for audited terminal recovery transitions that append force audit evidence."
+    reason: "Only emitted for audited cancellation recovery that appends force audit evidence."
   }, {
     command: "progress-append",
     field: "data.report",
@@ -212,7 +212,7 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
   }, {
     command: "task-complete",
     field: "data.reviewContract",
-    reason: "Present only for a legacy task package without Execution history; Execution-bearing tasks use Review Entities."
+    reason: "Compatibility-only legacy review.md gate evidence; it never authorizes completion."
   }, {
     command: "session-sync",
     field: "paths.primary",

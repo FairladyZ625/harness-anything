@@ -27,10 +27,18 @@ export function canonicalAuthoredBatchWrites(op: WriteOp): ReadonlyArray<Canonic
       malformed(op);
     }
     const normalized = normalizeBatchPath(candidate.path, op.entityId);
+    if (isTaskTypedAuthorityPath(normalized)) {
+      rejectWrite(`${op.kind} cannot write Task typed-authority path: ${normalized}`, op.entityId);
+    }
     if (paths.has(normalized)) rejectWrite(`duplicate canonical authored batch path: ${normalized}`, op.entityId);
     paths.add(normalized);
     return { path: normalized, body: candidate.body, baseBlobSha256: candidate.baseBlobSha256 };
   });
+}
+
+function isTaskTypedAuthorityPath(relativePath: string): boolean {
+  return /^tasks\/[^/]+\/INDEX\.md$/u.test(relativePath) ||
+    /^tasks\/[^/]+\/(?:executions|reviews)(?:\/|$)/u.test(relativePath);
 }
 
 export function canonicalAuthoredBatchPaths(rootInput: HarnessLayoutInput, op: WriteOp): ReadonlyArray<string> {

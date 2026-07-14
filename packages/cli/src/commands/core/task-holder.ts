@@ -64,7 +64,7 @@ export function runExecutionSubmit(
         error: cliError(CliErrorCode.WriteRejected, "Execution submit requires an active Holder V2 execution or an explicit --execution-id.")
       } satisfies CliResult;
     }
-    return yield* Effect.tryPromise({
+    const submitted = yield* Effect.tryPromise({
       try: () => saga.submitForReview({
         taskId: action.taskId,
         executionId,
@@ -85,23 +85,27 @@ export function runExecutionSubmit(
       }),
       catch: (error) => error
     }).pipe(Effect.match({
-      onFailure: (error): CliResult => ({
+      onFailure: (error) => ({ ok: false as const, error }),
+      onSuccess: () => ({ ok: true as const })
+    }));
+    if (!submitted.ok) {
+      return {
         ok: false,
         command: "status-set",
         taskId: action.taskId,
         executionId,
         status: "in_review",
-        error: cliError(CliErrorCode.WriteRejected, error instanceof Error ? error.message : String(error))
-      }),
-      onSuccess: (): CliResult => ({
-        ok: true,
-        command: "status-set",
-        taskId: action.taskId,
-        executionId,
-        status: "in_review",
-        report: { schema: "execution-submit-result/v1", executionId, leaseReleased: true }
-      })
-    }));
+        error: cliError(CliErrorCode.WriteRejected, submitted.error instanceof Error ? submitted.error.message : String(submitted.error))
+      } satisfies CliResult;
+    }
+    return {
+      ok: true,
+      command: "status-set",
+      taskId: action.taskId,
+      executionId,
+      status: "in_review",
+      report: { schema: "execution-submit-result/v1", executionId, leaseReleased: true }
+    } satisfies CliResult;
   });
 }
 

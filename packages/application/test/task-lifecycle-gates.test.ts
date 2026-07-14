@@ -110,6 +110,18 @@ test("task document placeholder detection distinguishes scaffold text from real 
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ""
   ].join("\n")), false);
+  assert.equal(isReviewPlaceholderMarkdown([
+    "# Review",
+    "",
+    "Status: not-started",
+    "",
+    "## Findings",
+    "",
+    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| F-001 | P9 | Malformed material finding. | diff | Repair it. | yes | open | yes | none |",
+    ""
+  ].join("\n")), false);
 });
 
 test("phase validation rejects agent-owned human gate and missing exit commands", () => {

@@ -8,7 +8,6 @@ import {
   XCircle,
   ArrowSquareOut,
   Spinner,
-  SealCheck,
 } from "@phosphor-icons/react";
 import type {
   DecisionRow,
@@ -16,7 +15,7 @@ import type {
   TaskRow,
   RelationEdge,
 } from "../model/types";
-import { isExternal, isTerminal } from "../model/types";
+import { isExternal, isGenericStatusWriteTransition, isTerminal } from "../model/types";
 import {
   STATUS_META,
   StatusBadge,
@@ -38,9 +37,8 @@ import { DocTree } from "../components/taskDetail/DocTree";
 import { buildDocTree } from "../model/docTree";
 import { docGroupLabel, inferDocGroup, isRequiredDocGroup } from "../model/docGroups";
 import { normalizeTaskId, spawningDecisionOf } from "../model/triadic";
-import { useTaskDetailQuery, useTaskDocumentQuery, useReviewTaskMutation } from "../task-data";
+import { useTaskDetailQuery, useTaskDocumentQuery } from "../task-data";
 import { t } from "../i18n/index.tsx";
-import { useToast } from "../components/MutationToast";
 
 /**
  * 推断文档分组:preset 模板里常见文件名 → DocGroup。投影只给 path,组别靠命名启发式。
@@ -144,9 +142,6 @@ export function TaskDetailView({
   const external = isExternal(task);
   // 真实文档清单:从 useTaskDetailQuery 拉,投影本身不内嵌 docs(task-adapter 给空数组)。
   const detailQuery = useTaskDetailQuery(task.taskId);
-  // 收口机判:review gate 只机判 PASS/FAIL,人工不可覆写(dec_mrca9hx4 CH1)。
-  const showToast = useToast();
-  const reviewMutation = useReviewTaskMutation();
   const realDocs = useMemo<DocEntry[]>(() => {
     const docs = detailQuery.data?.documents ?? [];
     if (docs.length === 0) return task.docs;
@@ -397,10 +392,12 @@ export function TaskDetailView({
                 </div>
               ) : isTerminal(task.coordinationStatus) ? (
                 <p className="text-[12px] text-text-faint">{t("views.taskDetailView.finalStateCannotTransferredOutAgain")}</p>
+              ) : !LOCAL_TRANSITIONS.some((status) => isGenericStatusWriteTransition(task.coordinationStatus, status)) ? (
+                <p className="text-[12px] text-text-faint">{t("views.taskDetailView.currentStateRequiresExecutionReview")}</p>
               ) : (
                 <div className="grid grid-cols-2 gap-1.5">
                   {LOCAL_TRANSITIONS.filter(
-                    (s) => s !== task.coordinationStatus,
+                    (s) => isGenericStatusWriteTransition(task.coordinationStatus, s),
                   ).map((s) => (
                     <button
                       key={s}
@@ -423,31 +420,11 @@ export function TaskDetailView({
             {task.closeoutReadiness === "ready" && (
               <div className="flex flex-col gap-2">
                 <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                  {t("views.taskDetailView.closingMachineJudgment")}</span>
-                <button
-                  onClick={() =>
-                    reviewMutation.mutate(
-                      { taskId: task.taskId },
-                      {
-                        onSuccess: () => showToast(t("renderer.mutation.reviewGateRequested"), "success"),
-                        onError: (error: Error) =>
-                          showToast(t("renderer.mutation.reviewGateRequestFailed", { error: error.message }), "error"),
-                      },
-                    )
-                  }
-                  disabled={reviewMutation.isPending}
-                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-accent px-2 py-1.5 text-[12px] font-semibold text-accent-fg active:scale-[0.98] disabled:opacity-50"
-                >
-                  <SealCheck weight="bold" />
-                  {reviewMutation.isPending ? t("views.taskDetailView.judging") : t("views.taskDetailView.requestReviewGateReview")}
-                </button>
-                {reviewMutation.isError && (
-                  <p className="text-[11px] leading-relaxed text-danger">
-                    {t("views.taskDetailView.machineJudgmentRequestFailed")}{(reviewMutation.error as Error)?.message ?? t("views.taskDetailView.localLedgerBridgeDidNotReturn")}
-                  </p>
-                )}
-                <p className="text-[11px] leading-relaxed text-text-faint">
-                  {t("views.taskDetailView.judgmentDeterminedByReviewGateMachinePass")}</p>
+                  {t("views.taskDetailView.executionReview")}
+                </span>
+                <p className="rounded-md border border-border bg-surface-raised p-2.5 text-[11px] leading-relaxed text-text-faint">
+                  {t("views.taskDetailView.executionReviewCompletionPath")}
+                </p>
               </div>
             )}
           </div>

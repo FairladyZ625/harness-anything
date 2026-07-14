@@ -20,15 +20,17 @@ import {
   taskHolderActor
 } from "../src/index.ts";
 import { writeContentAddressedBlob, writeSessionEntity } from "../../kernel/src/index.ts";
-import type { ExecutionAuthoredStore, ExecutionRecord } from "../src/index.ts";
+import type { ExecutionRecord } from "../src/index.ts";
 import { validateOutputEvidence } from "../../kernel/src/index.ts";
 import { writeAttribution } from "./test-attribution.ts";
+import { memoryAuthoredStore, taskIndex } from "./execution-saga-fixtures.ts";
 
 const taskId = "task_01KX19GEKWMEJNGSMRT6JJH6HY";
 const executionId = "exe_01KX7H00000000000000000001";
 const secondExecutionId = "exe_01KX7H00000000000000000002";
 const firstReviewId = "rev_01KX7H00000000000000000001";
 const secondReviewId = "rev_01KX7H00000000000000000002";
+const mismatchedReviewId = "rev_01KX7H00000000000000000003";
 const aliceCodex = taskHolderActor(
   { personId: "alice", displayName: "Alice" },
   { kind: "agent", id: "codex" }
@@ -74,7 +76,7 @@ test("Execution is a hosted entity and Holder V2 rejects a second executor", asy
       leaseToken: reserved.leaseToken,
       principal: aliceClaude
     }), /requires an active lease/u);
-    await assert.rejects(service.release({ taskId, principal: aliceCodex }), /is not held/u);
+    await assert.rejects(service.release({ taskId, principal: aliceClaude }), /is not held/u);
     const active = await service.activateExecution({
       taskId,
       executionId,
@@ -96,7 +98,7 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
   try {
     const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-round-trip`);
     mkdirSync(taskRoot, { recursive: true });
-    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex(taskId, "planned"), "utf8");
     const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution });
     const holder = makeTaskHolderService({ rootInput: rootDir });
     const executionIds = [executionId, secondExecutionId];
@@ -216,7 +218,7 @@ test("reservation reconciler converges an orphan Execution reservation without a
   try {
     const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-startup-reconcile`);
     mkdirSync(taskRoot, { recursive: true });
-    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex(taskId, "planned"), "utf8");
     const holder = makeTaskHolderService({ rootInput: rootDir });
     await holder.reserveExecution({ taskId, executionId, principal: aliceCodex });
     let reconciledPrincipal: typeof aliceCodex | undefined;
@@ -247,7 +249,7 @@ test("submit-for-review rejects an Execution without a finalized primary Session
   try {
     const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-primary-gate`);
     mkdirSync(taskRoot, { recursive: true });
-    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex(taskId, "planned"), "utf8");
     const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution });
     const holder = makeTaskHolderService({ rootInput: rootDir });
     const saga = makeExecutionSagaService({
@@ -343,7 +345,7 @@ test("Execution session bindings can only be attached while the Execution is act
   try {
     const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-attach`);
     mkdirSync(taskRoot, { recursive: true });
-    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("planned"), "utf8");
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex(taskId, "planned"), "utf8");
     const holder = makeTaskHolderService({ rootInput: rootDir });
     const authored = makeCoordinatedExecutionAuthoredStore({
       rootInput: rootDir,
@@ -422,7 +424,7 @@ test("Review rounds append, require archive-warning acknowledgement, and dismiss
   try {
     const taskRoot = path.join(rootDir, "harness/tasks", taskId);
     mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
-    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("in_review"), "utf8");
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex(taskId, "in_review"), "utf8");
     writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), `${JSON.stringify({
       schema: "execution/v1",
       execution_id: executionId,
@@ -509,7 +511,7 @@ test("Execution completion requires an approved Review, rejects the executor, an
   try {
     const taskRoot = path.join(rootDir, "harness/tasks", taskId);
     mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
-    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex("in_review"), "utf8");
+    writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex(taskId, "in_review"), "utf8");
     writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), `${JSON.stringify({
       schema: "execution/v1",
       execution_id: executionId,
@@ -548,13 +550,25 @@ test("Execution completion requires an approved Review, rejects the executor, an
       archiveWarningsAcknowledged: false
     });
 
+    const firstReviewPath = path.join(taskRoot, "reviews", `${firstReviewId}.md`);
+    const mismatchedReviewPath = path.join(taskRoot, "reviews", `${mismatchedReviewId}.md`);
+    writeFileSync(mismatchedReviewPath, readFileSync(firstReviewPath, "utf8"), "utf8");
+    await assert.rejects(
+      completion.completeTaskExecution({ taskId, actor: aliceClaude }),
+      /review identity does not match its host path/u
+    );
+    rmSync(mismatchedReviewPath);
+
     const firstExecution = JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")) as ExecutionRecord;
     writeFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), `${JSON.stringify({
       ...firstExecution,
       execution_id: secondExecutionId,
       submitted_at: "2026-07-11T00:02:30.000Z"
     }, null, 2)}\n`, "utf8");
-    await assert.rejects(completion.completeTaskExecution({ taskId, actor: aliceClaude }), /approved Review/u);
+    await assert.rejects(
+      completion.completeTaskExecution({ taskId, actor: aliceClaude }),
+      /exactly one submitted Execution/u
+    );
     await reviews.reviewExecution({
       taskId,
       executionId: secondExecutionId,
@@ -567,11 +581,17 @@ test("Execution completion requires an approved Review, rejects the executor, an
       archiveWarningsAcknowledged: false
     });
 
+    writeFileSync(path.join(taskRoot, "executions", `${executionId}.md`), `${JSON.stringify({
+      ...firstExecution,
+      state: "changes_requested",
+      closed_at: "2026-07-11T00:02:45.000Z"
+    }, null, 2)}\n`, "utf8");
+
     await assert.rejects(completion.completeTaskExecution({ taskId, actor: aliceCodex }), /executor cannot complete/u);
     const result = await completion.completeTaskExecution({ taskId, actor: aliceClaude });
 
     assert.deepEqual(result, { executionId: secondExecutionId });
-    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "submitted");
+    assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "changes_requested");
     assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), "utf8")).state, "accepted");
     assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: done$/mu);
   } finally {
@@ -619,79 +639,3 @@ test("OutputEvidence mechanical boundary rejects bad provenance while zero evide
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
-
-function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {}): ExecutionAuthoredStore & {
-  readonly executions: Map<string, ExecutionRecord>;
-  taskStatus: "planned" | "active" | "in_review";
-  failSubmit: boolean;
-} {
-  const executions = new Map<string, ExecutionRecord>();
-  const store = {
-    executions,
-    taskStatus: "planned" as const satisfies "planned" | "active" | "in_review",
-    failSubmit: false,
-    readExecution: async (input) => executions.get(input.executionId) ?? null,
-    openExecution: async (input) => {
-      if (options.failOpen) throw new Error("authored open failed");
-      if (executions.has(input.execution.execution_id)) throw new Error("execution already exists");
-      executions.set(input.execution.execution_id, input.execution);
-      store.taskStatus = "active";
-    },
-    attachSession: async (input) => {
-      const current = executions.get(input.executionId);
-      if (!current || current.state !== "active") throw new Error("execution is not active");
-      executions.set(input.executionId, {
-        ...current,
-        session_bindings: [...current.session_bindings, input.binding]
-      });
-    },
-    submitForReview: async (input) => {
-      if (store.failSubmit) throw new Error("authored submit failed");
-      const current = executions.get(input.executionId);
-      if (!current || current.state !== "active") throw new Error("execution is not active");
-      executions.set(input.executionId, {
-        ...current,
-        state: "submitted",
-        submitted_at: input.submittedAt,
-        outputs: input.submission.evidence,
-        submission: {
-          completion_claim: input.submission.completionClaim,
-          deliverables: input.submission.deliverables,
-          evidence_refs: input.submission.evidence.map((evidence) => evidence.evidence_id),
-          verification_notes: input.submission.verificationNotes,
-          known_gaps: input.submission.knownGaps,
-          residual_risks: input.submission.residualRisks
-        }
-      });
-      store.taskStatus = "in_review";
-    }
-  };
-  return store;
-}
-
-function taskIndex(status: "planned" | "active" | "in_review"): string {
-  return [
-    "---",
-    "schema: task-package/v2",
-    `task_id: ${taskId}`,
-    "title: Execution fixture",
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
-    `  status: ${status}`,
-    "  ref:",
-    "  titleSnapshot: Execution fixture",
-    "  url:",
-    "  bindingCreatedAt: 2026-07-11T00:00:00.000Z",
-    "  bindingFingerprint: sha256:fixture",
-    "packageDisposition: active",
-    "vertical: default",
-    "preset: default",
-    "provenance:",
-    "  - {runtime: \"node-test\", sessionId: \"execution-saga\", boundAt: \"2026-07-11T00:00:00.000Z\"}",
-    "---",
-    "",
-    "# Execution fixture",
-    ""
-  ].join("\n");
-}

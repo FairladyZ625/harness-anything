@@ -247,6 +247,12 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
     HOME: path.join(rootDir, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
+    CLAUDE_SESSION_ID: "",
+    CLAUDE_CODE_SESSION_ID: "",
+    CODEX_THREAD_ID: "",
+    CODEX_SESSION_ID: "",
+    ZCODE_SESSION_ID: "",
+    ANTIGRAVITY_SESSION_ID: "",
     ...env
   };
 }

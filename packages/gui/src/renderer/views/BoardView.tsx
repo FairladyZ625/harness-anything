@@ -12,7 +12,13 @@ import {
 } from "@dnd-kit/core";
 import { Lock, Archive, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
-import { BOARD_COLUMNS, isExternal, isTerminal } from "../model/types";
+import {
+  BOARD_COLUMNS,
+  isExternal,
+  isGenericStatusWriteSource,
+  isGenericStatusWriteTarget,
+  isGenericStatusWriteTransition,
+} from "../model/types";
 import {
   STATUS_META,
   CloseoutBadge,
@@ -108,8 +114,7 @@ function DraggableCard({
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
 }) {
-  // external 任务允许拿起、落下被拒，让护栏可感知；终态完全锁定
-  const draggable = !isTerminal(task.coordinationStatus);
+  const draggable = !isExternal(task) && isGenericStatusWriteSource(task.coordinationStatus);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.taskId,
     disabled: !draggable,
@@ -149,7 +154,10 @@ function Column({
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: status });
+  const { setNodeRef, isOver } = useDroppable({
+    id: status,
+    disabled: !isGenericStatusWriteTarget(status),
+  });
   const meta = STATUS_META[status];
   const ordered = sortByFavoritesFirst(tasks, (t) => t.taskId, favorites);
   return (
@@ -251,9 +259,9 @@ export function BoardView({
   const onDragEnd = (e: DragEndEvent) => {
     setActiveTask(null);
     const target = e.over?.id as SnapshotStatus | undefined;
-    if (!target || target === "unknown") return;
+    if (!target || !isGenericStatusWriteTarget(target)) return;
     const task = tasks.find((t) => t.taskId === e.active.id);
-    if (!task || isExternal(task)) return;
+    if (!task || isExternal(task) || !isGenericStatusWriteTransition(task.coordinationStatus, target)) return;
     if (target === task.coordinationStatus) return;
     onUpdate(task.taskId, { coordinationStatus: target, rawStatus: target });
   };
@@ -292,7 +300,7 @@ export function BoardView({
         </div>
         <span className="text-[12px] text-text-faint">
           {layout === "column"
-            ? t("views.boardView.coordinationStatusAxisLocalTaskCanDragged")
+            ? t("views.boardView.coordinationStatusAxisGenericTransitionsOnly")
             : layout === "list"
               ? t("views.boardView.auditSurfaceSupportsIdCopyBatchOperations")
               : t("views.boardView.dragDropChangeStatusColumnModeExternal")}

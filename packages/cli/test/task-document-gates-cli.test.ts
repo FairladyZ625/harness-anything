@@ -1,17 +1,31 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
-import { unwrapCommandReceipt } from "./helpers/receipt.ts";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
+import {
+  initializeGitRepo,
+  runGit,
+  runJson,
+  seedApprovedExecution,
+  withTempRoot,
+  writeCloseout,
+  writeCodeDocAnchors,
+  writeCodeDocAnchorsRaw,
+  writeExecution,
+  writeFact,
+  writeIndex,
+  writeRealCloseout,
+  writeReview
+} from "./helpers/task-document-gates-fixtures.ts";
 
-const cliEntry = path.resolve("packages/cli/src/index.ts");
 const executionTaskId = "task_01KX7H00000000000000000000";
 const executionId = "exe_01KX7H00000000000000000001";
+const milestoneTaskId = "task_01KX7H00000000000000000002";
+const milestoneExecutionId = "exe_01KX7H00000000000000000002";
+const milestoneChildTaskId = "task_01KX7H00000000000000000003";
+const milestoneChildExecutionId = "exe_01KX7H00000000000000000003";
 // Execution role checks compare the CLI actor's executor against the execution's
 // executor; pin the actor instead of inheriting whatever the invoking shell has.
 const testActorEnv = { HARNESS_ACTOR: "agent:test" };
@@ -56,7 +70,7 @@ test("CLI active transition fails closed when task_plan.md is missing", () => {
   });
 });
 
-test("CLI active transition gate does not retroactively inspect later task statuses", () => {
+test("CLI in_review requires an Execution submission even after a valid active transition", () => {
   withTempRoot((rootDir) => {
     const created = runJson(rootDir, ["task", "create", "--title", "Existing Active", "--vertical", "software/coding", "--preset", "standard-task"]);
     const taskPlanPath = path.join(rootDir, created.packagePath, "task_plan.md");
@@ -65,10 +79,11 @@ test("CLI active transition gate does not retroactively inspect later task statu
     runJson(rootDir, ["task", "transition", created.taskId, "active"]);
     writeFileSync(taskPlanPath, scaffold, "utf8");
 
-    const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "in_review"]);
+    const transitioned = runJson(rootDir, ["task", "transition", created.taskId, "in_review"], false);
 
-    assert.equal(transitioned.ok, true);
-    assert.equal(transitioned.status, "in_review");
+    assert.equal(transitioned.ok, false);
+    assert.equal(transitioned.error?.code, "execution_submission_required");
+    assert.match(readFileSync(path.join(rootDir, created.packagePath, "INDEX.md"), "utf8"), /^  status: active$/mu);
   });
 });
 
@@ -90,7 +105,7 @@ test("CLI check and active transition agree on scaffold and substantive task pla
   });
 });
 
-test("CLI task-complete without Execution preserves its legacy receipt and byte-exact INDEX transition", () => {
+test("CLI task-complete without Execution fails closed and leaves INDEX byte-exact", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1");
@@ -118,19 +133,19 @@ test("CLI task-complete without Execution preserves its legacy receipt and byte-
     const indexPath = path.join(rootDir, "harness/tasks/task-1/INDEX.md");
     const before = readFileSync(indexPath, "utf8");
 
-    const passed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
-    assert.equal(passed.ok, true);
-    assert.equal(passed.data?.status ?? passed.status, "done");
-    assert.equal(JSON.stringify(passed).includes("executionId"), false);
-    assert.equal(readFileSync(indexPath, "utf8"), before.replace(/^(  status:\s*).+$/mu, "$1done"));
+    const blockedWithoutExecution = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    assert.equal(blockedWithoutExecution.ok, false);
+    assert.equal(blockedWithoutExecution.error?.code, "execution_completion_required");
+    assert.equal(JSON.stringify(blockedWithoutExecution).includes("executionId"), false);
+    assert.equal(readFileSync(indexPath, "utf8"), before);
   });
 });
 
-test("CLI task-complete rejects initial not-started review placeholders", () => {
+test("CLI typed completion does not require filling the legacy review placeholder", () => {
   withTempRoot((rootDir) => {
-    writeIndex(rootDir, "task-1", "Complete Task", "in_review");
-    writeFact(rootDir, "task-1");
-    writeFileSync(path.join(rootDir, "harness/tasks/task-1/review.md"), [
+    writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
+    writeFact(rootDir, executionTaskId);
+    writeFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/review.md`), [
       "# Review",
       "",
       "Status: not-started",
@@ -146,11 +161,39 @@ test("CLI task-complete rejects initial not-started review placeholders", () => 
       "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
       ""
     ].join("\n"), "utf8");
-    writeRealCloseout(rootDir, "task-1");
+    writeRealCloseout(rootDir, executionTaskId);
+    seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    const completed = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
+    assert.equal(completed.ok, true);
+    assert.equal(completed.executionId, executionId);
+    assert.equal(completed.status, "done");
+
+    const checked = runJson(rootDir, ["check", "--post-merge"]);
+    assert.equal(checked.warnings.some((warning: Record<string, unknown>) => warning.code === "review_placeholder"), false);
+  });
+});
+
+test("CLI typed completion remains blocked by a substantive open legacy release finding", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
+    writeFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/review.md`), [
+      "# Review",
+      "",
+      "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| F-001 | P1 | Release invariant is unverified. | typed execution | Verify it. | yes | open | yes | none |",
+      ""
+    ].join("\n"), "utf8");
+    writeRealCloseout(rootDir, executionTaskId);
+    seedApprovedExecution(rootDir, executionTaskId, executionId);
+
+    const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
+
     assert.equal(blocked.ok, false);
-    assert.equal(blocked.error?.code, "review_placeholder");
+    assert.equal(blocked.error?.code, "release_blocking_findings");
+    assert.match(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/INDEX.md`), "utf8"), /^  status: in_review$/mu);
+    assert.equal(JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${executionTaskId}/executions/${executionId}.md`), "utf8")).state, "submitted");
   });
 });
 
@@ -173,8 +216,15 @@ test("CLI task-complete rejects missing code-doc anchors", () => {
       "",
       "No residual risk accepted."
     ]);
+    writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
+    writeCloseout(rootDir, executionTaskId, [
+      "## Summary", "", "Implemented the task document gate.", "",
+      "## Verification", "", "npm run check passed.", "",
+      "## Residual Risk", "", "No residual risk accepted."
+    ]);
+    seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "code_doc_reconciliation_failed");
@@ -185,13 +235,14 @@ test("CLI task-complete rejects missing code-doc anchors", () => {
 test("CLI task-complete rejects fabricated code-doc shas", () => {
   withTempRoot((rootDir) => {
     initializeGitRepo(rootDir);
-    writeIndex(rootDir, "task-1", "Complete Task", "in_review");
-    writeReview(rootDir, "task-1");
-    writeFact(rootDir, "task-1");
-    writeRealCloseout(rootDir, "task-1");
-    writeCodeDocAnchorsRaw(rootDir, "task-1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
+    writeReview(rootDir, executionTaskId);
+    writeFact(rootDir, executionTaskId);
+    writeRealCloseout(rootDir, executionTaskId);
+    writeCodeDocAnchorsRaw(rootDir, executionTaskId, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    seedApprovedExecution(rootDir, executionTaskId, executionId);
 
-    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "code_doc_reconciliation_failed");
@@ -202,12 +253,14 @@ test("CLI task-complete rejects fabricated code-doc shas", () => {
 test("CLI task-complete reports the underlying completion write failure", () => {
   withTempRoot((rootDir) => {
     initializeGitRepo(rootDir);
-    writeIndex(rootDir, "task-1", "Complete Task", "in_review", { provenance: false });
-    writeReview(rootDir, "task-1");
-    writeFact(rootDir, "task-1");
-    writeRealCloseout(rootDir, "task-1", { coordinatedAnchors: false });
+    writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");
+    writeReview(rootDir, executionTaskId);
+    writeFact(rootDir, executionTaskId);
+    writeRealCloseout(rootDir, executionTaskId, { coordinatedAnchors: false });
+    seedApprovedExecution(rootDir, executionTaskId, executionId);
+    writeIndex(rootDir, executionTaskId, "Complete Task", "in_review", { provenance: false });
 
-    const blocked = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    const blocked = runJson(rootDir, ["task-complete", executionTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
     assert.equal(blocked.ok, false);
     assert.equal(blocked.error?.code, "malformed_snapshot");
@@ -265,7 +318,7 @@ test("CLI task-review accepts a task with a real fact", () => {
   });
 });
 
-test("CLI task-review and task-complete stage reviewed artifacts through WriteCoordinator", () => {
+test("CLI task-review stages legacy artifacts while task-complete without Execution fails closed", () => {
   withTempRoot((rootDir) => {
     const harnessRepo = path.join(rootDir, "harness");
     initializeGitRepo(rootDir);
@@ -288,11 +341,11 @@ test("CLI task-review and task-complete stage reviewed artifacts through WriteCo
     writeRealCloseout(rootDir, "task-1");
     assert.match(runGit(harnessRepo, "status", "--short"), /closeout\.md/);
 
-    const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
-    assert.equal(completed.ok, true);
-    assert.equal(completed.data?.status ?? completed.status, "done");
+    const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    assert.equal(completed.ok, false);
+    assert.equal(completed.error?.code, "execution_completion_required");
+    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-1/INDEX.md"), "utf8"), /^  status: in_review$/mu);
     assert.equal(runGit(harnessRepo, "status", "--short"), "");
-    assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(transition\): task-1/);
     assert.match(runGit(harnessRepo, "log", "--oneline", "--all"), /task\(task-tree-stage\): task-1 task package/);
   });
 });
@@ -311,7 +364,7 @@ test("CLI task-review ignores facts.md quantity under dec_mrg3z1we/CH4", () => {
   });
 });
 
-test("CLI task-complete without Execution accepts no facts under dec_mrg3z1we/CH4", () => {
+test("CLI task-complete without Execution fails even when no Fact quantity gate applies", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, "task-1", "Complete Task", "in_review");
     writeReview(rootDir, "task-1");
@@ -319,10 +372,10 @@ test("CLI task-complete without Execution accepts no facts under dec_mrg3z1we/CH
 
     // dec_mrg3z1we/CH4 removes only the Fact quantity gate; review, closeout,
     // code-doc reconciliation, and completion gates still run on this path.
-    const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    const completed = runJson(rootDir, ["task-complete", "task-1", "--reviewer", "reviewer-a", "--ci", "passed"], false);
 
-    assert.equal(completed.ok, true);
-    assert.equal(completed.data?.status ?? completed.status, "done");
+    assert.equal(completed.ok, false);
+    assert.equal(completed.error?.code, "execution_completion_required");
   });
 });
 
@@ -423,14 +476,14 @@ test("CLI default claim carries one person's task through submit, review, and co
 
 test("CLI milestone completion requires active decision derives lineage while a leaf task does not", () => {
   withTempRoot((rootDir) => {
-    writeIndex(rootDir, "task-milestone", "Milestone", "in_review", { preset: "create-milestone", taskClass: "milestone" });
-    writeReview(rootDir, "task-milestone");
-    writeRealCloseout(rootDir, "task-milestone");
+    writeIndex(rootDir, milestoneTaskId, "Milestone", "in_review", { preset: "create-milestone", taskClass: "milestone" });
+    writeReview(rootDir, milestoneTaskId);
+    writeRealCloseout(rootDir, milestoneTaskId);
     const anchorSha = runGit(rootDir, "rev-parse", "HEAD");
 
-    const blocked = runJson(rootDir, ["task", "complete", "task-milestone", "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    const blocked = runJson(rootDir, ["task", "complete", milestoneTaskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
     assert.equal(blocked.error?.code, "closeout_not_ready");
-    assert.match(blocked.error?.hint ?? "", /decision.*derives.*task-milestone/u);
+    assert.match(blocked.error?.hint ?? "", new RegExp(`decision.*derives.*${milestoneTaskId}`, "u"));
 
     runJson(rootDir, [
       "decision", "propose", "--id", "dec_MILESTONE_LINEAGE", "--title", "Milestone lineage",
@@ -440,14 +493,16 @@ test("CLI milestone completion requires active decision derives lineage while a 
     ]);
     runJson(rootDir, [
       "decision", "relate", "dec_MILESTONE_LINEAGE", "--anchor", "CH1", "--type", "derives",
-      "--target", "task/task-milestone", "--rationale", "The charter decision creates the milestone"
+      "--target", `task/${milestoneTaskId}`, "--rationale", "The charter decision creates the milestone"
     ]);
-    writeIndex(rootDir, "task-long-running", "Long Running Child", "in_review", { preset: "long-running-task", parent: "task-milestone" });
-    writeReview(rootDir, "task-long-running");
-    writeRealCloseout(rootDir, "task-long-running", { sha: anchorSha });
-    const childCompleted = runJson(rootDir, ["task", "complete", "task-long-running", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    writeIndex(rootDir, milestoneChildTaskId, "Long Running Child", "in_review", { preset: "long-running-task", parent: milestoneTaskId });
+    writeReview(rootDir, milestoneChildTaskId);
+    writeRealCloseout(rootDir, milestoneChildTaskId, { sha: anchorSha });
+    seedApprovedExecution(rootDir, milestoneChildTaskId, milestoneChildExecutionId);
+    const childCompleted = runJson(rootDir, ["task", "complete", milestoneChildTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
     assert.equal(childCompleted.status, "done");
-    const completed = runJson(rootDir, ["task", "complete", "task-milestone", "--reviewer", "reviewer-a", "--ci", "passed"]);
+    seedApprovedExecution(rootDir, milestoneTaskId, milestoneExecutionId);
+    const completed = runJson(rootDir, ["task", "complete", milestoneTaskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
     assert.equal(completed.status, "done");
   });
 });
@@ -483,181 +538,3 @@ test("CLI rejects executor self-review and changes_requested opens a fresh claim
     assert.equal(existsSync(path.join(taskRoot, "executions", `${claimed.executionId}.md`)), true);
   });
 });
-
-function writeIndex(
-  rootDir: string,
-  directoryName: string,
-  title: string,
-  status: string,
-  options: { readonly provenance?: boolean; readonly preset?: string; readonly taskClass?: "milestone" | "epic"; readonly parent?: string } = { provenance: true }
-): void {
-  const provenance = options.provenance !== false
-    ? [
-      "provenance:",
-      "  - {runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-06-12T00:00:00.000Z\"}"
-    ]
-    : [];
-  mkdirSync(path.join(rootDir, "harness/tasks", directoryName), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "INDEX.md"), [
-    "---",
-    "schema: task-package/v2",
-    `task_id: ${directoryName}`,
-    `title: ${title}`,
-    "lifecycle:",
-    "  bindingSchema: lifecycle-binding/v1",
-    "  engine: local",
-    `  status: ${status}`,
-    "  ref: ",
-    `  titleSnapshot: ${title}`,
-    "  url: ",
-    "  bindingCreatedAt: 2026-06-12T00:00:00.000Z",
-    "  bindingFingerprint: sha256:4d1771ef6e83619eb8a82f1593bf118383084665fc58f634072d379178d525d7",
-    "packageDisposition: active",
-    ...(options.parent ? [`parent: ${options.parent}`] : []),
-    "vertical: software/coding",
-    `preset: ${options.preset ?? "standard-task"}`,
-    ...(options.taskClass ? [`taskClass: ${options.taskClass}`] : []),
-    ...provenance,
-    "---",
-    "",
-    `# ${title}`,
-    ""
-  ].join("\n"), "utf8");
-}
-
-function writeReview(rootDir: string, directoryName: string): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "review.md"), [
-    "# Review",
-    "",
-    "| ID | Severity | Finding | Evidence Checked | Required Action | Open | Disposition | Blocks Release | Follow-up |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ""
-  ].join("\n"), "utf8");
-}
-
-function writeRealCloseout(
-  rootDir: string,
-  directoryName: string,
-  options: { readonly coordinatedAnchors?: boolean; readonly sha?: string } = {}
-): void {
-  writeCloseout(rootDir, directoryName, [
-    "## Summary",
-    "",
-    "Implemented the task document gate.",
-    "",
-    "## Verification",
-    "",
-    "npm run check passed.",
-    "",
-    "## Residual Risk",
-    "",
-    "No residual risk accepted."
-  ]);
-  const sha = options.sha ?? ensureAnchorCommit(rootDir);
-  if (options.coordinatedAnchors ?? true) writeCodeDocAnchors(rootDir, directoryName, sha);
-  else writeCodeDocAnchorsRaw(rootDir, directoryName, sha);
-}
-
-function writeFact(rootDir: string, directoryName: string): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "facts.md"), [
-    "# Facts",
-    "",
-    "- {fact_id: F-DEADBEEF, statement: \"Task has verified evidence.\", source: \"test fixture\", observedAt: \"2026-07-04T00:00:00.000Z\", confidence: high, memoryClass: episodic, memoryTags: [], provenance: [{runtime: \"human\", sessionId: \"human-cli-1783036800000\", boundAt: \"2026-07-04T00:00:00.000Z\"}]}",
-    ""
-  ].join("\n"), "utf8");
-}
-
-function writeCloseout(rootDir: string, directoryName: string, lines: ReadonlyArray<string>): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "closeout.md"), ["# Closeout", "", ...lines, ""].join("\n"), "utf8");
-}
-
-function writeExecution(rootDir: string, taskId: string, id: string, executorId: string): void {
-  const taskRoot = path.join(rootDir, "harness/tasks", taskId);
-  mkdirSync(path.join(taskRoot, "executions"), { recursive: true });
-  writeFileSync(path.join(taskRoot, "executions", `${id}.md`), `${JSON.stringify({
-    schema: "execution/v1",
-    execution_id: id,
-    task_ref: `task/${taskId}`,
-    state: "submitted",
-    primary_actor: {
-      principal: { personId: "worker" },
-      executor: { kind: "agent", id: executorId },
-      responsibleHuman: "worker"
-    },
-    claimed_at: "2026-07-11T00:00:00.000Z",
-    submitted_at: "2026-07-11T00:01:00.000Z",
-    closed_at: null,
-    session_bindings: [{ role: "primary", archive_status: "complete" }],
-    outputs: [],
-    submission: { summary: "submitted", verification: ["tests passed"], residual_risks: [] }
-  }, null, 2)}\n`, "utf8");
-}
-
-function writeCodeDocAnchors(rootDir: string, directoryName: string, sha = ensureAnchorCommit(rootDir)): void {
-  runJson(rootDir, [
-    "task", "code-doc", "reconcile", directoryName,
-    "--commit", sha,
-    "--path", "evidence/code-doc-anchor.txt"
-  ]);
-}
-
-function writeCodeDocAnchorsRaw(rootDir: string, directoryName: string, sha: string): void {
-  writeFileSync(path.join(rootDir, "harness/tasks", directoryName, "code-doc-anchors.json"), `${JSON.stringify({
-    schema: "code-doc-reconciliation/v1",
-    taskId: directoryName,
-    records: [{
-      id: "A4-001",
-      ledgerPath: "closeout.md",
-      kind: "closeout",
-      anchors: [{ kind: "path", sha, path: "evidence/code-doc-anchor.txt" }]
-    }]
-  }, null, 2)}\n`, "utf8");
-}
-
-function withTempRoot<T>(fn: (rootDir: string) => T): T {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-task-doc-gates-"));
-  try {
-    initializeNestedHarnessRepo(rootDir);
-    return fn(rootDir);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-}
-
-function initializeGitRepo(rootDir: string): void {
-  if (existsSync(path.join(rootDir, ".git"))) return;
-  mkdirSync(rootDir, { recursive: true });
-  runGit(rootDir, "init");
-  runGit(rootDir, "config", "user.email", "test@example.com");
-  runGit(rootDir, "config", "user.name", "Test User");
-}
-
-function ensureAnchorCommit(rootDir: string): string {
-  initializeGitRepo(rootDir);
-  mkdirSync(path.join(rootDir, "evidence"), { recursive: true });
-  writeFileSync(path.join(rootDir, "evidence/code-doc-anchor.txt"), "code-doc reconciliation fixture\n", "utf8");
-  runGit(rootDir, "add", "evidence/code-doc-anchor.txt");
-  runGit(rootDir, "commit", "-m", "seed code-doc anchor");
-  return runGit(rootDir, "rev-parse", "HEAD");
-}
-
-function runGit(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-}
-
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Record<string, string> = {}): Record<string, any> {
-  try {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8",
-      env: { ...process.env, HARNESS_SKIP_NPM_INSTALL: "1", ...testActorEnv, ...env },
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const result = JSON.parse(stdout) as Record<string, any>;
-    assert.equal(result.ok, true);
-    return unwrapCommandReceipt(result);
-  } catch (error) {
-    if (expectSuccess) throw error;
-    const stdout = error && typeof error === "object" && "stdout" in error ? String(error.stdout) : "";
-    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
-  }
-}

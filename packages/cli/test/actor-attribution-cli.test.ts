@@ -125,6 +125,12 @@ test("daemon command service preserves A/X attribution through the queued coordi
         rootDir,
         json: true,
         action: { kind: "new-task", title: "Cross Boundary", titleProvided: true, slug: "cross-boundary" }
+      },
+      session: {
+        runtime: "codex",
+        sessionId: "thread-cross-boundary",
+        source: "runtime",
+        detectedAt: "2026-07-14T00:00:00.000Z"
       }
     }, {
       actor: {
@@ -143,6 +149,7 @@ test("daemon command service preserves A/X attribution through the queued coordi
     const operational = requests.filter((request) => "operationalActor" in request);
     assert.equal(attributed.every((request) => request.attribution.actor.principal.personId === "person_alice"), true);
     assert.equal(attributed.every((request) => request.attribution.actor.executor?.id === "codex"), true);
+    assert.equal(attributed.every((request) => request.sessionId === "thread-cross-boundary"), true);
     assert.equal(operational.length, 1);
     assert.deepEqual(operational[0]?.operationalActor, {
       scope: "operational",
@@ -150,6 +157,46 @@ test("daemon command service preserves A/X attribution through the queued coordi
       id: "runtime-event-cli"
     });
     assert.equal("attribution" in operational[0]!, false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("daemon command service rejects malformed caller sessions and always settles request accounting", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-session-contract-"));
+  try {
+    let started = 0;
+    let settled = 0;
+    const runtime: CliDaemonRuntime = {
+      enqueueInteractiveWrite: async () => ({ flush: { reason: "explicit", opCount: 0, committed: true } }),
+      status: () => ({})
+    };
+    const service = createCliCommandService(runtime, {
+      onCommandStart: () => { started += 1; },
+      onCommandSettled: () => { settled += 1; }
+    });
+
+    const receipt = await service.runCommand({
+      command: {
+        rootDir,
+        json: true,
+        action: { kind: "status" }
+      },
+      session: {
+        runtime: "codex",
+        sessionId: "../cross-request",
+        source: "runtime",
+        detectedAt: "not-a-timestamp"
+      }
+    });
+
+    assert.equal(receipt.ok, false);
+    if (!receipt.ok) {
+      assert.equal(receipt.error.code, "invalid_session");
+      assert.match(receipt.error.hint, /sessionId|detectedAt/u);
+    }
+    assert.equal(started, 1);
+    assert.equal(settled, 1);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

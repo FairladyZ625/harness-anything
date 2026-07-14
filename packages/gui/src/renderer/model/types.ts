@@ -281,6 +281,12 @@ export interface EventEntry {
 
 export const isExternal = (t: TaskRow) => t.engine !== "local";
 export const isTerminal = (s: SnapshotStatus) => s === "done" || s === "cancelled";
+export const isGenericStatusWriteTarget = (status: SnapshotStatus): status is "active" | "blocked" =>
+  status === "active" || status === "blocked";
+export const isGenericStatusWriteSource = (status: SnapshotStatus): status is "planned" | "active" | "blocked" =>
+  status === "planned" || status === "active" || status === "blocked";
+export const isGenericStatusWriteTransition = (from: SnapshotStatus, to: SnapshotStatus): to is "active" | "blocked" =>
+  from !== to && isGenericStatusWriteSource(from) && isGenericStatusWriteTarget(to);
 
 export const BOARD_COLUMNS: SnapshotStatus[] = [
   "planned",

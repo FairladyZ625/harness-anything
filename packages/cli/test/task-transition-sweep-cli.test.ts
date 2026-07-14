@@ -24,16 +24,17 @@ test("CLI in_review and complete sweeps commit hand-edited closeout.md", () => {
     writeFileSync(closeoutPath, "# Closeout\n\nPrepared before review.\n", "utf8");
     assert.match(gitStatus(rootDir, taskPath), /closeout\.md/u);
 
-    runJson(rootDir, ["task", "transition", taskId, "in_review"]);
+    const executionId = submitExecutionForReview(rootDir, taskId);
     assert.equal(gitStatus(rootDir, taskPath), "");
 
     writeFact(rootDir, taskPath);
     writeReview(rootDir, taskPath);
     writeFileSync(closeoutPath, "# Closeout\n\nUpdated before completion.\n", "utf8");
     writeCodeDocAnchors(rootDir, taskPath, taskId);
+    approveExecution(rootDir, taskId, executionId);
     assert.match(gitStatus(rootDir, taskPath), /closeout\.md/u);
 
-    const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
+    const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, actorEnv("commander"));
 
     assert.equal(completed.ok, true);
     assert.equal(completed.status, "done");
@@ -61,14 +62,15 @@ for (const preset of ["milestone-closeout"] as const) {
       const factsPath = path.join(rootDir, taskPath, "facts.md");
 
       runJson(rootDir, ["task", "transition", taskId, "active"]);
-      runJson(rootDir, ["task", "transition", taskId, "in_review"]);
+      const executionId = submitExecutionForReview(rootDir, taskId);
       writeFact(rootDir, taskPath);
       writeReview(rootDir, taskPath);
       writeFileSync(closeoutPath, `# Closeout\n\n${preset} generated a closeout candidate source.\n`, "utf8");
       writeCodeDocAnchors(rootDir, taskPath, taskId);
+      approveExecution(rootDir, taskId, executionId);
       const factsBefore = readFileSync(factsPath, "utf8");
 
-      const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"]);
+      const completed = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], true, actorEnv("commander"));
 
       assert.equal(completed.ok, true);
       assert.equal(completed.status, "done");
@@ -100,7 +102,7 @@ test("CLI transition sweep commits orchestration markdown but never commits logs
     writeFileSync(path.join(orchestrationDir, "mission.md"), "# Mission\n\nKeep this context.\n", "utf8");
     writeFileSync(path.join(orchestrationDir, "codex.log"), "transient log\n", "utf8");
 
-    runJson(rootDir, ["task", "transition", taskId, "in_review"]);
+    submitExecutionForReview(rootDir, taskId);
 
     assert.equal(gitStatus(rootDir, taskPath), "");
     assert.equal(gitLsFiles(rootDir, `${taskPath}/artifacts/orchestration/mission.md`), `${taskPath}/artifacts/orchestration/mission.md`);
@@ -115,14 +117,15 @@ test("CLI task complete blocks when the task tree is dirty after the sweep", () 
     const taskPath = String(created.packagePath);
     writeSubstantiveTaskPlan(rootDir, taskPath);
     runJson(rootDir, ["task", "transition", taskId, "active"]);
-    runJson(rootDir, ["task", "transition", taskId, "in_review"]);
+    const executionId = submitExecutionForReview(rootDir, taskId);
     writeFact(rootDir, taskPath);
     writeReview(rootDir, taskPath);
     writeFileSync(path.join(rootDir, taskPath, "closeout.md"), "# Closeout\n\nReady.\n", "utf8");
     writeCodeDocAnchors(rootDir, taskPath, taskId);
+    approveExecution(rootDir, taskId, executionId);
     installPostCommitDirtyHook(rootDir, taskPath);
 
-    const failure = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], false);
+    const failure = runJson(rootDir, ["task", "complete", taskId, "--reviewer", "reviewer-a", "--ci", "passed"], false, actorEnv("commander"));
 
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "task_tree_dirty");
@@ -153,11 +156,11 @@ function withGitTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
+function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true, env: Readonly<Record<string, string>> = {}): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env }
+      env: { ...process.env, HARNESS_ACTOR: "agent:harness-test", ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
@@ -165,6 +168,56 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const failure = error as { readonly stdout?: string };
     return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
   }
+}
+
+function submitExecutionForReview(rootDir: string, taskId: string): string {
+  const sessionId = `sweep-${taskId}`;
+  const homeDir = path.join(rootDir, "home");
+  const sessionDir = path.join(homeDir, ".codex/sessions");
+  mkdirSync(sessionDir, { recursive: true });
+  writeFileSync(path.join(sessionDir, `${sessionId}.jsonl`), [
+    JSON.stringify({ timestamp: "2026-07-12T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "submit sweep task" } }),
+    JSON.stringify({ timestamp: "2026-07-12T00:00:02.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "ready" }] } })
+  ].join("\n"), "utf8");
+  const env = {
+    ...actorEnv("worker"),
+    HOME: homeDir,
+    CODEX_THREAD_ID: sessionId,
+    CODEX_SESSION_ID: sessionId
+  };
+  const claimed = runJson(rootDir, ["task", "claim", taskId, "--execution"], true, env);
+  const executionId = String(claimed.executionId);
+  const submitted = runJson(rootDir, [
+    "task", "transition", taskId, "in_review",
+    "--lease-token", String(claimed.report.leaseToken),
+    "--summary", "sweep task ready for review",
+    "--verification", "transition sweep fixture passed"
+  ], true, env);
+  assert.equal(submitted.executionId, executionId);
+  return executionId;
+}
+
+function approveExecution(rootDir: string, taskId: string, executionId: string): void {
+  const reviewed = runJson(rootDir, [
+    "task", "review-execution", taskId,
+    "--execution-id", executionId,
+    "--verdict", "approved",
+    "--findings", "The sweep behavior is verified.",
+    "--rationale", "The submitted Execution satisfies this fixture."
+  ], true, actorEnv("reviewer"));
+  assert.equal(reviewed.executionId, executionId);
+}
+
+function actorEnv(id: string): Record<string, string> {
+  return {
+    HARNESS_ACTOR: `agent:${id}`,
+    CLAUDE_SESSION_ID: "",
+    CLAUDE_CODE_SESSION_ID: "",
+    CODEX_THREAD_ID: "",
+    CODEX_SESSION_ID: "",
+    ZCODE_SESSION_ID: "",
+    ANTIGRAVITY_SESSION_ID: ""
+  };
 }
 
 function writeFact(rootDir: string, taskPath: string): void {

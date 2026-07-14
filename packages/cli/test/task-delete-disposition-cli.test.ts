@@ -46,7 +46,8 @@ test("CLI task delete hard path is guarded by F5 disposition semantics", () => {
     const terminalTaskId = assertGeneratedTaskId(terminal.taskId);
     writeSubstantiveTaskPlan(rootDir, String(terminal.packagePath));
     runJson(rootDir, ["task", "status", "set", terminalTaskId, "active"]);
-    runJson(rootDir, ["task", "status", "set", terminalTaskId, "done", "--force", "--reason", "terminal fixture"]);
+    const terminalIndexPath = path.join(rootDir, String(terminal.packagePath), "INDEX.md");
+    writeFileSync(terminalIndexPath, readFileSync(terminalIndexPath, "utf8").replace(/^(  status:\s*).+$/mu, "$1done"), "utf8");
     const terminalFailure = runJson(rootDir, ["task", "delete", "--hard", terminalTaskId, "--reason", "remove", "--confirm", terminalTaskId], false);
     assert.equal(terminalFailure.ok, false);
     assert.equal(terminalFailure.error?.code, "terminal_hard_delete_forbidden");

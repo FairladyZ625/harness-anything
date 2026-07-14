@@ -221,6 +221,24 @@ function setStatus(
         ref: index.ref ?? input.taskId
       } satisfies EngineError);
     }
+    if (input.status === "in_review" || input.status === "done") {
+      return yield* Effect.fail({
+        _tag: "WriteRejected",
+        taskId: input.taskId,
+        code: input.status === "in_review" ? "execution_submission_required" : "execution_completion_required",
+        reason: input.status === "in_review"
+          ? "Task review state is written only by an Execution submit-for-review transaction."
+          : "Task done state is written only by an Execution completion transaction."
+      } satisfies WriteError);
+    }
+    if (index.status === "in_review") {
+      return yield* Effect.fail({
+        _tag: "WriteRejected",
+        taskId: input.taskId,
+        code: "execution_review_required",
+        reason: "A Task in review can leave that state only through an execution-scoped Review transaction."
+      } satisfies WriteError);
+    }
     if (!explainStatusTransition(index.status, input.status).allowed) {
       return yield* Effect.fail({
         _tag: "InvalidTransition",

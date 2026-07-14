@@ -92,8 +92,30 @@ export interface TaskLifecyclePolicy {
 export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestratorOptions): TaskLifecycleOrchestrator {
   return {
     setTaskStatus: (payload) => Effect.gen(function* () {
+      if (!isDomainStatus(payload.status)) {
+        return taskFailure(
+          payload.taskId,
+          "invalid_status",
+          `Invalid lifecycle status: ${String(payload.status)}. Valid statuses: planned, active, blocked, in_review, done, cancelled.`
+        );
+      }
       if (isTerminalStatus(payload.status)) {
         return terminalStatusFailure(payload.taskId, payload.status);
+      }
+      if (payload.status === "in_review") {
+        return taskFailure(
+          payload.taskId,
+          "execution_submission_required",
+          "Task review state is created only by an Execution submit-for-review transaction."
+        );
+      }
+      const policy = yield* readTaskLifecyclePolicy(options.artifactStore, payload.taskId);
+      if (policy?.status === "in_review") {
+        return taskFailure(
+          payload.taskId,
+          "execution_review_required",
+          "A Task in review can leave that state only through an execution-scoped Review transaction. Use changes_requested to return it to active."
+        );
       }
       if (payload.status === "active") {
         const planPlaceholder = yield* validateActiveTaskPlanPlaceholder(
@@ -105,29 +127,18 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
         );
         if (planPlaceholder) return planPlaceholder;
       }
-      const status = yield* options.taskWriter.setStatus(payload).pipe(
+      return yield* options.taskWriter.setStatus(payload).pipe(
         Effect.match({
           onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Status update failed."),
           onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
         })
       );
-      if (!status.ok || payload.status !== "in_review") return status;
-      const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Review transition task-tree staging failed.");
-      if (!staged.ok) return staged;
-      return status;
     }),
-    startTaskReview: (payload) => Effect.gen(function* () {
-      const status = yield* options.taskWriter.setStatus({ taskId: payload.taskId, status: "in_review" }).pipe(
-        Effect.match({
-          onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Review transition failed."),
-          onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
-        })
-      );
-      if (!status.ok) return status;
-      const staged = yield* stageTaskTree(options.taskWriter, payload.taskId, "Review transition task-tree staging failed.");
-      if (!staged.ok) return staged;
-      return { ok: true, taskId: payload.taskId, status: "in_review" } satisfies TaskLifecycleResult;
-    }),
+    startTaskReview: (payload) => Effect.succeed(taskFailure(
+      payload.taskId,
+      "execution_submission_required",
+      "Task review state is created only by an Execution submit-for-review transaction."
+    )),
     reviewTask: (payload) => Effect.gen(function* () {
       const review = yield* reviewTask(options.artifactStore, payload.taskId, payload.reviewerId, options.now);
       if (!review.ok) return review;
@@ -136,24 +147,20 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       return { ok: true, taskId: payload.taskId, path: staged.path, report: review.report, reviewContract: review.reviewContract };
     }),
     completeTask: (payload) => Effect.gen(function* () {
-      const executionBearing = yield* taskHasExecutionDocuments(options.artifactStore, payload.taskId);
-      let reviewContract: VerifierBackedReviewContract | undefined;
-      if (!executionBearing) {
-        const review = yield* reviewTask(options.artifactStore, payload.taskId, payload.reviewerId, options.now);
-        if (!review.ok) {
-          return {
-            ok: false,
-            taskId: payload.taskId,
-            report: review.report,
-            issues: review.issues,
-            error: {
-              code: "review_not_passed",
-              hint: "Task completion requires a passed task-review gate."
-            }
-          } satisfies TaskLifecycleResult;
-        }
-        reviewContract = review.reviewContract;
+      if (!options.executionCompletionService || !payload.actor) {
+        return taskFailure(
+          payload.taskId,
+          "execution_completion_required",
+          "Task completion requires the Execution completion service and an authorized actor."
+        );
       }
+      const legacyReviewBlocker = yield* validateLegacyReviewCompatibilityBlockers(
+        options.artifactStore,
+        payload.taskId,
+        payload.reviewerId,
+        options.now
+      );
+      if (legacyReviewBlocker) return legacyReviewBlocker;
 
       const projection = readTaskProjection({ rootDir: options.rootDir, layoutOverrides: options.layoutOverrides });
       const row = projection.rows.find((item) => item.taskId === payload.taskId);
@@ -164,8 +171,7 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       const documentPlaceholder = yield* validateCompletionDocumentPlaceholders(
         options.artifactStore,
         payload.taskId,
-        options.documentPlaceholderPolicy,
-        !executionBearing
+        options.documentPlaceholderPolicy
       );
       if (documentPlaceholder) return documentPlaceholder;
 
@@ -215,47 +221,29 @@ export function makeTaskLifecycleOrchestrator(options: TaskLifecycleOrchestrator
       if (!taskTreeStatus.ok) {
         return taskTreeStatus;
       }
-      if (options.executionCompletionService && payload.actor) {
-        const completion = yield* Effect.tryPromise({
-          try: () => options.executionCompletionService!.completeTaskExecution({ taskId: payload.taskId, actor: payload.actor! }),
-          catch: (error) => error
-        }).pipe(Effect.match({
-          onFailure: (error) => ({ ok: false as const, error }),
-          onSuccess: (result) => ({ ok: true as const, result })
-        }));
-        if (!completion.ok) {
-          return taskFailure(payload.taskId, "write_rejected", completion.error instanceof Error ? completion.error.message : String(completion.error));
-        }
-        if (completion.result) {
-          return {
-            ok: true,
-            taskId: payload.taskId,
-            executionId: completion.result.executionId,
-            status: "done",
-            completionGate,
-            ...(reviewContract ? { reviewContract } : {})
-          } satisfies TaskLifecycleResult;
-        }
-      } else if (yield* taskHasExecutionDocuments(options.artifactStore, payload.taskId)) {
+      const completion = yield* Effect.tryPromise({
+        try: () => options.executionCompletionService!.completeTaskExecution({ taskId: payload.taskId, actor: payload.actor! }),
+        catch: (error) => error
+      }).pipe(Effect.match({
+        onFailure: (error) => ({ ok: false as const, error }),
+        onSuccess: (result) => ({ ok: true as const, result })
+      }));
+      if (!completion.ok) {
+        return taskFailure(payload.taskId, "write_rejected", completion.error instanceof Error ? completion.error.message : String(completion.error));
+      }
+      if (!completion.result) {
         return taskFailure(
           payload.taskId,
-          "write_rejected",
-          "Execution-bearing task completion requires an execution completion service and an authorized actor."
+          "execution_completion_required",
+          "Task completion requires a submitted Execution with a matching approved Review."
         );
       }
-      const status = yield* options.taskWriter.setStatus({ taskId: payload.taskId, status: "done" }).pipe(
-        Effect.match({
-          onFailure: (error): TaskLifecycleResult => writeFailure(payload.taskId, error, "Completion status update failed."),
-          onSuccess: (result): TaskLifecycleResult => ({ ok: true, taskId: result.taskId, status: result.status })
-        })
-      );
-      if (!status.ok) return status;
       return {
         ok: true,
         taskId: payload.taskId,
-        status: status.status,
-        completionGate,
-        ...(reviewContract ? { reviewContract } : {})
+        executionId: completion.result.executionId,
+        status: "done",
+        completionGate
       } satisfies TaskLifecycleResult;
     })
   };
@@ -286,16 +274,6 @@ function resolveCompletionGates(
   return { ok: true, gates };
 }
 
-function taskHasExecutionDocuments(
-  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
-  taskId: string
-): Effect.Effect<boolean> {
-  return artifactStore.readTaskPackage(taskId as TaskId).pipe(
-    Effect.map((taskPackage) => taskPackage.documents.some((document) => /^executions\/[^/]+\.md$/u.test(document.path))),
-    Effect.catchAll(() => Effect.succeed(true))
-  );
-}
-
 function stageTaskTree(
   writer: TaskLifecycleWriter,
   taskId: string,
@@ -312,8 +290,7 @@ function stageTaskTree(
 function validateCompletionDocumentPlaceholders(
   artifactStore: Pick<ArtifactStore, "readTaskPackage">,
   taskId: string,
-  policy: TaskDocumentPlaceholderPolicy | undefined,
-  checkLegacyReview: boolean
+  policy: TaskDocumentPlaceholderPolicy | undefined
 ): Effect.Effect<TaskLifecycleFailure | null> {
   return Effect.gen(function* () {
     const taskPackage = policy
@@ -324,14 +301,51 @@ function validateCompletionDocumentPlaceholders(
       return taskFailure(taskId, "closeout_placeholder", `Replace closeout.md template placeholders before completing the task. Actual task directory read: ${taskPackage?.rootPath ?? "unavailable"}.`);
     }
 
-    if (checkLegacyReview) {
-      const review = yield* readTaskDocument(artifactStore, taskId, "review.md");
-      if (review !== null && isReviewPlaceholderMarkdown(review)) {
-        return taskFailure(taskId, "review_placeholder", "Replace the initial review.md placeholder with an actual review result before completing the task.");
-      }
-    }
-
     return null;
+  });
+}
+
+function validateLegacyReviewCompatibilityBlockers(
+  artifactStore: Pick<ArtifactStore, "readTaskPackage">,
+  taskId: string,
+  reviewerId: string,
+  now: (() => string) | undefined
+): Effect.Effect<TaskLifecycleFailure | null> {
+  return Effect.gen(function* () {
+    const reviewBody = yield* readTaskDocument(artifactStore, taskId, "review.md");
+    if (reviewBody === null || isReviewPlaceholderMarkdown(reviewBody)) return null;
+
+    const parsed = parseReviewMarkdown(reviewBody);
+    if (parsed.issues.length > 0) {
+      return {
+        ok: false,
+        taskId,
+        issues: parsed.issues,
+        error: {
+          code: "review_schema_invalid",
+          hint: "Legacy review.md contains malformed material findings; repair or migrate them before typed completion."
+        }
+      };
+    }
+    if (parsed.findings.length === 0) return null;
+
+    const gate = evaluateReviewGate({
+      taskId,
+      reviewerId,
+      submittedAt: now ? now() : new Date().toISOString(),
+      findings: parsed.findings
+    });
+    if (gate.ok) return null;
+    return {
+      ok: false,
+      taskId,
+      report: gate,
+      issues: gate.issues,
+      error: {
+        code: "release_blocking_findings",
+        hint: "Open release-blocking findings in legacy review.md must be closed or migrated before typed completion."
+      }
+    };
   });
 }
 
