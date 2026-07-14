@@ -89,9 +89,16 @@ function materializeBranches(
     };
   }
 
-  const branches = sessionId
-    ? vcs.sessionBranches(repoRoot).filter((branch) => branch === sessionBranchName(sessionId))
-    : vcs.sessionBranches(repoRoot);
+  let branches: ReadonlyArray<string>;
+  if (sessionId) {
+    // A session id that yields no branch name (e.g. all-whitespace) must fail loudly:
+    // filtering on undefined would silently report "no branches to materialize".
+    const targetBranch = sessionBranchName(sessionId);
+    if (!targetBranch) throw new Error(`invalid materializer session id: ${sessionId}`);
+    branches = vcs.sessionBranches(repoRoot).filter((branch) => branch === targetBranch);
+  } else {
+    branches = vcs.sessionBranches(repoRoot);
+  }
   for (const branch of branches) {
     const commits = vcs.commitsNotInTrunk(repoRoot, trunkBranch, branch);
     if (commits.length === 0) {
