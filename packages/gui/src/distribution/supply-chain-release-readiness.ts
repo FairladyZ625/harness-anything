@@ -185,6 +185,13 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     allowedDependencyLicenses: ["0BSD", "Apache-2.0", "BlueOak-1.0.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MPL-2.0", "OFL-1.1"],
     reviewedDependencyLicenseChoices: [
       {
+        packageName: "elkjs",
+        declaredLicenseExpression: "EPL-2.0",
+        electedLicense: "EPL-2.0",
+        reviewedAt: "2026-07-14",
+        rationale: "Runtime dependency of the GUI relationship graph: elkjs (Eclipse Layout Kernel JS) performs the orthogonal edge routing adopted for the ego/spotlight view (dec_01KXFABST0E47G3MJX9MQ2C72Q). EPL-2.0 is weak file-level copyleft in the same tier as the already-allowed MPL-2.0; as an unmodified bundled dependency it does not impose copyleft on the project's AGPL-3.0-or-later source. Reviewed and accepted by CEO-principal."
+      },
+      {
         packageName: "expand-template",
         declaredLicenseExpression: "(MIT OR WTFPL)",
         electedLicense: "MIT",
