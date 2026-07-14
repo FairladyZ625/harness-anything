@@ -4,6 +4,9 @@
 /CLAUDE.md
 /docs/
 
+# Local reports, benchmark results, and CI outputs; governed task artifacts live under harness/.
+/artifacts/
+
 # Phase working documents (盘点/报告):not for commit, excluded from public-text gates.
 /W2D-DISPOSAL.md
 /W2D-REPORT.md
