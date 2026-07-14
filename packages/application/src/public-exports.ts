@@ -6,6 +6,16 @@
 export { commandReceiptEnvelope } from "./command-receipt.ts";
 export { compileTaskContractSnapshot, parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
 export type { CompileTaskContractSnapshotInput, ResolveTaskCompletionGatesInput, ResolveTaskCompletionGatesResult } from "./task-contract-snapshot.ts";
+export { analyzePresetUninstallImpact, evaluatePresetRuntimeAvailability } from "./preset-uninstall-impact.ts";
+export type {
+  PresetRuntimeAvailability,
+  PresetRuntimeRequirement,
+  PresetUninstallDecisionReason,
+  PresetUninstallImpactEntry,
+  PresetUninstallImpactReport,
+  PresetUninstallTarget,
+  PresetUninstallTaskReference
+} from "./preset-uninstall-impact.ts";
 export { readModuleAttributionProjection } from "../../kernel/src/index.ts";
 export {
   authorityProtocolTuple,

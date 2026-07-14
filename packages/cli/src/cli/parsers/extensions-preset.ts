@@ -45,7 +45,7 @@ export function parsePresetArgs(args: ReadonlyArray<string>, rootDir: string, js
   }
 
   if (args[0] === "preset" && args[1] === "uninstall" && args[2]) {
-    return { ok: true, value: { rootDir, json, action: { kind: "preset-uninstall", presetId: args[2], layer: args.includes("--project") ? "project" : "user" } } };
+    return { ok: true, value: { rootDir, json, action: { kind: "preset-uninstall", presetId: args[2], layer: args.includes("--project") ? "project" : "user", dryRun: args.includes("--dry-run") } } };
   }
 
   if (args[0] === "preset" && args[1] === "run" && args[2] && args[3]) {

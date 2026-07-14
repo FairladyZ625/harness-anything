@@ -282,7 +282,7 @@ export interface ParsedCommand {
     | { readonly kind: "preset-install"; readonly sourcePath: string; readonly layer: "project" | "user" }
     | { readonly kind: "preset-seed" }
     | { readonly kind: "preset-audit" }
-    | { readonly kind: "preset-uninstall"; readonly presetId: string; readonly layer: "project" | "user" }
+    | { readonly kind: "preset-uninstall"; readonly presetId: string; readonly layer: "project" | "user"; readonly dryRun: boolean }
     | { readonly kind: "preset-run"; readonly presetId: string; readonly entrypoint: "plan" | "scaffold" | "check"; readonly taskId: string; readonly allowScripts: boolean; readonly inputs: Record<string, string> }
     | { readonly kind: "preset-action"; readonly presetId: string; readonly actionName: string; readonly taskId: string; readonly allowScripts: boolean; readonly inputs: Record<string, string> }
     | { readonly kind: "script-list"; readonly source?: "user" | "vertical" | "preset"; readonly purpose?: "scaffold" | "generate" | "transform" | "audit"; readonly scriptKind?: "action" | "check" }

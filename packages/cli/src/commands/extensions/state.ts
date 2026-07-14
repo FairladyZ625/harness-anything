@@ -6,7 +6,6 @@ import {
   moduleEntityId,
   PresetManifestSchema,
   planTemplateMaterialization,
-  validateExtensionInputShape,
   validatePresetManifests,
   type ExtensionValidationIssue,
   type WriteError,
@@ -26,7 +25,9 @@ import {
 import { writeModuleRegistryView } from "./module-registry-view.ts";
 import { presetScriptAuthorizationRequiredResult } from "./preset-evidence.ts";
 import { runScriptEntrypoint, scriptCliResult } from "./preset-script-runner.ts";
+import { presetRuntimeUnavailableResult } from "./preset-runtime-availability.ts";
 import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
+import { decodePresetManifestFileResult } from "./preset-manifest-reader.ts";
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 
@@ -238,36 +239,6 @@ export function materializePresetTaskDocuments(
   };
 }
 
-export function readPresetManifestFromSource(sourcePath: string): PresetManifest {
-  const decoded = readPresetManifestFromSourceResult(sourcePath);
-  if (!decoded.ok) {
-    throw new Error("preset manifest shape invalid");
-  }
-  return decoded.value;
-}
-
-export function readPresetManifestFromSourceResult(sourcePath: string): { readonly ok: true; readonly value: PresetManifest } | { readonly ok: false; readonly issues: ReadonlyArray<ExtensionValidationIssue> } {
-  const resolved = path.resolve(sourcePath);
-  const presetPath = existsSync(path.join(resolved, "preset.json")) ? path.join(resolved, "preset.json") : resolved;
-  return decodePresetManifestFileResult(presetPath);
-}
-
-function decodePresetManifestFileResult(presetPath: string): { readonly ok: true; readonly value: PresetManifest } | { readonly ok: false; readonly issues: ReadonlyArray<ExtensionValidationIssue> } {
-  try {
-    const raw = JSON.parse(readFileSync(presetPath, "utf8")) as unknown;
-    const shape = validateExtensionInputShape("preset-manifest", raw);
-    if (!shape.ok) {
-      return { ok: false, issues: shape.issues };
-    }
-    return { ok: true, value: Schema.decodeUnknownSync(PresetManifestSchema)(raw) };
-  } catch (error) {
-    return {
-      ok: false,
-      issues: [extensionIssue("unknown_extension_field", error instanceof Error ? error.message : "Preset manifest failed validation.", "$")]
-    };
-  }
-}
-
 function presetLayerRoot(rootInput: HarnessLayoutInput, layer: "project" | "user"): string {
   const layout = resolveHarnessLayout(rootInput);
   return layer === "project"
@@ -310,7 +281,16 @@ export function runPresetEntrypoint(
 ): CliResult {
   const layout = resolveHarnessLayout(rootInput);
   const rootDir = layout.rootDir;
+  validateRegistryKey(taskId, "task");
   const preset = resolvePresetEntry(rootInput, presetId, verticalId);
+  const runtimeUnavailable = presetRuntimeUnavailableResult({
+    rootInput,
+    commandName,
+    presetId,
+    taskId,
+    ...(preset && !isInvalidPreset(preset) ? { installedPreset: preset.manifest } : {})
+  });
+  if (runtimeUnavailable) return runtimeUnavailable;
   if (!preset) return presetNotFound("preset-run", presetId);
   if (isInvalidPreset(preset)) {
     return {
@@ -331,7 +311,6 @@ export function runPresetEntrypoint(
       error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
-  validateRegistryKey(taskId, "task");
   const evidenceDir = path.join(layout.localRoot, "evidence", "presets", presetId, timestampForPath());
   mkdirSync(evidenceDir, { recursive: true });
   const generated: string[] = [];

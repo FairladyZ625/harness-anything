@@ -129,14 +129,14 @@ export const extensionsCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "preset-uninstall",
-    "usage": "preset uninstall <id> [--project] [--json]",
-    "options": [{"flag":"--project","description":"Use the project preset layer."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "usage": "preset uninstall <id> [--project] [--dry-run] [--json]",
+    "options": [{"flag":"--project","description":"Use the project preset layer."},{"flag":"--dry-run","description":"Preview inbound Task impact without removing the preset."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Remove a preset from the project or user layer.",
-    "examples": ["harness-anything preset uninstall standard-task --project"],
+    "examples": ["harness-anything preset uninstall standard-task --project --dry-run"],
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["preset"],
+      "data": ["preset", "report"],
       "paths": []
     },
     "eventPolicy": {
