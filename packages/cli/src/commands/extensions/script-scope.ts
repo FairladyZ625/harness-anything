@@ -254,7 +254,7 @@ export function recursiveScopeContainsSymlink(root: string): boolean {
         return true;
       }
       if (stat.isSymbolicLink()) return true;
-      if (stat.isDirectory()) pending.push(candidate);
+      if (stat.isDirectory() && name !== "node_modules") pending.push(candidate);
     }
   }
   return false;

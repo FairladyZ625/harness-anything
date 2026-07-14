@@ -324,6 +324,39 @@ test("script scopes reject recursive read roots with descendant external and dan
   }
 });
 
+test("recursive read scopes exclude node_modules but still reject content symlink escapes", {
+  skip: process.platform === "win32"
+}, () => {
+  const container = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-read-node-modules-"));
+  try {
+    const rootDir = path.join(container, "project");
+    const externalRoot = path.join(container, "external");
+    const dependencyReadRoot = path.join(rootDir, "dependency-read-root");
+    const escapedReadRoot = path.join(rootDir, "escaped-read-root");
+    mkdirSync(path.join(dependencyReadRoot, "node_modules/.bin"), { recursive: true });
+    mkdirSync(escapedReadRoot, { recursive: true });
+    mkdirSync(externalRoot, { recursive: true });
+    writeFileSync(path.join(externalRoot, "secret.txt"), "secret\n", "utf8");
+    symlinkSync(externalRoot, path.join(dependencyReadRoot, "node_modules/.bin/tool"));
+    symlinkSync(externalRoot, path.join(escapedReadRoot, "escape"));
+    const layout = resolveHarnessLayout(rootDir);
+    const outputRoot = path.join(layout.tasksRoot, "task-read");
+
+    assert.equal(resolveDeclaredReadScopes(
+      ["{{paths.rootDir}}/dependency-read-root/**"],
+      layout,
+      outputRoot
+    ).ok, true);
+    assert.equal(resolveDeclaredReadScopes(
+      ["{{paths.rootDir}}/escaped-read-root/**"],
+      layout,
+      outputRoot
+    ).ok, false);
+  } finally {
+    rmSync(container, { recursive: true, force: true });
+  }
+});
+
 test("script scopes reject portable aliases in declared path components", () => {
   const rootDir = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-scope-alias-"));
   try {
