@@ -3,7 +3,7 @@ import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -32,12 +32,14 @@ test("CLI init dogfoods coding vertical defaults for new tasks", () => {
     const result = runJson(rootDir, ["new-task", "--title", "Dogfood Task"], true, noAgentRuntimeEnv);
     const taskId = assertGeneratedTaskId(result.taskId);
     const index = readFileSync(path.join(rootDir, `harness/tasks/${taskId}-dogfood-task/INDEX.md`), "utf8");
+    const contract = JSON.parse(readFileSync(path.join(rootDir, `harness/tasks/${taskId}-dogfood-task/task-contract.json`), "utf8"));
 
     assert.equal(result.ok, true);
     assert.equal(result.report.vertical, "software/coding");
     assert.equal(result.report.preset, "standard-task");
     assert.equal(result.report.profile, "baseline");
     assert.equal(result.generated.includes("task_plan.md"), true);
+    assert.equal(result.generated.includes("task-contract.json"), true);
     assert.equal(result.generated.includes("read_set.md"), false);
     assert.equal(result.generated.some((entry: string) => entry.startsWith("references/")), false);
     assert.equal(existsSync(path.join(rootDir, result.packagePath, "read_set.md")), false);
@@ -45,6 +47,12 @@ test("CLI init dogfoods coding vertical defaults for new tasks", () => {
     assert.match(index, /vertical: software\/coding/);
     assert.match(index, /preset: standard-task/);
     assert.match(index, /profile: baseline/);
+    assert.equal(contract.schema, "task-contract-snapshot/v1");
+    assert.equal(contract.preset.id, "standard-task");
+    assert.equal(contract.profile.id, "baseline");
+    assert.deepEqual(contract.profile.completionGates, ["ci", "code-doc-reconciliation"]);
+    assert.equal(contract.capturedBy, "task-create");
+    assert.equal(Object.hasOwn(contract, "entrypoints"), false);
     assertHumanProvenance(rootDir, index);
   });
 });
@@ -108,6 +116,105 @@ test("CLI task readers keep existing references directories compatible", () => {
   });
 });
 
+test("CLI check reads a created task contract without the mutable preset registry", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const created = runJson(rootDir, [
+      "task",
+      "create",
+      "--title",
+      "Frozen Contract",
+      "--vertical",
+      "software/coding",
+      "--preset",
+      "standard-task"
+    ], true, noAgentRuntimeEnv);
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
+
+    const overrideDir = path.join(rootDir, ".harness", "presets", "standard-task");
+    mkdirSync(overrideDir, { recursive: true });
+    writeFileSync(path.join(overrideDir, "preset.json"), "{}\n", "utf8");
+
+    const checked = runJson(rootDir, ["check", "--profile", "target-project", "--strict"]);
+    assert.equal(checked.ok, true);
+    assert.equal(checked.report.summary.hardFailCount, 0);
+  });
+});
+
+test("CLI task contract migration is dry-run safe, idempotent, and queues ambiguous tasks", () => {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const migratable = runJson(rootDir, ["task", "create", "--title", "Legacy Explicit", "--vertical", "software/coding", "--preset", "standard-task"] , true, noAgentRuntimeEnv);
+    const ambiguous = runJson(rootDir, ["task", "create", "--title", "Legacy Ambiguous", "--vertical", "software/coding", "--preset", "standard-task"], true, noAgentRuntimeEnv);
+    const unverified = runJson(rootDir, ["task", "create", "--title", "Legacy Unverified", "--vertical", "software/coding", "--preset", "standard-task"], true, noAgentRuntimeEnv);
+    const migratableContract = path.join(rootDir, migratable.packagePath, "task-contract.json");
+    const ambiguousContract = path.join(rootDir, ambiguous.packagePath, "task-contract.json");
+    const unverifiedContract = path.join(rootDir, unverified.packagePath, "task-contract.json");
+    const unverifiedSnapshot = JSON.parse(readFileSync(unverifiedContract, "utf8")) as { documents: ReadonlyArray<{ materializeAs: string }> };
+    rmSync(migratableContract, { force: true });
+    rmSync(ambiguousContract, { force: true });
+    rmSync(unverifiedContract, { force: true });
+    const ambiguousIndex = path.join(rootDir, ambiguous.packagePath, "INDEX.md");
+    writeFileSync(ambiguousIndex, readFileSync(ambiguousIndex, "utf8").replace("preset: standard-task", "preset: missing-preset"), "utf8");
+    writeSubstantiveTaskPlan(rootDir, String(unverified.packagePath));
+    for (const document of unverifiedSnapshot.documents) {
+      const documentPath = path.join(rootDir, unverified.packagePath, document.materializeAs);
+      writeFileSync(documentPath, `${readFileSync(documentPath, "utf8")}\nUnverified authored content.\n`, "utf8");
+    }
+    const harnessRoot = path.join(rootDir, "harness");
+    const unverifiedRelativePath = path.relative(harnessRoot, path.join(rootDir, unverified.packagePath));
+    execFileSync("git", ["-C", harnessRoot, "add", "-A", "--", unverifiedRelativePath]);
+    execFileSync("git", ["-C", harnessRoot, "-c", "commit.gpgsign=false", "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "--amend", "--no-edit"], { stdio: "ignore" });
+
+    const preview = runJson(rootDir, ["task", "contract", "migrate", "--dry-run"]);
+    assert.equal(preview.report.counts.planned, 1, JSON.stringify(preview.report));
+    assert.equal(preview.report.counts.manual, 2);
+    assert.equal(preview.report.entries.find((entry: { taskId: string }) => entry.taskId === unverified.taskId)?.reason, "contract_provenance_unverified");
+    assert.equal(existsSync(migratableContract), false);
+    assert.equal(existsSync(ambiguousContract), false);
+    assert.equal(existsSync(unverifiedContract), false);
+
+    const applied = runJson(rootDir, ["task", "contract", "migrate", "--apply"]);
+    assert.equal(applied.report.counts.applied, 1);
+    assert.equal(applied.report.counts.manual, 2);
+    assert.equal(JSON.parse(readFileSync(migratableContract, "utf8")).capturedBy, "legacy-migration");
+    assert.equal(existsSync(ambiguousContract), false);
+    assert.equal(existsSync(unverifiedContract), false);
+
+    const repeated = runJson(rootDir, ["task", "contract", "migrate", "--apply"]);
+    assert.equal(repeated.report.counts.applied, 0);
+    assert.equal(repeated.report.counts.current, 1);
+    assert.equal(repeated.report.counts.manual, 2);
+
+    const mismatched = JSON.parse(readFileSync(migratableContract, "utf8"));
+    mismatched.preset.id = "different-preset";
+    writeFileSync(migratableContract, `${JSON.stringify(mismatched, null, 2)}\n`, "utf8");
+    const mismatchPreview = runJson(rootDir, ["task", "contract", "migrate", "--dry-run", "--task", migratable.taskId]);
+    assert.equal(mismatchPreview.report.counts.manual, 1);
+    assert.equal(mismatchPreview.report.entries[0].reason, "existing_snapshot_metadata_mismatch");
+  });
+});
+
+test("CLI task contract migration uses source Git history plus actual scaffold evidence", () => {
+  withTempRoot((rootDir) => {
+    const sourceCommit = seedSoftwareCodingAssetHistory(rootDir);
+    runJson(rootDir, ["init"]);
+    const created = runJson(rootDir, [
+      "task", "create", "--title", "Historical Contract", "--vertical", "software/coding", "--preset", "standard-task"
+    ], true, noAgentRuntimeEnv);
+    const contractPath = path.join(rootDir, created.packagePath, "task-contract.json");
+    rmSync(contractPath, { force: true });
+    writeSubstantiveTaskPlan(rootDir, String(created.packagePath));
+
+    const preview = runJson(rootDir, ["task", "contract", "migrate", "--dry-run", "--task", created.taskId]);
+    assert.equal(preview.report.counts.planned, 1, JSON.stringify(preview.report));
+    assert.equal(preview.report.counts.manual, 0);
+    assert.equal(preview.report.entries[0].provenance, "source-git-history");
+    assert.equal(preview.report.entries[0].sourceCommit, sourceCommit);
+    assert.equal(existsSync(contractPath), false);
+  });
+});
+
 test("CLI creates a local task with generated identity, provenance, and stable JSON output", () => {
   withTempRoot((rootDir) => {
     const result = runJson(rootDir, ["new-task", "--title", "Task One"], true, noAgentRuntimeEnv);
@@ -120,6 +227,7 @@ test("CLI creates a local task with generated identity, provenance, and stable J
     assert.equal(result.status, "planned");
     assert.equal(result.packagePath, `harness/tasks/${taskId}-task-one`);
     assert.equal(result.paths.package, result.packagePath);
+    assert.equal(existsSync(path.join(rootDir, result.packagePath, "task-contract.json")), true);
     assert.match(index, /engine: local/);
     assertHumanProvenance(rootDir, index);
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/watermark.json"), "utf8"), /"projectionHash":"sha256:/);
@@ -244,6 +352,21 @@ function configureTestIdentity(rootDir: string): void {
   ), "utf8");
   execFileSync("git", ["-C", harnessRoot, "add", "harness.yaml"], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-m", "test: configure identity"], { stdio: "ignore" });
+}
+
+function seedSoftwareCodingAssetHistory(rootDir: string): string {
+  const relativeAssetRoot = "packages/cli/src/commands/extensions/assets/software-coding";
+  cpSync(path.resolve(relativeAssetRoot), path.join(rootDir, relativeAssetRoot), { recursive: true });
+  execFileSync("git", ["-C", rootDir, "init", "-q"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Harness Test"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "harness@example.test"]);
+  execFileSync("git", ["-C", rootDir, "add", "--", relativeAssetRoot]);
+  const commitDate = new Date(Date.now() - 60_000).toISOString();
+  execFileSync("git", ["-C", rootDir, "-c", "commit.gpgsign=false", "commit", "-m", "seed software coding contract history"], {
+    env: { ...process.env, GIT_AUTHOR_DATE: commitDate, GIT_COMMITTER_DATE: commitDate },
+    stdio: "ignore"
+  });
+  return execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 }
 
 function gitStatus(harnessRoot: string): string {

@@ -1,0 +1,22 @@
+{
+  "schema": "task-contract-snapshot/v1",
+  "capturedAt": "2026-07-14T00:00:00.000Z",
+  "capturedBy": "task-create",
+  "vertical": "software/coding",
+  "preset": {
+    "id": "standard-task",
+    "version": "1.0.0",
+    "digest": "mutable"
+  },
+  "profile": {
+    "id": "baseline",
+    "checkerProfile": "standard",
+    "completionGates": ["ci"]
+  },
+  "templateCatalog": {
+    "id": "software-coding-core",
+    "version": "1.1.0",
+    "digest": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  },
+  "documents": []
+}

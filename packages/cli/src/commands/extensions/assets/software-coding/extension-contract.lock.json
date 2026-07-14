@@ -1,0 +1,23 @@
+{
+  "schema": "extension-contract-lock/v1",
+  "catalog": {
+    "id": "software-coding-core",
+    "version": "1.1.0",
+    "digest": "sha256:c002baea7d8325d74ec71e6aba7b06b5c5f67548b8ae4e0a597ff3abad760ed0"
+  },
+  "presets": [
+    { "id": "standard-task", "version": "1.0.0", "digest": "sha256:97ce758ed5f197b4b18effdd65a5e26642b7b767a33fdaa7b4d32c07a401c164" },
+    { "id": "reference-task", "version": "1.0.0", "digest": "sha256:910b58f13ae5ef59c041776825d5a105466e214b0d419cca1e9117d819a3bf7e" },
+    { "id": "long-running-task", "version": "1.0.0", "digest": "sha256:e5b341575b584658d87640b481ec42cf4ecd8d1a1bce1775126c1d38c4f908b8" },
+    { "id": "module", "version": "1.0.0", "digest": "sha256:c884944f52d575c7fc8ee38233d023f4c7f9d9c001c138013fd3886961cbbc99" },
+    { "id": "subtask-expansion", "version": "1.0.0", "digest": "sha256:33e0d4cd5a04d084e3c5d6c34ed1b409fafc251334a47795b3948bb67c4f033f" },
+    { "id": "github-issue-repair", "version": "1.0.0", "digest": "sha256:5d8e478bc1bf1247ae47cf6540285b923de6f04f43d894698a8de24897b8fdf1" },
+    { "id": "legacy-migration", "version": "1.0.0", "digest": "sha256:56bc2ec349ad61a6d78a370b367c8e6080385a1136eb540db6811d06e4a6dbde" },
+    { "id": "create-milestone", "version": "1.0.0", "digest": "sha256:96d4cfcb39d2fe33f6208fa8f4e8b17ee82834335b6cc296b69b274a336f27db" },
+    { "id": "milestone-closeout", "version": "1.0.0", "digest": "sha256:efa87c2a6b6f5324a2db467385ba695629126667a84e8f6f56affdc6e3aeab29" },
+    { "id": "decision-conformance", "version": "1.0.0", "digest": "sha256:92a3519f81093417fd89feff97944663fed8bcb17221b3d8b85ebfae960690b2" },
+    { "id": "worker-dispatch", "version": "1.0.0", "digest": "sha256:bae7ea7b08e65a30d54333716134f38743f915b15c49a55417348c9f3d7acf90" },
+    { "id": "code-impact-analysis", "version": "1.1.0", "digest": "sha256:285ce975939ad4d21e56d7ed4029b97661a250215555b3c541b6d6f1566bd1df" },
+    { "id": "architecture-rot-audit", "version": "1.0.0", "digest": "sha256:de46127b6ce84086bd35da47fab22b839253afd188edb21effb962e263452782" }
+  ]
+}

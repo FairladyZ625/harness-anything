@@ -54,3 +54,8 @@ export function isGeneratedOrVendorPath(relativePath: string): boolean {
 function isSafeRelativePath(relative: string): boolean {
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
+
+export function isSafeBodyPath(value: string): boolean {
+  if (path.isAbsolute(value) || value.includes("\\") || !value.endsWith(".md")) return false;
+  return value.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
+}

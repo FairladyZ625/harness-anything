@@ -3388,8 +3388,10 @@
       "tierReason": null,
       "authoritySource": [
         "packages/cli/src/commands/extensions/assets/software-coding/template-catalog.json",
+        "packages/cli/src/commands/extensions/assets/software-coding/extension-contract.lock.json",
         "packages/cli/src/commands/extensions/assets/software-coding/templates",
-        "tools/check-catalog-schema.mjs"
+        "tools/check-catalog-schema.mjs",
+        "dec_01KXF661DNF187S0WZEE04KHF8"
       ],
       "consumerScope": [
         "bundled software/coding template catalog schema and bodyPath assets"
@@ -3416,6 +3418,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/check-catalog-schema.mjs",
+          "packages/cli/src/commands/extensions/assets/software-coding/extension-contract.lock.json",
           "package.json:scripts.harness:check-catalog-schema",
           "tools/gate-manifest.json"
         ]
@@ -3449,9 +3452,9 @@
       },
       "deterministic": true,
       "positiveControl": {
-        "status": "documented-gap",
+        "status": "covered",
         "evidence": [
-          "No dedicated positive-control fixture is registered for check-catalog-schema."
+          "tools/check-catalog-schema.test.mjs"
         ]
       }
     },

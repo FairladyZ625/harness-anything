@@ -52,6 +52,7 @@ const publicRuntimeSurface = [
   "SqliteTaskRowSchema",
   "SubtaskPlanSchema",
   "TaskClaimCollisionError",
+  "TaskContractSnapshotSchema",
   "TaskFrontmatterSchema",
   "TaskLeaseRequiredError",
   "TaskReleaseNotHolderError",

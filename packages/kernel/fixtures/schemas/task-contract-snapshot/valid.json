@@ -1,0 +1,29 @@
+{
+  "schema": "task-contract-snapshot/v1",
+  "capturedAt": "2026-07-14T00:00:00.000Z",
+  "capturedBy": "task-create",
+  "vertical": "software/coding",
+  "preset": {
+    "id": "standard-task",
+    "version": "1.0.0",
+    "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "profile": {
+    "id": "baseline",
+    "checkerProfile": "standard",
+    "completionGates": ["ci", "code-doc-reconciliation"]
+  },
+  "templateCatalog": {
+    "id": "software-coding-core",
+    "version": "1.1.0",
+    "digest": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  },
+  "documents": [{
+    "slot": "task.plan",
+    "templateRef": "task.plan@1",
+    "materializeAs": "task_plan.md",
+    "locale": "zh-CN",
+    "requiredAnchors": ["## Goal"],
+    "bodyDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  }]
+}

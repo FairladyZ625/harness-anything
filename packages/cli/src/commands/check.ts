@@ -12,7 +12,7 @@ import type { CheckProfile, CliResult, CommandRegistryEntry } from "../cli/types
 import { buildResolvableEntityIndex } from "./check-entity-refs.ts";
 import { profileIssue, type ProfileValidationIssue } from "./check-profile-types.ts";
 import { validateJournalActorAttribution } from "./actor-attribution-checker.ts";
-import { isInvalidPreset, materializePresetTaskDocuments, resolvePresetEntry } from "./extensions/state.ts";
+import { resolveTaskContractDocuments } from "./check-task-contract.ts";
 import { validateGateArchitectureRetrospectiveGate } from "./gate-retro-checker.ts";
 import { readProjectHarnessSettings, settingsIssue, type ProjectHarnessSettings } from "./settings.ts";
 import { bundledTaskDocumentPlaceholderPolicy } from "./core/task-document-placeholders.ts";
@@ -374,41 +374,10 @@ function validateMetadataDrivenTaskPackage(
     )];
   }
   const profile = readScalar(frontmatter, "profile") || undefined;
-
-  const preset = resolvePresetEntry(rootInput, presetId, vertical);
-  if (!preset) {
-    return [profileIssue(
-      "metadata-preset",
-      "metadata_preset_not_found",
-      "hard-fail",
-      `${relativeTaskDir}/INDEX.md references unknown preset ${presetId}.`,
-      "Install the preset or update the task frontmatter to a valid preset id."
-    )];
-  }
-  if (isInvalidPreset(preset)) {
-    return preset.issues.map((issue) => profileIssue(
-      "metadata-preset",
-      issue.code,
-      "hard-fail",
-      `${relativeTaskDir}/INDEX.md preset ${presetId} is blocked by active ${preset.layer} preset validation: ${issue.message}`,
-      "Fix or remove the active preset override before running check."
-    ));
-  }
-
-  const materialized = materializePresetTaskDocuments(preset.manifest, { profileId: profile, locale: settings?.locale ?? "zh-CN" });
+  const contract = resolveTaskContractDocuments(rootInput, taskDir, relativeTaskDir, vertical, presetId, profile, settings);
+  if (!contract.ok) return contract.issues;
   const issues: ProfileValidationIssue[] = [];
-  if (!materialized.ok) {
-    issues.push(...materialized.issues.map((issue) => profileIssue(
-      "metadata-template",
-      issue.code,
-      "hard-fail",
-      `${relativeTaskDir}/INDEX.md preset ${presetId} cannot materialize required template metadata: ${issue.message}`,
-      "Fix the preset/template metadata before running check."
-    )));
-    return issues;
-  }
-
-  for (const document of materialized.documents) {
+  for (const document of contract.documents) {
     let safeDocumentPath: string;
     try {
       safeDocumentPath = normalizeRelativeDocumentPath(document.materializeAs);

@@ -64,7 +64,7 @@ export interface ModuleRecord {
   readonly steps: ReadonlyArray<{ readonly id: string; readonly state: string }>;
 }
 
-const reservedMaterializedPaths = new Set(["INDEX.md", "module.md", "relations.json", "relations.md"]);
+const reservedMaterializedPaths = new Set(["INDEX.md", "task-contract.json", "module.md", "relations.json", "relations.md"]);
 
 export function isInvalidPreset(entry: PresetResolutionEntry): entry is InvalidPreset {
   return "issues" in entry;

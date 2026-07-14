@@ -6,7 +6,7 @@ import {
   TemplateCatalogSchema,
   validateExtensionInputShape
 } from "../../../../kernel/src/index.ts";
-import { isPathInside } from "../../cli/path.ts";
+import { isPathInside, isSafeBodyPath } from "../../cli/path.ts";
 
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 
@@ -89,12 +89,6 @@ function readLocaleBodyAsset(locale: unknown, documentIndex: number, localeIndex
     return;
   }
   bodies.set(locale.bodyPath, readFileSync(resolved, "utf8"));
-}
-
-function isSafeBodyPath(value: string): boolean {
-  if (path.isAbsolute(value) || value.includes("\\") || !value.endsWith(".md")) return false;
-  const parts = value.split("/");
-  return parts.every((part) => part.length > 0 && part !== "." && part !== "..");
 }
 
 function isTemplateCatalogRecord(value: unknown): value is Record<string, unknown> {

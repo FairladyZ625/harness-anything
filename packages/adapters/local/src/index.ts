@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
-import type { EngineError, WriteError } from "../../../kernel/src/index.ts";
+import type { EngineError, TaskContractSnapshot, WriteError } from "../../../kernel/src/index.ts";
 import { explainStatusTransition, isTerminalStatus } from "../../../kernel/src/index.ts";
 import { evaluateEntityDisposition } from "../../../kernel/src/index.ts";
 import { stablePayloadHash } from "../../../kernel/src/index.ts";
@@ -18,7 +18,7 @@ import {
 import { makeLocalProjectionSourceFenceReader } from "./projection-source-fence.ts";
 import { renderSupersedesRelation } from "./task-relations.ts";
 import { assertValidParentBinding, indexPath, makeIndex, readIndexEffect, renderIndex, validateGeneratedTaskId, validateTaskId } from "./task-index.ts";
-import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, stageTaskTree, writeSupersedeTaskDocuments, writeTaskDocument } from "./task-writes.ts";
+import { appendProgressDelta, deleteTaskPackage, stageTaskDocument, stageTaskTree, writeSupersedeTaskDocuments, writeTaskDocument, writeTaskPackageDocuments } from "./task-writes.ts";
 import type {
   AppendProgressInput,
   CreateLocalTaskInput,
@@ -187,10 +187,35 @@ function createTask(
       preset: input.preset ?? "default",
       provenance: provenance ? [provenance] : [defaultHumanProvenance(createdAt)]
     }, stablePayloadHash);
-    yield* writeTaskDocument(coordinator, stablePayloadHash, input.taskId, "INDEX.md", renderIndex(index), {
-      kind: "package_create",
-      slug: input.slug
-    });
+    const presetId = input.preset ?? "default";
+    const legacyVersion = "legacy-default/v1";
+    const contractSnapshot = {
+      schema: "task-contract-snapshot/v1",
+      capturedAt: createdAt,
+      capturedBy: "task-create",
+      vertical: input.vertical ?? "default",
+      preset: {
+        id: presetId,
+        version: legacyVersion,
+        digest: `sha256:${stablePayloadHash({ id: presetId, version: legacyVersion })}`
+      },
+      profile: {
+        id: "legacy-default",
+        checkerProfile: "legacy-default",
+        completionGates: ["ci", "code-doc-reconciliation"]
+      },
+      templateCatalog: {
+        id: "legacy-default",
+        version: legacyVersion,
+        digest: `sha256:${stablePayloadHash({ id: "legacy-default", version: legacyVersion })}`
+      },
+      documents: []
+    } as const satisfies TaskContractSnapshot;
+    const writes = [
+      { path: "INDEX.md", body: renderIndex(index), packageSlug: input.slug },
+      { path: "task-contract.json", body: `${JSON.stringify(contractSnapshot, null, 2)}\n`, packageSlug: input.slug }
+    ];
+    yield* writeTaskPackageDocuments(coordinator, stablePayloadHash, input.taskId, writes);
     return { taskId: input.taskId, status: "planned", engine: "local" } satisfies LocalTaskResult;
   });
 }

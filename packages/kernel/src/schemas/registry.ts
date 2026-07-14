@@ -10,6 +10,7 @@ import { FactRecordSchema } from "./fact-record.ts";
 import { HarnessCheckReportSchema } from "./harness-check-report.ts";
 import { RuntimeEventRecordSchema } from "./runtime-event.ts";
 import { SubtaskPlanSchema } from "./subtask-plan.ts";
+import { TaskContractSnapshotSchema } from "./task-contract-snapshot.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 import { WriteJournalOpSchema } from "./write-journal.ts";
 
@@ -25,6 +26,8 @@ export {
 export { RuntimeEventRecordSchema } from "./runtime-event.ts";
 export type { RuntimeEventRecord } from "./runtime-event.ts";
 export { SubtaskPlanSchema } from "./subtask-plan.ts";
+export { TaskContractSnapshotSchema } from "./task-contract-snapshot.ts";
+export type { TaskContractSnapshot } from "./task-contract-snapshot.ts";
 export {
   EntityRelationRecordSchema,
   EntityRelationsSchema,
@@ -431,6 +434,13 @@ export const schemaRegistry = [
     jsonSchemaPath: "packages/kernel/schemas/json/task-frontmatter.schema.json",
     validFixturePath: "packages/kernel/fixtures/schemas/task-frontmatter/valid.json",
     invalidFixturePath: "packages/kernel/fixtures/schemas/task-frontmatter/invalid.json"
+  },
+  {
+    id: "task-contract-snapshot",
+    schema: TaskContractSnapshotSchema,
+    jsonSchemaPath: "packages/kernel/schemas/json/task-contract-snapshot.schema.json",
+    validFixturePath: "packages/kernel/fixtures/schemas/task-contract-snapshot/valid.json",
+    invalidFixturePath: "packages/kernel/fixtures/schemas/task-contract-snapshot/invalid.json"
   },
   {
     id: "decision-package",

@@ -4,6 +4,7 @@ import { readOption, readRepeatedRawOption, readRequiredValueOption } from "../p
 import type { CliResult, ParsedCommand } from "../types.ts";
 import { parseTaskArchive } from "./core-task-archive.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
+import { parseTaskContractMigrate } from "./core-task-contract.ts";
 import { parseExecutionSubmissionOptions } from "./core-task-execution.ts";
 import { parseTaskList } from "./core-task-list.ts";
 import { parseTaskReviewExecution } from "./core-task-review-execution.ts";
@@ -26,6 +27,7 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "status" && args[2] === "set" && args[3] && args[4]) return parseStatusSet(args, rootDir, json);
   if (args[0] === "task" && args[1] === "progress" && args[2] === "append" && args[3]) return parseProgressAppend(args, rootDir, json);
   if (args[0] === "task" && args[1] === "amend" && args[2]) return parseTaskAmend(args, rootDir, json);
+  if (args[0] === "task" && args[1] === "contract" && args[2] === "migrate") return parseTaskContractMigrate(args, rootDir, json);
   if (args[0] === "task" && args[1] === "archive") return parseTaskArchive(args, rootDir, json);
   if (args[0] === "task" && args[1] === "supersede" && args[2]) return parseTaskSupersede(args, rootDir, json);
   if (args[0] === "task" && args[1] === "delete") return parseTaskDelete(args, rootDir, json);

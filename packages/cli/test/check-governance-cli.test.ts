@@ -243,10 +243,18 @@ test("CLI metadata check does not resolve preset overrides for default tasks", (
   });
 });
 
-test("CLI metadata check blocks invalid active preset overrides without bundled fallback", () => {
+test("CLI metadata check blocks invalid active preset overrides for snapshotless legacy tasks", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeTaskPackage(rootDir, "task-1", {
+      vertical: "software/coding",
+      preset: "standard-task",
+      taskPlan: validTaskPlan(),
+      review: validReview(),
+      visual: validVisualMap(),
+      execution: validExecutionStrategy(),
+      lessons: validLessonCandidates()
+    });
     writePreset(rootDir, ".harness/presets/standard-task/preset.json", {
       id: "standard-task",
       title: "Bad Standard Task",
@@ -262,10 +270,18 @@ test("CLI metadata check blocks invalid active preset overrides without bundled 
   });
 });
 
-test("CLI metadata check reports invalid materialized paths instead of crashing", () => {
+test("CLI metadata check reports invalid materialized paths for snapshotless legacy tasks", () => {
   withTempRoot((rootDir) => {
     runJson(rootDir, ["init"]);
-    runJson(rootDir, ["new-task", "--title", "Coding Task", "--vertical", "software/coding", "--preset", "standard-task"]);
+    writeTaskPackage(rootDir, "task-1", {
+      vertical: "software/coding",
+      preset: "standard-task",
+      taskPlan: validTaskPlan(),
+      review: validReview(),
+      visual: validVisualMap(),
+      execution: validExecutionStrategy(),
+      lessons: validLessonCandidates()
+    });
     writePreset(rootDir, ".harness/presets/standard-task/preset.json", {
       id: "standard-task",
       title: "Bad Path Standard Task",

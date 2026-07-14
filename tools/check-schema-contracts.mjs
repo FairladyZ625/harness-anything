@@ -8,6 +8,7 @@ const root = process.cwd();
 const expectedSchemaIds = [
   "harness-config",
   "task-frontmatter",
+  "task-contract-snapshot",
   "decision-package",
   "entity-relations",
   "fact-record",

@@ -71,6 +71,7 @@ export const taskWriteCliRoutePolicies = [
   { actionKind: "status-set", leaseRequired: true, commandClass: "arbiter" },
   { actionKind: "progress-append", leaseRequired: true, commandClass: "repo-write" },
   { actionKind: "task-amend", leaseRequired: false, commandClass: "repo-write" },
+  { actionKind: "task-contract-migrate", leaseRequired: false, commandClass: "repo-write" },
   { actionKind: "task-archive", leaseRequired: true, commandClass: "repo-write" },
   { actionKind: "task-claim", leaseRequired: false, commandClass: "repo-write" },
   { actionKind: "task-code-doc-reconcile", leaseRequired: true, commandClass: "repo-write" },
