@@ -3,11 +3,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   LOCAL_EQUIVALENCE_NOTICE,
+  buildCiJobInvocation,
   buildCiPlan,
   createReceipt,
   formatSummary,
   parseIntegrationShardMatrix
 } from "./run-ci-equivalent.mjs";
+
+test("check:ci applies the shared QoS prefix to each manifest job", () => {
+  assert.deepEqual(buildCiJobInvocation(["taskpolicy", "-c", "utility"], ["tools/run-manifest-gates.mjs"]), {
+    command: "taskpolicy",
+    args: ["-c", "utility", process.execPath, "tools/run-manifest-gates.mjs"]
+  });
+});
 
 test("CI-equivalent plan follows a seven-shard workflow authority fixture", () => {
   const result = buildCiPlan(makeManifest(), makeWorkflow(7));

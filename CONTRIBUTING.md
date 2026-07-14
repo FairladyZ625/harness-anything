@@ -13,15 +13,14 @@ Harness Anything is a repo-native harness. Public code and docs live in this rep
 1. Branch from latest `origin/main`.
 2. Keep implementation changes scoped to the task or issue.
 3. Add or update tests for behavior changes.
-4. Run `npm run check:ci` before requesting review. It reads
-   `tools/gate-manifest.json` and runs **every** job CI runs on a pull request —
-   nine of them, and the `boundaries` job alone carries 35 gates. Do not
-   substitute `npm run check:local`: that is a fast-tier subset and is not equal
-   to any CI job, which is why "green locally, red in CI" keeps happening. Set
-   `GITHUB_REPOSITORY` and `GITHUB_TOKEN` first; the `boundaries` job reads
-   GitHub's live branch rules.
-5. In the PR, paste the `npm run check:ci -- --json <path>` receipt rather than
-   asserting the gates passed, and list any deferred work.
+4. Run `npm run check:local` before requesting review. It is the lightweight
+   local stop gate: incremental TypeScript build, changed-file lint, and tests
+   for affected package/tool paths under the machine-wide load budget. It is a
+   sanity check, not a substitute for GitHub CI.
+5. GitHub CI is the complete pull-request authority and runs every manifest-
+   declared job. Record the `check:local` output and the GitHub CI run in the PR,
+   and list any deferred work. `npm run check:ci` remains available for explicit
+   local diagnosis, but is not the default stop condition.
 6. If you changed CLI code and use the built bin (`npx ha`), rebuild the
    workspace dist (`npm run build -w @harness-anything/cli`); running from
    source (`node packages/cli/src/index.ts`) is always fresh. Refresh a global

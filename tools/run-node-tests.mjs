@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { availableParallelism } from "node:os";
 import { resolve } from "node:path";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
-import { collectSlowTests, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
+import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
+import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
 import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -50,6 +50,7 @@ if (selection.errors.length > 0) {
 if (options.shard !== undefined) {
   selection.files = selectIntegrationShardFiles(options.shard, selection.files);
 }
+selection.files = filterTestFilesByPrefixes(selection.files, options.prefixes);
 
 if (selection.files.length === 0) {
   console.log(`No node test files found for tier ${options.tier}.`);
@@ -65,48 +66,50 @@ if (options.list) {
 
 // Cap process fan-out so full runs don't exhaust memory on developer laptops.
 // --concurrency wins; else HARNESS_TEST_CONCURRENCY; else, off CI, a
-// laptop-friendly default derived from cores; in CI, node's own default.
+// fixed per-session budget; in CI, node's own default.
 const concurrency = resolveTestConcurrency({
   flagConcurrency: options.concurrency,
   envConcurrency: process.env.HARNESS_TEST_CONCURRENCY,
-  isCi: Boolean(process.env.CI),
-  availableParallelism: availableParallelism()
+  isCi: Boolean(process.env.CI)
 });
 const concurrencyArgs =
   concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
 
-const child = spawn(process.execPath, ["--test", ...concurrencyArgs, ...selection.files], {
-  cwd: repoRoot,
-  stdio: ["inherit", "pipe", "pipe"]
-});
+process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
+  const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
+  const invocation = prefixCommand(qosPrefix, process.execPath, ["--test", ...concurrencyArgs, ...selection.files]);
+  const child = spawn(invocation.command, invocation.args, {
+    cwd: repoRoot,
+    stdio: ["inherit", "pipe", "pipe"],
+    env: lease.childEnv
+  });
 
-let output = "";
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    const text = chunk.toString();
+    output += text;
+    process.stdout.write(text);
+  });
+  child.stderr.on("data", (chunk) => {
+    const text = chunk.toString();
+    output += text;
+    process.stderr.write(text);
+  });
 
-child.stdout.on("data", (chunk) => {
-  const text = chunk.toString();
-  output += text;
-  process.stdout.write(text);
-});
-
-child.stderr.on("data", (chunk) => {
-  const text = chunk.toString();
-  output += text;
-  process.stderr.write(text);
-});
-
-child.on("error", (error) => {
-  console.error(error.message);
-  process.exit(1);
-});
-
-child.on("close", (code, signal) => {
-  if (signal !== null) {
-    console.error(`node --test terminated by signal ${signal}`);
-    process.exit(1);
-  }
-
-  const slowTests = collectSlowTests(output, options.slowThresholdMs);
-  console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
-
-  process.exit(code ?? 1);
+  return new Promise((resolveExitCode) => {
+    child.once("error", (error) => {
+      console.error(error.message);
+      resolveExitCode(1);
+    });
+    child.once("close", (code, signal) => {
+      if (signal !== null) {
+        console.error(`node --test terminated by signal ${signal}`);
+        resolveExitCode(1);
+        return;
+      }
+      const slowTests = collectSlowTests(output, options.slowThresholdMs);
+      console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
+      resolveExitCode(code ?? 1);
+    });
+  });
 });

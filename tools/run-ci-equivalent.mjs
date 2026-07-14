@@ -26,6 +26,7 @@ import {
   getEnforcementConstant,
   resolveEnforcementConstant
 } from "./enforcement-constants.mjs";
+import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = path.join(root, "tools/gate-manifest.json");
@@ -141,12 +142,17 @@ function clearIncrementalArtifacts() {
   }
 }
 
-function runJob(job, shard) {
+export function buildCiJobInvocation(qosPrefix, args) {
+  return prefixCommand(qosPrefix, process.execPath, args);
+}
+
+function runJob(job, shard, { qosPrefix, env }) {
   clearIncrementalArtifacts();
   const args = ["tools/run-manifest-gates.mjs", "--workflow-job", job, "--exclude", "mergify-queue-metadata-edit-noop"];
   if (shard !== undefined) args.push("--shard", String(shard));
+  const invocation = buildCiJobInvocation(qosPrefix, args);
   const started = Date.now();
-  const result = spawnSync(process.execPath, args, { cwd: root, stdio: "inherit" });
+  const result = spawnSync(invocation.command, invocation.args, { cwd: root, stdio: "inherit", env });
   return {
     job: shard === undefined ? job : `${job} (${shard})`,
     exitCode: result.status ?? 1,
@@ -167,37 +173,46 @@ function parseArgs(argv) {
   return { wanted, receiptPath };
 }
 
-function main() {
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const shardDeclaration = getEnforcementConstant(manifest, "ci-integration-shard-sequence");
-  const workflowPath = path.join(root, shardDeclaration.authority.path);
-  const workflowText = readFileSync(workflowPath, "utf8");
-  const { wanted, receiptPath } = parseArgs(process.argv.slice(2));
-  const { derived, plan, skipped } = buildCiPlan(manifest, workflowText, wanted);
-  const missingCredentials = NEEDS_GITHUB.filter((name) => !process.env[name]);
-  if (missingCredentials.length > 0) {
+async function main() {
+  await withLocalHeavySlot({ label: "check:ci" }, async (lease) => {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const shardDeclaration = getEnforcementConstant(manifest, "ci-integration-shard-sequence");
+    const workflowPath = path.join(root, shardDeclaration.authority.path);
+    const workflowText = readFileSync(workflowPath, "utf8");
+    const { wanted, receiptPath } = parseArgs(process.argv.slice(2));
+    const { derived, plan, skipped } = buildCiPlan(manifest, workflowText, wanted);
+    const missingCredentials = NEEDS_GITHUB.filter((name) => !process.env[name]);
+    if (missingCredentials.length > 0) {
+      console.error(
+        `\n[check:ci] ${missingCredentials.join(" and ")} not set. The boundaries job reads GitHub's live\n` +
+        `           branch rules (check-github-required-contexts) and will fail for environmental\n` +
+        `           reasons, not code reasons. Set them first:\n\n` +
+        `             export GITHUB_REPOSITORY=<owner>/<name>\n` +
+        `             export GITHUB_TOKEN=$(gh auth token)\n`
+      );
+    }
+
+    const qosPrefix = discoverQosPrefix();
     console.error(
-      `\n[check:ci] ${missingCredentials.join(" and ")} not set. The boundaries job reads GitHub's live\n` +
-      `           branch rules (check-github-required-contexts) and will fail for environmental\n` +
-      `           reasons, not code reasons. Set them first:\n\n` +
-      `             export GITHUB_REPOSITORY=<owner>/<name>\n` +
-      `             export GITHUB_TOKEN=$(gh auth token)\n`
+      `\n[check:ci] ${plan.length} runs derived from tools/gate-manifest.json and ${path.relative(root, workflowPath)} ` +
+      `(${[...derived].map(([job, gates]) => `${job}:${gates.length}`).join(" ")}); ` +
+      `QoS=${qosPrefix.join(" ") || "none"}; slot=${path.basename(lease.slotPath)}\n`
     );
-  }
+    const receipts = [];
+    for (const [job, shard] of plan) receipts.push(runJob(job, shard, { qosPrefix, env: lease.childEnv }));
 
-  console.error(
-    `\n[check:ci] ${plan.length} runs derived from tools/gate-manifest.json and ${path.relative(root, workflowPath)} ` +
-    `(${[...derived].map(([job, gates]) => `${job}:${gates.length}`).join(" ")})\n`
-  );
-  const receipts = [];
-  for (const [job, shard] of plan) receipts.push(runJob(job, shard));
-
-  console.error(formatSummary(receipts, skipped));
-  if (receiptPath !== null) {
-    writeFileSync(receiptPath, `${JSON.stringify(createReceipt(receipts, skipped), null, 2)}\n`);
-    console.error(`  receipt → ${receiptPath}\n`);
-  }
-  process.exit(receipts.some((receipt) => receipt.exitCode !== 0) ? 1 : 0);
+    console.error(formatSummary(receipts, skipped));
+    if (receiptPath !== null) {
+      writeFileSync(receiptPath, `${JSON.stringify(createReceipt(receipts, skipped), null, 2)}\n`);
+      console.error(`  receipt → ${receiptPath}\n`);
+    }
+    process.exitCode = receipts.some((receipt) => receipt.exitCode !== 0) ? 1 : 0;
+  });
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(`[check:ci] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+}

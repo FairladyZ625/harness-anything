@@ -1,64 +1,67 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSteps, parseLocalCheckArgs, selectQosPrefix } from "./run-local-check.mjs";
+import {
+  buildLocalStepInvocation,
+  buildSteps,
+  collectChangedFiles,
+  deriveAffectedTestPrefixes,
+  parseLocalCheckArgs
+} from "./run-local-check.mjs";
 
-test("parseLocalCheckArgs defaults to the waiting fast tier", () => {
-  assert.deepEqual(parseLocalCheckArgs([]), { full: false, wait: true, pollMs: 2000 });
-});
-
-test("parseLocalCheckArgs recognizes --full, --fast and --no-wait", () => {
+test("parseLocalCheckArgs defaults to the light stop gate", () => {
+  assert.deepEqual(parseLocalCheckArgs([]), { full: false });
   assert.equal(parseLocalCheckArgs(["--full"]).full, true);
-  assert.equal(parseLocalCheckArgs(["--fast"]).full, false);
-  assert.equal(parseLocalCheckArgs(["--no-wait"]).wait, false);
-  // last tier flag wins
   assert.equal(parseLocalCheckArgs(["--full", "--fast"]).full, false);
+  assert.throws(() => parseLocalCheckArgs(["--no-wait"]), /unknown run-local-check option/u);
 });
 
-test("parseLocalCheckArgs rejects unknown options", () => {
-  assert.throws(() => parseLocalCheckArgs(["--bogus"]), /unknown run-local-check option/u);
+test("affected test prefixes derive package, nested adapter, and tools scopes", () => {
+  assert.deepEqual(deriveAffectedTestPrefixes([
+    "packages/kernel/src/index.ts",
+    "packages/adapters/local/src/index.ts",
+    "tools/run-local-check.mjs",
+    "docs-release/readme.md"
+  ]), ["packages/adapters/local/", "packages/kernel/", "tools/"]);
+  assert.deepEqual(deriveAffectedTestPrefixes(["package-lock.json"]), ["packages/", "tools/"]);
+  assert.deepEqual(deriveAffectedTestPrefixes(["package.json"]), ["tools/"]);
 });
 
-test("buildSteps appends integration and gui lanes only in the full tier", () => {
-  const fastScripts = buildSteps(false).map(([, script]) => script);
-  const fullScripts = buildSteps(true).map(([, script]) => script);
-
-  assert.ok(!fastScripts.includes("test:integration"));
-  assert.ok(!fastScripts.includes("test:gui"));
-  assert.ok(!fastScripts.includes("test:gui:e2e"));
-  assert.ok(fullScripts.includes("test:integration"));
-  assert.ok(fullScripts.includes("test:gui"));
-  assert.ok(fullScripts.includes("test:gui:e2e"));
-  assert.equal(fullScripts.length, fastScripts.length + 3);
-
-  // Fast tier mirrors the CI boundaries + package-policy surface.
-  assert.ok(fastScripts.includes("harness:check-import-boundaries"));
-  assert.ok(fastScripts.includes("harness:check-integration-test-shards"));
-  assert.ok(fastScripts.includes("harness:check-gate-surface"));
-  assert.ok(fastScripts.includes("harness:check-package-policy"));
+test("light steps contain incremental typecheck, changed lint, and affected tests only", () => {
+  const steps = buildSteps(false, ["tools/run-local-check.mjs", "docs-release/readme.md"]);
+  assert.deepEqual(steps.map(([label]) => label), [
+    "incremental typecheck",
+    "changed-file lint",
+    "affected fast tests",
+    "affected contract tests"
+  ]);
+  assert.equal(steps.some(([label]) => label.includes("integration")), false);
+  assert.equal(steps.some(([label]) => label.includes("manifest")), false);
 });
 
-test("selectQosPrefix wraps with taskpolicy on darwin when available", () => {
-  assert.deepEqual(
-    selectQosPrefix({ platform: "darwin", hasTaskpolicy: true, hasNice: true }),
-    ["taskpolicy", "-c", "utility"]
-  );
+test("manual full tier appends integration, GUI E2E, and manifest gates", () => {
+  const labels = buildSteps(true, ["packages/gui/src/main.ts"]).map(([label]) => label);
+  assert.ok(labels.includes("affected GUI tests"));
+  assert.ok(labels.includes("integration tests"));
+  assert.ok(labels.includes("GUI E2E"));
+  assert.ok(labels.includes("manifest local gates"));
 });
 
-test("selectQosPrefix falls back to nice off darwin or without taskpolicy", () => {
-  assert.deepEqual(
-    selectQosPrefix({ platform: "linux", hasTaskpolicy: false, hasNice: true }),
-    ["nice", "-n", "10"]
-  );
-  assert.deepEqual(
-    selectQosPrefix({ platform: "darwin", hasTaskpolicy: false, hasNice: true }),
-    ["nice", "-n", "10"]
-  );
+test("local steps apply the shared QoS prefix", () => {
+  assert.deepEqual(buildLocalStepInvocation(["nice", "-n", "10"], "npm", ["run", "typecheck"]), {
+    command: "nice",
+    args: ["-n", "10", "npm", "run", "typecheck"]
+  });
 });
 
-test("selectQosPrefix runs bare when no QoS tool is available", () => {
-  assert.deepEqual(
-    selectQosPrefix({ platform: "linux", hasTaskpolicy: false, hasNice: false }),
-    []
-  );
+test("changed-file collection combines merge-base diff and untracked files", () => {
+  const calls = [];
+  const run = (_command, args) => {
+    calls.push(args);
+    if (args[0] === "merge-base") return { status: 0, stdout: "base\n", stderr: "" };
+    if (args[0] === "diff") return { status: 0, stdout: "tools/a.mjs\n", stderr: "" };
+    return { status: 0, stdout: "tools/b.test.mjs\n", stderr: "" };
+  };
+  assert.deepEqual(collectChangedFiles("/repo", run), ["tools/a.mjs", "tools/b.test.mjs"]);
+  assert.deepEqual(calls[1].slice(0, 5), ["diff", "--name-only", "--diff-filter=ACMR", "base", "--"]);
 });

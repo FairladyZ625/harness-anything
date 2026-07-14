@@ -62,6 +62,7 @@
     "harness:check-gate-surface": "node tools/check-gate-surface.mjs",
     "harness:check-gate-manifest-invariants": "node tools/check-gate-manifest-invariants.mjs",
     "harness:check-enforcement-constants": "node tools/check-enforcement-constants.mjs",
+    "harness:check-local-load-governance": "node --test tools/local-resource-governance.test.mjs tools/run-local-check.test.mjs tools/run-ci-equivalent.test.mjs tools/run-node-tests.test.mjs tools/run-with-local-resources.test.mjs",
     "harness:check-staged-activation": "node tools/run-staged-activation.mjs",
     "harness:check-template-command-surface": "node tools/check-template-command-surface.mjs",
     "harness:check-locale-content": "node tools/check-locale-content.mjs",

@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
+import { DEFAULT_LOCAL_TEST_CONCURRENCY } from "./local-resource-governance.mjs";
 
 export const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 export const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
@@ -11,7 +12,8 @@ export function parseRunnerArgs(args, tierNames) {
     slowThresholdMs: 1000,
     slowLimit: 10,
     concurrency: undefined,
-    shard: undefined
+    shard: undefined,
+    prefixes: []
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -75,6 +77,17 @@ export function parseRunnerArgs(args, tierNames) {
       options.shard = arg.slice("--shard=".length);
       continue;
     }
+    if (arg === "--prefix") {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("--prefix requires a value");
+      options.prefixes.push(normalizeTestPrefix(value));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--prefix=")) {
+      options.prefixes.push(normalizeTestPrefix(arg.slice("--prefix=".length)));
+      continue;
+    }
 
     throw new Error(`unknown run-node-tests option: ${arg}`);
   }
@@ -87,6 +100,13 @@ export function parseRunnerArgs(args, tierNames) {
   }
 
   return options;
+}
+
+function normalizeTestPrefix(value) {
+  if (!value || value.startsWith("/") || value.split("/").includes("..") || value.includes("\\")) {
+    throw new Error(`--prefix must be a POSIX repository-relative path; received ${JSON.stringify(value)}`);
+  }
+  return value.endsWith("/") ? value : `${value}/`;
 }
 
 function parsePositiveInteger(value, label) {
@@ -141,6 +161,11 @@ export function selectTestFiles(testFiles, manifest, tier) {
   return { files: [...manifest[tier]].sort(), errors: [] };
 }
 
+export function filterTestFilesByPrefixes(files, prefixes) {
+  if (prefixes.length === 0) return [...files];
+  return files.filter((file) => prefixes.some((prefix) => file.startsWith(prefix)));
+}
+
 export function validateManifest(testFiles, manifest) {
   const actual = new Set(testFiles);
   const seen = new Map();
@@ -172,8 +197,8 @@ export function validateManifest(testFiles, manifest) {
  * Resolve the effective `--test-concurrency` value.
  *
  * Precedence: explicit `--concurrency` flag wins; then `HARNESS_TEST_CONCURRENCY`
- * env; then, only in a non-CI environment, a laptop-friendly default derived from
- * available cores. In CI (`env.CI` set) with no explicit signal, we return
+ * env; then, only in a non-CI environment, the fixed per-session budget. In CI
+ * (`env.CI` set) with no explicit signal, we return
  * `undefined` so node --test keeps its own default (cores-1) — CI runners are
  * sized for it and we must not change CI test semantics.
  *
@@ -181,10 +206,9 @@ export function validateManifest(testFiles, manifest) {
  * @param {number|undefined} params.flagConcurrency parsed `--concurrency` value
  * @param {string|undefined} params.envConcurrency raw `HARNESS_TEST_CONCURRENCY`
  * @param {boolean} params.isCi whether this is a CI environment
- * @param {number} params.availableParallelism available logical cores
  * @returns {number|undefined} concurrency to pass, or undefined for node default
  */
-export function resolveTestConcurrency({ flagConcurrency, envConcurrency, isCi, availableParallelism }) {
+export function resolveTestConcurrency({ flagConcurrency, envConcurrency, isCi }) {
   if (flagConcurrency !== undefined && Number.isInteger(flagConcurrency) && flagConcurrency > 0) {
     return flagConcurrency;
   }
@@ -200,8 +224,7 @@ export function resolveTestConcurrency({ flagConcurrency, envConcurrency, isCi, 
     return undefined;
   }
 
-  const cores = Number.isInteger(availableParallelism) && availableParallelism > 0 ? availableParallelism : 1;
-  return Math.min(6, Math.max(2, cores - 2));
+  return DEFAULT_LOCAL_TEST_CONCURRENCY;
 }
 
 export function parseCompletedTestLine(line) {
