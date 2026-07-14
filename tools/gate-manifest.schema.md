@@ -162,9 +162,9 @@ Release-policy gate sample:
 
 The registry records:
 
-- 51 gates: 42 deterministic and 9 non-deterministic/composite.
-- 36 `harness:*` leaf gates from `package.json`; 34 are in `check`, 32 are in
-  `check:pr`, and 35 execute in pull-request workflow jobs. The only
+- 52 gates: 42 deterministic and 10 non-deterministic/composite.
+- 37 `harness:*` leaf gates from `package.json`; 35 are in `check`, 33 are in
+  `check:pr`, and 36 execute in pull-request workflow jobs. The only
   `harness:*` gate outside the PR workflow is the non-deterministic,
   schedule-only `check-enforcement-debt-sunset`.
 - 11 formerly main-only deterministic gates added to the existing `boundaries`
@@ -176,6 +176,9 @@ The registry records:
   `check-schema-field-coverage`, and `smoke-legacy-intake`.
 - `check-gate-manifest-invariants` executes locally, in `boundaries`, and in
   non-PR `full-check` confirmation runs.
+- `check-staged-activation` executes locally, in `boundaries`, and in non-PR
+  `full-check`; its wall-clock expiry semantics make it non-deterministic even
+  though each production import-graph probe is repository-local and read-only.
 - 14 GitHub branch-protection required contexts:
   `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
   `integration-shard (1)`, `integration-shard (2)`,

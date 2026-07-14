@@ -1,0 +1,100 @@
+{
+  "schema": "harness-anything/staged-activation/v1",
+  "schemaDocumentation": "tools/staged-activation.schema.md",
+  "islands": [
+    {
+      "id": "a1-forced-command-wire",
+      "description": "serveAuthorityForcedCommand and createAuthoritySubmissionService are composed together in a daemon or CLI production lifecycle.",
+      "probe": {
+        "command": "node",
+        "args": [
+          "tools/probe-production-consumer.mjs",
+          "--definition",
+          "value:packages/daemon/src/authority/forced-command-session.ts#serveAuthorityForcedCommand",
+          "--definition",
+          "value:packages/application/src/authority/service.ts#createAuthoritySubmissionService",
+          "--consumer-root",
+          "packages/daemon/src",
+          "--consumer-root",
+          "packages/cli/src",
+          "--match",
+          "all",
+          "--same-consumer"
+        ],
+        "timeoutMs": 10000
+      },
+      "anchor": "task_01KXDT1CVHBZ5YD619PRJWWZMQ",
+      "registeredAt": "2026-07-13"
+    },
+    {
+      "id": "compound-receipt-consumption",
+      "description": "CompoundReceiptService is instantiated or consumed by broker or CLI production code.",
+      "probe": {
+        "command": "node",
+        "args": [
+          "tools/probe-production-consumer.mjs",
+          "--definition",
+          "value:packages/application/src/receipt/service.ts#createCompoundReceiptService",
+          "--definition",
+          "any:packages/application/src/receipt/types.ts#CompoundReceiptService",
+          "--consumer-root",
+          "packages/daemon/src",
+          "--consumer-root",
+          "packages/cli/src",
+          "--match",
+          "any"
+        ],
+        "timeoutMs": 10000
+      },
+      "anchor": "task_01KXDT1CVHBZ5YD619PRJWWZMQ",
+      "registeredAt": "2026-07-13"
+    },
+    {
+      "id": "v2-binding-runtime-adapter",
+      "description": "ActorAxesBindingRuntimeV2 has a daemon or CLI production adapter outside the authority service contract consumer.",
+      "probe": {
+        "command": "node",
+        "args": [
+          "tools/probe-production-consumer.mjs",
+          "--definition",
+          "any:packages/application/src/authority/actor-axes-binding-v2.ts#ActorAxesBindingRuntimeV2",
+          "--consumer-root",
+          "packages/daemon/src",
+          "--consumer-root",
+          "packages/cli/src",
+          "--match",
+          "all"
+        ],
+        "timeoutMs": 10000
+      },
+      "anchor": "task_01KXDT1CVHBZ5YD619PRJWWZMQ",
+      "registeredAt": "2026-07-13"
+    },
+    {
+      "id": "attestation-proof-provider",
+      "description": "AttestationProofProvider and AttestationProofVerifier have a production transport adapter outside the handshake core.",
+      "probe": {
+        "command": "node",
+        "args": [
+          "tools/probe-production-consumer.mjs",
+          "--definition",
+          "any:packages/daemon/src/attestation/types.ts#AttestationProofProvider",
+          "--definition",
+          "any:packages/daemon/src/attestation/types.ts#AttestationProofVerifier",
+          "--consumer-root",
+          "packages/daemon/src",
+          "--consumer-root",
+          "packages/cli/src",
+          "--exclude",
+          "packages/daemon/src/attestation/handshake.ts",
+          "--match",
+          "all",
+          "--same-consumer"
+        ],
+        "timeoutMs": 10000
+      },
+      "anchor": "task_01KXDT1CVHBZ5YD619PRJWWZMQ",
+      "registeredAt": "2026-07-13"
+    }
+  ]
+}
