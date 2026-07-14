@@ -464,8 +464,12 @@ export async function layoutCanvasEgo(input: CanvasEgoInput): Promise<LayoutOutp
   }));
   const elkResult = await runElkLayout(elkInputNodes, elkInputEdges);
   if (elkResult) {
-    centerOnFocus(elkResult.positions, focusId, dimsMap);
-    translateRoutes(elkResult.routes, dimsMap, elkResult.positions, focusId);
+    // C(P0 修复):节点与边折线必须共享同一个 focus-centering transform。此前的调用顺序
+    // 先 centerOnFocus 位移 positions,再让 translateRoutes 从已位移的 positions 反推 delta
+    // → 得到 ≈0 → 提前 return → 折线留在 raw ELK 坐标,边飘离卡片。现在 centerOnFocus
+    // 返回它应用过的 delta,translateRoutes 直接复用同一个 delta。
+    const delta = centerOnFocus(elkResult.positions, focusId, dimsMap);
+    translateRoutes(elkResult.routes, delta);
     for (const n of rfNodes) {
       const p = elkResult.positions.get(n.id);
       if (p) n.position = p;

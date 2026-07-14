@@ -180,6 +180,47 @@ describe("layoutCanvasEgo", () => {
       expect(Number.isFinite(p.y)).toBe(true);
     }
   });
+
+  // C(P0 回归):边折线必须与节点共享同一个坐标空间。InteractiveEdge 把 data.route 当
+  // 绝对 SVG path 消费(绕过 RF 的 sourceX/sourceY),所以 route 的起点必须落在源节点盒
+  // 的边界上、终点必须落在目标节点盒的边界上。修复前 centerOnFocus 先位移了 positions,
+  // translateRoutes 再从已位移的 positions 反推 delta 得到 ≈0 → 折线留在 raw ELK 坐标,
+  // 节点却是 focus-centered → 起止点漂离源/目标盒数百像素。
+  it("C · ELK 路由起止点锚在源/目标节点盒上(同一坐标空间,P0 回归)", () => {
+    const tol = 1.0; // 1px 浮点容差;ELK 把端点放在节点边界,distToBox 应为 0。
+    const distToBox = (
+      p: { x: number; y: number },
+      box: { x: number; y: number; w: number; h: number },
+    ): number => {
+      const dx = Math.max(box.x - p.x, 0, p.x - (box.x + box.w));
+      const dy = Math.max(box.y - p.y, 0, p.y - (box.y + box.h));
+      return Math.hypot(dx, dy);
+    };
+    const routed = out.edges.filter((e) => Array.isArray((e.data as any)?.route));
+    expect(routed.length).toBeGreaterThan(0);
+    for (const e of routed) {
+      const pts = (e.data as any).route as Array<{ x: number; y: number }>;
+      const src = byId.get(e.source);
+      const tgt = byId.get(e.target);
+      expect(src).toBeDefined();
+      expect(tgt).toBeDefined();
+      const srcBox = {
+        x: src!.position.x,
+        y: src!.position.y,
+        w: src!.width as number,
+        h: src!.height as number,
+      };
+      const tgtBox = {
+        x: tgt!.position.x,
+        y: tgt!.position.y,
+        w: tgt!.width as number,
+        h: tgt!.height as number,
+      };
+      // 起点落在源节点盒边界上、终点落在目标节点盒边界上(同坐标空间不变量)。
+      expect(distToBox(pts[0], srcBox)).toBeLessThanOrEqual(tol);
+      expect(distToBox(pts[pts.length - 1], tgtBox)).toBeLessThanOrEqual(tol);
+    }
+  });
 });
 
 // ══ D1:领地→聚光灯 ID 命名空间归一 ══

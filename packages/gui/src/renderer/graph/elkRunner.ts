@@ -117,40 +117,47 @@ export async function runElkLayout(
   }
 }
 
-/** 把 ELK 的内部坐标平移,使 focus 节点的中心位于 (0,0)。 */
+/**
+ * 把 ELK 的内部坐标平移,使 focus 节点的中心位于 (0,0)。
+ *
+ * 返回应用过的位移 `{dx,dy}` —— 调用方**必须**把它同样喂给 `translateRoutes`。节点位置
+ * 与边折线必须共享同一个 transform,否则边会漂离节点(P0 bug:此前 `translateRoutes`
+ * 从已被 `centerOnFocus` 位移过的 positions 反推 delta,得到 ≈0 并提前 return,留下
+ * raw ELK 坐标的折线,而节点已是 focus-centered → 边飘离卡片)。
+ */
 export function centerOnFocus(
   positions: Map<string, { x: number; y: number }>,
   focusId: string,
   dims: ReadonlyMap<string, { width: number; height: number }>,
-): void {
+): { dx: number; dy: number } {
   const focusPos = positions.get(focusId);
   const focusDim = dims.get(focusId);
-  if (!focusPos || !focusDim) return;
-  const cx = focusPos.x + focusDim.width / 2;
-  const cy = focusPos.y + focusDim.height / 2;
-  for (const [, p] of positions) {
-    p.x -= cx;
-    p.y -= cy;
-  }
-}
-
-/** 把同一位移应用到边的折线。 */
-export function translateRoutes(
-  routes: Map<string, RoutedEdge>,
-  dims: ReadonlyMap<string, { width: number; height: number }>,
-  positions: ReadonlyMap<string, { x: number; y: number }>,
-  focusId: string,
-): void {
-  const focusPos = positions.get(focusId);
-  const focusDim = dims.get(focusId);
-  if (!focusPos || !focusDim) return;
+  if (!focusPos || !focusDim) return { dx: 0, dy: 0 };
   const dx = -(focusPos.x + focusDim.width / 2);
   const dy = -(focusPos.y + focusDim.height / 2);
-  if (dx === 0 && dy === 0) return;
+  for (const [, p] of positions) {
+    p.x += dx;
+    p.y += dy;
+  }
+  return { dx, dy };
+}
+
+/**
+ * 把同一个 `{dx,dy}` 位移应用到边的折线。
+ *
+ * 必须用 `centerOnFocus` 返回的同一个 delta —— 节点与折线共享一个 transform 是
+ * InteractiveEdge 能把折线画在卡片边界上的不变量(它把 `data.route` 当绝对 SVG path 消费,
+ * 忽略 RF 的 sourceX/sourceY)。
+ */
+export function translateRoutes(
+  routes: Map<string, RoutedEdge>,
+  delta: { dx: number; dy: number },
+): void {
+  if (delta.dx === 0 && delta.dy === 0) return;
   for (const [, route] of routes) {
     for (const p of route.points) {
-      p.x += dx;
-      p.y += dy;
+      p.x += delta.dx;
+      p.y += delta.dy;
     }
   }
 }
