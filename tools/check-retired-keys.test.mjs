@@ -76,6 +76,35 @@ test("negative control preserves active contentPins[].arbiter", () => {
   }
 });
 
+test("absent ledger reports SKIPPED, never a pass", () => {
+  // Public checkouts have no harness/ (private git-ignored subrepo). Scanning nothing there is
+  // expected — but it must not masquerade as a green scan.
+  const root = makeFixtureRoot({});
+  try {
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /SKIPPED: no canonical ledger/u);
+    assert.match(result.stdout, /this is not a pass/u);
+    assert.doesNotMatch(result.stdout, /passed/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ledger root present but empty is an instrument failure, not a pass", () => {
+  // If the ledger exists yet yields zero documents, the checker is pointed at the wrong place.
+  // Staying silent here would let a broken instrument certify every future PR green.
+  const root = makeFixtureRoot({});
+  mkdirSync(path.join(root, "harness/tasks"), { recursive: true });
+  try {
+    const result = runChecker(root);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /holds 0 authored documents/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot(files) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-retired-keys-"));
   for (const [relativePath, body] of Object.entries(files)) {
