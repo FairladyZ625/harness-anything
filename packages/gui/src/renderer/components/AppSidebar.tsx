@@ -94,6 +94,14 @@ export function AppSidebar({
         ) : tasksQuery.isError ? (
           <span className="block font-mono text-[11px] text-status-blocked">
             {t("components.appSidebar.failedReadLedgerBridge")}</span>
+        ) : tasksQuery.fetchStatus === "idle" && tasksQuery.status === "pending" ? (
+          // Query intentionally disabled for this perspective (background-deferred).
+          <span
+            data-testid="task-deferred-state"
+            className="block font-mono text-[11px] text-text-faint"
+          >
+            {t("components.appSidebar.noTaskRowsFromLocalBridge")}
+          </span>
         ) : (
           <span className="block font-mono text-[11px] text-text-faint">
             {t("components.appSidebar.readLocalLedger")}</span>

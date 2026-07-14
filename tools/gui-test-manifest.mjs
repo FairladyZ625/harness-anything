@@ -22,5 +22,7 @@ export const guiVitestManifest = [
   "packages/gui/test/project-repos.vitest.ts",
   "packages/gui/test/daemon-log.vitest.ts",
   "packages/gui/test/relation-visual.vitest.ts",
-  "packages/gui/test/entity-status-filter.vitest.ts"
+  "packages/gui/test/entity-status-filter.vitest.ts",
+  "packages/gui/test/overview-selectors.vitest.ts",
+  "packages/gui/test/first-usable.vitest.ts"
 ];

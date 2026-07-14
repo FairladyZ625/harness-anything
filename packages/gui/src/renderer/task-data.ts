@@ -11,12 +11,16 @@ export const taskQueryKeys = {
     [...taskQueryKeys.all, "document", repoId ?? "default", taskId, path] as const
 };
 
-export function useTasksQuery(repoId?: string | null) {
+export function useTasksQuery(
+  repoId?: string | null,
+  options: { readonly enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: taskQueryKeys.list(repoId),
     queryFn: () => harnessClient.getTasks(repoId ?? undefined),
     staleTime: 10_000,
-    });
+    enabled: options.enabled ?? true,
+  });
 }
 
 export function useTaskDetailQuery(taskId: string | null, repoId?: string | null) {

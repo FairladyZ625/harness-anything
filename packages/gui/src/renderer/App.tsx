@@ -18,6 +18,8 @@ import { useTasksQuery, useSetTaskStatusMutation } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useCatalogQuery } from "./catalog-data.ts";
 import { useDaemonStatusQuery } from "./model/daemon-status-query.ts";
+import { tasksRequired, triadicRequired } from "./perf/perspective-load.ts";
+import { markPerf } from "./perf/first-usable.ts";
 import {
   isRepoSelectable,
   projectFromDaemonRepo,
@@ -80,9 +82,60 @@ function AppShell() {
     drill: null,
   });
 
-  const tasksQuery = useTasksQuery(activeRepoId);
-  const triadicQuery = useTriadicProjectionQuery(activeRepoId);
+  // Perspective-gated bootstrap: only enable heavy projections the current view
+  // needs. After first paint, idle-enable the rest so warm re-entry stays cheap
+  // without blocking the main screen. Switching views cancels the idle work.
+  // Overview/ExecutionEvidence own navigation-start markers so a later App effect
+  // re-run cannot wipe their data-ready/first-usable markers.
+  const foregroundNeedsTasks = tasksRequired(location.view) || location.selectedId !== null || location.previewId !== null;
+  const foregroundNeedsTriadic = triadicRequired(location.view) || location.selectedId !== null || location.previewId !== null;
+  const [idleTasks, setIdleTasks] = useState(false);
+  const [idleTriadic, setIdleTriadic] = useState(false);
+
+  useEffect(() => {
+    setIdleTasks(false);
+    setIdleTriadic(false);
+    if (foregroundNeedsTasks && foregroundNeedsTriadic) return;
+    const enableIdle = () => {
+      if (!foregroundNeedsTasks) setIdleTasks(true);
+      if (!foregroundNeedsTriadic) setIdleTriadic(true);
+      markPerf(location.view, "background-preload-complete", {
+        prefetchedTasks: !foregroundNeedsTasks,
+        prefetchedTriadic: !foregroundNeedsTriadic,
+      });
+    };
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) enableIdle();
+    };
+    const canIdle =
+      typeof globalThis !== "undefined"
+      && typeof (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback === "function";
+    let idleHandle: number | undefined;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    if (canIdle) {
+      idleHandle = (globalThis as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number })
+        .requestIdleCallback(run, { timeout: 2_000 });
+    } else {
+      timeoutHandle = setTimeout(run, 500);
+    }
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined
+        && typeof (globalThis as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback === "function") {
+        (globalThis as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleHandle);
+      }
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    };
+  }, [location.view, foregroundNeedsTasks, foregroundNeedsTriadic]);
+
+  const tasksQuery = useTasksQuery(activeRepoId, { enabled: foregroundNeedsTasks || idleTasks });
+  const triadicQuery = useTriadicProjectionQuery(activeRepoId, { enabled: foregroundNeedsTriadic || idleTriadic });
   const catalogQuery = useCatalogQuery(activeRepoId);
+  // Overview first-usable requires real tasks + triadic — never mark usable on empty shell.
+  // When either query is still pending/loading, keep the skeleton. Settled empty is OK
+  // (task-empty-state / zero dimension rows still counts as interactive content).
+  const overviewDataReady = !tasksQuery.isLoading && !triadicQuery.isLoading && tasksQuery.isFetched;
   // ROT-014: TanStack Query is the sole Task server-state owner.
   // Board/sidebar/selection read the adapted projection directly — no App useState mirror.
   const tasks = useMemo(
@@ -460,6 +513,7 @@ function AppShell() {
               catalog={catalogQuery.data}
               catalogLoading={catalogQuery.isLoading}
               catalogError={catalogQuery.isError}
+              overviewDataReady={overviewDataReady}
               projectTasks={projectTasks}
               tasks={tasks}
               triadic={{ decisions, facts, relations, coverageRows, factAnchors }}

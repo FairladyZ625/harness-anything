@@ -8,6 +8,12 @@ import {
   type ExecutionRow,
   type TaskExecutionGroup
 } from "../execution-data.ts";
+import {
+  markPerf,
+  startPerfNavigation,
+  FIRST_USABLE_ATTR,
+  FIRST_USABLE_VIEW_ATTR,
+} from "../perf/first-usable.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -51,8 +57,50 @@ export function ExecutionEvidenceView() {
     return () => window.clearTimeout(timer);
   }, [toastMessage]);
 
+  useEffect(() => {
+    startPerfNavigation("executions");
+  }, []);
+
+  const pageReady = !aggregation.isLoading || aggregation.data.groups.length > 0;
+  const firstUsable = pageReady && !aggregation.isError;
+
+  useEffect(() => {
+    if (!pageReady) return;
+    markPerf("executions", "data-ready", {
+      pageNumber: aggregation.pageNumber,
+      groupCount: aggregation.data.groups.length,
+      totalExecutions: aggregation.data.totalExecutions,
+    });
+    markPerf("executions", "first-meaningful-rows", {
+      groupCount: aggregation.data.groups.length,
+    });
+  }, [pageReady, aggregation.pageNumber, aggregation.data.groups.length, aggregation.data.totalExecutions]);
+
+  useEffect(() => {
+    if (!firstUsable) return;
+    // Interactive page controls + stats strip + at least the empty/list body.
+    markPerf("executions", "first-usable", {
+      pageNumber: aggregation.pageNumber,
+      hasNextPage: aggregation.hasNextPage,
+      groupCount: aggregation.data.groups.length,
+    });
+  }, [firstUsable, aggregation.pageNumber, aggregation.hasNextPage, aggregation.data.groups.length]);
+
+  useEffect(() => {
+    if (!aggregation.hasNextPage) return;
+    // Prefetch is owned by the data hook; surface background-complete once next page exists.
+    markPerf("executions", "background-preload-complete", {
+      pageNumber: aggregation.pageNumber,
+    });
+  }, [aggregation.hasNextPage, aggregation.pageNumber]);
+
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-1 flex-col"
+      {...(firstUsable
+        ? { [FIRST_USABLE_ATTR]: "true", [FIRST_USABLE_VIEW_ATTR]: "executions" }
+        : { "data-execution-evidence-loading": aggregation.isLoading ? "true" : "false" })}
+    >
       <header className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="ui-title font-semibold">{t("views.executionEvidenceView.evidenceExecution")}</h1>
@@ -243,8 +291,14 @@ function ExecutionContent({
 
   return (
     <div className="space-y-3.5">
-      {visibleGroups.map((group) => (
-        <TaskSection key={group.taskId} group={group} filters={filters} onToast={onToast} />
+      {visibleGroups.map((group, index) => (
+        <TaskSection
+          key={group.taskId}
+          group={group}
+          filters={filters}
+          onToast={onToast}
+          defaultCollapsed={index >= 8}
+        />
       ))}
       <PageControls aggregation={aggregation} />
     </div>
@@ -302,13 +356,15 @@ function outputVisible(output: ExecutionOutputRow, filters: Record<FilterKey, bo
 function TaskSection({
   group,
   filters,
-  onToast
+  onToast,
+  defaultCollapsed = false,
 }: {
   readonly group: TaskExecutionGroup;
   readonly filters: Record<FilterKey, boolean>;
   readonly onToast: (message: string) => void;
+  readonly defaultCollapsed?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   // 整 task 段的"全部无 receipt"汇总(用于 header 元信息)。
   const totalOutputs = group.executions.reduce((sum, execution) => sum + execution.outputCount, 0);

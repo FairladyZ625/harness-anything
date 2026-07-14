@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowSquareOut,
   CheckCircle,
@@ -21,7 +21,14 @@ import {
   UrgencyBadge,
 } from "../components/badges";
 import { Card } from "../components/overview/parts";
-import { sortDecisionQueue } from "../model/triadic";
+import {
+  buildOverviewIndex,
+  countStatus,
+  windowDimensionRows,
+  OVERVIEW_DIMENSION_PAGE_SIZE,
+  type DrillDimension,
+} from "../model/overview-selectors.ts";
+import { markPerf, startPerfNavigation, FIRST_USABLE_ATTR, FIRST_USABLE_VIEW_ATTR } from "../perf/first-usable.ts";
 import { t } from "../i18n/index.tsx";
 
 const timeOf = (iso: string) => iso.slice(11, 16);
@@ -35,25 +42,6 @@ function QuestionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-type DrillDimension = "root" | "module";
-
-function dimensionKey(task: TaskRow, dimension: DrillDimension): string {
-  if (dimension === "root") return task.rootTaskId ?? task.taskId;
-  return task.module;
-}
-
-function dimensionLabel(
-  key: string,
-  dimension: DrillDimension,
-  tasks: ReadonlyArray<TaskRow>,
-): string {
-  if (dimension === "root") {
-    const representative = tasks.find((t) => (t.rootTaskId ?? t.taskId) === key);
-    return representative?.rootTitle ?? representative?.title ?? key;
-  }
-  return key;
-}
-
 export function OverviewView({
   project,
   tasks,
@@ -64,6 +52,7 @@ export function OverviewView({
   onDrill,
   onOpenInbox,
   onOpenDecisionPool,
+  dataReady = true,
 }: {
   project: Project;
   tasks: TaskRow[];
@@ -74,41 +63,46 @@ export function OverviewView({
   onDrill: (lane: string, status: SnapshotStatus, dimension: DrillDimension) => void;
   onOpenInbox: () => void;
   onOpenDecisionPool: () => void;
+  /** When false, show skeleton; first-usable fires only after real rows are interactive. */
+  dataReady?: boolean;
 }) {
   // coding preset 默认按 root(milestone=root task)。用户可切回 module 维度。
   const [dimension, setDimension] = useState<DrillDimension>("root");
+  const [dimensionPage, setDimensionPage] = useState(0);
 
-  const countStatus = (status: SnapshotStatus) =>
-    tasks.filter((task) => task.coordinationStatus === status).length;
-  const blocked = tasks.filter((task) => task.coordinationStatus === "blocked");
-  const inReview = tasks.filter((task) => task.coordinationStatus === "in_review");
-  const stale = tasks.filter((task) => task.freshness === "stale-but-usable");
-  const unavailable = tasks.filter((task) => task.freshness === "unavailable-no-cache");
-  const invalidatedFacts = facts.filter((fact) => fact.invalidated);
-  const taskIds = new Set(tasks.map((task) => task.taskId));
-  const danglingRelations = relations.filter((relation) => {
-    const endpointKnown = (endpoint: string) => {
-      if (endpoint.startsWith("task/")) return taskIds.has(endpoint.slice(5).split("/")[0]);
-      if (endpoint.startsWith("decision/")) return decisions.some((decision) => decision.decisionId === endpoint.split("/")[1]);
-      if (endpoint.startsWith("fact/")) return facts.some((fact) => fact.anchor === endpoint.replace(/^fact\//, ""));
-      return taskIds.has(endpoint);
-    };
-    return !endpointKnown(relation.from) || !endpointKnown(relation.to);
-  });
-  const proposedTop = sortDecisionQueue(decisions.filter((decision) => decision.state === "proposed")).slice(0, 5);
+  useEffect(() => {
+    setDimensionPage(0);
+  }, [dimension, tasks.length]);
 
-  const dimensionKeys = useMemo(
-    () => [...new Set(tasks.map((task) => dimensionKey(task, dimension)))],
-    [tasks, dimension],
+  useEffect(() => {
+    startPerfNavigation("overview");
+  }, []);
+
+  const index = useMemo(
+    () => buildOverviewIndex({ tasks, decisions, facts, relations, dimension }),
+    [tasks, decisions, facts, relations, dimension],
   );
-  const cellCount = (key: string, status: SnapshotStatus) =>
-    tasks.filter(
-      (task) => dimensionKey(task, dimension) === key && task.coordinationStatus === status,
-    ).length;
+  const windowed = useMemo(
+    () => windowDimensionRows(index.dimensionRows, dimensionPage, OVERVIEW_DIMENSION_PAGE_SIZE),
+    [index.dimensionRows, dimensionPage],
+  );
 
-  const blockers = [...blocked, ...inReview.filter((task) => task.closeoutReadiness === "ready")]
-    .sort((a, b) => a.lastKnownAt.localeCompare(b.lastKnownAt))
-    .slice(0, 8);
+  useEffect(() => {
+    if (!dataReady) return;
+    markPerf("overview", "data-ready", {
+      taskCount: tasks.length,
+      dimensionRows: index.dimensionRows.length,
+    });
+    markPerf("overview", "first-meaningful-rows", {
+      visibleDimensionRows: windowed.visible.length,
+      proposedTop: index.proposedTop.length,
+    });
+    // First usable = interactive status strip + decision queue + windowed table are painted.
+    markPerf("overview", "first-usable", {
+      visibleDimensionRows: windowed.visible.length,
+      domBudgetRows: OVERVIEW_DIMENSION_PAGE_SIZE,
+    });
+  }, [dataReady, tasks.length, index.dimensionRows.length, index.proposedTop.length, windowed.visible.length]);
 
   const healthRows = [
     {
@@ -121,23 +115,23 @@ export function OverviewView({
     {
       label: t("views.overviewView.inv6DanglingRelations"),
       hint: t("views.overviewView.inv6DanglingRelationsHint"),
-      value: t("views.overviewView.countItems", { count: danglingRelations.length }),
-      tone: danglingRelations.length > 0 ? "text-danger" : "text-success",
-      ok: danglingRelations.length === 0,
+      value: t("views.overviewView.countItems", { count: index.danglingRelationCount }),
+      tone: index.danglingRelationCount > 0 ? "text-danger" : "text-success",
+      ok: index.danglingRelationCount === 0,
     },
     {
       label: t("views.overviewView.factLiveness"),
       hint: t("views.overviewView.factLivenessHint"),
-      value: t("views.overviewView.countItemsHaveExpired", { count: invalidatedFacts.length }),
-      tone: invalidatedFacts.length > 0 ? "text-stale" : "text-success",
-      ok: invalidatedFacts.length === 0,
+      value: t("views.overviewView.countItemsHaveExpired", { count: index.invalidatedFactCount }),
+      tone: index.invalidatedFactCount > 0 ? "text-stale" : "text-success",
+      ok: index.invalidatedFactCount === 0,
     },
     {
       label: t("views.overviewView.projectionFreshness"),
       hint: t("views.overviewView.projectionFreshnessHint"),
-      value: t("views.overviewView.freshnessCounts", { stale: stale.length, unavailable: unavailable.length }),
-      tone: stale.length + unavailable.length > 0 ? "text-stale" : "text-success",
-      ok: stale.length + unavailable.length === 0,
+      value: t("views.overviewView.freshnessCounts", { stale: index.staleCount, unavailable: index.unavailableCount }),
+      tone: index.staleCount + index.unavailableCount > 0 ? "text-stale" : "text-success",
+      ok: index.staleCount + index.unavailableCount === 0,
     },
   ];
 
@@ -147,7 +141,12 @@ export function OverviewView({
     }`;
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div
+      className="flex flex-1 flex-col overflow-y-auto"
+      {...(dataReady
+        ? { [FIRST_USABLE_ATTR]: "true", [FIRST_USABLE_VIEW_ATTR]: "overview" }
+        : { "data-overview-skeleton": "true" })}
+    >
       <header className="border-b border-border bg-surface/40 px-5 py-4">
         <div className="flex items-baseline gap-2">
           <h1 className="ui-title font-mono font-semibold">{project.name}</h1>
@@ -165,13 +164,13 @@ export function OverviewView({
       <div className="grid grid-cols-1 gap-4 p-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <Card title={t("views.overviewView.whatWillCutToday")} bodyClassName="p-3">
           <QuestionLabel>{t("views.overviewView.proposedDecisionTopNDecisionApproval")}</QuestionLabel>
-          {proposedTop.length === 0 ? (
+          {index.proposedTop.length === 0 ? (
             <div className="rounded-md border border-border bg-surface-raised px-3 py-4 text-[13px] text-text-muted">
               <CheckCircle weight="duotone" className="mr-1 inline text-success" />
               {t("views.overviewView.noDecisionApprovalPendingToday")}</div>
           ) : (
             <div className="space-y-2">
-              {proposedTop.map((decision) => (
+              {index.proposedTop.map((decision) => (
                 <button
                   key={decision.decisionId}
                   onClick={onOpenInbox}
@@ -214,12 +213,12 @@ export function OverviewView({
                   <span style={{ color: STATUS_META[status].color }}>{STATUS_META[status].icon}</span>
                   <span className="text-[13px] font-semibold text-text">{STATUS_META[status].label}</span>
                 </div>
-                <div className="mt-1 font-mono text-[22px] font-semibold">{countStatus(status)}</div>
+                <div className="mt-1 font-mono text-[22px] font-semibold">{countStatus(index, status)}</div>
               </button>
             ))}
           </div>
           <div className="mt-3 space-y-1.5">
-            {blockers.map((task) => (
+            {index.blockers.map((task) => (
               <button
                 key={task.taskId}
                 onClick={() => onSelect(task.taskId)}
@@ -230,7 +229,7 @@ export function OverviewView({
                 <StatusBadge status={task.coordinationStatus} />
               </button>
             ))}
-            {blockers.length === 0 && (
+            {index.blockers.length === 0 && (
               <p className="rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-text-faint">
                 {t("views.overviewView.thereCurrentlyNoBlockedArchiveReadyHoldouts")}</p>
             )}
@@ -311,39 +310,66 @@ export function OverviewView({
               </tr>
             </thead>
             <tbody>
-              {dimensionKeys.map((key) => {
-                const label = dimensionLabel(key, dimension, tasks);
-                return (
-                  <tr key={key} className="border-t border-border">
-                    <td
-                      className="max-w-[180px] truncate px-1.5 py-1 text-left font-mono text-[12px] text-text-muted"
-                      title={label}
-                    >
-                      {label}
-                    </td>
-                    {BOARD_COLUMNS.map((status) => {
-                      const count = cellCount(key, status);
-                      return (
-                        <td key={status} className="px-0.5 py-0.5">
-                          {count > 0 ? (
-                            <button
-                              onClick={() => onDrill(key, status, dimension)}
-                              title={`${label} · ${STATUS_META[status].label} · ${count}`}
-                              className="w-full rounded px-1 py-1 font-mono text-[12px] hover:bg-surface-raised"
-                            >
-                              {count}
-                            </button>
-                          ) : (
-                            <span className="font-mono text-[12px] text-text-faint">·</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
+              {windowed.visible.map((row) => (
+                <tr key={row.key} className="border-t border-border">
+                  <td
+                    className="max-w-[180px] truncate px-1.5 py-1 text-left font-mono text-[12px] text-text-muted"
+                    title={row.label}
+                  >
+                    {row.label}
+                  </td>
+                  {BOARD_COLUMNS.map((status) => {
+                    const count = row.counts[status] ?? 0;
+                    return (
+                      <td key={status} className="px-0.5 py-0.5">
+                        {count > 0 ? (
+                          <button
+                            onClick={() => onDrill(row.key, status, dimension)}
+                            title={`${row.label} · ${STATUS_META[status].label} · ${count}`}
+                            className="w-full rounded px-1 py-1 font-mono text-[12px] hover:bg-surface-raised"
+                          >
+                            {count}
+                          </button>
+                        ) : (
+                          <span className="font-mono text-[12px] text-text-faint">·</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
+          {windowed.pageCount > 1 && (
+            <nav
+              aria-label={t("views.overviewView.dimensionPaging")}
+              className="mt-2 flex items-center justify-center gap-2 font-mono text-[12px]"
+            >
+              <button
+                type="button"
+                className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40"
+                disabled={windowed.page === 0}
+                onClick={() => setDimensionPage((page) => Math.max(0, page - 1))}
+              >
+                {t("views.overviewView.previousPage")}
+              </button>
+              <span className="text-text-faint">
+                {t("views.overviewView.pageOf", {
+                  page: windowed.page + 1,
+                  pageCount: windowed.pageCount,
+                  total: windowed.total,
+                })}
+              </span>
+              <button
+                type="button"
+                className="rounded border border-border px-2 py-1 text-text-muted disabled:opacity-40"
+                disabled={windowed.page + 1 >= windowed.pageCount}
+                onClick={() => setDimensionPage((page) => page + 1)}
+              >
+                {t("views.overviewView.nextPage")}
+              </button>
+            </nav>
+          )}
         </Card>
       </div>
     </div>
