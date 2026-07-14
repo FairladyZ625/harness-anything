@@ -8,8 +8,8 @@ export function VerticalCard({ v }: { v: VerticalInfo }) {
     <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="font-mono text-[13px] font-semibold">{v.title}</span>
-        <span className="font-mono text-[11px] text-text-faint">v{v.version}</span>
         <span className="min-w-[14rem] flex-1 text-[11px] text-text-muted">{v.id}</span>
+        <span className="ml-auto shrink-0 font-mono text-[11px] text-text-faint">v{v.version}</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className={SECTION_LABEL}>{t("components.verticalAndTemplateCards.entityKinds")}</span>
@@ -49,8 +49,8 @@ export function TemplateCard({
           {shortRef(template.ref)}
         </span>
         <span className={CHIP}>{template.documentKind}</span>
-        <span className="font-mono text-[11px] text-text-faint">v{template.version}</span>
         <LocaleBadges locales={template.locales} warnMissingZh />
+        <span className="ml-auto shrink-0 font-mono text-[11px] text-text-faint">v{template.version}</span>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <span className={SECTION_LABEL}>{t("components.verticalAndTemplateCards.usedBy")}</span>

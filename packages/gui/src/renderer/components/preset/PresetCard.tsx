@@ -32,15 +32,12 @@ export function PresetCard({
         onClick={onToggle}
         className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised/60"
       >
-        <span className="min-w-[9rem] shrink-0 font-mono text-[13px] font-semibold">
+        <span className="min-w-[9rem] max-w-[20rem] truncate font-mono text-[13px] font-semibold">
           {entry.title ?? entry.id}
         </span>
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="shrink-0 rounded border border-accent/60 px-1.5 py-px font-mono text-[10px] text-accent">
             {entry.vertical}
-          </span>
-          <span className="shrink-0 font-mono text-[11px] text-text-faint">
-            v{entry.version}
           </span>
           {entry.profile && <span className={`shrink-0 ${CHIP}`}>{t("components.presetCard.profileValue", { profile: entry.profile })}</span>}
           {active && (
@@ -55,6 +52,9 @@ export function PresetCard({
         </span>
         <span className="hidden min-w-[12rem] max-w-[25rem] flex-1 truncate text-[11px] text-text-muted lg:block">
           {entry.kind ?? t("components.presetCard.manifestUnavailable")}
+        </span>
+        <span className="ml-auto shrink-0 font-mono text-[11px] text-text-faint">
+          v{entry.version}
         </span>
         <CaretDown
           className={`shrink-0 text-[12px] text-text-faint ${
