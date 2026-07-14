@@ -191,7 +191,12 @@ function checkOverview(overviewPath, contract) {
   const status = matchScalar(body, /-\s+\*\*状态\*\*:\s*(.+)|-\s+\*\*Status\*\*:\s*(.+)/u);
   const mission = matchScalar(body, /-\s+\*\*Mission\*\*:\s*(.+)/u);
   const charterAnchor = stripMarkdown(matchScalar(body, /-\s+\*\*(?:Approval anchor|Decision 锚)\*\*:\s*(.+)/u));
-  const decisionAnchors = charterAnchor ? [charterAnchor] : [];
+  const anchorRule = policy?.rules?.charterAnchor;
+  const decisionAnchors = charterAnchor ? extractDecisionAnchorTokens(charterAnchor) : [];
+  const anchorIdPattern = anchorRule ? new RegExp(anchorRule.idPattern, "u") : null;
+  const hasValidAnchorTokens = decisionAnchors.length > 0
+    && (!anchorIdPattern || decisionAnchors.every((anchor) => anchorIdPattern.test(anchor)));
+  const grandfathered = (anchorRule?.grandfatheredMilestoneSlugs ?? []).includes(slug);
   const missing = [];
   const warnings = [];
   if (!body.includes("milestone-map:v1") && !/(?:目标 \(North Star\)|North Star)/u.test(body)) missing.push("milestone-map:v1 marker");
@@ -204,12 +209,12 @@ function checkOverview(overviewPath, contract) {
   if (!/(?:旧路径何时废止|Retired old path)/u.test(body)) missing.push("usage question: retired old path");
   if (!/(?:任务映射|Task Mapping|W 波次总表|Wave Decomposition)/u.test(body)) missing.push("task mapping section");
   if (!/(?:依赖与入口|Dependencies|入口条件)/u.test(body)) missing.push("dependencies and entry section");
-  const anchorRule = policy?.rules?.charterAnchor;
-  if (anchorRule?.required && !charterAnchor) missing.push("approval anchor");
-  if (charterAnchor && anchorRule && !new RegExp(anchorRule.idPattern, "u").test(charterAnchor)) {
+  if (anchorRule?.required && !grandfathered && !charterAnchor) missing.push("approval anchor");
+  if (charterAnchor && anchorRule && !hasValidAnchorTokens) {
     missing.push("approval anchor matches policy idPattern");
   }
-  if (charterAnchor && anchorRule?.entityType === "decision" && !findDecision(charterAnchor)) {
+  if (charterAnchor && hasValidAnchorTokens && anchorRule?.entityType === "decision"
+    && decisionAnchors.some((anchor) => !findDecision(anchor))) {
     missing.push("approval anchor exists under decisions root");
   }
 
@@ -249,6 +254,10 @@ function checkOverview(overviewPath, contract) {
     missing,
     warnings
   };
+}
+
+function extractDecisionAnchorTokens(value) {
+  return value.match(/(?<![A-Za-z0-9_])dec_[^,、，/／;；\s()[\]{}（）<>《》:：.!?。！？]+/gu) ?? [];
 }
 
 function renderOverview(input) {

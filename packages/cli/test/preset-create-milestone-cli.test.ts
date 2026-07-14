@@ -9,6 +9,29 @@ import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const knownGrandfatheredMilestoneSlugs = [
+  "com-market",
+  "com-mobile",
+  "com-sync",
+  "com-team",
+  "m1-minimal-loop",
+  "m2-5-cli",
+  "m2-5-gui",
+  "m2-coding-vertical",
+  "m3-triadic-kernel",
+  "m4-metabolism",
+  "m5-circulation",
+  "m6-productization-gate",
+  "gui-v1-local-remote",
+  "gui-v2-aggregation",
+  "plt-adapter",
+  "plt-archive-distill",
+  "plt-cli",
+  "plt-cross-repo",
+  "plt-notify",
+  "plt-task-tree",
+  "prod-vertical-expansion"
+] as const;
 
 test("CLI create-milestone public default scaffolds and checks only the minimum three-artifact contract", () => {
   withTempRoot((rootDir) => {
@@ -112,6 +135,64 @@ test("CLI create-milestone rejects an unsafe required-artifact policy before run
   });
 });
 
+test("CLI create-milestone checker allows a grandfathered legacy milestone without an anchor", () => {
+  withPolicyMilestone((rootDir, taskId, overviewPath, policy) => {
+    policy.rules.charterAnchor.grandfatheredMilestoneSlugs = ["plt-test"];
+    writePolicy(rootDir, policy);
+    removeApprovalAnchor(overviewPath);
+
+    const checked = checkMilestone(rootDir, taskId);
+
+    assert.equal(checked.report.status, "passed");
+  });
+});
+
+test("CLI create-milestone checker keeps the anchor gate closed for non-grandfathered milestones", () => {
+  withPolicyMilestone((rootDir, taskId, overviewPath) => {
+    removeApprovalAnchor(overviewPath);
+
+    const checked = checkMilestone(rootDir, taskId, false);
+
+    assert.equal(checked.report.status, "blocked");
+    assert.deepEqual(checked.report.missing.map((item: { missing: string }) => item.missing), ["approval anchor"]);
+  });
+});
+
+test("CLI create-milestone checker validates every decision in a multi-id anchor with CJK annotations", () => {
+  withPolicyMilestone((rootDir, taskId, overviewPath) => {
+    createCharterDecision(rootDir, "dec_SECOND_CHARTER");
+    replaceApprovalAnchor(
+      overviewPath,
+      "治理依据：dec_TEST_CHARTER（主章程）、dec_SECOND_CHARTER（补充决策）"
+    );
+
+    const checked = checkMilestone(rootDir, taskId);
+
+    assert.equal(checked.report.status, "passed");
+    assert.deepEqual(checked.report.items[0].decisionAnchors, ["dec_SECOND_CHARTER", "dec_TEST_CHARTER"]);
+  });
+});
+
+test("CLI create-milestone checker rejects an anchor field with no valid decision token", () => {
+  withPolicyMilestone((rootDir, taskId, overviewPath) => {
+    replaceApprovalAnchor(overviewPath, "章程决策待定（没有可验证的决策编号）");
+
+    const checked = checkMilestone(rootDir, taskId, false);
+
+    assert.equal(checked.report.status, "blocked");
+    assert.deepEqual(checked.report.missing.map((item: { missing: string }) => item.missing), [
+      "approval anchor matches policy idPattern"
+    ]);
+  });
+});
+
+test("create-milestone policy fixture pins the exact grandfathered legacy slug set", () => {
+  const policy = fiveArtifactPolicy();
+
+  assert.equal(policy.rules.charterAnchor.grandfatheredMilestoneSlugs.length, 21);
+  assert.deepEqual(policy.rules.charterAnchor.grandfatheredMilestoneSlugs, knownGrandfatheredMilestoneSlugs);
+});
+
 function createMilestoneTask(rootDir: string): Record<string, any> {
   return runJson(rootDir, [
     "task", "create",
@@ -122,10 +203,10 @@ function createMilestoneTask(rootDir: string): Record<string, any> {
   ]);
 }
 
-function createCharterDecision(rootDir: string): void {
+function createCharterDecision(rootDir: string, decisionId = "dec_TEST_CHARTER"): void {
   runJson(rootDir, [
     "decision", "propose",
-    "--id", "dec_TEST_CHARTER",
+    "--id", decisionId,
     "--title", "Test Milestone Charter",
     "--question", "Should this milestone exist?",
     "--chosen", "Create the milestone through the preset",
@@ -173,10 +254,46 @@ function fiveArtifactPolicy(): Record<string, any> {
         { id: "html", role: "html", root: "milestones", path: "milestones-dossier.html" },
         { id: "task-plan", role: "supporting", root: "task", path: "task_plan.md" }
       ],
-      charterAnchor: { required: true, entityType: "decision", idPattern: "^dec_[A-Za-z0-9_]+$" },
+      charterAnchor: {
+        required: true,
+        entityType: "decision",
+        idPattern: "^dec_[A-Za-z0-9_]+$",
+        policyEffectiveDate: "2026-07-10",
+        grandfatheredMilestoneSlugs: [...knownGrandfatheredMilestoneSlugs]
+      },
       additionalReferences: [{ kind: "command", ref: "npm run pr:doctor", label: "PR diagnostics" }]
     }
   };
+}
+
+function withPolicyMilestone(
+  fn: (
+    rootDir: string,
+    taskId: string,
+    overviewPath: string,
+    policy: Record<string, any>
+  ) => void
+): void {
+  withTempRoot((rootDir) => {
+    runJson(rootDir, ["init"]);
+    const created = createMilestoneTask(rootDir);
+    createCharterDecision(rootDir);
+    const policy = fiveArtifactPolicy();
+    writePolicy(rootDir, policy);
+    scaffoldMilestone(rootDir, created.taskId, "dec_TEST_CHARTER");
+    const overviewPath = path.join(rootDir, "harness/milestones/platform/plt-test/00-overview.md");
+    fn(rootDir, created.taskId, overviewPath, policy);
+  });
+}
+
+function removeApprovalAnchor(overviewPath: string): void {
+  const body = readFileSync(overviewPath, "utf8");
+  writeFileSync(overviewPath, body.replace(/\n- \*\*Approval anchor\*\*:.*$/mu, ""), "utf8");
+}
+
+function replaceApprovalAnchor(overviewPath: string, value: string): void {
+  const body = readFileSync(overviewPath, "utf8");
+  writeFileSync(overviewPath, body.replace(/(- \*\*Approval anchor\*\*:\s*).*$/mu, `$1${value}`), "utf8");
 }
 
 function writePolicy(rootDir: string, policy: unknown): void {
