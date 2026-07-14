@@ -22,10 +22,13 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  getEnforcementConstant,
+  resolveEnforcementConstant
+} from "./enforcement-constants.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = path.join(root, "tools/gate-manifest.json");
-const workflowPath = path.join(root, ".github/workflows/rewrite-ci.yml");
 const INTEGRATION_SHARD_JOB = "integration-shard";
 
 export const LOCAL_EQUIVALENCE_NOTICE = "本地绿 ≠ 完整 CI 等价：skipped jobs still require GitHub CI.";
@@ -51,61 +54,17 @@ export function deriveJobs(manifest) {
   return jobs;
 }
 
-function mappingBlock(lines, key, indent, label) {
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const pattern = new RegExp(`^ {${indent}}${escapedKey}:\\s*(?:#.*)?$`, "u");
-  const matches = lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ line }) => pattern.test(line));
-  if (matches.length === 0) throw new Error(`${label} is missing`);
-  if (matches.length > 1) throw new Error(`${label} is declared more than once`);
-
-  const start = matches[0].index;
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (/^\s*(?:#.*)?$/u.test(line)) continue;
-    const content = /^( *)\S/u.exec(line);
-    if (content !== null && content[1].length <= indent) {
-      end = index;
-      break;
-    }
-  }
-  return lines.slice(start + 1, end);
-}
-
-export function parseIntegrationShardMatrix(workflowText) {
-  const lines = workflowText.split(/\r?\n/u);
-  const jobs = mappingBlock(lines, "jobs", 0, "rewrite-ci jobs");
-  const job = mappingBlock(jobs, INTEGRATION_SHARD_JOB, 2, "rewrite-ci integration-shard job");
-  const strategy = mappingBlock(job, "strategy", 4, "integration-shard strategy");
-  const matrix = mappingBlock(strategy, "matrix", 6, "integration-shard matrix");
-  const shardLines = matrix.filter((line) => /^ {8}shard:/u.test(line));
-  if (shardLines.length !== 1) {
-    throw new Error("rewrite-ci integration-shard strategy.matrix must declare exactly one shard list");
-  }
-
-  const match = /^ {8}shard:\s*\[([^\]]*)\]\s*(?:#.*)?$/u.exec(shardLines[0]);
-  if (match === null) {
-    throw new Error("rewrite-ci integration-shard strategy.matrix.shard must be an inline integer list");
-  }
-  const tokens = match[1].split(",").map((entry) => entry.trim());
-  if (tokens.length === 0 || tokens.some((entry) => !/^[1-9]\d*$/u.test(entry))) {
-    throw new Error("rewrite-ci integration-shard strategy.matrix.shard must contain positive integers");
-  }
-  const shards = tokens.map(Number);
-  const expected = shards.map((_, index) => index + 1);
-  if (shards.some((shard, index) => shard !== expected[index])) {
-    throw new Error(
-      `rewrite-ci integration-shard strategy.matrix.shard must be contiguous 1..N; got [${shards.join(", ")}]`
-    );
-  }
-  return shards;
+export function parseIntegrationShardMatrix(manifest, workflowText) {
+  return resolveEnforcementConstant(
+    manifest,
+    "ci-integration-shard-sequence",
+    () => workflowText
+  );
 }
 
 export function buildCiPlan(manifest, workflowText, wanted = []) {
   const derived = deriveJobs(manifest);
-  const integrationShards = parseIntegrationShardMatrix(workflowText);
+  const integrationShards = parseIntegrationShardMatrix(manifest, workflowText);
   if (!derived.has(INTEGRATION_SHARD_JOB)) {
     throw new Error(`no gate in the manifest declares workflow job "${INTEGRATION_SHARD_JOB}"`);
   }
@@ -210,6 +169,8 @@ function parseArgs(argv) {
 
 function main() {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const shardDeclaration = getEnforcementConstant(manifest, "ci-integration-shard-sequence");
+  const workflowPath = path.join(root, shardDeclaration.authority.path);
   const workflowText = readFileSync(workflowPath, "utf8");
   const { wanted, receiptPath } = parseArgs(process.argv.slice(2));
   const { derived, plan, skipped } = buildCiPlan(manifest, workflowText, wanted);

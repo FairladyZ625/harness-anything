@@ -1,4 +1,9 @@
-export const integrationShardCount = 6;
+import path from "node:path";
+import { loadEnforcementConstant } from "./enforcement-constants.mjs";
+
+const repoRoot = path.resolve(import.meta.dirname, "..");
+export const integrationShardIds = loadEnforcementConstant(repoRoot, "ci-integration-shard-sequence");
+export const integrationShardCount = integrationShardIds.length;
 export const defaultIntegrationTestWeightMs = 1000;
 
 // Optional balancing overrides. New tests need no entry: they receive the

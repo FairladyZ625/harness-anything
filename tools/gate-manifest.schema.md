@@ -17,9 +17,37 @@ policy. Changing it is a governance change under ADR-0023 D2/D5.
   `local-consistency` are intentionally machine-readable for architecture
   review.
 - `tierDefinitions`: tier vocabulary.
+- `enforcementConstants`: declarations that name an enforcement parameter,
+  locate its external authority, and enumerate every source consumer audited for
+  naked derived literals.
 - `surfaces`: normalized inventories from `package.json`, `rewrite-ci.yml`, and
   branch protection.
 - `gates`: full gate registry. Each entry has a stable `id`.
+
+## Enforcement Constant Declarations
+
+Each `enforcementConstants` entry is a registration record, not a second copy
+of the constant value:
+
+- `id`: stable kebab-case declaration id. Consumers pass this id to
+  `resolveEnforcementConstant` or `loadEnforcementConstant`.
+- `description`: human-readable ownership and use statement.
+- `valueType`: currently `positive-integer-sequence`.
+- `authority`: external structured authority locator. The supported
+  `workflow-matrix` form declares `path`, `job`, and `matrixKey`.
+- `consumers`: non-empty, duplicate-free repository paths. Every listed source
+  must resolve the declaration through the manifest.
+- `literalAudit`: currently `forbid-derived-count-and-sequence`. The AST audit
+  rejects either the resolved sequence as an array literal or its length as a
+  numeric literal anywhere in a registered consumer. Comments and string
+  literals are not code literals and are ignored.
+
+For `ci-integration-shard-sequence`, the numeric sequence remains owned by
+`.github/workflows/rewrite-ci.yml`. The manifest owns the declaration and
+consumer inventory, so T5's workflow-matrix derivation is preserved without
+copying the shard count into JSON. `tools/check-enforcement-constants.mjs`
+validates the schema, resolves the authority, verifies consumer references, and
+performs the AST literal audit with no allowlist.
 
 ## Gate Entry Fields
 
@@ -162,9 +190,9 @@ Release-policy gate sample:
 
 The registry records:
 
-- 52 gates: 42 deterministic and 10 non-deterministic/composite.
-- 37 `harness:*` leaf gates from `package.json`; 35 are in `check`, 33 are in
-  `check:pr`, and 36 execute in pull-request workflow jobs. The only
+- 53 gates: 43 deterministic and 10 non-deterministic/composite.
+- 38 `harness:*` leaf gates from `package.json`; 36 are in `check`, 34 are in
+  `check:pr`, and 37 execute in pull-request workflow jobs. The only
   `harness:*` gate outside the PR workflow is the non-deterministic,
   schedule-only `check-enforcement-debt-sunset`.
 - 11 formerly main-only deterministic gates added to the existing `boundaries`

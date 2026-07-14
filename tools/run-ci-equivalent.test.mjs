@@ -23,11 +23,11 @@ test("workflow shard parser fails loudly when the matrix shape drifts", () => {
   const multilineMatrix = makeWorkflow(3).replace("shard: [1, 2, 3]", "shard:\n          - 1\n          - 2\n          - 3");
 
   assert.throws(
-    () => parseIntegrationShardMatrix(multilineMatrix),
+    () => parseIntegrationShardMatrix(makeManifest(), multilineMatrix),
     /strategy\.matrix\.shard must be an inline integer list/u
   );
   assert.throws(
-    () => parseIntegrationShardMatrix("jobs:\n  boundaries:\n    steps: []\n"),
+    () => parseIntegrationShardMatrix(makeManifest(), "jobs:\n  boundaries:\n    steps: []\n"),
     /rewrite-ci integration-shard job is missing/u
   );
 });
@@ -64,6 +64,21 @@ test("skipped jobs are visible in the final summary and JSON receipt", () => {
 
 function makeManifest() {
   return {
+    enforcementConstants: [
+      {
+        id: "ci-integration-shard-sequence",
+        description: "Integration shard ids are owned by the pull-request workflow matrix.",
+        valueType: "positive-integer-sequence",
+        authority: {
+          kind: "workflow-matrix",
+          path: ".github/workflows/rewrite-ci.yml",
+          job: "integration-shard",
+          matrixKey: "shard"
+        },
+        consumers: ["tools/run-ci-equivalent.mjs", "tools/integration-test-shards.mjs"],
+        literalAudit: "forbid-derived-count-and-sequence"
+      }
+    ],
     gates: [
       {
         id: "test-integration",

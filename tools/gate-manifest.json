@@ -49,6 +49,24 @@
     "nightly-only": "Runs only on scheduled full-check.",
     "manual-only": "Runs only by explicit local or workflow-dispatch invocation."
   },
+  "enforcementConstants": [
+    {
+      "id": "ci-integration-shard-sequence",
+      "description": "The pull-request integration shard ids and their count are owned by the rewrite-ci workflow matrix; consumers resolve that authority through this manifest declaration instead of embedding the sequence or count.",
+      "valueType": "positive-integer-sequence",
+      "authority": {
+        "kind": "workflow-matrix",
+        "path": ".github/workflows/rewrite-ci.yml",
+        "job": "integration-shard",
+        "matrixKey": "shard"
+      },
+      "consumers": [
+        "tools/run-ci-equivalent.mjs",
+        "tools/integration-test-shards.mjs"
+      ],
+      "literalAudit": "forbid-derived-count-and-sequence"
+    }
+  ],
   "surfaces": {
     "packageJson": {
       "check": [
@@ -76,6 +94,7 @@
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
+        "check-enforcement-constants",
         "check-staged-activation",
         "check-template-command-surface",
         "check-locale-content",
@@ -119,6 +138,7 @@
         "check-docs-release-map",
         "check-gate-surface",
         "check-gate-manifest-invariants",
+        "check-enforcement-constants",
         "check-staged-activation",
         "check-template-command-surface",
         "check-locale-content",
@@ -133,7 +153,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 38
+      "harnessLeafGateCount": 39
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -3008,6 +3028,89 @@
           "check": true,
           "checkPr": true,
           "script": "harness:check-gate-manifest-invariants"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      }
+    },
+    {
+      "id": "check-enforcement-constants",
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/check-enforcement-constants.test.mjs"
+        ]
+      },
+      "command": "npm run harness:check-enforcement-constants",
+      "category": "meta-governance",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "task_01KXE0493Q44XTR1DWY3P5VVWX#slice-2",
+        "tools/gate-manifest.schema.md#enforcement-constant-declarations",
+        ".github/workflows/rewrite-ci.yml:jobs.integration-shard.strategy.matrix.shard"
+      ],
+      "consumerScope": [
+        "manifest-declared enforcement constant consumers",
+        "pull-request integration shard sequence and derived shard count"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Registered consumers must resolve declarations from the manifest; bare derived counts and sequences have no exceptions."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gate-manifest.json",
+          "tools/gate-manifest.schema.md",
+          "tools/enforcement-constants.mjs",
+          "tools/check-enforcement-constants.mjs",
+          "tools/check-enforcement-constants.test.mjs",
+          "tools/run-ci-equivalent.mjs",
+          "tools/integration-test-shards.mjs",
+          "package.json:scripts.harness:check-enforcement-constants"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-enforcement-constants"
         },
         "rewriteCi": {
           "pullRequestJobs": [
