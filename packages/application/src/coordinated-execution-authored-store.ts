@@ -32,7 +32,7 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
       if (task.documents.some((document) => document.path === executionPath(request.execution.execution_id))) {
         throw new Error(`execution already exists: ${request.execution.execution_id}`);
       }
-      await writeExecutionTransaction(input, request.taskId, request.execution, taskIndex(task.documents, request.taskId, ["planned", "active"], "active"));
+      await writeExecutionOnlyTransaction(input, request.taskId, request.execution);
     },
     attachSession: async (request) => {
       const task = await Effect.runPromise(input.artifactStore.readTaskPackage(request.taskId));
@@ -75,7 +75,7 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
         input,
         request.taskId,
         submitted,
-        taskIndex(task.documents, request.taskId, ["active"], "in_review"),
+        taskIndex(task.documents, request.taskId, ["active", "in_review"], "in_review"),
         { stageTaskTree: true }
       );
     }

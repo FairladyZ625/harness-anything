@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
@@ -167,10 +168,11 @@ test("configured identity supports direct human claim through --actor", () => {
   });
 });
 
-test("default claim and submit use Holder V2 without requiring an execution id", () => {
+test("default claim preserves status and the Holder V2 actor can submit without replaying credentials", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Execution Saga"]);
+    writeSubstantiveTaskPlan(rootDir, created.packagePath);
     const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, {
       HARNESS_ACTOR: "agent:test",
       CLAUDE_SESSION_ID: "",
@@ -197,6 +199,17 @@ test("default claim and submit use Holder V2 without requiring an execution id",
     assert.equal(execution.session_bindings[0]?.role, "primary");
     assert.equal(execution.session_bindings[0]?.session_ref, "session/codex-primary-session");
     assert.equal(execution.session_bindings[0]?.archive_status, "pending");
+    const indexPath = path.join(rootDir, `harness/tasks/${created.taskId}-execution-saga/INDEX.md`);
+    assert.match(readFileSync(indexPath, "utf8"), /^  status: planned$/mu);
+
+    const activated = runJson(rootDir, ["task", "transition", created.taskId, "active"], true, {
+      HARNESS_ACTOR: "agent:test",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "codex-primary-session",
+      CODEX_SESSION_ID: "codex-primary-session"
+    });
+    assert.equal(activated.status, "active");
 
     const otherHolder = runJson(rootDir, ["task", "claim", created.taskId], false, {
       HARNESS_ACTOR: "agent:other-worker",
@@ -257,7 +270,6 @@ test("default claim and submit use Holder V2 without requiring an execution id",
 
     const submitted = runJson(rootDir, [
       "task", "transition", created.taskId, "in_review",
-      "--lease-token", renewed.report.leaseToken,
       "--summary", "ready for review",
       "--verification", "node:test",
       "--output", "commit:abc123"

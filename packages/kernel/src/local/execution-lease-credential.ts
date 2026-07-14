@@ -59,13 +59,13 @@ export function renewExecutionLeaseCredential(
 
 export function requireExecutionCredential(
   record: AnyTaskHolderRecord | null,
-  input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal },
+  input: { readonly taskId: string; readonly executionId: string; readonly leaseToken?: string; readonly principal: TaskHolderPrincipal },
   at: Date
 ): ExecutionLeaseRecord {
   const valid = record?.schema === "task-holder/v2" &&
     Date.parse(record.leaseExpiresAt) > at.getTime() &&
     record.executionId === input.executionId &&
-    record.tokenHash === hashExecutionLeaseToken(input.leaseToken) &&
+    (input.leaseToken === undefined || record.tokenHash === hashExecutionLeaseToken(input.leaseToken)) &&
     sameExecutionLeaseActor(record.holder, input.principal);
   if (!valid) throw new TaskLeaseRequiredError({
     taskId: input.taskId,

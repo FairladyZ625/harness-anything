@@ -67,7 +67,7 @@ function runExecutionAwareInReview(
     status: "in_review",
     error: cliError(
       CliErrorCode.ExecutionSubmissionRequired,
-      "Task review state is created only by an Execution submit-for-review transaction; provide --lease-token and --summary."
+      "Task review state is created only by an Execution submit-for-review transaction; provide --completion-claim."
     )
   } satisfies CliResult);
 }

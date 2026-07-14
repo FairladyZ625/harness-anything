@@ -2,20 +2,19 @@ import type { ExecutionAuthoredStore, ExecutionRecord } from "../src/index.ts";
 
 export function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {}): ExecutionAuthoredStore & {
   readonly executions: Map<string, ExecutionRecord>;
-  taskStatus: "planned" | "active" | "in_review";
+  taskStatus: "planned" | "active" | "blocked" | "in_review";
   failSubmit: boolean;
 } {
   const executions = new Map<string, ExecutionRecord>();
   const store = {
     executions,
-    taskStatus: "planned" as const satisfies "planned" | "active" | "in_review",
+    taskStatus: "planned" as const satisfies "planned" | "active" | "blocked" | "in_review",
     failSubmit: false,
     readExecution: async (input) => executions.get(input.executionId) ?? null,
     openExecution: async (input) => {
       if (options.failOpen) throw new Error("authored open failed");
       if (executions.has(input.execution.execution_id)) throw new Error("execution already exists");
       executions.set(input.execution.execution_id, input.execution);
-      store.taskStatus = "active";
     },
     attachSession: async (input) => {
       const current = executions.get(input.executionId);
@@ -49,7 +48,7 @@ export function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {
   return store;
 }
 
-export function taskIndex(taskId: string, status: "planned" | "active" | "in_review"): string {
+export function taskIndex(taskId: string, status: "planned" | "active" | "blocked" | "in_review"): string {
   return [
     "---",
     "schema: task-package/v2",

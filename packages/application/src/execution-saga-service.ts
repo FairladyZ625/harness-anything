@@ -70,7 +70,7 @@ export interface ExecutionSagaService {
   readonly attachSession: (input: {
     readonly taskId: string;
     readonly executionId: string;
-    readonly leaseToken: string;
+    readonly leaseToken?: string;
     readonly principal: TaskHolderPrincipal;
     readonly session: CurrentSessionRef;
     readonly role: ExecutionSessionRole;
@@ -78,7 +78,7 @@ export interface ExecutionSagaService {
   readonly submitForReview: (input: {
     readonly taskId: string;
     readonly executionId: string;
-    readonly leaseToken: string;
+    readonly leaseToken?: string;
     readonly principal: TaskHolderPrincipal;
     readonly submission: ExecutionSubmission;
   }) => Promise<void>;

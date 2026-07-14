@@ -147,6 +147,8 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
       detectedAt: "2026-07-11T00:00:00.000Z"
     };
     const claimed = await saga.claim({ taskId, principal: aliceCodex, primarySession });
+    const indexPath = path.join(taskRoot, "INDEX.md");
+    writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/^(  status:\s*).+$/mu, "$1active"), "utf8");
     const bodyRef = writeContentAddressedBlob(rootDir, "# finalized session\n", "text/markdown; charset=utf-8");
     Effect.runSync(writeSessionEntity(coordinator, rootDir, {
       schema: "session-entity/v1",
@@ -215,6 +217,120 @@ test("a real coordinated claim and submit preserves the hosted Execution round",
     assert.equal(oldRound.state, "changes_requested");
     assert.equal(oldRound.outputs[0]?.evidence_id, "ev_round_1");
     assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${secondExecutionId}.md`), "utf8")).state, "active");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Execution claim preserves blocked and in_review Task lifecycle state", async () => {
+  for (const status of ["blocked", "in_review"] as const) {
+    const rootDir = mkdtempSync(path.join(tmpdir(), `ha-execution-${status}-claim-`));
+    try {
+      const taskRoot = path.join(rootDir, "harness/tasks", `${taskId}-${status}-claim`);
+      mkdirSync(taskRoot, { recursive: true });
+      writeFileSync(path.join(taskRoot, "INDEX.md"), taskIndex(taskId, status), "utf8");
+      const coordinator = makeJournaledWriteCoordinator({ rootDir, attribution: aliceCodexAttribution });
+      const primarySession = {
+        runtime: "codex" as const,
+        sessionId: `codex-${status}-primary`,
+        source: "runtime" as const,
+        detectedAt: "2026-07-11T00:00:00.000Z"
+      };
+      const bodyRef = writeContentAddressedBlob(rootDir, `# ${status} session\n`, "text/markdown; charset=utf-8");
+      Effect.runSync(writeSessionEntity(coordinator, rootDir, {
+        schema: "session-entity/v1",
+        sessionId: primarySession.sessionId,
+        lifecycle: "sealed",
+        archiveStatus: "complete",
+        runtime: "codex",
+        source: "runtime",
+        detectedAt: primarySession.detectedAt,
+        exportedAt: "2026-07-11T00:00:01.000Z",
+        bodyRef: { store: "authored-cas/v1", ...bodyRef },
+        snapshot: {
+          capturedAt: "2026-07-11T00:00:01.000Z",
+          completeness: "complete",
+          captureRange: { messageCount: 1 },
+          privacyScan: { scannerVersion: "test", passed: true, findings: [] }
+        }
+      }));
+      const saga = makeExecutionSagaService({
+        taskHolderService: makeTaskHolderService({ rootInput: rootDir }),
+        authoredStore: makeCoordinatedExecutionAuthoredStore({
+          rootInput: rootDir,
+          coordinator,
+          artifactStore: makeMarkdownArtifactStore({ rootDir })
+        }),
+        generateExecutionId: () => executionId,
+        now: () => "2026-07-11T00:00:00.000Z"
+      });
+
+      const claimed = await saga.claim({ taskId, principal: aliceCodex, primarySession });
+
+      assert.equal(claimed.execution.state, "active");
+      assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), new RegExp(`^  status: ${status}$`, "mu"));
+      if (status === "in_review") {
+        await saga.submitForReview({
+          taskId,
+          executionId,
+          principal: aliceCodex,
+          submission: {
+            completionClaim: "repair legacy review",
+            deliverables: [],
+            verificationNotes: [],
+            knownGaps: [],
+            residualRisks: [],
+            evidence: []
+          }
+        });
+        assert.equal(JSON.parse(readFileSync(path.join(taskRoot, "executions", `${executionId}.md`), "utf8")).state, "submitted");
+        assert.match(readFileSync(path.join(taskRoot, "INDEX.md"), "utf8"), /^  status: in_review$/mu);
+      }
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("the active Execution lease actor can submit without replaying the lease token", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-tokenless-submit-"));
+  try {
+    const holder = makeTaskHolderService({ rootInput: rootDir });
+    const authored = memoryAuthoredStore();
+    const saga = makeExecutionSagaService({
+      taskHolderService: holder,
+      authoredStore: authored,
+      generateExecutionId: () => executionId,
+      now: () => "2026-07-11T00:00:00.000Z"
+    });
+    await saga.claim({ taskId, principal: aliceCodex });
+    authored.taskStatus = "active";
+    const submission = {
+      completionClaim: "ready without token replay",
+      deliverables: [],
+      verificationNotes: [],
+      knownGaps: [],
+      residualRisks: [],
+      evidence: []
+    };
+
+    await assert.rejects(saga.submitForReview({
+      taskId,
+      executionId,
+      leaseToken: "0".repeat(64),
+      principal: aliceCodex,
+      submission
+    }), /requires an active lease/u);
+    await assert.rejects(saga.submitForReview({
+      taskId,
+      executionId,
+      principal: bobCodex,
+      submission
+    }), /requires an active lease/u);
+    await saga.submitForReview({ taskId, executionId, principal: aliceCodex, submission });
+
+    assert.equal(authored.executions.get(executionId)?.state, "submitted");
+    assert.equal((await holder.holder({ taskId })).effectiveHolder, null);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -337,6 +453,7 @@ test("submit-for-review finalizes the Session before changing authored state or 
         detectedAt: "2026-07-11T00:00:00.000Z"
       }
     });
+    authored.taskStatus = "active";
 
     await assert.rejects(saga.submitForReview({
       taskId,

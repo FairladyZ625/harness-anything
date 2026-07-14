@@ -12,13 +12,13 @@ export function parseExecutionSubmissionOptions(args: ReadonlyArray<string>, sta
   const leaseToken = readOption(args, "--lease-token");
   const completionClaim = readOption(args, "--completion-claim") ?? readOption(args, "--summary");
   if (![executionId, leaseToken, completionClaim].some(Boolean)) return { ok: true };
-  if (!leaseToken || !completionClaim || status !== "in_review") {
-    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Execution submit requires in_review plus --lease-token and --completion-claim; --execution-id is optional when Holder V2 is active.") };
+  if (!completionClaim || status !== "in_review") {
+    return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Execution submit requires in_review plus --completion-claim; --execution-id and --lease-token are optional when Holder V2 is active for the caller.") };
   }
   const values = (flag: string) => readRepeatedRawOption(args, flag).filter((value): value is string => value !== undefined);
   return { ok: true, value: {
     ...(executionId ? { executionId } : {}),
-    leaseToken,
+    ...(leaseToken ? { leaseToken } : {}),
     completionClaim,
     deliverables: values("--deliverable"),
     verificationNotes: values("--verification"),
