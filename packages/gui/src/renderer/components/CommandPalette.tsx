@@ -35,6 +35,54 @@ const KIND_DOT_COLOR: Record<EntityKind, string> = {
   fact: "var(--color-axis-evidence)",
 };
 
+/**
+ * 单条实体命中行 —— Cmd+K 面板与左栏 FocusSwitcher typeahead 共用,避免两套视觉语言。
+ * active 驱动左边框/底色(键盘选中或当前焦点);圆点用 kind 色区分三原语。
+ */
+export function EntityHitRow({
+  hit,
+  active,
+  onSelect,
+  onMouseEnter,
+  testId,
+}: {
+  hit: EntityHit;
+  active: boolean;
+  onSelect: () => void;
+  onMouseEnter?: () => void;
+  testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      data-hit-kind={hit.kind}
+      onMouseEnter={onMouseEnter}
+      onClick={onSelect}
+      title={hit.title}
+      aria-pressed={active}
+      className={`flex w-full items-start gap-2 border-l-2 px-3 py-1.5 text-left transition-colors ${
+        active
+          ? "border-l-accent bg-accent/10 text-text"
+          : "border-l-transparent text-text-muted hover:bg-surface-raised hover:text-text"
+      }`}
+    >
+      <span
+        className="mt-1 inline-block size-1.5 shrink-0 rounded-full"
+        style={{ backgroundColor: KIND_DOT_COLOR[hit.kind] }}
+        aria-hidden="true"
+      />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="line-clamp-1 text-[13px] leading-snug">{hit.title}</span>
+        <span className="flex items-center gap-2 font-mono text-[10px] text-text-faint">
+          <span>{hit.id}</span>
+          <span className="truncate">{hit.subtitle}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
 interface Props {
   open: boolean;
   tasks: TaskRow[];
@@ -150,33 +198,14 @@ export function CommandPalette({
     }
     const active = i === activeIndex;
     items.push(
-      <li key={`${hit.kind}/${hit.id}`} role="option" aria-selected={active}>
-        <button
-          type="button"
-          data-palette-index={i}
-          data-testid="command-palette-item"
-          data-hit-kind={hit.kind}
+      <li key={`${hit.kind}/${hit.id}`} data-palette-index={i} role="option" aria-selected={active}>
+        <EntityHitRow
+          hit={hit}
+          active={active}
+          onSelect={() => onSelectedRef(hit.ref)}
           onMouseEnter={() => setActiveIndex(i)}
-          onClick={() => onSelectedRef(hit.ref)}
-          className={`flex w-full items-start gap-2 border-l-2 px-3 py-1.5 text-left transition-colors ${
-            active
-              ? "border-l-accent bg-accent/10 text-text"
-              : "border-l-transparent text-text-muted hover:bg-surface-raised hover:text-text"
-          }`}
-        >
-          <span
-            className="mt-1 inline-block size-1.5 shrink-0 rounded-full"
-            style={{ backgroundColor: KIND_DOT_COLOR[hit.kind] }}
-            aria-hidden="true"
-          />
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="line-clamp-1 text-[13px] leading-snug">{hit.title}</span>
-            <span className="flex items-center gap-2 font-mono text-[10px] text-text-faint">
-              <span>{hit.id}</span>
-              <span className="truncate">{hit.subtitle}</span>
-            </span>
-          </span>
-        </button>
+          testId="command-palette-item"
+        />
       </li>,
     );
   });

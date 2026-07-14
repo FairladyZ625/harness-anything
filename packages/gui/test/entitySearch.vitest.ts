@@ -3,6 +3,7 @@ import {
   buildEntityIndex,
   parseQuery,
   searchEntities,
+  selectSuggestedHits,
   groupHitsByKind,
 } from "../src/renderer/model/entitySearch";
 import type { TaskRow, DecisionRow, FactRef } from "../src/renderer/model/types";
@@ -111,5 +112,40 @@ describe("groupHitsByKind", () => {
     expect(grouped.decision.map((h) => h.id)).toEqual(["d1"]);
     expect(grouped.task.map((h) => h.id)).toEqual(["t1"]);
     expect(grouped.fact.map((h) => h.id)).toEqual(["F-1"]);
+  });
+});
+
+describe("selectSuggestedHits", () => {
+  it("returns weight-sorted top N (decisions first, then tasks, then facts)", () => {
+    const hits = buildEntityIndex({
+      tasks: [task("t1"), task("t2")],
+      decisions: [decision("d1")],
+      facts: [fact("t1", "F-1")],
+    });
+    // buildEntityIndex sorts decision > task > fact by weight.
+    const top = selectSuggestedHits(hits, 2);
+    expect(top.map((h) => h.kind)).toEqual(["decision", "task"]);
+  });
+
+  it("defaults to 8 and clamps when fewer available", () => {
+    const hits = buildEntityIndex({
+      tasks: [task("t1")],
+      decisions: [],
+      facts: [],
+    });
+    expect(selectSuggestedHits(hits).length).toBe(1);
+    // n <= 0 returns empty without throwing.
+    expect(selectSuggestedHits(hits, 0)).toEqual([]);
+  });
+
+  it("does not mutate or re-slice the source index", () => {
+    const hits = buildEntityIndex({
+      tasks: [task("t1"), task("t2"), task("t3")],
+      decisions: [],
+      facts: [],
+    });
+    const before = hits.map((h) => h.id);
+    selectSuggestedHits(hits, 1);
+    expect(hits.map((h) => h.id)).toEqual(before);
   });
 });

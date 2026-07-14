@@ -304,15 +304,18 @@ function AppShell() {
 
   const showMockBanner = !selected && MOCK_BACKED_VIEWS.has(location.view);
 
+  // 三原语统一索引(权重排序)。Recent 反解从它查 by ref;GraphView 左栏 typeahead 也
+  // 用同一口径(就地自建,因 entityIndex 不穿越 ViewSwitch/EntityWorkspace 下传)。
+  // 单独 memo 让 recentRefs 变化时不必重建整张索引。
+  const entityIndex = useMemo(
+    () => buildEntityIndex({ tasks: projectTasks, decisions, facts }),
+    [projectTasks, decisions, facts],
+  );
+
   // Recent 列表:把 navRef 反解为 EntityHit(供 FocusSwitcher 显示标题/副标题)。
   // 从全局索引 by ref 查,这样 Recent 顺序与索引解析一致;索引外的 ref(已删除实体)自动过滤掉。
   const recentHits = useMemo<EntityHit[]>(() => {
-    const all = buildEntityIndex({
-      tasks: projectTasks,
-      decisions,
-      facts,
-    });
-    const byRef = new Map(all.map((h) => [h.ref, h]));
+    const byRef = new Map(entityIndex.map((h) => [h.ref, h]));
     const out: EntityHit[] = [];
     for (const ref of recentRefs) {
       const hit = byRef.get(ref);
@@ -320,7 +323,7 @@ function AppShell() {
       if (out.length >= RECENT_LIMIT) break;
     }
     return out;
-  }, [projectTasks, decisions, facts, recentRefs]);
+  }, [entityIndex, recentRefs]);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">

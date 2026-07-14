@@ -131,6 +131,16 @@ export function searchEntities(hits: readonly EntityHit[], query: string): Entit
   });
 }
 
+/**
+ * 取权重最高的前 N 个实体,作为冷启动「Suggested」候选。
+ * buildEntityIndex 已按 weight 排序(decision > task > fact),这里只切前 N。
+ * 左栏 FocusSwitcher 在 Recent 为空时用它填充首屏,避免 256px 空白;排序口径
+ * 与 Cmd+K 面板空查询时一致(同一索引),两个 find 入口「先看到承重 decision」对齐。
+ */
+export function selectSuggestedHits(hits: readonly EntityHit[], n = 8): EntityHit[] {
+  return hits.slice(0, Math.max(0, n));
+}
+
 /** UI 分组用:按 kind 分桶,保留 weight 排序。 */
 export function groupHitsByKind(hits: readonly EntityHit[]): Record<EntityKind, EntityHit[]> {
   const out: Record<EntityKind, EntityHit[]> = {

@@ -41,7 +41,7 @@ import {
   type GraphFilters,
 } from "../components/GraphFilterPanel";
 import { FocusSwitcher } from "../components/FocusSwitcher";
-import type { EntityHit } from "../model/entitySearch";
+import { buildEntityIndex, type EntityHit } from "../model/entitySearch";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { useColorMode } from "./graphColorMode";
 import { GraphLegend } from "./GraphLegend";
@@ -134,6 +134,14 @@ function GraphViewInner({
   const availableModules = useMemo(
     () => Array.from(new Set(tasks.map((t) => t.module))).sort(),
     [tasks],
+  );
+
+  // 三原语统一索引,供左栏 FocusSwitcher typeahead 复用(App.tsx 为 Recent 也建一份;
+  // 此处就地建是因为 entityIndex 无法穿越 ViewSwitch/EntityWorkspace 这两个非本维度文件
+  // 下传,而 GraphView 已直接持有 tasks/decisions/facts)。权重排序,与 Cmd+K 同口径。
+  const entityIndex = useMemo(
+    () => buildEntityIndex({ tasks, decisions: decisions ?? [], facts: facts ?? [] }),
+    [tasks, decisions, facts],
   );
 
   const [filters, setFilters] = useState<GraphFilters>(() => ({
@@ -425,6 +433,7 @@ function GraphViewInner({
       <div ref={canvasContainerRef} className="flex min-h-0 flex-1 relative">
         <FocusSwitcher
           recentHits={recentHits ?? []}
+          entityIndex={entityIndex}
           focusId={focusId}
           onFocus={switchFocusFromList}
           onOpenPalette={onOpenPalette ?? (() => undefined)}
