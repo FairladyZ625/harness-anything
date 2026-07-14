@@ -22,6 +22,16 @@ import { defaultUnixSocketPath, type UnixSocketPathOptions } from "../transport/
 export const defaultDaemonAutostartTimeoutMs = 6_000;
 export const defaultDaemonIdleExitMs = 750;
 
+export class DaemonJsonRpcResponseError extends Error {
+  readonly code: number;
+
+  constructor(code: number, message: string) {
+    super(message);
+    this.name = "DaemonJsonRpcResponseError";
+    this.code = code;
+  }
+}
+
 export interface LocalDaemonTarget {
   readonly repoId: string;
   readonly canonicalRoot: string;
@@ -280,7 +290,7 @@ export class JsonRpcLineClient {
     const request = { jsonrpc: "2.0", id, method, params } satisfies JsonRpcRequest;
     this.output.write(encodeJsonLineFrame(request));
     const response = await responsePromise;
-    if ("error" in response) throw new Error(response.error.message);
+    if ("error" in response) throw new DaemonJsonRpcResponseError(response.error.code, response.error.message);
     if (!isPlainRecord(response.result)) throw new Error(`daemon returned non-object result for ${method}`);
     return response.result as JsonObject;
   }
@@ -323,6 +333,7 @@ async function requestLocalDaemonJsonRpcWithAutostart(
     try {
       return await requestWithSocket(socket, method, params);
     } catch (error) {
+      if (error instanceof DaemonJsonRpcResponseError) throw error;
       lastError = error;
       await delay(Math.min(100, Math.max(1, deadline - Date.now())));
     }

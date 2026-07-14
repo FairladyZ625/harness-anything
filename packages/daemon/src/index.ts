@@ -5,6 +5,7 @@ export {
   daemonIdForUserRoot,
   daemonIdFromEnv,
   daemonUserRoot,
+  DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
   JsonRpcLineClient,

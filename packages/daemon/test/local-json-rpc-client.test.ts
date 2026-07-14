@@ -6,6 +6,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import {
+  DaemonJsonRpcResponseError,
   replaceSpawnLocalDaemonForTest,
   requestLocalDaemonJsonRpcForTarget,
   type LocalDaemonTarget
@@ -170,6 +171,40 @@ test("autostart retries when the socket accepts before JSON-RPC is ready", async
   assert.deepEqual(result, { ok: true, method: "repo.tasks.list" });
 });
 
+test("autostart surfaces a daemon JSON-RPC error once without retrying it as a disconnect", async (t) => {
+  if (process.platform === "win32") return;
+  const socketPath = uniqueSocketPath("ha-daemon-response-error");
+  const target = makeTarget(socketPath);
+  let failedMethodCalls = 0;
+  const server = await startJsonRpcServer(socketPath, {
+    errorMethod: "repo.task.claim",
+    onRequest: (method) => {
+      if (method === "repo.task.claim") failedMethodCalls += 1;
+    }
+  });
+  t.after(async () => {
+    await closeServer(server);
+    rmSync(socketPath, { force: true });
+  });
+
+  await assert.rejects(
+    requestLocalDaemonJsonRpcForTarget(
+      target,
+      "repo.task.claim",
+      {},
+      20,
+      { entryPath: "/unused", timeoutMs: 1_000 }
+    ),
+    (error: unknown) => {
+      assert.equal(error instanceof DaemonJsonRpcResponseError, true);
+      assert.equal((error as DaemonJsonRpcResponseError).code, -32603);
+      assert.equal((error as Error).message, "execution lease write exploded");
+      return true;
+    }
+  );
+  assert.equal(failedMethodCalls, 1);
+});
+
 function makeTarget(socketPath: string): LocalDaemonTarget {
   return {
     repoId: "canonical",
@@ -186,7 +221,11 @@ function uniqueSocketPath(prefix: string): string {
   return path.join("/tmp", `${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.sock`);
 }
 
-async function startJsonRpcServer(socketPath: string, options: { readonly closeFirstConnections?: number } = {}): Promise<net.Server> {
+async function startJsonRpcServer(socketPath: string, options: {
+  readonly closeFirstConnections?: number;
+  readonly errorMethod?: string;
+  readonly onRequest?: (method: string) => void;
+} = {}): Promise<net.Server> {
   rmSync(socketPath, { force: true });
   let closeConnections = options.closeFirstConnections ?? 0;
   const server = net.createServer((socket) => {
@@ -198,6 +237,15 @@ async function startJsonRpcServer(socketPath: string, options: { readonly closeF
     const lines = createInterface({ input: socket });
     lines.on("line", (line) => {
       const request = JSON.parse(line) as JsonRpcRequest;
+      options.onRequest?.(request.method);
+      if (request.method === options.errorMethod) {
+        socket.write(encodeJsonLineFrame({
+          jsonrpc: "2.0",
+          id: request.id ?? null,
+          error: { code: -32603, message: "execution lease write exploded" }
+        }));
+        return;
+      }
       const result: JsonObject = request.method === "protocol.hello"
         ? { ok: true }
         : { ok: true, method: request.method };

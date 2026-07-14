@@ -3,7 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import type { DaemonAuthenticationContext, DaemonTransportKind } from "./auth-context.ts";
 import { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./frame-codec.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
-import type { JsonRpcErrorResponse, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
+import type { JsonRpcErrorResponse, JsonRpcId, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
 
 export interface DaemonTransportConnection {
   readonly connectionId: string;
@@ -100,8 +100,14 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       writeFrame(streamErrorResponse(null, -32600, "Invalid Request"));
       return;
     }
-    const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[]);
-    if (response !== undefined) writeFrame(response);
+    try {
+      const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[]);
+      if (response !== undefined) writeFrame(response);
+    } catch (error) {
+      options.onError?.(error instanceof Error ? error : new Error(String(error)));
+      const response = handlerErrorResponse(frame as JsonRpcRequest | JsonRpcRequest[], error);
+      if (response !== undefined) writeFrame(response);
+    }
   }
 
   function failConnection(error: Error): void {
@@ -121,4 +127,22 @@ function parseError(error: Error): Error {
 
 function streamErrorResponse(id: null, code: number, message: string): JsonRpcErrorResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
+}
+
+function handlerErrorResponse(
+  request: JsonRpcRequest | JsonRpcRequest[],
+  error: unknown
+): JsonRpcErrorResponse | JsonRpcErrorResponse[] | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!Array.isArray(request)) {
+    return request.id === undefined ? undefined : internalErrorResponse(request.id, message);
+  }
+  const responses = request
+    .filter((item) => item.id !== undefined)
+    .map((item) => internalErrorResponse(item.id!, message));
+  return responses.length > 0 ? responses : undefined;
+}
+
+function internalErrorResponse(id: JsonRpcId, message: string): JsonRpcErrorResponse {
+  return { jsonrpc: "2.0", id, error: { code: -32603, message } };
 }
