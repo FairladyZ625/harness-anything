@@ -145,9 +145,13 @@ export function useEgoCanvas({
     setShown(new Map());
     setExpanded(new Set());
     // 不动历史:用户「退出聚焦」不脚印化。清空后 bootstrap 会重开默认焦点。
-  }, []);
+    // D6:同步清空 AppLocation.focusedEntityRef,否则切到演化史仍显示旧 decision。
+    if (onFocusChange) onFocusChange(null);
+  }, [onFocusChange]);
 
   // 历史前进 / 后退:切焦点 + 重排画布(不重复推栈)。
+  // D6:必须与 openFocus 一样上行 onFocusChange —— FocusHistoryBar 的 back/forward
+  // 只改本地 history 时,AppLocation.focusedEntityRef 会停在旧 decision,演化史开错谱系。
   const stepHistory = useCallback(
     (step: (prev: FocusHistoryState) => FocusHistoryState) => {
       setHistory((prev) => {
@@ -156,10 +160,11 @@ export function useEgoCanvas({
         const f = currentFocus(next);
         setFocusId(f);
         if (f) resetCanvasTo(f);
+        if (onFocusChange) onFocusChange(f);
         return next;
       });
     },
-    [resetCanvasTo],
+    [resetCanvasTo, onFocusChange],
   );
   const goBack = useCallback(() => stepHistory(historyGoBack), [stepHistory]);
   const goForward = useCallback(() => stepHistory(historyGoForward), [stepHistory]);

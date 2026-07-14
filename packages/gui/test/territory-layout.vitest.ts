@@ -363,6 +363,7 @@ describe("layoutTerritory · decision skel", () => {
 });
 
 // ══ FACT 领地 ══
+// fact 领地现在尊重 filters.modules(与 task/unified 对齐);测试需显式传入模块集。
 describe("layoutTerritory · fact skel", () => {
   it("健康 fact 按宿主 task 模块分区", () => {
     const tasks = [
@@ -380,7 +381,7 @@ describe("layoutTerritory · fact skel", () => {
       decisions: [],
       facts,
       relations: [],
-      filters: filters(),
+      filters: filters({ modules: new Set(["gui", "kernel"]) }),
       expandedZones: new Set(),
     });
     const zoneTitles = out.nodes
@@ -410,7 +411,7 @@ describe("layoutTerritory · fact skel", () => {
       decisions: [],
       facts,
       relations,
-      filters: filters(),
+      filters: filters({ modules: new Set(["m"]) }),
       expandedZones: new Set(),
     });
     const sections = out.nodes.filter((n) => n.type === "territoryZone" && n.data?.variant === "section");
@@ -451,10 +452,60 @@ describe("layoutTerritory · fact skel", () => {
       decisions: [],
       facts,
       relations: [],
-      filters: filters({ types: new Set(["task", "decision"]) }),
+      filters: filters({ modules: new Set(["m"]), types: new Set(["task", "decision"]) }),
       expandedZones: new Set(),
     });
     expect(out.nodes.length).toBe(0);
+  });
+
+  it("模块过滤:关掉宿主模块 → 该模块 fact 隐藏;未挂接 fact 保留", () => {
+    // 与 unified ledger / task territory 对齐:有宿主按 host.module 过滤;
+    // 无宿主(task 不在投影)→ 保留可见(unlanded 区)。
+    const tasks = [
+      task("t_gui", { module: "gui" }),
+      task("t_kernel", { module: "kernel" }),
+    ];
+    const facts = [
+      fact("t_gui", "F_gui"),
+      fact("t_kernel", "F_kernel"),
+      fact("ghost", "F_orphan"), // host 不在 tasks → unhosted,应保留
+    ];
+    const out = layoutTerritory({
+      skel: "fact",
+      tasks,
+      decisions: [],
+      facts,
+      relations: [],
+      filters: filters({ modules: new Set(["gui"]) }),
+      expandedZones: new Set(),
+    });
+    const chipIds = out.nodes
+      .filter((n) => n.type === "territoryChip" && n.data?.entity === "fact")
+      .map((n) => n.id);
+    expect(chipIds.some((id) => id.includes("F_gui"))).toBe(true);
+    expect(chipIds.some((id) => id.includes("F_kernel"))).toBe(false);
+    expect(chipIds.some((id) => id.includes("F_orphan"))).toBe(true);
+  });
+
+  it("告警区标题/subtitle 覆盖 LOW_CONFIDENCE(与 severity>0 桶一致)", () => {
+    const tasks = [task("t1", { module: "m" })];
+    const facts = [fact("t1", "F_low", { confidence: "low" })];
+    const out = layoutTerritory({
+      skel: "fact",
+      tasks,
+      decisions: [],
+      facts,
+      relations: [],
+      filters: filters({ modules: new Set(["m"]) }),
+      expandedZones: new Set(),
+    });
+    // 低置信 → 示警区 zone title 应点名 low confidence(en-US 默认 locale)。
+    const alertZone = out.nodes.find(
+      (n) => n.type === "territoryZone" && n.data?.variant === "zone" && n.id.includes("fact-alert"),
+    );
+    expect(alertZone).toBeDefined();
+    const title = String(alertZone?.data?.title ?? "");
+    expect(title.toLowerCase()).toMatch(/low confidence|低置信/);
   });
 
   it("fact chip 的 navRef 形如 fact/<task>/<id>(可被 enterSpotlight 消费)", () => {
@@ -465,7 +516,7 @@ describe("layoutTerritory · fact skel", () => {
       decisions: [],
       facts,
       relations: [],
-      filters: filters(),
+      filters: filters({ modules: new Set(["m"]) }),
       expandedZones: new Set(),
     });
     const chip = out.nodes.find((n) => n.type === "territoryChip" && n.data?.entity === "fact");

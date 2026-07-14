@@ -177,6 +177,48 @@ describe("layoutLedgerGraph · 全域三实体合图", () => {
     expect(egoNodes.length).toBeLessThanOrEqual(180);
   });
 
+  it("密度上限 180:决策单独超限 → decisions 也被截断 + 折叠提示", async () => {
+    // 修复前 decisions 永不截断:≥181 decisions → ego 节点数 > 180。
+    const decisions = Array.from({ length: 200 }, (_, i) => decision(`dec${i}`));
+    const out = await layoutLedgerGraph({
+      tasks: [],
+      decisions,
+      facts: [],
+      relations: [],
+      filters: filters(),
+    });
+    const egoNodes = out.nodes.filter((n) => n.type === "ego");
+    expect(egoNodes.length).toBeLessThanOrEqual(180);
+    const notice = out.nodes.find((n) => n.id === "ledger-cap-notice");
+    expect(notice).toBeDefined();
+  });
+
+  it("密度上限:decision 超预算时 facts 不被负 slice 误保留", async () => {
+    // 修复前 budget = NODE_CAP - visDecisions.length 可为负 →
+    // visFacts.slice(0, factBudget) 以负端点截断 = 保留尾部,而非清空。
+    const decisions = Array.from({ length: 200 }, (_, i) => decision(`dec${i}`));
+    const tasks = [task("t1", { module: "m" })];
+    const facts = Array.from({ length: 10 }, (_, i) => fact("t1", `F${i}`));
+    const out = await layoutLedgerGraph({
+      tasks,
+      decisions,
+      facts,
+      relations: [],
+      filters: filters(),
+    });
+    const egoNodes = out.nodes.filter((n) => n.type === "ego");
+    expect(egoNodes.length).toBeLessThanOrEqual(180);
+    // budget 归零后 facts/tasks 应全部被裁掉;仅 decisions(截到 180)保留。
+    const factNodes = egoNodes.filter((n) => n.data?.entity === "fact");
+    const taskNodes = egoNodes.filter((n) => n.data?.entity === "task");
+    expect(factNodes.length).toBe(0);
+    expect(taskNodes.length).toBe(0);
+    const decisionNodes = egoNodes.filter((n) => n.data?.entity === "decision");
+    expect(decisionNodes.length).toBe(180);
+    const notice = out.nodes.find((n) => n.id === "ledger-cap-notice");
+    expect(notice).toBeDefined();
+  });
+
   it("所有节点都有 navRef(供 enterSpotlight 消费)", async () => {
     const tasks = [task("t1", { module: "m" })];
     const decisions = [decision("dec1")];

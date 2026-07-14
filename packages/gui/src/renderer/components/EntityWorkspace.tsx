@@ -31,6 +31,8 @@ import type { ViewMode } from "../graph/useTerritoryView.ts";
  *   - 演化史→聚光灯:genealogy 侧栏的 onFocusChange 已把当前 decision 写回 focusedEntityRef;
  *     GraphView 重新挂载时 useEgoCanvas 的 bootstrap effect 据 focusRef 复焦点。
  *   - 领地→聚光灯:territory chip / 全域节点单击 → enterSpotlight(navRef) 同步切模式 + 复焦。
+ *   - 聚光灯历史 back/forward/clear:useEgoCanvas.stepHistory / clearFocus 上行 onFocusChange,
+ *     同步 AppLocation.focusedEntityRef —— 否则历史导航后演化史会开在陈旧 decision 上。
  *
  * 演化史仅 decision 有谱系(GENEALOGY_KINDS 只认 decision↔decision)。非 decision 焦点时
  * 演化史按钮置灰 + tooltip(三选项常驻,不像旧 facet tab 那样隐藏 —— 不假装万物皆有谱系,

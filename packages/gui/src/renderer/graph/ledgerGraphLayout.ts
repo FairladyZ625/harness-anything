@@ -100,25 +100,32 @@ export async function layoutLedgerGraph(input: LedgerInput): Promise<LayoutOutpu
   const factsCapped = sortedFacts.slice(0, FACT_VISIBLE_CAP);
   const factsHiddenByCap = candFacts.length - factsCapped.length;
 
-  // ── 密度上限 ~180:超限则砍 done/cancelled task,再砍最旧 fact ──
-  const visDecisions = candDecisions;
+  // ── 密度上限 ~180:三类实体共享预算(含 decision);超限按优先级裁剪 ──
+  // 优先级:decision > 非 done task > fact > done task。
+  // 预算始终 clamp ≥ 0 —— 负 budget 会让 Array#slice(0, -N) 误保留尾部,而非清空。
+  let visDecisions = candDecisions;
   let visTasks = candTasks;
   let visFacts = factsCapped;
   const totalCandidate = visDecisions.length + visTasks.length + visFacts.length;
   let hiddenByDensity = 0;
   if (totalCandidate > NODE_CAP) {
-    // 优先级:decision > 非 done task > fact > done task
     const activeTasks = visTasks.filter((t) => t.coordinationStatus !== "done" && t.coordinationStatus !== "cancelled");
     const doneTasks = visTasks.filter((t) => t.coordinationStatus === "done" || t.coordinationStatus === "cancelled");
-    const budget = NODE_CAP - visDecisions.length;
-    // 先给 facts 固定份额(budget 的 1/3),余给 tasks
-    const factBudget = Math.min(visFacts.length, Math.floor(budget / 3));
+    // decisions 优先,但同样受 NODE_CAP 约束(决策单独 > 180 时也要截断)。
+    const keptDecisions = visDecisions.slice(0, NODE_CAP);
+    const budget = Math.max(0, NODE_CAP - keptDecisions.length);
+    // 先给 facts 固定份额(剩余 budget 的 1/3),余给 tasks;份额与 slice 端均 ≥ 0。
+    const factBudget = Math.max(0, Math.min(visFacts.length, Math.floor(budget / 3)));
     const taskBudget = Math.max(0, budget - factBudget);
     const keptActive = activeTasks.slice(0, taskBudget);
-    const keptDone = taskBudget > keptActive.length ? doneTasks.slice(0, taskBudget - keptActive.length) : [];
-    hiddenByDensity = totalCandidate - (visDecisions.length + keptActive.length + keptDone.length + Math.min(visFacts.length, factBudget));
+    const keptDone =
+      taskBudget > keptActive.length ? doneTasks.slice(0, taskBudget - keptActive.length) : [];
+    const keptFacts = visFacts.slice(0, factBudget);
+    hiddenByDensity =
+      totalCandidate - (keptDecisions.length + keptActive.length + keptDone.length + keptFacts.length);
+    visDecisions = keptDecisions;
     visTasks = [...keptActive, ...keptDone];
-    visFacts = visFacts.slice(0, factBudget);
+    visFacts = keptFacts;
   }
 
   // ── 可见 id 集 ──

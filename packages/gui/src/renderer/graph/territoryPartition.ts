@@ -389,15 +389,24 @@ export function partitionDecisionTerritory(input: PartitionInput): Section[] {
 // ══ fact 领地 ══
 
 /**
- * fact 领地:按宿主 task 的模块分区,失效/孤儿/被替代的 fact 单独收拢进「需关注」示警区。
+ * fact 领地:按宿主 task 的模块分区,失效/孤儿/被替代/低置信的 fact 单独收拢进「需关注」示警区。
  *
  * 复用 fact-triage.ts 的分诊信号(INVALIDATED/ORPHAN/SUPERSEDED/LOW_CONFIDENCE)判定
  * 示警区成员;健康 fact 按模块聚合,与 task 领地的 module zone 同构(便于用户横向对照)。
+ *
+ * 模块过滤策略(与 unified ledger 对齐):
+ *   - 有宿主 task → 宿主 module 在 filters.modules 中才可见;
+ *   - 无宿主(task 不在投影)→ 保留可见(与 unlanded 区一致,避免无主 fact 被模块误删)。
  */
 export function partitionFactTerritory(input: PartitionInput): Section[] {
   const { facts, tasks, relations, filters, coverageRows, factAnchors } = input;
-  const visible = facts.filter((_f) => filters.types.has("fact"));
   const taskById = new Map<string, TaskRow>(tasks.map((t) => [t.taskId, t] as [string, TaskRow]));
+  // 类型 + 宿主模块双门;无宿主 fact 不过模块门(见上 JSDoc)。
+  const visible = facts.filter((f) => {
+    if (!filters.types.has("fact")) return false;
+    const host = taskById.get(f.taskId);
+    return host ? filters.modules.has(host.module) : true;
+  });
 
   // 分诊信号(复用 fact-triage 的权威判定)
   const triaged: FactTriageItem[] = visible.map((f) =>
