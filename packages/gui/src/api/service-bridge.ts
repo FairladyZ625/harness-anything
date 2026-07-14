@@ -1,5 +1,6 @@
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
-import { apiRouteContracts, deferredGuiBridgeContracts, type ApiRouteContract } from "./api-contract-registry.ts";
+import { apiRouteContracts, deferredGuiBridgeContracts, terminalGuiBridgeContracts, type ApiRouteContract } from "./api-contract-registry.ts";
+import { terminalBridgeHandlerImplementations } from "./terminal-bridge-handlers.ts";
 
 // Contract anchor: document path normalization remains owned by the daemon-side
 // LocalControllerService via kernel normalizeRelativeDocumentPath. GUI main must
@@ -12,6 +13,7 @@ type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
 type ShippedGuiBridgeRoute = Extract<(typeof apiRouteContracts)[number], { readonly guiBridgeMethod: PreloadApiMethod }>;
 type ShippedGuiBridgeMethod = ShippedGuiBridgeRoute["guiBridgeMethod"];
+export type TerminalGuiBridgeMethod = (typeof terminalGuiBridgeContracts)[number]["guiBridgeMethod"];
 type LocalControllerGuiMethod =
   | "getCatalogSnapshot"
   | "getTasks"
@@ -38,6 +40,7 @@ type LocalControllerGuiMethod =
   | "reviewTask"
   | "appendTaskProgress"
   | "rebuildGovernance";
+type TerminalGuiServiceMethod = (typeof terminalGuiBridgeContracts)[number]["serviceMethod"];
 
 interface GuiBridgeServiceProxy {
   readonly getCatalogSnapshot: () => Promise<unknown> | unknown;
@@ -65,15 +68,20 @@ interface GuiBridgeServiceProxy {
   readonly reviewTask: (payload: unknown) => Promise<unknown> | unknown;
   readonly appendTaskProgress: (payload: unknown) => Promise<unknown> | unknown;
   readonly rebuildGovernance: () => Promise<unknown> | unknown;
+  readonly terminalCreate: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalWrite: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalRead: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalResize: (payload: unknown) => Promise<unknown> | unknown;
+  readonly terminalExit: (payload: unknown) => Promise<unknown> | unknown;
 }
 
-interface GuiBridgeHandlerContext {
+export interface GuiBridgeHandlerContext {
   readonly service: GuiBridgeServiceProxy;
   readonly payload: unknown;
 }
 
-interface GuiBridgeHandlerImplementation {
-  readonly serviceMethod: LocalControllerGuiMethod;
+export interface GuiBridgeHandlerImplementation {
+  readonly serviceMethod: LocalControllerGuiMethod | TerminalGuiServiceMethod;
   readonly invoke: (context: GuiBridgeHandlerContext) => Promise<unknown> | unknown;
 }
 
@@ -187,9 +195,16 @@ export function getShippedGuiBridgeMethods(): ReadonlyArray<ShippedGuiBridgeMeth
 }
 
 const shippedGuiBridgeMethods = new Set<PreloadApiMethod>(getShippedGuiBridgeMethods());
+const terminalGuiBridgeMethods = new Set<PreloadApiMethod>(terminalGuiBridgeContracts.map((entry) => entry.guiBridgeMethod));
 const routeByGuiMethod = new Map<PreloadApiMethod, ApiRouteContract>(
   apiRouteContracts.flatMap((route) => "guiBridgeMethod" in route && route.guiBridgeMethod ? [[route.guiBridgeMethod as PreloadApiMethod, route]] : [])
 );
+const routeById = new Map(apiRouteContracts.map((route) => [route.id, route]));
+const terminalRouteByGuiMethod = new Map<PreloadApiMethod, ApiRouteContract>(terminalGuiBridgeContracts.map((entry) => {
+  const route = routeById.get(entry.routeId);
+  if (!route) throw new Error(`Terminal GUI bridge route is not registered: ${entry.routeId}`);
+  return [entry.guiBridgeMethod, route];
+}));
 const deferredGuiBridgeReasons = new Map<PreloadApiMethod, string>(
   deferredGuiBridgeContracts.map((entry) => [entry.guiBridgeMethod, entry.reason])
 );
@@ -208,6 +223,10 @@ export async function dispatchGuiServiceMethod(
 ): Promise<unknown> {
   if (shippedGuiBridgeMethods.has(method as PreloadApiMethod)) {
     const handler = guiBridgeHandlerImplementations[method as ShippedGuiBridgeMethod];
+    return handler.invoke({ service, payload });
+  }
+  if (terminalGuiBridgeMethods.has(method as PreloadApiMethod)) {
+    const handler = terminalBridgeHandlerImplementations[method as TerminalGuiBridgeMethod];
     return handler.invoke({ service, payload });
   }
   const deferredReason = deferredGuiBridgeReasons.get(method as PreloadApiMethod);
@@ -255,7 +274,12 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     setTaskStatus: (payload) => invokeDaemonGuiRoute(request, "setTaskStatus", payload),
     reviewTask: (payload) => invokeDaemonGuiRoute(request, "reviewTask", payload),
     appendTaskProgress: (payload) => invokeDaemonGuiRoute(request, "appendTaskProgress", payload),
-    rebuildGovernance: () => invokeDaemonGuiRoute(request, "rebuildGovernance", undefined)
+    rebuildGovernance: () => invokeDaemonGuiRoute(request, "rebuildGovernance", undefined),
+    terminalCreate: (payload) => invokeDaemonGuiRoute(request, "terminalCreate", payload),
+    terminalWrite: (payload) => invokeDaemonGuiRoute(request, "terminalWrite", payload),
+    terminalRead: (payload) => invokeDaemonGuiRoute(request, "terminalRead", payload),
+    terminalResize: (payload) => invokeDaemonGuiRoute(request, "terminalResize", payload),
+    terminalExit: (payload) => invokeDaemonGuiRoute(request, "terminalExit", payload)
   };
 }
 
@@ -264,7 +288,7 @@ async function invokeDaemonGuiRoute(
   method: PreloadApiMethod,
   payload: unknown
 ): Promise<unknown> {
-  const route = routeByGuiMethod.get(method);
+  const route = routeByGuiMethod.get(method) ?? terminalRouteByGuiMethod.get(method);
   if (!route) {
     return {
       ok: false,
@@ -311,9 +335,71 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
       return validateSetStatusPayload(payload);
     case "application.append-task-progress-payload/v1":
       return validateAppendProgressPayload(payload);
+    case "terminal.create-session-payload/v1":
+      return validateTerminalCreatePayload(payload);
+    case "terminal.write-session-payload/v1":
+      return validateTerminalWritePayload(payload);
+    case "terminal.output-read-payload/v1":
+      return validateTerminalReadPayload(payload);
+    case "terminal.resize-session-payload/v1":
+      return validateTerminalResizePayload(payload);
+    case "terminal.session-id-payload/v1":
+      return validateTerminalSessionIdPayload(payload);
     default:
       return { ok: true, payload };
   }
+}
+
+function validateTerminalCreatePayload(payload: unknown): PayloadValidation {
+  if (!isServicePayloadRecord(payload)) return invalidPayload("terminal create payload is required.");
+  for (const field of ["name", "cwd", "shell", "projectId", "taskId"] as const) {
+    if (payload[field] !== undefined && typeof payload[field] !== "string") {
+      return invalidPayload(`${field} must be a string.`);
+    }
+  }
+  if (payload.backend !== undefined && payload.backend !== "direct-pty") {
+    return invalidPayload("P0 terminal creation supports the direct-pty backend only.");
+  }
+  return { ok: true, payload };
+}
+
+function validateTerminalSessionIdPayload(payload: unknown): PayloadValidation {
+  if (!isServicePayloadRecord(payload) || !nonBlankString(payload.sessionId)) {
+    return invalidPayload("sessionId is required.");
+  }
+  return { ok: true, payload };
+}
+
+function validateTerminalWritePayload(payload: unknown): PayloadValidation {
+  const session = validateTerminalSessionIdPayload(payload);
+  if (!session.ok) return session;
+  if (!isServicePayloadRecord(payload) || typeof payload.data !== "string" || new TextEncoder().encode(payload.data).byteLength > 65_536) {
+    return invalidPayload("terminal data must be a string no larger than 64 KiB.");
+  }
+  return { ok: true, payload };
+}
+
+function validateTerminalReadPayload(payload: unknown): PayloadValidation {
+  const session = validateTerminalSessionIdPayload(payload);
+  if (!session.ok) return session;
+  if (!isServicePayloadRecord(payload)) return invalidPayload("terminal read payload is required.");
+  if (payload.cursor !== undefined && (!Number.isInteger(payload.cursor) || Number(payload.cursor) < 0)) {
+    return invalidPayload("cursor must be a non-negative integer.");
+  }
+  if (payload.timeoutMs !== undefined && (!Number.isInteger(payload.timeoutMs) || Number(payload.timeoutMs) < 0 || Number(payload.timeoutMs) > 1_000)) {
+    return invalidPayload("timeoutMs must be an integer between 0 and 1000.");
+  }
+  return { ok: true, payload };
+}
+
+function validateTerminalResizePayload(payload: unknown): PayloadValidation {
+  const session = validateTerminalSessionIdPayload(payload);
+  if (!session.ok) return session;
+  if (
+    !isServicePayloadRecord(payload) || !Number.isInteger(payload.columns) || Number(payload.columns) <= 0 ||
+    !Number.isInteger(payload.rows) || Number(payload.rows) <= 0
+  ) return invalidPayload("terminal rows and columns must be positive integers.");
+  return { ok: true, payload };
 }
 
 function validateTaskIdPayload(payload: unknown): PayloadValidation {

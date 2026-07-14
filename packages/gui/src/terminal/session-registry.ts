@@ -63,6 +63,40 @@ export interface ResizeTerminalSessionPayload extends TerminalSessionIdPayload {
   readonly rows: number;
 }
 
+export interface WriteTerminalSessionPayload extends TerminalSessionIdPayload {
+  readonly data: string;
+}
+
+export interface ReadTerminalSessionPayload extends TerminalSessionIdPayload {
+  readonly cursor?: number;
+  readonly timeoutMs?: number;
+}
+
+export interface TerminalOutputDataEvent {
+  readonly kind: "data";
+  readonly sequence: number;
+  readonly data: string;
+}
+
+export interface TerminalOutputExitEvent {
+  readonly kind: "exit";
+  readonly sequence: number;
+  readonly exitCode: number;
+  readonly signal?: number;
+}
+
+export type TerminalOutputEvent = TerminalOutputDataEvent | TerminalOutputExitEvent;
+
+export interface TerminalOutputReadSuccess {
+  readonly ok: true;
+  readonly session: TerminalSessionInfo;
+  readonly events: ReadonlyArray<TerminalOutputEvent>;
+  readonly nextCursor: number;
+  readonly dropped: boolean;
+}
+
+export type TerminalOutputReadResult = TerminalOutputReadSuccess | TerminalSessionFailure;
+
 export interface TerminalSessionDetailSuccess {
   readonly ok: true;
   readonly session: TerminalSessionInfo;
@@ -97,12 +131,15 @@ export interface TerminalSessionService {
   readonly listSessions: () => TerminalSessionListResult;
   readonly getSession: (payload: TerminalSessionIdPayload) => TerminalSessionDetailResult;
   readonly attachSession: (payload: TerminalSessionIdPayload) => TerminalAttachPolicyResult;
+  readonly writeSession: (payload: WriteTerminalSessionPayload) => TerminalSessionDetailResult;
+  readonly readSession: (payload: ReadTerminalSessionPayload) => TerminalOutputReadResult | Promise<TerminalOutputReadResult>;
   readonly resizeSession: (payload: ResizeTerminalSessionPayload) => TerminalSessionDetailResult;
   readonly closeSession: (payload: TerminalSessionIdPayload) => TerminalSessionDetailResult;
 }
 
 export interface InMemoryTerminalSessionService extends TerminalSessionService {
   readonly detachSessionView: (payload: TerminalSessionIdPayload) => TerminalSessionDetailResult;
+  readonly markSessionExited: (payload: TerminalSessionIdPayload & { readonly exitCode: number }) => TerminalSessionDetailResult;
 }
 
 export interface TerminalSessionRegistryOptions {
@@ -231,6 +268,21 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
         }
       };
     },
+    writeSession: (payload) => {
+      if (typeof payload.data !== "string" || new TextEncoder().encode(payload.data).byteLength > 65_536) {
+        return failure("invalid_terminal_input", "Terminal input must be a string no larger than 64 KiB.");
+      }
+      const session = getExistingSession(payload.sessionId);
+      if (!isTerminalSessionInfo(session)) return session;
+      if (session.status === "exited") return failure("terminal_session_exited", "Exited terminal sessions do not accept input.");
+      return { ok: true, session: save({ ...session, status: "active", lastActivityAt: now() }) };
+    },
+    readSession: (payload) => {
+      const session = getExistingSession(payload.sessionId);
+      if (!isTerminalSessionInfo(session)) return session;
+      const cursor = Number.isInteger(payload.cursor) && Number(payload.cursor) >= 0 ? Number(payload.cursor) : 0;
+      return { ok: true, session, events: [], nextCursor: cursor, dropped: false };
+    },
     resizeSession: (payload) => {
       if (!Number.isInteger(payload.columns) || payload.columns <= 0 || !Number.isInteger(payload.rows) || payload.rows <= 0) {
         return failure("invalid_terminal_size", "Terminal rows and columns must be positive integers.");
@@ -251,6 +303,14 @@ export function createInMemoryTerminalSessionService(options: TerminalSessionReg
       if (!isTerminalSessionInfo(session)) return session;
       if (session.status === "exited") return { ok: true, session };
       return { ok: true, session: save({ ...session, status: "idle", lastActivityAt: now() }) };
+    },
+    markSessionExited: (payload) => {
+      const session = getExistingSession(payload.sessionId);
+      if (!isTerminalSessionInfo(session)) return session;
+      return {
+        ok: true,
+        session: save({ ...session, status: "exited", lastActivityAt: now(), exitCode: payload.exitCode })
+      };
     }
   };
 }

@@ -1,0 +1,11 @@
+{
+  "terminal.dock.title": "Terminal",
+  "terminal.dock.open": "Open terminal",
+  "terminal.dock.close": "Close terminal",
+  "terminal.dock.shortcut": "Ctrl+`",
+  "terminal.pane.connecting": "Starting shell…",
+  "terminal.pane.cwd": "Working directory: {cwd}",
+  "terminal.pane.connectionFailed": "Terminal failed: {error}",
+  "terminal.pane.outputDropped": "Earlier terminal output was trimmed.",
+  "terminal.pane.exited": "Process exited with code {code}."
+}

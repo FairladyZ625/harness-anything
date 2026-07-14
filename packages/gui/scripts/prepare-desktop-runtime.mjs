@@ -90,10 +90,10 @@ async function prepareDaemonNodeModules() {
   rmSync(appNodeModulesDir, { recursive: true, force: true });
   mkdirSync(appNodeModulesDir, { recursive: true });
 
-  const dependencyPaths = execFileSync(npmExecutableName, ["ls", "--workspace", "@harness-anything/cli", "--omit=dev", "--parseable", "--all"], {
-    cwd: repoRoot,
-    encoding: "utf8"
-  }).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  const dependencyPaths = new Set([
+    ...listProductionDependencies(["--workspace", "@harness-anything/cli"]),
+    ...listProductionDependencies(["--workspace", "@harness-anything/gui", "node-pty", "node-addon-api"])
+  ]);
 
   const nodeModulesRoot = join(repoRoot, "node_modules");
   for (const dependencyPath of dependencyPaths) {
@@ -109,6 +109,16 @@ async function prepareDaemonNodeModules() {
       filter: (source) => !source.includes(`${basename(dependencyPath)}/.git`)
     });
   }
+
+  const spawnHelper = join(appNodeModulesDir, "node-pty", "prebuilds", runtimeId, "spawn-helper");
+  if (platform !== "win32" && existsSync(spawnHelper)) await chmod(spawnHelper, 0o755);
+}
+
+function listProductionDependencies(argumentsBeforePackages) {
+  return execFileSync(npmExecutableName, ["ls", ...argumentsBeforePackages, "--omit=dev", "--parseable", "--all"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  }).split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
 }
 
 async function download(url, destination) {

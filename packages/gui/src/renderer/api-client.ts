@@ -39,6 +39,14 @@ import {
 } from "./execution-evidence-api-contract.ts";
 export type { ExecutionEvidencePageSuccess } from "./execution-evidence-api-contract.ts";
 
+import {
+  createTerminalClient,
+  type TerminalOutputReadSuccess,
+  type TerminalSessionInfo
+} from "./terminal-api-client.ts";
+
+export type { TerminalOutputReadSuccess, TerminalSessionInfo };
+
 type HarnessBridgeMethod =
   | "getCatalogSnapshot"
   | "getTasks"
@@ -61,7 +69,12 @@ type HarnessBridgeMethod =
   | "setTaskStatus"
   | "reviewTask"
   | "appendTaskProgress"
-  | "rebuildGovernance";
+  | "rebuildGovernance"
+  | "terminalCreate"
+  | "terminalWrite"
+  | "terminalRead"
+  | "terminalResize"
+  | "terminalExit";
 
 type HarnessBridge = Record<HarnessBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
   readonly capabilities?: unknown;
@@ -239,7 +252,8 @@ export const harnessClient = {
   async rebuildGovernance(): Promise<TaskListSuccess> {
     const result = await invokeBridge("rebuildGovernance", null);
     return readTaskListResult(result);
-  }
+  },
+  ...createTerminalClient(invokeBridge)
 };
 
 async function invokeBridge(method: HarnessBridgeMethod, payload: object | null): Promise<unknown> {
@@ -478,6 +492,7 @@ function readCommandResult(value: unknown): CommandResult {
     }
   };
 }
+
 
 function isTaskProjectionRow(value: unknown): value is TaskProjectionRow {
   return Boolean(

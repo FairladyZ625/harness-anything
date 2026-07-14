@@ -1036,6 +1036,7 @@
       ],
       "apiRoutes": [
         "terminal.sessions.create",
+        "terminal.sessions.write",
         "terminal.sessions.resize",
         "terminal.sessions.close"
       ],

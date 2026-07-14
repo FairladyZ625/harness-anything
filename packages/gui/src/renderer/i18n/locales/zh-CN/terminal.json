@@ -1,0 +1,11 @@
+{
+  "terminal.dock.title": "终端",
+  "terminal.dock.open": "打开终端",
+  "terminal.dock.close": "关闭终端",
+  "terminal.dock.shortcut": "Ctrl+`",
+  "terminal.pane.connecting": "正在启动 Shell…",
+  "terminal.pane.cwd": "工作目录：{cwd}",
+  "terminal.pane.connectionFailed": "终端启动失败：{error}",
+  "terminal.pane.outputDropped": "更早的终端输出已被截断。",
+  "terminal.pane.exited": "进程已退出，代码 {code}。"
+}

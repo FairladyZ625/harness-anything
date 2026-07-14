@@ -18,7 +18,7 @@ export interface ApiRouteContract {
   readonly auth: ApiRouteAuth;
   readonly guiBridgeMethod?: string;
   readonly leaseRequired?: boolean;
-  readonly commandClass?: "repo-write" | "arbiter";
+  readonly commandClass?: "repo-read" | "repo-write" | "arbiter";
 }
 
 export interface ApiSchemaContract {
@@ -32,6 +32,12 @@ export interface DeferredGuiBridgeContract {
   readonly service: "LocalControllerService";
   readonly serviceMethod: keyof LocalControllerService;
   readonly reason: string;
+}
+
+export interface TerminalGuiBridgeContract {
+  readonly guiBridgeMethod: string;
+  readonly routeId: string;
+  readonly serviceMethod: keyof TerminalSessionService;
 }
 
 export interface EmptyGuiPayload {
@@ -73,11 +79,14 @@ export const apiSchemaContracts = [
   { id: "application.task-execution-list-result/v1", owner: "application", typeName: "TaskExecutionListResult" },
   { id: "terminal.attach-policy-result/v1", owner: "gui", typeName: "TerminalAttachPolicyResult" },
   { id: "terminal.create-session-payload/v1", owner: "gui", typeName: "CreateTerminalSessionPayload" },
+  { id: "terminal.output-read-payload/v1", owner: "gui", typeName: "ReadTerminalSessionPayload" },
+  { id: "terminal.output-read-result/v1", owner: "gui", typeName: "TerminalOutputReadResult" },
   { id: "terminal.resize-session-payload/v1", owner: "gui", typeName: "ResizeTerminalSessionPayload" },
   { id: "terminal.session-detail-result/v1", owner: "gui", typeName: "TerminalSessionDetailResult" },
   { id: "terminal.session-error/v1", owner: "gui", typeName: "TerminalSessionFailure" },
   { id: "terminal.session-id-payload/v1", owner: "gui", typeName: "TerminalSessionIdPayload" },
-  { id: "terminal.session-list-result/v1", owner: "gui", typeName: "TerminalSessionListResult" }
+  { id: "terminal.session-list-result/v1", owner: "gui", typeName: "TerminalSessionListResult" },
+  { id: "terminal.write-session-payload/v1", owner: "gui", typeName: "WriteTerminalSessionPayload" }
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
 export const apiRouteContracts = [
@@ -359,7 +368,8 @@ export const apiRouteContracts = [
     errorSchemaId: "terminal.session-error/v1",
     service: "TerminalSessionService",
     serviceMethod: "createSession",
-    auth: "local-session-token"
+    auth: "local-session-token",
+    commandClass: "repo-read"
   },
   {
     id: "terminal.sessions.list",
@@ -395,6 +405,29 @@ export const apiRouteContracts = [
     auth: "local-session-token"
   },
   {
+    id: "terminal.sessions.write",
+    method: "POST",
+    path: "/api/terminal/sessions/:id/input",
+    inputSchemaId: "terminal.write-session-payload/v1",
+    outputSchemaId: "terminal.session-detail-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "writeSession",
+    auth: "local-session-token",
+    commandClass: "repo-read"
+  },
+  {
+    id: "terminal.sessions.read",
+    method: "GET",
+    path: "/api/terminal/sessions/:id/output",
+    inputSchemaId: "terminal.output-read-payload/v1",
+    outputSchemaId: "terminal.output-read-result/v1",
+    errorSchemaId: "terminal.session-error/v1",
+    service: "TerminalSessionService",
+    serviceMethod: "readSession",
+    auth: "local-session-token"
+  },
+  {
     id: "terminal.sessions.resize",
     method: "POST",
     path: "/api/terminal/sessions/:id/resize",
@@ -403,7 +436,8 @@ export const apiRouteContracts = [
     errorSchemaId: "terminal.session-error/v1",
     service: "TerminalSessionService",
     serviceMethod: "resizeSession",
-    auth: "local-session-token"
+    auth: "local-session-token",
+    commandClass: "repo-read"
   },
   {
     id: "terminal.sessions.close",
@@ -414,9 +448,18 @@ export const apiRouteContracts = [
     errorSchemaId: "terminal.session-error/v1",
     service: "TerminalSessionService",
     serviceMethod: "closeSession",
-    auth: "local-session-token"
+    auth: "local-session-token",
+    commandClass: "repo-read"
   }
 ] as const satisfies ReadonlyArray<ApiRouteContract>;
+
+export const terminalGuiBridgeContracts = [
+  { guiBridgeMethod: "terminalCreate", routeId: "terminal.sessions.create", serviceMethod: "createSession" },
+  { guiBridgeMethod: "terminalWrite", routeId: "terminal.sessions.write", serviceMethod: "writeSession" },
+  { guiBridgeMethod: "terminalRead", routeId: "terminal.sessions.read", serviceMethod: "readSession" },
+  { guiBridgeMethod: "terminalResize", routeId: "terminal.sessions.resize", serviceMethod: "resizeSession" },
+  { guiBridgeMethod: "terminalExit", routeId: "terminal.sessions.close", serviceMethod: "closeSession" }
+] as const satisfies ReadonlyArray<TerminalGuiBridgeContract>;
 
 export const deferredGuiBridgeContracts = [
   {

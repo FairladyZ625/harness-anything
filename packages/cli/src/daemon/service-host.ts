@@ -5,6 +5,7 @@ import {
   makeTaskHolderService
 } from "../../../application/src/index.ts";
 import {
+  createPtyTerminalSessionService,
   createJsonRpcProtocolServer,
   type DaemonAuthenticationContext,
   type DaemonRepoAvailabilityFailure,
@@ -14,7 +15,6 @@ import {
   makeMarkdownArtifactStore,
   readDaemonRegistry
 } from "../../../kernel/src/index.ts";
-import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { loadDaemonIdentity } from "../commands/daemon/productization.ts";
 import { makeDaemonGuiControllerOptions } from "../commands/extensions/gui-controller-options.ts";
 import {
@@ -259,7 +259,7 @@ function createRepoServiceBinding(
     identity,
     services: {
       LocalControllerService: localController,
-      TerminalSessionService: makeUnavailableTerminalSessionService(),
+      TerminalSessionService: createPtyTerminalSessionService({ workspaceRoot: rootDir }),
       TaskHolderService: taskHolderService,
       DaemonStatusService: {
         getStatus: (context) => {
@@ -333,19 +333,4 @@ function repoAvailabilityFailure(
 
 function sortedDaemonRepos(repos: ReadonlyArray<DaemonRepoNamespace>): ReadonlyArray<DaemonRepoNamespace> {
   return [...repos].sort((left, right) => left.repoId.localeCompare(right.repoId) || left.canonicalRoot.localeCompare(right.canonicalRoot));
-}
-
-function makeUnavailableTerminalSessionService() {
-  const failure = {
-    ok: false as const,
-    error: cliError(CliErrorCode.TerminalServiceUnavailable, "Terminal sessions are not available from the CLI daemon command server.")
-  };
-  return {
-    createSession: () => failure,
-    listSessions: () => ({ ok: true as const, sessions: [] }),
-    getSession: () => failure,
-    attachSession: () => failure,
-    resizeSession: () => failure,
-    closeSession: () => failure
-  };
 }

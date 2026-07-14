@@ -8,6 +8,7 @@ import {
   preloadAllowlist,
   registerHarnessIpcHandlers,
   shippedPreloadMethods,
+  terminalGuiBridgeContracts,
   type GuiServiceBridge
 } from "../src/index.ts";
 
@@ -25,10 +26,12 @@ test("preload and IPC channel surfaces are derived from the API registry", () =>
   const shippedRegistryBridgeMethods = apiRouteContracts
     .map((contract) => contract.guiBridgeMethod)
     .filter((method): method is string => method !== undefined);
+  const terminalRegistryBridgeMethods = terminalGuiBridgeContracts.map((contract) => contract.guiBridgeMethod);
   const deferredRegistryBridgeMethods = deferredGuiBridgeContracts.map((contract) => contract.guiBridgeMethod);
   const registryBackedPreloadMethods = [
     ...shippedRegistryBridgeMethods,
-    ...deferredRegistryBridgeMethods
+    ...deferredRegistryBridgeMethods,
+    ...terminalRegistryBridgeMethods
   ];
   const channels: string[] = [];
 
@@ -42,7 +45,7 @@ test("preload and IPC channel surfaces are derived from the API registry", () =>
     { isTrustedWebContentsId: () => true, rendererUrl: { packagedRendererUrl: trustedRendererUrl } }
   );
 
-  assert.deepEqual(shippedPreloadMethods, shippedRegistryBridgeMethods);
+  assert.deepEqual(shippedPreloadMethods, [...shippedRegistryBridgeMethods, ...terminalRegistryBridgeMethods]);
   assert.deepEqual(preloadAllowlist, registryBackedPreloadMethods);
   assert.deepEqual(channels, registryBackedPreloadMethods.map((method) => `harness:${method}`));
 });

@@ -23,6 +23,7 @@ import { useNavigationHistory } from "./navigation/useNavigationHistory.ts";
 import type { EntityFacet } from "./navigation/navigationHistory.ts";
 import { buildEntityIndex, type EntityHit } from "./model/entitySearch.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
+import { TerminalDock } from "./components/terminal/TerminalDock.tsx";
 import { t, useI18n } from "./i18n/index.tsx";
 
 const RECENT_LIMIT = 12;
@@ -81,6 +82,7 @@ function AppShell() {
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   // Cmd+K 命令面板开态;Cmd+K / Ctrl+K 全局切换,面板内 Esc / Cmd+K 关闭。
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   // 最近焦点实体队列(用户在面板/画布/详情之间跳过哪些 navRef)。first = 最新。
   const [recentRefs, setRecentRefs] = useState<string[]>([]);
 
@@ -272,6 +274,17 @@ function AppShell() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.code === "Backquote") {
+        event.preventDefault();
+        setTerminalOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // 全局快捷键:Cmd+[ / Cmd+] (Mac) / Ctrl+[ / Ctrl+] (Win/Linux)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -398,6 +411,11 @@ function AppShell() {
             />
           </div>
         </div>
+        <TerminalDock
+          open={terminalOpen}
+          projectId={projectId}
+          onToggle={() => setTerminalOpen((open) => !open)}
+        />
       </main>
       <TaskPreviewDrawer
         task={previewTask}

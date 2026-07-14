@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "session": {
+    "sessionId": "term-1",
+    "name": "Terminal",
+    "backend": "direct-pty",
+    "status": "active",
+    "hostLabel": "local",
+    "cwd": "/workspace",
+    "shell": "/bin/sh",
+    "createdAt": "2026-07-14T00:00:00.000Z"
+  },
+  "events": [
+    { "kind": "data", "sequence": 1, "data": "ready\r\n" }
+  ],
+  "nextCursor": 1,
+  "dropped": false
+}

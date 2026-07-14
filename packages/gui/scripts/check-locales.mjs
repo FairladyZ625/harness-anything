@@ -17,7 +17,7 @@ function readLocale(locale) {
     const catalog = JSON.parse(readFileSync(path.join(directory, file), "utf8"));
     for (const [key, value] of Object.entries(catalog)) {
       if (messages.has(key)) errors.push(`${locale}: duplicate key ${key}`);
-      if (!/^(components|graph|model|renderer|views)\.[a-z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$/.test(key)) {
+      if (!/^(components|graph|model|renderer|terminal|views)\.[a-z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$/.test(key)) {
         errors.push(`${locale}: key is not a semantic domain identifier: ${key}`);
       }
       if (typeof value !== "string" || value.trim().length === 0) errors.push(`${locale}: empty message ${key}`);

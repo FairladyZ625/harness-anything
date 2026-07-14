@@ -191,6 +191,27 @@ test("GUI daemon bridge exposes one triadic projection snapshot", async () => {
   assert.deepEqual(routeIds, ["triadic.snapshot"]);
 });
 
+test("GUI daemon bridge exposes terminal lifecycle and streaming routes", async () => {
+  const routeIds: string[] = [];
+  const bridge = createGuiServiceBridgeForDaemon(async (route) => {
+    routeIds.push(route.id);
+    return { ok: true, details: { data: { ok: true, routeId: route.id } } };
+  });
+
+  assert.equal((await bridge.invoke("terminalCreate", { name: "Terminal", backend: "direct-pty" }) as { readonly routeId?: string }).routeId, "terminal.sessions.create");
+  assert.equal((await bridge.invoke("terminalWrite", { sessionId: "term-1", data: "pwd\r" }) as { readonly routeId?: string }).routeId, "terminal.sessions.write");
+  assert.equal((await bridge.invoke("terminalRead", { sessionId: "term-1", cursor: 0, timeoutMs: 250 }) as { readonly routeId?: string }).routeId, "terminal.sessions.read");
+  assert.equal((await bridge.invoke("terminalResize", { sessionId: "term-1", columns: 100, rows: 30 }) as { readonly routeId?: string }).routeId, "terminal.sessions.resize");
+  assert.equal((await bridge.invoke("terminalExit", { sessionId: "term-1" }) as { readonly routeId?: string }).routeId, "terminal.sessions.close");
+  assert.deepEqual(routeIds, [
+    "terminal.sessions.create",
+    "terminal.sessions.write",
+    "terminal.sessions.read",
+    "terminal.sessions.resize",
+    "terminal.sessions.close"
+  ]);
+});
+
 test("GUI service bridge reaches application service through the daemon client", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-daemon-"));
   try {

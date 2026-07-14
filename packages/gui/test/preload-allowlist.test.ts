@@ -40,7 +40,12 @@ test("preload exposes only the approved API methods", () => {
     "rejectDecision",
     "deferDecision",
     "archiveTask",
-    "openShell"
+    "openShell",
+    "terminalCreate",
+    "terminalWrite",
+    "terminalRead",
+    "terminalResize",
+    "terminalExit"
   ]);
   assert.equal(isAllowedPreloadApiMethod("getTasks"), true);
   assert.equal(isAllowedPreloadApiMethod("readFile"), false);
@@ -74,7 +79,12 @@ test("preload capabilities distinguish shipped methods from deferred placeholder
     "proposeDecision",
     "acceptDecision",
     "rejectDecision",
-    "deferDecision"
+    "deferDecision",
+    "terminalCreate",
+    "terminalWrite",
+    "terminalRead",
+    "terminalResize",
+    "terminalExit"
   ]);
   assert.deepEqual(deferredPreloadMethods, ["archiveTask", "openShell"]);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");

@@ -183,6 +183,14 @@ export {
 } from "./transport/named-pipe.ts";
 export { serveSshExecBridge, type SshExecBridgeOptions } from "./transport/ssh-exec.ts";
 export {
+  createPtyTerminalSessionService,
+  resolveTerminalCwd,
+  resolveTerminalShell,
+  type PtySpawner,
+  type PtySpawnOptions,
+  type PtyTerminalSessionServiceOptions
+} from "../../gui/src/terminal/pty-host.ts";
+export {
   attachTokenBootstrapFrame,
   createInMemoryAttachTokenStore,
   serveSshTunnelTokenStream,
