@@ -42,8 +42,19 @@ interface TrieNode {
  *     task-plan.md       (file)
  */
 export function buildDocTree(docs: readonly DocEntry[]): DocTreeNode[] {
-  const root = buildTrie(docs);
+  const visible = docs.filter((doc) => !isIgnoredDoc(doc.path));
+  const root = buildTrie(visible);
   return flattenAndSort(root);
+}
+
+/**
+ * 忽略仅用于版本控制占位、非用户内容的文件。
+ * `.gitkeep` 只是为让空目录进 git 而存在,展示给用户没有意义。
+ * 若某目录仅含 `.gitkeep`,过滤后该目录不再入 trie,空目录一并隐去。
+ */
+function isIgnoredDoc(path: string): boolean {
+  const base = path.split("/").filter((s) => s.length > 0).pop() ?? "";
+  return base === ".gitkeep";
 }
 
 function buildTrie(docs: readonly DocEntry[]): Map<string, TrieNode> {
