@@ -332,16 +332,16 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   await focusSwitcher.getByRole("button").filter({ hasText: "Expose the triadic projection to the GUI" }).click();
   await focusHistoryBar.getByText("decision/dec_gui_smoke", { exact: true }).waitFor();
 
-  // G3 §③: Genealogy is now a facet (tab) of the EntityWorkspace for decisions,
-  // not a permanent top bar. Switching to the lineage facet renders the
-  // genealogy timeline; switching back to relations restores the ego canvas.
-  const facetTabs = page.getByTestId("entity-facet-tabs");
-  await facetTabs.getByRole("button", { name: localeRe("components.entityWorkspace.facetLineage") }).click();
+  // Genealogy is the third option in the entity workspace mode bar
+  // (领地/聚光灯/演化史 = territory/spotlight/genealogy). Switching to 演化史 renders
+  // the genealogy timeline; switching back to 聚光灯 restores the ego canvas.
+  const modeBar = page.getByTestId("entity-workspace-mode-bar");
+  await modeBar.getByRole("button", { name: localeRe("components.territoryModeBar.genealogy") }).click();
   // The fixture has 2 participating decisions and 1 evolution edge (refines).
   await page.getByText(localeText("views.genealogyTimelineView.headerStats", { participants: 2, edges: 1 })).waitFor();
   await page.locator("button.absolute").filter({ hasText: "Earlier GUI projection decision" }).waitFor();
   await page.locator("button.absolute").filter({ hasText: "Expose the triadic projection to the GUI" }).waitFor();
-  await facetTabs.getByRole("button", { name: localeRe("components.entityWorkspace.facetRelations") }).click();
+  await modeBar.getByRole("button", { name: localeRe("components.territoryModeBar.spotlight") }).click();
   await graphCanvas.waitFor({ timeout: 10_000 });
   // Focus decision is back as an ego node.
   await page.locator(".react-flow__node-ego", { hasText: "Expose the triadic projection to the GUI" }).waitFor();

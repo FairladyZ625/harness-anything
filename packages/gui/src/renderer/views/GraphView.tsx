@@ -34,8 +34,8 @@ import { LaneBackgroundNode } from "../graph/nodes/LaneBackgroundNode";
 import { TerritoryZoneNode } from "../graph/nodes/TerritoryZoneNode";
 import { TerritoryChipNode, territoryChipColor } from "../graph/nodes/TerritoryChipNode";
 import { InteractiveEdge } from "../graph/edges/InteractiveEdge";
-import { useTerritoryView } from "../graph/useTerritoryView";
-import { TerritoryModeBar } from "../components/TerritoryModeBar";
+import { useTerritoryView, type ViewMode } from "../graph/useTerritoryView";
+import { TerritorySkelToggle } from "../components/TerritoryModeBar";
 import {
   GraphFilterPanel,
   type GraphFilters,
@@ -93,6 +93,8 @@ function GraphViewInner({
   focusRef,
   recentHits,
   onOpenPalette,
+  viewMode,
+  onViewModeChange,
 }: {
   tasks: TaskRow[];
   relations: RelationEdge[];
@@ -111,6 +113,13 @@ function GraphViewInner({
   recentHits?: readonly EntityHit[];
   /** Cmd+K 命令面板触发器,打开全局面板。 */
   onOpenPalette?: () => void;
+  /**
+   * 领地/聚光灯模式(受控,由 EntityWorkspace 本地态持有 —— 它是 3 态选择条的一部分)。
+   * EntityWorkspace 在演化史模式下不挂载 GraphView,所以此值恒为 territory/spotlight。
+   */
+  viewMode: ViewMode;
+  /** 模式上行(territory chip 单击 → spotlight 时由 useTerritoryView.enterSpotlight 触发)。 */
+  onViewModeChange: (m: ViewMode) => void;
 }) {
   const colorMode = useColorMode();
 
@@ -178,21 +187,15 @@ function GraphViewInner({
     onFocusChange: onFocusEntityChange,
   });
 
-  // L1 领地总览状态机(territory ↔ spotlight 模式切换 + 骨架轴 + zone 折叠态)。
+  // L1 领地总览状态机(骨架轴 + zone 折叠态)。viewMode/spotlight 由 EntityWorkspace
+  // 经 props 受控下传(它把 territory/spotlight 与演化史 fuse 成一条 3 态选择条)。
   const {
-    viewMode,
     skel,
     expandedZones,
     enterSpotlight,
-    setViewMode,
     setSkel,
     toggleZone,
-  } = useTerritoryView(openFocus);
-
-  // 跨视图带入的 focusRef → 切到聚光灯(用户「跳到这张图」的足迹 = 要看某实体)。
-  useEffect(() => {
-    if (focusRef) setViewMode("spotlight");
-  }, [focusRef, setViewMode]);
+  } = useTerritoryView(openFocus, onViewModeChange);
 
   // 布局调度(异步 + AbortController)外置到 useGraphLayout;GraphView 只消费结果。
   // 传 containerWidth(D3 领地列数)和 sizeOverrides(D4 卡片尺寸)过布局链。
@@ -463,12 +466,9 @@ function GraphViewInner({
             maskColor="rgba(0, 0, 0, 0.5)"
             className="bg-surface border border-border rounded overflow-hidden"
           />
-          <TerritoryModeBar
-            viewMode={viewMode}
-            skel={skel}
-            onModeChange={setViewMode}
-            onSkelChange={setSkel}
-          />
+          {viewMode === "territory" && (
+            <TerritorySkelToggle skel={skel} onSkelChange={setSkel} />
+          )}
           <Panel position="top-left">
             <GraphFilterPanel
               filters={filters}
