@@ -33,7 +33,9 @@ const CreateMilestonePolicySchema = Schema.Struct({
     charterAnchor: Schema.optional(Schema.Struct({
       required: Schema.Boolean,
       entityType: Schema.Literal("decision"),
-      idPattern: Schema.String
+      idPattern: Schema.String,
+      policyEffectiveDate: Schema.optional(Schema.String.pipe(Schema.pattern(/^\d{4}-\d{2}-\d{2}$/u))),
+      grandfatheredMilestoneSlugs: Schema.optional(Schema.Array(Schema.String))
     })),
     requiredSections: Schema.optional(Schema.Array(Schema.Literal("gate-retro", "fact-evidence"))),
     additionalReferences: Schema.optional(Schema.Array(AdditionalReferenceSchema))
@@ -93,7 +95,13 @@ const POLICY_ENVELOPES: ReadonlyArray<PolicyEnvelopeDefinition> = [
     validateEnvelopeRules: (rules) => {
       exactObjectArray(rules.requiredArtifacts, "$.rules.requiredArtifacts", ["id", "role", "root", "path"]);
       if (rules.charterAnchor !== undefined) {
-        exactObject(rules.charterAnchor, "$.rules.charterAnchor", ["required", "entityType", "idPattern"]);
+        exactObject(rules.charterAnchor, "$.rules.charterAnchor", [
+          "required",
+          "entityType",
+          "idPattern",
+          "policyEffectiveDate",
+          "grandfatheredMilestoneSlugs"
+        ]);
       }
       exactObjectArray(rules.additionalReferences, "$.rules.additionalReferences", ["kind", "ref", "label"]);
     },
@@ -104,6 +112,15 @@ const POLICY_ENVELOPES: ReadonlyArray<PolicyEnvelopeDefinition> = [
       }
       if (envelopePolicy.rules.charterAnchor) {
         new RegExp(envelopePolicy.rules.charterAnchor.idPattern, "u");
+        const grandfatheredSlugs = envelopePolicy.rules.charterAnchor.grandfatheredMilestoneSlugs ?? [];
+        if (new Set(grandfatheredSlugs).size !== grandfatheredSlugs.length) {
+          throw new Error("Create-milestone charterAnchor grandfatheredMilestoneSlugs must not contain duplicates.");
+        }
+        for (const slug of grandfatheredSlugs) {
+          if (!/^[a-z0-9][a-z0-9-]*$/u.test(slug)) {
+            throw new Error(`Invalid grandfathered milestone slug: ${slug}.`);
+          }
+        }
       }
       if (envelopePolicy.rules.requiredArtifacts) {
         validateCreateMilestoneArtifacts(envelopePolicy.rules.requiredArtifacts);
