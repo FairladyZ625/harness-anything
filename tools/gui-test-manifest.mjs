@@ -15,5 +15,6 @@ export const guiVitestManifest = [
   "packages/gui/test/ledger-graph-layout.vitest.ts",
   "packages/gui/test/d6-focus-continuity.vitest.ts",
   "packages/gui/test/entitySearch.vitest.ts",
-  "packages/gui/test/commandPalette-render.vitest.ts"
+  "packages/gui/test/commandPalette-render.vitest.ts",
+  "packages/gui/test/decision-approval.vitest.ts"
 ];

@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  DecisionMutationResult,
   DecisionProjectionRow,
   FactProjectionRow,
   RelationCoverageRow,
@@ -14,6 +15,50 @@ export const triadicQueryKeys = {
   all: ["harness", "triadic"] as const,
   snapshot: () => [...triadicQueryKeys.all, "snapshot"] as const
 };
+
+export type DecideAction = "accept" | "reject" | "defer";
+
+export interface DecideMutationInput {
+  readonly decisionId: string;
+  readonly action: DecideAction;
+  /** Required non-empty for reject; optional for defer; ignored for accept. */
+  readonly judgmentOnlyRationale?: string;
+}
+
+/**
+ * Accept / reject / defer a proposed decision through the existing renderer API.
+ *
+ * Identity/actor is NOT passed from the renderer — the daemon derives the principal
+ * from the unix-socket owner. Do not inject HARNESS_ACTOR or any principal field.
+ */
+export function useDecideMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: DecideMutationInput): Promise<DecisionMutationResult> => {
+      const payload = {
+        decisionId: input.decisionId,
+        ...(input.judgmentOnlyRationale
+          ? { judgmentOnlyRationale: input.judgmentOnlyRationale }
+          : {}),
+      };
+      let result: DecisionMutationResult;
+      if (input.action === "accept") {
+        result = await harnessClient.acceptDecision(payload);
+      } else if (input.action === "reject") {
+        result = await harnessClient.rejectDecision(payload);
+      } else {
+        result = await harnessClient.deferDecision(payload);
+      }
+      if (!result.ok) {
+        throw new Error(`${result.error.code}: ${result.error.hint}`);
+      }
+      return result;
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: triadicQueryKeys.all });
+    },
+  });
+}
 
 export function useTriadicProjectionQuery() {
   const snapshot = useQuery({

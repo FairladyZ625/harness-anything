@@ -2,7 +2,7 @@ import type { TaskRow, Project, EventEntry, SnapshotStatus } from "../model/type
 import type { EntityHit } from "../model/entitySearch";
 import type { TaskFilters } from "../model/taskFilters.ts";
 import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
-import type { TriadicRendererData } from "../triadic-data.ts";
+import { useDecideMutation, type DecideAction, type TriadicRendererData } from "../triadic-data.ts";
 import type { CatalogRendererData } from "../catalog-data.ts";
 import { VIEW_LABEL, type ViewId } from "../shell-config.tsx";
 import { HomeView } from "../views/HomeView.tsx";
@@ -18,6 +18,8 @@ import { SettingsView } from "../views/SettingsView.tsx";
 import { TaskDetailView } from "../views/TaskDetailView.tsx";
 import { EntityWorkspace } from "./EntityWorkspace.tsx";
 import type { EntityFacet } from "../navigation/navigationHistory.ts";
+import { useToast } from "./MutationToast.tsx";
+import { t } from "../i18n/index.tsx";
 
 type DrillState = { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
 
@@ -72,6 +74,8 @@ export interface ViewSwitchProps {
   recentHits?: readonly EntityHit[];
   /** 用户点 GraphView 左栏「⌘K」触发器 → 打开全局命令面板。 */
   onOpenPalette?: () => void;
+  /** 从决策池把 proposed 决策送入批准队列并聚焦(P3-2)。 */
+  onOpenApproval?: (decisionId: string) => void;
 }
 
 export function ViewSwitch(props: ViewSwitchProps) {
@@ -110,9 +114,49 @@ export function ViewSwitch(props: ViewSwitchProps) {
     onOpenProject,
     recentHits,
     onOpenPalette,
+    onOpenApproval,
   } = props;
 
   const { decisions, facts, relations, coverageRows, factAnchors } = triadic;
+  const showToast = useToast();
+  const decideMutation = useDecideMutation();
+
+  const handleDecide = (id: string, action: DecideAction, rationale?: string) => {
+    // Authority act: call the existing renderer API only. Principal is derived
+    // by the daemon from the unix-socket owner — never inject actor fields here.
+    decideMutation.mutate(
+      { decisionId: id, action, judgmentOnlyRationale: rationale },
+      {
+        onSuccess: () => {
+          const label =
+            action === "accept"
+              ? t("renderer.mutation.decisionAccepted")
+              : action === "reject"
+                ? t("renderer.mutation.decisionRejected")
+                : t("renderer.mutation.decisionDeferred");
+          showToast(`${label}: ${id}`, "success");
+        },
+        onError: (error: Error) => {
+          showToast(
+            t("renderer.mutation.decisionMutationFailed", {
+              action,
+              error: error.message,
+            }),
+            "error",
+          );
+        },
+      },
+    );
+  };
+
+  const handleCallAgent = (cmd: string) => {
+    // CLI-bridge stub: copy the prefilled harness command so the human can
+    // paste it into a terminal. Approval authority stays with the human.
+    void navigator.clipboard?.writeText(cmd).then(
+      () => showToast(t("renderer.mutation.agentCommandCopied"), "success"),
+      () => showToast(t("renderer.mutation.agentCommandCopyFailed", { cmd }), "error"),
+    );
+  };
 
   return (
     <>
@@ -203,27 +247,35 @@ export function ViewSwitch(props: ViewSwitchProps) {
           relations={relations}
           facts={facts}
           onTraceSession={() => {
-            // 写面未开:coordinator conversation-mining 导出(E47)尚未经 IPC 暴露。
+            // coordinator conversation-mining 导出(E47)尚未经 IPC 暴露。
             // 保留 callback 签名以免 DecisionsView 改型,实际为 noop。
           }}
-          onDecide={() => undefined}
-          readOnly
+          onDecide={handleDecide}
+          onCallAgent={handleCallAgent}
           onNavigateDecision={onNavigateDecision}
           onNavigateTask={onNavigateTask}
           onFocusGraph={onFocusEntityInGraph}
           coverageRows={coverageRows}
+          focusedDecisionId={
+            focusedEntityRef?.startsWith("decision/")
+              ? focusedEntityRef.split("/")[1]
+              : null
+          }
         />
       ) : view === "decisionPool" ? (
         <DecisionPoolView
           decisions={decisions}
           facts={facts}
           relations={relations}
+          tasks={tasks}
           focusedDecisionId={
             focusedEntityRef?.startsWith("decision/")
               ? focusedEntityRef.split("/")[1]
               : null
           }
           onFocusGraph={onFocusEntityInGraph}
+          onNavigateEntity={onNavigateEntity}
+          onOpenApproval={onOpenApproval}
         />
       ) : view === "presets" ? (
         <PresetsView

@@ -40,5 +40,11 @@
   "renderer.mutation.reviewGateRequested": "已请求 review gate 机判",
   "renderer.mutation.reviewGateRequestFailed": "机判请求失败：{error}",
   "renderer.mutation.projectionReread": "投影缓存已重读",
-  "renderer.mutation.projectionRereadFailed": "投影重读失败：{error}"
+  "renderer.mutation.projectionRereadFailed": "投影重读失败：{error}",
+  "renderer.mutation.decisionAccepted": "决策已接受",
+  "renderer.mutation.decisionRejected": "决策已拒绝",
+  "renderer.mutation.decisionDeferred": "决策已延期",
+  "renderer.mutation.decisionMutationFailed": "决策 {action} 失败：{error}",
+  "renderer.mutation.agentCommandCopied": "Agent 命令已复制到剪贴板",
+  "renderer.mutation.agentCommandCopyFailed": "无法复制 Agent 命令：{cmd}"
 }

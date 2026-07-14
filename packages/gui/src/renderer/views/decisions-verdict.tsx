@@ -32,6 +32,18 @@ import {
 import { CopyContextButton } from "../components/CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import { t } from "../i18n/index.tsx";
+import {
+  buildConflictRejection,
+  computeReadinessSignals,
+  hasUnknownSignals,
+  sortKey,
+  worstColor,
+  type ReadinessSignal,
+  type SignalColor,
+} from "./decisions-readiness";
+
+export type { ReadinessSignal, SignalColor };
+export { sortKey, computeReadinessSignals, worstColor, hasUnknownSignals };
 
 const dateLabel = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
 
@@ -39,97 +51,19 @@ const formatActorAxes = (actor: DecisionRow["attribution"]["originator"], fallba
   ? `person:${actor.principal.personId} / ${actor.executor ? `agent:${actor.executor.id}` : "executor:none"}`
   : fallback;
 
-// ============ 决策就绪信号灯(41 §3.1a)============
-
-export type SignalColor = "green" | "yellow" | "red";
-
-export interface ReadinessSignal {
-  id: "evidence-liveness" | "applies-to-drift" | "coverage" | "conflict-marker";
-  label: string;
-  color: SignalColor;
-  /** 判定摘要:命中时给"为什么黄/红",hover/展开时看 */
-  summary: string;
-}
-
-/**
- * 计算四盏决策就绪信号灯(41 §3.1a 表)。
- * ⚠ mock 捷径:evidence 活性 + 覆盖度由 relation/fact 推导(真实为 TP-M3-06 图查询);
- * applies_to 漂移 + 冲突标记从 decision.readinessSignals 显式 mock 字段取(真实为
- * provenance.boundAt × git log / findConflictMarkers)。
- */
-function computeReadinessSignals(
-  d: DecisionRow,
-  facts: FactRef[],
-): ReadinessSignal[] {
-  const signals: ReadinessSignal[] = [];
-
-  // ① evidence 活性(黄):引用的 fact 被 invalidated-by/supersedes-fact 边指向(原型用 fact.invalidated)
-  const deadEvidence: string[] = [];
-  for (const c of [...d.chosen, ...d.rejected]) {
-    for (const ref of c.evidence) {
-      const anchor = ref.replace(/^fact\//, "");
-      const f = facts.find((x) => x.anchor === anchor);
-      if (f?.invalidated) deadEvidence.push(anchor);
-    }
-  }
-  signals.push({
-    id: "evidence-liveness",
-    label: t("views.decisionsVerdict.evidenceActivity"),
-    color: deadEvidence.length > 0 ? "yellow" : "green",
-    summary:
-      deadEvidence.length > 0
-        ? t("views.decisionsVerdict.countPiecesEvidenceReferInvalidatedFactValue", { count: deadEvidence.length, value: deadEvidence.join(", ") })
-        : t("views.decisionsVerdict.allReferencedFactsLiveNotPointedBy"),
-  });
-
-  // ② applies_to 漂移(黄):propose 后 applies_to 文档有 commit(mock 显式字段)
-  const drift = d.readinessSignals?.appliesToDrift;
-  signals.push({
-    id: "applies-to-drift",
-    label: t("views.decisionsVerdict.appliesDrift"),
-    color: drift ? "yellow" : "green",
-    summary: drift
-      ? t("views.decisionsVerdict.afterProposeAppliesDocumentTouchedValueRecent", { value: drift.docs.join(", "), value2: dateLabel(drift.lastCommitAt) })
-      : t("views.decisionsVerdict.applyDocumentHasNoCommitTouchAfter"),
-  });
-
-  // ③ 覆盖度(红):承重论点 → 活 fact 不可达
-  const cov = coverageOf(d, facts);
-  signals.push({
-    id: "coverage",
-    label: t("views.decisionsVerdict.coverage"),
-    color: cov.total > 0 && cov.covered < cov.total ? "red" : "green",
-    summary:
-      cov.total === 0
-        ? t("views.decisionsVerdict.noLoadBearingArgument")
-        : cov.covered < cov.total
-          ? t("views.decisionsVerdict.loadBearingArgumentValueUnreachableFactCovered", { value: cov.gaps.join(", "), covered: cov.covered, total: cov.total })
-          : t("views.decisionsVerdict.coveredTotalArgumentFactual", { covered: cov.covered, total: cov.total }),
-  });
-
-  // ④ 冲突标记(红):findConflictMarkers 命中(mock 显式字段)
-  const conflict = d.readinessSignals?.conflictMarker;
-  signals.push({
-    id: "conflict-marker",
-    label: t("views.decisionsVerdict.conflictFlag"),
-    color: conflict ? "red" : "green",
-    summary: conflict
-      ? t("views.decisionsVerdict.findConflictMarkersHitsSummaryConflictingEntityConflictingEntityCoordinator", { summary: conflict.summary, conflictingEntity: conflict.conflictingEntity })
-      : t("views.decisionsVerdict.findConflictMarkersMissed"),
-  });
-
-  return signals;
-}
-
-/** 取四盏灯里最严重的色(红 > 黄 > 绿) */
-function worstColor(signals: ReadinessSignal[]): SignalColor {
-  if (signals.some((s) => s.color === "red")) return "red";
-  if (signals.some((s) => s.color === "yellow")) return "yellow";
-  return "green";
-}
-
-/** 单盏灯 */
+/** 单盏灯;unknown 灯用 muted 占位,不画假绿。 */
 function SignalLamp({ signal }: { signal: ReadinessSignal }) {
+  if (signal.unknown) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] text-text-faint"
+        title={signal.summary}
+      >
+        <span className="size-1.5 rounded-full bg-text-faint/40" />
+        {signal.label}
+      </span>
+    );
+  }
   const colorCls =
     signal.color === "red"
       ? "text-danger"
@@ -153,33 +87,6 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
   );
 }
 
-/** mock 的 coordinator 结构化拒因(冲突标记红灯 accept 时渲染,E52 R3) */
-function buildConflictRejection(d: DecisionRow): { code: string; reason: string; detail: string[] } {
-  const conflict = d.readinessSignals?.conflictMarker;
-  return {
-    code: "E_CONFLICT_MARKER",
-    reason: t("views.decisionsVerdict.acceptWasRejectedByCoordinatorPreflightFindConflictMarkers"),
-    detail: conflict
-      ? [
-          `conflictingEntity: ${conflict.conflictingEntity}`,
-          `summary: ${conflict.summary}`,
-          t("views.decisionsVerdict.actionFirstResolveConcurrentModificationConflictConflictingEntity", { conflictingEntity: conflict.conflictingEntity }),
-        ]
-      : [t("views.decisionsVerdict.actionRetryAfterResolvingConcurrencyConflicts")],
-  };
-}
-
-/**
- * 两轴正交排序键(riskTier × urgency)。⚠ 不得合并为单一分数(TP-M3-01 两轴正交)。
- * 返回元组,lexicographic 比较即"先按 riskTier,同级再按 urgency"。
- * high=0 / medium=1 / low=2 —— 承重决策优先承重,承重同级里紧急优先。
- */
-const axisRank = (v?: "high" | "medium" | "low") => (v === "high" ? 0 : v === "medium" ? 1 : v === "low" ? 2 : 3);
-export const sortKey = (d: DecisionRow): readonly [number, number] =>
-  [axisRank(d.riskTier), axisRank(d.urgency)] as const;
-
-// ============ 单条决策卡(必显项五项,41 §3.1 表格)============
-
 function FactChip({
   factRef,
   facts,
@@ -194,7 +101,6 @@ function FactChip({
   const f = factOf(factRef, facts);
   const rationale = rationaleFor(factRef, relations);
   if (!f) {
-    // 悬空 fact(INV-6 悬空指针扫描检出)→ 标红警示
     return (
       <button
         onClick={() => onInspect(factRef)}
@@ -228,7 +134,7 @@ function FactChip({
   );
 }
 
-function ClaimList({
+export function ClaimList({
   title,
   items,
   tone,
@@ -282,13 +188,11 @@ function ClaimList({
   );
 }
 
+export type DecideAction = "accept" | "reject" | "defer";
+
 /**
- * 决策卡。五必显项逐项落地(41 §3.1):
- * ① chosen + rejected(rejected 非空且每条带 why_not)
- * ② riskTier / urgency 两枚徽章并排(正交,不合并)
- * ③ 证据 fact chips(含 relation rationale)
- * ④ relation 上下游(派生 task + supersede 链)
- * ⑤ provenance 三字段 {runtime, sessionId, boundAt} + 原文追溯入口
+ * 决策卡。五必显项逐项落地(41 §3.1)。
+ * onDecide 现携带可选 rationale(reject 必填、defer 可选)。
  */
 export function VerdictCard({
   d,
@@ -300,7 +204,9 @@ export function VerdictCard({
   onCallAgent,
   onDecide,
   onInspectFact,
+  onNavigateDecision,
   readOnly = false,
+  initialPendingAction = null,
 }: {
   d: DecisionRow;
   decisions: DecisionRow[];
@@ -309,40 +215,70 @@ export function VerdictCard({
   relations: RelationEdge[];
   onTrace: (sessionId: string) => void;
   onCallAgent?: (cmd: string) => void;
-  onDecide: (id: string, action: "accept" | "reject" | "defer") => void;
+  onDecide: (id: string, action: DecideAction, rationale?: string) => void;
   onInspectFact: (factRef: string) => void;
+  onNavigateDecision?: (decisionId: string) => void;
   readOnly?: boolean;
+  /** Open the reject/defer rationale panel on mount (keyboard hotkey bridge). */
+  initialPendingAction?: "reject" | "defer" | null;
 }) {
   const cov = coverageOf(d, facts);
   const derived = derivedTasks(d, relations, tasks);
   const chain = supersedeChain(d, relations);
-  // 评审深度提示:riskTier 驱动(E50 防意外:GUI 只提示不强拦)
   const deepHint = d.riskTier === "high";
   const quickHint = d.riskTier === "low";
 
-  // 决策就绪信号灯(41 §3.1a)
   const signals = computeReadinessSignals(d, facts);
   const worst = worstColor(signals);
+  const unknownPresent = hasUnknownSignals(signals);
   const hasAlert = worst !== "green";
-  const conflictSignal = signals.find((s) => s.id === "conflict-marker" && s.color === "red");
+  const conflictSignal = signals.find((s) => s.id === "conflict-marker" && s.color === "red" && !s.unknown);
 
-  // 本会话态:冲突红灯 accept 被拒后的拒因渲染(不推进队列,卡片保留)
   const [rejection, setRejection] = useState<{ code: string; reason: string; detail: string[] } | null>(null);
+  // P1-2: reject/defer 展开 rationale 输入。reject 要求非空;defer 可选。
+  const [pendingAction, setPendingAction] = useState<"reject" | "defer" | null>(
+    readOnly ? null : initialPendingAction,
+  );
+  const [rationaleDraft, setRationaleDraft] = useState("");
+  const [rationaleError, setRationaleError] = useState<string | null>(null);
 
   const handleAccept = () => {
     if (readOnly) return;
     if (conflictSignal) {
-      // 冲突标记红灯:coordinator 前置预检拒绝(E52 R3)——渲染结构化拒因,不静默失败、不用 alert
       setRejection(buildConflictRejection(d));
       return;
     }
-    // accept 成功:派生回写提示由父级 handleDecide 记入处理历史(本卡会出队,无法承载提示)
     onDecide(d.decisionId, "accept");
+  };
+
+  const openRationale = (action: "reject" | "defer") => {
+    if (readOnly) return;
+    setPendingAction(action);
+    setRationaleDraft("");
+    setRationaleError(null);
+  };
+
+  const submitRationale = () => {
+    if (!pendingAction) return;
+    const trimmed = rationaleDraft.trim();
+    if (pendingAction === "reject" && trimmed.length === 0) {
+      setRationaleError(t("views.decisionsVerdict.rationaleRequiredForReject"));
+      return;
+    }
+    onDecide(d.decisionId, pendingAction, trimmed.length > 0 ? trimmed : undefined);
+    setPendingAction(null);
+    setRationaleDraft("");
+    setRationaleError(null);
+  };
+
+  const cancelRationale = () => {
+    setPendingAction(null);
+    setRationaleDraft("");
+    setRationaleError(null);
   };
 
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
-      {/* 标题行:① id + state  ② 双轴徽章并排(正交) */}
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -354,26 +290,36 @@ export function VerdictCard({
           <div className="mt-0.5 text-[12px] italic text-text-muted">Q: {d.question}</div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <CopyContextButton
-            compact
-            buildText={() =>
-              buildEntityJumpContext(
-                `decision/${d.decisionId}`,
-                relations,
-                decisions,
-                facts,
-                tasks,
-                t("views.decisionsVerdict.checkingEvidenceCoverageReadinessSignalsRelationshipUpstream"),
-              )
-            }
-          />
-          {/* 两轴徽章正交并排,不合并成单分 */}
+          <div className="flex items-center gap-1">
+            {onNavigateDecision && (
+              <button
+                type="button"
+                onClick={() => onNavigateDecision(d.decisionId)}
+                className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted hover:border-border-strong hover:text-text"
+                title={t("views.decisionsVerdict.viewInDecisionPool")}
+              >
+                {t("views.decisionsVerdict.viewInDecisionPool")}
+              </button>
+            )}
+            <CopyContextButton
+              compact
+              buildText={() =>
+                buildEntityJumpContext(
+                  `decision/${d.decisionId}`,
+                  relations,
+                  decisions,
+                  facts,
+                  tasks,
+                  t("views.decisionsVerdict.checkingEvidenceCoverageReadinessSignalsRelationshipUpstream"),
+                )
+              }
+            />
+          </div>
           <RiskTierBadge tier={d.riskTier} />
           <UrgencyBadge urgency={d.urgency} />
         </div>
       </div>
 
-      {/* 评审深度提示(E50:提示不强拦) */}
       {deepHint && (
         <div className="mt-2 rounded-md bg-stale/10 px-2.5 py-1.5 text-[11px] text-stale">
           <WarningCircle weight="bold" className="mr-1 inline text-[11px]" />
@@ -384,18 +330,19 @@ export function VerdictCard({
           {t("views.decisionsVerdict.lowRiskCanPassQuicklyGettingInto")}</div>
       )}
 
-      {/* 决策就绪信号灯(41 §3.1a):四盏机械信号灯必显,灯名 + 判定摘要 hover */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface-raised/40 px-2.5 py-1.5">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-faint">{t("views.decisionsVerdict.decisionReady")}</span>
         {signals.map((s) => (
           <SignalLamp key={s.id} signal={s} />
         ))}
-        {worst === "green" && (
+        {unknownPresent && (
+          <span className="ml-auto text-[10px] text-text-faint">{t("views.decisionsVerdict.driftConflictNotProjected")}</span>
+        )}
+        {!unknownPresent && worst === "green" && (
           <span className="ml-auto text-[10px] text-success">{t("views.decisionsVerdict.fullyGreenDirectDecisionMakingApprovalLegitimate")}</span>
         )}
       </div>
 
-      {/* 黄/红警示条(41 §3.1a:不禁用按钮,只显式警示) */}
       {hasAlert && (
         <div
           className={`mt-2 rounded-md px-2.5 py-2 text-[11px] ${
@@ -409,7 +356,7 @@ export function VerdictCard({
             {worst === "red" ? t("views.decisionsVerdict.redLightVerificationRequiredBeforeDecisionApproval") : t("views.decisionsVerdict.yellowLightProposedVerificationBeforeDecisionApproval")}
           </div>
           <ul className="mt-1 space-y-0.5 pl-4">
-            {signals.filter((s) => s.color !== "green").map((s) => (
+            {signals.filter((s) => !s.unknown && s.color !== "green").map((s) => (
               <li key={s.id} className="flex gap-1">
                 <span className={`shrink-0 ${s.color === "red" ? "text-danger" : "text-stale"}`}>●</span>
                 <span className="font-mono text-[10px]">{s.label}:</span>
@@ -420,7 +367,6 @@ export function VerdictCard({
         </div>
       )}
 
-      {/* 归属展示来自 immutable attribution events；防自提自裁由写服务 fail-closed。 */}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
         <span>
           {t("views.decisionsVerdict.originator")} <span className="font-mono text-text-muted">{formatActorAxes(d.attribution.originator, t("views.decisionsVerdict.unknown"))}</span>
@@ -430,11 +376,9 @@ export function VerdictCard({
         </span>
       </div>
 
-      {/* ① chosen + rejected(必显) */}
       <ClaimList title={t("views.decisionsVerdict.chosen")} items={d.chosen} tone="chosen" facts={facts} relations={relations} onInspectFact={onInspectFact} />
       <ClaimList title={t("views.decisionsVerdict.rejected")} items={d.rejected} tone="rejected" facts={facts} relations={relations} onInspectFact={onInspectFact} />
 
-      {/* 覆盖度:承重论点 → 活 fact 可达(布尔,非分数) */}
       <div className="mt-2 flex items-center gap-2 text-[11px]">
         <span className="text-text-faint">{t("views.decisionsVerdict.coverage")}</span>
         {cov.total === 0 ? (
@@ -449,7 +393,6 @@ export function VerdictCard({
         )}
       </div>
 
-      {/* ④ relation 上下游:派生 task + supersede 链(P2 loop) */}
       {(derived.length > 0 || chain.supersedes.length > 0 || chain.supersededBy.length > 0) && (
         <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2">
           <div className="flex items-center gap-1 text-[11px] font-semibold text-text-faint">
@@ -457,10 +400,10 @@ export function VerdictCard({
           {derived.length > 0 && (
             <div className="mt-1 text-[11px]">
               <span className="text-text-faint">{t("views.decisionsVerdict.derivedTask")}</span>
-              {derived.map((t) => (
-                <span key={t.taskId} className="mr-2 inline-flex items-center gap-1 font-mono text-text-muted">
-                  <span className="rounded bg-surface px-1">{t.taskId}</span>
-                  <span className="font-sans text-text-faint">{t.title}</span>
+              {derived.map((task) => (
+                <span key={task.taskId} className="mr-2 inline-flex items-center gap-1 font-mono text-text-muted">
+                  <span className="rounded bg-surface px-1">{task.taskId}</span>
+                  <span className="font-sans text-text-faint">{task.title}</span>
                 </span>
               ))}
             </div>
@@ -480,7 +423,6 @@ export function VerdictCard({
         </div>
       )}
 
-      {/* ⑤ provenance 三字段 + 原文追溯入口 */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="text-text-faint">{t("views.decisionsVerdict.provenance")}</span>
         {d.provenance?.map((p) => (
@@ -501,8 +443,6 @@ export function VerdictCard({
         {t("views.decisionsVerdict.timestamps", { proposedAt: dateLabel(d.proposedAt), lastChanged: dateLabel(d.lastChangedAt) })}
       </div>
 
-      {/* 三操作视觉等权:accept 给 accent,但 reject/defer 同尺寸同可达,不藏菜单(反模式清单②)。
-          readOnly 时降权:三按钮一律 disabled + opacity 减半 + cursor-not-allowed,明示写面未开。 */}
       <div className="mt-3 flex gap-2 border-t border-border pt-3">
         <button
           onClick={handleAccept}
@@ -512,39 +452,83 @@ export function VerdictCard({
         >
           <CheckCircle weight="bold" className="text-[13px]" />
           {t("views.decisionsVerdict.accept")}
+          {!readOnly && <kbd className="ml-1 rounded bg-accent-fg/15 px-1 font-mono text-[10px] font-normal opacity-70">a</kbd>}
         </button>
         <button
-          onClick={() => {
-            if (!readOnly) onDecide(d.decisionId, "reject");
-          }}
+          onClick={() => openRationale("reject")}
           disabled={readOnly}
           title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.reject")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-danger/50 hover:bg-danger/5 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ProhibitInset weight="bold" className="text-[13px]" />
           {t("views.decisionsVerdict.reject")}
+          {!readOnly && <kbd className="ml-1 rounded bg-surface px-1 font-mono text-[10px] font-normal opacity-70">r</kbd>}
         </button>
         <button
-          onClick={() => {
-            if (!readOnly) onDecide(d.decisionId, "defer");
-          }}
+          onClick={() => openRationale("defer")}
           disabled={readOnly}
           title={readOnly ? t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval") : t("views.decisionsVerdict.defer")}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-semibold text-text hover:border-stale/50 hover:bg-stale/5 hover:text-stale disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ClockClockwise weight="bold" className="text-[13px]" />
           {t("views.decisionsVerdict.defer")}
+          {!readOnly && <kbd className="ml-1 rounded bg-surface px-1 font-mono text-[10px] font-normal opacity-70">d</kbd>}
         </button>
       </div>
 
-      {/* readOnly 明示条:写面未开时在三按钮下方显示一行提示,不只靠 hover title */}
       {readOnly && (
         <p className="mt-1.5 text-[10px] leading-relaxed text-text-faint">
           {t("views.decisionsVerdict.readOnlyApiConnectedDecisionMakingApproval")}
         </p>
       )}
 
-      {/* 冲突红灯 accept 被拒后的结构化拒因渲染(E52 R3:coordinator 前置预检拒,非 alert) */}
+      {/* P1-2 rationale capture for reject/defer */}
+      {pendingAction && (
+        <div className="mt-2 rounded-md border border-border bg-surface-raised/60 p-2.5" data-testid="decision-rationale-panel">
+          <div className="mb-1 text-[11px] font-semibold text-text-muted">
+            {pendingAction === "reject"
+              ? t("views.decisionsVerdict.rationaleRequiredForReject")
+              : t("views.decisionsVerdict.rationaleOptionalForDefer")}
+          </div>
+          <textarea
+            value={rationaleDraft}
+            onChange={(event) => {
+              setRationaleDraft(event.target.value);
+              if (rationaleError) setRationaleError(null);
+            }}
+            rows={3}
+            data-testid="decision-rationale-input"
+            placeholder={t("views.decisionsVerdict.rationalePlaceholder")}
+            className="w-full resize-y rounded border border-border bg-surface px-2 py-1.5 text-[12px] text-text outline-none focus:border-accent"
+            autoFocus
+          />
+          {rationaleError && (
+            <div className="mt-1 text-[11px] text-danger" data-testid="decision-rationale-error">{rationaleError}</div>
+          )}
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={cancelRationale}
+              className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text"
+            >
+              {t("views.decisionsVerdict.cancelRationale")}
+            </button>
+            <button
+              type="button"
+              onClick={submitRationale}
+              data-testid="decision-rationale-submit"
+              className={`rounded px-2.5 py-1 text-[11px] font-semibold ${
+                pendingAction === "reject"
+                  ? "bg-danger/15 text-danger hover:bg-danger/25"
+                  : "bg-stale/15 text-stale hover:bg-stale/25"
+              }`}
+            >
+              {pendingAction === "reject" ? t("views.decisionsVerdict.confirmReject") : t("views.decisionsVerdict.confirmDefer")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {rejection && (
         <div className="mt-2 rounded-md border border-danger/40 bg-danger/10 p-2.5 font-mono text-[11px] text-danger">
           <div className="flex items-center justify-between">
@@ -561,10 +545,6 @@ export function VerdictCard({
         </div>
       )}
 
-      {/* "呼叫 Agent 核查"动作(41 §3.1a):
-          全绿 → 低调次级链接(直接决策批准才是正当主路径);
-          黄/红 → 升为高亮推荐按钮(视觉权重 ≥ accept),但不弱化 reject/defer(它们在上行保持同尺寸)。
-          决策批准权归人:agent 是核查助手不是决策通道(§3.1a 决策批准权归属) */}
       {onCallAgent && (
         hasAlert ? (
           <button
@@ -590,5 +570,3 @@ export function VerdictCard({
     </div>
   );
 }
-
-// ============ inbox 队列壳层 ============

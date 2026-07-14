@@ -40,5 +40,11 @@
   "renderer.mutation.reviewGateRequested": "Review gate review requested",
   "renderer.mutation.reviewGateRequestFailed": "Review gate request failed: {error}",
   "renderer.mutation.projectionReread": "Projection cache reread",
-  "renderer.mutation.projectionRereadFailed": "Projection reread failed: {error}"
+  "renderer.mutation.projectionRereadFailed": "Projection reread failed: {error}",
+  "renderer.mutation.decisionAccepted": "Decision accepted",
+  "renderer.mutation.decisionRejected": "Decision rejected",
+  "renderer.mutation.decisionDeferred": "Decision deferred",
+  "renderer.mutation.decisionMutationFailed": "Decision {action} failed: {error}",
+  "renderer.mutation.agentCommandCopied": "Agent command copied to clipboard",
+  "renderer.mutation.agentCommandCopyFailed": "Could not copy agent command: {cmd}"
 }

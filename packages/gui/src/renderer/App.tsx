@@ -211,6 +211,17 @@ function AppShell() {
     navigateToEntity(`decision/${decisionId}`);
   const navigateToTask = (taskId: string) => openTaskDetail(taskId);
 
+  // P3-2: from decision pool, jump into the approval queue and focus that id.
+  const openApproval = (decisionId: string) => {
+    navigate({
+      view: "decisions",
+      focusedEntityRef: `decision/${decisionId}`,
+      selectedId: null,
+      previewId: null,
+      entityFacet: null,
+    });
+  };
+
   // 实体工作台内部焦点变更(GraphView 双击 / Genealogy 侧栏点选)。
   // 不改 view,保留 entityFacet —— facet 切换走 setEntityFacet。
   // 持久化 ref 让 facet 切换(关系↔演化)能拿到正确焦点。
@@ -408,6 +419,7 @@ function AppShell() {
               onOpenProject={openProject}
               recentHits={recentHits}
               onOpenPalette={() => setPaletteOpen(true)}
+              onOpenApproval={openApproval}
             />
           </div>
         </div>
