@@ -7,6 +7,7 @@
     "task_01KX69SACPDC93JAP373PM2979",
     "dec_mrcda9kw",
     "dec_mrcu2kud",
+    "dec_01KXF661DNF187S0WZEE04KHF8",
     "ADR-0022"
   ],
   "rowCountReconciliation": {
@@ -269,6 +270,7 @@
       ],
       "cliActions": [
         "task-amend",
+        "task-contract-migrate",
         "task-code-doc-reconcile",
         "task-relate"
       ],
@@ -281,6 +283,10 @@
         },
         {
           "file": "packages/cli/src/daemon/doc-sync-service.ts",
+          "command": "git"
+        },
+        {
+          "file": "packages/cli/src/commands/core/task-contract-history.ts",
           "command": "git"
         }
       ],

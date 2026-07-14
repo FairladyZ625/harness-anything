@@ -11,6 +11,7 @@ import { runNewTaskCommand } from "../../commands/core/new-task.ts";
 import { runTaskGatesCommand } from "../../commands/core/task-gates.ts";
 import { runTaskLifecycleCommand } from "../../commands/core/task-lifecycle.ts";
 import { runTaskQueryCommand } from "../../commands/core/task-query.ts";
+import { runTaskContractMigration } from "../../commands/core/task-contract-migrate.ts";
 import { runVersionCommand } from "../../commands/core/version.ts";
 
 export const coreCommandSpecs = defineCommandSpecs([
@@ -236,6 +237,23 @@ export const coreCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "report"],
       "paths": ["primary"]
+    },
+    "eventPolicy": {
+      "conflictMarkerPreflight": true,
+      "runtimeEvent": "auto"
+    }
+  },
+  {
+    "kind": "task-contract-migrate",
+    "usage": "task contract migrate (--dry-run|--apply) [--task <id>] [--json]",
+    "options": [{"flag":"--dry-run","description":"Preview deterministic snapshot writes without mutating Task packages."},{"flag":"--apply","description":"Write snapshots for deterministically attributable legacy Tasks."},{"flag":"--task","description":"Limit migration to one Task id."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Backfill immutable Task contract snapshots; ambiguous Tasks remain in a manual queue.",
+    "examples": ["harness-anything task contract migrate --dry-run", "harness-anything task contract migrate --apply --task task_01ABC"],
+    "parse": parseCoreTaskArgs,
+    "run": runTaskContractMigration,
+    "receiptContract": {
+      "data": ["report"],
+      "paths": []
     },
     "eventPolicy": {
       "conflictMarkerPreflight": true,

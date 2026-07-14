@@ -4,6 +4,8 @@
 // 卡 600 行。两道门夹住同一个文件 —— 搬走 barrel 是唯一不动门禁的出路。
 
 export { commandReceiptEnvelope } from "./command-receipt.ts";
+export { compileTaskContractSnapshot, parseTaskContractSnapshot, resolveTaskCompletionGates } from "./task-contract-snapshot.ts";
+export type { CompileTaskContractSnapshotInput, ResolveTaskCompletionGatesInput, ResolveTaskCompletionGatesResult } from "./task-contract-snapshot.ts";
 export { readModuleAttributionProjection } from "../../kernel/src/index.ts";
 export {
   authorityProtocolTuple,

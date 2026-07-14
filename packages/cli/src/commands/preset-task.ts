@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { Effect } from "effect";
 import { assertValidParentBinding, indexPath, makeIndex, renderIndex, validateGeneratedTaskId, validateTaskId } from "../../../adapters/local/src/task-index.ts";
-import { bindCreateProvenance, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
+import { bindCreateProvenance, compileTaskContractSnapshot, type ProvenanceBindingOptions } from "../../../application/src/index.ts";
 import {
   createTaskPackagePath,
   generateTaskId,
@@ -19,6 +19,7 @@ import {
 } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../cli/types.ts";
+import { bundledTemplateCatalog } from "./extensions/bundled.ts";
 import { isInvalidPreset, materializePresetTaskDocuments, presetNotFound, publicPresetSummary, readModules, resolvePresetEntry, writeModulesCoordinated, type ResolvedPreset } from "./extensions/state.ts";
 import { customVerticalGateResult, type ProjectHarnessSettings } from "./settings.ts";
 
@@ -44,7 +45,16 @@ interface PresetTaskMaterializationResult {
 }
 
 export function shouldUsePresetAwareNewTask(action: NewTaskAction): boolean {
-  return Boolean(action.vertical || action.preset || action.profile || action.moduleKey || action.registerModule || action.longRunning || action.dryRun || action.locale);
+  return Boolean(
+    action.vertical
+    || action.preset
+    || action.profile
+    || action.moduleKey
+    || action.registerModule
+    || action.longRunning
+    || action.dryRun
+    || action.locale
+  );
 }
 
 export function runNewTaskWithPreset(
@@ -117,8 +127,27 @@ export function runNewTaskWithPreset(
     }
 
     const createdAt = new Date().toISOString();
+    const catalog = bundledTemplateCatalog(vertical);
+    if (!catalog) {
+      return {
+        ok: false,
+        command: "new-task",
+        preset: publicPresetSummary(preset),
+        error: cliError(CliErrorCode.TemplateCatalogInvalid, `Template catalog is not resolvable for vertical ${vertical}.`)
+      } satisfies CliResult;
+    }
+    const contractSnapshot = compileTaskContractSnapshot({
+      vertical,
+      preset: preset.manifest,
+      profileId: materialized.profile.id,
+      catalog,
+      documents: materialized.documents,
+      capturedAt: createdAt,
+      capturedBy: "task-create"
+    });
     const generated = [
       "INDEX.md",
+      "task-contract.json",
       ...materialized.documents.map((document) => document.materializeAs),
       ...(module ? ["module.md"] : [])
     ];
@@ -168,6 +197,7 @@ export function runNewTaskWithPreset(
     }, stablePayloadHash);
     const writes = [
       { taskId, path: "INDEX.md", body: renderIndex(index), packageSlug: action.slug },
+      { taskId, path: "task-contract.json", body: `${JSON.stringify(contractSnapshot, null, 2)}\n`, packageSlug: action.slug },
       ...materialized.documents.map((document) => ({
         taskId,
         path: document.materializeAs,

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-anything.dev/schemas/task-contract-snapshot.schema.json",
+  "x-harness-schema-id": "task-contract-snapshot",
+  "title": "Task Contract Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "capturedAt", "capturedBy", "vertical", "preset", "profile", "templateCatalog", "documents"],
+  "properties": {
+    "schema": { "const": "task-contract-snapshot/v1" },
+    "capturedAt": { "type": "string" },
+    "capturedBy": { "enum": ["task-create", "legacy-migration", "explicit-upgrade"] },
+    "vertical": { "type": "string", "minLength": 1 },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "digest"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "checkerProfile", "completionGates"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "checkerProfile": { "type": "string", "minLength": 1 },
+        "completionGates": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }, "uniqueItems": true }
+      }
+    },
+    "templateCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "digest"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "templateRef", "materializeAs", "locale", "requiredAnchors", "bodyDigest"],
+        "properties": {
+          "slot": { "type": "string", "minLength": 1 },
+          "templateRef": { "type": "string", "minLength": 1 },
+          "materializeAs": { "type": "string", "minLength": 1 },
+          "locale": { "enum": ["zh-CN", "en-US"] },
+          "requiredAnchors": { "type": "array", "items": { "type": "string" } },
+          "bodyDigest": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

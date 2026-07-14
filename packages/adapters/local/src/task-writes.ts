@@ -21,6 +21,12 @@ export interface SupersedeDocumentWrite {
   readonly packageSlug?: string;
 }
 
+export interface TaskPackageDocumentWrite {
+  readonly path: string;
+  readonly body: string;
+  readonly packageSlug?: string;
+}
+
 export function writeTaskDocument(
   coordinator: WriteCoordinator,
   hashPayload: HashPayload,
@@ -47,6 +53,21 @@ export function writeTaskDocuments(
   writes: ReadonlyArray<TaskDocumentWrite>
 ): Effect.Effect<void, WriteError> {
   return writeCoordinatedTaskDocuments(coordinator, hashPayload, writes);
+}
+
+export function writeTaskPackageDocuments(
+  coordinator: WriteCoordinator,
+  hashPayload: HashPayload,
+  taskId: TaskId,
+  writes: ReadonlyArray<TaskPackageDocumentWrite>
+): Effect.Effect<void, WriteError> {
+  return writeCoordinatedPayload(coordinator, hashPayload, {
+    entityId: taskEntityId(taskId),
+    kind: "package_create",
+    payload: {
+      writes: writes.map((write) => ({ taskId, ...write }))
+    }
+  });
 }
 
 export const PROGRESS_DOCUMENT_PATH = "progress.md";

@@ -6,6 +6,7 @@ import { canonicalAuthoredBatchWrites } from "../../src/store/canonical-authored
 
 const reservedPaths = [
   "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/INDEX.md",
+  "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/task-contract.json",
   "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/executions/fake.md",
   "tasks/task_01KX3W4V1EDPHPTGWYYBQQ2J75/reviews/fake.md"
 ] as const;
