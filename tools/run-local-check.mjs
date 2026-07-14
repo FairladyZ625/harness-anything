@@ -17,6 +17,7 @@ import {
   prefixCommand,
   withLocalHeavySlot
 } from "./local-resource-governance.mjs";
+import { clearIncrementalArtifacts } from "./clear-incremental-artifacts.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const LINTABLE_EXTENSION = /\.(?:c|m)?js$|\.tsx?$/u;
@@ -140,7 +141,18 @@ async function main(argv) {
     );
     const started = Date.now();
     for (const step of steps) {
-      if (!runStep(step, qosPrefix, lease.childEnv)) {
+      let ok = runStep(step, qosPrefix, lease.childEnv);
+      if (!ok && step[0] === "incremental typecheck") {
+        // TS6305 self-heal: a prior `vite build` (worktree add, rebase, a manual
+        // build) leaves packages/gui/dist stale and poisons `tsc -b` with a false
+        // red. Clear incremental artifacts and retry once — a clean pass proves it
+        // was staleness; a repeat failure is a real type error. Paid only on
+        // failure, so the common path keeps full incremental speed.
+        console.log("↻ typecheck failed — clearing stale incremental artifacts, retrying once (TS6305 self-heal)…");
+        clearIncrementalArtifacts(repoRoot);
+        ok = runStep(step, qosPrefix, lease.childEnv);
+      }
+      if (!ok) {
         console.error(`\nLocal check stopped at: ${step[0]}. Fix it and re-run.`);
         process.exitCode = 1;
         return;

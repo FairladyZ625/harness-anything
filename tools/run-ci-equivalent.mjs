@@ -19,7 +19,7 @@
 // 回执是产物,不是断言:每个 job 的真实 exit code 都在里面。CEO 会重跑并比对数字。
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -27,6 +27,7 @@ import {
   resolveEnforcementConstant
 } from "./enforcement-constants.mjs";
 import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
+import { clearIncrementalArtifacts } from "./clear-incremental-artifacts.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = path.join(root, "tools/gate-manifest.json");
@@ -119,35 +120,12 @@ export function formatSummary(receipts, skipped) {
   return `${lines.join("\n")}\n`;
 }
 
-// gui-build 内含 `vite build`,它写出 packages/gui/dist;之后任何 `tsc -b` 都会被
-// TS6305「陈旧产物」毒化 —— 那是假红,会让人去查一个根本不存在的类型错误。
-// CI 里每个 job 是干净 checkout,所以碰不到;本地必须每个 job 之前自己清一次。
-function clearIncrementalArtifacts() {
-  rmSync(path.join(root, "packages/gui/dist"), { recursive: true, force: true });
-  const stack = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop();
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry.name === "node_modules" || entry.name === ".git") continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) stack.push(full);
-      else if (entry.name.endsWith(".tsbuildinfo")) rmSync(full, { force: true });
-    }
-  }
-}
-
 export function buildCiJobInvocation(qosPrefix, args) {
   return prefixCommand(qosPrefix, process.execPath, args);
 }
 
 function runJob(job, shard, { qosPrefix, env }) {
-  clearIncrementalArtifacts();
+  clearIncrementalArtifacts(root);
   const args = ["tools/run-manifest-gates.mjs", "--workflow-job", job, "--exclude", "mergify-queue-metadata-edit-noop"];
   if (shard !== undefined) args.push("--shard", String(shard));
   const invocation = buildCiJobInvocation(qosPrefix, args);
