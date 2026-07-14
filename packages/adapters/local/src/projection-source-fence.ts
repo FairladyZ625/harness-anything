@@ -17,6 +17,7 @@ const maxChangedPaths = 50_000;
 export function makeLocalProjectionSourceFenceReader(options: {
   readonly rootDir: string;
   readonly layoutOverrides?: HarnessLayoutOverrides;
+  readonly watchFactory?: typeof watch;
 }): ProjectionSourceFenceReader {
   const runtimeContext = createHarnessRuntimeContext(options.rootDir, options.layoutOverrides);
   const resolvedAuthoredRoot = resolveExistingRoot(resolveHarnessLayout(runtimeContext).authoredRoot);
@@ -32,6 +33,7 @@ export function makeLocalProjectionSourceFenceReader(options: {
   let currentFence: ProjectionSourceFence | undefined;
   let refreshInFlight: Promise<ProjectionSourceFence> | undefined;
   const watchers: Array<ReturnType<typeof watch>> = [];
+  const watchFactory = options.watchFactory ?? watch;
   addWatcher(authoredRoot, (filename) => !isGitMetadataPath(filename));
   for (const gitRoot of resolveGitWatchRoots(authoredRoot)) {
     addWatcher(gitRoot, isGenerationRelevantGitPath);
@@ -54,7 +56,7 @@ export function makeLocalProjectionSourceFenceReader(options: {
 
   function addWatcher(inputPath: string, relevant: (filename: string | null) => boolean): void {
     try {
-      const watcher = watch(inputPath, { recursive: true }, (_eventType, filename) => {
+      const watcher = watchFactory(inputPath, { recursive: true }, (_eventType, filename) => {
         const normalized = normalizedWatchPath(filename);
         if (!relevant(normalized)) return;
         invalidateFromWatch();

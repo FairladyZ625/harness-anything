@@ -6,13 +6,16 @@ import test from "node:test";
 import { Effect } from "effect";
 import { createHarnessRuntimeContext, resolveHarnessLayout } from "../../src/layout/index.ts";
 import { makeTaskHolderService, taskHolderActor } from "../../src/local/task-holder-state.ts";
-import type { ProjectionSourceFence } from "../../src/ports/projection-source-fence.ts";
+import type { ProjectionSourceFence, ProjectionSourceFenceFactory } from "../../src/ports/projection-source-fence.ts";
 import { queryExecutionEvidencePage } from "../../src/projection/sqlite-execution-evidence-reader.ts";
 import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
 import { projectionDatabaseSignature } from "../../src/projection/projection-generation-readiness.ts";
 import { createDaemonProjectionGenerationManager } from "../../src/store/daemon-projection-generation-manager.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
-import { createDaemonRuntime, createMultiRepoDaemonRuntime } from "../../../adapters/local/src/index.ts";
+import {
+  createDaemonRuntime,
+  createMultiRepoDaemonRuntime
+} from "../../../adapters/local/src/index.ts";
 import { acquireDaemonGlobalLock } from "../../src/store/write-journal-locks.ts";
 import { docWrite, withTempStoreAsync } from "./helpers.ts";
 import {
@@ -28,6 +31,11 @@ import {
 
 const testAttribution = daemonAttribution("person_test", "test", "credential-test");
 
+const deterministicProjectionSourceFenceFactory: ProjectionSourceFenceFactory = ({ rootDir }) => {
+  const fence = stableProjectionFence(`test-${path.basename(rootDir)}`, git(rootDir, "rev-parse", "HEAD"), []);
+  return { capture: () => fence };
+};
+
 test("daemon runtime coalesces concurrent evidence reads into one ready repo generation", async () => {
   await withTempStoreAsync(async (rootDir) => {
     writeExecutionEvidenceFixture(rootDir, "Concurrent generation");
@@ -37,7 +45,8 @@ test("daemon runtime coalesces concurrent evidence reads into one ready repo gen
     const runtime = createDaemonRuntime({
       rootDir,
       materializerPollMs: false,
-      interactiveMicroBatchMs: 0
+      interactiveMicroBatchMs: 0,
+      projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory
     });
     await runtime.start();
 
@@ -116,7 +125,8 @@ test("daemon runtime invalidates only its repo generation after a canonical writ
     const runtime = createDaemonRuntime({
       rootDir,
       materializerPollMs: false,
-      interactiveMicroBatchMs: 25
+      interactiveMicroBatchMs: 25,
+      projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory
     });
     await runtime.start();
 
@@ -157,6 +167,7 @@ test("multi-repo daemon keeps projection generations and evidence pages isolated
     const runtime = createMultiRepoDaemonRuntime({
       materializerPollMs: false,
       interactiveMicroBatchMs: 0,
+      projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory,
       repos
     });
     await runtime.start();
@@ -190,22 +201,31 @@ test("daemon runtime rejects a cached generation after an external authored sour
     initAuthoredGit(rootDir);
     commitAuthoredFixture(rootDir);
     rebuildTaskProjection({ rootDir });
+    const indexPath = path.join(rootDir, "harness/tasks/task_01KXDG00000000000000000001/INDEX.md");
+    const headOid = git(rootDir, "rev-parse", "HEAD");
+    let fence = stableProjectionFence("external-a", headOid, []);
+    let invalidateFence!: () => void;
     const runtime = createDaemonRuntime({
       rootDir,
       materializerPollMs: false,
-      interactiveMicroBatchMs: 0
+      interactiveMicroBatchMs: 0,
+      projectionSourceFenceFactory: () => ({
+        capture: () => fence,
+        subscribe: (listener) => {
+          invalidateFence = listener;
+          return () => undefined;
+        }
+      })
     });
     await runtime.start();
 
     const before = await runtime.queryExecutionEvidencePage({ limit: 1 });
     assert.equal(before.groups[0]?.title, "External title A");
-    const indexPath = path.join(rootDir, "harness/tasks/task_01KXDG00000000000000000001/INDEX.md");
     const originalTimes = statSync(indexPath);
     writeExecutionEvidenceFixture(rootDir, "External title B");
     utimesSync(indexPath, originalTimes.atime, originalTimes.mtime);
-    for (let attempt = 0; attempt < 100 && runtime.status().projectionGeneration.state !== "unknown"; attempt += 1) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
-    }
+    fence = stableProjectionFence("external-b", headOid, [indexPath]);
+    invalidateFence();
     assert.equal(runtime.status().projectionGeneration.state, "unknown", JSON.stringify(runtime.status().projectionGeneration));
 
     const after = await runtime.queryExecutionEvidencePage({ limit: 1 });
@@ -481,7 +501,8 @@ test("daemon no-op materializer preserves the ready projection generation", asyn
     rebuildTaskProjection({ rootDir });
     const runtime = createDaemonRuntime({
       rootDir,
-      materializerPollMs: false
+      materializerPollMs: false,
+      projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory
     });
     await runtime.start();
     await runtime.queryExecutionEvidencePage({ limit: 1 });
