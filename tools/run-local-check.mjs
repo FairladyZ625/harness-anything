@@ -1,77 +1,37 @@
 #!/usr/bin/env node
 /**
- * Local pre-PR check runner (developer convenience, NOT a security boundary).
+ * Lightweight local stop gate. GitHub CI remains the complete authority.
  *
- * Motivation: the full `npm run check` / `check:pr` aggregate saturates a laptop
- * (many spawned CLI subprocesses, full test-concurrency fan-out, several agents
- * running in parallel worktrees). Cloud CI (GitHub Actions branch protection)
- * enforces the real required checks; this runner only gives earlier local
- * feedback, so it may run a reduced default set without weakening merge safety.
- *
- * Design:
- *   - Machine-wide mutex lock (/tmp/harness-local-check.lock) so concurrent
- *     agents serialize instead of stacking load. Stale locks (dead pid) are
- *     reclaimed. `--no-wait` exits immediately instead of waiting.
- *   - Low QoS: on darwin, wrap each step in `taskpolicy -c utility`; otherwise
- *     fall back to `nice -n 10`; if neither is available, run bare.
- *   - Tiers: default "fast" (typecheck, lint, test:fast, test:contract,
- *     boundaries checkers, package-policy). `--full` appends test:integration
- *     test:gui, and test:gui:e2e. First failing step stops the run with a
- *     non-zero exit and a clear report of which step failed.
- *
- * This file is deliberately named `run-local-check.mjs` (not `check-*.mjs`): the
- * `check-*` prefix is the governed gate command surface reconciled by
- * tools/check-gate-surface.mjs against the gate manifest. A local convenience
- * runner must not sit on that surface.
+ * Default work is intentionally change-aware: incremental TypeScript build,
+ * ESLint for changed source files, and fast/contract tests under affected
+ * package/tool prefixes. `--full` is a manual convenience tier, not the worker
+ * stop condition. All heavy children share the machine-wide slot and low QoS.
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  discoverQosPrefix,
+  prefixCommand,
+  withLocalHeavySlot
+} from "./local-resource-governance.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
-const LOCK_DIR = "/tmp/harness-local-check.lock";
-const LOCK_PID_FILE = path.join(LOCK_DIR, "pid");
-
-// Step list. Each step is [label, npmScriptName]. Scripts already exist in
-// package.json; boundaries mirrors the CI `boundaries` job (minus lint, which is
-// listed once here). Keep this aligned with .github/workflows/rewrite-ci.yml.
-const FAST_STEPS = [
-  ["typecheck", "typecheck"],
-  ["lint", "lint"],
-  ["test:fast", "test:fast"],
-  ["test:contract", "test:contract"],
-  ["boundaries: import-boundaries", "harness:check-import-boundaries"],
-  ["boundaries: file-complexity", "harness:check-file-complexity"],
-  ["boundaries: forbidden-symbols", "harness:scan-forbidden-symbols"],
-  ["boundaries: private-boundary", "harness:check-private-boundary"],
-  ["boundaries: integration-test-shards", "harness:check-integration-test-shards"],
-  ["boundaries: gate-surface", "harness:check-gate-surface"],
-  ["boundaries: locale-content", "harness:check-locale-content"],
-  ["boundaries: runtime-release-readiness", "harness:check-runtime-release-readiness"],
-  ["boundaries: implementation-contracts", "harness:check-implementation-contracts"],
-  ["boundaries: schema-contracts", "harness:check-schema-contracts"],
-  ["boundaries: legacy-intake-readiness", "harness:check-legacy-intake-readiness"],
-  ["package-policy", "harness:check-package-policy"]
-];
-
-const FULL_EXTRA_STEPS = [
-  ["test:integration", "test:integration"],
-  ["test:gui", "test:gui"],
-  ["test:gui:e2e", "test:gui:e2e"]
-];
+const LINTABLE_EXTENSION = /\.(?:c|m)?js$|\.tsx?$/u;
+const ROOT_WIDE_TEST_INPUTS = new Set([
+  "package-lock.json",
+  "eslint.config.mjs",
+  "tsconfig.json",
+  "tsconfig.base.json"
+]);
 
 export function parseLocalCheckArgs(args) {
-  const options = { full: false, wait: true, pollMs: 2000 };
+  const options = { full: false };
   for (const arg of args) {
     if (arg === "--full") {
       options.full = true;
-      continue;
-    }
-    if (arg === "--no-wait") {
-      options.wait = false;
       continue;
     }
     if (arg === "--fast") {
@@ -83,128 +43,80 @@ export function parseLocalCheckArgs(args) {
   return options;
 }
 
-export function buildSteps(full) {
-  return full ? [...FAST_STEPS, ...FULL_EXTRA_STEPS] : [...FAST_STEPS];
+export function collectChangedFiles(root = repoRoot, run = spawnSync) {
+  const mergeBase = gitOutput(run, root, ["merge-base", "HEAD", "origin/main"]);
+  const base = mergeBase.ok && mergeBase.stdout ? mergeBase.stdout : "HEAD";
+  const changed = gitOutput(run, root, ["diff", "--name-only", "--diff-filter=ACMR", base, "--"]);
+  if (!changed.ok) throw new Error(`git diff failed: ${changed.stderr || "unknown error"}`);
+  const untracked = gitOutput(run, root, ["ls-files", "--others", "--exclude-standard"]);
+  if (!untracked.ok) throw new Error(`git ls-files failed: ${untracked.stderr || "unknown error"}`);
+  return [...new Set([...splitLines(changed.stdout), ...splitLines(untracked.stdout)])].sort();
 }
 
-/**
- * Pick the low-QoS wrapper for a platform, given which binaries are available.
- * Returns the argv prefix to prepend before the real command (possibly empty).
- */
-export function selectQosPrefix({ platform, hasTaskpolicy, hasNice }) {
-  if (platform === "darwin" && hasTaskpolicy) {
-    return ["taskpolicy", "-c", "utility"];
+export function deriveAffectedTestPrefixes(changedFiles) {
+  if (changedFiles.some((file) => ROOT_WIDE_TEST_INPUTS.has(file) || /^tsconfig\.[^.]+\.json$/u.test(file))) {
+    return ["packages/", "tools/"];
   }
-  if (hasNice) {
-    return ["nice", "-n", "10"];
+  const prefixes = new Set();
+  for (const file of changedFiles) {
+    if (file === "package.json") prefixes.add("tools/");
+    const parts = file.split("/");
+    if (parts[0] === "tools") prefixes.add("tools/");
+    if (parts[0] !== "packages" || parts.length < 2) continue;
+    const depth = parts[1] === "adapters" && parts.length >= 3 ? 3 : 2;
+    prefixes.add(`${parts.slice(0, depth).join("/")}/`);
   }
-  return [];
+  return [...prefixes].sort();
 }
 
-function binaryExists(name) {
-  // `command -v` is a POSIX shell builtin; invoke it as a single shell string so
-  // no args are passed alongside `shell: true` (avoids Node DEP0190). `name` is
-  // an internal literal, never user input.
-  const result = spawnSync(`command -v ${name}`, { shell: "/bin/sh", stdio: "ignore" });
-  return result.status === 0;
-}
+export function buildSteps(full, changedFiles = []) {
+  const steps = [["incremental typecheck", "npm", ["run", "typecheck"]]];
+  const lintFiles = changedFiles.filter((file) => LINTABLE_EXTENSION.test(file) && existsSync(path.join(repoRoot, file)));
+  if (lintFiles.length > 0) steps.push(["changed-file lint", "npx", ["--no-install", "eslint", ...lintFiles]]);
 
-function processAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // ESRCH: no such process. EPERM: exists but not ours (still alive).
-    return error.code === "EPERM";
-  }
-}
-
-/**
- * Acquire the machine-wide lock. Atomic mkdir; on contention, inspect the pid
- * and reclaim if stale. Honors `wait`/`pollMs`. Returns a release() function.
- */
-async function acquireLock({ wait, pollMs }) {
-  let announcedWait = false;
-  for (;;) {
-    try {
-      mkdirSync(LOCK_DIR);
-      writeFileSync(LOCK_PID_FILE, String(process.pid), "utf8");
-      return () => {
-        try {
-          rmSync(LOCK_DIR, { recursive: true, force: true });
-        } catch {
-          // best-effort release
-        }
-      };
-    } catch (error) {
-      if (error.code !== "EEXIST") {
-        throw error;
-      }
+  const prefixes = deriveAffectedTestPrefixes(changedFiles);
+  if (prefixes.length > 0) {
+    const prefixArgs = prefixes.flatMap((prefix) => ["--prefix", prefix]);
+    steps.push(["affected fast tests", process.execPath, ["tools/run-node-tests.mjs", "--tier", "fast", ...prefixArgs]]);
+    steps.push(["affected contract tests", process.execPath, ["tools/run-node-tests.mjs", "--tier", "contract", ...prefixArgs]]);
+    if (prefixes.includes("packages/") || prefixes.includes("packages/gui/")) {
+      steps.push(["affected GUI tests", "npm", ["run", "test:gui"]]);
     }
-
-    const holderPid = readLockPid();
-    if (holderPid !== null && !processAlive(holderPid)) {
-      // Stale lock: previous holder died. Reclaim atomically-ish.
-      try {
-        rmSync(LOCK_DIR, { recursive: true, force: true });
-      } catch {
-        // another racer may have cleaned it; loop and retry
-      }
-      continue;
-    }
-
-    if (!wait) {
-      const holder = holderPid === null ? "unknown pid" : `pid ${holderPid}`;
-      throw new LockBusyError(`another local check is running (${holder}); --no-wait set, exiting.`);
-    }
-
-    if (!announcedWait) {
-      const holder = holderPid === null ? "unknown pid" : `pid ${holderPid}`;
-      console.log(`Another local check is running (${holder}). Waiting for the machine-wide lock...`);
-      announcedWait = true;
-    }
-    await sleep(pollMs);
   }
-}
 
-function readLockPid() {
-  try {
-    const raw = readFileSync(LOCK_PID_FILE, "utf8").trim();
-    const pid = Number.parseInt(raw, 10);
-    return Number.isInteger(pid) ? pid : null;
-  } catch {
-    return null;
+  if (full) {
+    steps.push(["integration tests", "npm", ["run", "test:integration"]]);
+    steps.push(["GUI E2E", "npm", ["run", "test:gui:e2e"]]);
+    steps.push(["manifest local gates", "npm", ["run", "check:local:gates"]]);
   }
+  return steps;
 }
 
-class LockBusyError extends Error {}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function buildLocalStepInvocation(qosPrefix, command, args) {
+  return prefixCommand(qosPrefix, command, args);
 }
 
-function runStep(label, scriptName, qosPrefix) {
-  const argv = [...qosPrefix, "npm", "run", scriptName];
-  const [command, ...rest] = argv;
-  console.log(`\n▶ ${label}  (${argv.join(" ")})`);
+function runStep([label, command, args], qosPrefix, env) {
+  const invocation = buildLocalStepInvocation(qosPrefix, command, args);
+  const displayed = [invocation.command, ...invocation.args].join(" ");
+  console.log(`\n▶ ${label}  (${displayed})`);
   const started = Date.now();
-  const result = spawnSync(command, rest, {
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: repoRoot,
     stdio: "inherit",
-    env: process.env
+    env
   });
   const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
   if (result.error) {
     console.error(`✖ ${label} failed to launch: ${result.error.message}`);
-    return { ok: false, elapsedS };
+    return false;
   }
   if (result.status !== 0) {
     console.error(`✖ ${label} failed (exit ${result.status ?? "signal"}) after ${elapsedS}s`);
-    return { ok: false, elapsedS };
+    return false;
   }
   console.log(`✓ ${label} (${elapsedS}s)`);
-  return { ok: true, elapsedS };
+  return true;
 }
 
 async function main(argv) {
@@ -217,52 +129,39 @@ async function main(argv) {
     return;
   }
 
-  const qosPrefix = selectQosPrefix({
-    platform: process.platform,
-    hasTaskpolicy: process.platform === "darwin" && binaryExists("taskpolicy"),
-    hasNice: binaryExists("nice")
-  });
-
-  let release;
-  try {
-    release = await acquireLock({ wait: options.wait, pollMs: options.pollMs });
-  } catch (error) {
-    if (error instanceof LockBusyError) {
-      console.log(error.message);
-      process.exitCode = 0;
-      return;
-    }
-    throw error;
-  }
-
-  const steps = buildSteps(options.full);
-  const cores = availableParallelism();
-  const qosLabel = qosPrefix.length ? qosPrefix.join(" ") : "none";
-  console.log(
-    `Local check (${options.full ? "full" : "fast"} tier): ${steps.length} steps, ` +
-      `QoS wrapper: ${qosLabel}, cores: ${cores}. ` +
-      `Cloud CI enforces the required checks; integration/gui run in CI regardless.`
-  );
-
-  const totalStart = Date.now();
-  try {
-    for (const [label, scriptName] of steps) {
-      const outcome = runStep(label, scriptName, qosPrefix);
-      if (!outcome.ok) {
-        console.error(`\nLocal check stopped at: ${label}. Fix it and re-run.`);
+  const changedFiles = collectChangedFiles();
+  const steps = buildSteps(options.full, changedFiles);
+  const qosPrefix = discoverQosPrefix();
+  await withLocalHeavySlot({ label: options.full ? "check:local:full" : "check:local" }, async (lease) => {
+    console.log(
+      `Local check (${options.full ? "manual full" : "light stop-gate"}): ${steps.length} steps, ` +
+      `${changedFiles.length} changed files, QoS=${qosPrefix.join(" ") || "none"}, slot=${path.basename(lease.slotPath)}. ` +
+      "GitHub CI remains the complete authority."
+    );
+    const started = Date.now();
+    for (const step of steps) {
+      if (!runStep(step, qosPrefix, lease.childEnv)) {
+        console.error(`\nLocal check stopped at: ${step[0]}. Fix it and re-run.`);
         process.exitCode = 1;
         return;
       }
     }
-  } finally {
-    release();
-  }
+    console.log(`\nLocal check passed in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+    if (!options.full) console.log("GitHub CI still runs every manifest-declared pull-request gate.");
+  });
+}
 
-  const totalS = ((Date.now() - totalStart) / 1000).toFixed(1);
-  console.log(`\nLocal check passed (${options.full ? "full" : "fast"} tier) in ${totalS}s.`);
-  if (!options.full) {
-    console.log("Note: integration and GUI tests are covered by cloud CI, not this fast tier.");
-  }
+function gitOutput(run, root, args) {
+  const result = run("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return {
+    ok: result.status === 0,
+    stdout: result.stdout?.trim() ?? "",
+    stderr: result.stderr?.trim() ?? ""
+  };
+}
+
+function splitLines(value) {
+  return value ? value.split(/\r?\n/u).filter(Boolean) : [];
 }
 
 const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;

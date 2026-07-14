@@ -1,0 +1,60 @@
+#!/usr/bin/env sh
+set -eu
+
+# Git invokes post-rewrite once after a rebase has rewritten its commits. Keep
+# generated CLI/GUI dist fresh, but put the TypeScript builds behind the shared
+# machine-wide slot and utility QoS.
+
+rewrite_command=${1:-}
+[ "$rewrite_command" = "rebase" ] || exit 0
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+previous_head=$(git rev-parse --verify ORIG_HEAD 2>/dev/null || true)
+if [ -z "$previous_head" ]; then
+  echo "post-rewrite: ORIG_HEAD unavailable; rebuilding CLI and GUI conservatively."
+  node tools/run-with-local-resources.mjs --label rebase-cli-build -- npm run build -w @harness-anything/cli
+  node tools/run-with-local-resources.mjs --label rebase-gui-build -- npm run build -w @harness-anything/gui
+  exit 0
+fi
+
+cli_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
+  package-lock.json \
+  package.json \
+  packages/cli/package.json \
+  packages/cli/tsconfig.build.json \
+  packages/cli/scripts/copy-assets.mjs \
+  packages/cli/src \
+  packages/kernel/package.json \
+  packages/kernel/src \
+  packages/application/package.json \
+  packages/application/src \
+  packages/domain/package.json \
+  packages/domain/src)
+
+gui_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
+  package-lock.json \
+  package.json \
+  packages/kernel/package.json \
+  packages/kernel/src \
+  packages/application/package.json \
+  packages/application/src \
+  packages/domain/package.json \
+  packages/domain/src \
+  packages/gui/package.json \
+  packages/gui/src)
+
+if [ -n "$cli_changed_paths" ]; then
+  echo "post-rewrite: rebased CLI or upstream sources changed; rebuilding @harness-anything/cli."
+  node tools/run-with-local-resources.mjs --label rebase-cli-build -- npm run build -w @harness-anything/cli
+fi
+
+if [ -n "$gui_changed_paths" ]; then
+  echo "post-rewrite: rebased GUI or upstream sources changed; rebuilding @harness-anything/gui."
+  node tools/run-with-local-resources.mjs --label rebase-gui-build -- npm run build -w @harness-anything/gui
+fi
+
+if [ -z "$cli_changed_paths" ] && [ -z "$gui_changed_paths" ]; then
+  echo "post-rewrite: no CLI, GUI, or upstream source changes; skipping builds."
+fi

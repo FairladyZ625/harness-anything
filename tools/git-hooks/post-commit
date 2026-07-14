@@ -19,7 +19,7 @@ fi
 parent=$(git rev-parse --verify --quiet HEAD~1 || true)
 if [ -z "$parent" ]; then
   echo "post-commit: root commit; rebuilding CLI conservatively."
-  npm run build -w @harness-anything/cli
+  node tools/run-with-local-resources.mjs --label git-hook-cli-build -- npm run build -w @harness-anything/cli
   exit 0
 fi
 
@@ -37,4 +37,4 @@ if [ -z "$changed_paths" ]; then
 fi
 
 echo "post-commit: CLI source or assets changed; rebuilding @harness-anything/cli."
-npm run build -w @harness-anything/cli
+node tools/run-with-local-resources.mjs --label git-hook-cli-build -- npm run build -w @harness-anything/cli

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
-import { collectSlowTests, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
 import { deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -15,7 +15,8 @@ test("parseRunnerArgs accepts tier and slow summary options", () => {
     slowThresholdMs: 250,
     slowLimit: 3,
     concurrency: undefined,
-    shard: undefined
+    shard: undefined,
+    prefixes: []
   });
 });
 
@@ -23,6 +24,14 @@ test("parseRunnerArgs accepts a concurrency cap", () => {
   assert.equal(parseRunnerArgs(["--concurrency", "4"], testTierNames).concurrency, 4);
   assert.equal(parseRunnerArgs(["--concurrency=2"], testTierNames).concurrency, 2);
   assert.throws(() => parseRunnerArgs(["--concurrency", "x"], testTierNames), /--concurrency/u);
+});
+
+test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
+  assert.deepEqual(parseRunnerArgs(["--prefix", "tools", "--prefix=packages/kernel/"], testTierNames).prefixes, [
+    "tools/",
+    "packages/kernel/"
+  ]);
+  assert.throws(() => parseRunnerArgs(["--prefix", "../outside"], testTierNames), /repository-relative/u);
 });
 
 test("parseRunnerArgs accepts integration shards only for the integration tier", () => {
@@ -38,57 +47,41 @@ test("parseRunnerArgs rejects unknown tiers and options", () => {
 
 test("resolveTestConcurrency prefers the explicit flag over env and defaults", () => {
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: 3, envConcurrency: "8", isCi: false, availableParallelism: 16 }),
+    resolveTestConcurrency({ flagConcurrency: 3, envConcurrency: "8", isCi: false }),
     3
   );
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: 12, envConcurrency: undefined, isCi: true, availableParallelism: 16 }),
+    resolveTestConcurrency({ flagConcurrency: 12, envConcurrency: undefined, isCi: true }),
     12
   );
 });
 
 test("resolveTestConcurrency honors HARNESS_TEST_CONCURRENCY when no flag is given", () => {
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "8", isCi: false, availableParallelism: 16 }),
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "8", isCi: false }),
     8
   );
   // A blank or invalid env value falls through to the default path.
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "", isCi: true, availableParallelism: 16 }),
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "", isCi: true }),
     undefined
   );
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "0", isCi: true, availableParallelism: 16 }),
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "0", isCi: true }),
     undefined
   );
 });
 
 test("resolveTestConcurrency keeps node's default in CI with no explicit signal", () => {
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: true, availableParallelism: 16 }),
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: true }),
     undefined
   );
 });
 
-test("resolveTestConcurrency caps the non-CI default to min(6, max(2, cores-2))", () => {
-  // 16 cores -> min(6, 14) = 6
+test("resolveTestConcurrency uses a fixed local per-session budget of two", () => {
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 16 }),
-    6
-  );
-  // 4 cores -> min(6, max(2, 2)) = 2
-  assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 4 }),
-    2
-  );
-  // 8 cores -> min(6, max(2, 6)) = 6
-  assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 8 }),
-    6
-  );
-  // 1 core -> floor at 2
-  assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false, availableParallelism: 1 }),
+    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false }),
     2
   );
 });
@@ -158,6 +151,16 @@ test("selectTestFiles returns sorted tier files from the derived repository mani
   const result = selectTestFiles(allFiles, testTierManifest, "fast");
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.files, [...testTierManifest.fast].sort());
+});
+
+test("test prefix filtering reuses the manifest selection without bypassing discovery", () => {
+  assert.deepEqual(
+    filterTestFilesByPrefixes(
+      ["packages/kernel/test/a.test.ts", "packages/cli/test/b.test.ts", "tools/c.test.mjs"],
+      ["packages/kernel/", "tools/"]
+    ),
+    ["packages/kernel/test/a.test.ts", "tools/c.test.mjs"]
+  );
 });
 
 test("slow test summary parses node test output and formats top entries", () => {

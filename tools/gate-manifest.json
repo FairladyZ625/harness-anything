@@ -95,6 +95,7 @@
         "check-gate-surface",
         "check-gate-manifest-invariants",
         "check-enforcement-constants",
+        "check-local-load-governance",
         "check-staged-activation",
         "check-template-command-surface",
         "check-locale-content",
@@ -139,6 +140,7 @@
         "check-gate-surface",
         "check-gate-manifest-invariants",
         "check-enforcement-constants",
+        "check-local-load-governance",
         "check-staged-activation",
         "check-template-command-surface",
         "check-locale-content",
@@ -153,7 +155,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 39
+      "harnessLeafGateCount": 40
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -3041,6 +3043,108 @@
           "check": true,
           "checkPr": true,
           "script": "harness:check-gate-manifest-invariants"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": [
+            "boundaries"
+          ],
+          "nonPullRequestJobs": [
+            "full-check"
+          ]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": [
+            "boundaries"
+          ]
+        },
+        "classes": [
+          "local",
+          "pr",
+          "main-full"
+        ]
+      }
+    },
+    {
+      "id": "check-local-load-governance",
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "tools/local-resource-governance.test.mjs",
+          "tools/run-local-check.test.mjs",
+          "tools/run-ci-equivalent.test.mjs",
+          "tools/run-node-tests.test.mjs",
+          "tools/run-with-local-resources.test.mjs"
+        ]
+      },
+      "command": "npm run harness:check-local-load-governance",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "decision/dec_01KXFEMGFNT0QF5PTXVDGQGZ76",
+        "tools/local-resource-governance.mjs",
+        "tools/run-local-check.mjs",
+        "tools/run-ci-equivalent.mjs",
+        "tools/run-node-tests.mjs",
+        "tools/run-with-local-resources.mjs",
+        "tools/git-hooks/post-checkout",
+        "tools/git-hooks/post-commit",
+        "tools/git-hooks/post-merge",
+        "tools/git-hooks/post-rewrite",
+        "package.json:scripts.harness:check-local-load-governance"
+      ],
+      "consumerScope": [
+        "machine-wide bounded local heavy-operation slots across worktrees and sessions",
+        "utility QoS for local check, test, CI-equivalent, and Git-hook build subprocesses",
+        "fixed local test-process concurrency budget and inherited nested leases",
+        "change-aware local stop-gate selection"
+      ],
+      "githubContext": {
+        "requiredContexts": [
+          "boundaries"
+        ],
+        "workflowJobs": [
+          "boundaries",
+          "full-check"
+        ],
+        "nodeVersions": [
+          24,
+          26
+        ]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Behavioral tests exercise capacity, queueing, inheritance, stale recovery, QoS argv construction, hook wrapper parsing, and local test selection."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/local-resource-governance.mjs",
+          "tools/run-local-check.mjs",
+          "tools/run-ci-equivalent.mjs",
+          "tools/run-node-tests.mjs",
+          "tools/node-test-runner-lib.mjs",
+          "tools/run-with-local-resources.mjs",
+          "tools/git-hooks/post-checkout",
+          "tools/git-hooks/post-commit",
+          "tools/git-hooks/post-merge",
+          "tools/git-hooks/post-rewrite",
+          "package.json:scripts.check:local",
+          "package.json:scripts.check:ci",
+          "package.json:scripts.harness:check-local-load-governance"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-local-load-governance"
         },
         "rewriteCi": {
           "pullRequestJobs": [
