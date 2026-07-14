@@ -164,7 +164,7 @@ test("CLI task contract migration is dry-run safe, idempotent, and queues ambigu
     const harnessRoot = path.join(rootDir, "harness");
     const unverifiedRelativePath = path.relative(harnessRoot, path.join(rootDir, unverified.packagePath));
     execFileSync("git", ["-C", harnessRoot, "add", "-A", "--", unverifiedRelativePath]);
-    execFileSync("git", ["-C", harnessRoot, "-c", "commit.gpgsign=false", "commit", "--amend", "--no-edit"], { stdio: "ignore" });
+    execFileSync("git", ["-C", harnessRoot, "-c", "commit.gpgsign=false", "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "--amend", "--no-edit"], { stdio: "ignore" });
 
     const preview = runJson(rootDir, ["task", "contract", "migrate", "--dry-run"]);
     assert.equal(preview.report.counts.planned, 1, JSON.stringify(preview.report));
