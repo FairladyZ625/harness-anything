@@ -137,6 +137,8 @@ test("daemon success receipt declares pending materialization with a next comman
 function createOlderConflictedSessionBranch(rootDir: string, sessionId = "older-conflict"): void {
   const harnessRoot = path.join(rootDir, "harness");
   const sharedPath = path.join(harnessRoot, "conflict.txt");
+  git(rootDir, "config", "user.name", "Harness Test");
+  git(rootDir, "config", "user.email", "harness@example.test");
   writeFileSync(sharedPath, "base\n", "utf8");
   git(rootDir, "add", "conflict.txt");
   git(rootDir, "commit", "-m", "seed conflict fixture");
@@ -151,7 +153,12 @@ function createOlderConflictedSessionBranch(rootDir: string, sessionId = "older-
 }
 
 function git(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-C", path.join(rootDir, "harness"), ...args], {
+  return execFileSync("git", [
+    "-C", path.join(rootDir, "harness"),
+    "-c", "user.name=Harness Test",
+    "-c", "user.email=harness@example.test",
+    ...args
+  ], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   }).trim();

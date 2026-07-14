@@ -197,7 +197,7 @@ function branchExists(repoRoot: string, branchName: string, vcs: VersionControlS
   return vcs.refExists(repoRoot, branchName);
 }
 
-function sessionBranchName(sessionId: string | undefined): string | undefined {
+export function sessionBranchName(sessionId: string | undefined): string | undefined {
   const safeSessionId = sessionId?.trim();
   if (!safeSessionId) return undefined;
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(safeSessionId)) {

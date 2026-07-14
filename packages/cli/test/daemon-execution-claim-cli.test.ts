@@ -6,9 +6,12 @@ import { receiptDataString, writePeopleRoster } from "./helpers/forced-command-d
 import { runRawJson, withTempRootAsync } from "./helpers/daemon-cli.ts";
 import { git, receiptPath } from "./helpers/daemon-thin-client-fixtures.ts";
 
-test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller session", async () => {
+test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller session binding", async () => {
   await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    const harnessRoot = path.join(rootDir, "harness");
+    git(harnessRoot, "config", "user.name", "Harness Test");
+    git(harnessRoot, "config", "user.email", "harness@example.test");
     writePeopleRoster(rootDir, {
       personId: "person_execution",
       displayName: "Execution User",
@@ -56,13 +59,14 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
       `${executionId}.md`
     );
     const execution = JSON.parse(git(
-      path.join(rootDir, "harness"),
+      harnessRoot,
       "show",
-      `sessions/claiming-codex-session:${executionPath}`
+      `master:${executionPath}`
     )) as {
       readonly session_bindings?: ReadonlyArray<{ readonly session_ref?: string | null }>;
     };
     assert.equal(execution.session_bindings?.[0]?.session_ref, "session/claiming-codex-session");
+    assert.equal(git(harnessRoot, "branch", "--list", "sessions/claiming-codex-session"), "");
 
     const holder = runRawJson(rootDir, ["task", "holder", taskId], {
       HARNESS_DAEMON_MODE: "local",

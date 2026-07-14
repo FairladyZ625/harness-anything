@@ -7,7 +7,7 @@ import { countAttributionProjectionRows } from "../projection/sqlite-attribution
 import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
-import { resolveTrunkBranch } from "./write-journal-git.ts";
+import { resolveTrunkBranch, sessionBranchName } from "./write-journal-git.ts";
 import { withRepoLocks } from "./write-journal-locks.ts";
 import type { OwnedLock } from "./write-journal-types.ts";
 import { durableFileExists } from "./write-journal-durable.ts";
@@ -165,14 +165,6 @@ function materializeBranches(
     projectionRebuilt,
     attributionEventsProjected
   };
-}
-
-function sessionBranchName(sessionId: string): string {
-  const trimmed = sessionId.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(trimmed)) {
-    throw new Error(`invalid materializer session id: ${sessionId}`);
-  }
-  return `sessions/${trimmed}`;
 }
 
 function reachedBranchLimit(processed: number, maxBranches: number | undefined): boolean {

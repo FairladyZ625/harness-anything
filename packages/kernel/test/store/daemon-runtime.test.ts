@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, utimesSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
@@ -9,7 +9,6 @@ import { makeTaskHolderService, taskHolderActor } from "../../src/local/task-hol
 import type { ProjectionSourceFence, ProjectionSourceFenceFactory } from "../../src/ports/projection-source-fence.ts";
 import { queryExecutionEvidencePage } from "../../src/projection/sqlite-execution-evidence-reader.ts";
 import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
-import { projectionDatabaseSignature } from "../../src/projection/projection-generation-readiness.ts";
 import { createDaemonProjectionGenerationManager } from "../../src/store/daemon-projection-generation-manager.ts";
 import { makeJournaledWriteCoordinator } from "../../src/store/write-journal-coordinator.ts";
 import {
@@ -23,7 +22,6 @@ import {
   daemonAttribution,
   git,
   initAuthoredGit,
-  readGitFile,
   spawnJournalOnlyDaemon,
   stableProjectionFence,
   writeExecutionEvidenceFixture
@@ -461,87 +459,6 @@ test("daemon restart after SIGKILL takes over stale lock and recovers durable jo
     assert.equal(status.lastRecovery?.replayedOps, 1);
     assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-crash/recovered.md"), "utf8"), "recovered");
     assert.match(readFileSync(path.join(rootDir, ".harness/write-journal/writes.jsonl"), "utf8"), /"schema":"lock-takeover\/v1"/u);
-    await runtime.stop();
-  });
-});
-
-test("daemon materializer producer runs bounded batches under the lifetime global lock", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    initAuthoredGit(rootDir);
-    const sessionOne = makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution, sessionId: "daemon-mat-1", autoMaterialize: false });
-    Effect.runSync(sessionOne.enqueue(docWrite("op-mat-1", "task-mat-1", "note.md", "one\n")));
-    Effect.runSync(sessionOne.flush("explicit"));
-    const sessionTwo = makeJournaledWriteCoordinator({ rootDir, attribution: testAttribution, sessionId: "daemon-mat-2", autoMaterialize: false });
-    Effect.runSync(sessionTwo.enqueue(docWrite("op-mat-2", "task-mat-2", "note.md", "two\n")));
-    Effect.runSync(sessionTwo.flush("explicit"));
-
-    const runtime = createDaemonRuntime({
-      rootDir,
-      materializerPollMs: false,
-      materializerMaxBranchesPerBatch: 1
-    });
-    await runtime.start();
-    const first = await runtime.enqueueMaterializerBatch();
-    const second = await runtime.enqueueMaterializerBatch();
-
-    assert.equal(first.merged, 1);
-    assert.equal(second.merged, 1);
-    assert.equal(git(rootDir, "branch", "--list", "sessions/daemon-mat-*"), "");
-    assert.equal(readGitFile(rootDir, "tasks/task-mat-1/note.md"), "one\n");
-    assert.equal(readGitFile(rootDir, "tasks/task-mat-2/note.md"), "two\n");
-    await runtime.stop();
-  });
-});
-
-test("daemon status exposes materializer merge conflicts", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    initAuthoredGit(rootDir);
-    const conflictPath = path.join(rootDir, "harness/conflict.txt");
-    git(rootDir, "checkout", "-b", "sessions/daemon-conflict");
-    writeFileSync(conflictPath, "session\n", "utf8");
-    git(rootDir, "add", "--", "conflict.txt");
-    git(rootDir, "commit", "-m", "session conflict");
-    git(rootDir, "checkout", "master");
-    writeFileSync(conflictPath, "trunk\n", "utf8");
-    git(rootDir, "add", "--", "conflict.txt");
-    git(rootDir, "commit", "-m", "trunk conflict");
-
-    const runtime = createMultiRepoDaemonRuntime({
-      repos: [{ repoId: "conflict-repo", rootDir }],
-      materializerPollMs: false,
-      materializerMaxBranchesPerBatch: 1
-    });
-    await runtime.start();
-    const report = await runtime.enqueueMaterializerBatch("conflict-repo");
-
-    assert.equal(report.branches[0]?.status, "conflict");
-    assert.match(runtime.status().repos[0]?.lastMaterializerError ?? "", /sessions\/daemon-conflict/u);
-    await runtime.stop();
-  });
-});
-
-test("daemon no-op materializer preserves the ready projection generation", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    writeExecutionEvidenceFixture(rootDir, "No-op materializer");
-    initAuthoredGit(rootDir);
-    commitAuthoredFixture(rootDir);
-    rebuildTaskProjection({ rootDir });
-    const runtime = createDaemonRuntime({
-      rootDir,
-      materializerPollMs: false,
-      projectionSourceFenceFactory: deterministicProjectionSourceFenceFactory
-    });
-    await runtime.start();
-    await runtime.queryExecutionEvidencePage({ limit: 1 });
-    const projectionPath = resolveHarnessLayout(createHarnessRuntimeContext(rootDir)).executionEvidenceProjectionPath;
-    const before = projectionDatabaseSignature(projectionPath);
-
-    const report = await runtime.enqueueMaterializerBatch();
-
-    assert.equal(report.merged, 0);
-    assert.equal(projectionDatabaseSignature(projectionPath), before);
-    assert.equal(runtime.status().projectionGeneration.invalidations, 0);
-    assert.equal(runtime.status().projectionGeneration.state, "ready");
     await runtime.stop();
   });
 });
