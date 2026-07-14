@@ -167,38 +167,42 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
       } satisfies TaskHolderClaimResult;
     }),
     holder: async (input) => holderSnapshot(input.taskId, readHolderRecord(options.rootInput, input.taskId), now()),
-    release: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
-      const at = now();
-      const current = readHolderRecord(options.rootInput, input.taskId);
-      const snapshot = holderSnapshot(input.taskId, current, at);
-      if (current?.schema !== "task-holder/v1" || !current.holder || !sameTaskHolderPrincipal(current.holder, input.principal)) {
-        throw new TaskReleaseNotHolderError({
-          taskId: input.taskId,
-          principal: input.principal,
-          holder: current?.holder ?? null,
-          leaseExpiresAt: snapshot.leaseExpiresAt,
-          orphan: snapshot.orphan
-        });
-      }
-      const releasedAt = at.toISOString();
-      const record: TaskHolderRecord = {
-        ...current,
-        holder: null,
-        acquiredVia: null,
-        acquiredAt: null,
-        leaseExpiresAt: null,
-        releasedAt,
-        updatedAt: releasedAt,
-        version: holderVersion(releasedAt)
-      };
-      writeHolderRecord(options.rootInput, record);
-      return {
-        ...holderSnapshot(input.taskId, record, at),
-        released: true,
-        previousHolder: current.holder,
-        releasedAt
-      } satisfies TaskHolderReleaseResult;
-    }),
+    release: async (input) => {
+      const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
+        const at = now();
+        const current = readHolderRecord(options.rootInput, input.taskId);
+        const snapshot = holderSnapshot(input.taskId, current, at);
+        const callerOwnsHolder = current?.schema === "task-holder/v1"
+          ? Boolean(current.holder && sameTaskHolderPrincipal(current.holder, input.principal))
+          : Boolean(current?.holder && sameExecutionLeaseActor(current.holder, input.principal));
+        if (!current || !current.holder || !callerOwnsHolder) {
+          throw new TaskReleaseNotHolderError({
+            taskId: input.taskId,
+            principal: input.principal,
+            holder: current?.holder ?? null,
+            leaseExpiresAt: snapshot.leaseExpiresAt,
+            orphan: snapshot.orphan
+          });
+        }
+        const releasedAt = at.toISOString();
+        const previousHolder = current.holder;
+        const record = emptyHolderRecord(input.taskId, releasedAt);
+        writeHolderRecord(options.rootInput, record);
+        return {
+          result: {
+            ...holderSnapshot(input.taskId, record, at),
+            released: true,
+            previousHolder,
+            releasedAt
+          } satisfies TaskHolderReleaseResult,
+          events: current.schema === "task-holder/v2"
+            ? [executionLeaseRuntimeEvent(current, "released", "released", { releasedAt, previousHolder })]
+            : []
+        };
+      });
+      await emitExecutionLeaseEvents(options.appendLeaseEvent, mutation.events);
+      return mutation.result;
+    },
     assertActiveLease: (input) => withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
       const at = now();
       const current = readHolderRecord(options.rootInput, input.taskId);

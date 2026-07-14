@@ -125,6 +125,12 @@ test("daemon command service preserves A/X attribution through the queued coordi
         rootDir,
         json: true,
         action: { kind: "new-task", title: "Cross Boundary", titleProvided: true, slug: "cross-boundary" }
+      },
+      session: {
+        runtime: "codex",
+        sessionId: "thread-cross-boundary",
+        source: "runtime",
+        detectedAt: "2026-07-14T00:00:00.000Z"
       }
     }, {
       actor: {
@@ -143,6 +149,7 @@ test("daemon command service preserves A/X attribution through the queued coordi
     const operational = requests.filter((request) => "operationalActor" in request);
     assert.equal(attributed.every((request) => request.attribution.actor.principal.personId === "person_alice"), true);
     assert.equal(attributed.every((request) => request.attribution.actor.executor?.id === "codex"), true);
+    assert.equal(attributed.every((request) => request.sessionId === "thread-cross-boundary"), true);
     assert.equal(operational.length, 1);
     assert.deepEqual(operational[0]?.operationalActor, {
       scope: "operational",

@@ -1,9 +1,11 @@
 import { Effect, Schema } from "effect";
 import {
   executionDeclaration,
+  taskEntityId,
   validateOutputEvidence,
   readSessionEntityDocument,
   stablePayloadHash,
+  writeCoordinatedPayload,
   writeDeclaredEntityTransaction,
   type ArtifactStore,
   type HarnessLayoutInput,
@@ -69,7 +71,13 @@ export function makeCoordinatedExecutionAuthoredStore(input: {
         evidence: allEvidence
       });
       const submitted = submittedExecution(current, finalizedBindings, request.submittedAt, request.submission);
-      await writeExecutionTransaction(input, request.taskId, submitted, taskIndex(task.documents, request.taskId, ["active"], "in_review"));
+      await writeExecutionTransaction(
+        input,
+        request.taskId,
+        submitted,
+        taskIndex(task.documents, request.taskId, ["active"], "in_review"),
+        { stageTaskTree: true }
+      );
     }
   };
 }
@@ -99,16 +107,26 @@ function writeExecutionTransaction(
   input: { readonly rootInput: HarnessLayoutInput; readonly coordinator: WriteCoordinator },
   taskId: string,
   execution: ExecutionRecord,
-  indexBody: string
+  indexBody: string,
+  options: { readonly stageTaskTree?: boolean } = {}
 ): Promise<void> {
-  return Effect.runPromise(writeDeclaredEntityTransaction(
-    input.coordinator,
-    stablePayloadHash,
-    executionDeclaration,
-    { taskId, executionId: execution.execution_id },
-    execution,
-    [{ taskId, path: "INDEX.md", body: indexBody }]
-  ));
+  return Effect.runPromise(Effect.gen(function* () {
+    if (options.stageTaskTree) {
+      yield* writeCoordinatedPayload(input.coordinator, stablePayloadHash, {
+        entityId: taskEntityId(taskId),
+        kind: "task_tree_stage",
+        payload: { scope: "task-package" }
+      }, { flush: false });
+    }
+    yield* writeDeclaredEntityTransaction(
+      input.coordinator,
+      stablePayloadHash,
+      executionDeclaration,
+      { taskId, executionId: execution.execution_id },
+      execution,
+      [{ taskId, path: "INDEX.md", body: indexBody }]
+    );
+  }));
 }
 
 function taskIndex(

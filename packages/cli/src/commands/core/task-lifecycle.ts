@@ -147,6 +147,18 @@ function runStatusSet(
         )
       } satisfies CliResult;
     }
+    if (taskPolicy.status === "in_review") {
+      return {
+        ok: false,
+        command: "status-set",
+        taskId,
+        status,
+        error: cliError(
+          CliErrorCode.ExecutionReviewRequired,
+          "A Task in review can leave that state only through an execution-scoped Review transaction. Use changes_requested to return it to active."
+        )
+      } satisfies CliResult;
+    }
     if (taskPolicy.status && !explainStatusTransition(taskPolicy.status, status).allowed) {
       return {
         ok: false,

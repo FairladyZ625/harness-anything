@@ -76,7 +76,7 @@ test("Execution is a hosted entity and Holder V2 rejects a second executor", asy
       leaseToken: reserved.leaseToken,
       principal: aliceClaude
     }), /requires an active lease/u);
-    await assert.rejects(service.release({ taskId, principal: aliceCodex }), /is not held/u);
+    await assert.rejects(service.release({ taskId, principal: aliceClaude }), /is not held/u);
     const active = await service.activateExecution({
       taskId,
       executionId,

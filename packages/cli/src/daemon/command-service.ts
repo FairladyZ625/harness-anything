@@ -40,7 +40,11 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
             ? makeDaemonQueuedWriteCoordinator(
               runtime,
               `${parsedCommand.action.kind}:${actor.kind}:${actor.id}`,
-              { attribution: attribution.writeAttribution, commitAuthor: attribution.commitAuthor }
+              {
+                attribution: attribution.writeAttribution,
+                commitAuthor: attribution.commitAuthor,
+                ...(currentSession?.source === "runtime" ? { sessionId: currentSession.sessionId } : {})
+              }
             )
             : missingDaemonActorCoordinator(parsedCommand.action.kind, actor),
           makeOperationalWriteCoordinator: (actor) => makeDaemonQueuedOperationalWriteCoordinator(

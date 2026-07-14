@@ -11,10 +11,12 @@ import { resolveSshForcedCommandAuthentication } from "../src/commands/daemon/co
 import { createDaemonLocalTransport } from "../src/commands/daemon/serve-transport.ts";
 import { hasPrivilegedSshdAncestor } from "../src/commands/daemon/sshd-witness.ts";
 import {
+  commandRunPayload,
   remoteDaemonUnavailableHint,
   remoteDaemonSshArgs,
   type RemoteDaemonConfig
 } from "../src/daemon/client.ts";
+import { parseArgs } from "../src/cli/parse-args.ts";
 
 test("daemon endpoint selection uses a named pipe on Windows and a unix socket on POSIX", () => {
   const userRoot = "/srv/harness-user";
@@ -87,6 +89,28 @@ test("remote mode invokes the pure connect subcommand without a runtime or clien
   ]);
   assert.match(remoteDaemonUnavailableHint(remote), /Start the persistent daemon on daemon\.example\.test/iu);
   assert.match(remoteDaemonUnavailableHint(remote), /ha daemon start --service/iu);
+});
+
+test("remote command payloads do not attach the caller's local runtime session", () => {
+  const parsed = parseArgs(["--root", "/srv/canonical", "task", "claim", "task_remote", "--execution"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+
+  const remotePayload = commandRunPayload(parsed.value);
+  assert.equal(Object.hasOwn(remotePayload, "session"), false);
+
+  const localPayload = commandRunPayload(parsed.value, {
+    runtime: "codex",
+    sessionId: "local-codex-session",
+    source: "runtime",
+    detectedAt: "2026-07-14T00:00:00.000Z"
+  });
+  assert.deepEqual(localPayload.session, {
+    runtime: "codex",
+    sessionId: "local-codex-session",
+    source: "runtime",
+    detectedAt: "2026-07-14T00:00:00.000Z"
+  });
 });
 
 test("forced-command principal requires an unforgeable sshd process witness", () => {

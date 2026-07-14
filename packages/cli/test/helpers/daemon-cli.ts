@@ -176,6 +176,12 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
     HARNESS_GIT_AUTHOR_NAME: "Harness Test",
     HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
     HARNESS_DAEMON_USER_ROOT: defaultDaemonUserRoot(rootDir),
+    CLAUDE_SESSION_ID: "",
+    CLAUDE_CODE_SESSION_ID: "",
+    CODEX_THREAD_ID: "",
+    CODEX_SESSION_ID: "",
+    ZCODE_SESSION_ID: "",
+    ANTIGRAVITY_SESSION_ID: "",
     ...(env.HARNESS_DAEMON_MODE === "direct" ? { HARNESS_DIRECT_WRITE_REASON: "test" } : {}),
     ...env
   };

@@ -115,6 +115,12 @@ test("CLI rejects generic exits from in_review without a changes_requested Execu
       assert.equal(failure.ok, false);
       assert.equal(failure.error?.code, "execution_review_required");
     }
+    const forcedCancellation = runJson(rootDir, [
+      "task", "status", "set", taskId, "cancelled", "--force", "--reason", "invalid review escape"
+    ], false);
+    assert.equal(forcedCancellation.ok, false);
+    assert.equal(forcedCancellation.error?.code, "execution_review_required");
+    assert.equal(existsSync(path.join(rootDir, String(created.packagePath), "progress.md")), false);
     assert.match(readFileSync(indexPath, "utf8"), /^  status: in_review$/mu);
   });
 });

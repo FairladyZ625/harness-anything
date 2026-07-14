@@ -64,19 +64,6 @@ export function runExecutionSubmit(
         error: cliError(CliErrorCode.WriteRejected, "Execution submit requires an active Holder V2 execution or an explicit --execution-id.")
       } satisfies CliResult;
     }
-    const staged = yield* context.engine.stageTaskTree({ taskId: action.taskId }).pipe(Effect.match({
-      onFailure: (error) => ({ ok: false as const, error }),
-      onSuccess: () => ({ ok: true as const })
-    }));
-    if (!staged.ok) {
-      return {
-        ok: false,
-        command: "status-set",
-        taskId: action.taskId,
-        executionId,
-        error: cliError(CliErrorCode.WriteRejected, `Task-tree staging failed before Execution submission: ${JSON.stringify(staged.error)}`)
-      } satisfies CliResult;
-    }
     const submitted = yield* Effect.tryPromise({
       try: () => saga.submitForReview({
         taskId: action.taskId,

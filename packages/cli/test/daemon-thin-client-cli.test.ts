@@ -231,11 +231,7 @@ test("daemon-backed Execution claim preserves the caller session and opens Holde
     });
     const created = runRawJson(rootDir, ["task", "create", "--title", "Daemon Execution Claim"], {
       HARNESS_DAEMON_MODE: "local",
-      HARNESS_DAEMON_IDLE_MS: "10000",
-      CLAUDE_SESSION_ID: "",
-      CLAUDE_CODE_SESSION_ID: "",
-      CODEX_THREAD_ID: "daemon-bootstrap-session",
-      CODEX_SESSION_ID: "daemon-bootstrap-session"
+      HARNESS_DAEMON_IDLE_MS: "10000"
     });
     const taskId = receiptDataString(created, "taskId");
 
@@ -251,12 +247,16 @@ test("daemon-backed Execution claim preserves the caller session and opens Holde
     assert.equal(claimed.ok, true, JSON.stringify(claimed));
     const executionId = receiptDataString(claimed, "executionId");
     assert.match(executionId, /^exe_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u, JSON.stringify(claimed));
-    const execution = JSON.parse(readFileSync(path.join(
-      rootDir,
-      receiptPath(created, "package"),
+    const executionPath = path.posix.join(
+      receiptPath(created, "package").replace(/^harness\//u, ""),
       "executions",
       `${executionId}.md`
-    ), "utf8")) as {
+    );
+    const execution = JSON.parse(git(
+      path.join(rootDir, "harness"),
+      "show",
+      `sessions/claiming-codex-session:${executionPath}`
+    )) as {
       readonly session_bindings?: ReadonlyArray<{ readonly session_ref?: string | null }>;
     };
     assert.equal(execution.session_bindings?.[0]?.session_ref, "session/claiming-codex-session");
@@ -267,6 +267,26 @@ test("daemon-backed Execution claim preserves the caller session and opens Holde
     });
     const holderData = (holder.details as { readonly data?: { readonly holder?: { readonly schema?: string } } } | undefined)?.data;
     assert.equal(holderData?.holder?.schema, "task-holder/v2");
+
+    const released = runRawJson(rootDir, ["task", "release", taskId], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "claiming-codex-session",
+      CODEX_SESSION_ID: "claiming-codex-session"
+    });
+    assert.equal(released.ok, true, JSON.stringify(released));
+
+    const releasedHolder = runRawJson(rootDir, ["task", "holder", taskId], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000"
+    });
+    const releasedHolderData = (releasedHolder.details as {
+      readonly data?: { readonly holder?: { readonly schema?: string; readonly holder?: unknown } }
+    } | undefined)?.data;
+    assert.equal(releasedHolderData?.holder?.schema, "task-holder/v1");
+    assert.equal(releasedHolderData?.holder?.holder, null);
   });
 });
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { Schema } from "effect";
 import {
@@ -36,6 +36,16 @@ export function validateInReviewExecutionConsistency(rootInput: HarnessLayoutInp
     const executionDir = path.join(taskDir, "executions");
     const submitted: ExecutionRecord[] = [];
     if (existsSync(executionDir)) {
+      if (!statSync(executionDir).isDirectory()) {
+        issues.push(profileIssue(
+          "execution-consistency",
+          "execution_record_invalid",
+          "hard-fail",
+          `${relativeTaskDir}/executions exists but is not a directory.`,
+          "Replace the path with an executions directory containing canonical Execution records."
+        ));
+        continue;
+      }
       for (const entry of readdirSync(executionDir, { withFileTypes: true }).filter((candidate) => candidate.isFile() && candidate.name.endsWith(".md"))) {
         const executionPath = path.join(executionDir, entry.name);
         let execution: ExecutionRecord;

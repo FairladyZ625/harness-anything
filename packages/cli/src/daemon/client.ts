@@ -23,7 +23,8 @@ import {
 } from "../../../daemon/src/index.ts";
 import {
   createHarnessRuntimeContext,
-  resolveHarnessLayout
+  resolveHarnessLayout,
+  type CurrentSessionRef
 } from "../../../kernel/src/index.ts";
 import { CliErrorCode, cliError } from "../cli/error-codes.ts";
 import type { CommandFailureReceipt, CommandReceipt } from "../cli/receipt.ts";
@@ -68,9 +69,7 @@ export interface RemoteDaemonConfig {
 }
 
 type TaskHolderParsedCommand = ParsedCommand & {
-  readonly action:
-    | { readonly kind: "task-holder"; readonly taskId: string }
-    | { readonly kind: "task-release"; readonly taskId: string };
+  readonly action: { readonly kind: "task-holder"; readonly taskId: string };
 };
 
 export function readDaemonClientConfig(env: NodeJS.ProcessEnv = process.env): DaemonClientConfig {
@@ -156,7 +155,10 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
   }
   const response = await requestLocalDaemonJsonRpcForTarget(target, "repo.command.run", {
     repo: { repoId: target.repoId },
-    payload: commandRunPayload(commandForTarget(command, target))
+    payload: commandRunPayload(
+      commandForTarget(command, target),
+      Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
+    )
   }, 200, {
     entryPath: daemonClientCliEntrypointPath(),
     idleExitMs: config.idleExitMs,
@@ -317,7 +319,7 @@ function isCommandReceipt(value: JsonObject): boolean {
 }
 
 function isTaskHolderCommand(command: ParsedCommand): command is TaskHolderParsedCommand {
-  return command.action.kind === "task-holder" || command.action.kind === "task-release";
+  return command.action.kind === "task-holder";
 }
 
 function isDocSyncSubmitCommand(command: ParsedCommand): boolean {
@@ -328,9 +330,8 @@ function docSyncSubmitPaths(command: ParsedCommand): ReadonlyArray<string> {
   return command.action.kind === "doc-sync-submit" ? command.action.paths : [];
 }
 
-function taskHolderMethod(command: TaskHolderParsedCommand): "repo.task.holder" | "repo.task.release" {
-  if (command.action.kind === "task-holder") return "repo.task.holder";
-  return "repo.task.release";
+function taskHolderMethod(_command: TaskHolderParsedCommand): "repo.task.holder" {
+  return "repo.task.holder";
 }
 
 function taskHolderPayload(command: TaskHolderParsedCommand): JsonObject {
@@ -341,14 +342,13 @@ function taskHolderPayload(command: TaskHolderParsedCommand): JsonObject {
   };
 }
 
-function commandRunPayload(command: ParsedCommand): JsonObject {
+export function commandRunPayload(command: ParsedCommand, session?: CurrentSessionRef): JsonObject {
   const executor = taskHolderExecutorPayload(command);
-  const session = Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession);
   const { actor: _localActorFlag, ...transportCommand } = command;
   return {
     command: transportCommand as unknown as JsonObject,
     ...(executor !== undefined ? { executor } : {}),
-    session: session as unknown as JsonObject
+    ...(session !== undefined ? { session: session as unknown as JsonObject } : {})
   };
 }
 
@@ -369,7 +369,7 @@ function taskHolderExecutorJson(executor: TaskHolderExecutor | null): JsonObject
   return executor ? { kind: executor.kind, id: executor.id } : null;
 }
 
-function normalizeTaskHolderReceipt(response: JsonObject, commandKind: "task-holder" | "task-release"): CommandReceipt | CommandFailureReceipt {
+function normalizeTaskHolderReceipt(response: JsonObject, commandKind: "task-holder"): CommandReceipt | CommandFailureReceipt {
   return {
     ...(response as unknown as CommandReceipt | CommandFailureReceipt),
     command: commandKind,

@@ -1,10 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { runRawJson, runRawJsonMaybeFail, withTempRoot } from "./helpers/daemon-cli.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { writeSubstantiveTaskPlan } from "./helpers/task-plan-fixture.ts";
 
 const noRuntimeSession = {
@@ -37,6 +39,7 @@ test("in_review without an Execution submission fails closed", () => {
 
 test("Execution claim without a detectable runtime session records a pending primary and submit fails actionably", () => {
   withTempRoot((rootDir) => {
+    initializeNestedHarnessRepo(rootDir);
     runRawJson(rootDir, ["init"], noRuntimeSession);
     const created = unwrapCommandReceipt(runRawJson(rootDir, ["new-task", "--title", "Pending Primary"], noRuntimeSession));
     const taskId = String(created.taskId);
@@ -55,6 +58,8 @@ test("Execution claim without a detectable runtime session records a pending pri
       session: null,
       capture_range: execution.session_bindings[0].capture_range
     }]);
+    const handEditPath = path.join(rootDir, String(created.packagePath), "hand-edit.md");
+    writeFileSync(handEditPath, "must remain unstaged\n", "utf8");
 
     const submitted = runRawJsonMaybeFail(rootDir, [
       "task", "transition", taskId, "in_review",
@@ -63,6 +68,29 @@ test("Execution claim without a detectable runtime session records a pending pri
     ], noRuntimeSession);
     assert.equal(submitted.status, 1);
     assert.match(String((submitted.receipt.error as { readonly hint?: string }).hint), /primary Session binding is required.*ExecutionSagaService\.attachSession/u);
+    const stagedPaths = execFileSync("git", ["diff", "--cached", "--name-only"], {
+      cwd: path.join(rootDir, "harness"),
+      encoding: "utf8"
+    });
+    assert.equal(stagedPaths.includes("hand-edit.md"), false);
+  });
+});
+
+test("default check reports an executions path that is not a directory", () => {
+  withTempRoot((rootDir) => {
+    runRawJson(rootDir, ["init"], noRuntimeSession);
+    const created = unwrapCommandReceipt(runRawJson(rootDir, ["new-task", "--title", "Broken Executions Path"], noRuntimeSession));
+    const taskRoot = path.join(rootDir, String(created.packagePath));
+    const indexPath = path.join(taskRoot, "INDEX.md");
+    writeFileSync(indexPath, readFileSync(indexPath, "utf8").replace(/^(  status:\s*).+$/mu, "$1in_review"), "utf8");
+    writeFileSync(path.join(taskRoot, "executions"), "not a directory\n", "utf8");
+
+    const invalid = runRawJsonMaybeFail(rootDir, ["check"], noRuntimeSession);
+
+    assert.equal(invalid.status, 1);
+    assert.equal((invalid.receipt.error as { readonly code?: string }).code, "check_profile_failed");
+    const warnings = (invalid.receipt.warnings ?? []) as ReadonlyArray<{ readonly code?: string; readonly severity?: string }>;
+    assert.equal(warnings.some((warning) => warning.code === "execution_record_invalid" && warning.severity === "hard-fail"), true);
   });
 });
 
