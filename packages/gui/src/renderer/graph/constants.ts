@@ -31,7 +31,7 @@ export const AXIS_LABEL: Record<SemanticAxis, string> = {
 };
 
 export const AXIS_SUBLABEL: Record<SemanticAxis, string> = {
-  authority: "refines · narrows · supersedes · derives · supports",
+  authority: "refines · supersedes · derives · supports",
   evidence: "evidenced-by · supersedes-fact",
   execution: "depends-on",
   assoc: "relates · implements",

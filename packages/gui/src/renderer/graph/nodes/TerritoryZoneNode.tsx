@@ -182,19 +182,19 @@ function TaskMeta({
 }) {
   const items: Array<{ label: string; color?: string; bold?: boolean }> = [];
   if (counts.blocked)
-    items.push({ label: `${counts.blocked} blocked`, color: "var(--color-status-blocked)", bold: true });
+    items.push({ label: `${counts.blocked} ${t("graph.territoryZoneNode.blocked")}`, color: "var(--color-status-blocked)", bold: true });
   if (counts.active)
-    items.push({ label: `${counts.active} active`, color: "var(--color-status-active)", bold: true });
+    items.push({ label: `${counts.active} ${t("graph.territoryZoneNode.active")}`, color: "var(--color-status-active)", bold: true });
   if (counts.in_review) items.push({ label: t("graph.territoryZoneNode.reviewArchive", { in_review: counts.in_review }) });
-  if (counts.planned) items.push({ label: `${counts.planned} planned` });
+  if (counts.planned) items.push({ label: `${counts.planned} ${t("graph.territoryZoneNode.planned")}` });
   if (counts.done)
     items.push({
-      label: `${counts.done} done`,
+      label: `${counts.done} ${t("graph.territoryZoneNode.done")}`,
       color: "var(--color-status-done)",
       bold: allDone,
     });
   if (counts.cancelled)
-    items.push({ label: `${counts.cancelled} cancelled` });
+    items.push({ label: `${counts.cancelled} ${t("graph.territoryZoneNode.cancelled")}` });
   void total;
   return (
     <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 ui-meta text-[11px] text-text-muted">
