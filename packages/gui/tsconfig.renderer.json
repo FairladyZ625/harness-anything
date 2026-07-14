@@ -19,7 +19,7 @@
     "resolveJsonModule": true,
     "jsx": "react-jsx",
     "types": [],
-    "outDir": "./dist/renderer-types"
+    "outDir": "./dist-types/renderer-types"
   },
   "include": [
     "src/renderer/**/*.ts",
