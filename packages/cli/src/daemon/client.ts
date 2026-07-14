@@ -104,6 +104,9 @@ export async function runCommandThroughDaemon(
       ? await runRemoteCommand(command, config.remote)
       : await runLocalCommand(command, config);
   } catch (error) {
+    if (command.action.kind === "materializer-run" && config.mode === "local" && !(error instanceof DaemonJsonRpcResponseError)) {
+      return undefined;
+    }
     if (error instanceof CliActorAttributionError) {
       return daemonActorAttributionReceipt(command, error);
     }
@@ -163,7 +166,7 @@ async function runLocalCommand(command: ParsedCommand, config: DaemonClientConfi
       commandForTarget(command, target),
       Effect.runSync(makeEnvironmentCurrentSessionProbe().currentSession)
     )
-  }, 200, {
+  }, 200, command.action.kind === "materializer-run" ? undefined : {
     entryPath: daemonClientCliEntrypointPath(),
     idleExitMs: config.idleExitMs,
     timeoutMs: config.autostartTimeoutMs,

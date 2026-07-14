@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { commandReceiptContractsByKind } from "../src/cli/receipt-contracts.ts";
-import { toCommandReceipt } from "../src/cli/receipt.ts";
+import { renderReceiptText, toCommandReceipt } from "../src/cli/receipt.ts";
 
 test("command receipts fail closed on undeclared path fields", () => {
   const receipt = toCommandReceipt({
@@ -93,6 +93,45 @@ test("command receipts allow explicitly optional declared data to be absent", ()
   if (!receipt.ok) return;
   assert.equal(receipt.entity?.id, "task_1");
   assert.equal(receipt.paths?.some((entry) => entry.role === "package"), true);
+});
+
+test("materializer warnings use the receipt warning envelope instead of a duplicate data field", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "materializer-run",
+    rows: 1,
+    warnings: ["sessions/conflict: merge failed"],
+    report: { branches: [], warnings: ["sessions/conflict: merge failed"] }
+  });
+
+  assert.equal(receipt.ok, true, JSON.stringify(receipt));
+  if (!receipt.ok) return;
+  assert.deepEqual(receipt.warnings, ["sessions/conflict: merge failed"]);
+  assert.equal("warnings" in (receipt.details?.data ?? {}), false);
+});
+
+test("plain text receipts prioritize pending materialization and print its next command", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "decision-propose",
+    decisionId: "dec_pending",
+    decisionState: "proposed",
+    path: "harness/decisions/decision-dec_pending/decision.md",
+    report: { schema: "decision-write-cli-report/v1", dryRun: false },
+    warnings: [
+      { code: "decision_body_empty", message: "Add a narrative." },
+      {
+        code: "pending_materialization",
+        message: "Write is durable but not readable. Run: ha materializer run --json",
+        nextCommand: "ha materializer run --json"
+      }
+    ]
+  });
+
+  assert.equal(receipt.ok, true, JSON.stringify(receipt));
+  if (!receipt.ok) return;
+  assert.match(renderReceiptText(receipt), /pending materialization|not readable/iu);
+  assert.match(renderReceiptText(receipt), /next="ha materializer run --json"/u);
 });
 
 test("command receipts accept explicitly optional declared data when present", () => {

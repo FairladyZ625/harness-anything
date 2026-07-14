@@ -23,6 +23,18 @@ export interface CliDaemonRuntime {
   readonly status: () => {
     readonly lastRecovery?: RecoveryReport;
   };
+  readonly enqueueMaterializerBatch: (options?: {
+    readonly dryRun?: boolean;
+    readonly sessionId?: string;
+  }) => Promise<{
+    readonly branches: ReadonlyArray<{
+      readonly branch: string;
+      readonly commitCount: number;
+      readonly status: "merged" | "would_merge" | "skipped" | "conflict";
+      readonly warning?: string;
+    }>;
+    readonly warnings: ReadonlyArray<string>;
+  }>;
 }
 
 export function makeDaemonQueuedWriteCoordinator(

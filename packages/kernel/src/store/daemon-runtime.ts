@@ -78,8 +78,13 @@ export interface HarnessDaemonRuntime {
   readonly status: () => DaemonRuntimeStatus;
   readonly enqueueInteractiveWrite: (request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
   readonly enqueueBackgroundBatch: <Result>(request: BackgroundBatchRequest<Result>) => Promise<Result>;
-  readonly enqueueMaterializerBatch: () => Promise<LedgerMaterializerReport>;
+  readonly enqueueMaterializerBatch: (options?: DaemonMaterializerBatchOptions) => Promise<LedgerMaterializerReport>;
   readonly queryExecutionEvidencePage: (query: ExecutionEvidencePageQuery) => Promise<ExecutionEvidencePage>;
+}
+
+export interface DaemonMaterializerBatchOptions {
+  readonly dryRun?: boolean;
+  readonly sessionId?: string;
 }
 
 export type DaemonRepoRuntimeState = "attached" | "unavailable" | "detaching" | "detached";
@@ -120,7 +125,7 @@ export interface MultiRepoHarnessDaemonRuntime {
   readonly getRepoRuntime: (repoId: string) => HarnessDaemonRuntime | undefined;
   readonly enqueueInteractiveWrite: (repoId: string, request: InteractiveWriteRequest) => Promise<InteractiveWriteReceipt>;
   readonly enqueueBackgroundBatch: <Result>(repoId: string, request: BackgroundBatchRequest<Result>) => Promise<Result>;
-  readonly enqueueMaterializerBatch: (repoId: string) => Promise<LedgerMaterializerReport>;
+  readonly enqueueMaterializerBatch: (repoId: string, options?: DaemonMaterializerBatchOptions) => Promise<LedgerMaterializerReport>;
 }
 
 export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemonRuntime {
@@ -131,7 +136,7 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     status: () => toDaemonRuntimeStatus(context.status()),
     enqueueInteractiveWrite: (request) => context.enqueueInteractiveWrite(request),
     enqueueBackgroundBatch: (request) => context.enqueueBackgroundBatch(request),
-    enqueueMaterializerBatch: () => context.enqueueMaterializerBatch(),
+    enqueueMaterializerBatch: (batchOptions) => context.enqueueMaterializerBatch(batchOptions),
     queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query)
   };
 }
@@ -186,7 +191,7 @@ export function createMultiRepoDaemonRuntime(options: MultiRepoDaemonRuntimeOpti
     getRepoRuntime: (repoId) => contexts.get(repoId),
     enqueueInteractiveWrite: (repoId, request) => requireContext(contexts, repoId).enqueueInteractiveWrite(request),
     enqueueBackgroundBatch: (repoId, request) => requireContext(contexts, repoId).enqueueBackgroundBatch(request),
-    enqueueMaterializerBatch: (repoId) => requireContext(contexts, repoId).enqueueMaterializerBatch()
+    enqueueMaterializerBatch: (repoId, batchOptions) => requireContext(contexts, repoId).enqueueMaterializerBatch(batchOptions)
   };
   return runtime;
 
@@ -355,7 +360,7 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
       });
   }
 
-  enqueueMaterializerBatch(): Promise<LedgerMaterializerReport> {
+  enqueueMaterializerBatch(batchOptions: DaemonMaterializerBatchOptions = {}): Promise<LedgerMaterializerReport> {
     return this.enqueueBackgroundBatch({
       source: "ledger-materializer",
       priority: "background",
@@ -363,10 +368,18 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
         const started = this.requireAttached();
         const report = runLedgerMaterializer(this.runtimeContext, {
           heldGlobalLock: started.lock,
-          maxBranches: this.materializerMaxBranchesPerBatch
+          ...(batchOptions.dryRun ? { dryRun: true } : {}),
+          ...(batchOptions.sessionId
+            ? { sessionId: batchOptions.sessionId }
+            : { maxBranches: this.materializerMaxBranchesPerBatch })
         });
         if (report.projectionRebuilt) {
           this.projectionGeneration.invalidate();
+        }
+        if (report.warnings.length > 0) {
+          this.lastMaterializerError = report.warnings.join("; ");
+        } else if (!batchOptions.sessionId) {
+          this.lastMaterializerError = undefined;
         }
         return report;
       }

@@ -75,10 +75,34 @@ export function renderReceiptText(receipt: CommandReceipt): string {
   const primaryPath = receipt.paths?.find((entry) => ["package", "primary", "projection"].includes(entry.role))?.path;
   if (primaryPath) parts.push(`path=${formatToken(primaryPath)}`);
   if (typeof receipt.rows === "number") parts.push(`rows=${receipt.rows}`);
+  if (receipt.warnings && receipt.warnings.length > 0) {
+    const warning = receiptWarning(
+      receipt.warnings.find((value) => receiptWarningCode(value) === "pending_materialization") ?? receipt.warnings[0]
+    );
+    parts.push(`warnings=${receipt.warnings.length}`);
+    if (warning.message) parts.push(`warning=${formatToken(warning.message)}`);
+    if (warning.nextCommand) parts.push(`next=${formatToken(warning.nextCommand)}`);
+  }
   const mode = launchMode(data.launchPlan);
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
   parts.push(`summary=${formatToken(receipt.summary)}`);
   return parts.join(" ");
+}
+
+function receiptWarningCode(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const code = (value as { readonly code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function receiptWarning(value: unknown): { readonly message?: string; readonly nextCommand?: string } {
+  if (typeof value === "string") return { message: value };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { message: String(value) };
+  const warning = value as { readonly message?: unknown; readonly nextCommand?: unknown };
+  return {
+    ...(typeof warning.message === "string" ? { message: warning.message } : {}),
+    ...(typeof warning.nextCommand === "string" ? { nextCommand: warning.nextCommand } : {})
+  };
 }
 
 function renderCapabilitiesText(receipt: CommandReceipt): string {

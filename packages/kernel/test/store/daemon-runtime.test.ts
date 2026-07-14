@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, statSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Effect } from "effect";
@@ -489,6 +489,33 @@ test("daemon materializer producer runs bounded batches under the lifetime globa
     assert.equal(git(rootDir, "branch", "--list", "sessions/daemon-mat-*"), "");
     assert.equal(readGitFile(rootDir, "tasks/task-mat-1/note.md"), "one\n");
     assert.equal(readGitFile(rootDir, "tasks/task-mat-2/note.md"), "two\n");
+    await runtime.stop();
+  });
+});
+
+test("daemon status exposes materializer merge conflicts", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initAuthoredGit(rootDir);
+    const conflictPath = path.join(rootDir, "harness/conflict.txt");
+    git(rootDir, "checkout", "-b", "sessions/daemon-conflict");
+    writeFileSync(conflictPath, "session\n", "utf8");
+    git(rootDir, "add", "--", "conflict.txt");
+    git(rootDir, "commit", "-m", "session conflict");
+    git(rootDir, "checkout", "master");
+    writeFileSync(conflictPath, "trunk\n", "utf8");
+    git(rootDir, "add", "--", "conflict.txt");
+    git(rootDir, "commit", "-m", "trunk conflict");
+
+    const runtime = createMultiRepoDaemonRuntime({
+      repos: [{ repoId: "conflict-repo", rootDir }],
+      materializerPollMs: false,
+      materializerMaxBranchesPerBatch: 1
+    });
+    await runtime.start();
+    const report = await runtime.enqueueMaterializerBatch("conflict-repo");
+
+    assert.equal(report.branches[0]?.status, "conflict");
+    assert.match(runtime.status().repos[0]?.lastMaterializerError ?? "", /sessions\/daemon-conflict/u);
     await runtime.stop();
   });
 });

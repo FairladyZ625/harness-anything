@@ -60,7 +60,7 @@ export const runtimeDocsCommandSpecs = defineCommandSpecs([
     "parse": parseMaterializerArgs,
     "run": runMaterializerCommand,
     "receiptContract": {
-      "data": ["rows", "warnings", "report"],
+      "data": ["rows", "report"],
       "paths": []
     },
     "eventPolicy": {

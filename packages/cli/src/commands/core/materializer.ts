@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
-import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import type { CliResult, MaterializerCommandReport, ParsedCommand } from "../../cli/types.ts";
 import type { CommandRunnerContext, CommandRunnerEffect } from "../../cli/runner-registry.ts";
 
 export function runMaterializerCommand(
@@ -15,14 +15,15 @@ export function runMaterializerCommand(
       error: cliError(CliErrorCode.UnknownCommand, `Unsupported materializer command: ${action.kind}`)
     } satisfies CliResult);
   }
-  return Effect.sync(() => {
-    const report = context.runLedgerMaterializer({ dryRun: action.dryRun });
-    return {
-      ok: true,
-      command: "materializer-run",
-      rows: report.branches.length,
-      warnings: report.warnings,
-      report
-    };
-  });
+  return Effect.sync(() => materializerCommandResult(context.runLedgerMaterializer({ dryRun: action.dryRun })));
+}
+
+export function materializerCommandResult(report: MaterializerCommandReport): CliResult {
+  return {
+    ok: true,
+    command: "materializer-run",
+    rows: report.branches.length,
+    warnings: report.warnings,
+    report
+  };
 }

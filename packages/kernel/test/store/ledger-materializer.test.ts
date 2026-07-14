@@ -85,6 +85,41 @@ test("session write + materializer resolve the trunk on a main-trunk repo", () =
   });
 });
 
+test("a conflicted session branch does not starve a later mergeable branch in a bounded batch", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const harnessRoot = path.join(rootDir, "harness");
+    writeFileSync(path.join(harnessRoot, "shared.txt"), "base\n", "utf8");
+    git(rootDir, "add", "shared.txt");
+    git(rootDir, "commit", "-m", "add shared file");
+
+    git(rootDir, "checkout", "-b", "sessions/conflicted-old");
+    writeFileSync(path.join(harnessRoot, "shared.txt"), "session value\n", "utf8");
+    git(rootDir, "add", "shared.txt");
+    git(rootDir, "commit", "-m", "conflicting session write");
+    git(rootDir, "checkout", "master");
+    writeFileSync(path.join(harnessRoot, "shared.txt"), "trunk value\n", "utf8");
+    git(rootDir, "add", "shared.txt");
+    git(rootDir, "commit", "-m", "conflicting trunk write");
+
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir,
+      sessionId: "mergeable-later",
+      autoMaterialize: false
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-after-conflict", "task-after-conflict", "note.md", "visible\n")));
+    Effect.runSync(coordinator.flush("explicit"));
+
+    const report = runLedgerMaterializer(rootDir, { maxBranches: 1 });
+
+    assert.equal(report.branches.find((branch) => branch.branch === "sessions/conflicted-old")?.status, "conflict");
+    assert.equal(report.branches.find((branch) => branch.branch === "sessions/mergeable-later")?.status, "merged");
+    assert.equal(report.merged, 1);
+    assert.equal(readGitFile(rootDir, "tasks/task-after-conflict/note.md"), "visible\n");
+  });
+});
+
 function initAuthoredGit(rootDir: string, trunk = "master"): void {
   const harnessRoot = path.join(rootDir, "harness");
   mkdirSync(harnessRoot, { recursive: true });

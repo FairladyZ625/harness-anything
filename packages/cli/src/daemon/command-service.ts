@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { AuthenticatedActor, JsonObject } from "../../../daemon/src/index.ts";
+import { commandClassForCliActionKind, type AuthenticatedActor, type JsonObject } from "../../../daemon/src/index.ts";
 import { makeHumanFallbackSessionProbe, type TaskHolderExecutor } from "../../../application/src/index.ts";
 import type { CurrentSessionRef, WriteCoordinator } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -8,6 +8,7 @@ import type { ParsedCommand } from "../cli/types.ts";
 import { isPlainRecord } from "../cli/value-utils.ts";
 import { CliActorAttributionError, daemonActorAttribution, migrationWriteAttribution } from "../composition/actor-attribution.ts";
 import { runRegisteredCommandWithCliComposition } from "../composition/command-executor.ts";
+import { materializerCommandResult } from "../commands/core/materializer.ts";
 import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
 export interface CliCommandService {
@@ -29,6 +30,10 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         command = parsedCommand;
         const daemonActor = context?.actor;
         const currentSession = readCurrentSession(payload) ?? Effect.runSync(makeHumanFallbackSessionProbe().currentSession);
+        if (parsedCommand.action.kind === "materializer-run") {
+          const report = await runtime.enqueueMaterializerBatch({ dryRun: parsedCommand.action.dryRun });
+          return toCommandReceipt(materializerCommandResult(report));
+        }
         const attribution = daemonActor ? daemonActorAttribution(daemonActor, context?.executor) : undefined;
         const result = await runRegisteredCommandWithCliComposition(parsedCommand, {
           requireProvidedActorAttribution: true,
@@ -64,7 +69,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
             actor
           )
         });
-        return toCommandReceipt(result);
+        return toCommandReceipt(await withSessionMaterialization(result, parsedCommand, currentSession, runtime));
       } catch (error) {
         if (error instanceof CurrentSessionPayloadError) {
           return toCommandReceipt({
@@ -85,6 +90,51 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         options.onCommandSettled?.();
       }
     }
+  };
+}
+
+async function withSessionMaterialization(
+  result: Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>>,
+  command: ParsedCommand,
+  currentSession: CurrentSessionRef,
+  runtime: CliDaemonRuntime
+): Promise<Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>>> {
+  if (!result.ok || currentSession.source !== "runtime") return result;
+  const commandClass = commandClassForCliActionKind(command.action.kind);
+  if (commandClass !== "repo-write" && commandClass !== "arbiter") return result;
+
+  try {
+    const report = await runtime.enqueueMaterializerBatch({ sessionId: currentSession.sessionId });
+    const target = report.branches.find((branch) => branch.branch === `sessions/${currentSession.sessionId}`);
+    if (!target || target.commitCount === 0 || target.status === "merged") return result;
+    return appendPendingMaterializationWarning(result, currentSession.sessionId, target.warning);
+  } catch (error) {
+    return appendPendingMaterializationWarning(
+      result,
+      currentSession.sessionId,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+function appendPendingMaterializationWarning(
+  result: Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>>,
+  sessionId: string,
+  reason?: string
+): Awaited<ReturnType<typeof runRegisteredCommandWithCliComposition>> {
+  const nextCommand = "ha materializer run --json";
+  return {
+    ...result,
+    warnings: [
+      ...(result.warnings ?? []),
+      {
+        severity: "warning",
+        code: "pending_materialization",
+        message: `Write is durable on sessions/${sessionId} but is not yet visible on canonical read paths.${reason ? ` Cause: ${reason}` : ""} Run: ${nextCommand}`,
+        sessionId,
+        nextCommand
+      }
+    ]
   };
 }
 
