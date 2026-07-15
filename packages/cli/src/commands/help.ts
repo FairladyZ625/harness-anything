@@ -1,4 +1,5 @@
 import type { CliResult, CommandRegistryEntry, ParsedCommand } from "../cli/types.ts";
+import { daemonHelpRegistryEntry } from "./daemon/help.ts";
 
 type HelpAction = Extract<ParsedCommand["action"], { readonly kind: "help" }>;
 
@@ -19,7 +20,7 @@ function helpCommands(action: HelpAction, commandRegistry: ReadonlyArray<Command
   if (action.commandPrefix) {
     return commandRegistry.filter((entry) => action.commandPrefix!.every((token, index) => entry.commandPath[index] === token));
   }
-  return commandRegistry;
+  return [...commandRegistry, daemonHelpRegistryEntry];
 }
 
 function helpReport(action: HelpAction): CliResult["report"] {

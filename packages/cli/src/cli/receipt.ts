@@ -283,9 +283,10 @@ function initSummary(path: string, report: unknown): string {
   const boundary = isolation && typeof isolation === "object" && !Array.isArray(isolation)
     ? (isolation as { readonly boundary?: unknown }).boundary
     : undefined;
-  return typeof boundary === "string"
+  const summary = typeof boundary === "string"
     ? `initialized harness at ${path}; ${boundary}`
     : `initialized harness at ${path}`;
+  return `${summary} Next: ha daemon repo register --root .; then ha daemon start --service; verify with ha doctor --json.`;
 }
 
 function displayCommand(command: string): { readonly command: string; readonly entity?: string; readonly action: string } {

@@ -32,7 +32,13 @@ test("doctor reports read-only environment and harness diagnostics without writi
 
 test("doctor sees initialized authored and generated harness roots without repairing them", () => {
   withTempRoot((rootDir) => {
-    runJson(rootDir, ["init"]);
+    const initialized = runJson(rootDir, ["init"]);
+
+    assert.deepEqual(initialized.report.isolation.nextSteps.slice(0, 3), [
+      "ha daemon repo register --root .",
+      "ha daemon start --service",
+      "ha doctor --json"
+    ]);
 
     const result = runJson(rootDir, ["doctor"]);
 
@@ -92,6 +98,33 @@ test("CLI help prints canonical command and alias", () => {
     assert.match(stdout, /Usage: harness-anything <command> \[options\]/u);
     assert.match(stdout, /Alias: ha <command> \[options\]/u);
     assert.match(stdout, /harness-anything doctor --json/u);
+    assert.match(stdout, /harness-anything daemon <subcommand> \[options\]/u);
+  });
+});
+
+test("init text receipt gives the daemon registration and startup path", () => {
+  withTempRoot((rootDir) => {
+    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "init"], {
+      encoding: "utf8"
+    });
+
+    assert.match(stdout, /Next: ha daemon repo register --root \.; then ha daemon start --service; verify with ha doctor --json\./u);
+  });
+});
+
+test("CLI capabilities exposes daemon onboarding operations", () => {
+  withTempRoot((rootDir) => {
+    const index = runJson(rootDir, ["capabilities"]);
+    const daemon = runJson(rootDir, ["capabilities", "--kind", "daemon"]);
+
+    assert.equal(index.report.items.some((item: Record<string, unknown>) => item.kind === "daemon"), true);
+    assert.deepEqual(daemon.report.ops.map((operation: Record<string, unknown>) => operation.action), [
+      "register",
+      "start",
+      "status",
+      "stop"
+    ]);
+    assert.equal(daemon.report.ops[0]?.command, "ha daemon repo register --root .");
   });
 });
 

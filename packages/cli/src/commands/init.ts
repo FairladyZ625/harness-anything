@@ -117,6 +117,9 @@ function ensureHarnessRepositoryIsolation(rootDir: string, authoredRoot: string,
       outerGitignore: gitignore.report,
       boundary: "Code PRs must not include harness/ changes; commit ledger changes inside harness/ as its own private git repository.",
       nextSteps: [
+        "ha daemon repo register --root .",
+        "ha daemon start --service",
+        "ha doctor --json",
         `git -C ${authoredRootRelative} status`,
         `git -C ${authoredRootRelative} add . && git -C ${authoredRootRelative} commit`
       ]

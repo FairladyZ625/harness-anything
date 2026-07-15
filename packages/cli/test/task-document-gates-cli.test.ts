@@ -141,6 +141,38 @@ test("CLI task-complete without Execution fails closed and leaves INDEX byte-exa
   });
 });
 
+test("CLI task-complete reports every currently unmet completion requirement", () => {
+  withTempRoot((rootDir) => {
+    writeIndex(rootDir, executionTaskId, "Aggregate Completion Gates", "in_review");
+    writeCloseout(rootDir, executionTaskId, [
+      "## Summary", "", "Summarize the completed behavior change.", "",
+      "## Verification", "", "List passing checks and CI.", "",
+      "## Residual Risk", "", "Record accepted non-blocking risks."
+    ]);
+    writeExecution(rootDir, executionTaskId, executionId, "test");
+
+    const blocked = runJson(rootDir, [
+      "task", "complete", executionTaskId, "--reviewer", "reviewer-a"
+    ], false, testActorEnv);
+    const issueCodes = blocked.issues.map((issue: Record<string, unknown>) => issue.code);
+
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.error?.code, "closeout_placeholder");
+    assert.deepEqual(issueCodes, [
+      "closeout_placeholder",
+      "code_doc_anchors_missing",
+      "missing_ci_gate",
+      "execution_actor_cannot_complete",
+      "execution_review_required"
+    ]);
+    assert.match(blocked.error?.hint ?? "", /5 unmet requirements/u);
+    assert.match(blocked.error?.hint ?? "", /ha task code-doc reconcile/u);
+    assert.match(blocked.error?.hint ?? "", /--ci passed/u);
+    assert.match(blocked.error?.hint ?? "", /different authenticated executor/u);
+    assert.match(blocked.error?.hint ?? "", /ha task review-execution/u);
+  });
+});
+
 test("CLI typed completion does not require filling the legacy review placeholder", () => {
   withTempRoot((rootDir) => {
     writeIndex(rootDir, executionTaskId, "Complete Task", "in_review");

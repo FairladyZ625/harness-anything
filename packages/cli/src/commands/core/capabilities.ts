@@ -5,6 +5,7 @@ import { cliCommandAlias } from "../../cli/command-names.ts";
 import { actionForCommand, commandInputDescriptorFor, entityForCommand } from "../../cli/command-input-descriptors.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
+import { daemonCapabilityOperations } from "../daemon/help.ts";
 
 export { capabilityExcludedCommandKinds };
 
@@ -76,6 +77,7 @@ function entities(context: Parameters<CommandRunner>[0]): Map<string, { readonly
   for (const kind of capabilityEntityKinds(context.commandDescriptors)) {
     if (!byEntity.has(kind)) byEntity.set(kind, []);
   }
+  byEntity.set("daemon", [...daemonCapabilityOperations]);
   return new Map([...byEntity.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([kind, ops]) => [kind, { kind, ops }]));
 }
 
@@ -109,7 +111,8 @@ function descriptionForEntity(kind: string): string {
     session: "Managed exported runtime session markdown documents.",
     doc: "Canonical document manifest and module read-set derivation.",
     graph: "Generated relation graph inspection artifacts over the SQLite projection.",
-    module: "Registered project module metadata."
+    module: "Registered project module metadata.",
+    daemon: "Persistent local service and repository registration needed by daemon-backed commands."
   };
   return descriptions[kind] ?? `Capabilities for ${kind} commands.`;
 }
