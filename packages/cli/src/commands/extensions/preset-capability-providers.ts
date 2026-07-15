@@ -14,6 +14,7 @@ import {
   type PresetCapabilityRequirement
 } from "../../../../kernel/src/index.ts";
 import { normalizeSlashes, relativePath } from "../../cli/path.ts";
+import { repositorySourceProjection } from "./repository-source-capability.ts";
 import { isPathInside } from "./script-scope.ts";
 
 export interface ScopeCandidate {
@@ -77,6 +78,16 @@ export function materializeRequirement(options: {
       case "docmap":
         value = filePresence(path.join(resolveHarnessLayout(options.executionRootInput).authoredRoot, "docmap.json"), options.executionRootInput);
         break;
+      case "repository-source": {
+        const projection = repositorySourceProjection(
+          options.realRootInput,
+          options.request.select.collections,
+          path.join(options.capabilitiesRoot, `${String(options.index).padStart(2, "0")}-repository-source`)
+        );
+        value = projection.value;
+        extraReadPermissions = projection.readPermissions;
+        break;
+      }
       default:
         return providerUnavailable(`No semantic materializer is registered for ${options.request.capability}@${options.request.version}.`);
     }
@@ -219,8 +230,7 @@ function taskArtifactsProjection(
     for (const artifactId of request.select.artifactIds) {
       for (const source of artifactFiles(artifactsRoot, artifactId)) {
         const target = path.join(snapshotRoot, safeSegment(taskId), path.basename(source));
-        mkdirSync(path.dirname(target), { recursive: true });
-        cpSync(source, target);
+        copyCapabilityFile(source, target);
         readPermissions.push(target);
         artifacts.push({
           id: artifactId,
@@ -442,6 +452,16 @@ export function sourceScopesForRequirement(
       const filename = path.join(layout.authoredRoot, "docmap.json");
       return { ok: true, value: existsSync(filename) ? [{ root: filename, recursive: false }] : [] };
     }
+    case "repository-source":
+      return { ok: true, value: request.select.collections.flatMap<ScopeCandidate>((collection) => {
+        if (collection === "project-config") return [
+          { root: path.join(layout.rootDir, "package.json"), recursive: false },
+          { root: path.join(layout.rootDir, "eslint.config.mjs"), recursive: false },
+          { root: path.join(layout.rootDir, ".github"), recursive: true }
+        ];
+        if (collection === "gate-tooling") return [{ root: path.join(layout.rootDir, "tools"), recursive: true }];
+        return [{ root: path.join(layout.rootDir, "packages"), recursive: true }];
+      }) };
     default:
       return providerUnavailable(`No semantic source mapping is registered for ${request.capability}@${request.version}.`);
   }
@@ -453,13 +473,14 @@ function projectionIsEmpty(capability: string, value: unknown): boolean {
   if (capability === "decisions") return !Array.isArray(value.decisions) || value.decisions.length === 0;
   if (capability === "adrs") return !Array.isArray(value.adrs) || value.adrs.length === 0;
   if (capability === "operating-docs") return !Array.isArray(value.documents) || value.documents.length === 0;
-  if (capability === "task-artifacts") return !Array.isArray(value.artifacts) || value.artifacts.length === 0;
+  if (capability === "task-artifacts") return false;
   if (capability === "relation-graph") {
     return [value.tasks, value.decisions, value.facts, value.relationEdges, value.coverageRows]
       .every((entry) => !Array.isArray(entry) || entry.length === 0);
   }
   if (capability === "runtime-events") return typeof value.rows !== "number" || value.rows === 0;
   if (capability === "generated-artifacts") return !Array.isArray(value.entries) || value.entries.length === 0;
+  if (capability === "repository-source") return !Array.isArray(value.files) || value.files.length === 0;
   return false;
 }
 
@@ -473,10 +494,16 @@ function taskProjectionOptions(rootInput: HarnessLayoutInput): { readonly rootDi
 
 function artifactFiles(root: string, artifactId: string): ReadonlyArray<string> {
   if (!existsSync(root)) return [];
+  const basenamePrefix = artifactId === "gate-retro-snapshot" ? "gate-retro.snapshot" : artifactId;
   return walkCapabilityFiles(root).filter((filename) => {
     const basename = path.basename(filename);
-    return basename === artifactId || basename.startsWith(`${artifactId}.`) || basename.startsWith(`${artifactId}-`);
+    return basename === basenamePrefix || basename.startsWith(`${basenamePrefix}.`) || basename.startsWith(`${basenamePrefix}-`);
   });
+}
+
+function copyCapabilityFile(source: string, target: string): void {
+  mkdirSync(path.dirname(target), { recursive: true });
+  cpSync(source, target);
 }
 
 function taskIdFromIndex(indexPath: string): string {

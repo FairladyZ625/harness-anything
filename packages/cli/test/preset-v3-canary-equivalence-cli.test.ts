@@ -65,6 +65,78 @@ test("v3 semantic execution fails closed when a required projection is empty", (
   });
 });
 
+test("v3 repository-source materializes a read-only text snapshot while empty artifact selection stays data", () => {
+  withTempRoot((rootDir) => {
+    seedRoot(rootDir);
+    writeText(rootDir, "package.json", `${JSON.stringify({ scripts: { check: "node tools/check.mjs" } }, null, 2)}\n`);
+    writeText(rootDir, "eslint.config.mjs", "export default [];\n");
+    writeText(rootDir, "tools/check.mjs", "export const check = true;\n");
+    writeText(rootDir, "packages/example/src/index.ts", "export const example = 1;\n");
+    writeText(rootDir, ".harness/presets/repository-source-canary/PRESET.md", [
+      "---", "schema: preset-document/v1", "description: Exercise the repository source snapshot provider.",
+      "whenToUse: Provider contract test only.", "entrypoints:", "  gather: provider contract", "---", "", "# Repository Source Canary", ""
+    ].join("\n"));
+    writeText(rootDir, ".harness/presets/repository-source-canary/preset.json", `${JSON.stringify({
+      schema: "preset-manifest/v3",
+      id: "repository-source-canary",
+      title: "Repository Source Canary",
+      vertical: "software/coding",
+      version: "1.0.0",
+      kind: "process-action",
+      kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+      capabilityImports: [],
+      entrypoints: {
+        gather: {
+          type: "script",
+          command: "scripts/gather.mjs",
+          intent: { verb: "gather", subject: "repository-source-contract" },
+          inputs: {},
+          requires: [
+            { capability: "repository-source", version: "1", select: { collections: ["project-config", "gate-tooling", "product-source"], view: "text-snapshot" } },
+            { capability: "task-artifacts", version: "1", select: { scope: "all-tasks", artifactIds: ["missing-artifact"] } }
+          ],
+          produces: [{
+            capability: "task-artifacts",
+            version: "1",
+            target: { taskFrom: "current-task" },
+            artifacts: [{ id: "repository-source-report", schema: "repository-source-report/v1", mediaTypes: ["application/json"], cardinality: "one", required: true }]
+          }],
+          sideEffects: []
+        }
+      },
+      profiles: [{ id: "baseline", title: "Baseline", checkerProfile: "standard", completionGates: [], templateSelections: [] }],
+      defaultProfile: "baseline"
+    }, null, 2)}\n`);
+    writeText(rootDir, ".harness/presets/repository-source-canary/scripts/gather.mjs", [
+      "#!/usr/bin/env node",
+      "import { readFileSync, writeFileSync } from 'node:fs';",
+      "import path from 'node:path';",
+      "const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, 'utf8'));",
+      "if (context.paths || context.outputRoot) throw new Error('semantic context leaked a physical root');",
+      "const sourceHandle = context.capabilities.reads['repository-source'][0];",
+      "const source = JSON.parse(readFileSync(sourceHandle.path, 'utf8'));",
+      "const artifactsHandle = context.capabilities.reads['task-artifacts'][0];",
+      "const artifacts = JSON.parse(readFileSync(artifactsHandle.path, 'utf8'));",
+      "if (artifacts.artifacts.length !== 0) throw new Error('missing artifact selection must stay empty data');",
+      "const example = readFileSync(path.join(source.root, 'packages/example/src/index.ts'), 'utf8');",
+      "const writer = context.capabilities.writes['task-artifacts'][0].artifacts['repository-source-report'].representations[0];",
+      "const report = { schema: 'repository-source-report/v1', files: source.files.map((file) => file.path), example };",
+      "writeFileSync(writer.path, `${JSON.stringify(report, null, 2)}\\n`, 'utf8');",
+      "writeFileSync(context.result.path, `${JSON.stringify({ schema: 'script-result/v1', ok: true, report, produced: ['repository-source-report'] }, null, 2)}\\n`, 'utf8');",
+      ""
+    ].join("\n"));
+
+    const created = runJson(rootDir, ["new-task", "--title", "Repository Source", "--vertical", "software/coding", "--preset", "repository-source-canary"]);
+    const result = runJson(rootDir, ["preset", "action", "repository-source-canary", "gather", "--task", created.taskId, "--allow-scripts"]);
+    assert.equal(result.capabilityReceipt.contextSchema, "preset-context/v2");
+    assert.equal(result.report.schema, "repository-source-report/v1");
+    assert.equal(result.report.files.includes("package.json"), true);
+    assert.equal(result.report.files.includes("tools/check.mjs"), true);
+    assert.equal(result.report.files.includes("packages/example/src/index.ts"), true);
+    assert.match(result.report.example, /example = 1/u);
+  });
+});
+
 function runCanary(canary: CanaryId, version: Version): CanaryRun {
   return withTempRoot((rootDir) => {
     seedRoot(rootDir);

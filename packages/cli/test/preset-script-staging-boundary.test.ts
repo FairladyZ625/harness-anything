@@ -5,11 +5,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  scriptChildEnvironment,
-  trustedPresetEnvironmentCapabilities,
-  trustedPresetPackageReadPermissions
-} from "../src/commands/extensions/script-environment.ts";
 import { discoverScriptEntries } from "../src/commands/extensions/script.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
@@ -253,86 +248,6 @@ test("two entrypoints in one preset exclude undeclared host secrets and GitHub t
       ghToken: null
     });
   });
-});
-
-test("GitHub tokens are allowlisted only for the provenance-bound bundled repair entrypoint", () => {
-  const bundledSourcePath = path.resolve(
-    "packages/cli/src/commands/extensions/assets/software-coding/presets/github-issue-repair/preset.json"
-  );
-  const trusted = trustedPresetEnvironmentCapabilities({
-    layer: "builtin",
-    presetId: "github-issue-repair",
-    entrypointName: "plan",
-    command: "scripts/preset-action.mjs",
-    sourcePath: bundledSourcePath
-  });
-  const hostEnvironment = {
-    GITHUB_TOKEN: "github-allowed",
-    GH_TOKEN: "gh-allowed",
-    HARNESS_SECRET_SENTINEL: "must-not-leak"
-  };
-
-  assert.deepEqual(scriptChildEnvironment({ HARNESS_PRESET_CONTEXT: "/tmp/context.json" }, trusted, hostEnvironment), {
-    HARNESS_PRESET_CONTEXT: "/tmp/context.json",
-    GITHUB_TOKEN: "github-allowed",
-    GH_TOKEN: "gh-allowed"
-  });
-  for (const untrusted of [
-    trustedPresetEnvironmentCapabilities({
-      layer: "project",
-      presetId: "github-issue-repair",
-      entrypointName: "plan",
-      command: "scripts/preset-action.mjs",
-      sourcePath: bundledSourcePath
-    }),
-    trustedPresetEnvironmentCapabilities({
-      layer: "builtin",
-      presetId: "github-issue-repair",
-      entrypointName: "second",
-      command: "scripts/preset-action.mjs",
-      sourcePath: bundledSourcePath
-    }),
-    trustedPresetEnvironmentCapabilities({
-      layer: "builtin",
-      presetId: "github-issue-repair",
-      entrypointName: "plan",
-      command: "scripts/preset-action.mjs",
-      sourcePath: path.join(path.dirname(bundledSourcePath), "forged-preset.json")
-    })
-  ]) {
-    assert.deepEqual(scriptChildEnvironment({}, untrusted, hostEnvironment), {});
-  }
-});
-
-test("shared preset package assets are exact-file allowlisted only for the bundled milestone renderer", () => {
-  const bundledSourcePath = path.resolve(
-    "packages/cli/src/commands/extensions/assets/software-coding/presets/create-milestone/preset.json"
-  );
-  const templatePath = path.resolve(
-    "packages/cli/src/commands/extensions/assets/software-coding/templates/dossier.editorial.shell/zh-CN.md"
-  );
-  const trusted = trustedPresetPackageReadPermissions({
-    layer: "builtin",
-    presetId: "create-milestone",
-    entrypointName: "render-html",
-    command: "scripts/preset-action.mjs",
-    sourcePath: bundledSourcePath
-  });
-
-  assert.equal(trusted.includes(templatePath), true);
-  assert.equal(trusted.every((permission) => [templatePath, realpathSync.native(templatePath)].includes(permission)), true);
-  for (const untrusted of [
-    { layer: "project" as const, sourcePath: bundledSourcePath },
-    { layer: "user" as const, sourcePath: bundledSourcePath },
-    { layer: "builtin" as const, sourcePath: path.join(path.dirname(bundledSourcePath), "forged-preset.json") }
-  ]) {
-    assert.deepEqual(trustedPresetPackageReadPermissions({
-      ...untrusted,
-      presetId: "create-milestone",
-      entrypointName: "render-html",
-      command: "scripts/preset-action.mjs"
-    }), []);
-  }
 });
 
 function initializeHarness(rootDir: string): void {

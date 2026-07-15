@@ -14,7 +14,7 @@ const validFixture = JSON.parse(readFileSync(
 test("preset manifest v3 decodes the semantic capability fixture", () => {
   const decoded = Schema.decodeUnknownSync(PresetManifestSchema)(validFixture);
   assert.equal(decoded.schema, "preset-manifest/v3");
-  assert.equal(decoded.entrypoints?.audit?.requires.length, 11);
+  assert.equal(decoded.entrypoints?.audit?.requires.length, 12);
   assert.equal(decoded.entrypoints?.audit?.produces.length, 2);
 });
 
@@ -54,7 +54,8 @@ test("capability catalog freezes each v1 data shape and authority envelope", () 
     "write-journal",
     "docmap",
     "task-documents",
-    "external-source-pack"
+    "external-source-pack",
+    "repository-source"
   ]);
   assert.equal(presetCapabilityCatalog.every((entry) => (
     entry.version === "1" && entry.dataShape.length > 0 && entry.authorityEnvelope.length > 0

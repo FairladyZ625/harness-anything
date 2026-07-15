@@ -210,7 +210,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "usage": "script inspect <id> [--json]",
     "options": [{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Inspect one script-entry/v1 contract.",
-    "examples": ["harness-anything script inspect preset:github-issue-repair:plan"],
+    "examples": ["harness-anything script inspect vertical:software-coding:architecture-check"],
     "parse": parseScriptArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
@@ -227,7 +227,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "usage": "script run <id> [--task <id>] [--input key=value] [--dry-run] [--json]",
     "options": [{"flag":"--task","description":"Set the task id."},{"flag":"--input","description":"Provide an input path or one script input as key=value; repeat for script inputs."},{"flag":"--dry-run","description":"Preview the operation without writing changes."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
     "summary": "Run one script-entry/v1 entry through the ScriptHost permission boundary.",
-    "examples": ["harness-anything script run preset:github-issue-repair:plan --task task_01ABC --input repo=owner/name"],
+    "examples": ["harness-anything script run vertical:software-coding:architecture-check --task task_01ABC --dry-run"],
     "parse": parseScriptArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {

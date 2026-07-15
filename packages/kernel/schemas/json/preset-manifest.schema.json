@@ -1600,6 +1600,59 @@
                             }
                           },
                           "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "repository-source"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "collections",
+                                "view"
+                              ],
+                              "properties": {
+                                "collections": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "project-config",
+                                      "gate-tooling",
+                                      "product-source"
+                                    ]
+                                  },
+                                  "description": "an array of at least 1 item(s)",
+                                  "title": "minItems(1)",
+                                  "minItems": 1
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "text-snapshot"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
                         }
                       ]
                     }
@@ -2797,6 +2850,59 @@
                                   "type": "string",
                                   "enum": [
                                     "files-with-provenance"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "repository-source"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "collections",
+                                "view"
+                              ],
+                              "properties": {
+                                "collections": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "project-config",
+                                      "gate-tooling",
+                                      "product-source"
+                                    ]
+                                  },
+                                  "description": "an array of at least 1 item(s)",
+                                  "title": "minItems(1)",
+                                  "minItems": 1
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "text-snapshot"
                                   ]
                                 }
                               },

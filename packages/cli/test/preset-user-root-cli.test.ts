@@ -100,10 +100,10 @@ test("CLI preset install/uninstall/list/audit operate in injected home user root
       });
       assert.equal(listed.presets.some((preset: Record<string, unknown>) => preset.id === "custom-task" && preset.layer === "user"), true);
 
-      const audited = runJson(rootDir, ["preset", "audit"], false, {
+      const audited = runJson(rootDir, ["preset", "audit"], true, {
         HARNESS_USER_HOME: userHome
       });
-      assert.equal(audited.ok, false);
+      assert.equal(audited.ok, true);
       assert.equal(audited.presets.some((preset: Record<string, unknown>) => preset.id === "custom-task" && preset.layer === "user"), true);
 
       const removed = runJson(rootDir, ["preset", "uninstall", "custom-task"], true, {
@@ -138,10 +138,10 @@ test("CLI missing injected home user preset root is treated as empty until insta
       assert.equal(listed.ok, true);
       assert.equal(existsSync(homePresetRoot), false);
 
-      const audited = runJson(rootDir, ["preset", "audit"], false, {
+      const audited = runJson(rootDir, ["preset", "audit"], true, {
         HARNESS_USER_HOME: userHome
       });
-      assert.equal(audited.ok, false);
+      assert.equal(audited.ok, true);
       assert.equal(existsSync(homePresetRoot), false);
 
       const installed = runJson(rootDir, ["preset", "install", sourceDir], true, {

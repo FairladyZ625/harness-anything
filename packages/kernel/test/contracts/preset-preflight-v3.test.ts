@@ -80,7 +80,7 @@ test("semantic preflight validates typed selector references and input defaults"
 
 test("legacy manifests remain valid through the isolated physical-scope adapter with a warning", () => {
   const legacy = Schema.decodeUnknownSync(PresetManifestSchema)(JSON.parse(readFileSync(
-    "packages/cli/src/commands/extensions/assets/software-coding/presets/standard-task/preset.json",
+    "packages/cli/test/fixtures/preset-v3-canaries/doc-canon-sync/v2/preset.json",
     "utf8"
   )));
   const receipt = preflightPresetManifest(legacy, options());

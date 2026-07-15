@@ -1,9 +1,9 @@
 {
-  "schema": "preset-manifest/v2",
+  "schema": "preset-manifest/v3",
   "id": "long-running-task",
   "title": "Long Running Task",
   "vertical": "software/coding",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "kind": "template-content",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [],

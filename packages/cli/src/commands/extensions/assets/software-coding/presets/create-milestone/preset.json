@@ -1,80 +1,16 @@
 {
-  "schema": "preset-manifest/v2",
+  "schema": "preset-manifest/v3",
   "id": "create-milestone",
   "title": "Create Milestone",
   "vertical": "software/coding",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "kind": "process-action",
   "policyPath": "{{paths.authoredRoot}}/policies/presets/create-milestone.policy.json",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [
-    { "id": "milestone-map-scaffold", "kind": "command", "version": "1", "required": true },
-    { "id": "milestone-map-checker", "kind": "checker", "version": "1", "required": true },
-    { "id": "milestone-dossier-html-renderer", "kind": "command", "version": "1", "required": true },
     { "id": "policy:artifact-contract/v1", "kind": "command", "version": "1", "required": true },
     { "id": "policy:template-override/task-plan/v1", "kind": "command", "version": "1", "required": true }
   ],
-  "entrypoints": {
-    "scaffold": {
-      "type": "script",
-      "command": "scripts/preset-action.mjs",
-      "reads": [
-        "{{outputRoot}}/**",
-        "{{paths.tasksRoot}}/*/**",
-        "{{paths.milestonesRoot}}/**",
-        "{{paths.decisionsRoot}}/**"
-      ],
-      "writes": [
-        "{{outputRoot}}/**",
-        "{{paths.milestonesRoot}}/**"
-      ],
-      "inputs": {
-        "line": "",
-        "slug": "",
-        "milestoneName": "",
-        "mission": "",
-        "status": "planned",
-        "firstUser": "",
-        "switchWhen": "",
-        "retireWhen": "",
-        "dependencies": "",
-        "charterDecision": "",
-        "waves": ""
-      }
-    },
-    "render-html": {
-      "type": "script",
-      "command": "scripts/preset-action.mjs",
-      "reads": [
-        "{{outputRoot}}/**",
-        "{{paths.milestonesRoot}}/**"
-      ],
-      "writes": [
-        "{{outputRoot}}/**",
-        "{{paths.milestonesRoot}}/**"
-      ],
-      "inputs": {
-        "source": "milestones-summary.md"
-      }
-    },
-    "check": {
-      "type": "script",
-      "command": "scripts/preset-action.mjs",
-      "reads": [
-        "{{outputRoot}}/**",
-        "{{paths.tasksRoot}}/*/**",
-        "{{paths.milestonesRoot}}/**",
-        "{{paths.decisionsRoot}}/**"
-      ],
-      "writes": [
-        "{{outputRoot}}/**"
-      ],
-      "inputs": {
-        "line": "",
-        "slug": ""
-      }
-    }
-  },
   "profiles": [{
     "id": "baseline",
     "title": "Baseline",

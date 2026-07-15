@@ -658,37 +658,3 @@ test("CLI process preset script ingest cannot overwrite Task typed-authority rec
     assert.equal(existsSync(path.join(taskRoot, "artifacts/report.json")), false);
   });
 });
-
-test("CLI legacy-migration preset action plans V2 task discovery and context forward evidence", () => {
-  withTempRoot((rootDir) => {
-    ensureTestHarnessIdentity(rootDir);
-    runJson(rootDir, ["init"]);
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/harness.yaml", [
-      "version: 2",
-      "structure:",
-      "  harnessRoot: coding-agent-harness",
-      "  tasksRoot: coding-agent-harness/tasks",
-      ""
-    ].join("\n"));
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/tasks/v2-task/INDEX.md", "---\ntitle: V2 Task\nstatus: active\n---\n# V2 Task\n");
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/tasks/v2-task/progress.md", "progress\n");
-    writeFile(rootDir, "old/.harness-private/coding-agent-harness/context/architecture/overview.md", "# Architecture\n");
-
-    const result = runJson(rootDir, ["preset", "action", "legacy-migration", "plan", "--task", "task-migration", "--allow-scripts"]);
-
-    assert.equal(result.ok, true);
-    assert.equal(result.command, "preset-action");
-    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "legacy-physical-scope"), true);
-    assert.equal(result.report.scan.summary.taskCount, 1);
-    assert.equal(result.report.scan.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/tasks/v2-task"), true);
-    const contextEntry = result.report.scan.entries.find((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/overview.md");
-    assert.equal(contextEntry.forwardPath, "harness/context/architecture/overview.md");
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-migration/artifacts/legacy-migration-plan.json")), true);
-    assert.match(readFileSync(path.join(rootDir, "harness/tasks/task-migration/artifacts/legacy-migration-plan.md"), "utf8"), /V2 Task/u);
-    assert.match(gitRead(rootDir, "log", "--format=%s"), /script-ingest/u);
-    assert.equal(gitRead(rootDir, "status", "--short"), "");
-    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "context.json")), true);
-    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stdout.txt")), true);
-    assert.equal(existsSync(path.join(rootDir, result.evidenceBundle, "stderr.txt")), true);
-  });
-});

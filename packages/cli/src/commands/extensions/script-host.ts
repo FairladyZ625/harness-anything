@@ -9,7 +9,7 @@ import { CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { resolveScriptPolicy } from "./preset-policy.ts";
 import { buildPresetContextProjections } from "./preset-script-context.ts";
-import { scriptChildEnvironment, type ScriptEnvironmentCapabilities } from "./script-environment.ts";
+import { scriptChildEnvironment } from "./script-environment.ts";
 import { executeScript } from "./script-executor.ts";
 import { trustedScriptRepositoryContext } from "./script-repository-context.ts";
 import { invalidScriptOrPolicy, scriptFailure, validateResolvedScript } from "./script-host-validation.ts";
@@ -65,8 +65,6 @@ export interface ResolvedScriptEntry {
   readonly manifestRoot: string;
   readonly owner?: unknown;
   readonly context?: Record<string, unknown>;
-  readonly environmentCapabilities?: ScriptEnvironmentCapabilities;
-  readonly trustedPackageReadPermissions?: ReadonlyArray<string>;
   readonly semantic?: SemanticPresetExecution;
 }
 
@@ -322,7 +320,6 @@ export function runScriptHost(options: {
     allowChildProcess: isTrustedArchitectureToolScript(options.script, scriptPath),
     readPermissions: [
       ...scriptPackageReadPermissions(scriptPath, options.script.manifestRoot),
-      ...(options.script.trustedPackageReadPermissions ?? []),
       contextPath,
       ...checkScriptPackageReadPermissions(options.script.entry.metadata.kind, options.script.manifestRoot, scriptPath, layout),
       ...architectureToolPackageReadPermissions(options.script, scriptPath, layout),
@@ -337,7 +334,7 @@ export function runScriptHost(options: {
       HARNESS_SCRIPT_CONTEXT: contextPath,
       HARNESS_SCRIPT_RESULT: resultPath,
       HARNESS_PRESET_CONTEXT: contextPath
-    }, options.script.environmentCapabilities),
+    }),
     artifactRoots: materializedSemantic?.writerRoots ?? executionWriteScope.roots,
     outputBoundary: {
       kind: "patterns",

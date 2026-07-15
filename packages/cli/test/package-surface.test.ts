@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,15 +11,11 @@ import {
   findPortablePathCollisions,
   normalizeRelativeDocumentPath
 } from "../../kernel/src/index.ts";
-import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 import { loadPresetDocument } from "../src/commands/extensions/preset-document-loader.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const architectureRotRoot = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/architecture-rot-audit");
-const detectorPolicy = await import("../src/commands/extensions/assets/software-coding/presets/architecture-rot-audit/scripts/detectors/detector-policy.mjs");
-const seedDetectors = await import("../src/commands/extensions/assets/software-coding/presets/architecture-rot-audit/scripts/detectors/seed-detectors.mjs");
-const snapshotHelpers = await import("../src/commands/extensions/assets/software-coding/presets/architecture-rot-audit/scripts/snapshot.mjs");
 
 const cliPackage = JSON.parse(readFileSync("packages/cli/package.json", "utf8")) as {
   readonly name: string;
@@ -169,10 +165,15 @@ test("bundled software coding assets have consistent template and process-preset
     const manifestPath = path.join(assetRoot, "presets", presetId, "preset.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as PresetAsset & { readonly schema: string };
     const document = loadPresetDocument(manifestPath);
-    assert.equal(manifest.schema, "preset-manifest/v2", `${presetId} keeps the frozen manifest contract`);
+    assert.equal(manifest.schema, "preset-manifest/v3", `${presetId} uses the guidance/template v3 contract`);
     assert.deepEqual(document.warnings, [], `${presetId} must ship valid PRESET.md frontmatter`);
     assert.equal(document.frontmatter?.schema, "preset-document/v1", presetId);
     assert.equal((document.frontmatter?.description.length ?? 0) > 0, true, presetId);
+    assert.deepEqual(
+      Object.keys(document.frontmatter?.entrypoints ?? {}).sort(),
+      Object.keys(manifest.entrypoints ?? {}).sort(),
+      `${presetId} PRESET.md entrypoints must match the manifest`
+    );
     for (const profile of manifest.profiles) {
       const profilePaths = new Set<string>();
       for (const selection of profile.templateSelections) {
@@ -181,15 +182,10 @@ test("bundled software coding assets have consistent template and process-preset
         profilePaths.add(selection.materializeAs);
       }
     }
-    if (manifest.kind === "process-action") {
-      assert.notEqual(Object.keys(manifest.entrypoints ?? {}).length, 0);
-      for (const entrypoint of Object.values(manifest.entrypoints ?? {})) {
-        const scriptEntrypoint = entrypoint as { readonly command?: string; readonly reads?: ReadonlyArray<string>; readonly writes?: ReadonlyArray<string> };
-        assert.equal(scriptEntrypoint.reads?.includes("{{paths.rootDir}}/**") ?? false, false, `${presetId} declares repo-wide recursive reads`);
-        assert.equal(scriptEntrypoint.writes?.includes("{{paths.rootDir}}/**") ?? false, false, `${presetId} declares repo-wide recursive writes`);
-        if (typeof scriptEntrypoint.command === "string") {
-          assertPresetScriptImportsStayInsidePackage(path.join(assetRoot, "presets", presetId), scriptEntrypoint.command);
-        }
+    for (const entrypoint of Object.values(manifest.entrypoints ?? {})) {
+      const scriptEntrypoint = entrypoint as { readonly command?: string };
+      if (typeof scriptEntrypoint.command === "string") {
+        assertPresetScriptImportsStayInsidePackage(path.join(assetRoot, "presets", presetId), scriptEntrypoint.command);
       }
     }
   }
@@ -450,114 +446,6 @@ test("architecture-rot-audit registry formalizes seven categories and fixed anch
   assert.equal(registry.records.every((record: Record<string, any>) => record.detection.detector === record.id), true);
 });
 
-test("architecture-rot-audit check action writes snapshot and non-blocking triage", () => {
-  withTempRoot((rootDir) => {
-    initializeNestedHarnessRepo(rootDir, { writeOuterGitignore: true });
-    writeFixture(rootDir, "harness/tasks/task-prior/artifacts/arch-rot.snapshot.json", JSON.stringify(snapshotFixture("task-prior")));
-    writeFixture(rootDir, "harness/tasks/task-invalid/artifacts/arch-rot.snapshot.json", "{bad json");
-    writeFixture(rootDir, "harness/tasks/task-ordinary/INDEX.md", "# Ordinary task\n");
-    execFileSync("git", ["-C", path.join(rootDir, "harness"), "add", "tasks"]);
-    execFileSync("git", ["-C", path.join(rootDir, "harness"), "commit", "-q", "-m", "seed prior task evidence"]);
-    writeFixture(rootDir, "packages/cli/src/cli/command-spec/command-spec-fixture.ts", [
-      "const specs = [",
-      "  { \"kind\": \"one\", \"options\": [{\"flag\":\"--mode\",\"description\":\"First mode.\"}], \"parse\": parseOne, \"run\": runOne },",
-      "  { \"kind\": \"two\", \"options\": [{\"flag\":\"--mode\",\"description\":\"Second mode.\"}], \"parse\": parseTwo, \"run\": runTwo }",
-      "];",
-      "void specs;",
-      ""
-    ].join("\n"));
-    writeFixture(rootDir, "packages/kernel/src/local/task-holder-state.ts", [
-      "function withTaskHolderMutationLock() {}",
-      "withTaskHolderMutationLock();",
-      "withTaskHolderMutationLock();",
-      ""
-    ].join("\n"));
-    writeFixture(rootDir, "packages/cli/src/commands/extensions/script-executor.ts", "import { spawnSync } from \"node:child_process\";\nvoid spawnSync;\n");
-    execFileSync("git", ["-C", rootDir, "init", "-q"]);
-    execFileSync("git", ["-C", rootDir, "config", "user.email", "harness@example.test"]);
-    execFileSync("git", ["-C", rootDir, "config", "user.name", "Harness Test"]);
-    execFileSync("git", ["-C", rootDir, "add", ".gitignore", "packages"]);
-    execFileSync("git", ["-C", rootDir, "commit", "-q", "-m", "seed product repository"]);
-    const sourceHead = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-
-    const checked = runJson(rootDir, [
-      "preset", "action", "architecture-rot-audit", "check", "--task", "task-rot", "--allow-scripts"
-    ]);
-    const snapshotPath = path.join(rootDir, "harness/tasks/task-rot/artifacts/arch-rot.snapshot.json");
-    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as Record<string, any>;
-
-    assert.equal(checked.ok, true);
-    assert.equal(checked.report.status, "passed");
-    assert.deepEqual(snapshot.lensA.passes.sort(), ["ROT-002", "ROT-006", "ROT-008"]);
-    assert.deepEqual(snapshot.lensA.recurrences, []);
-    assert.equal(snapshot.root.sourceHead, sourceHead);
-    assert.equal(snapshot.root.headVerification, "verified");
-    assert.equal(snapshot.root.realpath, realpathSync.native(rootDir));
-    assert.equal(snapshot.previousSnapshot.sourcePath, "harness/tasks/task-prior/artifacts/arch-rot.snapshot.json");
-    assert.equal(snapshot.warnings.some((warning: string) =>
-      warning.includes("harness/tasks/task-invalid/artifacts/arch-rot.snapshot.json")), true);
-    assert.equal(snapshot.warnings.some((warning: string) =>
-      warning.includes("/staging/") || warning.includes(".harness/script-runs")), false);
-    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-rot/artifacts/arch-rot.triage.json")), true);
-  });
-});
-
-test("architecture rot semantics hard-fail recurrence, warn open green, and triage Lens-B", () => {
-  const records = [{ id: "ROT-900", status: "fixed" }, { id: "ROT-901", status: "open" }];
-  const fixedPass = detectorPolicy.evaluateDetectionResults([records[0]], [{ id: "ROT-900", outcome: "pass", exitCode: 0, evidence: {} }]);
-  const recurrence = detectorPolicy.evaluateDetectionResults([records[0]], [{ id: "ROT-900", outcome: "fail", exitCode: 1, evidence: {} }]);
-  const openGreen = detectorPolicy.evaluateDetectionResults([records[1]], [{ id: "ROT-901", outcome: "pass", exitCode: 0, evidence: {} }]);
-  const candidates = detectorPolicy.buildLensBCandidates(["packages/cli/src/commands/extensions/new-policy.ts"]);
-
-  assert.equal(fixedPass.ok, true);
-  assert.equal(fixedPass.items[0].severity, "none");
-  assert.equal(recurrence.ok, false);
-  assert.equal(recurrence.items[0].snapshotStatus, "recurred");
-  assert.equal(recurrence.items[0].severity, "hard-fail");
-  assert.equal(openGreen.ok, true);
-  assert.equal(openGreen.items[0].severity, "warning");
-  assert.match(openGreen.items[0].interpretation, /commit and PR anchors/u);
-  assert.equal(candidates.length > 0, true);
-  assert.equal(candidates.every((candidate: Record<string, unknown>) => candidate.blocking === false), true);
-});
-
-test("ROT-008 pure detector turns a manufactured second sandbox executor red", () => {
-  withTempRoot((rootDir) => {
-    writeFixture(rootDir, "packages/cli/src/commands/extensions/script-executor.ts", "import { spawnSync } from \"node:child_process\";\nvoid spawnSync;\n");
-    const green = seedDetectors.runSeedDetector(rootDir, "ROT-008");
-    writeFixture(rootDir, "packages/cli/src/commands/extensions/second-executor.ts", "import { spawnSync } from \"node:child_process\";\nvoid spawnSync;\n");
-    const recurrence = seedDetectors.runSeedDetector(rootDir, "ROT-008");
-    const evaluated = detectorPolicy.evaluateDetectionResults([{ id: "ROT-008", status: "fixed" }], [recurrence]);
-
-    assert.equal(green.outcome, "pass");
-    assert.equal(recurrence.outcome, "fail");
-    assert.deepEqual(recurrence.evidence.owners.sort(), ["script-executor.ts", "second-executor.ts"]);
-    assert.equal(evaluated.ok, false);
-    assert.equal(evaluated.hardFailures[0].id, "ROT-008");
-  });
-});
-
-test("architecture rot snapshots ignore bad inputs and break timestamp ties by taskId", () => {
-  withTempRoot((rootDir) => {
-    const tasksRoot = path.join(rootDir, "harness/tasks");
-    writeFixture(rootDir, "harness/tasks/task_A/artifacts/arch-rot.snapshot.json", JSON.stringify(snapshotFixture("task_A")));
-    writeFixture(rootDir, "harness/tasks/task_B/artifacts/arch-rot.snapshot.json", JSON.stringify(snapshotFixture("task_B")));
-    writeFixture(rootDir, "harness/tasks/task_CURRENT/artifacts/arch-rot.snapshot.json", JSON.stringify(snapshotFixture("task_CURRENT", "2099-01-01T00:00:00.000Z")));
-    writeFixture(rootDir, "harness/tasks/task_BAD/artifacts/arch-rot.snapshot.json", "{bad json");
-
-    const selected = snapshotHelpers.selectPriorSnapshot([
-      path.join(tasksRoot, "task_A/artifacts/arch-rot.snapshot.json"),
-      path.join(tasksRoot, "task_B/artifacts/arch-rot.snapshot.json"),
-      path.join(tasksRoot, "task_CURRENT/artifacts/arch-rot.snapshot.json"),
-      path.join(tasksRoot, "task_BAD/artifacts/arch-rot.snapshot.json")
-    ], "task_CURRENT");
-
-    assert.equal(selected.snapshot.coordinationTaskId, "task_B");
-    assert.equal(selected.warnings.length, 1);
-    assert.match(selected.warnings[0], /Ignored invalid architecture rot snapshot/u);
-  });
-});
-
 interface TemplateSelection {
   readonly templateRef: string;
   readonly materializeAs: string;
@@ -611,14 +499,4 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
-}
-
-function writeFixture(rootDir: string, relativePath: string, body: string): void {
-  const filePath = path.join(rootDir, relativePath);
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, body, "utf8");
-}
-
-function snapshotFixture(taskId: string, generatedAt = "2026-07-10T10:00:00.000Z"): Record<string, unknown> {
-  return { schema: "architecture-rot-snapshot/v1", generatedAt, coordinationTaskId: taskId, fileHashes: {} };
 }

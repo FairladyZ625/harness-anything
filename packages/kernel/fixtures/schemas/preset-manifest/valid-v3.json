@@ -50,7 +50,8 @@
         { "capability": "generated-artifacts", "version": "1", "select": { "view": "presence-inventory", "familiesFrom": "trackedArtifacts" } },
         { "capability": "write-journal", "version": "1", "select": { "view": "presence-inventory" } },
         { "capability": "docmap", "version": "1", "select": { "view": "presence" } },
-        { "capability": "external-source-pack", "version": "1", "select": { "packFrom": "sourcePack", "view": "files-with-provenance" } }
+        { "capability": "external-source-pack", "version": "1", "select": { "packFrom": "sourcePack", "view": "files-with-provenance" } },
+        { "capability": "repository-source", "version": "1", "select": { "collections": ["project-config", "gate-tooling", "product-source"], "view": "text-snapshot" } }
       ],
       "produces": [
         {

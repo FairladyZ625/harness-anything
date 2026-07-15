@@ -46,13 +46,13 @@ Task Contract: harness-task v1
 ## Constraints
 
 - milestone = root task 任务树（执行面）+ 映射文档（理解面）。
-- 不手搓 milestone 文件面；创建后运行 create-milestone scaffold/check。
+- 遵循 create-milestone guidance 和仓库内相邻样板，只在配置的 milestones root 下写入。
 - 不为 pre-public-release 以外的外部消费者加兼容 shim、dual-read、backfill 或迁移。
 
 ## Checkpoint
 
-- root task 创建后，先运行 scaffold 生成五件套，再拆子任务。
-- 每批波次完成时，运行结构 checker 并把输出作为 progress evidence。
+- root task 创建后，先建立 milestone map，再拆子任务。
+- 每批波次完成时，对齐 task tree、map、状态视图与 evidence。
 - 进入 closeout 前，必须补齐 done 四层制与 gate-retro 双镜头证据。
 
 ## CI/Gate Authority Stop Condition
@@ -61,14 +61,14 @@ Task Contract: harness-task v1
 
 ## Implementation Plan
 
-- 创建或确认 charter decision，并把 `dec_*` 作为 scaffold 输入。
+- 创建或确认 charter decision，并让它的 `dec_*` 锚出现在每个 milestone 视图中。
 - 运行 `ha task create --title "<name> 里程碑(root)" --vertical software/coding --preset create-milestone --long-running`。
-- 运行 `ha script run preset:create-milestone:scaffold --task <root-task-id> --input line=<line> --input slug=<slug> --input charterDecision=dec_* --input milestoneName="<name>" --input mission="<mission>"`。
+- 阅读 create-milestone `PRESET.md`、`harness.yaml` 和相邻 milestone；在配置的 milestones root 下创建或更新 overview、index、summary 与状态视图。
 - 用 root task fan out 子任务，保持任务映射表与 task tree 同步。
-- 反复运行 `ha script run preset:create-milestone:check --task <root-task-id> --input line=<line> --input slug=<slug>`。
+- 校验链接、必需章节、重复行与状态一致性；运行相关仓库检查并记录 evidence。
 
 ## Verification
 
-- create-milestone checker 输出 green。
+- milestone 文件面通过相关仓库检查与人工对账。
 - root task、map、roadmap、dossier-data 与 charter decision 锚互相可追。
 - 依据 `dec_mrg3z1we/CH4`，承重观察按需显式晋升为 `0..N` 条 Fact；交付证据放在 Execution outputs，不对 review 或 completion 设置 Fact 数量门。

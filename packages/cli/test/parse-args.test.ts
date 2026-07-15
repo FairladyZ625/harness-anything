@@ -195,13 +195,13 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "preset uninstall project", argv: ["preset", "uninstall", "standard-task", "--project"], kind: "preset-uninstall", fields: { presetId: "standard-task", layer: "project", dryRun: false } },
   { name: "preset uninstall dry run", argv: ["preset", "uninstall", "standard-task", "--dry-run"], kind: "preset-uninstall", fields: { presetId: "standard-task", layer: "user", dryRun: true } },
   { name: "preset run task option", argv: ["preset", "run", "standard-task", "plan", "--task", "task_1"], kind: "preset-run", fields: { presetId: "standard-task", entrypoint: "plan", taskId: "task_1", allowScripts: false } },
-  { name: "preset run allow scripts", argv: ["preset", "run", "github-issue-repair", "plan", "--task", "task_1", "--allow-scripts", "--input", "repo=octo/example", "--input", "issue=next"], kind: "preset-run", fields: { presetId: "github-issue-repair", entrypoint: "plan", taskId: "task_1", allowScripts: true, inputs: { repo: "octo/example", issue: "next" } } },
+  { name: "preset run allow scripts", argv: ["preset", "run", "example-preset", "gather", "--task", "task_1", "--allow-scripts", "--input", "mode=full"], kind: "preset-run", fields: { presetId: "example-preset", entrypoint: "gather", taskId: "task_1", allowScripts: true, inputs: { mode: "full" } } },
   { name: "preset action", argv: ["preset", "action", "standard-task", "scaffold", "--task", "task_1"], kind: "preset-action", fields: { presetId: "standard-task", actionName: "scaffold", taskId: "task_1", allowScripts: false } },
-  { name: "preset action allow scripts", argv: ["preset", "action", "github-issue-repair", "plan", "--task", "task_1", "--allow-scripts", "--input", "repo=octo/example"], kind: "preset-action", fields: { presetId: "github-issue-repair", actionName: "plan", taskId: "task_1", allowScripts: true, inputs: { repo: "octo/example" } } },
+  { name: "preset action allow scripts", argv: ["preset", "action", "example-preset", "gather", "--task", "task_1", "--allow-scripts", "--input", "mode=full"], kind: "preset-action", fields: { presetId: "example-preset", actionName: "gather", taskId: "task_1", allowScripts: true, inputs: { mode: "full" } } },
   { name: "script list", argv: ["script", "list", "--source", "preset", "--purpose", "scaffold"], kind: "script-list", fields: { source: "preset", purpose: "scaffold" } },
   { name: "script list kind", argv: ["script", "list", "--source", "vertical", "--kind", "check"], kind: "script-list", fields: { source: "vertical", scriptKind: "check" } },
-  { name: "script inspect", argv: ["script", "inspect", "preset:github-issue-repair:plan"], kind: "script-inspect", fields: { scriptId: "preset:github-issue-repair:plan" } },
-  { name: "script run", argv: ["script", "run", "preset:github-issue-repair:plan", "--task", "task_1", "--input", "repo=octo/example", "--dry-run"], kind: "script-run", fields: { scriptId: "preset:github-issue-repair:plan", taskId: "task_1", inputs: { repo: "octo/example" }, dryRun: true } },
+  { name: "script inspect", argv: ["script", "inspect", "vertical:software-coding:architecture-check"], kind: "script-inspect", fields: { scriptId: "vertical:software-coding:architecture-check" } },
+  { name: "script run", argv: ["script", "run", "vertical:software-coding:architecture-check", "--task", "task_1", "--dry-run"], kind: "script-run", fields: { scriptId: "vertical:software-coding:architecture-check", taskId: "task_1", inputs: {}, dryRun: true } },
   { name: "module list", argv: ["module", "list"], kind: "module-list" },
   { name: "module inspect", argv: ["module", "inspect", "billing"], kind: "module-inspect", fields: { moduleKey: "billing" } },
   { name: "module register", argv: ["module", "register", "billing", "--title", "Billing", "--scope", "packages/billing/**", "--prefix", "BILL", "--status", "active", "--branch", "main", "--owner", "team", "--current-step", "BILL-01", "--shared", "docs/**", "--depends-on", "kernel"], kind: "module-register", fields: { moduleKey: "billing", title: "Billing", scope: "packages/billing/**", prefix: "BILL", status: "active", branch: "main", owner: "team", currentStep: "BILL-01", shared: ["docs/**"], dependsOn: ["kernel"] } },
@@ -563,7 +563,7 @@ test("parseArgs keeps unknown-command guidance focused and bounded", () => {
     assert.match(nestedUnknown.error.hint, /Run 'ha task --help'/u);
   }
 
-  const contextualHelp = parseArgs(["preset", "run", "create-milestone", "scaffold", "--help"]);
+  const contextualHelp = parseArgs(["preset", "run", "example-preset", "gather", "--help"]);
   assert.equal(contextualHelp.ok, false);
   if (!contextualHelp.ok) {
     assert.equal(contextualHelp.error.code, "unknown_help_topic");

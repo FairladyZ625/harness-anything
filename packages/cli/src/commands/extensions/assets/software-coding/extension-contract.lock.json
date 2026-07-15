@@ -2,23 +2,23 @@
   "schema": "extension-contract-lock/v1",
   "catalog": {
     "id": "software-coding-core",
-    "version": "1.2.0",
-    "digest": "sha256:a397b49b591ef9d0e967d17c4a630365ac08531abe7033bca60bd1f2d245898f"
+    "version": "1.3.0",
+    "digest": "sha256:7b8c989541fdd05640bf1d4c20994ae940a26bb5bb7f77a22800e4d17d99cc4c"
   },
   "presets": [
-    { "id": "standard-task", "version": "1.0.0", "digest": "sha256:97ce758ed5f197b4b18effdd65a5e26642b7b767a33fdaa7b4d32c07a401c164" },
-    { "id": "docs-task", "version": "1.0.0", "digest": "sha256:84f6172941ee20ce9d4ba5454d92c9dcfe33a78895999ed344547d95584b7c6c" },
-    { "id": "reference-task", "version": "1.0.0", "digest": "sha256:910b58f13ae5ef59c041776825d5a105466e214b0d419cca1e9117d819a3bf7e" },
-    { "id": "long-running-task", "version": "1.0.0", "digest": "sha256:e5b341575b584658d87640b481ec42cf4ecd8d1a1bce1775126c1d38c4f908b8" },
-    { "id": "module", "version": "1.0.0", "digest": "sha256:c884944f52d575c7fc8ee38233d023f4c7f9d9c001c138013fd3886961cbbc99" },
-    { "id": "subtask-expansion", "version": "1.0.0", "digest": "sha256:33e0d4cd5a04d084e3c5d6c34ed1b409fafc251334a47795b3948bb67c4f033f" },
-    { "id": "github-issue-repair", "version": "1.0.0", "digest": "sha256:5d8e478bc1bf1247ae47cf6540285b923de6f04f43d894698a8de24897b8fdf1" },
-    { "id": "legacy-migration", "version": "1.0.0", "digest": "sha256:56bc2ec349ad61a6d78a370b367c8e6080385a1136eb540db6811d06e4a6dbde" },
-    { "id": "create-milestone", "version": "1.0.0", "digest": "sha256:96d4cfcb39d2fe33f6208fa8f4e8b17ee82834335b6cc296b69b274a336f27db" },
-    { "id": "milestone-closeout", "version": "1.0.0", "digest": "sha256:efa87c2a6b6f5324a2db467385ba695629126667a84e8f6f56affdc6e3aeab29" },
-    { "id": "decision-conformance", "version": "1.0.0", "digest": "sha256:92a3519f81093417fd89feff97944663fed8bcb17221b3d8b85ebfae960690b2" },
-    { "id": "worker-dispatch", "version": "1.0.0", "digest": "sha256:bae7ea7b08e65a30d54333716134f38743f915b15c49a55417348c9f3d7acf90" },
-    { "id": "code-impact-analysis", "version": "1.1.0", "digest": "sha256:285ce975939ad4d21e56d7ed4029b97661a250215555b3c541b6d6f1566bd1df" },
-    { "id": "architecture-rot-audit", "version": "1.0.0", "digest": "sha256:de46127b6ce84086bd35da47fab22b839253afd188edb21effb962e263452782" }
+    { "id": "standard-task", "version": "2.0.0", "digest": "sha256:82510a9275a49a88fb7b4a00809123f3703a0b277e0c04da64baf4cbdad4447c" },
+    { "id": "docs-task", "version": "2.0.0", "digest": "sha256:0f1fc9b6fc67e6b5f684e62265afbb573756b3b176a6f51616addedaf9479f3d" },
+    { "id": "reference-task", "version": "2.0.0", "digest": "sha256:fd55281c5838195cebf3fa7585e7e225367372e1acf37c7c3dc8eca4367feb76" },
+    { "id": "long-running-task", "version": "2.0.0", "digest": "sha256:c6237e0e617b0d9a993612ddc8b117229f2a9d591641fa60dbe3f01b2b32e42e" },
+    { "id": "module", "version": "2.0.0", "digest": "sha256:86604a1f3c0908fad8eee2f3e8cbaf597d1bbc96706c2d2ca8220d8876273072" },
+    { "id": "subtask-expansion", "version": "2.0.0", "digest": "sha256:452650411ac7f590caf2d4b091d9cc3fb9558de8a1b6686dafadd177801be698" },
+    { "id": "github-issue-repair", "version": "2.0.0", "digest": "sha256:7400e5b7c088d99fb3ca365f160e525125b34e051176c62439ab1f1674364698" },
+    { "id": "legacy-migration", "version": "2.0.0", "digest": "sha256:5b3c223622753eb4067cd36f1e62ac5cdce6ceaefdd724aba17010f15784684e" },
+    { "id": "create-milestone", "version": "2.0.0", "digest": "sha256:170b78b2e59770dcce83cb6fd54bd027d024aafb31500c7300afb5796ba14a30" },
+    { "id": "milestone-closeout", "version": "2.0.0", "digest": "sha256:22064f8ecaa68f6d09863a2dd44bc171d25c4d68b914e52bc8b91762adf69baf" },
+    { "id": "decision-conformance", "version": "2.0.0", "digest": "sha256:71c1613682b1e48828a86d97f8a96763fc14f64be933a81fc800cc0a83540067" },
+    { "id": "worker-dispatch", "version": "2.0.0", "digest": "sha256:93f69030289b4f47596f46f6f870642687f971ffb612395361417bd2e97f5e48" },
+    { "id": "code-impact-analysis", "version": "2.0.0", "digest": "sha256:02536cf37af3adfa25510ae06949a777c118628c856884f64a58369367196cc1" },
+    { "id": "architecture-rot-audit", "version": "2.0.0", "digest": "sha256:a363ca400af04b19f52ab7043b1ca6887c2074ea649ff75eaa1215a80623d962" }
   ]
 }

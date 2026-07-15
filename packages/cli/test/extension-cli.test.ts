@@ -190,7 +190,7 @@ test("CLI bundled additive presets discover, check, and create their extra task 
       const inspected = runRootJson(rootDir, ["preset", "inspect", testCase.preset]);
       const checked = runRootJson(rootDir, ["preset", "check", testCase.preset]);
       assert.equal(listed.presets.some((preset: Record<string, unknown>) => preset.id === testCase.preset), true);
-      assert.equal(inspected.preset.manifest.schema, "preset-manifest/v2");
+      assert.equal(inspected.preset.manifest.schema, "preset-manifest/v3");
       assert.equal(inspected.preset.manifest.profiles[0].templateSelections[0].localePolicy.fallback, "en-US");
       assert.equal(checked.ok, true);
 

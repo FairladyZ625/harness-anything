@@ -9,10 +9,6 @@ import { semanticPresetScriptEntry } from "./preset-capability-runtime.ts";
 import { legacyPresetScriptEntry, type LegacyPresetScriptEntrypoint } from "./preset-script-runner.ts";
 import type { ResolvedPreset } from "./state.ts";
 import { runScriptHost, type ResolvedScriptEntry } from "./script-host.ts";
-import {
-  trustedPresetEnvironmentCapabilities,
-  trustedPresetPackageReadPermissions
-} from "./script-environment.ts";
 
 export interface PresetEntrypointSmokeIssue {
   readonly code:
@@ -201,20 +197,6 @@ function resolvedPresetScript(
     verticalId: preset.manifest.vertical,
     manifestRoot: path.dirname(preset.sourcePath),
     owner: { id: preset.manifest.id, layer: preset.layer },
-    environmentCapabilities: trustedPresetEnvironmentCapabilities({
-      layer: preset.layer,
-      presetId: preset.manifest.id,
-      entrypointName,
-      command: entrypoint.command,
-      sourcePath: preset.sourcePath
-    }),
-    trustedPackageReadPermissions: trustedPresetPackageReadPermissions({
-      layer: preset.layer,
-      presetId: preset.manifest.id,
-      entrypointName,
-      command: entrypoint.command,
-      sourcePath: preset.sourcePath
-    }),
     context: {
       presetId: preset.manifest.id,
       presetTitle: preset.manifest.title,

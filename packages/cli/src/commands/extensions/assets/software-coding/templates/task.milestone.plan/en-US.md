@@ -46,13 +46,13 @@ State in one sentence who gets which verifiable capability from this milestone.
 ## Constraints
 
 - milestone = root task tree as execution surface + map document as understanding surface.
-- Do not hand-build milestone files; run create-milestone scaffold/check.
+- Follow the create-milestone guidance and nearby repository examples; write only beneath the configured milestones root.
 - Do not add compatibility shims, dual reads, backfills, or migrations for hypothetical external consumers in pre-public-release posture.
 
 ## Checkpoint
 
-- After root task creation, run scaffold before splitting child tasks.
-- At each wave boundary, run the structure checker and record the output as progress evidence.
+- After root task creation, establish the milestone map before splitting child tasks.
+- At each wave boundary, reconcile the task tree, map, status views, and evidence.
 - Before closeout, fill the four-layer done criteria and gate-retro two-lens evidence.
 
 ## CI/Gate Authority Stop Condition
@@ -61,14 +61,14 @@ If this milestone is not CI/gate/governance work but requires changing CI/gate a
 
 ## Implementation Plan
 
-- Create or confirm the charter decision, then pass the `dec_*` anchor to scaffold.
+- Create or confirm the charter decision and keep its `dec_*` anchor in every milestone view.
 - Run `ha task create --title "<name> milestone root" --vertical software/coding --preset create-milestone --long-running`.
-- Run `ha script run preset:create-milestone:scaffold --task <root-task-id> --input line=<line> --input slug=<slug> --input charterDecision=dec_* --input milestoneName="<name>" --input mission="<mission>"`.
+- Read the create-milestone `PRESET.md`, `harness.yaml`, and nearby milestones; create or update the overview, index, summary, and status view under the configured milestones root.
 - Fan out child tasks from the root task and keep the task mapping table aligned with the task tree.
-- Re-run `ha script run preset:create-milestone:check --task <root-task-id> --input line=<line> --input slug=<slug>`.
+- Validate links, required sections, duplicate rows, and status agreement; run the relevant repository checks and record evidence.
 
 ## Verification
 
-- create-milestone checker reports green.
+- milestone surfaces pass the relevant repository checks and human reconciliation.
 - root task, map, roadmap, dossier-data, and charter decision anchor are mutually traceable.
 - Per `dec_mrg3z1we/CH4`, promote load-bearing observations explicitly as `0..N` Facts; keep delivery evidence in Execution outputs and do not impose a Fact quantity gate on review or completion.

@@ -105,12 +105,19 @@ const ExternalSourcePackRequirementSchema = Schema.Struct({
   capability: Schema.Literal("external-source-pack"), version: Schema.Literal("1"),
   select: Schema.Struct({ packFrom: PresetInputNameSchema, view: Schema.Literal("files-with-provenance") })
 });
+const RepositorySourceRequirementSchema = Schema.Struct({
+  capability: Schema.Literal("repository-source"), version: Schema.Literal("1"),
+  select: Schema.Struct({
+    collections: Schema.Array(Schema.Literal("project-config", "gate-tooling", "product-source")).pipe(Schema.minItems(1)),
+    view: Schema.Literal("text-snapshot")
+  })
+});
 
 export const PresetCapabilityRequirementSchema = Schema.Union(
   TasksRequirementSchema, DecisionsRequirementSchema, AdrsRequirementSchema, OperatingDocsRequirementSchema,
   TaskArtifactsRequirementSchema, RelationGraphRequirementSchema, RuntimeEventsRequirementSchema,
   GeneratedArtifactsRequirementSchema, WriteJournalRequirementSchema, DocmapRequirementSchema,
-  ExternalSourcePackRequirementSchema
+  ExternalSourcePackRequirementSchema, RepositorySourceRequirementSchema
 );
 
 export const LogicalArtifactV1Schema = Schema.Struct({
@@ -160,7 +167,8 @@ export const presetCapabilityCatalog = [
   { id: "write-journal", version: "1", directions: ["requires"], dataShape: "write-journal-inventory/v1", authorityEnvelope: "read-only-presence-inventory" },
   { id: "docmap", version: "1", directions: ["requires"], dataShape: "docmap-presence/v1", authorityEnvelope: "read-only-presence" },
   { id: "task-documents", version: "1", directions: ["produces"], dataShape: "logical-task-documents/v1", authorityEnvelope: "staged-task-document-writer" },
-  { id: "external-source-pack", version: "1", directions: ["requires"], dataShape: "provenance-source-pack/v1", authorityEnvelope: "read-only-approved-source-pack" }
+  { id: "external-source-pack", version: "1", directions: ["requires"], dataShape: "provenance-source-pack/v1", authorityEnvelope: "read-only-approved-source-pack" },
+  { id: "repository-source", version: "1", directions: ["requires"], dataShape: "repository-source-snapshot/v1", authorityEnvelope: "read-only-selected-repository-text" }
 ] as const;
 
 const PresetIntentV3Schema = Schema.Struct({

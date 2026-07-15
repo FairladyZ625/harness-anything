@@ -29,13 +29,13 @@
 
 | 能力                         | 状态               | 边界和证据                                                                                                                                                                                              |
 | ---------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Subtask expansion preset     | Mechanism-complete | `ha preset action subtask-expansion plan --task <id> --allow-scripts` 会产出 `subtask-plan/v1` 工件和命令字符串。它是规划器，不是自动展开器；用户必须自己执行生成的 task-create 命令。证据：canon 1.4。 |
+| Subtask expansion preset     | Guidance           | preset 指引 agent 读取 parent、用正常的 `ha task` 命令创建子任务并建立真实依赖关系；它没有 headless 展开入口。 |
 | 决策文档 CAS 写入            | Mechanism-complete | 决策文档写入使用乐观并发，可能返回 `cas_watermark_mismatch`，CLI 面表现为 `write_rejected`。证据：canon 1.4。                                                                                           |
 | Append-delta 幂等性          | Mechanism-complete | 逐字节相同的重复 fact 记录现在是幂等 no-op，而不是 rejection。证据：canon 1.4。                                                                                                                         |
 | Claim-check blob store       | Mechanism-complete | session body 可以作为内容寻址 blob 存在 `harness/objects/sha256/...` 下；v0 没有 GC，也没有分块。证据：canon 1.4。                                                                                      |
 | Code-doc reconciliation gate | Mechanism-complete | 解析出的 preset/profile 声明 `code-doc-reconciliation` 时（内置 coding profile 都声明），`ha task complete` 会硬失败，除非存在手写的 `harness/tasks/<id>/code-doc-anchors.json`；task create 不会生成它。该门由契约派生，并非全局门（ADR-0027 D7）。证据：canon 1.4。 |
 | Distill 循环                 | Mechanism-complete | `ha task complete` 会排入 distill 候选，`ha distill candidate` 与 `ha distill promote` 已存在。公开发布文档仍需要补真实 distill 工作流。证据：canon 1.4。                                               |
-| Create-milestone preset      | Mechanism-complete | `ha preset action create-milestone <scaffold                                                                                                                                                            | render-html | check> --task <id> --allow-scripts --input ...`已存在。没有顶层`ha create-milestone` 命令。证据：canon 1.4。 |
+| Create-milestone preset      | Guidance           | preset 指引 agent 创建 long-running root task，并在配置的仓库相对 milestones root 下维护 milestone map；它没有 headless scaffold/check 入口。 |
 | Task archive                 | Shipped            | `ha task archive <id> --reason <r>` 支持单个与批量形式，包括 `--ids`、`--filter state:<s>`、`--before`。证据：canon 1.4。                                                                               |
 | Graph panorama flags         | Shipped            | `ha graph` 支持 `--out`、`--focus`、`--projection`、`--include-archived`、`--json`；调用者需要满足投影 DB 前置条件。证据：canon 1.4。                                                                   |
 

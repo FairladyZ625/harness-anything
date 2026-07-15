@@ -1,28 +1,15 @@
 {
-  "schema": "preset-manifest/v2",
+  "schema": "preset-manifest/v3",
   "id": "milestone-closeout",
   "title": "Milestone Closeout",
   "vertical": "software/coding",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "kind": "process-action",
   "policyPath": "{{paths.authoredRoot}}/policies/presets/milestone-closeout.policy.json",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [
-    { "id": "milestone-closeout-parity", "kind": "command", "version": "1", "required": false },
     { "id": "policy:closeout-boundary/v1", "kind": "command", "version": "1", "required": true }
   ],
-  "entrypoints": {
-    "check": {
-      "type": "script",
-      "command": "scripts/preset-action.mjs",
-      "reads": ["{{outputRoot}}/**", "{{paths.milestonesRoot}}/**", "{{paths.decisionsRoot}}/**", "{{paths.tasksRoot}}/*/**"],
-      "writes": ["{{outputRoot}}/**"],
-      "inputs": {
-        "milestoneCriteriaRoots": "{{paths.milestonesRoot}}",
-        "milestoneRootTaskId": ""
-      }
-    }
-  },
   "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] }],
   "defaultProfile": "baseline"
 }

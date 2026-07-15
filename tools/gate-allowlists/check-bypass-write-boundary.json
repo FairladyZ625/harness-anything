@@ -304,6 +304,16 @@
         "reason": "Preset v3 provider copies selected task artifacts into the immutable run snapshot; the source and canonical authored state remain read-only."
       },
       {
+        "value": "packages/cli/src/commands/extensions/repository-source-capability.ts#mkdirSync@1",
+        "ref": "task_01KXJPVQPSF63NBRN45SCMV1K2",
+        "reason": "Repository-source provider creates only an immutable text snapshot directory inside the isolated script run; it has no canonical write authority."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/repository-source-capability.ts#cpSync@1",
+        "ref": "task_01KXJPVQPSF63NBRN45SCMV1K2",
+        "reason": "Repository-source provider copies selected repository text into the isolated immutable run snapshot; product and authored sources remain read-only."
+      },
+      {
         "value": "packages/cli/src/commands/extensions/preset-capability-runtime.ts#mkdirSync@1",
         "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
         "reason": "Preset v3 runtime creates the isolated capability projection directory under script evidence; it has no canonical write authority."

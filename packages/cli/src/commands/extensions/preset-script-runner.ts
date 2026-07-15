@@ -10,12 +10,7 @@ import type { ResolvedPreset } from "./state.ts";
 import type { ScriptEntry } from "./script-host.ts";
 import { resolveScriptPolicy, type PresetPolicyResolution } from "./preset-policy.ts";
 import { buildPresetContext } from "./preset-script-context.ts";
-import {
-  scriptChildEnvironment,
-  trustedPresetEnvironmentCapabilities,
-  trustedPresetPackageReadPermissions,
-  trustedPresetMayIngestFailedDiagnostics
-} from "./script-environment.ts";
+import { scriptChildEnvironment } from "./script-environment.ts";
 import { executeScript } from "./script-executor.ts";
 import {
   isPathInside,
@@ -172,13 +167,6 @@ export function runLegacyPresetScriptEntrypoint(
   }), null, 2), "utf8");
   const readablePaths = [
     ...scriptPackageReadPermissions(scriptPath, presetRoot),
-    ...trustedPresetPackageReadPermissions({
-      layer: preset.layer,
-      presetId: preset.manifest.id,
-      entrypointName,
-      command: entrypoint.command,
-      sourcePath: preset.sourcePath
-    }),
     contextPath,
     ...executionReadScope.permissions
   ];
@@ -209,13 +197,7 @@ export function runLegacyPresetScriptEntrypoint(
     writePermissions: executionWriteScope.permissions,
     env: scriptChildEnvironment({
       HARNESS_PRESET_CONTEXT: contextPath
-    }, trustedPresetEnvironmentCapabilities({
-      layer: preset.layer,
-      presetId: preset.manifest.id,
-      entrypointName,
-      command: entrypoint.command,
-      sourcePath: preset.sourcePath
-    })),
+    }),
     artifactRoots: executionWriteScope.roots,
     outputBoundary: { kind: "roots", roots: executionWriteScope.roots, inspect: "all" }
   });
@@ -246,14 +228,7 @@ export function runLegacyPresetScriptEntrypoint(
   }
   const scriptedResult = readScriptedResult(executionOutputRoot);
   const failedScriptedResult = scriptedResult !== undefined && scriptedResult.ok !== true;
-  const mayIngestFailedResult = presetScriptPurpose(entrypointName) === "audit" ||
-    trustedPresetMayIngestFailedDiagnostics({
-      layer: preset.layer,
-      presetId: preset.manifest.id,
-      entrypointName,
-      command: entrypoint.command,
-      sourcePath: preset.sourcePath
-    });
+  const mayIngestFailedResult = presetScriptPurpose(entrypointName) === "audit";
   const shouldIngest = !failedScriptedResult || mayIngestFailedResult;
   const generated = shouldIngest
     ? canonicalGeneratedPaths(stage, execution.generated).map((filePath) => path.relative(rootDir, filePath).split(path.sep).join("/"))

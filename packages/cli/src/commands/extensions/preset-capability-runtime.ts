@@ -102,7 +102,8 @@ export const registeredSemanticPresetCapabilityProviders: ReadonlyArray<PresetCa
     "runtime-events",
     "generated-artifacts",
     "write-journal",
-    "docmap"
+    "docmap",
+    "repository-source"
   ].map((capability) => ({ capability, version: "1", direction: "requires" as const })),
   { capability: "task-artifacts", version: "1", direction: "requires" as const },
   { capability: "task-artifacts", version: "1", direction: "produces" as const }
@@ -436,6 +437,7 @@ function writableArtifact(
 function artifactBasename(id: string): string {
   if (id === "milestone-dossier-data") return "dossier.data";
   if (id === "dogfood-utilization-report") return "dogfood-utilization-audit";
+  if (id === "gate-retro-snapshot") return "gate-retro.snapshot";
   return id;
 }
 

@@ -37,8 +37,10 @@ test("CLI preset CRUD validates, installs, audits, and removes project presets",
     assert.equal(checked.ok, true);
     assert.deepEqual(checked.issues, []);
 
-    const audit = runJson(rootDir, ["preset", "audit"], false);
-    assert.equal(audit.ok, false);
+    const audit = runJson(rootDir, ["preset", "audit"], true, {
+      HARNESS_USER_HOME: path.join(rootDir, "user-home")
+    });
+    assert.equal(audit.ok, true);
     const bundledPresetIndex = JSON.parse(readFileSync(bundledPresetIndexPath, "utf8")) as { readonly presets: ReadonlyArray<string> };
     assert.equal(audit.report.totalResolved, bundledPresetIndex.presets.length + 1);
 
@@ -95,7 +97,7 @@ test("CLI standard task preset materializes rich planning documents", () => {
     const inspected = runJson(rootDir, ["preset", "inspect", "standard-task"]);
     assert.equal(inspected.ok, true);
     assert.equal(inspected.preset.kind, "template-content");
-    assert.equal(inspected.preset.manifest.schema, "preset-manifest/v2");
+    assert.equal(inspected.preset.manifest.schema, "preset-manifest/v3");
 
     const created = runJson(rootDir, [
       "new-task",

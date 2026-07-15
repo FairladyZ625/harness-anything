@@ -8,7 +8,6 @@ import { resolveActiveVertical } from "./active-vertical.ts";
 import { discoverPresets, publicPresetSummary } from "./state.ts";
 import { legacyPresetScriptEntry } from "./preset-script-runner.ts";
 import { semanticPresetScriptEntry } from "./preset-capability-runtime.ts";
-import { trustedPresetEnvironmentCapabilities, trustedPresetPackageReadPermissions } from "./script-environment.ts";
 import { runScriptHost, type ResolvedScriptEntry, type ScriptKind, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
 import { scriptHostCliResult } from "./script-host-result.ts";
 
@@ -159,20 +158,6 @@ export function discoverScriptEntries(
           verticalId: activeVertical.id,
           manifestRoot: path.dirname(preset.sourcePath),
           owner: publicPresetSummary(preset),
-          environmentCapabilities: trustedPresetEnvironmentCapabilities({
-            layer: preset.layer,
-            presetId: preset.manifest.id,
-            entrypointName,
-            command: entrypoint.command,
-            sourcePath: preset.sourcePath
-          }),
-          trustedPackageReadPermissions: trustedPresetPackageReadPermissions({
-            layer: preset.layer,
-            presetId: preset.manifest.id,
-            entrypointName,
-            command: entrypoint.command,
-            sourcePath: preset.sourcePath
-          }),
           context: {
             presetId: preset.manifest.id,
             presetTitle: preset.manifest.title,

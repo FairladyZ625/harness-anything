@@ -84,23 +84,23 @@ decision" or "needs reproduction" instead of asking an agent to guess.
 
 ## Repair flow
 
-Maintainers or authorized agents can use the bundled GitHub issue repair preset
-to pull an issue into a task evidence bundle:
+Maintainers or authorized agents can select the bundled GitHub issue repair preset
+when creating the task:
 
 ```bash
-ha preset action github-issue-repair plan \
-  --task <task-id> \
-  --allow-scripts \
-  --input repo=FairladyZ625/harness-anything \
-  --input issueJson=artifacts/issue-<number>.json
+ha task create --title "Repair issue <number>" \
+  --vertical software/coding \
+  --preset github-issue-repair
 ```
 
-Use `issueJson` or `fixtureFile` for deterministic intake. To let the preset make
-a live GitHub request, pass `--input fetchMode=best-effort` and
-`--input issue=<number>` explicitly; network access is best-effort in preset
-sandboxes. The preset writes a structured repair intake under the task's
-`artifacts/` directory. It does not merge code, bypass review, or replace the PR
-template.
+The preset is guidance for the agent, not a GitHub client or headless intake
+script. The agent uses its own authenticated `gh` access to inspect the current
+issue, for example `gh issue view <number> --repo <owner/name>`, then records the
+issue reference, reproduction evidence, repair scope, verification, and any
+unresolved questions through the normal task workflow. If the issue is ambiguous,
+cannot be reproduced, or needs a maintainer decision, the agent stops and asks
+instead of inventing missing intent. The preset does not merge code, bypass
+review, or replace the PR template.
 
 ## After a fix
 

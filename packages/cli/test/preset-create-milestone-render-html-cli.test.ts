@@ -1,75 +1,60 @@
 // harness-test-tier: integration
-import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
+const presetId = "create-milestone";
 
-test("CLI create-milestone render-html derives a deterministic self-contained dossier from the public machine summary", () => {
+test("CLI create-milestone guidance does not expose retired scaffold, render, or check scripts", () => {
   withTempRoot((rootDir) => {
-    runJson(rootDir, ["init"]);
-    const task = runJson(rootDir, ["task", "create", "--title", "Renderer Coordination"]);
-    mkdirSync(path.join(rootDir, "harness/milestones"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/milestones/milestones-summary.md"), [
-      "# Milestone Dossier Data",
-      "",
-      "| Line | Milestone | Status | One-line goal | Root task id | Child count | Dependencies / entry | Batch |",
-      "| --- | --- | --- | --- | --- | ---: | --- | --- |",
-      "| platform | PLT-Render | active | Derive HTML mechanically. | `task_RENDER_ROOT` | 2 | dec_RENDER | current |",
-      "| gui | GUI-Shell | planned | Keep the shell inspectable. | `task_GUI_ROOT` | 0 | task_RENDER_ROOT | next |",
-      ""
-    ].join("\n"), "utf8");
+    const inspected = runJson(rootDir, ["preset", "inspect", presetId]);
+    assert.equal(inspected.preset.manifest.schema, "preset-manifest/v3");
+    assert.equal(inspected.preset.version, "2.0.0");
+    assert.deepEqual(inspected.preset.entrypoints, []);
 
-    const first = runJson(rootDir, ["script", "run", "preset:create-milestone:render-html", "--task", String(task.taskId)]);
-    const htmlPath = path.join(rootDir, "harness/milestones/milestones.html");
-    const firstHtml = readFileSync(htmlPath, "utf8");
-    const second = runJson(rootDir, ["script", "run", "preset:create-milestone:render-html", "--task", String(task.taskId)]);
-    const secondHtml = readFileSync(htmlPath, "utf8");
+    const scripts = runJson(rootDir, ["script", "list", "--source", "preset"]);
+    const scriptIds = new Set(scripts.scripts.map((script: Record<string, unknown>) => String(script.id)));
+    assert.equal(scriptIds.has("preset:create-milestone:scaffold"), false);
+    assert.equal(scriptIds.has("preset:create-milestone:render-html"), false);
+    assert.equal(scriptIds.has("preset:create-milestone:check"), false);
 
-    assert.equal(first.ok, true);
-    assert.equal(first.report.html.milestones, 2);
-    assert.equal(second.ok, true);
-    assert.equal(second.report.html.milestones, 2);
-    assert.equal(secondHtml, firstHtml);
-    assert.match(firstHtml, /PLT-Render/u);
-    assert.match(firstHtml, /GUI-Shell/u);
-    assert.match(firstHtml, /--done:#5f7a55/u);
-    assert.match(firstHtml, /data-theme/u);
-    assert.doesNotMatch(firstHtml, /https?:\/\//u);
-    assert.doesNotMatch(firstHtml, /cdn/u);
+    const guidance = readFileSync(
+      path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/create-milestone/PRESET.md"),
+      "utf8"
+    );
+    assert.match(guidance, /human-readable status view/u);
+    assert.match(guidance, /Run the relevant repository checks/u);
   });
 });
 
-function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
-  try {
-    const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        HARNESS_ACTOR: "agent:create-milestone-render-test",
-        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
-        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
-        HARNESS_DAEMON_MODE: "direct",
-        HARNESS_DIRECT_WRITE_REASON: "test"
-      }
-    });
-    return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
-  } catch (error) {
-    if (expectSuccess) throw error;
-    const failure = error as { readonly stdout?: string };
-    return unwrapCommandReceipt(JSON.parse(failure.stdout ?? "{}") as Record<string, any>);
-  }
+function runJson(rootDir: string, args: ReadonlyArray<string>): Record<string, any> {
+  const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HARNESS_ACTOR: "agent:create-milestone-render-guidance-test",
+      HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+      HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test",
+      HARNESS_USER_HOME: path.join(rootDir, ".empty-user-home")
+    }
+  });
+  const parsed = JSON.parse(output) as Record<string, any>;
+  assert.equal(parsed.ok, true, output);
+  return unwrapCommandReceipt(parsed);
 }
 
 function withTempRoot<T>(fn: (rootDir: string) => T): T {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-milestone-render-"));
-  ensureTestHarnessIdentity(rootDir);
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-milestone-render-guidance-"));
   try {
+    initializeNestedHarnessRepo(rootDir);
     return fn(rootDir);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
