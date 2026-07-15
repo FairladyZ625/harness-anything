@@ -678,6 +678,7 @@ test("CLI legacy-migration preset action plans V2 task discovery and context for
 
     assert.equal(result.ok, true);
     assert.equal(result.command, "preset-action");
+    assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "legacy-physical-scope"), true);
     assert.equal(result.report.scan.summary.taskCount, 1);
     assert.equal(result.report.scan.entries.some((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/tasks/v2-task"), true);
     const contextEntry = result.report.scan.entries.find((entry: Record<string, unknown>) => entry.sourcePath === ".harness-private/coding-agent-harness/context/architecture/overview.md");

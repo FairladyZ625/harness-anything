@@ -13,6 +13,7 @@ import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { TaskContractSnapshotSchema } from "./task-contract-snapshot.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
 import { WriteJournalOpSchema } from "./write-journal.ts";
+import { PresetEntrypointV3Schema } from "./preset-manifest-v3.ts";
 
 export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
 export { decisionClaimFulfillments, DecisionPackageSchema, DecisionStateSchema } from "./decision-package.ts";
@@ -276,6 +277,7 @@ export const PresetEntrypointSchema = Schema.Union(
     }))
   })
 );
+
 const PresetDocumentTextSchema = Schema.String.pipe(
   Schema.minLength(1),
   Schema.pattern(/\S/u)
@@ -318,6 +320,15 @@ const PresetManifestCommonFields = {
   })),
   defaultProfile: Schema.String
 };
+const PresetManifestV3Schema = Schema.Struct({
+  schema: Schema.Literal("preset-manifest/v3"),
+  ...PresetManifestCommonFields,
+  entrypoints: Schema.optional(Schema.Record({
+    key: Schema.String,
+    value: PresetEntrypointV3Schema
+  })),
+  profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1))
+});
 export const PresetManifestSchema = Schema.Union(
   Schema.Struct({
     schema: Schema.Literal("preset-manifest/v1"),
@@ -328,7 +339,8 @@ export const PresetManifestSchema = Schema.Union(
     schema: Schema.Literal("preset-manifest/v2"),
     ...PresetManifestCommonFields,
     profiles: Schema.Array(PresetProfileSchema).pipe(Schema.minItems(1))
-  })
+  }),
+  PresetManifestV3Schema
 );
 export const LegacyEvidencePointerSchema = Schema.Struct({
   kind: Schema.Literal("progress", "review", "commit", "pr", "artifact", "note"),
@@ -433,6 +445,7 @@ export type PublishableProjection = Schema.Schema.Type<typeof PublishableProject
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 export type TemplateSelection = Schema.Schema.Type<typeof TemplateSelectionSchema>;
 export type PresetDocumentFrontmatter = Schema.Schema.Type<typeof PresetDocumentFrontmatterSchema>;
+export type PresetManifestV3 = Schema.Schema.Type<typeof PresetManifestV3Schema>;
 export type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 export type PresetProfile = Schema.Schema.Type<typeof PresetProfileSchema>;
 export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;

@@ -1,6 +1,7 @@
 import type { PresetManifest, TemplateCatalog, TemplateSelection, VerticalDefinition } from "../schemas/registry.ts";
 import { markdownHeadingSections } from "../markdown/section.ts";
 import { createEntityKindRegistry } from "./entity-kind-registry.ts";
+import { validatePresetEntrypointsV3Shape } from "./preset-manifest-v3-shape.ts";
 
 export interface ExtensionValidationIssue {
   readonly code:
@@ -408,7 +409,11 @@ function validatePresetManifestShape(input: unknown, path: string, issues: Exten
   if (!isRecord(input)) return;
   validateObjectKeys(input.kernelVersionRange, `${path}.kernelVersionRange`, ["min", "maxExclusive"], issues);
   validateCapabilityImportsShape(input.capabilityImports, `${path}.capabilityImports`, issues, ["id", "kind", "version", "required"]);
-  validatePresetEntrypointsShape(input.entrypoints, `${path}.entrypoints`, issues);
+  if (input.schema === "preset-manifest/v3") {
+    issues.push(...validatePresetEntrypointsV3Shape(input.entrypoints, `${path}.entrypoints`));
+  } else {
+    validatePresetEntrypointsShape(input.entrypoints, `${path}.entrypoints`, issues);
+  }
   if (Array.isArray(input.profiles)) {
     for (const [index, profile] of input.profiles.entries()) {
       const profilePath = `${path}.profiles[${index}]`;
@@ -421,7 +426,11 @@ function validatePresetManifestShape(input: unknown, path: string, issues: Exten
   }
 }
 
-function validatePresetEntrypointsShape(input: unknown, path: string, issues: ExtensionValidationIssue[]): void {
+function validatePresetEntrypointsShape(
+  input: unknown,
+  path: string,
+  issues: ExtensionValidationIssue[]
+): void {
   if (input === undefined) return;
   if (!isRecord(input)) return;
   for (const [entrypointName, entrypoint] of Object.entries(input)) {

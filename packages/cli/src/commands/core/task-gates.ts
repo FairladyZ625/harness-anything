@@ -12,7 +12,8 @@ import { taskTreeSoftGateWarnings } from "./task-lifecycle.ts";
 import { runExecutionReview } from "./task-execution-review.ts";
 import { runExecutionConsent } from "./task-execution-consent.ts";
 import { milestoneDecisionLineageFailure } from "./task-lineage-gate.ts";
-import { resolvePreset, selectPresetProfile } from "../extensions/state.ts";
+import { resolvePreset } from "../extensions/state.ts";
+import { resolvePresetCompletionGates } from "./task-completion-contract.ts";
 type TaskGateAction = Extract<Parameters<CommandRunner>[1]["action"], { readonly kind: "task-code-doc-reconcile" | "task-review" | "task-consent-record" | "task-review-execution" | "task-complete" }>;
 export const runTaskGatesCommand: CommandRunner = (context, command) => {
   const action = command.action as TaskGateAction;
@@ -36,12 +37,7 @@ export const runTaskGatesCommand: CommandRunner = (context, command) => {
       const resolved = resolvePreset(context.layoutInput, preset, vertical);
       if (!resolved) throw new Error(`Task preset is not resolvable in the current registry: ${preset}`);
       if (resolved.manifest.vertical !== vertical) throw new Error(`Task preset ${preset} does not belong to vertical ${vertical}`);
-      if (resolved.manifest.schema !== "preset-manifest/v2") {
-        throw new Error(`Task preset ${preset} does not declare a v2 completion contract`);
-      }
-      const selected = selectPresetProfile(resolved.manifest, profile);
-      if (!selected || !("completionGates" in selected)) throw new Error(`Task preset profile is not resolvable: ${profile ?? resolved.manifest.defaultProfile}`);
-      return selected.completionGates;
+      return resolvePresetCompletionGates(resolved.manifest, preset, profile);
     }
   });
   if (action.kind === "task-review") {
