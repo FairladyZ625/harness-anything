@@ -19,6 +19,7 @@ import { buildPresetUninstallImpact } from "./preset-uninstall-impact.ts";
 import { readPresetManifestFromSourceResult } from "./preset-manifest-reader.ts";
 import { loadBundledPresetManifestEntries } from "./bundled.ts";
 import { presetRuntimeRepairHint, smokePresetEntrypoints } from "./preset-smoke.ts";
+import { documentedPresetSource } from "./preset-document-loader.ts";
 import {
   runPresetAudit,
   runPresetCheck,
@@ -93,11 +94,7 @@ function runPresetInstall(rootInput: HarnessLayoutInput, action: Extract<PresetA
     };
   }
   const sourceManifestPath = manifestPathFromSource(action.sourcePath);
-  const sourcePreset = {
-    manifest,
-    layer: action.layer,
-    sourcePath: sourceManifestPath
-  } as const;
+  const sourcePreset = documentedPresetSource(manifest, action.layer, sourceManifestPath);
   const runtime = smokePresetEntrypoints(rootInput, sourcePreset);
   if (!runtime.ok) {
     return {
@@ -105,6 +102,7 @@ function runPresetInstall(rootInput: HarnessLayoutInput, action: Extract<PresetA
       command: "preset-install",
       preset: { id: manifest.id },
       issues: runtime.issues,
+      warnings: sourcePreset.warnings,
       error: cliError(CliErrorCode.PresetManifestInvalid, presetRuntimeRepairHint(sourcePreset, runtime.issues))
     };
   }
@@ -118,7 +116,8 @@ function runPresetInstall(rootInput: HarnessLayoutInput, action: Extract<PresetA
   return {
     ok: true,
     command: "preset-install",
-    preset: publicPresetSummary({ manifest, layer: action.layer, sourcePath: target })
+    preset: publicPresetSummary({ ...sourcePreset, sourcePath: target }),
+    warnings: sourcePreset.warnings
   };
 }
 

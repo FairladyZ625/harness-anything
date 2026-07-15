@@ -13,6 +13,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { initializeNestedHarnessRepo } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
+import { loadPresetDocument } from "../src/commands/extensions/preset-document-loader.ts";
 
 const cliEntry = path.resolve("packages/cli/src/index.ts");
 const architectureRotRoot = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/architecture-rot-audit");
@@ -164,7 +165,13 @@ test("bundled software coding assets have consistent template and process-preset
   assert.deepEqual([...index.presets].sort(), bundledPresetIds, "bundled preset ids must match the approved public distribution list");
 
   for (const presetId of index.presets) {
-    const manifest = JSON.parse(readFileSync(path.join(assetRoot, "presets", presetId, "preset.json"), "utf8")) as PresetAsset;
+    const manifestPath = path.join(assetRoot, "presets", presetId, "preset.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as PresetAsset & { readonly schema: string };
+    const document = loadPresetDocument(manifestPath);
+    assert.equal(manifest.schema, "preset-manifest/v2", `${presetId} keeps the frozen manifest contract`);
+    assert.deepEqual(document.warnings, [], `${presetId} must ship valid PRESET.md frontmatter`);
+    assert.equal(document.frontmatter?.schema, "preset-document/v1", presetId);
+    assert.equal((document.frontmatter?.description.length ?? 0) > 0, true, presetId);
     for (const profile of manifest.profiles) {
       const profilePaths = new Set<string>();
       for (const selection of profile.templateSelections) {

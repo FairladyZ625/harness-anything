@@ -276,6 +276,24 @@ export const PresetEntrypointSchema = Schema.Union(
     }))
   })
 );
+const PresetDocumentTextSchema = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.pattern(/\S/u)
+);
+const PresetDocumentFieldNameSchema = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z][A-Za-z0-9_-]*$/u)
+);
+const PresetDocumentFieldDescriptionsSchema = Schema.Record({
+  key: PresetDocumentFieldNameSchema,
+  value: PresetDocumentTextSchema
+});
+export const PresetDocumentFrontmatterSchema = Schema.Struct({
+  schema: Schema.Literal("preset-document/v1"),
+  description: PresetDocumentTextSchema,
+  whenToUse: Schema.optional(PresetDocumentTextSchema),
+  inputs: Schema.optional(PresetDocumentFieldDescriptionsSchema),
+  entrypoints: Schema.optional(PresetDocumentFieldDescriptionsSchema)
+});
 const PresetManifestCommonFields = {
   id: Schema.String,
   title: Schema.String,
@@ -414,6 +432,7 @@ export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 export type TemplateSelection = Schema.Schema.Type<typeof TemplateSelectionSchema>;
+export type PresetDocumentFrontmatter = Schema.Schema.Type<typeof PresetDocumentFrontmatterSchema>;
 export type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 export type PresetProfile = Schema.Schema.Type<typeof PresetProfileSchema>;
 export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;

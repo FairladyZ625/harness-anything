@@ -7,7 +7,7 @@ description: Create, review, or update Harness Anything presets. Use when design
 
 ## Core Rule
 
-Keep presets declaration-first. A preset is a `preset-manifest/v2` manifest plus optional package-local scripts and template selections. Template bodies are assets owned by a template catalog, not inline manifest strings. Do not add `presetId` or action-specific branches to CLI core code.
+Keep presets declaration-first. A preset is a `preset-manifest/v2` manifest plus a `PRESET.md` human/agent contract, optional package-local scripts, and template selections. Template bodies are assets owned by a template catalog, not inline manifest strings. Do not add `presetId` or action-specific branches to CLI core code.
 
 The CLI may provide only generic infrastructure:
 
@@ -20,6 +20,7 @@ The CLI may provide only generic infrastructure:
 Preset behavior belongs in the preset package:
 
 - `preset.json`
+- `PRESET.md`
 - `scripts/*`
 - `profiles[*].templateSelections`
 - declared inputs, reads, and writes
@@ -29,12 +30,13 @@ Preset behavior belongs in the preset package:
 1. Define the preset's job in one sentence.
 2. Decide whether it is `template-content` or `process-action`.
 3. Write or update `preset.json` as `preset-manifest/v2`.
-4. Put template overlays in `profiles[*].templateSelections`; point each selection at `template://<id>@<version>`.
-5. Put template body Markdown in the vertical template assets, then reference it from `template-catalog/v2` with `bodyPath`.
-6. For script entrypoints, declare the narrowest possible `reads` and `writes`.
-7. Put all preset-specific action logic in `scripts/`, not CLI command dispatch.
-8. Run `ha preset validate <manifest>` before publishing the preset.
-9. Add tests in the correct tier by putting exactly one `// harness-test-tier: fast|contract|integration` declaration on each new Node test file's first line.
+4. Write `PRESET.md` from `assets/PRESET.md`; keep `description` authoritative there instead of adding it to `preset.json`.
+5. Put template overlays in `profiles[*].templateSelections`; point each selection at `template://<id>@<version>`.
+6. Put template body Markdown in the vertical template assets, then reference it from `template-catalog/v2` with `bodyPath`.
+7. For script entrypoints, declare the narrowest possible `reads` and `writes`.
+8. Put all preset-specific action logic in `scripts/`, not CLI command dispatch.
+9. Run `ha preset validate <manifest>` before publishing the preset.
+10. Add tests in the correct tier by putting exactly one `// harness-test-tier: fast|contract|integration` declaration on each new Node test file's first line.
 
 ## Manifest v2 Contract
 
@@ -47,6 +49,7 @@ Allowed top-level keys are exactly:
 - `version`
 - `kind`
 - `extends`
+- `policyPath`
 - `kernelVersionRange`
 - `capabilityImports`
 - `entrypoints`
@@ -54,6 +57,8 @@ Allowed top-level keys are exactly:
 - `defaultProfile`
 
 Use `schema: "preset-manifest/v2"`. `profiles` must contain at least one profile, and `defaultProfile` must match one declared profile id. `extends` is optional; when present, the parent preset must be available to the validation context. A standalone `ha preset validate <manifest>` run validates only that one manifest, so omit `extends` in minimal examples unless you also validate through a resolved preset set.
+
+`policyPath` is optional. When present, it must point to `{{paths.authoredRoot}}/policies/presets/<preset-id>.policy.json`.
 
 Allowed profile keys are exactly:
 
@@ -123,6 +128,36 @@ Validate it:
 ha preset validate preset.json
 ```
 
+## PRESET.md Contract
+
+`PRESET.md` is the human/agent-readable semantic layer. Its YAML frontmatter uses `preset-document/v1`; its Markdown body is free-form progressive disclosure. The approved fields are exactly:
+
+- `schema`: required literal `preset-document/v1`.
+- `description`: required non-empty summary and the only authoritative preset description.
+- `whenToUse`: optional non-empty selection guidance.
+- `inputs`: optional `name: description` map for explicit inputs.
+- `entrypoints`: optional `name: usage` map for declared entrypoints.
+
+Do not repeat `id`, `title`, `version`, or `kind`; those remain authoritative in `preset.json`.
+
+```md
+---
+schema: preset-document/v1
+description: Create a focused example task package.
+whenToUse: Use when an example-specific workflow is more useful than standard-task.
+inputs:
+  scope: Describe the implementation boundary.
+entrypoints:
+  plan: ha preset run example-note plan --task <task-id> --allow-scripts
+---
+
+# Example Note
+
+Explain the workflow, constraints, and longer examples here.
+```
+
+Missing or invalid `PRESET.md` is currently a compatibility warning and falls back to the manifest title. New and updated presets must still ship a valid document so this migration path does not become permanent debt.
+
 ## Asset-Based Templates
 
 Preset manifests select templates; template catalogs own template metadata; Markdown files own template bodies. Do not put inline `body` content in `template-catalog/v2`; v2 catalogs use `bodyPath` only.
@@ -138,6 +173,7 @@ assets/software-coding/
       zh-CN.md
   presets/
     example-note/
+      PRESET.md
       preset.json
 ```
 
@@ -207,6 +243,7 @@ to `artifacts/preset-result.json`.
 ## Review Checklist
 
 - `preset.json` uses `schema: "preset-manifest/v2"`.
+- `PRESET.md` uses `schema: preset-document/v1`, has a non-empty authoritative `description`, and does not duplicate manifest identity fields.
 - Top-level manifest keys match the v2 allowed key list.
 - Every profile uses only the v2 allowed profile keys and explicitly declares
   `completionGates`; `profiles` and `defaultProfile` are consistent (ADR-0027

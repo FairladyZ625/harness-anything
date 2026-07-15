@@ -8,6 +8,7 @@ import {
   planTemplateMaterialization,
   validatePresetManifests,
   type ExtensionValidationIssue,
+  type PresetDocumentFrontmatter,
   type WriteError,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
@@ -28,6 +29,7 @@ import { runScriptEntrypoint, scriptCliResult } from "./preset-script-runner.ts"
 import { presetRuntimeUnavailableResult } from "./preset-runtime-availability.ts";
 import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
 import { decodePresetManifestFileResult } from "./preset-manifest-reader.ts";
+import { loadPresetDocument, type PresetDocumentWarning } from "./preset-document-loader.ts";
 
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
 
@@ -35,6 +37,8 @@ export interface ResolvedPreset {
   readonly manifest: PresetManifest;
   readonly layer: "project" | "user" | "builtin";
   readonly sourcePath: string;
+  readonly documentation?: PresetDocumentFrontmatter;
+  readonly warnings?: ReadonlyArray<PresetDocumentWarning>;
 }
 
 export interface InvalidPreset {
@@ -82,7 +86,13 @@ export function discoverPresetEntries(
   const byId = new Map<string, PresetResolutionEntry>();
   for (const entry of loadBundledPresetManifestEntries()) {
     if (entry.manifest.vertical !== verticalId) continue;
-    byId.set(entry.manifest.id, { manifest: entry.manifest, layer: "builtin", sourcePath: entry.sourcePath });
+    byId.set(entry.manifest.id, {
+      manifest: entry.manifest,
+      layer: "builtin",
+      sourcePath: entry.sourcePath,
+      documentation: entry.documentation,
+      warnings: entry.warnings
+    });
   }
   for (const layer of ["user", "project"] as const) {
     for (const preset of readLayerPresetEntries(rootInput, layer)) {
@@ -115,15 +125,18 @@ export function publicPresetSummary(preset: ResolvedPreset): Record<string, unkn
   return {
     id: preset.manifest.id,
     title: preset.manifest.title,
+    description: preset.documentation?.description ?? preset.manifest.title,
+    whenToUse: preset.documentation?.whenToUse ?? null,
     version: preset.manifest.version,
     kind: preset.manifest.kind ?? "template-content",
     vertical: preset.manifest.vertical,
     defaultProfile: preset.manifest.defaultProfile,
     entrypoints: Object.keys(preset.manifest.entrypoints ?? {}).sort(),
     layer: preset.layer,
-    sourcePath: safePresetSourcePath(preset.sourcePath),
+    sourcePath: safePresetSourcePath(preset.sourcePath, preset.layer),
     valid: validation.ok,
-    issueCount: validation.issues.length
+    issueCount: validation.issues.length,
+    warningCount: preset.warnings?.length ?? 0
   };
 }
 
@@ -132,14 +145,16 @@ export function publicPresetEntrySummary(entry: PresetResolutionEntry): Record<s
   return {
     id: entry.id,
     layer: entry.layer,
-    sourcePath: safePresetSourcePath(entry.sourcePath),
+    sourcePath: safePresetSourcePath(entry.sourcePath, entry.layer),
     valid: false,
     issueCount: entry.issues.length
   };
 }
 
-function safePresetSourcePath(sourcePath: string): string {
-  return sourcePath.startsWith("builtin:") ? sourcePath : sourcePath.split(path.sep).slice(-3).join("/");
+function safePresetSourcePath(sourcePath: string, layer: ResolvedPreset["layer"]): string {
+  if (sourcePath.startsWith("builtin:")) return sourcePath;
+  const segmentCount = layer === "project" ? 4 : 3;
+  return sourcePath.split(path.sep).slice(-segmentCount).join("/");
 }
 
 function readLayerPresetEntries(rootInput: HarnessLayoutInput, layer: "project" | "user"): ReadonlyArray<PresetResolutionEntry> {
@@ -170,9 +185,15 @@ function readLayerPresetEntries(rootInput: HarnessLayoutInput, layer: "project" 
               { ...invalid, id: decoded.value.id, directoryId: entry.name }
             ];
           }
-          return decoded.ok
-            ? [{ manifest: decoded.value, layer, sourcePath: presetPath }]
-            : [{ id: entry.name, layer, sourcePath: presetPath, issues: decoded.issues }];
+          if (!decoded.ok) return [{ id: entry.name, layer, sourcePath: presetPath, issues: decoded.issues }];
+          const document = loadPresetDocument(presetPath);
+          return [{
+            manifest: decoded.value,
+            layer,
+            sourcePath: presetPath,
+            documentation: document.frontmatter,
+            warnings: document.warnings
+          }];
         });
     });
 }
