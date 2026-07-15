@@ -32,6 +32,7 @@ import {
 import { CopyContextButton } from "../components/CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import { t } from "../i18n/index.tsx";
+import { DecisionRationalePanel } from "./decision-rationale-panel.tsx";
 import {
   buildConflictRejection,
   computeReadinessSignals,
@@ -192,7 +193,7 @@ export type DecideAction = "accept" | "reject" | "defer";
 
 /**
  * 决策卡。五必显项逐项落地(41 §3.1)。
- * onDecide 现携带可选 rationale(reject 必填、defer 可选)。
+ * onDecide 现携带可选 rationale(accept judgment-only/reject 必填、defer 可选)。
  */
 export function VerdictCard({
   d,
@@ -219,8 +220,8 @@ export function VerdictCard({
   onInspectFact: (factRef: string) => void;
   onNavigateDecision?: (decisionId: string) => void;
   readOnly?: boolean;
-  /** Open the reject/defer rationale panel on mount (keyboard hotkey bridge). */
-  initialPendingAction?: "reject" | "defer" | null;
+  /** Open the accept/reject/defer rationale panel on mount (keyboard hotkey bridge). */
+  initialPendingAction?: DecideAction | null;
 }) {
   const cov = coverageOf(d, facts);
   const derived = derivedTasks(d, relations, tasks);
@@ -235,8 +236,8 @@ export function VerdictCard({
   const conflictSignal = signals.find((s) => s.id === "conflict-marker" && s.color === "red" && !s.unknown);
 
   const [rejection, setRejection] = useState<{ code: string; reason: string; detail: string[] } | null>(null);
-  // P1-2: reject/defer 展开 rationale 输入。reject 要求非空;defer 可选。
-  const [pendingAction, setPendingAction] = useState<"reject" | "defer" | null>(
+  // P1-2: accept/reject/defer 展开 rationale 输入。accept judgment-only/reject 要求非空;defer 可选。
+  const [pendingAction, setPendingAction] = useState<DecideAction | null>(
     readOnly ? null : initialPendingAction,
   );
   const [rationaleDraft, setRationaleDraft] = useState("");
@@ -248,10 +249,10 @@ export function VerdictCard({
       setRejection(buildConflictRejection(d));
       return;
     }
-    onDecide(d.decisionId, "accept");
+    openRationale("accept");
   };
 
-  const openRationale = (action: "reject" | "defer") => {
+  const openRationale = (action: DecideAction) => {
     if (readOnly) return;
     setPendingAction(action);
     setRationaleDraft("");
@@ -261,11 +262,30 @@ export function VerdictCard({
   const submitRationale = () => {
     if (!pendingAction) return;
     const trimmed = rationaleDraft.trim();
-    if (pendingAction === "reject" && trimmed.length === 0) {
-      setRationaleError(t("views.decisionsVerdict.rationaleRequiredForReject"));
+    if ((pendingAction === "accept" || pendingAction === "reject") && trimmed.length === 0) {
+      setRationaleError(t(
+        pendingAction === "accept"
+          ? "views.decisionsVerdict.judgmentOnlyRationaleRequired"
+          : "views.decisionsVerdict.rationaleRequiredForReject",
+      ));
+      return;
+    }
+    if (pendingAction === "accept" && conflictSignal) {
+      setRejection(buildConflictRejection(d));
       return;
     }
     onDecide(d.decisionId, pendingAction, trimmed.length > 0 ? trimmed : undefined);
+    setPendingAction(null);
+    setRationaleDraft("");
+    setRationaleError(null);
+  };
+
+  const submitExistingEvidence = () => {
+    if (conflictSignal) {
+      setRejection(buildConflictRejection(d));
+      return;
+    }
+    onDecide(d.decisionId, "accept");
     setPendingAction(null);
     setRationaleDraft("");
     setRationaleError(null);
@@ -482,51 +502,20 @@ export function VerdictCard({
         </p>
       )}
 
-      {/* P1-2 rationale capture for reject/defer */}
+      {/* P1-2 rationale capture plus accept evidence-floor recovery. */}
       {pendingAction && (
-        <div className="mt-2 rounded-md border border-border bg-surface-raised/60 p-2.5" data-testid="decision-rationale-panel">
-          <div className="mb-1 text-[11px] font-semibold text-text-muted">
-            {pendingAction === "reject"
-              ? t("views.decisionsVerdict.rationaleRequiredForReject")
-              : t("views.decisionsVerdict.rationaleOptionalForDefer")}
-          </div>
-          <textarea
-            value={rationaleDraft}
-            onChange={(event) => {
-              setRationaleDraft(event.target.value);
-              if (rationaleError) setRationaleError(null);
-            }}
-            rows={3}
-            data-testid="decision-rationale-input"
-            placeholder={t("views.decisionsVerdict.rationalePlaceholder")}
-            className="w-full resize-y rounded border border-border bg-surface px-2 py-1.5 text-[12px] text-text outline-none focus:border-accent"
-            autoFocus
-          />
-          {rationaleError && (
-            <div className="mt-1 text-[11px] text-danger" data-testid="decision-rationale-error">{rationaleError}</div>
-          )}
-          <div className="mt-2 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={cancelRationale}
-              className="rounded px-2 py-1 text-[11px] text-text-muted hover:bg-surface hover:text-text"
-            >
-              {t("views.decisionsVerdict.cancelRationale")}
-            </button>
-            <button
-              type="button"
-              onClick={submitRationale}
-              data-testid="decision-rationale-submit"
-              className={`rounded px-2.5 py-1 text-[11px] font-semibold ${
-                pendingAction === "reject"
-                  ? "bg-danger/15 text-danger hover:bg-danger/25"
-                  : "bg-stale/15 text-stale hover:bg-stale/25"
-              }`}
-            >
-              {pendingAction === "reject" ? t("views.decisionsVerdict.confirmReject") : t("views.decisionsVerdict.confirmDefer")}
-            </button>
-          </div>
-        </div>
+        <DecisionRationalePanel
+          action={pendingAction}
+          draft={rationaleDraft}
+          error={rationaleError}
+          onDraftChange={(value) => {
+            setRationaleDraft(value);
+            if (rationaleError) setRationaleError(null);
+          }}
+          onCancel={cancelRationale}
+          onSubmit={submitRationale}
+          onSubmitExistingEvidence={submitExistingEvidence}
+        />
       )}
 
       {rejection && (

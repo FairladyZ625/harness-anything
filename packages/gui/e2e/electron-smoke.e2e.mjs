@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 import test from "node:test";
@@ -427,3 +427,75 @@ test("Electron shell opens its first BrowserWindow", { timeout: 90_000 }, async 
   assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
 });
 
+test("Decision accept recovers through a judgment-only rationale", { timeout: 60_000 }, async (t) => {
+  const ledgerRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-decision-accept-e2e-"));
+  writeTriadicLedger(ledgerRoot);
+  let electronApp;
+  t.after(async () => {
+    if (electronApp) await closeElectronApp(electronApp);
+    await sleep(5_500);
+    rmSync(ledgerRoot, { recursive: true, force: true });
+  });
+
+  electronApp = await electron.launch({
+    executablePath: electronPath,
+    args: [resolve(guiRoot, "src/main/electron-main.ts")],
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      HARNESS_GUI_ROOT: ledgerRoot,
+      HARNESS_DAEMON_USER_ROOT: path.join(ledgerRoot, "daemon-user"),
+      HARNESS_DAEMON_IDLE_MS: "5000",
+    },
+  });
+  const page = await electronApp.firstWindow();
+  page.setDefaultTimeout(15_000);
+  const consoleFailures = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleFailures.push(message.text());
+  });
+  page.on("pageerror", (error) => consoleFailures.push(`${error.message}\n${error.stack ?? ""}`));
+  await page.waitForLoadState("domcontentloaded");
+  await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "zh-CN"));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByTestId("real-task-summary").or(page.getByTestId("task-empty-state")).waitFor({ timeout: 20_000 });
+
+  await page.getByRole("complementary").getByRole("button", {
+    name: localeRe("renderer.shellConfig.decisionApproval"),
+  }).click();
+  await page.getByText("Should the GUI consume the public relation graph?", { exact: false }).waitFor();
+
+  // The fixture has claim anchors C1-C3 but active relations only from CH*/RJ*.
+  // This is the exact evidence-floor shape reported by the user.
+  await page.locator(
+    `button[title="${localeLiteral("views.decisionsVerdict.accept")}"]`,
+  ).click();
+  await page.getByTestId("decision-accept-existing-evidence").waitFor();
+  await page.getByTestId("decision-accept-judgment-only").click();
+  await page.getByTestId("decision-rationale-error").waitFor();
+
+  const judgmentOnlyRationale = "Human arbitration accepts the reviewed GUI projection boundary.";
+  await page.getByTestId("decision-judgment-only-input").fill(judgmentOnlyRationale);
+  await page.getByTestId("decision-accept-judgment-only").click();
+  const mutationToast = page.getByRole("status").last();
+  await mutationToast.waitFor().catch(async (error) => {
+    const currentDecision = readFileSync(
+      path.join(ledgerRoot, "harness/decisions/decision-dec_gui_smoke/decision.md"),
+      "utf8",
+    );
+    throw new Error(`${error.message}\nCurrent renderer text:\n${await page.locator("body").innerText()}\nCurrent decision:\n${currentDecision}`);
+  });
+  assert.equal(
+    await mutationToast.textContent(),
+    `${localeLiteral("renderer.mutation.decisionAccepted")}: dec_gui_smoke`,
+  );
+
+  const acceptedDecision = readFileSync(
+    path.join(ledgerRoot, "harness/decisions/decision-dec_gui_smoke/decision.md"),
+    "utf8",
+  );
+  assert.match(acceptedDecision, /state: active/u);
+  assert.match(acceptedDecision, /## Judgment-only acceptance/u);
+  assert.match(acceptedDecision, new RegExp(escapeRegex(judgmentOnlyRationale), "u"));
+  assert.deepEqual(consoleFailures, [], "renderer emitted console errors");
+});
