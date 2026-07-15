@@ -6,6 +6,7 @@ import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
 import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
 import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
+import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -78,10 +79,11 @@ const concurrencyArgs =
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
   const invocation = prefixCommand(qosPrefix, process.execPath, ["--test", ...concurrencyArgs, ...selection.files]);
+  const testEnvironment = createHermeticTestEnvironment(lease.childEnv);
   const child = spawn(invocation.command, invocation.args, {
     cwd: repoRoot,
     stdio: ["inherit", "pipe", "pipe"],
-    env: lease.childEnv
+    env: testEnvironment.env
   });
 
   let output = "";
@@ -99,13 +101,19 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
   return new Promise((resolveExitCode) => {
     child.once("error", (error) => {
       console.error(error.message);
+      testEnvironment.cleanup();
       resolveExitCode(1);
     });
     child.once("close", (code, signal) => {
+      testEnvironment.cleanup();
       if (signal !== null) {
         console.error(`node --test terminated by signal ${signal}`);
         resolveExitCode(1);
         return;
+      }
+      if (code !== 0) {
+        const guidance = gitFixtureIdentityGuidance(output);
+        if (guidance !== null) console.error(`\n${guidance}`);
       }
       const slowTests = collectSlowTests(output, options.slowThresholdMs);
       console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));

@@ -21,7 +21,9 @@ policy. Changing it is a governance change under ADR-0023 D2/D5.
   locate its external authority, and enumerate every source consumer audited for
   naked derived literals.
 - `surfaces`: normalized inventories from `package.json`, `rewrite-ci.yml`, and
-  branch protection.
+  branch protection. `surfaces.localStop.gateIds` is the authoritative local
+  stop-point subset: measured sub-second, deterministic, repository-local static
+  gates that run no tests, builds, packaging, or network requests.
 - `gates`: full gate registry. Each entry has a stable `id`.
 
 ## Enforcement Constant Declarations
@@ -91,7 +93,9 @@ Each gate entry must declare:
 1. a `deterministic: true` gate omits `pr` from
    `executionSurfaces.classes`; or
 2. canonical surface labels, declared workflow jobs, and the actual
-   `.github/workflows/rewrite-ci.yml` job/step graph disagree.
+   `.github/workflows/rewrite-ci.yml` job/step graph disagree; or
+3. the local stop-point surface is empty, duplicated, references an unknown
+   gate, or includes a non-deterministic/non-PR/aggregate gate.
 
 The checker also requires the v2 classification and positive-control fields on
 every gate. Its positive-control test deliberately declares a deterministic gate

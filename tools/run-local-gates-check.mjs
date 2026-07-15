@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Optional local runner for PR-required static manifest gates.
+ * Required local runner for measured sub-second static manifest gates.
  *
  * The default `check:local` fast tier stays intentionally small. This runner
  * derives the extra static checker surface from tools/gate-manifest.json and
  * package.json so local preflight can cover required checker gates without
  * copying a second checklist into package scripts.
  */
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,32 +18,42 @@ const packageJsonPath = path.join(repoRoot, "package.json");
 
 const npmHarnessScriptPattern = /^npm run (harness:[^\s&|;]+)$/u;
 const staticCheckerCommandPattern = /^node tools\/(?:check|scan)-[^&|;]+\.mjs(?:\s|$)/u;
+// These entries are manifest-vetted sub-second scans, never tests or builds.
+// A bounded batch keeps their combined wall time below the local-stop budget.
+const STATIC_GATE_CONCURRENCY = 8;
 
 export function selectLocalGateChecks(manifest, packageScripts) {
-  const pullRequestGateJobs = new Set(manifest.surfaces?.rewriteCi?.pullRequestGateJobs ?? []);
   const gates = Array.isArray(manifest.gates) ? manifest.gates : [];
+  const gateIds = manifest.surfaces?.localStop?.gateIds;
+  if (!Array.isArray(gateIds) || gateIds.length === 0) {
+    throw new Error("manifest surfaces.localStop.gateIds must declare at least one gate");
+  }
+  if (new Set(gateIds).size !== gateIds.length) {
+    throw new Error("manifest surfaces.localStop.gateIds contains duplicates");
+  }
+  const gatesById = new Map(gates.map((gate) => [gate.id, gate]));
   const selected = [];
   const seenCommands = new Set();
 
-  for (const gate of gates) {
+  for (const gateId of gateIds) {
+    const gate = gatesById.get(gateId);
+    if (gate === undefined) throw new Error(`local stop surface references unknown gate ${gateId}`);
     if (gate.aggregate || gate.tier !== "pr-required" || gate.category === "smoke") {
-      continue;
+      throw new Error(`local stop gate ${gate.id} must be a non-smoke PR-required leaf gate`);
     }
     const jobs = gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? [];
-    if (!jobs.some((job) => pullRequestGateJobs.has(job))) {
-      continue;
-    }
+    if (jobs.length === 0) throw new Error(`local stop gate ${gate.id} has no pull-request workflow job`);
 
     const scriptName = parseHarnessScriptName(gate.command);
     if (scriptName === null) {
-      continue;
+      throw new Error(`local stop gate ${gate.id} is not a static checker command: ${gate.command}`);
     }
     const scriptCommand = packageScripts[scriptName];
     if (typeof scriptCommand !== "string") {
       throw new Error(`manifest gate ${gate.id} references missing package script ${scriptName}`);
     }
     if (!staticCheckerCommandPattern.test(scriptCommand)) {
-      continue;
+      throw new Error(`local stop gate ${gate.id} is not a static checker command: ${scriptCommand}`);
     }
     if (seenCommands.has(gate.command)) {
       continue;
@@ -75,29 +85,58 @@ function readJson(filePath) {
 }
 
 function runCommand(entry) {
-  console.log(`\n▶ ${entry.id}  (${entry.command})`);
   const started = Date.now();
-  const result = spawnSync(entry.command, {
+  const child = spawn(entry.scriptCommand, {
     cwd: repoRoot,
     env: process.env,
     shell: "/bin/sh",
-    stdio: "inherit"
+    stdio: ["ignore", "pipe", "pipe"]
   });
-  const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
-  if (result.error) {
-    console.error(`✖ ${entry.id} failed to launch: ${result.error.message}`);
-    return { ok: false, elapsedS };
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+  return new Promise((resolve) => {
+    child.once("error", (error) => resolve({ ok: false, error, stdout, stderr, elapsedS: elapsed(started) }));
+    child.once("close", (code, signal) => resolve({
+      ok: signal === null && code === 0,
+      code,
+      signal,
+      stdout,
+      stderr,
+      elapsedS: elapsed(started)
+    }));
+  });
+}
+
+async function runPlan(plan) {
+  for (let offset = 0; offset < plan.length; offset += STATIC_GATE_CONCURRENCY) {
+    const batch = plan.slice(offset, offset + STATIC_GATE_CONCURRENCY);
+    const outcomes = await Promise.all(batch.map(async (entry) => ({ entry, outcome: await runCommand(entry) })));
+    for (const { entry, outcome } of outcomes) {
+      console.log(`\n▶ ${entry.id}  (${entry.scriptCommand})`);
+      if (outcome.stdout) process.stdout.write(outcome.stdout);
+      if (outcome.stderr) process.stderr.write(outcome.stderr);
+      if (outcome.ok) {
+        console.log(`✓ ${entry.id} (${outcome.elapsedS}s)`);
+      } else if (outcome.error) {
+        console.error(`✖ ${entry.id} failed to launch: ${outcome.error.message}`);
+      } else {
+        console.error(`✖ ${entry.id} failed (exit ${outcome.code ?? outcome.signal ?? "signal"}) after ${outcome.elapsedS}s`);
+      }
+    }
+    const failed = outcomes.find(({ outcome }) => !outcome.ok);
+    if (failed) return failed.entry.id;
   }
-  if (result.status !== 0) {
-    console.error(`✖ ${entry.id} failed (exit ${result.status ?? "signal"}) after ${elapsedS}s`);
-    return { ok: false, elapsedS };
-  }
-  console.log(`✓ ${entry.id} (${elapsedS}s)`);
-  return { ok: true, elapsedS };
+  return null;
+}
+
+function elapsed(started) {
+  return ((Date.now() - started) / 1000).toFixed(1);
 }
 
 function printPlan(plan) {
-  console.log(`Local manifest static gate check: ${plan.length} checker(s).`);
+  console.log(`Local stop-point static gates: ${plan.length} checker(s), derived from gate-manifest.`);
   for (const entry of plan) {
     console.log(`- ${entry.id}: ${entry.command} -> ${entry.scriptCommand} [${entry.workflowJobs.join(",")}]`);
   }
@@ -115,7 +154,7 @@ function parseArgs(args) {
   return options;
 }
 
-function main(argv) {
+async function main(argv) {
   const options = parseArgs(argv);
   const manifest = readJson(manifestPath);
   const packageJson = readJson(packageJsonPath);
@@ -127,23 +166,19 @@ function main(argv) {
   }
 
   const totalStart = Date.now();
-  for (const entry of plan) {
-    const outcome = runCommand(entry);
-    if (!outcome.ok) {
-      console.error(`\nLocal manifest static gate check stopped at: ${entry.id}.`);
-      process.exitCode = 1;
-      return;
-    }
+  const failedGate = await runPlan(plan);
+  if (failedGate !== null) {
+    console.error(`\nLocal manifest static gate check stopped at: ${failedGate}.`);
+    process.exitCode = 1;
+    return;
   }
   const totalS = ((Date.now() - totalStart) / 1000).toFixed(1);
   console.log(`\nLocal manifest static gate check passed in ${totalS}s.`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    main(process.argv.slice(2));
-  } catch (error) {
+  main(process.argv.slice(2)).catch((error) => {
     console.error(`Local manifest static gate check failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 2;
-  }
+  });
 }

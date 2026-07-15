@@ -21,6 +21,7 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
   if (manifest.schema !== "harness-anything/gate-manifest/v2") {
     findings.push(`manifest schema must be harness-anything/gate-manifest/v2, got ${JSON.stringify(manifest.schema)}`);
   }
+  checkLocalStopSurface(manifest, gates, findings);
   checkWorkflowInventory(manifest, workflow, findings);
   checkWorkflowCommands(manifest, workflow, gates, findings);
   for (const gate of gates) {
@@ -37,6 +38,29 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
       findings: findings.length
     }
   };
+}
+
+function checkLocalStopSurface(manifest, gates, findings) {
+  const ids = manifest.surfaces?.localStop?.gateIds;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    findings.push("manifest surfaces.localStop.gateIds must declare at least one gate");
+    return;
+  }
+  if (new Set(ids).size !== ids.length) findings.push("manifest surfaces.localStop.gateIds contains duplicates");
+  const gatesById = new Map(gates.map((gate) => [gate.id, gate]));
+  for (const id of ids) {
+    const gate = gatesById.get(id);
+    if (!gate) {
+      findings.push(`local stop surface references unknown gate ${id}`);
+      continue;
+    }
+    if (gate.aggregate || gate.tier !== "pr-required" || gate.deterministic !== true) {
+      findings.push(`local stop gate ${id} must be a deterministic PR-required leaf gate`);
+    }
+    if ((gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []).length === 0) {
+      findings.push(`local stop gate ${id} must declare a pull-request workflow job`);
+    }
+  }
 }
 
 function checkWorkflowCommands(manifest, workflow, gates, findings) {

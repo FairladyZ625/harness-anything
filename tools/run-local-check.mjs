@@ -9,7 +9,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -72,6 +72,7 @@ export function deriveAffectedTestPrefixes(changedFiles) {
 
 export function buildSteps(full, changedFiles = []) {
   const steps = [["incremental typecheck", "npm", ["run", "typecheck"]]];
+  steps.push(["manifest local stop gates", process.execPath, ["tools/run-local-gates-check.mjs"]]);
   const lintFiles = changedFiles.filter((file) => LINTABLE_EXTENSION.test(file) && existsSync(path.join(repoRoot, file)));
   if (lintFiles.length > 0) steps.push(["changed-file lint", "npx", ["--no-install", "eslint", ...lintFiles]]);
 
@@ -88,9 +89,31 @@ export function buildSteps(full, changedFiles = []) {
   if (full) {
     steps.push(["integration tests", "npm", ["run", "test:integration"]]);
     steps.push(["GUI E2E", "npm", ["run", "test:gui:e2e"]]);
-    steps.push(["manifest local gates", "npm", ["run", "check:local:gates"]]);
   }
   return steps;
+}
+
+export function deriveStopPointCoverage(manifest, completedStepLabels) {
+  const completed = new Set(manifest.surfaces?.localStop?.gateIds ?? []);
+  if (completedStepLabels.includes("incremental typecheck")) completed.add("typecheck");
+  if (completedStepLabels.includes("affected GUI tests")) completed.add("test-gui");
+  const prGates = (manifest.gates ?? [])
+    .filter((gate) => !gate.aggregate)
+    .filter((gate) => (gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []).length > 0)
+    .map((gate) => gate.id);
+  return {
+    completed: [...completed].filter((id) => prGates.includes(id)).sort(),
+    ciOnly: prGates.filter((id) => !completed.has(id)).sort()
+  };
+}
+
+export function formatStopPointSummary(coverage) {
+  return [
+    `Local stop point passed: ${coverage.completed.length} complete manifest gate(s) are green.`,
+    "Change-aware lint and fast/contract tests also ran, but are not reported as complete repository-wide gates.",
+    `CI still runs ${coverage.ciOnly.length} broader or environment-only gate(s): ${coverage.ciOnly.join(", ")}`,
+    "Run the omitted set now with: npm run check:ci"
+  ].join("\n");
 }
 
 export function buildLocalStepInvocation(qosPrefix, command, args) {
@@ -159,7 +182,8 @@ async function main(argv) {
       }
     }
     console.log(`\nLocal check passed in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
-    if (!options.full) console.log("GitHub CI still runs every manifest-declared pull-request gate.");
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, "tools/gate-manifest.json"), "utf8"));
+    console.log(formatStopPointSummary(deriveStopPointCoverage(manifest, steps.map(([label]) => label))));
   });
 }
 

@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHermeticTestEnvironment } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -49,11 +50,17 @@ function main() {
     process.exit(1);
   }
 
-  const result = spawnSync(selected.command, selected.args, {
-    cwd: repoRoot,
-    env: process.env,
-    stdio: "inherit"
-  });
+  const testEnvironment = createHermeticTestEnvironment();
+  let result;
+  try {
+    result = spawnSync(selected.command, selected.args, {
+      cwd: repoRoot,
+      env: testEnvironment.env,
+      stdio: "inherit"
+    });
+  } finally {
+    testEnvironment.cleanup();
+  }
 
   if (result.error) {
     console.error(result.error.message);
