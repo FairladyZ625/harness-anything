@@ -66,6 +66,7 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
 
 export function renderReceiptText(receipt: CommandReceipt): string {
   if (receipt.command === "capabilities") return renderCapabilitiesText(receipt);
+  if (receipt.command === "preset list") return renderPresetListText(receipt);
   const data = receiptDetailsData(receipt);
   const parts = [`ok`, `command=${formatToken(receipt.command)}`];
   const taskId = typeof data.taskId === "string" ? data.taskId : receipt.entity?.kind === "task" ? receipt.entity.id : undefined;
@@ -87,6 +88,18 @@ export function renderReceiptText(receipt: CommandReceipt): string {
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
   parts.push(`summary=${formatToken(receipt.summary)}`);
   return parts.join(" ");
+}
+
+function renderPresetListText(receipt: CommandReceipt): string {
+  const rows = (receipt.items ?? []).flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const preset = item as { readonly id?: unknown; readonly title?: unknown; readonly description?: unknown };
+    if (typeof preset.id !== "string") return [];
+    const title = typeof preset.title === "string" ? preset.title : preset.id;
+    const description = typeof preset.description === "string" ? preset.description : title;
+    return [`${preset.id} — ${title} — ${description}`];
+  });
+  return rows.length > 0 ? rows.join("\n") : "No presets installed.";
 }
 
 function receiptWarningCode(value: unknown): string | undefined {

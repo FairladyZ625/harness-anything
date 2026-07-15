@@ -133,6 +133,7 @@ export function runNewTaskWithPreset(
         ok: false,
         command: "new-task",
         preset: publicPresetSummary(preset),
+        warnings: preset.warnings ?? [],
         error: cliError(CliErrorCode.TemplateCatalogInvalid, `Template catalog is not resolvable for vertical ${vertical}.`)
       } satisfies CliResult;
     }
@@ -162,6 +163,7 @@ export function runNewTaskWithPreset(
         preset: publicPresetSummary(preset),
         module: module ? { key: module.key, title: module.title } : undefined,
         generated,
+        warnings: preset.warnings ?? [],
         report: {
           schema: "preset-task-create-report/v1",
           dryRun: true,
@@ -244,6 +246,7 @@ export function runNewTaskWithPreset(
       preset: publicPresetSummary(preset),
       module: module ? { key: module.key, title: module.title } : undefined,
       generated: writes.map((write) => write.path),
+      warnings: preset.warnings ?? [],
       report: {
         schema: "preset-task-create-report/v1",
         vertical,
@@ -291,6 +294,7 @@ export function materializePresetTaskScaffold(
         command: input.command,
         preset: publicPresetSummary(preset),
         issues: materialized.issues,
+        warnings: preset.warnings ?? [],
         error: cliError(CliErrorCode.PresetMaterializationFailed, "Preset-selected templates could not be materialized.")
       } satisfies CliResult
     };

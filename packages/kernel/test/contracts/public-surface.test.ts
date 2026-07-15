@@ -32,6 +32,7 @@ const publicRuntimeSurface = [
   "LinkKindSchema",
   "LockRegistry",
   "NonBlankStringSchema",
+  "PresetDocumentFrontmatterSchema",
   "PresetEntrypointSchema",
   "PresetManifestSchema",
   "PresetProfileSchema",

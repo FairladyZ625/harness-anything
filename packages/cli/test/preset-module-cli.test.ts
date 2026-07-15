@@ -25,6 +25,7 @@ test("CLI preset CRUD validates, installs, audits, and removes project presets",
     assert.equal(installed.ok, true);
     assert.equal(installed.command, "preset-install");
     assert.equal(installed.preset.id, "custom-task");
+    assert.equal(installed.preset.sourcePath, ".harness/presets/custom-task/preset.json");
 
     const inspected = runJson(rootDir, ["preset", "inspect", "custom-task"]);
     assert.equal(inspected.ok, true);

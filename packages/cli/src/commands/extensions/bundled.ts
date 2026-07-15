@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 import { PresetManifestSchema, VerticalDefinitionSchema } from "../../../../kernel/src/index.ts";
+import type { PresetDocumentFrontmatter } from "../../../../kernel/src/index.ts";
+import { loadPresetDocument, type PresetDocumentWarning } from "./preset-document-loader.ts";
 import { readTemplateCatalogFile, type TemplateCatalog } from "./template-catalog-loader.ts";
 
 type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
@@ -25,6 +27,8 @@ const defaultBundledVerticalId = "software/coding";
 export interface BundledPresetManifestEntry {
   readonly manifest: PresetManifest;
   readonly sourcePath: string;
+  readonly documentation?: PresetDocumentFrontmatter;
+  readonly warnings: ReadonlyArray<PresetDocumentWarning>;
 }
 
 export interface BundledVerticalDefinitionEntry {
@@ -62,9 +66,13 @@ export function loadBundledPresetManifestEntries(): ReadonlyArray<BundledPresetM
     const index = readJson(bundle, "presets/index.json") as { readonly presets?: ReadonlyArray<string> };
     return (index.presets ?? []).map((presetId) => {
       const relativePath = `presets/${presetId}/preset.json`;
+      const sourcePath = assetPath(bundle, relativePath);
+      const document = loadPresetDocument(sourcePath);
       return {
         manifest: readBundledJson(bundle, relativePath, PresetManifestSchema),
-        sourcePath: assetPath(bundle, relativePath)
+        sourcePath,
+        documentation: document.frontmatter,
+        warnings: document.warnings
       };
     });
   });

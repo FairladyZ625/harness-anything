@@ -249,6 +249,7 @@ test("CLI preset validate success emits the declared receipt payload", () => {
   assert.equal(result.report.schema, "preset-validate-report/v1");
   assert.equal(result.report.issueCount, 0);
   assert.equal(Object.prototype.hasOwnProperty.call(result, "issues"), false);
+  assert.equal(result.warnings.some((warning: Record<string, unknown>) => warning.code === "preset_document_missing"), true);
 });
 
 test("CLI vertical validate accepts the software coding vertical fixture", () => {

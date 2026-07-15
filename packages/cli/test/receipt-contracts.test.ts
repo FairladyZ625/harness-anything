@@ -299,6 +299,26 @@ test("command receipts accept declared success data and paths", () => {
   assert.equal(presetReceipt.ok, true);
 });
 
+test("preset list text renders id, title, and description rows", () => {
+  const receipt = toCommandReceipt({
+    ok: true,
+    command: "preset-list",
+    presets: [{
+      id: "standard-task",
+      title: "Standard Task",
+      description: "Handle general implementation and maintenance work."
+    }],
+    issues: []
+  });
+
+  assert.equal(receipt.ok, true);
+  if (!receipt.ok) return;
+  assert.equal(
+    renderReceiptText(receipt),
+    "standard-task — Standard Task — Handle general implementation and maintenance work."
+  );
+});
+
 test("command receipts expose v2 shallow fields and user-facing command names", () => {
   const receipt = toCommandReceipt({
     ok: true,
