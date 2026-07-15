@@ -26,10 +26,12 @@ test("CLI preset CRUD validates, installs, audits, and removes project presets",
     assert.equal(installed.command, "preset-install");
     assert.equal(installed.preset.id, "custom-task");
     assert.equal(installed.preset.sourcePath, ".harness/presets/custom-task/preset.json");
+    assert.equal(existsSync(path.join(rootDir, ".harness/presets/custom-task/preset.json")), true);
 
     const inspected = runJson(rootDir, ["preset", "inspect", "custom-task"]);
     assert.equal(inspected.ok, true);
     assert.equal(inspected.preset.layer, "project");
+    assert.equal(inspected.preset.sourcePath, ".harness/presets/custom-task/preset.json");
 
     const checked = runJson(rootDir, ["preset", "check", "custom-task"]);
     assert.equal(checked.ok, true);
@@ -485,7 +487,7 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: { ...process.env, HARNESS_ACTOR: "agent:harness-test", HARNESS_DAEMON_MODE: "direct", ...env }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

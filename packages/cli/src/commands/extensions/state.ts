@@ -133,7 +133,7 @@ export function publicPresetSummary(preset: ResolvedPreset): Record<string, unkn
     defaultProfile: preset.manifest.defaultProfile,
     entrypoints: Object.keys(preset.manifest.entrypoints ?? {}).sort(),
     layer: preset.layer,
-    sourcePath: safePresetSourcePath(preset.sourcePath),
+    sourcePath: safePresetSourcePath(preset.sourcePath, preset.layer),
     valid: validation.ok,
     issueCount: validation.issues.length,
     warningCount: preset.warnings?.length ?? 0
@@ -145,14 +145,16 @@ export function publicPresetEntrySummary(entry: PresetResolutionEntry): Record<s
   return {
     id: entry.id,
     layer: entry.layer,
-    sourcePath: safePresetSourcePath(entry.sourcePath),
+    sourcePath: safePresetSourcePath(entry.sourcePath, entry.layer),
     valid: false,
     issueCount: entry.issues.length
   };
 }
 
-function safePresetSourcePath(sourcePath: string): string {
-  return sourcePath.startsWith("builtin:") ? sourcePath : sourcePath.split(path.sep).slice(-3).join("/");
+function safePresetSourcePath(sourcePath: string, layer: ResolvedPreset["layer"]): string {
+  if (sourcePath.startsWith("builtin:")) return sourcePath;
+  const segmentCount = layer === "project" ? 4 : 3;
+  return sourcePath.split(path.sep).slice(-segmentCount).join("/");
 }
 
 function readLayerPresetEntries(rootInput: HarnessLayoutInput, layer: "project" | "user"): ReadonlyArray<PresetResolutionEntry> {
