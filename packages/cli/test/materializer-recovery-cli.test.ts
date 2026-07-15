@@ -8,6 +8,7 @@ import {
   defaultDaemonUserRoot,
   runDaemonCommand,
   runRawJson,
+  runRawJsonMaybeFail,
   sleep,
   stopDaemonQuietly,
   withTempRoot
@@ -51,6 +52,43 @@ test("materializer run uses an already-running daemon without contending for its
     } finally {
       stopDaemonQuietly(rootDir, defaultDaemonUserRoot(rootDir));
     }
+  });
+});
+
+test("materializer run reports merge failures as failure receipts with an executable recovery step", () => {
+  withTempRoot((rootDir) => {
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
+    createOlderConflictedSessionBranch(rootDir);
+
+    const { status, receipt } = runRawJsonMaybeFail(rootDir, ["materializer", "run"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000"
+    });
+    const data = (receipt.details as { readonly data?: Record<string, unknown> } | undefined)?.data;
+    const report = data?.report as { readonly merged?: number; readonly branches?: ReadonlyArray<{ readonly branch?: string }> } | undefined;
+    const warnings = receipt.warnings as ReadonlyArray<{ readonly nextCommand?: string }> | undefined;
+
+    assert.equal(status, 1, JSON.stringify(receipt));
+    assert.equal(receipt.ok, false, JSON.stringify(receipt));
+    assert.equal(data?.rows, 0, JSON.stringify(receipt));
+    assert.equal(report?.merged, 0, JSON.stringify(receipt));
+    assert.match(String(receipt.summary), /merged 0 branches; failed 1: sessions\/older-conflict/iu);
+    assert.equal(report?.branches?.[0]?.branch, "sessions/older-conflict");
+    assert.match(warnings?.[0]?.nextCommand ?? "", /^git -C .+ merge --no-ff sessions\/older-conflict$/u);
+  });
+});
+
+test("materializer run counts repository setup failures and teaches initialization", () => {
+  withTempRoot((rootDir) => {
+    const { status, receipt } = runRawJsonMaybeFail(rootDir, ["materializer", "run"], {
+      HARNESS_DAEMON_MODE: "direct"
+    });
+    const warnings = receipt.warnings as ReadonlyArray<{ readonly nextCommand?: string }> | undefined;
+
+    assert.equal(status, 1, JSON.stringify(receipt));
+    assert.equal(receipt.ok, false, JSON.stringify(receipt));
+    assert.match(String(receipt.summary), /merged 0 branches; failed 1: authored root is not a Git repository/iu);
+    assert.equal(warnings?.[0]?.nextCommand, "ha init --json");
   });
 });
 

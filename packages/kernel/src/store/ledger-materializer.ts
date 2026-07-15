@@ -7,6 +7,10 @@ import { countAttributionProjectionRows } from "../projection/sqlite-attribution
 import { rebuildTaskProjection } from "../projection/sqlite-task-projection.ts";
 import { captureAuthoredProjectionFingerprint } from "../projection/projection-source-baseline.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
+import {
+  recoverScriptIngestArtifactConflicts,
+  type PreservedMachineArtifact
+} from "./ledger-materializer-machine-recovery.ts";
 import { resolveTrunkBranch, sessionBranchName } from "./write-journal-git.ts";
 import { withRepoLocks } from "./write-journal-locks.ts";
 import type { OwnedLock } from "./write-journal-types.ts";
@@ -18,6 +22,9 @@ export interface LedgerMaterializerBranchReport {
   readonly status: "merged" | "would_merge" | "skipped" | "conflict";
   readonly commits: ReadonlyArray<string>;
   readonly warning?: string;
+  readonly nextCommand?: string;
+  readonly conflictPaths?: ReadonlyArray<string>;
+  readonly preservedArtifacts?: ReadonlyArray<PreservedMachineArtifact>;
 }
 
 export interface LedgerMaterializerReport {
@@ -114,28 +121,63 @@ function materializeBranches(
 
     projectionSourceFingerprintBeforeMerge ??= captureAuthoredProjectionFingerprint(rootInput);
 
+    const mergeMessage = `materializer: merge session ${branch.slice("sessions/".length)}`;
     vcs.checkout(repoRoot, trunkBranch);
+    const beforeMergeHead = vcs.currentHead(repoRoot);
+    let preservedArtifacts: ReadonlyArray<PreservedMachineArtifact> = [];
     try {
-      const beforeMergeHead = vcs.currentHead(repoRoot);
-      vcs.mergeNoFf(repoRoot, branch, `materializer: merge session ${branch.slice("sessions/".length)}`);
-      const afterMergeHead = vcs.currentHead(repoRoot);
-      for (const relativePath of vcs.changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead)) {
-        touchedPaths.add(path.join(repoRoot, relativePath));
-      }
-      vcs.deleteBranch(repoRoot, branch);
-      merged += 1;
-      processed += 1;
-      reports.push({ branch, commitCount: commits.length, status: "merged", commits });
+      vcs.mergeNoFf(repoRoot, branch, mergeMessage);
     } catch (error) {
-      const warning = `${branch}: ${error instanceof Error ? error.message : String(error)}`;
-      warnings.push(warning);
+      let conflictPaths: ReadonlyArray<string>;
+      let recoveryError: unknown;
       try {
-        vcs.abortMerge(repoRoot);
-      } catch {
-        // No merge was in progress or Git could not abort; keep the warning and continue.
+        const recovery = recoverScriptIngestArtifactConflicts({
+          repoRoot,
+          trunkBranch,
+          branch,
+          mergeMessage,
+          vcs
+        });
+        conflictPaths = recovery.recovered ? [] : recovery.conflictPaths;
+        if (recovery.recovered) preservedArtifacts = recovery.artifacts;
+      } catch (candidateError) {
+        recoveryError = candidateError;
+        conflictPaths = vcs.conflictedFiles(repoRoot);
       }
-      reports.push({ branch, commitCount: commits.length, status: "conflict", commits, warning });
+      if (preservedArtifacts.length === 0) {
+        const warning = `${branch}: ${error instanceof Error ? error.message : String(error)}${recoveryError ? `; machine-artifact recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}` : ""}`;
+        warnings.push(warning);
+        try {
+          vcs.abortMerge(repoRoot);
+        } catch {
+          // No merge was in progress or Git could not abort; keep the warning and continue.
+        }
+        reports.push({
+          branch,
+          commitCount: commits.length,
+          status: "conflict",
+          commits,
+          warning,
+          ...(conflictPaths.length > 0 ? { conflictPaths } : {}),
+          nextCommand: `git -C ${shellArgument(repoRoot)} merge --no-ff ${shellArgument(branch)}`
+        });
+        continue;
+      }
     }
+    const afterMergeHead = vcs.currentHead(repoRoot);
+    for (const relativePath of vcs.changedFilesBetween(repoRoot, beforeMergeHead, afterMergeHead)) {
+      touchedPaths.add(path.join(repoRoot, relativePath));
+    }
+    vcs.deleteBranch(repoRoot, branch);
+    merged += 1;
+    processed += 1;
+    reports.push({
+      branch,
+      commitCount: commits.length,
+      status: "merged",
+      commits,
+      ...(preservedArtifacts.length > 0 ? { preservedArtifacts } : {})
+    });
     if (reachedBranchLimit(processed, maxBranches)) break;
   }
 
@@ -176,4 +218,10 @@ function materializeBranches(
 
 function reachedBranchLimit(processed: number, maxBranches: number | undefined): boolean {
   return typeof maxBranches === "number" && Number.isFinite(maxBranches) && maxBranches > 0 && processed >= maxBranches;
+}
+
+function shellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)
+    ? value
+    : `'${value.replaceAll("'", `'"'"'`)}'`;
 }

@@ -231,6 +231,7 @@ function summarizeResult(raw: Record<string, unknown>): string {
   const rows = typeof raw.rows === "number" ? raw.rows : undefined;
   const version = typeof raw.version === "string" ? raw.version : undefined;
 
+  if (command === "materializer-run") return summarizeMaterializer(raw.report);
   if (command === "new-task" && taskId && packagePath) {
     const report = raw.report;
     const dryRun = report && typeof report === "object" && !Array.isArray(report)
@@ -246,6 +247,33 @@ function summarizeResult(raw: Record<string, unknown>): string {
   if (rows !== undefined) return `completed ${displayCommand(command).command} with ${rows} row${rows === 1 ? "" : "s"}`;
   if (taskId) return `completed ${displayCommand(command).command} for ${taskId}`;
   return `completed ${displayCommand(command).command}`;
+}
+
+function summarizeMaterializer(report: unknown): string {
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    return "completed materializer run without a report";
+  }
+  const candidate = report as {
+    readonly dryRun?: unknown;
+    readonly merged?: unknown;
+    readonly branches?: unknown;
+  };
+  const branches = Array.isArray(candidate.branches) ? candidate.branches : [];
+  const failed = branches.filter((branch) => (
+    branch && typeof branch === "object" && !Array.isArray(branch) && (branch as { readonly status?: unknown }).status === "conflict"
+  ));
+  const failedNames = failed.flatMap((branch) => {
+    const name = (branch as { readonly branch?: unknown }).branch;
+    return typeof name === "string" ? [name] : [];
+  });
+  if (candidate.dryRun === true) {
+    const wouldMerge = branches.filter((branch) => (
+      branch && typeof branch === "object" && !Array.isArray(branch) && (branch as { readonly status?: unknown }).status === "would_merge"
+    )).length;
+    return `Materializer would merge ${wouldMerge} branch${wouldMerge === 1 ? "" : "es"}; failed ${failed.length}${failedNames.length > 0 ? `: ${failedNames.join(", ")}` : ""}.`;
+  }
+  const merged = typeof candidate.merged === "number" ? candidate.merged : 0;
+  return `Materializer merged ${merged} branch${merged === 1 ? "" : "es"}; failed ${failed.length}${failedNames.length > 0 ? `: ${failedNames.join(", ")}` : ""}.`;
 }
 
 function initSummary(path: string, report: unknown): string {

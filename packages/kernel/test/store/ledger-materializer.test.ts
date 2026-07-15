@@ -2,6 +2,7 @@
 import { testWriteAttribution } from "../test-attribution.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -120,6 +121,63 @@ test("a conflicted session branch does not starve a later mergeable branch in a 
   });
 });
 
+test("concurrent preset script sessions both merge without losing fixed-path machine artifacts", () => {
+  withTempStore((rootDir) => {
+    initAuthoredGit(rootDir);
+    const first = createPresetScriptSession(rootDir, "preset-session-one", "first-result");
+    const second = createPresetScriptSession(rootDir, "preset-session-two", "second-result");
+
+    const report = runLedgerMaterializer(rootDir);
+
+    assert.equal(report.merged, 2, JSON.stringify(report));
+    assert.equal(report.branches.filter((branch) => branch.status === "conflict").length, 0, JSON.stringify(report));
+    assert.equal(git(rootDir, "branch", "--list", "sessions/preset-session-*"), "");
+    git(rootDir, "merge-base", "--is-ancestor", first.commit, "master");
+    git(rootDir, "merge-base", "--is-ancestor", second.commit, "master");
+
+    const resultPaths = git(rootDir, "ls-tree", "-r", "--name-only", "master", "--", presetArtifactsPath)
+      .split(/\r?\n/u)
+      .filter((entry) => entry.endsWith("preset-result.json"));
+    const resultBodies = resultPaths.map((entry) => readGitFile(rootDir, entry));
+    assert.deepEqual(new Set(resultBodies), new Set([first.resultBody, second.resultBody]));
+  });
+});
+
+const presetArtifactsPath = "tasks/task-concurrent-preset/artifacts";
+
+function createPresetScriptSession(
+  rootDir: string,
+  sessionId: string,
+  marker: string
+): { readonly commit: string; readonly resultBody: string } {
+  const harnessRoot = path.join(rootDir, "harness");
+  const artifactsRoot = path.join(harnessRoot, presetArtifactsPath);
+  const resultBody = `${JSON.stringify({
+    schema: "script-result/v1",
+    ok: true,
+    report: { marker }
+  }, null, 2)}\n`;
+  const registryBody = `${JSON.stringify({
+    schema: "machine-evidence-registry/v1",
+    boundary: "preset-machine-evidence",
+    entries: [{
+      path: "artifacts/preset-result.json",
+      sha256: `sha256:${createHash("sha256").update(resultBody).digest("hex")}`,
+      recordedAt: "1970-01-01T00:00:00.000Z"
+    }]
+  }, null, 2)}\n`;
+
+  git(rootDir, "checkout", "-b", `sessions/${sessionId}`, "master");
+  mkdirSync(artifactsRoot, { recursive: true });
+  writeFileSync(path.join(artifactsRoot, "preset-result.json"), resultBody, "utf8");
+  writeFileSync(path.join(artifactsRoot, ".machine-evidence.registry.json"), registryBody, "utf8");
+  git(rootDir, "add", "--", presetArtifactsPath);
+  git(rootDir, "commit", "-m", `entity(script-ingest): script-run/${sessionId} [script-${sessionId}]`);
+  const commit = git(rootDir, "rev-parse", "HEAD");
+  git(rootDir, "checkout", "master");
+  return { commit, resultBody };
+}
+
 function initAuthoredGit(rootDir: string, trunk = "master"): void {
   const harnessRoot = path.join(rootDir, "harness");
   mkdirSync(harnessRoot, { recursive: true });
@@ -128,11 +186,21 @@ function initAuthoredGit(rootDir: string, trunk = "master"): void {
   execFileSync("git", ["-C", harnessRoot, "config", "user.email", "harness@example.test"], { stdio: "ignore" });
   writeFileSync(path.join(harnessRoot, ".gitkeep"), "", "utf8");
   execFileSync("git", ["-C", harnessRoot, "add", "--", ".gitkeep"], { stdio: "ignore" });
-  execFileSync("git", ["-C", harnessRoot, "commit", "-m", "seed"], { stdio: "ignore" });
+  execFileSync("git", [
+    "-C", harnessRoot,
+    "-c", "user.name=Harness Test",
+    "-c", "user.email=harness@example.test",
+    "commit", "-m", "seed"
+  ], { stdio: "ignore" });
 }
 
 function git(rootDir: string, ...args: ReadonlyArray<string>): string {
-  return execFileSync("git", ["-C", path.join(rootDir, "harness"), ...args], {
+  return execFileSync("git", [
+    "-C", path.join(rootDir, "harness"),
+    "-c", "user.name=Harness Test",
+    "-c", "user.email=harness@example.test",
+    ...args
+  ], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   }).trim();
