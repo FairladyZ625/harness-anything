@@ -408,7 +408,11 @@ test("WriteCoordinator accepts non-native case root paths on case-insensitive fi
       ""
     ].join("\n"), "utf8");
 
-    const coordinator = makeJournaledWriteCoordinator({ attribution: testWriteAttribution(), rootDir: variantRoot });
+    const coordinator = makeJournaledWriteCoordinator({
+      attribution: testWriteAttribution(),
+      rootDir: variantRoot,
+      commitAuthor: testCommitAuthor
+    });
     Effect.runSync(coordinator.enqueue(docWrite("op-mixed-case", "task-1", "notes.md", "mixed")));
     const report = Effect.runSync(coordinator.flush("explicit"));
 

@@ -5,7 +5,9 @@ import {
   buildLocalStepInvocation,
   buildSteps,
   collectChangedFiles,
+  deriveStopPointCoverage,
   deriveAffectedTestPrefixes,
+  formatStopPointSummary,
   parseLocalCheckArgs
 } from "./run-local-check.mjs";
 
@@ -31,12 +33,13 @@ test("light steps contain incremental typecheck, changed lint, and affected test
   const steps = buildSteps(false, ["tools/run-local-check.mjs", "docs-release/readme.md"]);
   assert.deepEqual(steps.map(([label]) => label), [
     "incremental typecheck",
+    "manifest local stop gates",
     "changed-file lint",
     "affected fast tests",
     "affected contract tests"
   ]);
   assert.equal(steps.some(([label]) => label.includes("integration")), false);
-  assert.equal(steps.some(([label]) => label.includes("manifest")), false);
+  assert.equal(steps.filter(([label]) => label.includes("manifest")).length, 1);
 });
 
 test("manual full tier appends integration, GUI E2E, and manifest gates", () => {
@@ -44,7 +47,7 @@ test("manual full tier appends integration, GUI E2E, and manifest gates", () => 
   assert.ok(labels.includes("affected GUI tests"));
   assert.ok(labels.includes("integration tests"));
   assert.ok(labels.includes("GUI E2E"));
-  assert.ok(labels.includes("manifest local gates"));
+  assert.ok(labels.includes("manifest local stop gates"));
 });
 
 test("local steps apply the shared QoS prefix", () => {
@@ -52,6 +55,21 @@ test("local steps apply the shared QoS prefix", () => {
     command: "nice",
     args: ["-n", "10", "npm", "run", "typecheck"]
   });
+});
+
+test("stop-point summary derives completed and omitted gates from the manifest", () => {
+  const manifest = {
+    surfaces: { localStop: { gateIds: ["static-a"] } },
+    gates: [
+      { id: "static-a", executionSurfaces: { rewriteCi: { pullRequestJobs: ["boundaries"] } } },
+      { id: "typecheck", executionSurfaces: { rewriteCi: { pullRequestJobs: ["typecheck"] } } },
+      { id: "test-integration", executionSurfaces: { rewriteCi: { pullRequestJobs: ["integration"] } } }
+    ]
+  };
+  const coverage = deriveStopPointCoverage(manifest, ["incremental typecheck"]);
+  assert.deepEqual(coverage, { completed: ["static-a", "typecheck"], ciOnly: ["test-integration"] });
+  assert.match(formatStopPointSummary(coverage), /CI still runs 1.*test-integration/u);
+  assert.match(formatStopPointSummary(coverage), /npm run check:ci/u);
 });
 
 test("changed-file collection combines merge-base diff and untracked files", () => {
