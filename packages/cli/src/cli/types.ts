@@ -160,7 +160,24 @@ export interface CliResult {
 }
 
 export interface MaterializerCommandReport {
-  readonly branches: ReadonlyArray<unknown>;
+  readonly dryRun: boolean;
+  readonly merged: number;
+  readonly considered: number;
+  readonly branches: ReadonlyArray<{
+    readonly branch: string;
+    readonly commitCount: number;
+    readonly status: "merged" | "would_merge" | "skipped" | "conflict";
+    readonly commits: ReadonlyArray<string>;
+    readonly warning?: string;
+    readonly nextCommand?: string;
+    readonly conflictPaths?: ReadonlyArray<string>;
+    readonly preservedArtifacts?: ReadonlyArray<{
+      readonly originalPath: string;
+      readonly preservedPath: string;
+      readonly sourceBranch: string;
+      readonly sha256: string;
+    }>;
+  }>;
   readonly warnings: ReadonlyArray<unknown>;
 }
 
