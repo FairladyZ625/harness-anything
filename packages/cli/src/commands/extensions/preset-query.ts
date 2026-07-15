@@ -1,3 +1,4 @@
+import path from "node:path";
 import { validatePresetManifests, type HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
@@ -13,10 +14,10 @@ import {
   validatePresetManifestForUse
 } from "./state.ts";
 import { decodePresetManifest, invalidExtensionResult, invalidResolvedPresetResult } from "./shared.ts";
-import { presetRuntimeRepairHint, smokePresetEntrypoints } from "./preset-smoke.ts";
-import { loadPresetDocument } from "./preset-document-loader.ts";
+import { documentedPresetSource, loadPresetDocument } from "./preset-document-loader.ts";
+import { preflightPresetPackage, type PresetPackagePreflightReceipt } from "./preset-preflight.ts";
 
-export function runPresetValidate(action: {
+export function runPresetValidate(rootInput: HarnessLayoutInput, action: {
   readonly manifestPath: string;
   readonly kernelVersion: string;
 }): CliResult {
@@ -36,12 +37,26 @@ export function runPresetValidate(action: {
       error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
+  const sourcePreset = documentedPresetSource(manifest, "project", path.resolve(action.manifestPath));
+  const preflight = preflightPresetPackage(rootInput, sourcePreset);
+  const warnings = [...document.warnings, ...preflight.warnings];
+  if (!preflight.ok) {
+    return {
+      ok: false,
+      command: "preset-validate",
+      preset: { id: manifest.id, version: manifest.version, valid: false },
+      issues: preflight.issues,
+      report: { schema: "preset-validate-report/v1", issueCount: preflight.issues.length, preflight: preflight.receipt },
+      warnings,
+      error: cliError(CliErrorCode.PresetManifestInvalid, preflight.hint)
+    };
+  }
   return {
     ok: true,
     command: "preset-validate",
-    preset: { id: manifest.id, version: manifest.version },
-    report: { schema: "preset-validate-report/v1", issueCount: validation.issues.length },
-    warnings: document.warnings
+    preset: { id: manifest.id, version: manifest.version, valid: true },
+    report: { schema: "preset-validate-report/v1", issueCount: validation.issues.length, preflight: preflight.receipt },
+    warnings
   };
 }
 
@@ -88,6 +103,7 @@ export function runPresetCheck(rootInput: HarnessLayoutInput, presetId: string, 
     preset: validation.summary,
     issues: validation.issues,
     warnings: validation.warnings,
+    report: { schema: "preset-check-report/v1", preflight: validation.preflight },
     error: validation.issues.length === 0 ? undefined : cliError(
       CliErrorCode.PresetManifestInvalid,
       validation.runtimeHint || "Preset manifest failed validation."
@@ -118,7 +134,12 @@ export function runPresetAudit(rootInput: HarnessLayoutInput, activeVerticalId: 
     presets: validations.map((entry) => entry.summary),
     issues,
     warnings,
-    report: { totalResolved: resolved.length, drift },
+    report: {
+      schema: "preset-audit-report/v1",
+      totalResolved: resolved.length,
+      drift,
+      preflights: validations.flatMap((validation) => validation.preflight ? [validation.preflight] : [])
+    },
     error: issues.length === 0 ? undefined : cliError(CliErrorCode.PresetManifestInvalid, "One or more resolved presets failed validation.")
   };
 }
@@ -131,21 +152,32 @@ function validateResolvedPreset(
   readonly warnings: ReadonlyArray<unknown>;
   readonly summary: Record<string, unknown>;
   readonly runtimeHint: string;
+  readonly preflight?: PresetPackagePreflightReceipt;
 } {
   if (isInvalidPreset(entry)) {
     return { issues: entry.issues, warnings: [], summary: publicPresetEntrySummary(entry), runtimeHint: "" };
   }
   const structural = validatePresetManifestForUse(entry.manifest);
-  const runtime = structural.ok ? smokePresetEntrypoints(rootInput, entry) : { ok: false as const, issues: [], entrypoints: [] };
-  const issues = [...structural.issues, ...runtime.issues];
+  const runtime = structural.ok ? preflightPresetPackage(rootInput, entry) : undefined;
+  const issues = [...structural.issues, ...(runtime?.issues ?? [])];
+  const badges = runtime?.receipt.entrypoints.flatMap((entrypoint) => entrypoint.escapeHatches.map((escapeHatch) => ({
+    kind: "raw-fs",
+    entrypoint: entrypoint.name,
+    id: escapeHatch.id,
+    access: escapeHatch.access,
+    status: escapeHatch.admitted ? "admitted" : "denied",
+    expiresAt: escapeHatch.expiresAt
+  }))) ?? [];
   return {
     issues,
-    warnings: entry.warnings ?? [],
+    warnings: [...(entry.warnings ?? []), ...(runtime?.warnings ?? [])],
     summary: {
       ...publicPresetSummary(entry),
       valid: issues.length === 0,
-      issueCount: issues.length
+      issueCount: issues.length,
+      ...(badges.length > 0 ? { badges } : {})
     },
-    runtimeHint: presetRuntimeRepairHint(entry, runtime.issues)
+    runtimeHint: runtime?.hint ?? "",
+    preflight: runtime?.receipt
   };
 }

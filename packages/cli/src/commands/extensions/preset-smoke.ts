@@ -4,7 +4,8 @@ import {
   isPresetRunEntrypoint,
   presetRunEntrypointCapabilities
 } from "../../cli/preset-entrypoint-capabilities.ts";
-import { presetScriptEntry } from "./preset-script-runner.ts";
+import type { PresetManifestV3 } from "../../../../kernel/src/index.ts";
+import { legacyPresetScriptEntry, type LegacyPresetScriptEntrypoint } from "./preset-script-runner.ts";
 import type { ResolvedPreset } from "./state.ts";
 import { runScriptHost, type ResolvedScriptEntry } from "./script-host.ts";
 import {
@@ -38,8 +39,12 @@ export function smokePresetEntrypoints(
   rootInput: HarnessLayoutInput,
   preset: ResolvedPreset
 ): PresetEntrypointSmokeResult {
+  const manifest = preset.manifest;
+  if (manifest.schema === "preset-manifest/v3") {
+    return smokePresetV3Entrypoints(manifest);
+  }
   const issues: PresetEntrypointSmokeIssue[] = [];
-  const entrypoints = Object.entries(preset.manifest.entrypoints ?? {}).map(([name, entrypoint]) => {
+  const entrypoints = Object.entries(manifest.entrypoints ?? {}).map(([name, entrypoint]) => {
     if (!isPresetRunEntrypoint(name)) {
       issues.push(entrypointCapabilityUnregisteredIssue(preset, name, entrypoint.type));
       return entrypoint.type === "script"
@@ -50,7 +55,6 @@ export function smokePresetEntrypoints(
       issues.push(runtimeUnregisteredIssue(preset, name, entrypoint.type));
       return { name, type: entrypoint.type, ok: false };
     }
-
     const script = resolvedPresetScript(preset, name, entrypoint);
     const outputRoot = taskPackagePath(rootInput, `task_PRESET_CHECK_${safeToken(preset.manifest.id)}`);
     let smoke: ReturnType<typeof runScriptHost>;
@@ -92,6 +96,23 @@ export function smokePresetEntrypoints(
   return { ok: issues.length === 0, entrypoints, issues };
 }
 
+function smokePresetV3Entrypoints(manifest: PresetManifestV3): PresetEntrypointSmokeResult {
+  const entrypoints = Object.entries(manifest.entrypoints ?? {}).map(([name, entrypoint]) => ({
+    name,
+    type: entrypoint.type,
+    ...(entrypoint.type === "script" ? { command: entrypoint.command } : {}),
+    ok: false
+  }));
+  const issues = entrypoints.map((entrypoint): PresetEntrypointSmokeIssue => ({
+    code: "preset_entrypoint_runtime_unregistered",
+    entrypoint: entrypoint.name,
+    path: `entrypoints.${entrypoint.name}`,
+    message: `Entrypoint ${entrypoint.name} uses preset-manifest/v3 semantic capabilities, but the semantic script host is not registered in this Phase 0 runtime.`,
+    nextCommand: `ha preset check ${manifest.id} --json`
+  }));
+  return { ok: issues.length === 0, entrypoints, issues };
+}
+
 function entrypointCapabilityUnregisteredIssue(
   preset: ResolvedPreset,
   entrypoint: string,
@@ -115,10 +136,10 @@ export function presetRuntimeRepairHint(preset: ResolvedPreset, issues: Readonly
 function resolvedPresetScript(
   preset: ResolvedPreset,
   entrypointName: string,
-  entrypoint: Extract<NonNullable<ResolvedPreset["manifest"]["entrypoints"]>[string], { readonly type: "script" }>
+  entrypoint: LegacyPresetScriptEntrypoint
 ): ResolvedScriptEntry {
   return {
-    entry: presetScriptEntry(preset, entrypoint, entrypointName),
+    entry: legacyPresetScriptEntry(preset, entrypoint, entrypointName),
     verticalId: preset.manifest.vertical,
     manifestRoot: path.dirname(preset.sourcePath),
     owner: { id: preset.manifest.id, layer: preset.layer },

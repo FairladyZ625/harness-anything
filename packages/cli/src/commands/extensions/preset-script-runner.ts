@@ -34,9 +34,10 @@ import {
   scriptIngestOp
 } from "./script-staging.ts";
 type PresetManifest = Schema.Schema.Type<typeof PresetManifestSchema>;
-type ScriptEntrypoint = Extract<NonNullable<PresetManifest["entrypoints"]>[string], { readonly type: "script" }>;
+type LegacyPresetManifest = Exclude<PresetManifest, { readonly schema: "preset-manifest/v3" }>;
+export type LegacyPresetScriptEntrypoint = Extract<NonNullable<LegacyPresetManifest["entrypoints"]>[string], { readonly type: "script" }>;
 
-export function presetScriptEntry(preset: ResolvedPreset, entrypoint: ScriptEntrypoint, entrypointName: string): ScriptEntry {
+export function legacyPresetScriptEntry(preset: ResolvedPreset, entrypoint: LegacyPresetScriptEntrypoint, entrypointName: string): ScriptEntry {
   return {
     id: `preset:${preset.manifest.id}:${entrypointName}`,
     source: "preset",
@@ -60,12 +61,12 @@ function presetScriptPurpose(entrypointName: string): ScriptEntry["metadata"]["p
   return "generate";
 }
 
-export function runScriptEntrypoint(
+export function runLegacyPresetScriptEntrypoint(
   rootInput: HarnessLayoutInput,
   preset: ResolvedPreset,
   presets: ReadonlyArray<ResolvedPreset>,
   presetSummary: unknown,
-  entrypoint: ScriptEntrypoint,
+  entrypoint: LegacyPresetScriptEntrypoint,
   entrypointName: string,
   taskId: string,
   evidenceDir: string,

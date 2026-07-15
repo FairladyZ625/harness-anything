@@ -12,7 +12,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "kind": "preset-validate",
     "usage": "preset validate <manifest> [--kernel-version <version>] [--json]",
     "options": [{"flag":"--kernel-version","description":"Validate against a kernel version."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Validate a preset manifest against the preset schema.",
+    "summary": "Validate a preset manifest and its executable package readiness.",
     "examples": ["harness-anything preset validate preset.json --kernel-version 1.0.0"],
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
@@ -68,7 +68,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["preset", "issues"],
+      "data": ["preset", "issues", "report"],
       "paths": []
     },
     "eventPolicy": {
@@ -85,7 +85,7 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "parse": parsePresetArgs,
     "run": runExtensionRunnerCommand,
     "receiptContract": {
-      "data": ["preset"],
+      "data": ["preset", "report"],
       "paths": []
     },
     "eventPolicy": {

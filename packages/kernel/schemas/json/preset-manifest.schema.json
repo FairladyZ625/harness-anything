@@ -1,147 +1,3235 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "schema",
+        "id",
+        "title",
+        "vertical",
+        "version",
+        "kernelVersionRange",
+        "capabilityImports",
+        "defaultProfile",
+        "profiles"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "preset-manifest/v1"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "vertical": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "template-content",
+            "process-action"
+          ]
+        },
+        "extends": {
+          "type": "string"
+        },
+        "policyPath": {
+          "type": "string",
+          "description": "a string matching the pattern ^\\{\\{paths\\.authoredRoot\\}\\}\\/policies\\/presets\\/[A-Za-z0-9][A-Za-z0-9._-]*\\.policy\\.json$",
+          "pattern": "^\\{\\{paths\\.authoredRoot\\}\\}\\/policies\\/presets\\/[A-Za-z0-9][A-Za-z0-9._-]*\\.policy\\.json$"
+        },
+        "kernelVersionRange": {
+          "type": "object",
+          "required": [
+            "min"
+          ],
+          "properties": {
+            "min": {
+              "type": "string"
+            },
+            "maxExclusive": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "capabilityImports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "version",
+              "required"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "checker",
+                  "scaffold",
+                  "projection",
+                  "command",
+                  "template"
+                ]
+              },
+              "version": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "entrypoints": {
+          "type": "object",
+          "required": [],
+          "properties": {},
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "writes",
+                  "templates"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "template"
+                    ]
+                  },
+                  "writes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "templates": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {},
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "command",
+                  "writes"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "script"
+                    ]
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "reads": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "writes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {},
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "defaultProfile": {
+          "type": "string"
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "checkerProfile",
+              "templateSelections"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "checkerProfile": {
+                "type": "string"
+              },
+              "templateSelections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "slot",
+                    "templateRef",
+                    "materializeAs",
+                    "localePolicy"
+                  ],
+                  "properties": {
+                    "slot": {
+                      "type": "string"
+                    },
+                    "templateRef": {
+                      "type": "string"
+                    },
+                    "materializeAs": {
+                      "type": "string"
+                    },
+                    "localePolicy": {
+                      "type": "object",
+                      "required": [
+                        "prefer",
+                        "fallback"
+                      ],
+                      "properties": {
+                        "prefer": {
+                          "type": "string",
+                          "enum": [
+                            "project",
+                            "preset",
+                            "explicit"
+                          ]
+                        },
+                        "fallback": {
+                          "type": "string",
+                          "enum": [
+                            "zh-CN",
+                            "en-US"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "requiredWhen": {
+                      "type": "object",
+                      "required": [],
+                      "properties": {},
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "capabilityImports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "an array of at least 1 item(s)",
+          "title": "minItems(1)",
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "schema",
+        "id",
+        "title",
+        "vertical",
+        "version",
+        "kernelVersionRange",
+        "capabilityImports",
+        "defaultProfile",
+        "profiles"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "preset-manifest/v2"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "vertical": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "template-content",
+            "process-action"
+          ]
+        },
+        "extends": {
+          "type": "string"
+        },
+        "policyPath": {
+          "type": "string",
+          "description": "a string matching the pattern ^\\{\\{paths\\.authoredRoot\\}\\}\\/policies\\/presets\\/[A-Za-z0-9][A-Za-z0-9._-]*\\.policy\\.json$",
+          "pattern": "^\\{\\{paths\\.authoredRoot\\}\\}\\/policies\\/presets\\/[A-Za-z0-9][A-Za-z0-9._-]*\\.policy\\.json$"
+        },
+        "kernelVersionRange": {
+          "type": "object",
+          "required": [
+            "min"
+          ],
+          "properties": {
+            "min": {
+              "type": "string"
+            },
+            "maxExclusive": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "capabilityImports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "version",
+              "required"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "checker",
+                  "scaffold",
+                  "projection",
+                  "command",
+                  "template"
+                ]
+              },
+              "version": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "entrypoints": {
+          "type": "object",
+          "required": [],
+          "properties": {},
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "writes",
+                  "templates"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "template"
+                    ]
+                  },
+                  "writes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "templates": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {},
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "command",
+                  "writes"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "script"
+                    ]
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "reads": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "writes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {},
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "defaultProfile": {
+          "type": "string"
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "checkerProfile",
+              "completionGates",
+              "templateSelections"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "checkerProfile": {
+                "type": "string"
+              },
+              "completionGates": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                  "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                }
+              },
+              "templateSelections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "slot",
+                    "templateRef",
+                    "materializeAs",
+                    "localePolicy"
+                  ],
+                  "properties": {
+                    "slot": {
+                      "type": "string"
+                    },
+                    "templateRef": {
+                      "type": "string"
+                    },
+                    "materializeAs": {
+                      "type": "string"
+                    },
+                    "localePolicy": {
+                      "type": "object",
+                      "required": [
+                        "prefer",
+                        "fallback"
+                      ],
+                      "properties": {
+                        "prefer": {
+                          "type": "string",
+                          "enum": [
+                            "project",
+                            "preset",
+                            "explicit"
+                          ]
+                        },
+                        "fallback": {
+                          "type": "string",
+                          "enum": [
+                            "zh-CN",
+                            "en-US"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "requiredWhen": {
+                      "type": "object",
+                      "required": [],
+                      "properties": {},
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "capabilityImports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "an array of at least 1 item(s)",
+          "title": "minItems(1)",
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "schema",
+        "id",
+        "title",
+        "vertical",
+        "version",
+        "kernelVersionRange",
+        "capabilityImports",
+        "defaultProfile",
+        "profiles"
+      ],
+      "properties": {
+        "schema": {
+          "type": "string",
+          "enum": [
+            "preset-manifest/v3"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "vertical": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "template-content",
+            "process-action"
+          ]
+        },
+        "extends": {
+          "type": "string"
+        },
+        "policyPath": {
+          "type": "string",
+          "description": "a string matching the pattern ^\\{\\{paths\\.authoredRoot\\}\\}\\/policies\\/presets\\/[A-Za-z0-9][A-Za-z0-9._-]*\\.policy\\.json$",
+          "pattern": "^\\{\\{paths\\.authoredRoot\\}\\}\\/policies\\/presets\\/[A-Za-z0-9][A-Za-z0-9._-]*\\.policy\\.json$"
+        },
+        "kernelVersionRange": {
+          "type": "object",
+          "required": [
+            "min"
+          ],
+          "properties": {
+            "min": {
+              "type": "string"
+            },
+            "maxExclusive": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "capabilityImports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "version",
+              "required"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "checker",
+                  "scaffold",
+                  "projection",
+                  "command",
+                  "template"
+                ]
+              },
+              "version": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "entrypoints": {
+          "type": "object",
+          "required": [],
+          "properties": {},
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "templates",
+                  "intent",
+                  "inputs",
+                  "requires",
+                  "produces",
+                  "sideEffects"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "template"
+                    ]
+                  },
+                  "templates": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {},
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "intent": {
+                    "type": "object",
+                    "required": [
+                      "verb",
+                      "subject"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "type": "string",
+                        "enum": [
+                          "audit",
+                          "check",
+                          "capture",
+                          "gather",
+                          "generate",
+                          "plan",
+                          "scaffold",
+                          "sync",
+                          "transform"
+                        ]
+                      },
+                      "subject": {
+                        "type": "string",
+                        "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {},
+                    "patternProperties": {
+                      "": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "string"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "boolean"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "boolean"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "integer"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "integer",
+                                "description": "an integer",
+                                "title": "int"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required",
+                              "values"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "enum"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                },
+                                "description": "an array of at least 1 item(s)",
+                                "title": "minItems(1)",
+                                "minItems": 1
+                              },
+                              "default": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "task-ref"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "string",
+                                "description": "a string at least 1 character(s) long",
+                                "title": "minLength(1)",
+                                "minLength": 1
+                              },
+                              "defaultFrom": {
+                                "type": "string",
+                                "enum": [
+                                  "current-task"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "decision-ref"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "string",
+                                "description": "a string at least 1 character(s) long",
+                                "title": "minLength(1)",
+                                "minLength": 1
+                              },
+                              "defaultFrom": {
+                                "type": "string",
+                                "enum": [
+                                  "current-decision"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "preset-ref-list"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "artifact-ref-list"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required",
+                              "values"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "enum-list"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                },
+                                "description": "an array of at least 1 item(s)",
+                                "title": "minItems(1)",
+                                "minItems": 1
+                              },
+                              "default": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "propertyNames": {
+                      "type": "string",
+                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                    }
+                  },
+                  "requires": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "tasks"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "scope",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "scope": {
+                                      "type": "string",
+                                      "enum": [
+                                        "all"
+                                      ]
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "identity-and-preset"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "taskFrom",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "taskFrom": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "intent-summary"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "decisions"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "states",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "states": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "active"
+                                        ]
+                                      },
+                                      "description": "an array of at least 1 item(s)",
+                                      "title": "minItems(1)",
+                                      "minItems": 1
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "canon-summary"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "relatedToTaskFrom",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "relatedToTaskFrom": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "intent-summary"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "adrs"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "states",
+                                "view"
+                              ],
+                              "properties": {
+                                "states": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "accepted",
+                                      "active",
+                                      "approved"
+                                    ]
+                                  },
+                                  "description": "an array of at least 1 item(s)",
+                                  "title": "minItems(1)",
+                                  "minItems": 1
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "canon-summary"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "operating-docs"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "collections",
+                                "view"
+                              ],
+                              "properties": {
+                                "collections": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "agents-guide",
+                                      "governance",
+                                      "standards"
+                                    ]
+                                  },
+                                  "description": "an array of at least 1 item(s)",
+                                  "title": "minItems(1)",
+                                  "minItems": 1
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "text"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "task-artifacts"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "scope",
+                                    "artifactIds"
+                                  ],
+                                  "properties": {
+                                    "scope": {
+                                      "type": "string",
+                                      "enum": [
+                                        "all-tasks"
+                                      ]
+                                    },
+                                    "artifactIds": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                      },
+                                      "description": "an array of at least 1 item(s)",
+                                      "title": "minItems(1)",
+                                      "minItems": 1
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "taskFrom",
+                                    "artifactIds"
+                                  ],
+                                  "properties": {
+                                    "taskFrom": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                    },
+                                    "artifactIds": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                      },
+                                      "description": "an array of at least 1 item(s)",
+                                      "title": "minItems(1)",
+                                      "minItems": 1
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "relation-graph"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "scope",
+                                "decisionFrom",
+                                "view"
+                              ],
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "enum": [
+                                    "decision-or-all"
+                                  ]
+                                },
+                                "decisionFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "dossier"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "runtime-events"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "command-usage"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "generated-artifacts"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view",
+                                "familiesFrom"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "presence-inventory"
+                                  ]
+                                },
+                                "familiesFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "write-journal"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "presence-inventory"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "docmap"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "presence"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "external-source-pack"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "packFrom",
+                                "view"
+                              ],
+                              "properties": {
+                                "packFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "files-with-provenance"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "produces": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "target",
+                            "artifacts"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "task-artifacts"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "target": {
+                              "type": "object",
+                              "required": [
+                                "taskFrom"
+                              ],
+                              "properties": {
+                                "taskFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "artifacts": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "schema",
+                                  "mediaTypes",
+                                  "cardinality",
+                                  "required"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                    "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                  },
+                                  "schema": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$",
+                                    "pattern": "^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$"
+                                  },
+                                  "mediaTypes": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$",
+                                      "pattern": "^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$"
+                                    },
+                                    "description": "an array of at least 1 item(s)",
+                                    "title": "minItems(1)",
+                                    "minItems": 1
+                                  },
+                                  "cardinality": {
+                                    "type": "string",
+                                    "enum": [
+                                      "one"
+                                    ]
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "description": "an array of at least 1 item(s)",
+                              "title": "minItems(1)",
+                              "minItems": 1
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "target",
+                            "documents"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "task-documents"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "target": {
+                              "type": "object",
+                              "required": [
+                                "taskFrom"
+                              ],
+                              "properties": {
+                                "taskFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "documents": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "schema",
+                                  "mediaTypes",
+                                  "cardinality",
+                                  "required"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                    "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                  },
+                                  "schema": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$",
+                                    "pattern": "^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$"
+                                  },
+                                  "mediaTypes": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$",
+                                      "pattern": "^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$"
+                                    },
+                                    "description": "an array of at least 1 item(s)",
+                                    "title": "minItems(1)",
+                                    "minItems": 1
+                                  },
+                                  "cardinality": {
+                                    "type": "string",
+                                    "enum": [
+                                      "one"
+                                    ]
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "description": "an array of at least 1 item(s)",
+                              "title": "minItems(1)",
+                              "minItems": 1
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "sideEffects": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "effect",
+                        "id",
+                        "access",
+                        "scopes",
+                        "justification",
+                        "approval"
+                      ],
+                      "properties": {
+                        "effect": {
+                          "type": "string",
+                          "enum": [
+                            "raw-fs"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                        },
+                        "access": {
+                          "type": "string",
+                          "enum": [
+                            "read",
+                            "staged-write"
+                          ]
+                        },
+                        "scopes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "root",
+                              "pattern"
+                            ],
+                            "properties": {
+                              "root": {
+                                "type": "string",
+                                "enum": [
+                                  "project",
+                                  "authored",
+                                  "local",
+                                  "output"
+                                ]
+                              },
+                              "pattern": {
+                                "type": "string",
+                                "description": "a string matching the pattern ^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))(?!.*\\\\)(?!.*\\u0000)(?!\\*\\*$)[A-Za-z0-9._*?{}/!-]+$",
+                                "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))(?!.*\\\\)(?!.*\\u0000)(?!\\*\\*$)[A-Za-z0-9._*?{}/!-]+$"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "description": "an array of at least 1 item(s)",
+                          "title": "minItems(1)",
+                          "minItems": 1
+                        },
+                        "justification": {
+                          "type": "string",
+                          "description": "a string at least 1 character(s) long",
+                          "title": "minLength(1)",
+                          "minLength": 1
+                        },
+                        "approval": {
+                          "type": "object",
+                          "required": [
+                            "owner",
+                            "decisionRef",
+                            "policyGrant",
+                            "expiresAt"
+                          ],
+                          "properties": {
+                            "owner": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9/_@.-]*$",
+                              "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$"
+                            },
+                            "decisionRef": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^dec_[A-Za-z0-9]+$",
+                              "pattern": "^dec_[A-Za-z0-9]+$"
+                            },
+                            "policyGrant": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^raw-fs\\/[A-Za-z0-9][A-Za-z0-9._-]*$",
+                              "pattern": "^raw-fs\\/[A-Za-z0-9][A-Za-z0-9._-]*$"
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type",
+                  "command",
+                  "intent",
+                  "inputs",
+                  "requires",
+                  "produces",
+                  "sideEffects"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "script"
+                    ]
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "intent": {
+                    "type": "object",
+                    "required": [
+                      "verb",
+                      "subject"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "type": "string",
+                        "enum": [
+                          "audit",
+                          "check",
+                          "capture",
+                          "gather",
+                          "generate",
+                          "plan",
+                          "scaffold",
+                          "sync",
+                          "transform"
+                        ]
+                      },
+                      "subject": {
+                        "type": "string",
+                        "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "required": [],
+                    "properties": {},
+                    "patternProperties": {
+                      "": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "string"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "boolean"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "boolean"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "integer"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "integer",
+                                "description": "an integer",
+                                "title": "int"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required",
+                              "values"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "enum"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                },
+                                "description": "an array of at least 1 item(s)",
+                                "title": "minItems(1)",
+                                "minItems": 1
+                              },
+                              "default": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "task-ref"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "string",
+                                "description": "a string at least 1 character(s) long",
+                                "title": "minLength(1)",
+                                "minLength": 1
+                              },
+                              "defaultFrom": {
+                                "type": "string",
+                                "enum": [
+                                  "current-task"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "decision-ref"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "string",
+                                "description": "a string at least 1 character(s) long",
+                                "title": "minLength(1)",
+                                "minLength": 1
+                              },
+                              "defaultFrom": {
+                                "type": "string",
+                                "enum": [
+                                  "current-decision"
+                                ]
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "preset-ref-list"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "artifact-ref-list"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "default": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "required",
+                              "values"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "enum-list"
+                                ]
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "description": "a string at least 1 character(s) long",
+                                  "title": "minLength(1)",
+                                  "minLength": 1
+                                },
+                                "description": "an array of at least 1 item(s)",
+                                "title": "minItems(1)",
+                                "minItems": 1
+                              },
+                              "default": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "propertyNames": {
+                      "type": "string",
+                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                    }
+                  },
+                  "requires": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "tasks"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "scope",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "scope": {
+                                      "type": "string",
+                                      "enum": [
+                                        "all"
+                                      ]
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "identity-and-preset"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "taskFrom",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "taskFrom": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "intent-summary"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "decisions"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "states",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "states": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "active"
+                                        ]
+                                      },
+                                      "description": "an array of at least 1 item(s)",
+                                      "title": "minItems(1)",
+                                      "minItems": 1
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "canon-summary"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "relatedToTaskFrom",
+                                    "view"
+                                  ],
+                                  "properties": {
+                                    "relatedToTaskFrom": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                    },
+                                    "view": {
+                                      "type": "string",
+                                      "enum": [
+                                        "intent-summary"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "adrs"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "states",
+                                "view"
+                              ],
+                              "properties": {
+                                "states": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "accepted",
+                                      "active",
+                                      "approved"
+                                    ]
+                                  },
+                                  "description": "an array of at least 1 item(s)",
+                                  "title": "minItems(1)",
+                                  "minItems": 1
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "canon-summary"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "operating-docs"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "collections",
+                                "view"
+                              ],
+                              "properties": {
+                                "collections": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "agents-guide",
+                                      "governance",
+                                      "standards"
+                                    ]
+                                  },
+                                  "description": "an array of at least 1 item(s)",
+                                  "title": "minItems(1)",
+                                  "minItems": 1
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "text"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "task-artifacts"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "scope",
+                                    "artifactIds"
+                                  ],
+                                  "properties": {
+                                    "scope": {
+                                      "type": "string",
+                                      "enum": [
+                                        "all-tasks"
+                                      ]
+                                    },
+                                    "artifactIds": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                      },
+                                      "description": "an array of at least 1 item(s)",
+                                      "title": "minItems(1)",
+                                      "minItems": 1
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "taskFrom",
+                                    "artifactIds"
+                                  ],
+                                  "properties": {
+                                    "taskFrom": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                    },
+                                    "artifactIds": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                      },
+                                      "description": "an array of at least 1 item(s)",
+                                      "title": "minItems(1)",
+                                      "minItems": 1
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "relation-graph"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "scope",
+                                "decisionFrom",
+                                "view"
+                              ],
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "enum": [
+                                    "decision-or-all"
+                                  ]
+                                },
+                                "decisionFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "dossier"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "runtime-events"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "command-usage"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "generated-artifacts"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view",
+                                "familiesFrom"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "presence-inventory"
+                                  ]
+                                },
+                                "familiesFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "write-journal"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "presence-inventory"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "docmap"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "view"
+                              ],
+                              "properties": {
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "presence"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "select"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "external-source-pack"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "select": {
+                              "type": "object",
+                              "required": [
+                                "packFrom",
+                                "view"
+                              ],
+                              "properties": {
+                                "packFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                },
+                                "view": {
+                                  "type": "string",
+                                  "enum": [
+                                    "files-with-provenance"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "produces": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "target",
+                            "artifacts"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "task-artifacts"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "target": {
+                              "type": "object",
+                              "required": [
+                                "taskFrom"
+                              ],
+                              "properties": {
+                                "taskFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "artifacts": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "schema",
+                                  "mediaTypes",
+                                  "cardinality",
+                                  "required"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                    "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                  },
+                                  "schema": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$",
+                                    "pattern": "^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$"
+                                  },
+                                  "mediaTypes": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$",
+                                      "pattern": "^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$"
+                                    },
+                                    "description": "an array of at least 1 item(s)",
+                                    "title": "minItems(1)",
+                                    "minItems": 1
+                                  },
+                                  "cardinality": {
+                                    "type": "string",
+                                    "enum": [
+                                      "one"
+                                    ]
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "description": "an array of at least 1 item(s)",
+                              "title": "minItems(1)",
+                              "minItems": 1
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "capability",
+                            "version",
+                            "target",
+                            "documents"
+                          ],
+                          "properties": {
+                            "capability": {
+                              "type": "string",
+                              "enum": [
+                                "task-documents"
+                              ]
+                            },
+                            "version": {
+                              "type": "string",
+                              "enum": [
+                                "1"
+                              ]
+                            },
+                            "target": {
+                              "type": "object",
+                              "required": [
+                                "taskFrom"
+                              ],
+                              "properties": {
+                                "taskFrom": {
+                                  "type": "string",
+                                  "description": "a string matching the pattern ^[A-Za-z][A-Za-z0-9_-]*$",
+                                  "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "documents": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "schema",
+                                  "mediaTypes",
+                                  "cardinality",
+                                  "required"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                                    "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                                  },
+                                  "schema": {
+                                    "type": "string",
+                                    "description": "a string matching the pattern ^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$",
+                                    "pattern": "^[a-z][a-z0-9-]*\\/v[1-9][0-9]*$"
+                                  },
+                                  "mediaTypes": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "description": "a string matching the pattern ^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$",
+                                      "pattern": "^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$"
+                                    },
+                                    "description": "an array of at least 1 item(s)",
+                                    "title": "minItems(1)",
+                                    "minItems": 1
+                                  },
+                                  "cardinality": {
+                                    "type": "string",
+                                    "enum": [
+                                      "one"
+                                    ]
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "description": "an array of at least 1 item(s)",
+                              "title": "minItems(1)",
+                              "minItems": 1
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "sideEffects": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "effect",
+                        "id",
+                        "access",
+                        "scopes",
+                        "justification",
+                        "approval"
+                      ],
+                      "properties": {
+                        "effect": {
+                          "type": "string",
+                          "enum": [
+                            "raw-fs"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                        },
+                        "access": {
+                          "type": "string",
+                          "enum": [
+                            "read",
+                            "staged-write"
+                          ]
+                        },
+                        "scopes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "root",
+                              "pattern"
+                            ],
+                            "properties": {
+                              "root": {
+                                "type": "string",
+                                "enum": [
+                                  "project",
+                                  "authored",
+                                  "local",
+                                  "output"
+                                ]
+                              },
+                              "pattern": {
+                                "type": "string",
+                                "description": "a string matching the pattern ^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))(?!.*\\\\)(?!.*\\u0000)(?!\\*\\*$)[A-Za-z0-9._*?{}/!-]+$",
+                                "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$))(?!.*\\\\)(?!.*\\u0000)(?!\\*\\*$)[A-Za-z0-9._*?{}/!-]+$"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "description": "an array of at least 1 item(s)",
+                          "title": "minItems(1)",
+                          "minItems": 1
+                        },
+                        "justification": {
+                          "type": "string",
+                          "description": "a string at least 1 character(s) long",
+                          "title": "minLength(1)",
+                          "minLength": 1
+                        },
+                        "approval": {
+                          "type": "object",
+                          "required": [
+                            "owner",
+                            "decisionRef",
+                            "policyGrant",
+                            "expiresAt"
+                          ],
+                          "properties": {
+                            "owner": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9/_@.-]*$",
+                              "pattern": "^[A-Za-z0-9][A-Za-z0-9/_@.-]*$"
+                            },
+                            "decisionRef": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^dec_[A-Za-z0-9]+$",
+                              "pattern": "^dec_[A-Za-z0-9]+$"
+                            },
+                            "policyGrant": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^raw-fs\\/[A-Za-z0-9][A-Za-z0-9._-]*$",
+                              "pattern": "^raw-fs\\/[A-Za-z0-9][A-Za-z0-9._-]*$"
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "description": "a string matching the pattern ^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "defaultProfile": {
+          "type": "string"
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "checkerProfile",
+              "completionGates",
+              "templateSelections"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "checkerProfile": {
+                "type": "string"
+              },
+              "completionGates": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "description": "a string matching the pattern ^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                  "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+                }
+              },
+              "templateSelections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "slot",
+                    "templateRef",
+                    "materializeAs",
+                    "localePolicy"
+                  ],
+                  "properties": {
+                    "slot": {
+                      "type": "string"
+                    },
+                    "templateRef": {
+                      "type": "string"
+                    },
+                    "materializeAs": {
+                      "type": "string"
+                    },
+                    "localePolicy": {
+                      "type": "object",
+                      "required": [
+                        "prefer",
+                        "fallback"
+                      ],
+                      "properties": {
+                        "prefer": {
+                          "type": "string",
+                          "enum": [
+                            "project",
+                            "preset",
+                            "explicit"
+                          ]
+                        },
+                        "fallback": {
+                          "type": "string",
+                          "enum": [
+                            "zh-CN",
+                            "en-US"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "requiredWhen": {
+                      "type": "object",
+                      "required": [],
+                      "properties": {},
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "capabilityImports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "version"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "an array of at least 1 item(s)",
+          "title": "minItems(1)",
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
   "$id": "https://harness-anything.dev/schemas/preset-manifest.schema.json",
   "x-harness-schema-id": "preset-manifest",
   "title": "Preset Manifest",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["schema", "id", "title", "vertical", "version", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile"],
-  "properties": {
-    "schema": { "enum": ["preset-manifest/v1", "preset-manifest/v2"] },
-    "id": { "type": "string" },
-    "title": { "type": "string" },
-    "vertical": { "type": "string" },
-    "version": { "type": "string" },
-    "kind": { "enum": ["template-content", "process-action"] },
-    "extends": { "type": "string" },
-    "policyPath": {
-      "type": "string",
-      "pattern": "^\\{\\{paths\\.authoredRoot\\}\\}/policies/presets/[A-Za-z0-9][A-Za-z0-9._-]*\\.policy\\.json$"
-    },
-    "kernelVersionRange": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["min"],
-      "properties": {
-        "min": { "type": "string" },
-        "maxExclusive": { "type": "string" }
-      }
-    },
-    "capabilityImports": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "kind", "version", "required"],
-        "properties": {
-          "id": { "type": "string" },
-          "kind": { "enum": ["checker", "scaffold", "projection", "command", "template"] },
-          "version": { "type": "string" },
-          "required": { "type": "boolean" }
-        }
-      }
-    },
-    "entrypoints": {
-      "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/entrypoint" }
-    },
-    "profiles": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "title", "checkerProfile", "templateSelections"],
-        "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "checkerProfile": { "type": "string" },
-          "completionGates": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }
-          },
-          "templateSelections": {
-            "type": "array",
-            "items": { "$ref": "#/$defs/templateSelection" }
-          },
-          "capabilityImports": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["id", "version"],
-              "properties": {
-                "id": { "type": "string" },
-                "version": { "type": "string" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "defaultProfile": { "type": "string" }
-  },
-  "allOf": [{
-    "if": { "properties": { "schema": { "const": "preset-manifest/v2" } } },
-    "then": { "properties": { "profiles": { "items": { "required": ["completionGates"] } } } }
-  }],
-  "$defs": {
-    "templateSelection": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["slot", "templateRef", "materializeAs", "localePolicy"],
-      "properties": {
-        "slot": { "type": "string" },
-        "templateRef": { "type": "string" },
-        "materializeAs": { "type": "string" },
-        "localePolicy": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["prefer", "fallback"],
-          "properties": {
-            "prefer": { "enum": ["project", "preset", "explicit"] },
-            "fallback": { "enum": ["zh-CN", "en-US"] }
-          }
-        },
-        "requiredWhen": {
-          "type": "object",
-          "additionalProperties": { "type": "string" }
-        }
-      }
-    }
-    ,
-    "entrypoint": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "writes", "templates"],
-          "properties": {
-            "type": { "const": "template" },
-            "writes": { "type": "array", "items": { "type": "string" } },
-            "templates": {
-              "type": "object",
-              "additionalProperties": { "type": "string" }
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "command", "writes"],
-          "properties": {
-            "type": { "const": "script" },
-            "command": { "type": "string" },
-            "reads": { "type": "array", "items": { "type": "string" } },
-            "writes": { "type": "array", "items": { "type": "string" } },
-            "inputs": {
-              "type": "object",
-              "additionalProperties": { "type": "string" }
-            }
-          }
-        }
-      ]
-    }
-  }
+  "required": [
+    "schema",
+    "id",
+    "title",
+    "vertical",
+    "version",
+    "kernelVersionRange",
+    "capabilityImports",
+    "profiles",
+    "defaultProfile"
+  ]
 }

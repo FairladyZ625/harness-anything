@@ -1,0 +1,32 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "invalid-semantic-foundation",
+  "title": "Invalid Semantic Foundation",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kernelVersionRange": { "min": "1.0.0" },
+  "capabilityImports": [],
+  "entrypoints": {
+    "check": {
+      "type": "script",
+      "command": "scripts/check.mjs",
+      "intent": { "verb": "check", "subject": "invalid-foundation" },
+      "inputs": {},
+      "requires": [
+        { "capability": "tasks", "version": "2", "select": { "scope": "all", "view": "identity-and-preset" } }
+      ],
+      "produces": [],
+      "sideEffects": []
+    }
+  },
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "checkerProfile": "standard",
+      "completionGates": [],
+      "templateSelections": []
+    }
+  ],
+  "defaultProfile": "baseline"
+}

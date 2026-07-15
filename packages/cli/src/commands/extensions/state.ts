@@ -25,8 +25,9 @@ import {
 } from "./bundled.ts";
 import { writeModuleRegistryView } from "./module-registry-view.ts";
 import { presetScriptAuthorizationRequiredResult } from "./preset-evidence.ts";
-import { runScriptEntrypoint, scriptCliResult } from "./preset-script-runner.ts";
+import { runLegacyPresetScriptEntrypoint, scriptCliResult, type LegacyPresetScriptEntrypoint } from "./preset-script-runner.ts";
 import { presetRuntimeUnavailableResult } from "./preset-runtime-availability.ts";
+import { semanticPresetRuntimeUnavailable, withPresetRuntimeWarning } from "./preset-runtime-mode.ts";
 import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
 import { decodePresetManifestFileResult } from "./preset-manifest-reader.ts";
 import { loadPresetDocument, type PresetDocumentWarning } from "./preset-document-loader.ts";
@@ -322,6 +323,7 @@ export function runPresetEntrypoint(
       error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
+  const finish = (result: CliResult): CliResult => withPresetRuntimeWarning(result, preset.manifest);
   const validation = validatePresetManifestForUse(preset.manifest);
   if (!validation.ok) {
     return {
@@ -336,9 +338,12 @@ export function runPresetEntrypoint(
   mkdirSync(evidenceDir, { recursive: true });
   const generated: string[] = [];
   const declaredEntrypoint = preset.manifest.entrypoints?.[entrypoint];
+  if (preset.manifest.schema === "preset-manifest/v3" && declaredEntrypoint) {
+    return semanticPresetRuntimeUnavailable(commandName, publicPresetSummary(preset));
+  }
   if (declaredEntrypoint?.type === "script") {
     if (!allowScripts) {
-      return presetScriptAuthorizationRequiredResult({
+      return finish(presetScriptAuthorizationRequiredResult({
         rootDir,
         evidenceDir,
         commandName,
@@ -347,15 +352,16 @@ export function runPresetEntrypoint(
         layer: preset.layer,
         taskId,
         entrypoint
-      });
+      }));
     }
     const presetSummary = publicPresetSummary(preset);
-    const scriptResult = runScriptEntrypoint(rootInput, preset, discoverPresets(rootInput, verticalId), presetSummary, declaredEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
-    if (!scriptResult.ok) return scriptResult.result;
+    const legacyEntrypoint = declaredEntrypoint as LegacyPresetScriptEntrypoint;
+    const scriptResult = runLegacyPresetScriptEntrypoint(rootInput, preset, discoverPresets(rootInput, verticalId), presetSummary, legacyEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
+    if (!scriptResult.ok) return finish(scriptResult.result);
     generated.push(...scriptResult.generated);
     if (scriptResult.ingestOp) pendingOps.push(scriptResult.ingestOp);
     if (scriptResult.scriptedResult) {
-      return scriptCliResult({
+      return finish(scriptCliResult({
         rootDir,
         evidenceDir,
         commandName,
@@ -363,7 +369,7 @@ export function runPresetEntrypoint(
         taskId,
         generated,
         scriptedResult: scriptResult.scriptedResult
-      });
+      }));
     }
   } else if (preset.manifest.schema === "preset-manifest/v1" && entrypoint === "scaffold") {
     const outputPath = path.join(layout.generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
@@ -371,12 +377,12 @@ export function runPresetEntrypoint(
     writeFileSync(outputPath, `# ${preset.manifest.title}\n\nTask: ${taskId}\n`, "utf8");
     generated.push(path.relative(rootDir, outputPath).split(path.sep).join("/"));
   } else {
-    return {
+    return finish({
       ok: false,
       command: commandName,
       preset: publicPresetSummary(preset),
       error: cliError(CliErrorCode.PresetActionForbidden, `Preset ${presetId} does not declare action ${entrypoint}.`)
-    };
+    });
   }
   const evidence = {
     schema: "preset-evidence/v1",
@@ -389,7 +395,7 @@ export function runPresetEntrypoint(
     scriptAuthorized: declaredEntrypoint?.type === "script" ? allowScripts : false
   };
   writeFileSync(path.join(evidenceDir, "evidence.json"), JSON.stringify(evidence, null, 2), "utf8");
-  return {
+  return finish({
     ok: true,
     command: commandName,
     preset: publicPresetSummary(preset),
@@ -397,7 +403,7 @@ export function runPresetEntrypoint(
     evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
     generated,
     report: evidence
-  };
+  });
 }
 
 export function readModules(rootInput: HarnessLayoutInput): ModuleRegistry {

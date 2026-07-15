@@ -146,3 +146,15 @@ export type {
   ExtensionInputKind,
   TemplateBodyResolver
 } from "./extension-model.ts";
+
+export {
+  legacyPhysicalScopeWarning,
+  preflightPresetManifest
+} from "./preset-preflight.ts";
+export type {
+  PresetCapabilityProvider,
+  PresetPreflightIssue,
+  PresetPreflightReceipt,
+  PresetRawFsEnforcementEvidence,
+  PresetRawFsGrant
+} from "./preset-preflight.ts";

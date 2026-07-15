@@ -6,7 +6,7 @@ import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { resolveActiveVertical } from "./active-vertical.ts";
 import { discoverPresets, publicPresetSummary } from "./state.ts";
-import { presetScriptEntry } from "./preset-script-runner.ts";
+import { legacyPresetScriptEntry } from "./preset-script-runner.ts";
 import { trustedPresetEnvironmentCapabilities, trustedPresetPackageReadPermissions } from "./script-environment.ts";
 import { runScriptHost, scriptHostCliResult, type ResolvedScriptEntry, type ScriptKind, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
 
@@ -142,10 +142,11 @@ export function discoverScriptEntries(
     } : undefined
   }));
   const presetScripts = discoverPresets(rootInput, activeVertical.id)
+    .filter((preset) => preset.manifest.schema !== "preset-manifest/v3")
     .flatMap((preset) => Object.entries(preset.manifest.entrypoints ?? {})
       .flatMap(([entrypointName, entrypoint]) => entrypoint.type === "script"
         ? [{
-          entry: presetScriptEntry(preset, entrypoint, entrypointName),
+          entry: legacyPresetScriptEntry(preset, entrypoint, entrypointName),
           verticalId: activeVertical.id,
           manifestRoot: path.dirname(preset.sourcePath),
           owner: publicPresetSummary(preset),

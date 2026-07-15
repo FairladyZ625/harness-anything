@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
@@ -18,7 +18,8 @@ import { invalidResolvedPresetResult } from "./shared.ts";
 import { buildPresetUninstallImpact } from "./preset-uninstall-impact.ts";
 import { readPresetManifestFromSourceResult } from "./preset-manifest-reader.ts";
 import { loadBundledPresetManifestEntries } from "./bundled.ts";
-import { presetRuntimeRepairHint, smokePresetEntrypoints } from "./preset-smoke.ts";
+import { preflightPresetPackage } from "./preset-preflight.ts";
+import { copyPresetPackage, presetManifestPathFromSource } from "./preset-package-files.ts";
 import { documentedPresetSource } from "./preset-document-loader.ts";
 import {
   runPresetAudit,
@@ -50,7 +51,7 @@ export function runPresetCommand(rootInput: HarnessLayoutInput, action: PresetAc
 
   switch (action.kind) {
     case "preset-validate":
-      return runPresetValidate(action);
+      return runPresetValidate(rootInput, action);
     case "preset-list":
       return runPresetList(rootInput, activeVerticalId!);
     case "preset-inspect":
@@ -93,17 +94,19 @@ function runPresetInstall(rootInput: HarnessLayoutInput, action: Extract<PresetA
       error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
     };
   }
-  const sourceManifestPath = manifestPathFromSource(action.sourcePath);
+  const sourceManifestPath = presetManifestPathFromSource(action.sourcePath);
   const sourcePreset = documentedPresetSource(manifest, action.layer, sourceManifestPath);
-  const runtime = smokePresetEntrypoints(rootInput, sourcePreset);
-  if (!runtime.ok) {
+  const preflight = preflightPresetPackage(rootInput, sourcePreset);
+  const warnings = [...(sourcePreset.warnings ?? []), ...preflight.warnings];
+  if (!preflight.ok) {
     return {
       ok: false,
       command: "preset-install",
-      preset: { id: manifest.id },
-      issues: runtime.issues,
-      warnings: sourcePreset.warnings,
-      error: cliError(CliErrorCode.PresetManifestInvalid, presetRuntimeRepairHint(sourcePreset, runtime.issues))
+      preset: { id: manifest.id, valid: false },
+      issues: preflight.issues,
+      report: { schema: "preset-install-report/v1", preflight: preflight.receipt },
+      warnings,
+      error: cliError(CliErrorCode.PresetManifestInvalid, preflight.hint)
     };
   }
   const target = presetManifestPath(rootInput, action.layer, manifest.id);
@@ -111,13 +114,14 @@ function runPresetInstall(rootInput: HarnessLayoutInput, action: Extract<PresetA
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, body);
   };
-  copyPresetPackage(path.dirname(sourceManifestPath), path.dirname(target), writeInstalledFile, { replace: true });
+  copyPresetPackage(path.dirname(sourceManifestPath), path.dirname(target), writeInstalledFile, { prepareTarget: removePresetPackage });
   writeInstalledFile(target, JSON.stringify(manifest, null, 2));
   return {
     ok: true,
     command: "preset-install",
     preset: publicPresetSummary({ ...sourcePreset, sourcePath: target }),
-    warnings: sourcePreset.warnings
+    report: { schema: "preset-install-report/v1", preflight: preflight.receipt },
+    warnings
   };
 }
 
@@ -146,33 +150,6 @@ function runPresetSeed(rootInput: HarnessLayoutInput, activeVerticalId: string):
       mode: "complete-package"
     }
   };
-}
-
-function manifestPathFromSource(sourcePath: string): string {
-  return statSync(sourcePath).isDirectory() ? path.join(sourcePath, "preset.json") : sourcePath;
-}
-
-function copyPresetPackage(
-  sourceRoot: string,
-  targetRoot: string,
-  writeTarget: (filePath: string, body: Buffer) => void,
-  options: { readonly replace?: boolean } = {}
-): void {
-  if (path.resolve(sourceRoot) === path.resolve(targetRoot)) return;
-  if (options.replace) removePresetPackage(targetRoot);
-  for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
-    const source = path.join(sourceRoot, entry.name);
-    const target = path.join(targetRoot, entry.name);
-    if (entry.isDirectory()) {
-      copyPresetPackage(source, target, writeTarget);
-    } else if (entry.isFile() && (options.replace || !existsSync(target))) {
-      writeTarget(target, readFileSync(source));
-    }
-  }
-}
-
-function removePresetPackage(targetRoot: string): void {
-  rmSync(targetRoot, { recursive: true, force: true });
 }
 
 function runPresetUninstall(rootInput: HarnessLayoutInput, action: Extract<PresetAction, { readonly kind: "preset-uninstall" }>): CliResult {
@@ -225,6 +202,10 @@ function runPresetUninstall(rootInput: HarnessLayoutInput, action: Extract<Prese
     },
     report: { ...report, removed: true }
   };
+}
+
+function removePresetPackage(targetRoot: string): void {
+  rmSync(targetRoot, { recursive: true, force: true });
 }
 
 function runPresetAction(rootInput: HarnessLayoutInput, activeVerticalId: string, action: Extract<PresetAction, { readonly kind: "preset-action" }>, pendingOps: WriteOp[]): CliResult {
