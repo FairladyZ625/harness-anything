@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { collectGuiVitestFiles, validateGuiVitestManifest } from "./gui-test-runner-lib.mjs";
 import { guiVitestManifest } from "./gui-test-manifest.mjs";
+import { createHermeticTestEnvironment } from "./test-process-environment.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -38,22 +39,27 @@ if (guiVitestManifest.length === 0) {
 }
 
 const npmCli = resolveNpmCli();
+const testEnvironment = createHermeticTestEnvironment();
 const child = npmCli
   ? spawn(process.execPath, [npmCli, "run", "test:gui", "-w", "@harness-anything/gui"], {
     cwd: repoRoot,
-    stdio: "inherit"
+    stdio: "inherit",
+    env: testEnvironment.env
   })
   : spawn("npm", ["run", "test:gui", "-w", "@harness-anything/gui"], {
   cwd: repoRoot,
-  stdio: "inherit"
+  stdio: "inherit",
+  env: testEnvironment.env
 });
 
 child.on("error", (error) => {
+  testEnvironment.cleanup();
   console.error(error.message);
   process.exit(1);
 });
 
 child.on("close", (code, signal) => {
+  testEnvironment.cleanup();
   if (signal !== null) {
     console.error(`GUI Vitest runner terminated by signal ${signal}`);
     process.exit(1);

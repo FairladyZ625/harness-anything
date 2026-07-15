@@ -68,6 +68,41 @@
     }
   ],
   "surfaces": {
+    "localStop": {
+      "selectionPolicy": "Measured below 1 second on 2026-07-14, executes a repository-local static check, and does not run tests, builds, packaging, or network requests.",
+      "gateIds": [
+        "check-file-complexity",
+        "check-cli-structure",
+        "check-cli-help-contract",
+        "check-cli-error-codes",
+        "check-error-classification",
+        "check-import-boundaries",
+        "check-write-coordinator-boundary",
+        "check-bypass-write-boundary",
+        "check-write-road-registry",
+        "check-relation-cycle-substrate",
+        "scan-forbidden-symbols",
+        "check-duplicate-definitions",
+        "check-integrity-single-source",
+        "check-private-boundary",
+        "check-mergify-queue-contexts",
+        "check-docs-release-map",
+        "check-gate-surface",
+        "check-gate-manifest-invariants",
+        "check-enforcement-constants",
+        "check-template-command-surface",
+        "check-locale-content",
+        "check-catalog-schema",
+        "check-runtime-release-readiness",
+        "check-package-policy",
+        "check-implementation-contracts",
+        "check-service-mappability",
+        "check-api-contract-registry",
+        "check-schema-contracts",
+        "check-schema-field-coverage",
+        "check-legacy-intake-readiness"
+      ]
+    },
     "packageJson": {
       "check": [
         "typecheck",

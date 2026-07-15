@@ -157,6 +157,7 @@ function writeFixture(root, {
   const manifest = {
     schema: "harness-anything/gate-manifest/v2",
     surfaces: {
+      localStop: { gateIds: ["example-gate"] },
       rewriteCi: {
         pullRequestGateJobs: ["boundaries"],
         helperJobsNotRegisteredAsGates: [],
@@ -183,6 +184,8 @@ function writeFixture(root, {
       {
         id: "example-gate",
         command: "npm run harness:example-gate",
+        category: "boundary",
+        tier: "pr-required",
         deterministic,
         positiveControl: {
           status: "covered",

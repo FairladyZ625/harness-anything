@@ -27,9 +27,25 @@ test("local gates check rejects manifest static checker gates with missing packa
   );
 });
 
+test("local gates check fails closed on an unknown or non-static local stop gate", () => {
+  const unknown = makeManifest();
+  unknown.surfaces.localStop.gateIds = ["missing"];
+  assert.throws(() => selectLocalGateChecks(unknown, {}), /unknown gate missing/u);
+
+  const nonStatic = makeManifest();
+  nonStatic.surfaces.localStop.gateIds = ["test-integration"];
+  assert.throws(
+    () => selectLocalGateChecks(nonStatic, { "test:integration": "node tools/run-node-tests.mjs --tier integration" }),
+    /not a static checker command/u
+  );
+});
+
 function makeManifest() {
   return {
     surfaces: {
+      localStop: {
+        gateIds: ["check-alpha", "scan-beta"]
+      },
       rewriteCi: {
         pullRequestGateJobs: ["boundaries", "supply-chain", "gui-build"]
       }
