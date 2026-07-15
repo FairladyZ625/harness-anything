@@ -91,6 +91,26 @@ test("CLI preset action rejects descendant write symlinks targeting canonical an
   });
 });
 
+test("CLI preset action attributes symlinks in overlapping read and write scopes to the read boundary", {
+  skip: process.platform === "win32"
+}, () => {
+  withTempRoot((rootDir) => {
+    initializeHarness(rootDir);
+    writeProcessActionPreset(rootDir, "overlapping-symlink-scope", "scaffold", []);
+    const outputRoot = path.join(rootDir, "harness/tasks/task-overlapping-symlink");
+    mkdirSync(outputRoot, { recursive: true });
+    symlinkSync("missing-read-target", path.join(outputRoot, "dangling-read"));
+
+    const result = runJson(rootDir, [
+      "preset", "action", "overlapping-symlink-scope", "scaffold",
+      "--task", "task-overlapping-symlink", "--allow-scripts"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_read_scope_invalid");
+  });
+});
+
 test("CLI preset action preserves a failed receipt without ingesting staged writes", () => {
   withTempRoot((rootDir) => {
     initializeHarness(rootDir);

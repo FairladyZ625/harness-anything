@@ -125,6 +125,9 @@ export function runScriptHost(options: {
     : { ok: true as const, roots: [], permissions: [] };
   const writeScope = resolveDeclaredWriteScopes(options.script.entry.writes, layout, outputRoot, scopeOptions);
   if (!readScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script reads must declare supported project-local scopes.");
+  if (!resolvedScopeSetIsSafe(readScope, layout.rootDir, "read")) {
+    return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script read scopes must have safe filesystem boundaries.");
+  }
   if (!writeScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidWrite, "Script writes must declare approved authored content scopes.");
   if (
     options.script.entry.source === "preset" &&

@@ -85,10 +85,18 @@ function resolveDeclaredScopes(
       if (!isPathInside(layout.rootDir, absolute)) return { ok: false };
       if (recursive && absolute === path.resolve(layout.rootDir)) return { ok: false };
       if (mode === "write" && !isAllowedWriteScope(absolute, layout, outputRoot)) return { ok: false };
+      if (!scopeRootRealpathIsContainedOrMissing(absolute, layout.rootDir)) return { ok: false };
       if (scopePathContainsUnsafeComponent(absolute, layout.rootDir, options)) return { ok: false };
       const leafConflicts = reportableLeafConflicts(absolute, layout.rootDir, recursive, options.reportLeafConflicts === true);
       if (leafConflicts === null) return { ok: false };
-      if (recursive && filesystemKind(absolute) === "directory" && recursiveScopeContainsSymlink(absolute)) return { ok: false };
+      if (
+        mode === "write" &&
+        recursive &&
+        filesystemKind(absolute) === "directory" &&
+        recursiveScopeContainsSymlink(absolute)
+      ) {
+        return { ok: false };
+      }
       if (!validScopeTarget(absolute, recursive, mode) && leafConflicts.length === 0) return { ok: false };
       roots.push(absolute);
       permissions.push(...permissionPathsForScope(absolute, recursive));
@@ -260,6 +268,14 @@ export function recursiveScopeContainsSymlink(root: string): boolean {
   return false;
 }
 
+function scopeRootRealpathIsContainedOrMissing(root: string, boundary: string): boolean {
+  try {
+    return sameOrInside(realpathSync(boundary), realpathSync(root));
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT";
+  }
+}
+
 export function resolvedScopeSetIsSafe(
   scope: ResolvedScopeSet,
   projectRoots: string | ReadonlyArray<string>,
@@ -275,7 +291,8 @@ export function resolvedScopeSetIsSafe(
     const conflictsRemainDeclared = currentConflicts !== null && currentConflicts.every((candidate) =>
       scope.reportedLeafConflicts?.some((declared) => path.resolve(declared) === path.resolve(candidate))
     );
-    return !scopePathContainsUnsafeComponent(root, boundary, options) &&
+    return scopeRootRealpathIsContainedOrMissing(root, boundary) &&
+      !scopePathContainsUnsafeComponent(root, boundary, options) &&
       conflictsRemainDeclared &&
       (!recursive || filesystemKind(root) !== "directory" || !recursiveScopeContainsSymlink(root)) &&
       (validScopeTarget(root, recursive, mode) || (currentConflicts?.length ?? 0) > 0);

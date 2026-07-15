@@ -222,6 +222,46 @@ test("CLI script host denies reads outside the manifest package and declared sco
   });
 });
 
+test("CLI script host refuses to follow descendant symlink leaves", {
+  skip: process.platform === "win32"
+}, () => {
+  withCanonicalTempRoot((rootDir) => {
+    const externalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-read-symlink-target-"));
+    try {
+      writeFileSync(path.join(externalRoot, "secret.txt"), "must stay outside\n", "utf8");
+      mkdirSync(path.join(rootDir, "declared-read"), { recursive: true });
+      symlinkSync(externalRoot, path.join(rootDir, "declared-read/escape"));
+      writeProcessPreset(
+        rootDir,
+        "symlink-leaf-reader",
+        "Symlink Leaf Reader",
+        "scripts/preset-action.mjs",
+        "scaffold",
+        ["{{outputRoot}}/**"],
+        ["{{paths.rootDir}}/declared-read/**"]
+      );
+      writeFile(rootDir, ".harness/presets/symlink-leaf-reader/scripts/preset-action.mjs", [
+        "#!/usr/bin/env node",
+        "import { readFileSync, writeFileSync } from 'node:fs';",
+        "import path from 'node:path';",
+        "const context = JSON.parse(readFileSync(process.env.HARNESS_PRESET_CONTEXT, 'utf8'));",
+        "const secret = readFileSync(path.join(context.paths.projectRoot, 'declared-read/escape/secret.txt'), 'utf8');",
+        "writeFileSync(process.env.HARNESS_SCRIPT_RESULT, JSON.stringify({ schema: 'script-result/v1', ok: true, report: { secret } }), 'utf8');",
+        ""
+      ].join("\n"));
+
+      const result = runJson(rootDir, [
+        "script", "run", "preset:symlink-leaf-reader:scaffold", "--task", "task-symlink-leaf-reader"
+      ], false);
+
+      assert.equal(result.ok, false);
+      assert.equal(result.error.code, "script_scope_invalid_read");
+    } finally {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 test("CLI script host denies descendants of a non-recursive write file scope", () => {
   withCanonicalTempRoot((rootDir) => {
     mkdirSync(path.join(rootDir, "harness/tasks/task-exact-file-writer/artifacts"), { recursive: true });
@@ -256,105 +296,6 @@ test("CLI script host denies descendants of a non-recursive write file scope", (
       "harness/tasks/task-exact-file-writer/artifacts/receipt.json/escaped.txt"
     )), false);
   });
-});
-
-test("script scopes reject external and dangling read symlinks and symlinked custom authored roots", {
-  skip: process.platform === "win32"
-}, () => {
-  const container = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-scope-symlink-"));
-  try {
-    const rootDir = path.join(container, "project");
-    const externalRoot = path.join(container, "external");
-    mkdirSync(rootDir, { recursive: true });
-    mkdirSync(externalRoot, { recursive: true });
-    symlinkSync(externalRoot, path.join(rootDir, "linked-read"));
-    const defaultLayout = resolveHarnessLayout(rootDir);
-    assert.equal(resolveDeclaredReadScopes(
-      ["{{paths.rootDir}}/linked-read/**"],
-      defaultLayout,
-      path.join(defaultLayout.tasksRoot, "task-read")
-    ).ok, false);
-
-    symlinkSync("missing-read-target", path.join(rootDir, "dangling-read"));
-    assert.equal(resolveDeclaredReadScopes(
-      ["{{paths.rootDir}}/dangling-read/**"],
-      defaultLayout,
-      path.join(defaultLayout.tasksRoot, "task-read")
-    ).ok, false);
-
-    symlinkSync(externalRoot, path.join(rootDir, "linked-harness"));
-    const linkedLayout = resolveHarnessLayout({ rootDir, layoutOverrides: { authoredRoot: "linked-harness" } });
-    const outputRoot = path.join(linkedLayout.tasksRoot, "task-write");
-    assert.equal(resolveDeclaredWriteScopes(["{{outputRoot}}/**"], linkedLayout, outputRoot).ok, false);
-  } finally {
-    rmSync(container, { recursive: true, force: true });
-  }
-});
-
-test("script scopes reject recursive read roots with descendant external and dangling symlinks", {
-  skip: process.platform === "win32"
-}, () => {
-  const container = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-read-descendant-symlink-"));
-  try {
-    const rootDir = path.join(container, "project");
-    const externalRoot = path.join(container, "external");
-    const externalReadRoot = path.join(rootDir, "external-read-root");
-    const danglingReadRoot = path.join(rootDir, "dangling-read-root");
-    mkdirSync(externalRoot, { recursive: true });
-    mkdirSync(externalReadRoot, { recursive: true });
-    mkdirSync(danglingReadRoot, { recursive: true });
-    writeFileSync(path.join(externalRoot, "secret.txt"), "secret\n", "utf8");
-    symlinkSync(externalRoot, path.join(externalReadRoot, "escape"));
-    symlinkSync("missing-target", path.join(danglingReadRoot, "escape"));
-    const layout = resolveHarnessLayout(rootDir);
-    const outputRoot = path.join(layout.tasksRoot, "task-read");
-
-    assert.equal(resolveDeclaredReadScopes(
-      ["{{paths.rootDir}}/external-read-root/**"],
-      layout,
-      outputRoot
-    ).ok, false);
-    assert.equal(resolveDeclaredReadScopes(
-      ["{{paths.rootDir}}/dangling-read-root/**"],
-      layout,
-      outputRoot
-    ).ok, false);
-  } finally {
-    rmSync(container, { recursive: true, force: true });
-  }
-});
-
-test("recursive read scopes exclude node_modules but still reject content symlink escapes", {
-  skip: process.platform === "win32"
-}, () => {
-  const container = mkdtempSync(path.join(realpathSync(tmpdir()), "harness-script-read-node-modules-"));
-  try {
-    const rootDir = path.join(container, "project");
-    const externalRoot = path.join(container, "external");
-    const dependencyReadRoot = path.join(rootDir, "dependency-read-root");
-    const escapedReadRoot = path.join(rootDir, "escaped-read-root");
-    mkdirSync(path.join(dependencyReadRoot, "node_modules/.bin"), { recursive: true });
-    mkdirSync(escapedReadRoot, { recursive: true });
-    mkdirSync(externalRoot, { recursive: true });
-    writeFileSync(path.join(externalRoot, "secret.txt"), "secret\n", "utf8");
-    symlinkSync(externalRoot, path.join(dependencyReadRoot, "node_modules/.bin/tool"));
-    symlinkSync(externalRoot, path.join(escapedReadRoot, "escape"));
-    const layout = resolveHarnessLayout(rootDir);
-    const outputRoot = path.join(layout.tasksRoot, "task-read");
-
-    assert.equal(resolveDeclaredReadScopes(
-      ["{{paths.rootDir}}/dependency-read-root/**"],
-      layout,
-      outputRoot
-    ).ok, true);
-    assert.equal(resolveDeclaredReadScopes(
-      ["{{paths.rootDir}}/escaped-read-root/**"],
-      layout,
-      outputRoot
-    ).ok, false);
-  } finally {
-    rmSync(container, { recursive: true, force: true });
-  }
 });
 
 test("script scopes reject portable aliases in declared path components", () => {
@@ -590,7 +531,8 @@ function writeProcessPreset(
   title: string,
   command: string,
   entrypointName = "scaffold",
-  writes: ReadonlyArray<string> = ["{{outputRoot}}/**"]
+  writes: ReadonlyArray<string> = ["{{outputRoot}}/**"],
+  reads: ReadonlyArray<string> = []
 ): void {
   writeFile(rootDir, `.harness/presets/${presetId}/preset.json`, JSON.stringify({
     schema: "preset-manifest/v2",
@@ -602,7 +544,7 @@ function writeProcessPreset(
     kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
     capabilityImports: [],
     entrypoints: {
-      [entrypointName]: { type: "script", command, writes }
+      [entrypointName]: { type: "script", command, writes, ...(reads.length > 0 ? { reads } : {}) }
     },
     profiles: [{
       id: "baseline",

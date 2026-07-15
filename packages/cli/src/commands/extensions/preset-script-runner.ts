@@ -114,6 +114,9 @@ export function runScriptEntrypoint(
       }
     };
   }
+  if (!resolvedScopeSetIsSafe(readScope, layout.rootDir, "read")) {
+    return invalidExecutionScope(commandName, presetSummary, "read");
+  }
   if (!writeScope.ok || !writeScope.roots.some((allowedRoot) => isPathInside(allowedRoot, outputRoot))) {
     return {
       ok: false,
