@@ -48,20 +48,29 @@ export function peopleRosterFromDocument(body: string): PeopleRoster {
 }
 
 export function mergePeopleRosters(machine: PeopleRoster, project: PeopleRoster): PeopleRoster {
-  const machineCredentialOwners = new Map<string, string>();
-  for (const person of machine.people) {
-    for (const credential of person.credentials) machineCredentialOwners.set(credentialKey(credential), person.personId);
-  }
+  // The machine roster (~/.harness/people.yaml) is the default only; a project
+  // roster overrides it. The same machine credential (e.g. this laptop's uid)
+  // may resolve to a different person per repository — company A's identity in
+  // one repo, company B's in another — because the project people.yaml is an
+  // explicit, committed, auditable declaration, not a covert swap. Ownership of
+  // a credential therefore transfers to the project's person: we strip the
+  // credential from the machine person that previously held it so the merged
+  // roster keeps exactly one owner per credential (validateRoster forbids two).
+  const projectCredentialOwners = new Map<string, string>();
   for (const person of project.people) {
-    for (const credential of person.credentials) {
-      const machinePersonId = machineCredentialOwners.get(credentialKey(credential));
-      if (machinePersonId && machinePersonId !== person.personId) {
-        throw new Error(`project people.yaml cannot rebind machine credential from ${machinePersonId} to ${person.personId}`);
-      }
-    }
+    for (const credential of person.credentials) projectCredentialOwners.set(credentialKey(credential), person.personId);
   }
 
-  const people = new Map(machine.people.map((person) => [person.personId, person]));
+  const people = new Map(machine.people.map((person) => [
+    person.personId,
+    {
+      ...person,
+      credentials: person.credentials.filter((credential) => {
+        const projectOwner = projectCredentialOwners.get(credentialKey(credential));
+        return projectOwner === undefined || projectOwner === person.personId;
+      })
+    }
+  ]));
   for (const projectPerson of project.people) {
     const machinePerson = people.get(projectPerson.personId);
     const credentials = new Map((machinePerson?.credentials ?? []).map((credential) => [credentialKey(credential), credential]));

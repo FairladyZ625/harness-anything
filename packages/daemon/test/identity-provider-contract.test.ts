@@ -290,7 +290,7 @@ test("direct recovery resolves the same machine roster when the project declares
   );
 });
 
-test("a project overlay cannot silently rebind a machine credential", (t) => {
+test("a project overlay overrides the machine credential's person", async (t) => {
   const rootDir = createIdentityRoot("person_project");
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-machine-identity-"));
   t.after(() => {
@@ -300,10 +300,19 @@ test("a project overlay cannot silently rebind a machine credential", (t) => {
   writeFileSync(path.join(userRoot, "people.yaml"), ownerRoster("person_machine"), "utf8");
   writeFileSync(path.join(rootDir, "harness/people.yaml"), ownerRoster("person_project"), "utf8");
 
-  assert.throws(
-    () => loadDaemonIdentityWithEmail(rootDir, undefined, undefined, undefined, userRoot),
-    /cannot rebind machine credential from person_machine to person_project/u
-  );
+  // The machine roster maps this credential to person_machine, but the project
+  // people.yaml is an explicit per-repo declaration and wins — silently, by
+  // design (company A's identity here, company B's in another repo, one laptop).
+  const identity = loadDaemonIdentityWithEmail(rootDir, undefined, undefined, undefined, userRoot);
+  const authenticated = await identity.identityProvider?.authenticate({
+    transportKind: "unix-socket",
+    unixSocketOwnerBoundary: {
+      ownerUid: process.getuid?.() ?? 0,
+      source: "unix-socket-filesystem-owner-boundary"
+    }
+  });
+
+  assert.equal(authenticated?.ok && authenticated.personId, "person_project");
 });
 
 test("a roster person with matching credentials but no roles fails as rbac_forbidden", async (t) => {
