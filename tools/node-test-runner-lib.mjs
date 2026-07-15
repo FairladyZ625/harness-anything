@@ -4,6 +4,7 @@ import { DEFAULT_LOCAL_TEST_CONCURRENCY } from "./local-resource-governance.mjs"
 
 export const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 export const ignoredDirectoryNames = new Set(["node_modules", "dist", "out", "coverage", ".git"]);
+export const DEFAULT_TEST_TIMEOUT_MS = 180_000;
 
 export function parseRunnerArgs(args, tierNames) {
   const options = {
@@ -11,6 +12,7 @@ export function parseRunnerArgs(args, tierNames) {
     list: false,
     slowThresholdMs: 1000,
     slowLimit: 10,
+    testTimeoutMs: DEFAULT_TEST_TIMEOUT_MS,
     concurrency: undefined,
     shard: undefined,
     prefixes: []
@@ -53,6 +55,17 @@ export function parseRunnerArgs(args, tierNames) {
     }
     if (arg.startsWith("--slow-limit=")) {
       options.slowLimit = parsePositiveInteger(arg.slice("--slow-limit=".length), "--slow-limit");
+      continue;
+    }
+    if (arg === "--test-timeout") {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error("--test-timeout requires a value");
+      options.testTimeoutMs = parseStrictPositiveInteger(value, "--test-timeout");
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--test-timeout=")) {
+      options.testTimeoutMs = parseStrictPositiveInteger(arg.slice("--test-timeout=".length), "--test-timeout");
       continue;
     }
     if (arg === "--concurrency") {
@@ -114,6 +127,12 @@ function parsePositiveInteger(value, label) {
   if (!Number.isInteger(parsed) || parsed < 0) {
     throw new Error(`${label} must be a non-negative integer`);
   }
+  return parsed;
+}
+
+function parseStrictPositiveInteger(value, label) {
+  const parsed = parsePositiveInteger(value, label);
+  if (parsed === 0) throw new Error(`${label} must be a positive integer`);
   return parsed;
 }
 
@@ -256,4 +275,35 @@ export function formatSlowTestSummary(slowTests, thresholdMs, limit) {
     `Slow test summary: top ${visible.length} tests at or above ${thresholdMs}ms`,
     ...visible.map((test, index) => `${index + 1}. ${test.durationMs.toFixed(3)}ms ${test.name}`)
   ].join("\n");
+}
+
+export function formatTestTimeoutGuidance(output, timeoutMs) {
+  const timedOutTests = collectTimedOutTestNames(output);
+  if (timedOutTests.length === 0) return null;
+
+  return [
+    "Timeout next steps:",
+    `Timed out ${timedOutTests.length === 1 ? "test" : "tests"}: ${timedOutTests.join(", ")}`,
+    "A daemon test may be blocked by another local daemon using its socket.",
+    "Inspect lingering daemon processes:",
+    "  ps -axo pid,ppid,etime,command | rg '[h]arness-anything.*daemon serve'",
+    "Re-run the timed-out file with an isolated daemon profile:",
+    `  env -u HARNESS_DAEMON_USER_ROOT HARNESS_DAEMON_PROFILE=isolated node --test --test-timeout=${timeoutMs} <test-file>`
+  ].join("\n");
+}
+
+function collectTimedOutTestNames(output) {
+  const lines = output.split(/\r?\n/u).map((line) => stripAnsi(line).trim());
+  const names = new Set();
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/test timed out after \d+ms/u.test(lines[index] ?? "")) continue;
+    for (let candidate = index - 1; candidate >= Math.max(0, index - 3); candidate -= 1) {
+      const match = lines[candidate]?.match(/^✖ (.+) \(\d+(?:\.\d+)?ms\)$/u);
+      if (match !== null && match !== undefined) {
+        names.add(match[1]);
+        break;
+      }
+    }
+  }
+  return [...names];
 }

@@ -4,7 +4,15 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import { discoverQosPrefix, prefixCommand, withLocalHeavySlot } from "./local-resource-governance.mjs";
-import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseRunnerArgs, resolveTestConcurrency, selectTestFiles } from "./node-test-runner-lib.mjs";
+import {
+  collectSlowTests,
+  filterTestFilesByPrefixes,
+  formatSlowTestSummary,
+  formatTestTimeoutGuidance,
+  parseRunnerArgs,
+  resolveTestConcurrency,
+  selectTestFiles
+} from "./node-test-runner-lib.mjs";
 import { discoverTestTierManifest, testTierNames } from "./test-tier-manifest.mjs";
 import { createHermeticTestEnvironment, gitFixtureIdentityGuidance } from "./test-process-environment.mjs";
 
@@ -75,10 +83,16 @@ const concurrency = resolveTestConcurrency({
 });
 const concurrencyArgs =
   concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
+const timeoutArgs = [`--test-timeout=${options.testTimeoutMs}`];
 
 process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}` }, async (lease) => {
   const qosPrefix = lease.inherited ? [] : discoverQosPrefix();
-  const invocation = prefixCommand(qosPrefix, process.execPath, ["--test", ...concurrencyArgs, ...selection.files]);
+  const invocation = prefixCommand(qosPrefix, process.execPath, [
+    "--test",
+    ...concurrencyArgs,
+    ...timeoutArgs,
+    ...selection.files
+  ]);
   const testEnvironment = createHermeticTestEnvironment(lease.childEnv);
   const child = spawn(invocation.command, invocation.args, {
     cwd: repoRoot,
@@ -112,6 +126,8 @@ process.exitCode = await withLocalHeavySlot({ label: `node-tests:${options.tier}
         return;
       }
       if (code !== 0) {
+        const timeoutGuidance = formatTestTimeoutGuidance(output, options.testTimeoutMs);
+        if (timeoutGuidance !== null) console.error(`\n${timeoutGuidance}`);
         const guidance = gitFixtureIdentityGuidance(output);
         if (guidance !== null) console.error(`\n${guidance}`);
       }

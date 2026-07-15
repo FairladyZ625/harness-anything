@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
-import { collectSlowTests, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
+import { collectSlowTests, DEFAULT_TEST_TIMEOUT_MS, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
 import { deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -14,6 +14,7 @@ test("parseRunnerArgs accepts tier and slow summary options", () => {
     list: false,
     slowThresholdMs: 250,
     slowLimit: 3,
+    testTimeoutMs: DEFAULT_TEST_TIMEOUT_MS,
     concurrency: undefined,
     shard: undefined,
     prefixes: []
@@ -24,6 +25,47 @@ test("parseRunnerArgs accepts a concurrency cap", () => {
   assert.equal(parseRunnerArgs(["--concurrency", "4"], testTierNames).concurrency, 4);
   assert.equal(parseRunnerArgs(["--concurrency=2"], testTierNames).concurrency, 2);
   assert.throws(() => parseRunnerArgs(["--concurrency", "x"], testTierNames), /--concurrency/u);
+});
+
+test("test timeout defaults to three minutes and cannot be disabled", () => {
+  assert.equal(DEFAULT_TEST_TIMEOUT_MS, 180_000);
+  assert.equal(parseRunnerArgs(["--test-timeout", "240000"], testTierNames).testTimeoutMs, 240_000);
+  assert.equal(parseRunnerArgs(["--test-timeout=360000"], testTierNames).testTimeoutMs, 360_000);
+  assert.throws(() => parseRunnerArgs(["--test-timeout", "0"], testTierNames), /positive integer/u);
+  assert.throws(() => parseRunnerArgs(["--test-timeout=x"], testTierNames), /--test-timeout/u);
+});
+
+test("runner bounds a non-terminating test and prints timeout next steps", () => {
+  const startedAt = Date.now();
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_TIMEOUT_FIXTURE: "hang",
+    HARNESS_TEST_CONCURRENCY: "1"
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [
+    "tools/run-node-tests.mjs",
+    "--tier", "fast",
+    "--prefix", "tools/test-fixtures/runner-timeout",
+    "--test-timeout", "1000"
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: childEnv,
+    timeout: 15_000
+  });
+  const elapsedMs = Date.now() - startedAt;
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.status, 1, output);
+  assert.equal(result.signal, null, output);
+  assert.equal(result.error, undefined, output);
+  assert.equal(elapsedMs < 10_000, true, `runner took ${elapsedMs}ms\n${output}`);
+  assert.match(output, /runner timeout fixture becomes intentionally non-terminating/u);
+  assert.match(output, /Timeout next steps:/u);
+  assert.match(output, /ps -axo pid,ppid,etime,command/u);
+  assert.match(output, /HARNESS_DAEMON_PROFILE=isolated/u);
+  assert.match(output, /--test-timeout=1000/u);
 });
 
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
