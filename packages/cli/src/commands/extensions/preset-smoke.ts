@@ -55,15 +55,18 @@ export function smokePresetEntrypoints(
       issues.push(runtimeUnregisteredIssue(preset, name, entrypoint.type));
       return { name, type: entrypoint.type, ok: false };
     }
-    const script = resolvedPresetScript(preset, name, entrypoint);
-    const outputRoot = taskPackagePath(rootInput, `task_PRESET_CHECK_${safeToken(preset.manifest.id)}`);
+    const taskId = `task_PRESET_CHECK_${safeToken(preset.manifest.id)}`;
+    const script = resolvedPresetScript(preset, name, entrypoint, taskId);
+    const outputRoot = taskPackagePath(rootInput, taskId);
     let smoke: ReturnType<typeof runScriptHost>;
     try {
       smoke = runScriptHost({
         rootInput,
         commandName: "preset-check",
         script,
-        outputRoot
+        outputRoot,
+        allowFailedScriptResult: true,
+        requireScriptResult: true
       });
     } catch (error) {
       issues.push({
@@ -136,7 +139,8 @@ export function presetRuntimeRepairHint(preset: ResolvedPreset, issues: Readonly
 function resolvedPresetScript(
   preset: ResolvedPreset,
   entrypointName: string,
-  entrypoint: LegacyPresetScriptEntrypoint
+  entrypoint: LegacyPresetScriptEntrypoint,
+  taskId: string
 ): ResolvedScriptEntry {
   return {
     entry: legacyPresetScriptEntry(preset, entrypoint, entrypointName),
@@ -161,6 +165,7 @@ function resolvedPresetScript(
       presetId: preset.manifest.id,
       presetTitle: preset.manifest.title,
       entrypoint: entrypointName,
+      taskId,
       validationSmoke: true
     }
   };

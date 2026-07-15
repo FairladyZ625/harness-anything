@@ -16,7 +16,10 @@ test("subtask-expansion preset validates and plans a subtask-plan/v1 artifact", 
   withTempRoot((rootDir) => {
     const manifest = path.resolve("packages/cli/src/commands/extensions/assets/software-coding/presets/subtask-expansion/preset.json");
     const validated = runJson(rootDir, ["preset", "validate", manifest]);
+    const checked = runJson(rootDir, ["preset", "check", "subtask-expansion"]);
     assert.equal(validated.ok, true);
+    assert.equal(checked.ok, true);
+    assert.equal(checked.report.preflight.runtimeSmoke.ok, true);
 
     const parent = runJson(rootDir, ["task", "create", "--title", "Parent Expansion"]);
     writeFileSync(path.join(rootDir, String(parent.packagePath), "task_plan.md"), "# Plan\n\nBuild the feature and verify it.\n", "utf8");

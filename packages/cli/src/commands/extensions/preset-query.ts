@@ -54,7 +54,7 @@ export function runPresetValidate(rootInput: HarnessLayoutInput, action: {
   return {
     ok: true,
     command: "preset-validate",
-    preset: { id: manifest.id, version: manifest.version, valid: true },
+    preset: { id: manifest.id, version: manifest.version },
     report: { schema: "preset-validate-report/v1", issueCount: validation.issues.length, preflight: preflight.receipt },
     warnings
   };

@@ -83,6 +83,7 @@ export function runScriptHost(options: {
   readonly outputRoot?: string;
   readonly dryRun?: boolean;
   readonly allowFailedScriptResult?: boolean;
+  readonly requireScriptResult?: boolean;
 }): ScriptHostRunResult {
   const layout = resolveHarnessLayout(options.rootInput);
   const validation = validateResolvedScript(options.script);
@@ -310,7 +311,7 @@ export function runScriptHost(options: {
   }
 
   const scriptedResult = readScriptResult(resultPath, options.script.entry.source === "preset" ? path.join(executionOutputRoot, "artifacts", "preset-result.json") : undefined, {
-    allowMissingPresetResult: options.script.entry.source === "preset",
+    allowMissingPresetResult: options.script.entry.source === "preset" && options.requireScriptResult !== true,
     scriptId: options.script.entry.id
   });
   if (!scriptedResult.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptResultInvalid, scriptedResult.hint, runDir, layout.rootDir);
@@ -427,7 +428,7 @@ function readScriptResult(
 ): { readonly ok: true; readonly value: Record<string, unknown> } | { readonly ok: false; readonly hint: string } {
   if (!existsSync(resultPath)) {
     const presetResult = readPresetScriptResult(presetResultPath);
-    if (presetResult) return { ok: true, value: presetResult };
+    if (presetResult) return presetResult;
     if (options.allowMissingPresetResult) {
       return {
         ok: true,
@@ -452,26 +453,29 @@ function readScriptResult(
   }
 }
 
-function readPresetScriptResult(resultPath: string | undefined): Record<string, unknown> | undefined {
+function readPresetScriptResult(
+  resultPath: string | undefined
+): { readonly ok: true; readonly value: Record<string, unknown> } | { readonly ok: false; readonly hint: string } | undefined {
   if (!resultPath || !existsSync(resultPath)) return undefined;
   try {
     const parsed = JSON.parse(readFileSync(resultPath, "utf8")) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, hint: "Preset script result must be a JSON object." };
+    }
     const presetResult = parsed as Record<string, unknown>;
-    return {
+    if (typeof presetResult.ok !== "boolean") {
+      return { ok: false, hint: "Preset script result must declare boolean ok." };
+    }
+    return { ok: true, value: {
       schema: "script-result/v1",
-      ok: presetResult.ok === true,
+      ok: presetResult.ok,
       report: presetResult.report ?? presetResult,
       warnings: presetResult.warnings,
       rows: presetResult.rows,
       produced: presetResult.produced ?? []
-    };
+    } };
   } catch {
-    return {
-      schema: "script-result/v1",
-      ok: false,
-      error: cliError(CliErrorCode.ScriptResultInvalid, "Preset script wrote invalid artifacts/preset-result.json.")
-    };
+    return { ok: false, hint: "Preset script wrote invalid artifacts/preset-result.json." };
   }
 }
 

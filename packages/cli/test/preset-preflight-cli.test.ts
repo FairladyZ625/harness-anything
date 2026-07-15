@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { runJson, withTempRoot, writeFile } from "./helpers/preset-script-fixtures.ts";
@@ -40,9 +41,41 @@ test("validate now runs smoke and legacy packages retain their adapter warning",
     writeFile(rootDir, "source/smoke-success/preset.json", JSON.stringify(legacyManifest("smoke-success", {}), null, 2));
 
     const validated = runJson(rootDir, ["preset", "validate", sourceManifest]);
-    assert.equal(validated.preset.valid, true);
+    assert.equal(validated.ok, true);
+    assert.equal(validated.preset.id, "smoke-success");
     assert.equal(validated.report.preflight.runtimeSmoke.ok, true);
+    assert.deepEqual(validated.report.preflight.runtimeSmoke.entrypoints, []);
     assert.equal(validated.warnings.some((warning: Record<string, unknown>) => warning.code === "legacy-physical-scope"), true);
+  });
+});
+
+test("validate and check reject an installed package shell after its script is removed", () => {
+  withTempRoot((rootDir) => {
+    const sourceManifest = path.join(rootDir, "source/removed-script/preset.json");
+    const manifest = legacyManifest("removed-script", {
+      check: { type: "script", command: "scripts/check.mjs", writes: ["{{outputRoot}}/**"] }
+    });
+    const script = [
+      "import { writeFileSync } from 'node:fs';",
+      "writeFileSync(process.env.HARNESS_SCRIPT_RESULT, JSON.stringify({ schema: 'script-result/v1', ok: true, report: {}, produced: [] }));",
+      ""
+    ].join("\n");
+    writeFile(rootDir, "source/removed-script/preset.json", JSON.stringify(manifest, null, 2));
+    writeFile(rootDir, "source/removed-script/scripts/check.mjs", script);
+    writeFile(rootDir, ".harness/presets/removed-script/preset.json", JSON.stringify(manifest, null, 2));
+    writeFile(rootDir, ".harness/presets/removed-script/scripts/check.mjs", script);
+    assert.equal(runJson(rootDir, ["preset", "validate", sourceManifest]).ok, true);
+    assert.equal(runJson(rootDir, ["preset", "check", "removed-script"]).ok, true);
+
+    rmSync(path.join(rootDir, "source/removed-script/scripts/check.mjs"));
+    rmSync(path.join(rootDir, ".harness/presets/removed-script/scripts/check.mjs"));
+    const validated = runJson(rootDir, ["preset", "validate", sourceManifest], false);
+    const checked = runJson(rootDir, ["preset", "check", "removed-script"], false);
+
+    for (const result of [validated, checked]) {
+      assert.equal(result.ok, false);
+      assert.equal(result.issues[0].code, "preset_entrypoint_script_missing");
+    }
   });
 });
 
