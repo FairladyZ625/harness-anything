@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { FlushReport, OperationalActor, RecoveryReport, WriteAttribution, WriteCoordinator, WriteError } from "../../../kernel/src/index.ts";
+import type { MaterializerCommandReport } from "../cli/types.ts";
 
 type QueuedWriteOp = Parameters<WriteCoordinator["enqueue"]>[0];
 interface QueuedGitCommitAuthor {
@@ -26,15 +27,7 @@ export interface CliDaemonRuntime {
   readonly enqueueMaterializerBatch: (options?: {
     readonly dryRun?: boolean;
     readonly sessionId?: string;
-  }) => Promise<{
-    readonly branches: ReadonlyArray<{
-      readonly branch: string;
-      readonly commitCount: number;
-      readonly status: "merged" | "would_merge" | "skipped" | "conflict";
-      readonly warning?: string;
-    }>;
-    readonly warnings: ReadonlyArray<string>;
-  }>;
+  }) => Promise<MaterializerCommandReport>;
 }
 
 export function makeDaemonQueuedWriteCoordinator(

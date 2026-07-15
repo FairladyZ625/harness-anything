@@ -86,6 +86,38 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
     mergeNoFf: (repoRoot, branch, message) => {
       runGit(repoRoot, "merge", "--no-ff", branch, "-m", message);
     },
+    conflictedFiles: (repoRoot) => runGit(repoRoot, "diff", "--name-only", "--diff-filter=U", "-z")
+      .split("\0")
+      .filter(Boolean),
+    readConflictStage: (repoRoot, stage, relativePath) => {
+      try {
+        return runGitBytes(repoRoot, "show", `:${stage}:${relativePath}`);
+      } catch {
+        return null;
+      }
+    },
+    checkoutConflictSide: (repoRoot, side, paths) => {
+      if (paths.length === 0) return;
+      runGit(repoRoot, "checkout", `--${side}`, "--", ...paths);
+    },
+    latestCommitSubjectForPath: (repoRoot, baseRef, branch, relativePath) => {
+      try {
+        const subject = runGit(repoRoot, "log", "-1", "--format=%s", `${baseRef}..${branch}`, "--", relativePath).trim();
+        return subject.length > 0 ? subject : null;
+      } catch {
+        return null;
+      }
+    },
+    worktreePathExists: (repoRoot, relativePath) => existsSync(worktreePath(repoRoot, relativePath)),
+    writeWorktreeFile: (repoRoot, relativePath, body) => {
+      const blob = runGitWithInput(repoRoot, body, "hash-object", "-w", "--stdin").trim();
+      runGit(repoRoot, "update-index", "--add", "--cacheinfo", "100644", blob, relativePath);
+      runGit(repoRoot, "checkout-index", "--force", "--", relativePath);
+    },
+    removeWorktreePath: (repoRoot, relativePath) => {
+      runGit(repoRoot, "reset", "-q", "--", relativePath);
+      runGit(repoRoot, "clean", "-fd", "--", relativePath);
+    },
     deleteBranch: (repoRoot, branch) => {
       runGit(repoRoot, "branch", "-d", branch);
     },
@@ -150,22 +182,55 @@ function normalizeExistingPath(inputPath: string): string {
   return path.join(realpathSync.native(current), ...pendingSegments);
 }
 
+function worktreePath(repoRoot: string, relativePath: string): string {
+  return path.join(repoRoot, ...relativePath.split("/"));
+}
+
 function runGit(repoRoot: string, ...args: ReadonlyArray<string>): string {
   return runGitAs(repoRoot, undefined, ...args);
+}
+
+function runGitBytes(repoRoot: string, ...args: ReadonlyArray<string>): Uint8Array {
+  try {
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      ...localGitProcessOptions(),
+      encoding: "buffer",
+      windowsHide: true
+    });
+  } catch (error) {
+    throw vcsCommandError(repoRoot, args, error);
+  }
+}
+
+function runGitWithInput(repoRoot: string, input: string | Uint8Array, ...args: ReadonlyArray<string>): string {
+  try {
+    return execFileSync("git", ["-C", repoRoot, ...args], {
+      ...localGitProcessOptions(),
+      input,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true
+    });
+  } catch (error) {
+    throw vcsCommandError(repoRoot, args, error);
+  }
 }
 
 function runGitAs(repoRoot: string, author: VcsCommitAuthor | undefined, ...args: ReadonlyArray<string>): string {
   try {
     return execFileSync("git", ["-C", repoRoot, ...args], localGitProcessOptions(author));
   } catch (error) {
-    throw new VcsCommandError({
-      command: args[0] ?? "command",
-      cwd: repoRoot,
-      exitCode: commandErrorCode(error),
-      signal: commandErrorSignal(error),
-      stderrSummary: commandErrorSummary(error)
-    });
+    throw vcsCommandError(repoRoot, args, error);
   }
+}
+
+function vcsCommandError(repoRoot: string, args: ReadonlyArray<string>, error: unknown): VcsCommandError {
+  return new VcsCommandError({
+    command: args[0] ?? "command",
+    cwd: repoRoot,
+    exitCode: commandErrorCode(error),
+    signal: commandErrorSignal(error),
+    stderrSummary: commandErrorSummary(error)
+  });
 }
 
 export function localGitProcessOptions(author?: VcsCommitAuthor): ExecFileSyncOptionsWithStringEncoding {

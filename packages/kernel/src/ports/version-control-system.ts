@@ -22,6 +22,13 @@ export interface VersionControlSystem {
   readonly checkout: (repoRoot: string, ref: string) => void;
   readonly createBranch: (repoRoot: string, branch: string) => void;
   readonly mergeNoFf: (repoRoot: string, branch: string, message: string) => void;
+  readonly conflictedFiles: (repoRoot: string) => ReadonlyArray<string>;
+  readonly readConflictStage: (repoRoot: string, stage: 2 | 3, relativePath: string) => Uint8Array | null;
+  readonly checkoutConflictSide: (repoRoot: string, side: "ours" | "theirs", paths: ReadonlyArray<string>) => void;
+  readonly latestCommitSubjectForPath: (repoRoot: string, baseRef: string, branch: string, relativePath: string) => string | null;
+  readonly worktreePathExists: (repoRoot: string, relativePath: string) => boolean;
+  readonly writeWorktreeFile: (repoRoot: string, relativePath: string, body: string | Uint8Array) => void;
+  readonly removeWorktreePath: (repoRoot: string, relativePath: string) => void;
   readonly deleteBranch: (repoRoot: string, branch: string) => void;
   readonly abortMerge: (repoRoot: string) => void;
   readonly sessionBranches: (repoRoot: string) => ReadonlyArray<string>;
