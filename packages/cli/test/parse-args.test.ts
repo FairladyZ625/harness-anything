@@ -239,6 +239,14 @@ test("parseArgs strips explicit authored root global override", () => {
   assert.equal(resolveHarnessLayout(rootDir).authoredRoot, path.join(rootDir, "harness"));
 });
 
+test("parseArgs carries one-shot daemon mode and isolated profile overrides", () => {
+  const parsed = parseArgs(["--daemon-mode", "local", "--daemon-profile", "isolated", "task", "list"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.value.daemonModeOverride, "local");
+  assert.equal(parsed.value.daemonProfileOverride, "isolated");
+});
+
 test("parseArgs carries the explicit actor global flag without exposing it to command parsers", () => {
   const parsed = parseArgs(["task", "claim", "task_1", "--actor", "human:person_zeyu"]);
 

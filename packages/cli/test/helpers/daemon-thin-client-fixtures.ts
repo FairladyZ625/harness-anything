@@ -58,7 +58,15 @@ export function hermeticGitEnv(rootDir: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
     HOME: path.join(rootDir, ".home"),
-    GIT_CONFIG_GLOBAL: "/dev/null"
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    // The fixture carries its own identity. Blanking the config files is not enough:
+    // macOS Git synthesizes a `user@host` author when none is configured, so these
+    // commits pass on a developer machine and fail on CI with "Author identity unknown".
+    GIT_AUTHOR_NAME: "Harness Test",
+    GIT_AUTHOR_EMAIL: "harness@example.test",
+    GIT_COMMITTER_NAME: "Harness Test",
+    GIT_COMMITTER_EMAIL: "harness@example.test"
   };
 }
 

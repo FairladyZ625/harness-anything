@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,8 +63,6 @@ export function runCliPackageSmoke(root = process.cwd()) {
     if (init.ok !== true || init.path !== "harness/harness.yaml") {
       throw new Error(`unexpected init smoke output: ${JSON.stringify(init)}`);
     }
-    configureSmokeIdentity(projectDir);
-
     const created = runJson(binPath, ["--json", "new-task", "--title", "Smoke Task"], projectDir);
     if (created.ok !== true || typeof created.taskId !== "string" || !created.taskId.startsWith("task_") || created.report?.vertical !== "software/coding" || created.report?.preset !== "standard-task") {
       throw new Error(`unexpected new-task smoke output: ${JSON.stringify(created)}`);
@@ -94,15 +92,6 @@ export function runCliPackageSmoke(root = process.cwd()) {
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
-}
-
-function configureSmokeIdentity(projectDir) {
-  const configPath = path.join(projectDir, "harness/harness.yaml");
-  const config = readFileSync(configPath, "utf8");
-  writeFileSync(configPath, config.replace(
-    /^settings:$/mu,
-    "settings:\n  identity:\n    personId: person_harness_smoke\n    displayName: Harness Smoke"
-  ), "utf8");
 }
 
 export function buildCliPackageArtifact(root, options = {}) {
@@ -136,6 +125,9 @@ function smokeCliWriteEnv() {
     // Package smoke exercises the packaged in-process boundary; daemon
     // transport is covered by the dedicated daemon integration suite.
     HARNESS_DAEMON_MODE: "direct",
+    // Keep package smoke identity and registry state out of the developer's
+    // user-global profile while exercising the production init bootstrap.
+    HARNESS_DAEMON_PROFILE: "isolated",
     HARNESS_DIRECT_WRITE_REASON: "test",
     // Test-only actor attribution for package smoke writes; real env wins.
     HARNESS_ACTOR: process.env.HARNESS_ACTOR || "agent:harness-smoke",

@@ -85,6 +85,11 @@ export interface JsonRpcServerOptions {
   readonly identityProvider?: IdentityProvider;
   readonly personRegistry?: PersonRegistry;
   readonly identityAdminSnapshot?: IdentityAdminSnapshot;
+  readonly resolveRepoIdentity?: (repo: DaemonRepoNamespace) => {
+    readonly identityProvider?: IdentityProvider;
+    readonly personRegistry?: PersonRegistry;
+    readonly identityAdminSnapshot?: IdentityAdminSnapshot;
+  } | undefined;
   readonly appendRuntimeEvent?: (input: RuntimeEventAppendInput, context?: DaemonRepoServiceContext) => Promise<void>;
 }
 
@@ -145,13 +150,14 @@ async function handleRequest(
   const repoFailure = validateRepoNamespace(contract, params, repos);
   if (repoFailure) return response(failureReceipt(request.method, repoFailure.code, repoFailure.hint));
   const repo = repoForContract(contract, params, repos);
+  const identityOptions = repoIdentityOptions(repo, options);
   const effectiveContract = withEffectiveCommandClass(contract, params);
   const forcedRootFailure = validateForcedCommandRoot(effectiveContract, params, repo, options.authContext);
   if (forcedRootFailure) return response(forcedRootFailure);
   const repoRuntimeFailure = validateRepoRuntime(effectiveContract, repo, options);
   if (repoRuntimeFailure) return response(repoRuntimeFailure);
 
-  const actorResult = await resolveIdentityActorForMethod(effectiveContract, options);
+  const actorResult = await resolveIdentityActorForMethod(effectiveContract, identityOptions);
   if (actorResult && !actorResult.ok) {
     const receipt = failureReceipt(request.method, actorResult.code, actorResult.message, {
       providerId: actorResult.providerId,
@@ -161,8 +167,8 @@ async function handleRequest(
     return response(receipt);
   }
   const actor = actorResult?.actor;
-  if (actor && options.identityProvider) {
-    const authz = await options.identityProvider.authorize({
+  if (actor && identityOptions.identityProvider) {
+    const authz = await identityOptions.identityProvider.authorize({
       personId: actor.personId,
       action: { method: effectiveContract.method, commandClass: effectiveContract.commandClass },
       ...(repo ? { resource: { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot } } : {})
@@ -183,7 +189,7 @@ async function handleRequest(
   }
 
   if (contract.namespace === "admin") {
-    const result = handleAdminMethod(contract, options);
+    const result = handleAdminMethod(contract, identityOptions);
     const receipt = stampReceipt(result, actor);
     await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
     return response(receipt);
@@ -193,6 +199,23 @@ async function handleRequest(
   const receipt = stampReceipt(result, actor);
   await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
   return response(receipt);
+}
+
+function repoIdentityOptions(
+  repo: DaemonRepoNamespace | undefined,
+  options: JsonRpcServerOptions
+): JsonRpcServerOptions {
+  if (!repo || !options.resolveRepoIdentity) return options;
+  const identity = options.resolveRepoIdentity(repo);
+  if (!identity) {
+    return {
+      ...options,
+      identityProvider: undefined,
+      personRegistry: undefined,
+      identityAdminSnapshot: undefined
+    };
+  }
+  return { ...options, ...identity };
 }
 
 function handleHello(

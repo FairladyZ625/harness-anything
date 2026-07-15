@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import type { LocalControllerService } from "../../application/src/index.ts";
 import { loadDaemonIdentityWithEmail } from "../../cli/src/commands/daemon/identity.ts";
+import { readConfiguredLocalPrincipal } from "../../cli/src/composition/local-principal.ts";
 import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
 import {
   composeIdentityProvider,
@@ -186,6 +187,125 @@ test("an existing people.yaml stays authoritative and empty credentials fail as 
   if (result && !result.ok) assert.equal(result.code, "credential_unknown");
 });
 
+test("a repo without people.yaml inherits the machine people roster", async (t) => {
+  const rootDir = createIdentityRoot("person_machine");
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-machine-identity-"));
+  t.after(() => {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  });
+  writeFileSync(path.join(userRoot, "people.yaml"), ownerRoster("person_machine"), "utf8");
+
+  const identity = loadDaemonIdentityWithEmail(rootDir, undefined, undefined, undefined, userRoot);
+  const authenticated = await identity.identityProvider?.authenticate({
+    transportKind: "unix-socket",
+    unixSocketOwnerBoundary: {
+      ownerUid: process.getuid?.() ?? 0,
+      source: "unix-socket-filesystem-owner-boundary"
+    }
+  });
+
+  assert.equal(authenticated?.ok && authenticated.personId, "person_machine");
+});
+
+test("remote mode rejects socket-owner identity and accepts only a forced-command person", async (t) => {
+  const rootDir = createIdentityRoot("person_remote");
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const configPath = path.join(rootDir, "harness/harness.yaml");
+  writeFileSync(configPath, [
+    "schema: harness-anything/v1",
+    "layout:",
+    "  authoredRoot: harness",
+    "settings:",
+    "  identity:",
+    "    mode: remote",
+    ""
+  ].join("\n"), "utf8");
+  writeFileSync(path.join(rootDir, "harness/people.yaml"), remoteRoster("person_remote"), "utf8");
+
+  const identity = loadDaemonIdentityWithEmail(rootDir, undefined, undefined);
+  const local = await identity.identityProvider?.authenticate({
+    transportKind: "unix-socket",
+    unixSocketOwnerBoundary: {
+      ownerUid: process.getuid?.() ?? 0,
+      source: "unix-socket-filesystem-owner-boundary"
+    }
+  });
+  const remote = await identity.identityProvider?.authenticate({
+    transportKind: "unix-socket",
+    unixSocketOwnerBoundary: {
+      ownerUid: process.getuid?.() ?? 0,
+      source: "unix-socket-filesystem-owner-boundary"
+    },
+    sshForcedCommand: {
+      personId: "person_remote",
+      canonicalRoot: rootDir,
+      source: "sshd-authorized-keys-forced-command"
+    }
+  });
+
+  assert.equal(identity.mode, "remote");
+  assert.equal(local?.ok, false);
+  if (local && !local.ok) {
+    assert.equal(local.code, "credential_unavailable");
+    assert.match(local.message, /local socket-owner identity is disabled/u);
+  }
+  assert.equal(remote?.ok && remote.personId, "person_remote");
+});
+
+test("direct recovery resolves the same machine roster when the project declares only local mode", (t) => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-direct-machine-identity-"));
+  const home = mkdtempSync(path.join(os.tmpdir(), "ha-direct-machine-home-"));
+  t.after(() => {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+    "schema: harness-anything/v1",
+    "layout:",
+    "  authoredRoot: harness",
+    "settings:",
+    "  identity:",
+    "    mode: local",
+    ""
+  ].join("\n"), "utf8");
+  mkdirSync(path.join(home, ".harness"), { recursive: true });
+  writeFileSync(path.join(home, ".harness/people.yaml"), ownerRoster("person_machine"), "utf8");
+  assert.equal(readConfiguredLocalPrincipal(rootDir, { HOME: home }).personId, "person_machine");
+
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), [
+    "schema: harness-anything/v1",
+    "layout:",
+    "  authoredRoot: harness",
+    "settings:",
+    "  identity:",
+    "    mode: local",
+    "    personId: person_project",
+    ""
+  ].join("\n"), "utf8");
+  assert.throws(
+    () => readConfiguredLocalPrincipal(rootDir, { HOME: home }),
+    /cannot rebind this machine credential from 'person_machine'/u
+  );
+});
+
+test("a project overlay cannot silently rebind a machine credential", (t) => {
+  const rootDir = createIdentityRoot("person_project");
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-machine-identity-"));
+  t.after(() => {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  });
+  writeFileSync(path.join(userRoot, "people.yaml"), ownerRoster("person_machine"), "utf8");
+  writeFileSync(path.join(rootDir, "harness/people.yaml"), ownerRoster("person_project"), "utf8");
+
+  assert.throws(
+    () => loadDaemonIdentityWithEmail(rootDir, undefined, undefined, undefined, userRoot),
+    /cannot rebind machine credential from person_machine to person_project/u
+  );
+});
+
 test("a roster person with matching credentials but no roles fails as rbac_forbidden", async (t) => {
   const rootDir = createIdentityRoot("person_zeyu");
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -280,6 +400,45 @@ function createIdentityRoot(personId: string): string {
     ""
   ].join("\n"), "utf8");
   return rootDir;
+}
+
+function ownerRoster(personId: string): string {
+  return [
+    "schema: harness-people/v1",
+    "people:",
+    `  - personId: ${personId}`,
+    `    displayName: ${personId}`,
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: unix-socket-owner-boundary",
+    `        issuer: host:${os.hostname()}`,
+    `        subject: ${process.getuid?.() ?? 0}`,
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    ""
+  ].join("\n");
+}
+
+function remoteRoster(personId: string): string {
+  return [
+    "schema: harness-people/v1",
+    "people:",
+    `  - personId: ${personId}`,
+    `    displayName: ${personId}`,
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: ssh-forced-command-person",
+    `        issuer: host:${os.hostname()}`,
+    `        subject: ${personId}`,
+    "      - kind: unix-socket-owner-boundary",
+    `        issuer: host:${os.hostname()}`,
+    `        subject: ${process.getuid?.() ?? 0}`,
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    ""
+  ].join("\n");
 }
 
 function makeServer(overrides: Partial<Parameters<typeof createJsonRpcProtocolServer>[0]> = {}) {

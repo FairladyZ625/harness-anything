@@ -8,7 +8,8 @@ import type { CliResult } from "../cli/types.ts";
 export type HarnessLocale = "zh-CN" | "en-US";
 
 export interface ProjectHarnessIdentity {
-  readonly personId: string;
+  readonly mode: "local" | "remote";
+  readonly personId?: string;
   readonly displayName?: string;
 }
 
@@ -268,7 +269,7 @@ function parseYamlSettings(body: string): { readonly present: boolean; readonly 
     }
     if (inIdentity && customNested) {
       const [, key, rawValue = ""] = customNested;
-      if (key !== "personId" && key !== "displayName") throw new Error(`Unknown settings.identity key: ${key}`);
+      if (key !== "mode" && key !== "personId" && key !== "displayName") throw new Error(`Unknown settings.identity key: ${key}`);
       const value = rawValue.trim();
       if (!value) throw new Error(`settings.identity.${key} must be a scalar value.`);
       settings.identity = { ...(isRecord(settings.identity) ? settings.identity : {}), [key]: unquoteScalar(value) };
@@ -342,11 +343,17 @@ function validateIdentity(command: string, value: unknown):
   if (value === undefined) return { ok: true };
   if (!isRecord(value)) return invalid(command, "settings.identity must be a mapping.");
   const keys = Object.keys(value).sort();
-  if (keys.some((key) => key !== "displayName" && key !== "personId")) {
-    return invalid(command, "settings.identity supports only personId and displayName.");
+  if (keys.some((key) => key !== "displayName" && key !== "mode" && key !== "personId")) {
+    return invalid(command, "settings.identity supports only mode, personId, and displayName.");
   }
-  if (typeof value.personId !== "string" || !SETTINGS_ID_PATTERN.test(value.personId)) {
-    return invalid(command, "settings.identity.personId must be a non-empty identifier.");
+  if (value.mode !== undefined && value.mode !== "local" && value.mode !== "remote") {
+    return invalid(command, "settings.identity.mode must be local or remote.");
+  }
+  if (value.personId !== undefined && (typeof value.personId !== "string" || !SETTINGS_ID_PATTERN.test(value.personId))) {
+    return invalid(command, "settings.identity.personId must be a non-empty identifier when provided.");
+  }
+  if (value.personId === undefined && value.displayName !== undefined) {
+    return invalid(command, "settings.identity.displayName requires settings.identity.personId.");
   }
   if (value.displayName !== undefined && (typeof value.displayName !== "string" || !value.displayName.trim())) {
     return invalid(command, "settings.identity.displayName must be a non-empty string when provided.");
@@ -354,7 +361,8 @@ function validateIdentity(command: string, value: unknown):
   return {
     ok: true,
     value: {
-      personId: value.personId,
+      mode: value.mode === "remote" ? "remote" : "local",
+      ...(typeof value.personId === "string" ? { personId: value.personId } : {}),
       ...(typeof value.displayName === "string" ? { displayName: value.displayName.trim() } : {})
     }
   };

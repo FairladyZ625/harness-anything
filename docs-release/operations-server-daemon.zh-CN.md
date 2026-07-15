@@ -77,6 +77,23 @@ ha task list
 只有初始化、恢复或无法启动 daemon 的测试 fixture 才显式使用
 `HARNESS_DAEMON_MODE=direct`；不要把它写成锁冲突的绕行方案。
 
+`ha init` 默认显式写入 `settings.identity.mode: local`，并在缺失时创建机器级
+`~/.harness/people.yaml`。项目可用 `harness/people.yaml` 覆盖资料和权限，但不得把机器级
+credential 静默改绑给另一个 person。daemon 与 direct recovery 共用同一条解析链：机器级
+roster → 项目覆盖 → remote 项目的远程权威。
+
+CI / sandbox 必须显式选择 isolated profile；registry、机器 roster 与 endpoint identity 会落在
+项目 `.harness/daemon-profile` 下，不写 `~/.harness`：
+
+```bash
+ha --daemon-profile isolated init
+ha --daemon-profile isolated daemon repo register --repo-id ci --root "$PWD"
+ha --daemon-profile isolated task list
+```
+
+`--daemon-profile default|isolated` 与 `--daemon-mode direct|local|remote` 只覆盖当前进程；
+repo config 仍是持久 mode 声明。remote 不可达时 fail-closed，不会降级成本地身份。
+
 ## 多仓 Registry
 
 把同一个 daemon 要服务的每个本地 canonical 仓库都注册进去：
@@ -117,18 +134,17 @@ Markdown fail closed，不会因为扩展名像 prose 就擅自放行。
 
 ## Remote SSH Relay
 
-Remote 模式是持久远程 daemon 的单命令客户端。它打开一个 SSH stdio 会话，服务器的 forced
-command 会把该会话 relay 到 daemon：
+Remote 模式连接持久远程 daemon。先在 repo config 声明 `settings.identity.mode: remote`，
+再提供连接坐标。客户端会打开 SSH stdio 会话，服务器的 forced command 把它 relay 到 daemon：
 
 ```bash
-HARNESS_DAEMON_MODE=remote \
 HARNESS_DAEMON_SSH_HOST=team-host \
 HARNESS_DAEMON_REMOTE_ROOT=/srv/harness/team \
 HARNESS_DAEMON_REMOTE_HA=ha \
 ha task list
 ```
 
-`HARNESS_DAEMON_MODE`、`HARNESS_DAEMON_SSH_HOST` 和
+repo 的 `settings.identity.mode: remote`、`HARNESS_DAEMON_SSH_HOST` 和
 `HARNESS_DAEMON_REMOTE_ROOT` 是必需项。`HARNESS_DAEMON_REMOTE_HA` 默认是
 `ha`；远端二进制路径不是 `ha` 时再设置。远端需要服务非 `canonical` 的已注册仓库
 id 时，设置 `HARNESS_DAEMON_REPO_ID`。
@@ -206,8 +222,10 @@ Unix transport 不读取连接进程的身份。它记录
 的客户端之所以归属该 owner，只因为 `0700` 目录与 `0600` socket 仅允许 owner
 连接。放宽任一权限都会使这个边界失效，届时必须改用其他身份来源。
 
-存在 `harness/people.yaml` 时会启用基于 roster 的授权。没有这份 roster 时，本地连接
-完全信任 transport 边界。
+`~/.harness/people.yaml` 是机器级身份权威；项目 `harness/people.yaml` 在其上覆盖且不得
+静默改绑 credential。没有可用 roster 时，写入会带配置命令 fail-closed。本地 repo 即使收到
+forced-command 首帧也会忽略其中的 personId，仍按 socket owner boundary 解析；只有显式
+`remote` 的 repo 才采信该帧。
 
 ## 服务模板
 

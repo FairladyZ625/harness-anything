@@ -8,6 +8,8 @@ import { readCatalogSnapshot } from "../src/commands/extensions/catalog-snapshot
 
 test("catalog snapshot reuses project-over-user-over-builtin preset resolution and real registries", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-catalog-snapshot-"));
+  const previousUserHome = process.env.HARNESS_USER_HOME;
+  process.env.HARNESS_USER_HOME = path.join(rootDir, ".empty-user-home");
   try {
     writeHarnessConfig(rootDir);
     writePreset(rootDir, ".harness/user-presets/standard-task/preset.json", "standard-task", "User Standard", "1.5.0");
@@ -30,6 +32,8 @@ test("catalog snapshot reuses project-over-user-over-builtin preset resolution a
     assert.deepEqual(snapshot.adapters.map((adapter) => adapter.id), ["local", "multica"]);
     assert.deepEqual(snapshot.adapters.map((adapter) => adapter.writable), [true, false]);
   } finally {
+    if (previousUserHome === undefined) delete process.env.HARNESS_USER_HOME;
+    else process.env.HARNESS_USER_HOME = previousUserHome;
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

@@ -2,7 +2,7 @@
 import net from "node:net";
 import type { DaemonAuthenticationContext } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
-import { authenticateSshForcedCommandFrame } from "./ssh-forced-command.ts";
+import { authenticateSshForcedCommandFrame, type AcceptSshForcedCommand } from "./ssh-forced-command.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
 export interface NamedPipeTransportOptions {
@@ -12,7 +12,7 @@ export interface NamedPipeTransportOptions {
   readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
-  readonly acceptSshForcedCommand?: boolean;
+  readonly acceptSshForcedCommand?: boolean | AcceptSshForcedCommand;
 }
 
 export interface NamedPipeTransportServer {
@@ -56,7 +56,13 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
       output: socket,
       transportKind: "named-pipe",
       authContext,
-      ...(options.acceptSshForcedCommand ? { authenticateFirstFrame: authenticateSshForcedCommandFrame } : {}),
+      ...(options.acceptSshForcedCommand ? {
+        authenticateFirstFrame: (frame: unknown, context: DaemonAuthenticationContext) => authenticateSshForcedCommandFrame(
+          frame,
+          context,
+          typeof options.acceptSshForcedCommand === "function" ? options.acceptSshForcedCommand : undefined
+        )
+      } : {}),
       createProtocolServer: options.createProtocolServer
     });
     options.onConnection?.(connection);

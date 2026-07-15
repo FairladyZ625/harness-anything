@@ -109,7 +109,7 @@ test("linked worktree writes route to the canonical daemon with transport-derive
     assert.equal((directFallback.receipt.error as { readonly code?: string }).code, "task_not_found");
     assert.equal(
       (directFallback.receipt.warnings as ReadonlyArray<{ readonly message?: string }> | undefined)
-        ?.some((warning) => /settings\.identity\.personId/u.test(warning.message ?? "")),
+        ?.some((warning) => /machine identity|people\.yaml/u.test(warning.message ?? "")),
       true
     );
 
@@ -123,7 +123,7 @@ test("linked worktree writes route to the canonical daemon with transport-derive
     });
     assert.notEqual(localWrite.status, 0);
     assert.equal((localWrite.receipt.error as { readonly code?: string }).code, "write_rejected");
-    assert.match((localWrite.receipt.error as { readonly hint?: string }).hint ?? "", /settings\.identity\.personId/u);
+    assert.match((localWrite.receipt.error as { readonly hint?: string }).hint ?? "", /machine identity|people\.yaml/u);
   });
 });
 

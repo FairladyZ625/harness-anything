@@ -4,6 +4,7 @@ import {
   unregisterDaemonRepo,
   type DaemonRegistryRepo
 } from "../../../../kernel/src/index.ts";
+import { daemonUserRootForRepo } from "../../../../daemon/src/index.ts";
 import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
 import { readOption } from "../../cli/parse-options.ts";
 
@@ -19,10 +20,9 @@ export function runDaemonRepoCommand(input: DaemonRepoCommandInput): number {
     console.log(renderDaemonRepoHelp());
     return 0;
   }
-  const envUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
-  const userRoot = readOption(input.args, "--user-root") ?? (envUserRoot && envUserRoot.length > 0 ? envUserRoot : undefined);
+  const userRoot = readOption(input.args, "--user-root") ?? daemonUserRootForRepo(input.rootDir, process.env);
   const options = {
-    ...(userRoot ? { userRoot } : {}),
+    userRoot,
     createConvenienceLinks: !input.args.includes("--no-link")
   };
   try {

@@ -68,6 +68,7 @@ export function daemonStatusPayload(input: {
     schema: "daemon-status/v1",
     started: input.runtimeStatus.started,
     daemonId: input.daemonId,
+    pid: process.pid,
     rootDir,
     repoId,
     endpoint: input.endpoint,

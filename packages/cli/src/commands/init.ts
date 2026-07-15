@@ -282,6 +282,8 @@ function writeHarnessYaml(filePath: string, projectName: string, forceNameUpdate
     "  defaultVertical: software/coding",
     "  defaultPreset: standard-task",
     "  defaultProfile: baseline",
+    "  identity:",
+    "    mode: local",
     "  customVerticals:",
     "    enabled: false",
     ""

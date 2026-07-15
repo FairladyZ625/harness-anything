@@ -1,10 +1,14 @@
 // TW-04 platform
 export * from "./platform/index.ts";
 export {
+  ensureMachinePeopleRoster
+} from "./identity/machine-people.ts";
+export {
   daemonIdForRoot,
   daemonIdForUserRoot,
   daemonIdFromEnv,
   daemonUserRoot,
+  daemonUserRootForRepo,
   DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
@@ -62,6 +66,8 @@ export {
 } from "./identity/types.ts";
 export {
   loadPeopleRoster,
+  loadPeopleRosterFile,
+  mergePeopleRosters,
   makePeopleRosterIdentityAdminSnapshot,
   peopleRosterFromDocument
 } from "./identity/people-roster.ts";

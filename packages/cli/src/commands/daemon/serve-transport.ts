@@ -10,6 +10,7 @@ import {
   type DaemonTransportConnection,
   type JsonRpcProtocolServer,
   type NamedPipeTransportServer,
+  type SshForcedCommandBootstrapFrame,
   type UnixSocketTransportServer
 } from "../../../../daemon/src/index.ts";
 
@@ -35,6 +36,7 @@ export interface DaemonLocalTransportOptions {
   readonly endpoint: string;
   readonly platform?: NodeJS.Platform;
   readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly acceptSshForcedCommand: (frame: SshForcedCommandBootstrapFrame) => boolean;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
 }
@@ -46,7 +48,7 @@ export function createDaemonLocalTransport(
     return createNamedPipeTransportServer({
       daemonId: options.daemonId,
       pipePath: options.endpoint,
-      acceptSshForcedCommand: true,
+      acceptSshForcedCommand: options.acceptSshForcedCommand,
       createProtocolServer: options.createProtocolServer,
       onConnection: options.onConnection,
       onConnectionClosed: options.onConnectionClosed
@@ -55,7 +57,7 @@ export function createDaemonLocalTransport(
   return createUnixSocketTransportServer({
     daemonId: options.daemonId,
     socketPath: options.endpoint,
-    acceptSshForcedCommand: true,
+    acceptSshForcedCommand: options.acceptSshForcedCommand,
     createProtocolServer: options.createProtocolServer,
     onConnection: options.onConnection,
     onConnectionClosed: options.onConnectionClosed

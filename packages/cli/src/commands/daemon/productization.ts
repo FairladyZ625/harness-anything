@@ -44,13 +44,13 @@ export interface DaemonServeHooks {
   readonly onStarted?: (status: Record<string, unknown>) => void;
 }
 
-export function loadDaemonIdentity(rootDir: string, layoutOverrides: { readonly authoredRoot?: string } | undefined, endpoint?: string) {
+export function loadDaemonIdentity(rootDir: string, layoutOverrides: { readonly authoredRoot?: string } | undefined, endpoint?: string, userRoot?: string) {
   const runtimeContext = createHarnessRuntimeContext(rootDir, layoutOverrides);
   const authoredRoot = resolveHarnessLayout(runtimeContext).authoredRoot;
   const primaryEmail = process.env.HARNESS_GIT_AUTHOR_EMAIL?.trim()
     || process.env.GIT_AUTHOR_EMAIL?.trim()
     || readGitConfigEmail(authoredRoot);
-  return loadDaemonIdentityWithEmail(rootDir, layoutOverrides, primaryEmail, endpoint);
+  return loadDaemonIdentityWithEmail(rootDir, layoutOverrides, primaryEmail, endpoint, userRoot);
 }
 
 function readGitConfigEmail(authoredRoot: string): string | undefined {
@@ -166,14 +166,18 @@ async function stopDaemon(input: DaemonCommandInput): Promise<number> {
   });
   const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));
   const lockPath = path.join(layout.locksRoot, "global.lock");
-  const before = readDaemonLock(lockPath);
-  if (before.started && typeof before.pid === "number") {
-    process.kill(before.pid, "SIGTERM");
+  const lockStatus = readDaemonLock(lockPath);
+  const rpcStatus = await readReachableDaemonStatus(target);
+  const before = { ...lockStatus, ...rpcStatus };
+  const daemonPid = typeof rpcStatus?.pid === "number" ? rpcStatus.pid : undefined;
+  if (daemonPid !== undefined) {
+    process.kill(daemonPid, "SIGTERM");
   }
-  const stopped = before.started ? await waitForStopped(lockPath, timeoutMs) : true;
+  const stopped = daemonPid !== undefined ? await waitForEndpointStopped(target, timeoutMs) : true;
   emitDaemonResult("daemon-stop", {
     ...before,
-    signaled: before.started,
+    pid: daemonPid ?? null,
+    signaled: daemonPid !== undefined,
     drained: stopped,
     stopped
   }, input.json);
@@ -419,13 +423,13 @@ async function waitForReachableStatus(target: LocalDaemonTarget, timeoutMs: numb
   throw new Error("daemon service did not become reachable before timeout");
 }
 
-async function waitForStopped(lockPath: string, timeoutMs: number): Promise<boolean> {
+async function waitForEndpointStopped(target: LocalDaemonTarget, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    if (!readDaemonLock(lockPath).started) return true;
+    if (!await readReachableDaemonStatus(target)) return true;
     await waitDaemonPollInterval(100);
   }
-  return !readDaemonLock(lockPath).started;
+  return !await readReachableDaemonStatus(target);
 }
 
 function emitDaemonResult(command: string, result: Record<string, unknown>, json: boolean): void {
@@ -434,7 +438,7 @@ function emitDaemonResult(command: string, result: Record<string, unknown>, json
     return;
   }
   const parts = [`ok`, `command=${command}`];
-  for (const key of ["started", "reachable", "mode", "queueDepth", "version", "protocolVersion", "pid", "drained", "stopped", "reportPath", "outputDir"] as const) {
+  for (const key of ["started", "reachable", "mode", "queueDepth", "version", "protocolVersion", "pid", "rootDir", "repoId", "endpoint", "drained", "stopped", "reportPath", "outputDir"] as const) {
     if (result[key] !== undefined) parts.push(`${key}=${JSON.stringify(result[key])}`);
   }
   if (typeof result.lockPath === "string") parts.push(`lock=${result.lockPath}`);

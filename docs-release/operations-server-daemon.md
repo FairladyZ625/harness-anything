@@ -17,9 +17,10 @@ in [Team onboarding with SSH forced commands](#team-onboarding-with-ssh-forced-c
 - Local daemon, multiple repositories on one machine: register each repository
   in the user daemon registry, start one daemon, and route commands with
   `--repo <id>`.
-- Remote SSH relay: use `HARNESS_DAEMON_MODE=remote` for one CLI command at a
-  time. The client runs `ssh <host> ha daemon connect --stdio`; sshd's forced
-  command connects that stdio stream to the persistent local daemon.
+- Remote SSH relay: persist `settings.identity.mode: remote` for that repository.
+  The client runs `ssh <host> ha daemon connect --stdio`; sshd's forced command
+  connects that stdio stream to the persistent daemon. A repository cannot be
+  both local and remote, and an unreachable remote fails closed.
 
 Unsupported deployments:
 
@@ -88,6 +89,26 @@ Use `HARNESS_DAEMON_MODE=direct` only for explicit initialization, recovery, or
 test fixtures that cannot yet have a daemon. Do not advertise it as a lock
 conflict workaround.
 
+`ha init` declares `settings.identity.mode: local` by default and creates the
+machine roster at `~/.harness/people.yaml` when it is absent. A project may add
+`harness/people.yaml` as an overlay, but it cannot bind a machine credential to
+a different person. Daemon and direct recovery resolution use the same chain:
+machine roster, then project overlay, then the remote authority for remote-mode
+repositories.
+
+For CI or a filesystem sandbox, select an isolated profile explicitly. Its
+registry, machine roster, and endpoint identity live below the repository's
+`.harness/daemon-profile` instead of `~/.harness`:
+
+```bash
+ha --daemon-profile isolated init
+ha --daemon-profile isolated daemon repo register --repo-id ci --root "$PWD"
+ha --daemon-profile isolated task list
+```
+
+`--daemon-profile default|isolated` and `--daemon-mode direct|local|remote` are
+one-process overrides; repository mode remains the persistent declaration.
+
 ## Multi-Repository Registry
 
 Register every local canonical repository that one daemon should serve:
@@ -131,18 +152,18 @@ closed instead of treating an unknown Markdown file as prose.
 
 ## Remote SSH Relay
 
-Remote mode is a single-command client of a persistent remote daemon. It opens
-an SSH stdio session, which the server's forced command relays to the daemon:
+Remote mode is a client of a persistent remote daemon. Declare the repository
+mode in `harness/harness.yaml`, then provide the connection coordinates. It
+opens an SSH stdio session, which the server's forced command relays to the daemon:
 
 ```bash
-HARNESS_DAEMON_MODE=remote \
 HARNESS_DAEMON_SSH_HOST=team-host \
 HARNESS_DAEMON_REMOTE_ROOT=/srv/harness/team \
 HARNESS_DAEMON_REMOTE_HA=ha \
 ha task list
 ```
 
-`HARNESS_DAEMON_MODE`, `HARNESS_DAEMON_SSH_HOST`, and
+`settings.identity.mode: remote`, `HARNESS_DAEMON_SSH_HOST`, and
 `HARNESS_DAEMON_REMOTE_ROOT` are required. `HARNESS_DAEMON_REMOTE_HA` defaults
 to `ha`; set it when the remote binary path is different. Set
 `HARNESS_DAEMON_REPO_ID` when the remote side should serve a registered repo id
@@ -236,8 +257,12 @@ the `0700` directory and `0600` socket permit only the owner to connect. Widenin
 either permission invalidates this boundary and requires a different identity
 source.
 
-`harness/people.yaml` enables roster-based authorization when it exists. Without
-that roster, local connections are trusted by the transport boundary.
+`~/.harness/people.yaml` is the machine identity authority. A repository-level
+`harness/people.yaml` overlays it without silently rebinding credentials. If no
+usable roster exists, writes fail with setup instructions rather than inventing
+a principal. A forced-command bootstrap principal is honored only for a repo
+declared `remote`; local mode consumes and ignores it, then uses the socket-owner
+boundary.
 
 ## Service Templates
 

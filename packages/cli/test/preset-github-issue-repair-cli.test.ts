@@ -154,7 +154,16 @@ test("CLI github issue repair preset requires an explicit repository input", () 
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const output = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HARNESS_ACTOR: "agent:github-issue-repair-test",
+        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
+        HARNESS_DAEMON_MODE: "direct",
+        HARNESS_DIRECT_WRITE_REASON: "test",
+        HARNESS_USER_HOME: path.join(rootDir, ".empty-user-home")
+      }
     });
     const parsed = JSON.parse(output) as Record<string, any>;
     if (expectSuccess) assert.equal(parsed.ok, true, output);
