@@ -11,7 +11,31 @@ import {
   requestLocalDaemonJsonRpcForTarget,
   type LocalDaemonTarget
 } from "../src/client/local-json-rpc-client.ts";
-import { encodeJsonLineFrame, type JsonObject, type JsonRpcRequest } from "../src/index.ts";
+import {
+  createJsonLineFrameReader,
+  encodeJsonLineFrame,
+  type JsonObject,
+  type JsonRpcRequest
+} from "../src/index.ts";
+
+test("JSON line frames preserve UTF-8 when a multibyte character spans chunks", () => {
+  const request = {
+    jsonrpc: "2.0",
+    id: "utf8-split",
+    method: "repo.doc.sync.submit",
+    params: { payload: { body: "正文内容" } }
+  } satisfies JsonRpcRequest;
+  const encoded = Buffer.from(encodeJsonLineFrame(request), "utf8");
+  const firstCharacter = encoded.indexOf(Buffer.from("正", "utf8"));
+  assert.notEqual(firstCharacter, -1);
+
+  const reader = createJsonLineFrameReader();
+  const first = reader.push(encoded.subarray(0, firstCharacter + 1));
+  const second = reader.push(encoded.subarray(firstCharacter + 1));
+
+  assert.deepEqual(first, { frames: [] });
+  assert.deepEqual(second, { frames: [request] });
+});
 
 test("autostart coalesces concurrent requests to one spawn per socket path", async (t) => {
   if (process.platform === "win32") return;

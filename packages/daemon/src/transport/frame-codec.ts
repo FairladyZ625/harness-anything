@@ -1,3 +1,4 @@
+import { StringDecoder } from "node:string_decoder";
 import type { JsonRpcRequest } from "../protocol/json-rpc-types.ts";
 
 export interface JsonLineFrameBatch {
@@ -12,14 +13,21 @@ export interface JsonLineFrameReader {
 
 export function createJsonLineFrameReader(): JsonLineFrameReader {
   let buffered = "";
+  let decoder = new StringDecoder("utf8");
   return {
     push: (chunk) => {
-      buffered += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      if (typeof chunk === "string") {
+        buffered += decoder.end() + chunk;
+        decoder = new StringDecoder("utf8");
+      } else {
+        buffered += decoder.write(chunk);
+      }
       const lines = buffered.split("\n");
       buffered = lines.pop() ?? "";
       return parseLines(lines);
     },
     flush: () => {
+      buffered += decoder.end();
       if (buffered.trim() === "") {
         buffered = "";
         return { frames: [] };
