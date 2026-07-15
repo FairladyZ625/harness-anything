@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -39,6 +39,11 @@ export function writePeopleRoster(rootDir: string, person: {
 export function writeForcedCommandTeamRoster(rootDir: string): void {
   const harnessRoot = path.join(rootDir, "harness");
   mkdirSync(harnessRoot, { recursive: true });
+  const configPath = path.join(harnessRoot, "harness.yaml");
+  const config = readFileSync(configPath, "utf8");
+  writeFileSync(configPath, /settings:\n(?:[\s\S]*?)  identity:\n/u.test(config)
+    ? (config.includes("    mode: local") ? config.replace("    mode: local", "    mode: remote") : config.replace("  identity:\n", "  identity:\n    mode: remote\n"))
+    : config.replace("settings:\n", "settings:\n  identity:\n    mode: remote\n"), "utf8");
   writeFileSync(path.join(harnessRoot, "people.yaml"), [
     "schema: harness-people/v1",
     "people:",
@@ -97,6 +102,8 @@ export async function forcedCommandRequest(
       USER: "shared-harness"
     },
     streams: { input, output, error },
+    // This fixture exercises forced-command framing after sshd verification.
+    // daemon-connect.test.ts owns the process-witness contract itself.
     verifySshdContext: () => true
   });
   const client = new JsonRpcLineClient(output, input);
@@ -119,7 +126,7 @@ export function receiptDataString(receipt: Record<string, unknown>, key: string)
 
 function commitPeopleRoster(harnessRoot: string): void {
   if (!existsSync(path.join(harnessRoot, ".git"))) return;
-  execFileSync("git", ["-C", harnessRoot, "add", "--", "people.yaml"], { stdio: "ignore" });
+  execFileSync("git", ["-C", harnessRoot, "add", "--", "harness.yaml", "people.yaml"], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure daemon people roster"], {
     stdio: "ignore",
     env: gitAuthorEnv(harnessRoot)

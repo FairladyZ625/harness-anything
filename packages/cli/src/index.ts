@@ -33,6 +33,9 @@ type DaemonServeRepo = DaemonRepoNamespace & Pick<DaemonRegistryRepo, "displayNa
 const createMultiRepoDaemonRuntime = daemonRuntimeProvider.createMultiRepoDaemonRuntime;
 
 export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> {
+  const daemonOverrides = stripGlobalOptions(argv);
+  if (daemonOverrides.daemonMode) process.env.HARNESS_DAEMON_MODE = daemonOverrides.daemonMode;
+  if (daemonOverrides.daemonProfile) process.env.HARNESS_DAEMON_PROFILE = daemonOverrides.daemonProfile;
   const daemonExit = await maybeRunDaemonCommand(argv);
   if (daemonExit !== undefined) return daemonExit;
 
@@ -111,11 +114,12 @@ async function runDaemonServe(
       }
       const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
       const connections: DaemonConnectionStats = { active: 0, total: 0 };
-      serviceHost = createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections);
+      serviceHost = createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections, userRoot);
       serviceHost.startRegistryReconcile(userRoot);
       const transport = createDaemonLocalTransport({
         daemonId: serviceHost.daemonId,
         endpoint,
+        acceptSshForcedCommand: (frame) => serviceHost?.acceptsSshForcedCommand(frame.canonicalRoot) ?? false,
         createProtocolServer: serviceHost.createProtocolServer,
         onConnection: () => {
           connections.active += 1;

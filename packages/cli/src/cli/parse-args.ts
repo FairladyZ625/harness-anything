@@ -7,20 +7,36 @@ import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import type { CliResult, ParsedCommand } from "./types.ts";
 
 export function parseArgs(argv: ReadonlyArray<string>): { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] } {
-  const { rootDir, authoredRoot, daemonRepoId, actor, json, args: rawArgs } = stripGlobalOptions(argv);
+  const { rootDir, authoredRoot, daemonRepoId, actor, daemonMode, daemonProfile, json, args: rawArgs } = stripGlobalOptions(argv);
   const jsonInput = applyJsonInputLayer(rawArgs, process.cwd());
   if (!jsonInput.ok) return { ok: false, error: jsonInput.error };
   const args = jsonInput.args;
   const layoutOverrides = authoredRoot ? { authoredRoot } : undefined;
 
   const help = parseHelpRequest(args, rootDir, json, layoutOverrides);
-  if (help) return attachActor(attachDaemonRepoId(help, daemonRepoId), actor);
+  if (help) return attachDaemonOverrides(attachActor(attachDaemonRepoId(help, daemonRepoId), actor), daemonMode, daemonProfile);
 
   const parsed = parseRegisteredCommand(args, rootDir, json, jsonInput.input);
-  if (parsed) return attachActor(attachDaemonRepoId(attachLayoutOverrides(parsed, layoutOverrides), daemonRepoId), actor);
+  if (parsed) return attachDaemonOverrides(attachActor(attachDaemonRepoId(attachLayoutOverrides(parsed, layoutOverrides), daemonRepoId), actor), daemonMode, daemonProfile);
   return {
     ok: false,
     error: cliError(CliErrorCode.UnknownCommand, `Supported commands: ${commandRegistry.map((entry) => entry.primary).join("; ")}, template list, template render, preset validate, vertical validate.`)
+  };
+}
+
+function attachDaemonOverrides(
+  parsed: { readonly ok: true; readonly value: ParsedCommand } | { readonly ok: false; readonly error: CliResult["error"] },
+  daemonMode: ParsedCommand["daemonModeOverride"],
+  daemonProfile: ParsedCommand["daemonProfileOverride"]
+): typeof parsed {
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    value: {
+      ...parsed.value,
+      ...(daemonMode ? { daemonModeOverride: daemonMode } : {}),
+      ...(daemonProfile ? { daemonProfileOverride: daemonProfile } : {})
+    }
   };
 }
 

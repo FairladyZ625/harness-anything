@@ -58,6 +58,8 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
       "executions",
       `${executionId}.md`
     );
+    const branches = git(path.join(rootDir, "harness"), "branch", "--format=%(refname:short)");
+    assert.doesNotMatch(branches, /^sessions\/claiming-codex-session$/mu, JSON.stringify({ claimed, branches }));
     const execution = JSON.parse(git(
       harnessRoot,
       "show",

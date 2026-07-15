@@ -89,7 +89,8 @@ export const HarnessConfigSchema = Schema.Struct({
     defaultPreset: Schema.optional(ConfigIdentifierSchema),
     defaultProfile: Schema.optional(ConfigIdentifierSchema),
     identity: Schema.optional(Schema.Struct({
-      personId: ConfigIdentifierSchema,
+      mode: Schema.optional(Schema.Literal("local", "remote")),
+      personId: Schema.optional(ConfigIdentifierSchema),
       displayName: Schema.optional(Schema.String)
     })),
     tasks: Schema.optional(Schema.Struct({

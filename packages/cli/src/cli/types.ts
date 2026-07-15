@@ -204,6 +204,8 @@ export interface ParsedCommand {
   readonly layoutOverrides?: HarnessLayoutOverrides;
   readonly daemonRepoId?: string;
   readonly actor?: string;
+  readonly daemonModeOverride?: "direct" | "local" | "remote";
+  readonly daemonProfileOverride?: "default" | "isolated";
   readonly json: boolean;
   readonly action:
     | { readonly kind: "init"; readonly addNpmScripts: boolean; readonly projectName?: string }

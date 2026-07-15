@@ -97,7 +97,7 @@ test("explicit true environment override enables lease enforcement without confi
   });
 });
 
-test("task claim fails closed when HARNESS_ACTOR names an agent but settings.identity is missing", () => {
+test("task claim fails closed when HARNESS_ACTOR names an agent but machine identity is missing", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Missing Identity Claim"]);
@@ -109,13 +109,13 @@ test("task claim fails closed when HARNESS_ACTOR names an agent but settings.ide
 
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "AuthMissing");
-    assert.match(rejected.error?.hint ?? "", /settings\.identity\.personId/u);
+    assert.match(rejected.error?.hint ?? "", /machine identity|people\.yaml/u);
     assert.equal(existsTaskHolder(rootDir, created.taskId), false);
     assert.equal(JSON.stringify(rejected).includes("person:claude-code"), false);
   });
 });
 
-test("lease enforcement reports missing configured identity instead of journal failure", () => {
+test("lease enforcement reports missing machine identity instead of journal failure", () => {
   withTempRoot((rootDir) => {
     writeHarnessIdentity(rootDir, "person_zeyu", "Zeyu Li");
     const created = runJson(rootDir, ["new-task", "--title", "Missing Identity Lease"]);
@@ -128,7 +128,7 @@ test("lease enforcement reports missing configured identity instead of journal f
 
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "write_rejected");
-    assert.match(rejected.error?.hint ?? "", /settings\.identity\.personId/u);
+    assert.match(rejected.error?.hint ?? "", /machine identity|people\.yaml/u);
     assert.equal((rejected.error?.hint ?? "").includes("Journal is unavailable"), false);
   });
 });
@@ -412,6 +412,8 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
       HARNESS_ACTOR: "agent:harness-test",
       HARNESS_GIT_AUTHOR_NAME: "Harness Tester",
       HARNESS_GIT_AUTHOR_EMAIL: "tester@example.test",
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DIRECT_WRITE_REASON: "test",
       CLAUDE_SESSION_ID: "",
       CLAUDE_CODE_SESSION_ID: "",
       CODEX_THREAD_ID: "",

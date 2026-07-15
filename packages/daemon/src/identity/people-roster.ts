@@ -34,24 +34,62 @@ export function loadPeopleRoster(rootInput: HarnessLayoutInput): PeopleRoster {
   if (!existsSync(filePath)) {
     throw new Error(`people.yaml not found: ${path.relative(layout.rootDir, filePath)}`);
   }
+  return loadPeopleRosterFile(filePath);
+}
+
+export function loadPeopleRosterFile(filePath: string): PeopleRoster {
   return peopleRosterFromDocument(readFileSync(filePath, "utf8"));
 }
 
 export function peopleRosterFromDocument(body: string): PeopleRoster {
   const raw = parsePeopleYaml(body);
   if (raw.schema !== "harness-people/v1") throw new Error("people.yaml schema must be harness-people/v1");
-  validateRoster(raw.people, raw.roles);
+  return peopleRosterFromRecords(raw.people, raw.roles);
+}
+
+export function mergePeopleRosters(machine: PeopleRoster, project: PeopleRoster): PeopleRoster {
+  const machineCredentialOwners = new Map<string, string>();
+  for (const person of machine.people) {
+    for (const credential of person.credentials) machineCredentialOwners.set(credentialKey(credential), person.personId);
+  }
+  for (const person of project.people) {
+    for (const credential of person.credentials) {
+      const machinePersonId = machineCredentialOwners.get(credentialKey(credential));
+      if (machinePersonId && machinePersonId !== person.personId) {
+        throw new Error(`project people.yaml cannot rebind machine credential from ${machinePersonId} to ${person.personId}`);
+      }
+    }
+  }
+
+  const people = new Map(machine.people.map((person) => [person.personId, person]));
+  for (const projectPerson of project.people) {
+    const machinePerson = people.get(projectPerson.personId);
+    const credentials = new Map((machinePerson?.credentials ?? []).map((credential) => [credentialKey(credential), credential]));
+    for (const credential of projectPerson.credentials) credentials.set(credentialKey(credential), credential);
+    people.set(projectPerson.personId, {
+      ...machinePerson,
+      ...projectPerson,
+      credentials: [...credentials.values()]
+    });
+  }
+  const roles = new Map(machine.roles.map((role) => [role.roleId, role]));
+  for (const role of project.roles) roles.set(role.roleId, role);
+  return peopleRosterFromRecords([...people.values()], [...roles.values()]);
+}
+
+function peopleRosterFromRecords(people: ReadonlyArray<PersonProfile>, roles: ReadonlyArray<RolePolicy>): PeopleRoster {
+  validateRoster(people, roles);
   const peopleByCredential = new Map<string, PersonProfile>();
-  for (const person of raw.people) {
+  for (const person of people) {
     for (const credential of person.credentials) {
       peopleByCredential.set(credentialKey(credential), person);
     }
   }
-  const rolesById = new Map(raw.roles.map((role) => [role.roleId, role]));
+  const rolesById = new Map(roles.map((role) => [role.roleId, role]));
   return {
     schema: "harness-people/v1",
-    people: raw.people,
-    roles: raw.roles,
+    people,
+    roles,
     resolveCredential: (credential, providerId) => {
       const person = peopleByCredential.get(credentialKey(credential));
       if (!person) return credentialResolutionFailure(providerId, "credential_unknown", "Credential is not bound to a person.", credential);

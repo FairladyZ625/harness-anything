@@ -179,6 +179,37 @@ test("forced-command relay attributes two shared-account members without collaps
   });
 });
 
+test("local repo mode ignores a forced-command personId and keeps the socket-owner principal", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const userRoot = defaultDaemonUserRoot(rootDir);
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    const task = runRawJson(rootDir, ["new-task", "--title", "Local Forced Frame Rejected"], {
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+    writeForcedCommandTeamRoster(rootDir);
+    const configPath = path.join(rootDir, "harness/harness.yaml");
+    writeFileSync(configPath, readFileSync(configPath, "utf8").replace("mode: remote", "mode: local"), "utf8");
+    git(path.join(rootDir, "harness"), "add", "harness.yaml");
+    git(path.join(rootDir, "harness"), "commit", "-m", "test: select local identity mode");
+
+    try {
+      runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"], { HARNESS_DAEMON_USER_ROOT: userRoot });
+      const claimed = await forcedCommandRequest(rootDir, userRoot, "person_bob", "repo.task.claim", {
+        repo: { repoId: "canonical", canonicalRoot: rootDir },
+        payload: { taskId: receiptDataString(task, "taskId"), executor: { kind: "agent", id: "spoof-client" } }
+      });
+
+      assert.equal(claimed.ok, true, JSON.stringify(claimed));
+      const holder = (((claimed.details as Record<string, unknown>).data as Record<string, unknown>).effectiveHolder as Record<string, unknown>);
+      assert.equal((holder.principal as { personId?: string }).personId, "person_alice");
+      assert.deepEqual(holder.executor, { kind: "agent", id: "spoof-client" });
+    } finally {
+      stopDaemonQuietly(rootDir, userRoot);
+    }
+  });
+});
+
 test("daemon serve --stdio is rejected before runtime attachment", async () => {
   await withTempRootAsync(async (rootDir) => {
     const result = await runDaemonCliProcess(rootDir, ["daemon", "serve", "--stdio"]);
@@ -352,6 +383,7 @@ test("daemon start service status and stop expose productized status contract", 
       assert.equal((status.repos as Array<{ repoId?: string; state?: string }>)[0]?.state, "attached");
 
       const stop = runDaemonCommand(rootDir, ["daemon", "stop", "--timeout-ms", "5000", "--json"]);
+      assert.equal(stop.pid, status.pid);
       assert.equal(stop.signaled, true);
       assert.equal(stop.drained, true);
       assert.equal(stop.stopped, true);

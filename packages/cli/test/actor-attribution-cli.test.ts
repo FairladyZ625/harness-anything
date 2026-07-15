@@ -206,7 +206,10 @@ test("local resolver combines configured principal and asserted executor once", 
   withTempRoot((rootDir) => {
     const attribution = resolveLocalCliActorAttribution(
       { rootDir },
-      actorEnv("agent:codex", "Harness Writer", "writer@example.test")
+      {
+        ...actorEnv("agent:codex", "Harness Writer", "writer@example.test"),
+        HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user")
+      }
     );
     assert.deepEqual(attribution.writeAttribution.actor, {
       principal: { kind: "person", personId: "person_test" },
@@ -239,7 +242,10 @@ test("local resolver rejects a disabled configured person", () => {
     assert.throws(
       () => resolveLocalCliActorAttribution(
         { rootDir },
-        actorEnv("agent:codex", "Harness Writer", "writer@example.test")
+        {
+          ...actorEnv("agent:codex", "Harness Writer", "writer@example.test"),
+          HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user")
+        }
       ),
       /person_test.*disabled/u
     );
@@ -340,7 +346,12 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env }
+      env: {
+        ...process.env,
+        HARNESS_DAEMON_MODE: "direct",
+        HARNESS_DIRECT_WRITE_REASON: "test",
+        ...env
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

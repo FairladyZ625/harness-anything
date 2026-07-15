@@ -111,7 +111,17 @@ export function localUserDaemonEndpoint(
 }
 
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return path.resolve(readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_USER_ROOT") ?? path.join(os.homedir(), ".harness"));
+  const home = readNonEmptyDaemonEnv(env, "HOME") ?? os.homedir();
+  return path.resolve(readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_USER_ROOT") ?? path.join(home, ".harness"));
+}
+
+export function daemonUserRootForRepo(rootDir: string, env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_USER_ROOT");
+  if (explicit) return path.resolve(explicit);
+  const profile = readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_PROFILE") ?? "default";
+  if (profile === "default") return daemonUserRoot(env);
+  if (profile === "isolated") return path.resolve(rootDir, ".harness", "daemon-profile");
+  throw new Error("HARNESS_DAEMON_PROFILE must be default or isolated.");
 }
 
 export function daemonIdFromEnv(env: NodeJS.ProcessEnv = process.env): string {
@@ -127,7 +137,7 @@ export function resolveLocalDaemonTarget(input: {
   readonly env?: NodeJS.ProcessEnv;
 }): LocalDaemonTarget {
   const env = input.env ?? process.env;
-  const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
+  const userRoot = path.resolve(input.userRoot ?? daemonUserRootForRepo(input.rootDir, env));
   const daemonId = input.daemonId ?? daemonIdFromEnv(env);
   const repoIdOverride = input.repoIdOverride ?? readNonEmptyDaemonEnv(env, "HARNESS_DAEMON_REPO_ID");
   const registry = readDaemonRegistry({ userRoot });

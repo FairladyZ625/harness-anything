@@ -308,7 +308,13 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...testActorEnv, ...env }
+      env: {
+        ...process.env,
+        HARNESS_DAEMON_MODE: "direct",
+        HARNESS_DIRECT_WRITE_REASON: "test",
+        ...testActorEnv,
+        ...env
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {
@@ -322,7 +328,12 @@ function runText(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...testActorEnv },
+      env: {
+        ...process.env,
+        HARNESS_DAEMON_MODE: "direct",
+        HARNESS_DIRECT_WRITE_REASON: "test",
+        ...testActorEnv
+      },
       stdio: ["ignore", "pipe", "pipe"]
     });
     return stdout;
@@ -346,10 +357,12 @@ function configureTestIdentity(rootDir: string): void {
   const harnessRoot = path.join(rootDir, "harness");
   const configPath = path.join(harnessRoot, "harness.yaml");
   const config = readFileSync(configPath, "utf8");
-  writeFileSync(configPath, config.replace(
-    /^settings:$/mu,
-    "settings:\n  identity:\n    personId: person_test\n    displayName: Harness Test"
-  ), "utf8");
+  writeFileSync(configPath, config.includes("  identity:\n")
+    ? config.replace("  identity:\n", "  identity:\n    personId: person_test\n    displayName: Harness Test\n")
+    : config.replace(
+      /^settings:$/mu,
+      "settings:\n  identity:\n    personId: person_test\n    displayName: Harness Test"
+    ), "utf8");
   execFileSync("git", ["-C", harnessRoot, "add", "harness.yaml"], { stdio: "ignore" });
   execFileSync("git", ["-C", harnessRoot, "-c", "user.name=Harness Test", "-c", "user.email=harness@example.test", "commit", "-m", "test: configure identity"], { stdio: "ignore" });
 }

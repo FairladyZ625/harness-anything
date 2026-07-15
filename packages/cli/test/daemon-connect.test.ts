@@ -57,13 +57,15 @@ test("daemon serve transport wires the selected endpoint to the platform adapter
     daemonId: "daemon-test",
     endpoint: "\\\\.\\pipe\\daemon-test",
     platform: "win32",
-    createProtocolServer
+    createProtocolServer,
+    acceptSshForcedCommand: () => false
   });
   const posix = createDaemonLocalTransport({
     daemonId: "daemon-test",
     endpoint: "/tmp/daemon-test.sock",
     platform: "linux",
-    createProtocolServer
+    createProtocolServer,
+    acceptSshForcedCommand: () => false
   });
 
   assert.equal(windows.kind, "named-pipe");
@@ -122,7 +124,7 @@ test("forced-command principal requires an unforgeable sshd process witness", ()
   }), /root-owned sshd ancestor/iu);
 });
 
-test("forced-command principal is static argv and never comes from SSH_ORIGINAL_COMMAND or USER", () => {
+test("after an independently tested sshd witness passes, principal comes from static argv rather than SSH_ORIGINAL_COMMAND or USER", () => {
   const authentication = resolveSshForcedCommandAuthentication({
     args: ["daemon", "connect", "--stdio", "--principal", "person_alice", "--expect-original-command", "ha daemon connect --stdio"],
     rootDir: "/srv/canonical",

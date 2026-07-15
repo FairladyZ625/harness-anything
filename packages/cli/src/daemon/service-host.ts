@@ -4,6 +4,8 @@ import {
   makeRuntimeEventLedgerService,
   makeTaskHolderService
 } from "../../../application/src/index.ts";
+import path from "node:path";
+import { realpathSync } from "node:fs";
 import {
   createPtyTerminalSessionService,
   createJsonRpcProtocolServer,
@@ -38,6 +40,7 @@ import {
 type HarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createDaemonRuntime"]>;
 type MultiRepoHarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createMultiRepoDaemonRuntime"]>;
 type RepoServiceBinding = ReturnType<typeof createRepoServiceBinding>;
+type RepoIdentity = ReturnType<typeof loadDaemonIdentity> & { readonly loadError?: string };
 
 export function createDaemonServiceHost(
   runtime: MultiRepoHarnessDaemonRuntime,
@@ -46,10 +49,12 @@ export function createDaemonServiceHost(
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   idleMs: number,
   endpoint: string,
-  connections: DaemonConnectionStats
+  connections: DaemonConnectionStats,
+  userRoot: string
 ): {
   readonly daemonId: string;
   readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => ReturnType<typeof createJsonRpcProtocolServer>;
+  readonly acceptsSshForcedCommand: (canonicalRoot: string) => boolean;
   readonly status: () => Record<string, unknown>;
   readonly onConnectionStart: () => void;
   readonly onConnectionSettled: () => void;
@@ -103,7 +108,7 @@ export function createDaemonServiceHost(
       runtime,
       layoutOverrides,
       commandOptions,
-      { daemonId, endpoint, connections }
+      { daemonId, endpoint, connections, userRoot }
     )] as const;
   }));
   return {
@@ -113,6 +118,7 @@ export function createDaemonServiceHost(
       repos: sortedDaemonRepos([...reposById.values()]),
       services: defaultRepoBinding().services,
       resolveRepoServices: (repo) => repoBindings.get(repo.repoId)?.services,
+      resolveRepoIdentity: (repo) => repoBindings.get(repo.repoId)?.identity,
       resolveRepoAvailability: (repo) => repoAvailabilityFailure(runtime, repo),
       leaseEnforcementEnabled: (repo) => leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
       authContext,
@@ -124,6 +130,9 @@ export function createDaemonServiceHost(
         return repoBindings.get(targetRepoId)?.appendRuntimeEvent(input) ?? Promise.resolve();
       }
     }),
+    acceptsSshForcedCommand: (canonicalRoot) => [...repoBindings.values()].some((binding) =>
+      binding.identity.mode === "remote" && sameCanonicalRoot(binding.repo.canonicalRoot, canonicalRoot)
+    ),
     status: () => daemonStatusPayload({
       daemonId,
       rootDir: defaultRepoBinding().repo.canonicalRoot,
@@ -193,7 +202,7 @@ export function createDaemonServiceHost(
             runtime,
             layoutOverrides,
             commandOptions,
-            { daemonId, endpoint, connections }
+            { daemonId, endpoint, connections, userRoot }
           ));
         }
       }
@@ -214,15 +223,15 @@ function createRepoServiceBinding(
   managerRuntime: MultiRepoHarnessDaemonRuntime,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
   commandOptions: { readonly onCommandStart: () => void; readonly onCommandSettled: () => void },
-  statusOptions?: { readonly daemonId?: string; readonly endpoint?: string; readonly connections?: DaemonConnectionStats }
+  statusOptions?: { readonly daemonId?: string; readonly endpoint?: string; readonly connections?: DaemonConnectionStats; readonly userRoot?: string }
 ): {
   readonly repo: DaemonRepoNamespace;
-  readonly identity: ReturnType<typeof loadDaemonIdentity>;
+  readonly identity: RepoIdentity;
   readonly services: Parameters<typeof createJsonRpcProtocolServer>[0]["services"];
   readonly appendRuntimeEvent: ReturnType<typeof makeRuntimeEventAppendPromise>;
 } {
   const rootDir = repo.canonicalRoot;
-  const identity = loadDaemonIdentity(rootDir, layoutOverrides, statusOptions?.endpoint);
+  const identity = loadRepoIdentity(rootDir, layoutOverrides, statusOptions?.endpoint, statusOptions?.userRoot);
   const taskWriter = selectCliAdapterProvider("task.lifecycle").createLifecycleEngine({
     rootDir,
     layoutOverrides,
@@ -298,6 +307,22 @@ function createRepoServiceBinding(
   };
 }
 
+function loadRepoIdentity(
+  rootDir: string,
+  layoutOverrides: { readonly authoredRoot?: string } | undefined,
+  endpoint: string | undefined,
+  userRoot: string | undefined
+): RepoIdentity {
+  try {
+    return loadDaemonIdentity(rootDir, layoutOverrides, endpoint, userRoot);
+  } catch (error) {
+    return {
+      mode: "local",
+      loadError: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 function repoAvailabilityFailure(
   runtime: MultiRepoHarnessDaemonRuntime,
   repo: DaemonRepoNamespace
@@ -333,4 +358,16 @@ function repoAvailabilityFailure(
 
 function sortedDaemonRepos(repos: ReadonlyArray<DaemonRepoNamespace>): ReadonlyArray<DaemonRepoNamespace> {
   return [...repos].sort((left, right) => left.repoId.localeCompare(right.repoId) || left.canonicalRoot.localeCompare(right.canonicalRoot));
+}
+
+function sameCanonicalRoot(left: string, right: string): boolean {
+  return canonicalRootIdentity(left) === canonicalRootIdentity(right);
+}
+
+function canonicalRootIdentity(value: string): string {
+  try {
+    return realpathSync(value);
+  } catch {
+    return path.resolve(value);
+  }
 }

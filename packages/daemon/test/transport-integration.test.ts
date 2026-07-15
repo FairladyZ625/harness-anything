@@ -244,6 +244,65 @@ test("forced-command bootstrap is consumed before JSON-RPC and becomes authConte
   await connection.close();
 });
 
+test("local repo mode consumes a forged forced-command frame and authenticates the socket owner", async () => {
+  const clientToServer = new PassThrough();
+  const serverToClient = new PassThrough();
+  let seenAuthContext: DaemonAuthenticationContext | undefined;
+  const connection = serveJsonRpcStream({
+    input: clientToServer,
+    output: serverToClient,
+    transportKind: "unix-socket",
+    authContext: {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" }
+    },
+    authenticateFirstFrame: (frame, context) => authenticateSshForcedCommandFrame(frame, context, () => false),
+    createProtocolServer: (authContext) => {
+      seenAuthContext = authContext;
+      return makeProtocolServerFactory()(authContext);
+    }
+  });
+  const client = frameClient(serverToClient, clientToServer);
+
+  client.send(sshForcedCommandBootstrapFrame({ personId: "person_alice", canonicalRoot: "/srv/local" }));
+  client.send(hello("local-forged-hello"));
+  assert.equal(resultReceipt(await client.read()).ok, true);
+  assert.equal(seenAuthContext?.sshForcedCommand, undefined);
+  const authenticated = await makeTransportDerivedIdentityProvider(localBoundaryRoster(), {
+    localUnixIssuer: "host:team-host"
+  }).authenticate(seenAuthContext!);
+  assert.equal(authenticated.ok && authenticated.personId, "person_socket_owner");
+  await connection.close();
+});
+
+test("remote repo mode accepts the forced-command principal while the same socket owner is present", async () => {
+  const clientToServer = new PassThrough();
+  const serverToClient = new PassThrough();
+  let seenAuthContext: DaemonAuthenticationContext | undefined;
+  const connection = serveJsonRpcStream({
+    input: clientToServer,
+    output: serverToClient,
+    transportKind: "unix-socket",
+    authContext: {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" }
+    },
+    authenticateFirstFrame: (frame, context) => authenticateSshForcedCommandFrame(frame, context, (bootstrap) => bootstrap.canonicalRoot === "/srv/remote"),
+    createProtocolServer: (authContext) => {
+      seenAuthContext = authContext;
+      return makeProtocolServerFactory()(authContext);
+    }
+  });
+  const client = frameClient(serverToClient, clientToServer);
+
+  client.send(sshForcedCommandBootstrapFrame({ personId: "person_alice", canonicalRoot: "/srv/remote" }));
+  client.send(hello("remote-forced-hello"));
+  assert.equal(resultReceipt(await client.read()).ok, true);
+  assert.equal(seenAuthContext?.sshForcedCommand?.personId, "person_alice");
+  assert.equal(seenAuthContext?.unixSocketOwnerBoundary?.ownerUid, 501);
+  await connection.close();
+});
+
 test("JSON-RPC handler failures preserve the request id and connection", async () => {
   const clientToServer = new PassThrough();
   const serverToClient = new PassThrough();

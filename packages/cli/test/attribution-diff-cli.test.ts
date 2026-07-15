@@ -130,7 +130,13 @@ function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = t
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
       encoding: "utf8",
       maxBuffer: 256 * 1024 * 1024,
-      env: { ...process.env, ...env }
+      env: {
+        ...process.env,
+        HARNESS_ACTOR: "agent:attribution-diff-test",
+        HARNESS_DAEMON_MODE: "direct",
+        HARNESS_DIRECT_WRITE_REASON: "test",
+        ...env
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

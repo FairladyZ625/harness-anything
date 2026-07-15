@@ -7,6 +7,7 @@ import { initializeHarness } from "../init.ts";
 import type { CommandRunner } from "../../cli/runner-registry.ts";
 import type { CliResult } from "../../cli/types.ts";
 import { resolveLocalCliBootstrapAuthor } from "../../composition/actor-attribution.ts";
+import { daemonUserRootForRepo, ensureMachinePeopleRoster } from "../../../../daemon/src/index.ts";
 
 const initSmokeTitle = "Harness onboarding smoke";
 const initSmokeSlug = "harness-onboarding-smoke";
@@ -15,7 +16,12 @@ export const runInitCommand: CommandRunner = (context, command) => {
   const action = command.action as Extract<typeof command.action, { readonly kind: "init" }>;
   return Effect.sync(() => {
     try {
-      return initializeHarness(context.layoutInput, action.addNpmScripts, action.projectName, resolveLocalCliBootstrapAuthor(process.env, command.actor));
+      const author = resolveLocalCliBootstrapAuthor(process.env, command.actor);
+      const result = initializeHarness(context.layoutInput, action.addNpmScripts, action.projectName, author);
+      if (result.ok && (!process.env.NODE_TEST_CONTEXT || process.env.HARNESS_BOOTSTRAP_MACHINE_IDENTITY === "1")) {
+        ensureMachinePeopleRoster(daemonUserRootForRepo(context.rootDir, process.env), author);
+      }
+      return result;
     } catch (error) {
       return {
         ok: false,

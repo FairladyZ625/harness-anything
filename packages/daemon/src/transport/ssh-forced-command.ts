@@ -10,6 +10,8 @@ export interface SshForcedCommandBootstrapFrame extends SshForcedCommandBootstra
   readonly type: "harness-daemon.ssh-forced-command/v1";
 }
 
+export type AcceptSshForcedCommand = (frame: SshForcedCommandBootstrapFrame) => boolean;
+
 export function sshForcedCommandBootstrapFrame(
   input: SshForcedCommandBootstrapInput
 ): SshForcedCommandBootstrapFrame {
@@ -22,7 +24,8 @@ export function sshForcedCommandBootstrapFrame(
 
 export function authenticateSshForcedCommandFrame(
   frame: unknown,
-  authContext: DaemonAuthenticationContext
+  authContext: DaemonAuthenticationContext,
+  accept: AcceptSshForcedCommand = () => true
 ): TransportAuthenticationResult {
   if (!isSshForcedCommandBootstrapFrame(frame)) {
     if (isForcedCommandFrameType(frame)) {
@@ -30,6 +33,7 @@ export function authenticateSshForcedCommandFrame(
     }
     return { ok: true, authContext, forwardFrame: true };
   }
+  if (!accept(frame)) return { ok: true, authContext };
   return {
     ok: true,
     authContext: {

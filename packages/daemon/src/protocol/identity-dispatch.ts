@@ -23,7 +23,7 @@ export async function resolveIdentityActorForMethod(
       ? identityFailure(
           "identity-provider/unavailable",
           "provider_unavailable",
-          "Daemon writes require an identity provider to authenticate the principal."
+          "Daemon writes require an identity provider to authenticate the principal. Local: run ha init with HARNESS_GIT_AUTHOR_NAME and HARNESS_GIT_AUTHOR_EMAIL set, or configure the current host/uid in ~/.harness/people.yaml. Remote: configure the repo roster and connect through the authorized_keys forced command."
         )
       : undefined;
   }

@@ -48,7 +48,15 @@ test("CLI create-milestone render-html derives a deterministic self-contained do
 function runJson(rootDir: string, args: ReadonlyArray<string>, expectSuccess = true): Record<string, any> {
   try {
     const stdout = execFileSync(process.execPath, [cliEntry, "--root", rootDir, "--json", ...args], {
-      encoding: "utf8"
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HARNESS_ACTOR: "agent:create-milestone-render-test",
+        HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+        HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
+        HARNESS_DAEMON_MODE: "direct",
+        HARNESS_DIRECT_WRITE_REASON: "test"
+      }
     });
     return unwrapCommandReceipt(JSON.parse(stdout) as Record<string, any>);
   } catch (error) {

@@ -164,7 +164,7 @@ test("CLI entity write fails closed before runtime event append when principal c
 
     assert.equal(output.result.ok, false);
     assert.equal(existsSync(ledgerPath), false);
-    assert.match(output.result.warnings?.[0]?.message ?? "", /Local writes require a configured person identity/u);
+    assert.match(output.result.warnings?.[0]?.message ?? "", /Local writes require a machine identity/u);
   });
 });
 

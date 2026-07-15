@@ -28,6 +28,8 @@ test("daemon client routes writes for two registered repos through one user-leve
 
       assert.equal(alphaCreated.ok, true);
       assert.equal(betaCreated.ok, true);
+      assert.equal(receiptActorPersonId(alphaCreated), "person_alpha");
+      assert.equal(receiptActorPersonId(betaCreated), "person_beta");
       const alphaTaskId = receiptTaskId(alphaCreated);
       const betaTaskId = receiptTaskId(betaCreated);
       assertTaskIndexContains(alphaRoot, alphaTaskId, "alpha-routed-write", "Alpha Routed Write");
@@ -49,6 +51,84 @@ test("daemon client routes writes for two registered repos through one user-leve
       stopDaemonQuietly(betaRoot, userRoot);
     }
   });
+});
+
+test("isolated profile bootstraps machine identity and writes the first task in a new repo", () => {
+  withTempRoot((rootDir) => {
+    mkdirSync(rootDir, { recursive: true });
+    const isolatedEnv = {
+      HARNESS_BOOTSTRAP_MACHINE_IDENTITY: "1",
+      HARNESS_DAEMON_MODE: "direct",
+      HARNESS_DAEMON_PROFILE: "isolated",
+      HARNESS_DAEMON_USER_ROOT: ""
+    };
+    runRawJson(rootDir, ["--daemon-profile", "isolated", "init"], isolatedEnv);
+    const userRoot = path.join(rootDir, ".harness/daemon-profile");
+    assert.equal(existsSync(path.join(userRoot, "people.yaml")), true);
+    runDaemonCommand(rootDir, [
+      "--daemon-profile", "isolated", "daemon", "repo", "register",
+      "--repo-id", "coldstart", "--root", rootDir, "--no-link", "--json"
+    ], { HARNESS_DAEMON_PROFILE: "isolated", HARNESS_DAEMON_USER_ROOT: "" });
+    assert.equal(existsSync(path.join(userRoot, "registry.json")), true);
+
+    try {
+      const created = runRawJson(rootDir, ["--daemon-profile", "isolated", "new-task", "--title", "Cold Start First Task"], {
+        HARNESS_DAEMON_MODE: "local",
+        HARNESS_DAEMON_PROFILE: "isolated",
+        HARNESS_DAEMON_USER_ROOT: "",
+        HARNESS_DAEMON_IDLE_MS: "60000"
+      });
+      assert.equal(created.ok, true);
+      assert.equal(typeof receiptActorPersonId(created), "string");
+      assertTaskIndexContains(rootDir, receiptTaskId(created), "cold-start-first-task", "Cold Start First Task");
+    } finally {
+      stopDaemonQuietly(rootDir, userRoot);
+    }
+  });
+});
+
+test("registering a new tmp repo cannot replace the canonical daemon or break canonical writes", { skip: process.platform === "win32" }, async () => {
+  await withTempRootAsync(async (workspaceRoot) => {
+    const userRoot = path.join(workspaceRoot, "user-daemon");
+    const canonicalRoot = path.join(workspaceRoot, "canonical");
+    const experimentRoot = path.join(workspaceRoot, "coldstart-experiment");
+    mkdirSync(canonicalRoot, { recursive: true });
+    ensureTestHarnessIdentity(canonicalRoot);
+    runRawJson(canonicalRoot, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+    writePeopleRoster(canonicalRoot, "person_canonical");
+    runDaemonCommand(canonicalRoot, ["daemon", "repo", "register", "--repo-id", "canonical", "--root", canonicalRoot, "--user-root", userRoot, "--no-link", "--json"], {
+      HARNESS_DAEMON_USER_ROOT: userRoot
+    });
+
+    try {
+      const before = runRawJson(canonicalRoot, ["new-task", "--title", "Canonical Before Experiment"], {
+        HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_IDLE_MS: "60000"
+      });
+      const beforeStatus = runDaemonCommand(canonicalRoot, ["daemon", "status", "--user-root", userRoot, "--json"], {
+        HARNESS_DAEMON_USER_ROOT: userRoot
+      });
+
+      mkdirSync(experimentRoot, { recursive: true });
+      ensureTestHarnessIdentity(experimentRoot);
+      runRawJson(experimentRoot, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
+      writePeopleRoster(experimentRoot, "person_experiment");
+      runDaemonCommand(experimentRoot, ["daemon", "repo", "register", "--repo-id", "experiment", "--root", experimentRoot, "--user-root", userRoot, "--no-link", "--json"], {
+        HARNESS_DAEMON_USER_ROOT: userRoot
+      });
+      const reconciled = await waitForRepoState(canonicalRoot, userRoot, "canonical", "experiment", "attached");
+      const after = runRawJson(canonicalRoot, ["new-task", "--title", "Canonical After Experiment"], {
+        HARNESS_DAEMON_MODE: "local", HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_IDLE_MS: "60000"
+      });
+
+      assert.equal(before.ok, true);
+      assert.equal(after.ok, true);
+      assert.equal(receiptActorPersonId(after), "person_canonical");
+      assert.equal(reconciled.pid, beforeStatus.pid);
+      assertTaskIndexContains(canonicalRoot, receiptTaskId(after), "canonical-after-experiment", "Canonical After Experiment");
+    } finally {
+      stopDaemonQuietly(canonicalRoot, userRoot);
+    }
+  }, "/tmp");
 });
 
 test("daemon service isolates held repo locks, retries after release, and preserves per-repo fail-closed writes", async () => {
@@ -135,8 +215,8 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   }
 }
 
-async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-daemon-"));
+async function withTempRootAsync<T>(fn: (rootDir: string) => Promise<T>, parent = tmpdir()): Promise<T> {
+  const rootDir = mkdtempSync(path.join(parent, "ha-cli-daemon-"));
   try {
     return await fn(rootDir);
   } finally {
@@ -156,7 +236,7 @@ function setupRegisteredRepos(workspaceRoot: string): {
     mkdirSync(rootDir, { recursive: true });
     ensureTestHarnessIdentity(rootDir);
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: userRoot });
-    writePeopleRoster(rootDir);
+    writePeopleRoster(rootDir, rootDir === alphaRoot ? "person_alpha" : "person_beta");
   }
   runDaemonCommand(alphaRoot, ["daemon", "repo", "register", "--repo-id", "alpha", "--root", alphaRoot, "--user-root", userRoot, "--no-link", "--json"], {
     HARNESS_DAEMON_USER_ROOT: userRoot
@@ -167,14 +247,18 @@ function setupRegisteredRepos(workspaceRoot: string): {
   return { userRoot, alphaRoot, betaRoot };
 }
 
-function writePeopleRoster(rootDir: string): void {
+function writePeopleRoster(rootDir: string, personId: string): void {
   const harnessRoot = path.join(rootDir, "harness");
   mkdirSync(harnessRoot, { recursive: true });
+  const configPath = path.join(harnessRoot, "harness.yaml");
+  writeFileSync(configPath, readFileSync(configPath, "utf8")
+    .replace("personId: person_test", `personId: ${personId}`)
+    .replace("displayName: Harness Test", `displayName: ${personId}`), "utf8");
   writeFileSync(path.join(harnessRoot, "people.yaml"), [
     "schema: harness-people/v1",
     "people:",
-    "  - personId: person_test",
-    "    displayName: Harness Test",
+    `  - personId: ${personId}`,
+    `    displayName: ${personId}`,
     "    primaryEmail: daemon-tester@example.test",
     "    roles: [owner]",
     "    credentials:",
@@ -187,12 +271,18 @@ function writePeopleRoster(rootDir: string): void {
     ""
   ].join("\n"), "utf8");
   if (existsSync(path.join(harnessRoot, ".git"))) {
-    execFileSync("git", ["-C", harnessRoot, "add", "--", "people.yaml"], { stdio: "ignore" });
+    execFileSync("git", ["-C", harnessRoot, "add", "--", "harness.yaml", "people.yaml"], { stdio: "ignore" });
     execFileSync("git", ["-C", harnessRoot, "commit", "-m", "chore: configure daemon people roster"], {
       stdio: "ignore",
       env: gitAuthorEnv(rootDir)
     });
   }
+}
+
+function receiptActorPersonId(receipt: Record<string, unknown>): unknown {
+  const details = isRecord(receipt.details) ? receipt.details : {};
+  const actor = isRecord(details.actor) ? details.actor : {};
+  return actor.personId;
 }
 
 function gitAuthorEnv(rootDir: string): NodeJS.ProcessEnv {
@@ -202,6 +292,7 @@ function gitAuthorEnv(rootDir: string): NodeJS.ProcessEnv {
     ...process.env,
     HOME: path.join(rootDir, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
     GIT_AUTHOR_NAME: name,
     GIT_AUTHOR_EMAIL: email,
     GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? name,
@@ -246,6 +337,14 @@ function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): 
     ...process.env,
     HOME: path.join(rootDir, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    HARNESS_ACTOR: "agent:daemon-multi-repo-test",
+    HARNESS_GIT_AUTHOR_NAME: "Harness Test",
+    HARNESS_GIT_AUTHOR_EMAIL: "harness@example.test",
+    GIT_AUTHOR_NAME: "Harness Test",
+    GIT_AUTHOR_EMAIL: "harness@example.test",
+    GIT_COMMITTER_NAME: "Harness Test",
+    GIT_COMMITTER_EMAIL: "harness@example.test",
     HARNESS_DAEMON_USER_ROOT: path.join(rootDir, ".daemon-user"),
     CLAUDE_SESSION_ID: "",
     CLAUDE_CODE_SESSION_ID: "",
@@ -341,8 +440,9 @@ async function waitForRepoState(
     lastStatus = runDaemonCommand(rootDir, ["--repo", statusRepoId, "daemon", "status", "--user-root", userRoot, "--json"], {
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
-    const repo = requireStatusRepo(lastStatus, targetRepoId);
-    if (repo.state === state) return lastStatus;
+    const repos = Array.isArray(lastStatus.repos) ? lastStatus.repos as Array<Record<string, unknown>> : [];
+    const repo = repos.find((candidate) => candidate.repoId === targetRepoId);
+    if (repo?.state === state) return lastStatus;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.equal(requireStatusRepo(lastStatus ?? {}, targetRepoId).state, state);

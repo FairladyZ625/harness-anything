@@ -6,6 +6,8 @@ export interface GlobalParseOptions {
   readonly authoredRoot?: string;
   readonly daemonRepoId?: string;
   readonly actor?: string;
+  readonly daemonMode?: "direct" | "local" | "remote";
+  readonly daemonProfile?: "default" | "isolated";
   readonly json: boolean;
   readonly args: ReadonlyArray<string>;
 }
@@ -15,6 +17,8 @@ export function stripGlobalOptions(argv: ReadonlyArray<string>, cwd = process.cw
   const authoredRoot = readOption(argv, "--authored-root") ?? readNonEmptyProcessEnv("HARNESS_AUTHORED_ROOT");
   const daemonRepoId = readOption(argv, "--repo") ?? readNonEmptyProcessEnv("HARNESS_DAEMON_REPO_ID");
   const actor = readOption(argv, "--actor");
+  const daemonMode = readDaemonMode(readOption(argv, "--daemon-mode"));
+  const daemonProfile = readDaemonProfile(readOption(argv, "--daemon-profile"));
   const json = argv.includes("--json");
   const args = argv.filter((arg, index) => {
     const previous = argv[index - 1];
@@ -26,9 +30,25 @@ export function stripGlobalOptions(argv: ReadonlyArray<string>, cwd = process.cw
       && arg !== "--repo"
       && previous !== "--repo"
       && arg !== "--actor"
-      && previous !== "--actor";
+      && previous !== "--actor"
+      && arg !== "--daemon-mode"
+      && previous !== "--daemon-mode"
+      && arg !== "--daemon-profile"
+      && previous !== "--daemon-profile";
   });
-  return { rootDir, authoredRoot, daemonRepoId, actor, json, args };
+  return { rootDir, authoredRoot, daemonRepoId, actor, daemonMode, daemonProfile, json, args };
+}
+
+function readDaemonMode(value: string | undefined): GlobalParseOptions["daemonMode"] {
+  if (value === undefined) return undefined;
+  if (value === "direct" || value === "local" || value === "remote") return value;
+  throw new Error("--daemon-mode must be direct, local, or remote.");
+}
+
+function readDaemonProfile(value: string | undefined): GlobalParseOptions["daemonProfile"] {
+  if (value === undefined) return undefined;
+  if (value === "default" || value === "isolated") return value;
+  throw new Error("--daemon-profile must be default or isolated.");
 }
 
 function readNonEmptyProcessEnv(name: string): string | undefined {

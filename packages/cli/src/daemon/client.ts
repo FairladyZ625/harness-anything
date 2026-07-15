@@ -10,7 +10,7 @@ import {
 } from "../../../application/src/index.ts";
 import {
   daemonIdFromEnv,
-  daemonUserRoot,
+  daemonUserRootForRepo,
   DaemonJsonRpcResponseError,
   defaultDaemonAutostartTimeoutMs,
   defaultDaemonIdleExitMs,
@@ -35,6 +35,7 @@ import { CliActorAttributionError, readCliJournalActorFromEnv, readCliJournalAct
 import { parsePositiveIntegerOr } from "../cli/value-utils.ts";
 import { buildDocSyncSubmitRequest } from "./doc-sync-service.ts";
 import { resolveCanonicalHarnessRoot } from "./canonical-harness-root.ts";
+import { readProjectHarnessSettings } from "../commands/settings.ts";
 
 export {
   daemonIdForRoot,
@@ -73,14 +74,25 @@ type TaskHolderParsedCommand = ParsedCommand & {
   readonly action: { readonly kind: "task-holder"; readonly taskId: string };
 };
 
-export function readDaemonClientConfig(env: NodeJS.ProcessEnv = process.env): DaemonClientConfig {
-  const mode = readMode(env.HARNESS_DAEMON_MODE);
-  const userRoot = daemonUserRoot(env);
+export function readDaemonClientConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  rootDir = process.cwd(),
+  modeOverride?: DaemonClientMode,
+  profileOverride?: "default" | "isolated"
+): DaemonClientConfig {
+  env = {
+    ...env,
+    ...(modeOverride ? { HARNESS_DAEMON_MODE: modeOverride } : {}),
+    ...(profileOverride ? { HARNESS_DAEMON_PROFILE: profileOverride } : {})
+  };
+  const projectMode = readProjectDaemonMode(rootDir);
+  const mode = readMode(env.HARNESS_DAEMON_MODE ?? projectMode);
+  const userRoot = daemonUserRootForRepo(rootDir, env);
   const directWriteReason = readDirectWriteReason(env.HARNESS_DIRECT_WRITE_REASON)
     ?? (env.NODE_TEST_CONTEXT ? "test" : undefined);
   return {
     mode,
-    modeExplicit: typeof env.HARNESS_DAEMON_MODE === "string" && env.HARNESS_DAEMON_MODE.trim().length > 0,
+    modeExplicit: (typeof env.HARNESS_DAEMON_MODE === "string" && env.HARNESS_DAEMON_MODE.trim().length > 0) || projectMode !== undefined,
     idleExitMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_IDLE_MS, defaultDaemonIdleExitMs),
     autostartTimeoutMs: parsePositiveIntegerOr(env.HARNESS_DAEMON_AUTOSTART_TIMEOUT_MS, defaultDaemonAutostartTimeoutMs),
     userRoot,
@@ -90,10 +102,20 @@ export function readDaemonClientConfig(env: NodeJS.ProcessEnv = process.env): Da
   };
 }
 
+function readProjectDaemonMode(rootDir: string): "local" | "remote" | undefined {
+  try {
+    const settings = readProjectHarnessSettings(rootDir, "daemon-client-mode");
+    return settings.ok ? settings.settings.identity?.mode : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function runCommandThroughDaemon(
   command: ParsedCommand,
-  config: DaemonClientConfig = readDaemonClientConfig()
+  config?: DaemonClientConfig
 ): Promise<CommandReceipt | CommandFailureReceipt | undefined> {
+  config ??= readDaemonClientConfig(process.env, command.rootDir, command.daemonModeOverride, command.daemonProfileOverride);
   if (config.mode === "direct") {
     const rejection = directModeRejection(command, config);
     return rejection ?? undefined;
@@ -286,9 +308,13 @@ function directModeRejection(command: ParsedCommand, config: DaemonClientConfig)
 }
 
 function isInitializedHarness(command: ParsedCommand): boolean {
-  const canonicalRoot = resolveCanonicalHarnessRoot(createHarnessRuntimeContext(command.rootDir, command.layoutOverrides));
-  const layout = resolveHarnessLayout(createHarnessRuntimeContext(canonicalRoot, command.layoutOverrides));
-  return existsSync(path.join(layout.authoredRoot, "harness.yaml"));
+  try {
+    const canonicalRoot = resolveCanonicalHarnessRoot(createHarnessRuntimeContext(command.rootDir, command.layoutOverrides));
+    const layout = resolveHarnessLayout(createHarnessRuntimeContext(canonicalRoot, command.layoutOverrides));
+    return existsSync(path.join(layout.authoredRoot, "harness.yaml"));
+  } catch {
+    return false;
+  }
 }
 
 export function remoteDaemonSshArgs(remote: RemoteDaemonConfig): ReadonlyArray<string> {
