@@ -98,6 +98,21 @@ export function makeExecutionSagaService(options: ExecutionSagaServiceOptions): 
   return {
     claim: async (input) => {
       await reconcileTask(options, input.taskId);
+      const renewed = await options.taskHolderService.renewExecution({
+        taskId: input.taskId,
+        principal: input.principal,
+        ttlMs: input.ttlMs
+      });
+      if (renewed) {
+        const execution = await options.authoredStore.readExecution({
+          taskId: input.taskId,
+          executionId: renewed.executionId
+        });
+        if (!execution || execution.state !== "active") {
+          throw new Error(`active execution is unavailable for renewed lease: ${renewed.executionId}`);
+        }
+        return { ...renewed, execution };
+      }
       const executionId = generateExecutionId();
       const reservation = await options.taskHolderService.reserveExecution({
         taskId: input.taskId,

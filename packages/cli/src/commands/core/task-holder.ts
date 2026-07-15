@@ -20,25 +20,31 @@ function runExecutionClaim(
 ): Effect.Effect<CliResult> {
   const saga = executionSaga(context);
   return context.currentSessionProbe.currentSession.pipe(
-    Effect.flatMap((session) => Effect.promise(() => saga.claim({
-      taskId: action.taskId,
-      principal,
-      ttlMs: action.ttlMs,
-      primarySession: session.runtime === "human" ? null : session
-    }))),
-    Effect.map((result): CliResult => ({
-      ok: true,
-      command: "task-claim",
-      taskId: action.taskId,
-      executionId: result.executionId,
-      report: {
-        schema: "execution-claim-result/v1",
+    Effect.flatMap((session) => Effect.tryPromise({
+      try: () => saga.claim({
+        taskId: action.taskId,
+        principal,
+        ttlMs: action.ttlMs,
+        primarySession: session.runtime === "human" ? null : session
+      }),
+      catch: taskHolderCommandFailure
+    })),
+    Effect.match({
+      onFailure: (result): CliResult => resultForTaskHolderFailure("task-claim", action.taskId, result),
+      onSuccess: (result): CliResult => ({
+        ok: true,
+        command: "task-claim",
+        taskId: action.taskId,
         executionId: result.executionId,
-        leaseToken: result.leaseToken,
-        leaseExpiresAt: result.leaseExpiresAt,
-        actor: result.execution.primary_actor
-      }
-    }))
+        report: {
+          schema: "execution-claim-result/v1",
+          executionId: result.executionId,
+          leaseToken: result.leaseToken,
+          leaseExpiresAt: result.leaseExpiresAt,
+          actor: result.execution.primary_actor
+        }
+      })
+    })
   );
 }
 export function runExecutionSubmit(

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { receiptDataString, writePeopleRoster } from "./helpers/forced-command-daemon.ts";
-import { runRawJson, withTempRootAsync } from "./helpers/daemon-cli.ts";
+import { runRawJson, runRawJsonMaybeFail, withTempRootAsync } from "./helpers/daemon-cli.ts";
 import { git, receiptPath } from "./helpers/daemon-thin-client-fixtures.ts";
 
 test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller session binding", async () => {
@@ -53,6 +53,35 @@ test("daemon-backed Execution claim upgrades Holder V1 and preserves the caller 
       readonly leaseToken?: unknown;
     });
     assert.match(String(claimReport.leaseToken), /^[0-9a-f]{64}$/u, JSON.stringify(claimed));
+
+    const otherHolder = runRawJsonMaybeFail(rootDir, ["task", "claim", taskId, "--execution"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000",
+      HARNESS_ACTOR: "agent:other-worker",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "other-worker-session",
+      CODEX_SESSION_ID: "other-worker-session"
+    });
+    assert.equal(otherHolder.status, 1);
+    assert.equal(otherHolder.receipt.ok, false, JSON.stringify(otherHolder.receipt));
+    assert.match(String((otherHolder.receipt.error as { readonly hint?: string } | undefined)?.hint), /current holder principal=person_execution, executor=agent:daemon-cli-test/u);
+
+    const renewed = runRawJson(rootDir, ["task", "claim", taskId, "--execution"], {
+      HARNESS_DAEMON_MODE: "local",
+      HARNESS_DAEMON_IDLE_MS: "10000",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "claiming-codex-session",
+      CODEX_SESSION_ID: "claiming-codex-session"
+    });
+    assert.equal(receiptDataString(renewed, "executionId"), executionId);
+    const renewedReport = (((renewed.details as Record<string, unknown>).data as Record<string, unknown>).report as {
+      readonly leaseToken?: unknown;
+    });
+    assert.match(String(renewedReport.leaseToken), /^[0-9a-f]{64}$/u, JSON.stringify(renewed));
+    assert.notEqual(renewedReport.leaseToken, claimReport.leaseToken);
+
     const executionPath = path.posix.join(
       receiptPath(created, "package").replace(/^harness\//u, ""),
       "executions",

@@ -5,7 +5,8 @@ import path from "node:path";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "./local-layout-file-system.ts";
 import { listExecutionLeaseRefs } from "./task-holder-state-source.ts";
-import { hashExecutionLeaseToken, sameExecutionLeaseActor, sameTaskHolderPrincipal } from "./execution-lease-credential.ts";
+import { hashExecutionLeaseToken, leaseDurationMs, renewExecutionLeaseCredential, requireExecutionCredential,
+  sameExecutionLeaseActor, sameTaskHolderPrincipal } from "./execution-lease-credential.ts";
 import {
   emitExecutionLeaseEvents,
   executionLeaseRuntimeEvent,
@@ -120,6 +121,7 @@ export interface TaskHolderService {
   readonly release: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<TaskHolderReleaseResult>;
   readonly assertActiveLease: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
   readonly reserveExecution: (input: { readonly taskId: string; readonly executionId: string; readonly principal: TaskHolderPrincipal; readonly ttlMs?: number }) => Promise<ExecutionLeaseReservation>;
+  readonly renewExecution: (input: { readonly taskId: string; readonly principal: TaskHolderPrincipal; readonly ttlMs?: number }) => Promise<ExecutionLeaseContext | null>;
   readonly activateExecution: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal }) => Promise<ExecutionLeaseContext>;
   readonly releaseExecution: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal }) => Promise<TaskHolderReleaseResult>;
   readonly assertExecutionLease: (input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal }) => Promise<void>;
@@ -274,6 +276,30 @@ export function makeTaskHolderService(options: TaskHolderServiceOptions): TaskHo
         return {
           result: { ...holderSnapshot(input.taskId, record, at), executionId: input.executionId, leaseToken, phase: "reserving" } as ExecutionLeaseReservation,
           events
+        };
+      });
+      await emitExecutionLeaseEvents(options.appendLeaseEvent, mutation.events);
+      return mutation.result;
+    },
+    renewExecution: async (input) => {
+      const mutation = await withTaskHolderMutationLock(options.rootInput, input.taskId, () => {
+        const at = now();
+        const current = readHolderRecord(options.rootInput, input.taskId);
+        if (current?.schema !== "task-holder/v2" || Date.parse(current.leaseExpiresAt) <= at.getTime()) {
+          return { result: null, events: [] };
+        }
+        const leaseDuration = input.ttlMs === undefined
+          ? leaseDurationMs(current, ttl(undefined))
+          : ttl(input.ttlMs);
+        const { record, leaseToken } = renewExecutionLeaseCredential(
+          current,
+          { principal: input.principal, leaseDurationMs: leaseDuration },
+          at
+        );
+        writeHolderRecord(options.rootInput, record);
+        return {
+          result: { ...holderSnapshot(input.taskId, record, at), executionId: record.executionId, leaseToken, phase: "active" } as ExecutionLeaseContext,
+          events: [executionLeaseRuntimeEvent(record, "renewed", "active")]
         };
       });
       await emitExecutionLeaseEvents(options.appendLeaseEvent, mutation.events);
@@ -564,32 +590,6 @@ function emptyHolderRecord(taskId: string, at: string): TaskHolderRecord {
 function normalizeTtlMs(value: number): number {
   if (!Number.isFinite(value) || value <= 0) throw new Error("ttlMs must be a positive number");
   return Math.floor(value);
-}
-
-function leaseDurationMs(record: TaskHolderRecord, fallback: number): number {
-  if (!record.leaseExpiresAt) return fallback;
-  const duration = Date.parse(record.leaseExpiresAt) - Date.parse(record.updatedAt);
-  return Number.isFinite(duration) && duration > 0 ? duration : fallback;
-}
-
-function requireExecutionCredential(
-  record: AnyTaskHolderRecord | null,
-  input: { readonly taskId: string; readonly executionId: string; readonly leaseToken: string; readonly principal: TaskHolderPrincipal },
-  at: Date
-): ExecutionLeaseRecord {
-  const valid = record?.schema === "task-holder/v2" &&
-    Date.parse(record.leaseExpiresAt) > at.getTime() &&
-    record.executionId === input.executionId &&
-    record.tokenHash === hashExecutionLeaseToken(input.leaseToken) &&
-    sameExecutionLeaseActor(record.holder, input.principal);
-  if (!valid) throw new TaskLeaseRequiredError({
-    taskId: input.taskId,
-    principal: input.principal,
-    holder: record?.holder ?? null,
-    leaseExpiresAt: record?.leaseExpiresAt ?? null,
-    orphan: Boolean(record?.holder && !effectiveHolder(record, at))
-  });
-  return record;
 }
 
 function holderVersion(at: string): string {

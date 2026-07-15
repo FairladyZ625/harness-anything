@@ -197,6 +197,47 @@ test("default claim and submit use Holder V2 without requiring an execution id",
     assert.equal(execution.session_bindings[0]?.session_ref, "session/codex-primary-session");
     assert.equal(execution.session_bindings[0]?.archive_status, "pending");
 
+    const otherHolder = runJson(rootDir, ["task", "claim", created.taskId], false, {
+      HARNESS_ACTOR: "agent:other-worker",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "other-worker-session",
+      CODEX_SESSION_ID: "other-worker-session"
+    });
+    assert.equal(otherHolder.ok, false);
+    assert.equal(otherHolder.report.code, "execution_lease_collision");
+
+    const renewed = runJson(rootDir, ["task", "claim", created.taskId], true, {
+      HARNESS_ACTOR: "agent:test",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "codex-primary-session",
+      CODEX_SESSION_ID: "codex-primary-session"
+    });
+    assert.equal(renewed.executionId, claimed.executionId);
+    assert.notEqual(renewed.report.leaseToken, claimed.report.leaseToken);
+    const renewedLeaseLedgerBody = readFileSync(path.join(
+      rootDir,
+      `.harness/generated/runtime-events/lease-${claimed.executionId}.jsonl`
+    ), "utf8");
+    const renewedLeaseEvents = renewedLeaseLedgerBody.trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(renewedLeaseEvents.map((event) => event.lease.action), ["reserved", "activated", "renewed"]);
+    assert.doesNotMatch(renewedLeaseLedgerBody, /token|hash|credential/iu);
+
+    const staleToken = runJson(rootDir, [
+      "task", "transition", created.taskId, "in_review",
+      "--lease-token", claimed.report.leaseToken,
+      "--summary", "stale credential must be rejected"
+    ], false, {
+      HARNESS_ACTOR: "agent:test",
+      CLAUDE_SESSION_ID: "",
+      CLAUDE_CODE_SESSION_ID: "",
+      CODEX_THREAD_ID: "codex-primary-session",
+      CODEX_SESSION_ID: "codex-primary-session"
+    });
+    assert.equal(staleToken.ok, false);
+    assert.match(staleToken.error.hint, /requires an active lease/u);
+
     const homeDir = path.join(rootDir, "home");
     const codexLogs = path.join(homeDir, ".codex/sessions");
     mkdirSync(codexLogs, { recursive: true });
@@ -215,7 +256,7 @@ test("default claim and submit use Holder V2 without requiring an execution id",
 
     const submitted = runJson(rootDir, [
       "task", "transition", created.taskId, "in_review",
-      "--lease-token", claimed.report.leaseToken,
+      "--lease-token", renewed.report.leaseToken,
       "--summary", "ready for review",
       "--verification", "node:test",
       "--output", "commit:abc123"
