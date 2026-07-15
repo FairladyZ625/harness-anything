@@ -155,7 +155,9 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "preset", "evidenceBundle", "generated", "report"],
       "optionalData": {
-        "rows": "Only emitted when a scripted preset run writes a numeric rows value in its result."
+        "rows": "Only emitted when a scripted preset run writes a numeric rows value in its result.",
+        "runId": "Only emitted by the semantic script host for an executable v3 entrypoint.",
+        "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."
       },
       "paths": []
     },
@@ -175,7 +177,9 @@ export const extensionsCommandSpecs = defineCommandSpecs([
     "receiptContract": {
       "data": ["taskId", "preset", "evidenceBundle", "generated", "report"],
       "optionalData": {
-        "rows": "Only emitted when a scripted preset action writes a numeric rows value in its result."
+        "rows": "Only emitted when a scripted preset action writes a numeric rows value in its result.",
+        "runId": "Only emitted by the semantic script host for an executable v3 entrypoint.",
+        "capabilityReceipt": "Only emitted by v3 semantic execution with its exact provider bindings."
       },
       "paths": []
     },

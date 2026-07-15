@@ -1136,12 +1136,12 @@
           "file": "packages/cli/src/commands/extensions/preset-evidence.ts"
         },
         {
-          "file": "packages/cli/src/commands/extensions/state.ts"
+          "file": "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts"
         }
       ],
       "evidence": [
         "packages/cli/src/commands/extensions/preset.ts:135",
-        "packages/cli/src/commands/extensions/state.ts:348"
+        "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts:186"
       ],
       "freshness": "admin-config-or-evidence"
     },
@@ -1170,6 +1170,12 @@
         },
         {
           "file": "packages/cli/src/commands/extensions/script-host.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/preset-capability-providers.ts"
+        },
+        {
+          "file": "packages/cli/src/commands/extensions/preset-capability-runtime.ts"
         },
         {
           "file": "packages/cli/src/commands/extensions/shared.ts"

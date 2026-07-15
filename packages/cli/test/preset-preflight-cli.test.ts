@@ -157,8 +157,8 @@ function v3Manifest(): Record<string, unknown> {
         type: "script",
         command: "scripts/check.mjs",
         intent: { verb: "check", subject: "provider-readiness" },
-        inputs: {},
-        requires: [{ capability: "docmap", version: "1", select: { view: "presence" } }],
+        inputs: { sourcePack: { type: "string", required: true } },
+        requires: [{ capability: "external-source-pack", version: "1", select: { packFrom: "sourcePack", view: "files-with-provenance" } }],
         produces: [],
         sideEffects: []
       }

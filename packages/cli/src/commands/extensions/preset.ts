@@ -11,9 +11,9 @@ import {
   presetNotFound,
   publicPresetSummary,
   resolvePresetEntry,
-  runPresetEntrypoint,
   validatePresetManifestForUse
 } from "./state.ts";
+import { runPresetEntrypoint } from "./preset-entrypoint-runtime.ts";
 import { invalidResolvedPresetResult } from "./shared.ts";
 import { buildPresetUninstallImpact } from "./preset-uninstall-impact.ts";
 import { readPresetManifestFromSourceResult } from "./preset-manifest-reader.ts";

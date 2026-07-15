@@ -303,7 +303,7 @@ function validateSelectorInputReferences(
   const expected = new Map<string, PresetInputV3["type"]>();
   for (const request of entrypoint.requires) {
     const select = request.select as Readonly<Record<string, unknown>>;
-    if (typeof select.taskFrom === "string") expected.set(select.taskFrom, "task-ref");
+    if (typeof select.taskFrom === "string" && select.taskFrom !== "current-task") expected.set(select.taskFrom, "task-ref");
     if (typeof select.relatedToTaskFrom === "string") expected.set(select.relatedToTaskFrom, "task-ref");
     if (typeof select.decisionFrom === "string") expected.set(select.decisionFrom, "decision-ref");
     if (typeof select.familiesFrom === "string") expected.set(select.familiesFrom, "enum-list");

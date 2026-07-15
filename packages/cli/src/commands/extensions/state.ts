@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Effect, Schema } from "effect";
@@ -12,7 +12,7 @@ import {
   type WriteError,
   type MaterializedTemplatePlan
 } from "../../../../kernel/src/index.ts";
-import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
+import type { HarnessLayoutInput } from "../../../../kernel/src/index.ts";
 import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../../../kernel/src/index.ts";
 import type { WriteCoordinator } from "../../../../kernel/src/index.ts";
 import { stablePayloadHash, writeCoordinatedPayload } from "../../../../kernel/src/write-coordination/write-helpers.ts";
@@ -24,10 +24,6 @@ import {
   loadBundledPresetManifestEntries
 } from "./bundled.ts";
 import { writeModuleRegistryView } from "./module-registry-view.ts";
-import { presetScriptAuthorizationRequiredResult } from "./preset-evidence.ts";
-import { runLegacyPresetScriptEntrypoint, scriptCliResult, type LegacyPresetScriptEntrypoint } from "./preset-script-runner.ts";
-import { presetRuntimeUnavailableResult } from "./preset-runtime-availability.ts";
-import { semanticPresetRuntimeUnavailable, withPresetRuntimeWarning } from "./preset-runtime-mode.ts";
 import { resolveTemplateCatalogBody } from "./template-catalog-loader.ts";
 import { decodePresetManifestFileResult } from "./preset-manifest-reader.ts";
 import { loadPresetDocument, type PresetDocumentWarning } from "./preset-document-loader.ts";
@@ -290,121 +286,6 @@ export function presetManifestPath(rootInput: HarnessLayoutInput, layer: "projec
   return path.join(presetLayerRoot(rootInput, layer), presetId, "preset.json");
 }
 
-export function runPresetEntrypoint(
-  rootInput: HarnessLayoutInput,
-  verticalId: string,
-  presetId: string,
-  entrypoint: string,
-  taskId: string,
-  commandName: "preset-run" | "preset-action",
-  pendingOps: WriteOp[],
-  allowScripts = false,
-  inputs: Record<string, string> = {}
-): CliResult {
-  const layout = resolveHarnessLayout(rootInput);
-  const rootDir = layout.rootDir;
-  validateRegistryKey(taskId, "task");
-  const preset = resolvePresetEntry(rootInput, presetId, verticalId);
-  const runtimeUnavailable = presetRuntimeUnavailableResult({
-    rootInput,
-    commandName,
-    presetId,
-    taskId,
-    ...(preset && !isInvalidPreset(preset) ? { installedPreset: preset.manifest } : {})
-  });
-  if (runtimeUnavailable) return runtimeUnavailable;
-  if (!preset) return presetNotFound("preset-run", presetId);
-  if (isInvalidPreset(preset)) {
-    return {
-      ok: false,
-      command: commandName,
-      preset: { id: preset.id, layer: preset.layer, valid: false },
-      issues: preset.issues,
-      error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
-    };
-  }
-  const finish = (result: CliResult): CliResult => withPresetRuntimeWarning(result, preset.manifest);
-  const validation = validatePresetManifestForUse(preset.manifest);
-  if (!validation.ok) {
-    return {
-      ok: false,
-      command: commandName,
-      preset: publicPresetSummary(preset),
-      issues: validation.issues,
-      error: cliError(CliErrorCode.PresetManifestInvalid, "Preset manifest failed validation.")
-    };
-  }
-  const evidenceDir = path.join(layout.localRoot, "evidence", "presets", presetId, timestampForPath());
-  mkdirSync(evidenceDir, { recursive: true });
-  const generated: string[] = [];
-  const declaredEntrypoint = preset.manifest.entrypoints?.[entrypoint];
-  if (preset.manifest.schema === "preset-manifest/v3" && declaredEntrypoint) {
-    return semanticPresetRuntimeUnavailable(commandName, publicPresetSummary(preset));
-  }
-  if (declaredEntrypoint?.type === "script") {
-    if (!allowScripts) {
-      return finish(presetScriptAuthorizationRequiredResult({
-        rootDir,
-        evidenceDir,
-        commandName,
-        presetSummary: publicPresetSummary(preset),
-        presetId,
-        layer: preset.layer,
-        taskId,
-        entrypoint
-      }));
-    }
-    const presetSummary = publicPresetSummary(preset);
-    const legacyEntrypoint = declaredEntrypoint as LegacyPresetScriptEntrypoint;
-    const scriptResult = runLegacyPresetScriptEntrypoint(rootInput, preset, discoverPresets(rootInput, verticalId), presetSummary, legacyEntrypoint, entrypoint, taskId, evidenceDir, commandName, inputs);
-    if (!scriptResult.ok) return finish(scriptResult.result);
-    generated.push(...scriptResult.generated);
-    if (scriptResult.ingestOp) pendingOps.push(scriptResult.ingestOp);
-    if (scriptResult.scriptedResult) {
-      return finish(scriptCliResult({
-        rootDir,
-        evidenceDir,
-        commandName,
-        preset: presetSummary,
-        taskId,
-        generated,
-        scriptedResult: scriptResult.scriptedResult
-      }));
-    }
-  } else if (preset.manifest.schema === "preset-manifest/v1" && entrypoint === "scaffold") {
-    const outputPath = path.join(layout.generatedRoot, "preset-scaffold", taskId, `${presetId}.md`);
-    mkdirSync(path.dirname(outputPath), { recursive: true });
-    writeFileSync(outputPath, `# ${preset.manifest.title}\n\nTask: ${taskId}\n`, "utf8");
-    generated.push(path.relative(rootDir, outputPath).split(path.sep).join("/"));
-  } else {
-    return finish({
-      ok: false,
-      command: commandName,
-      preset: publicPresetSummary(preset),
-      error: cliError(CliErrorCode.PresetActionForbidden, `Preset ${presetId} does not declare action ${entrypoint}.`)
-    });
-  }
-  const evidence = {
-    schema: "preset-evidence/v1",
-    presetId,
-    layer: preset.layer,
-    taskId,
-    entrypoint,
-    generated,
-    ok: true,
-    scriptAuthorized: declaredEntrypoint?.type === "script" ? allowScripts : false
-  };
-  writeFileSync(path.join(evidenceDir, "evidence.json"), JSON.stringify(evidence, null, 2), "utf8");
-  return finish({
-    ok: true,
-    command: commandName,
-    preset: publicPresetSummary(preset),
-    taskId,
-    evidenceBundle: path.relative(rootDir, evidenceDir).split(path.sep).join("/"),
-    generated,
-    report: evidence
-  });
-}
 
 export function readModules(rootInput: HarnessLayoutInput): ModuleRegistry {
   const registryPath = modulesRegistryPath(rootInput);
@@ -470,14 +351,10 @@ export class InvalidRegistryKeyError extends Error {
   }
 }
 
-function validateRegistryKey(value: string, label: string): void {
+export function validateRegistryKey(value: string, label: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(value)) {
     throw new InvalidRegistryKeyError(label);
   }
-}
-
-function timestampForPath(now: Date = new Date()): string {
-  return now.toISOString().replace(/[:.]/gu, "-");
 }
 
 function validateAdditiveSoftwareCodingPreset(manifest: PresetManifest): ReadonlyArray<ExtensionValidationIssue> {

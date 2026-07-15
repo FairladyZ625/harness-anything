@@ -116,6 +116,12 @@ export {
 export type { EntityAttributionProjection } from "./projection/types.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
+export type {
+  LogicalArtifactV1,
+  PresetCapabilityRequirement,
+  PresetEntrypointV3,
+  PresetInputV3
+} from "./schemas/preset-manifest-v3.ts";
 export { RuntimeEventRecordV2Schema } from "./schemas/runtime-event.ts";
 export type { RuntimeEventRecordDocument, RuntimeEventRecordV2 } from "./schemas/runtime-event.ts";
 export type {

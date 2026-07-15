@@ -287,6 +287,31 @@
         "value": "packages/cli/src/commands/extensions/script-staging.ts#cpSync@1",
         "ref": "task_01KXBBTQAWARR3A1B2RY8T7C0F",
         "reason": "P4 coordinator-governed script ingest copies authored state only into the isolated local staging mirror; canonical changes are later applied solely by attributed enqueue and flush."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-capability-providers.ts#writeFileSync@1",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset v3 provider writes an immutable capability projection inside the isolated script run directory; it has no canonical write authority."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-capability-providers.ts#mkdirSync@1",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset v3 provider creates only an immutable task-artifact snapshot directory inside the isolated script run directory."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-capability-providers.ts#cpSync@1",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset v3 provider copies selected task artifacts into the immutable run snapshot; the source and canonical authored state remain read-only."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-capability-runtime.ts#mkdirSync@1",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset v3 runtime creates the isolated capability projection directory under script evidence; it has no canonical write authority."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-capability-runtime.ts#mkdirSync@2",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset v3 runtime creates only staged writer directories; canonical changes are later applied solely by attributed script ingest and WriteCoordinator flush."
       }
     ],
     "exemptHumanOrBootstrap": [
@@ -466,24 +491,14 @@
         "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@1",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts#mkdirSync@3",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Legacy v1 scaffold creates its human-facing generated output directory; this is the existing legacy behavior relocated from state.ts."
       },
       {
-        "value": "packages/cli/src/commands/extensions/state.ts#mkdirSync@2",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
-      },
-      {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@1",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
-      },
-      {
-        "value": "packages/cli/src/commands/extensions/state.ts#writeFileSync@2",
-        "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
-        "reason": "Explicit W8 exemption for human-facing generated/bootstrap artifact writes; not a machine projection authority."
+        "value": "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts#writeFileSync@1",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Legacy v1 scaffold writes its human-facing generated artifact; this is the existing legacy behavior relocated from state.ts."
       },
       {
         "value": "packages/cli/src/commands/governance.ts#mkdirSync@1",
@@ -673,6 +688,26 @@
         "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@1",
         "ref": "task_01KWW58383X74ZK28Y068CQ2TG",
         "reason": "C11 script evidence scratch/registry write; machine-consumed evidence is guarded by fresh hash registry checks."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/script-host.ts#writeFileSync@4",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset v3 host writes preset-context/v2 only into the isolated script evidence directory before permission-constrained execution."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts#mkdirSync@1",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset v3 authorization failure creates only its local script evidence directory; it does not mutate canonical authored state."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts#mkdirSync@2",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Legacy preset authorization creates only its local script evidence directory; this is existing behavior relocated from state.ts."
+      },
+      {
+        "value": "packages/cli/src/commands/extensions/preset-entrypoint-runtime.ts#writeFileSync@2",
+        "ref": "task_01KXJ819W8TFCMPPP59ARRVRSS",
+        "reason": "Preset entrypoint runtime writes the existing local evidence receipt after execution; canonical script outputs still enter through WriteCoordinator ingest."
       }
     ],
     "daemonTransportLifecycle": [

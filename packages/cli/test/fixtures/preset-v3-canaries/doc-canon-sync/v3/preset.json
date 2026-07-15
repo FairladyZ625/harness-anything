@@ -1,0 +1,36 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "doc-canon-sync",
+  "title": "Document Canon Sync",
+  "vertical": "software/coding",
+  "version": "2.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "entrypoints": {
+    "check": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "intent": { "verb": "check", "subject": "document-canon-drift" },
+      "inputs": {
+        "watermarkSource": { "type": "enum", "required": false, "values": ["agents-guide"], "default": "agents-guide" }
+      },
+      "requires": [
+        { "capability": "decisions", "version": "1", "select": { "states": ["active"], "view": "canon-summary" } },
+        { "capability": "adrs", "version": "1", "select": { "states": ["accepted", "active", "approved"], "view": "canon-summary" } },
+        { "capability": "operating-docs", "version": "1", "select": { "collections": ["agents-guide", "governance", "standards"], "view": "text" } }
+      ],
+      "produces": [{
+        "capability": "task-artifacts",
+        "version": "1",
+        "target": { "taskFrom": "current-task" },
+        "artifacts": [
+          { "id": "doc-canon-drift", "schema": "doc-canon-drift/v1", "mediaTypes": ["application/json", "text/markdown"], "cardinality": "one", "required": true }
+        ]
+      }],
+      "sideEffects": []
+    }
+  },
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] }],
+  "defaultProfile": "baseline"
+}

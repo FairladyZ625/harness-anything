@@ -1,0 +1,40 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "dogfood-utilization-audit",
+  "title": "Dogfood Utilization Audit",
+  "vertical": "software/coding",
+  "version": "2.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "entrypoints": {
+    "audit": {
+      "type": "script",
+      "command": "scripts/preset-action.mjs",
+      "intent": { "verb": "audit", "subject": "dogfood-utilization" },
+      "inputs": {
+        "trackedPresets": { "type": "preset-ref-list", "required": false, "default": ["standard-task", "module", "legacy-migration", "doc-canon-sync", "milestone-closeout", "lesson-sedimentation", "milestone-dossier", "version-upgrade", "publish-standard", "release-closeout", "long-running-task", "dogfood-utilization-audit"] },
+        "trackedArtifacts": { "type": "enum-list", "required": false, "values": ["runtime-events", "distill-candidates", "lesson-promotions", "graph-panorama", "write-journal", "docmap"], "default": ["runtime-events", "distill-candidates", "lesson-promotions", "graph-panorama", "write-journal", "docmap"] }
+      },
+      "requires": [
+        { "capability": "tasks", "version": "1", "select": { "scope": "all", "view": "identity-and-preset" } },
+        { "capability": "task-artifacts", "version": "1", "select": { "scope": "all-tasks", "artifactIds": ["preset-result", "evidence"] } },
+        { "capability": "runtime-events", "version": "1", "select": { "view": "command-usage" } },
+        { "capability": "generated-artifacts", "version": "1", "select": { "view": "presence-inventory", "familiesFrom": "trackedArtifacts" } },
+        { "capability": "write-journal", "version": "1", "select": { "view": "presence-inventory" } },
+        { "capability": "docmap", "version": "1", "select": { "view": "presence" } }
+      ],
+      "produces": [{
+        "capability": "task-artifacts",
+        "version": "1",
+        "target": { "taskFrom": "current-task" },
+        "artifacts": [
+          { "id": "dogfood-utilization-report", "schema": "dogfood-utilization-audit/v1", "mediaTypes": ["application/json", "text/markdown"], "cardinality": "one", "required": true }
+        ]
+      }],
+      "sideEffects": []
+    }
+  },
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] }],
+  "defaultProfile": "baseline"
+}

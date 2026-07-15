@@ -7,8 +7,10 @@ import type { CliResult, ParsedCommand } from "../../cli/types.ts";
 import { resolveActiveVertical } from "./active-vertical.ts";
 import { discoverPresets, publicPresetSummary } from "./state.ts";
 import { legacyPresetScriptEntry } from "./preset-script-runner.ts";
+import { semanticPresetScriptEntry } from "./preset-capability-runtime.ts";
 import { trustedPresetEnvironmentCapabilities, trustedPresetPackageReadPermissions } from "./script-environment.ts";
-import { runScriptHost, scriptHostCliResult, type ResolvedScriptEntry, type ScriptKind, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
+import { runScriptHost, type ResolvedScriptEntry, type ScriptKind, type ScriptPurpose, type ScriptSource } from "./script-host.ts";
+import { scriptHostCliResult } from "./script-host-result.ts";
 
 type ScriptAction = Extract<ParsedCommand["action"], {
   readonly kind: "script-list" | "script-inspect" | "script-run";
@@ -108,6 +110,10 @@ function runScriptRun(rootInput: HarnessLayoutInput, action: Extract<ScriptActio
 }
 
 function scriptUsesTaskOwnedArtifacts(script: ResolvedScriptEntry): boolean {
+  if (script.semantic) {
+    return [...script.semantic.entrypoint.requires, ...script.semantic.entrypoint.produces]
+      .some((request) => request.capability === "task-artifacts" || request.capability === "tasks");
+  }
   return [
     ...script.entry.reads,
     ...script.entry.writes,
@@ -142,10 +148,13 @@ export function discoverScriptEntries(
     } : undefined
   }));
   const presetScripts = discoverPresets(rootInput, activeVertical.id)
-    .filter((preset) => preset.manifest.schema !== "preset-manifest/v3")
     .flatMap((preset) => Object.entries(preset.manifest.entrypoints ?? {})
-      .flatMap(([entrypointName, entrypoint]) => entrypoint.type === "script"
-        ? [{
+      .flatMap(([entrypointName, entrypoint]) => {
+        if (entrypoint.type !== "script") return [];
+        if (preset.manifest.schema === "preset-manifest/v3") {
+          return [semanticPresetScriptEntry({ ...preset, manifest: preset.manifest }, entrypointName, entrypoint)];
+        }
+        return [{
           entry: legacyPresetScriptEntry(preset, entrypoint, entrypointName),
           verticalId: activeVertical.id,
           manifestRoot: path.dirname(preset.sourcePath),
@@ -169,8 +178,8 @@ export function discoverScriptEntries(
             presetTitle: preset.manifest.title,
             entrypoint: entrypointName
           }
-        }]
-        : []));
+        }];
+      }));
   return {
     ok: true,
     scripts: [...verticalScripts, ...presetScripts].sort((left, right) => left.entry.id.localeCompare(right.entry.id))
@@ -193,6 +202,19 @@ function publicScriptSummary(script: ResolvedScriptEntry): Record<string, unknow
 }
 
 function publicScriptDetails(script: ResolvedScriptEntry): Record<string, unknown> {
+  if (script.semantic) {
+    return {
+      ...publicScriptSummary(script),
+      command: script.entry.command,
+      intent: script.semantic.entrypoint.intent,
+      inputs: script.semantic.entrypoint.inputs,
+      requires: script.semantic.entrypoint.requires,
+      produces: script.semantic.entrypoint.produces,
+      sideEffects: script.semantic.entrypoint.sideEffects,
+      metadata: script.entry.metadata,
+      owner: script.owner
+    };
+  }
   return {
     ...publicScriptSummary(script),
     command: script.entry.command,

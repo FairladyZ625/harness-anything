@@ -11,6 +11,7 @@ import {
   type PresetRawFsGrant
 } from "../../../../kernel/src/index.ts";
 import { presetRuntimeRepairHint, smokePresetEntrypoints, type PresetEntrypointSmokeIssue } from "./preset-smoke.ts";
+import { registeredSemanticPresetCapabilityProviders } from "./preset-capability-runtime.ts";
 import type { ResolvedPreset } from "./state.ts";
 
 export interface PresetPackagePreflightReceipt extends PresetPreflightReceipt {
@@ -35,10 +36,6 @@ interface PresetPackageAdmissionOptions {
   readonly now?: string;
 }
 
-// Phase 0 intentionally registers no semantic execution provider. A v3 package
-// cannot be reported runnable until its projection/writer bindings land.
-const registeredSemanticProviders: ReadonlyArray<PresetCapabilityProvider> = [];
-
 export function preflightPresetPackage(
   rootInput: HarnessLayoutInput,
   preset: ResolvedPreset,
@@ -48,7 +45,7 @@ export function preflightPresetPackage(
     layer: preset.layer,
     packageDigest: digestPresetPackage(preset.sourcePath),
     now: admission.now ?? new Date().toISOString(),
-    providers: admission.providers ?? registeredSemanticProviders,
+    providers: admission.providers ?? registeredSemanticPresetCapabilityProviders,
     rawFsGrants: admission.rawFsGrants ?? [],
     rawFsEnforcement: admission.rawFsEnforcement ?? []
   });

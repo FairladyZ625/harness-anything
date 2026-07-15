@@ -1,0 +1,61 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "usage-acceptance",
+  "title": "Usage Acceptance",
+  "vertical": "software/coding",
+  "version": "2.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "entrypoints": {
+    "scaffold": {
+      "type": "script",
+      "command": "scripts/usage-acceptance-capture.mjs",
+      "intent": { "verb": "capture", "subject": "usage-acceptance-context" },
+      "inputs": {
+        "featureTaskId": { "type": "task-ref", "required": true, "defaultFrom": "current-task" },
+        "persona": { "type": "string", "required": true, "default": "first-time collaborator joining the centralized repo" },
+        "surface": { "type": "enum", "required": true, "values": ["gui", "cli", "multi-actor"], "default": "gui" },
+        "scenario": { "type": "string", "required": false, "default": "" }
+      },
+      "requires": [
+        { "capability": "tasks", "version": "1", "select": { "taskFrom": "featureTaskId", "view": "intent-summary" } },
+        { "capability": "decisions", "version": "1", "select": { "relatedToTaskFrom": "featureTaskId", "view": "intent-summary" } }
+      ],
+      "produces": [{
+        "capability": "task-artifacts",
+        "version": "1",
+        "target": { "taskFrom": "current-task" },
+        "artifacts": [
+          { "id": "usage-acceptance-findings", "schema": "usage-acceptance-findings/v1", "mediaTypes": ["application/json"], "cardinality": "one", "required": true },
+          { "id": "usage-acceptance-report", "schema": "usage-acceptance-report/v1", "mediaTypes": ["text/markdown"], "cardinality": "one", "required": true }
+        ]
+      }],
+      "sideEffects": []
+    },
+    "check": {
+      "type": "script",
+      "command": "scripts/usage-acceptance-check.mjs",
+      "intent": { "verb": "check", "subject": "usage-acceptance-evidence" },
+      "inputs": {
+        "featureTaskId": { "type": "task-ref", "required": true, "defaultFrom": "current-task" }
+      },
+      "requires": [{
+        "capability": "task-artifacts",
+        "version": "1",
+        "select": { "taskFrom": "current-task", "artifactIds": ["usage-acceptance-findings", "usage-acceptance-evidence"] }
+      }],
+      "produces": [{
+        "capability": "task-artifacts",
+        "version": "1",
+        "target": { "taskFrom": "current-task" },
+        "artifacts": [
+          { "id": "usage-acceptance-check", "schema": "usage-acceptance-check/v1", "mediaTypes": ["application/json"], "cardinality": "one", "required": true }
+        ]
+      }],
+      "sideEffects": []
+    }
+  },
+  "defaultProfile": "baseline",
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] }]
+}

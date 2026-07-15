@@ -139,6 +139,7 @@ export interface CliResult {
   readonly generated?: ReadonlyArray<string>;
   readonly reviewContract?: unknown;
   readonly completionGate?: unknown;
+  readonly capabilityReceipt?: unknown;
   readonly forced?: boolean;
   readonly forceAudit?: {
     readonly path: string;

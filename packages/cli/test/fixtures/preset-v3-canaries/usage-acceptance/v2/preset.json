@@ -1,0 +1,65 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "usage-acceptance",
+  "title": "Usage Acceptance",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": {
+    "min": "1.0.0",
+    "maxExclusive": "2.0.0"
+  },
+  "capabilityImports": [
+    {
+      "id": "usage-acceptance",
+      "kind": "command",
+      "version": "1",
+      "required": false
+    }
+  ],
+  "entrypoints": {
+    "scaffold": {
+      "type": "script",
+      "command": "scripts/usage-acceptance-capture.mjs",
+      "reads": [
+        "{{paths.tasksRoot}}/**",
+        "{{paths.decisionsRoot}}/**"
+      ],
+      "writes": [
+        "{{outputRoot}}/**"
+      ],
+      "inputs": {
+        "featureTaskId": "{{taskId}}",
+        "persona": "first-time collaborator joining the centralized repo",
+        "surface": "gui",
+        "scenario": ""
+      }
+    },
+    "check": {
+      "type": "script",
+      "command": "scripts/usage-acceptance-check.mjs",
+      "reads": [
+        "{{outputRoot}}/**"
+      ],
+      "writes": [
+        "{{outputRoot}}/**"
+      ],
+      "inputs": {
+        "featureTaskId": "{{taskId}}"
+      }
+    }
+  },
+  "defaultProfile": "baseline",
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "checkerProfile": "standard",
+      "completionGates": [
+        "ci",
+        "code-doc-reconciliation"
+      ],
+      "templateSelections": []
+    }
+  ]
+}

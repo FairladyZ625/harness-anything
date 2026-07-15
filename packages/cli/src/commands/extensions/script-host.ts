@@ -5,14 +5,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HarnessLayoutInput, WriteOp } from "../../../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../../../kernel/src/index.ts";
-import { cliError, CliErrorCode } from "../../cli/error-codes.ts";
+import { CliErrorCode } from "../../cli/error-codes.ts";
 import type { CliResult } from "../../cli/types.ts";
-import { resolveScriptPolicy, type PresetPolicyResolution } from "./preset-policy.ts";
+import { resolveScriptPolicy } from "./preset-policy.ts";
 import { buildPresetContextProjections } from "./preset-script-context.ts";
 import { scriptChildEnvironment, type ScriptEnvironmentCapabilities } from "./script-environment.ts";
 import { executeScript } from "./script-executor.ts";
 import { trustedScriptRepositoryContext } from "./script-repository-context.ts";
+import { invalidScriptOrPolicy, scriptFailure, validateResolvedScript } from "./script-host-validation.ts";
 import { discoverPresets } from "./state.ts";
+import {
+  materializeSemanticPresetExecution,
+  prepareSemanticPresetExecution,
+  verifySemanticPresetOutputs,
+  type PresetCapabilityRuntimeReceipt,
+  type SemanticPresetExecution
+} from "./preset-capability-runtime.ts";
 import {
   isPathInside,
   permissionPathsForScope,
@@ -41,7 +49,7 @@ export interface ScriptEntry {
   readonly command: string;
   readonly reads: ReadonlyArray<string>;
   readonly writes: ReadonlyArray<string>;
-  readonly inputs: Record<string, string>;
+  readonly inputs: Record<string, unknown>;
   readonly metadata: {
     readonly description: string;
     readonly purpose: ScriptPurpose;
@@ -59,6 +67,7 @@ export interface ResolvedScriptEntry {
   readonly context?: Record<string, unknown>;
   readonly environmentCapabilities?: ScriptEnvironmentCapabilities;
   readonly trustedPackageReadPermissions?: ReadonlyArray<string>;
+  readonly semantic?: SemanticPresetExecution;
 }
 
 export interface ScriptHostSuccess {
@@ -67,6 +76,7 @@ export interface ScriptHostSuccess {
   readonly runDir: string;
   readonly generated: ReadonlyArray<string>;
   readonly scriptedResult: Record<string, unknown>;
+  readonly capabilityReceipt?: PresetCapabilityRuntimeReceipt;
   readonly ingestOp?: WriteOp;
 }
 
@@ -117,20 +127,40 @@ export function runScriptHost(options: {
     );
   }
 
-  const outputRoot = options.outputRoot ?? path.join(layout.authoredRoot, "context");
+  const fallbackOutputRoot = options.outputRoot ?? path.join(layout.authoredRoot, "context");
+  const semanticPreparation = options.script.semantic
+    ? prepareSemanticPresetExecution({
+      rootInput: options.rootInput,
+      execution: options.script.semantic,
+      taskId: typeof options.script.context?.taskId === "string" ? options.script.context.taskId : undefined,
+      runtimeInputs: options.inputs,
+      fallbackOutputRoot,
+      dryRun: options.dryRun
+    })
+    : undefined;
+  if (semanticPreparation && !semanticPreparation.ok) {
+    return scriptFailure(options.commandName, CliErrorCode.PresetRuntimeUnavailable, semanticPreparation.hint);
+  }
+  const preparedSemantic = semanticPreparation?.ok ? semanticPreparation.value : undefined;
+  const outputRoot = preparedSemantic?.outputRoot ?? fallbackOutputRoot;
   const scopeOptions = reportsNoOverwriteLeafConflicts(options.script.entry)
     ? { reportLeafConflicts: true as const }
     : {};
-  const readScope = options.script.entry.reads.length > 0
-    ? resolveDeclaredReadScopes(options.script.entry.reads, layout, outputRoot, scopeOptions)
-    : { ok: true as const, roots: [], permissions: [] };
-  const writeScope = resolveDeclaredWriteScopes(options.script.entry.writes, layout, outputRoot, scopeOptions);
+  const readScope = preparedSemantic
+    ? { ok: true as const, ...preparedSemantic.protectedSourceScopes }
+    : options.script.entry.reads.length > 0
+      ? resolveDeclaredReadScopes(options.script.entry.reads, layout, outputRoot, scopeOptions)
+      : { ok: true as const, roots: [], permissions: [] };
+  const writeScope = preparedSemantic
+    ? { ok: true as const, ...preparedSemantic.stageEnvelope }
+    : resolveDeclaredWriteScopes(options.script.entry.writes, layout, outputRoot, scopeOptions);
   if (!readScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script reads must declare supported project-local scopes.");
-  if (!resolvedScopeSetIsSafe(readScope, layout.rootDir, "read")) {
+  if (!options.dryRun && !resolvedScopeSetIsSafe(readScope, layout.rootDir, "read")) {
     return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidRead, "Script read scopes must have safe filesystem boundaries.");
   }
   if (!writeScope.ok) return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidWrite, "Script writes must declare approved authored content scopes.");
   if (
+    !preparedSemantic &&
     options.script.entry.source === "preset" &&
     options.outputRoot !== undefined &&
     options.script.entry.writes.length > 0 &&
@@ -182,45 +212,75 @@ export function runScriptHost(options: {
     return scriptFailure(options.commandName, CliErrorCode.ScriptScopeInvalidWrite, "Script staging scopes could not be resolved.");
   }
 
-  const mergedInputs = { ...options.script.entry.inputs, ...(options.inputs ?? {}) };
-  const presetContextProjections = options.script.entry.source === "preset"
-    ? buildPresetContextProjections({
-      layout: executionLayout,
-      outputRoot: executionOutputRoot,
-      readRoots: executionReadScope.roots
+  const semanticMaterialization = preparedSemantic && !options.dryRun
+    ? materializeSemanticPresetExecution({
+      rootInput: options.rootInput,
+      preparation: preparedSemantic,
+      stage,
+      runDir,
+      runId,
+      resultPath
     })
-    : {};
-  writeFileSync(contextPath, JSON.stringify({
-    ...(options.script.context ?? {}),
-    ...presetContextProjections,
-    schema: options.script.entry.source === "preset" ? "preset-context/v1" : "script-context/v1",
-    scriptId: options.script.entry.id,
-    source: options.script.entry.source,
-    runId,
-    paths: {
-      projectRoot: layout.rootDir,
-      rootDir: executionLayout.rootDir,
-      authoredRoot: executionLayout.authoredRoot,
-      tasksRoot: executionLayout.tasksRoot,
-      decisionsRoot: executionLayout.decisionsRoot,
-      sessionsRoot: executionLayout.sessionsRoot,
-      adrRoot: executionLayout.adrRoot,
-      milestonesRoot: executionLayout.milestonesRoot,
-      generatedRoot: executionLayout.generatedRoot,
-      localRoot: executionLayout.localRoot
-    },
-    repository: trustedScriptRepositoryContext(layout.rootDir),
-    inputs: mergedInputs,
-    readScopes: executionReadScope.roots,
-    writeScopes: executionWriteScope.roots,
-    declaredScopeConflicts: {
-      read: executionReadScope.reportedLeafConflicts ?? [],
-      write: executionWriteScope.reportedLeafConflicts ?? []
-    },
-    resultPath,
-    outputRoot: executionOutputRoot,
-    policy: policy.policy
-  }, null, 2), "utf8");
+    : undefined;
+  if (semanticMaterialization && !semanticMaterialization.ok) {
+    return scriptFailure(options.commandName, CliErrorCode.PresetRuntimeUnavailable, semanticMaterialization.hint, runDir, layout.rootDir);
+  }
+  const materializedSemantic = semanticMaterialization?.ok ? semanticMaterialization.value : undefined;
+  if (preparedSemantic) {
+    writeFileSync(contextPath, JSON.stringify(materializedSemantic?.context ?? {
+      schema: "preset-context/v2",
+      preset: {
+        id: preparedSemantic.execution.preset.manifest.id,
+        version: preparedSemantic.execution.preset.manifest.version,
+        entrypoint: preparedSemantic.execution.entrypointName
+      },
+      run: { id: runId, taskId: preparedSemantic.currentTaskId, dryRun: true },
+      inputs: preparedSemantic.inputs,
+      capabilities: { reads: {}, writes: {} },
+      result: { schema: "script-result/v1", path: resultPath },
+      receipt: preparedSemantic.receipt
+    }, null, 2), "utf8");
+  } else {
+    const mergedInputs = { ...options.script.entry.inputs, ...(options.inputs ?? {}) };
+    const presetContextProjections = options.script.entry.source === "preset"
+      ? buildPresetContextProjections({
+        layout: executionLayout,
+        outputRoot: executionOutputRoot,
+        readRoots: executionReadScope.roots
+      })
+      : {};
+    writeFileSync(contextPath, JSON.stringify({
+      ...(options.script.context ?? {}),
+      ...presetContextProjections,
+      schema: options.script.entry.source === "preset" ? "preset-context/v1" : "script-context/v1",
+      scriptId: options.script.entry.id,
+      source: options.script.entry.source,
+      runId,
+      paths: {
+        projectRoot: layout.rootDir,
+        rootDir: executionLayout.rootDir,
+        authoredRoot: executionLayout.authoredRoot,
+        tasksRoot: executionLayout.tasksRoot,
+        decisionsRoot: executionLayout.decisionsRoot,
+        sessionsRoot: executionLayout.sessionsRoot,
+        adrRoot: executionLayout.adrRoot,
+        milestonesRoot: executionLayout.milestonesRoot,
+        generatedRoot: executionLayout.generatedRoot,
+        localRoot: executionLayout.localRoot
+      },
+      repository: trustedScriptRepositoryContext(layout.rootDir),
+      inputs: mergedInputs,
+      readScopes: executionReadScope.roots,
+      writeScopes: executionWriteScope.roots,
+      declaredScopeConflicts: {
+        read: executionReadScope.reportedLeafConflicts ?? [],
+        write: executionWriteScope.reportedLeafConflicts ?? []
+      },
+      resultPath,
+      outputRoot: executionOutputRoot,
+      policy: policy.policy
+    }, null, 2), "utf8");
+  }
 
   if (options.dryRun) {
     return {
@@ -266,20 +326,24 @@ export function runScriptHost(options: {
       contextPath,
       ...checkScriptPackageReadPermissions(options.script.entry.metadata.kind, options.script.manifestRoot, scriptPath, layout),
       ...architectureToolPackageReadPermissions(options.script, scriptPath, layout),
-      ...executionReadScope.permissions
+      ...(materializedSemantic?.childReadPermissions ?? executionReadScope.permissions)
     ],
     writePermissions: [
       resultPath,
-      ...executionWriteScope.permissions,
-      ...checkScriptLocalWritePermissions(options.script.entry.metadata.kind, layout)
+      ...(materializedSemantic?.childWritePermissions ?? executionWriteScope.permissions),
+      ...(preparedSemantic ? [] : checkScriptLocalWritePermissions(options.script.entry.metadata.kind, layout))
     ],
     env: scriptChildEnvironment({
       HARNESS_SCRIPT_CONTEXT: contextPath,
       HARNESS_SCRIPT_RESULT: resultPath,
       HARNESS_PRESET_CONTEXT: contextPath
     }, options.script.environmentCapabilities),
-    artifactRoots: executionWriteScope.roots,
-    outputBoundary: { kind: "patterns", patterns: options.script.entry.metadata.produces, substitutions: producePatternSubstitutions(executionLayout, executionOutputRoot) }
+    artifactRoots: materializedSemantic?.writerRoots ?? executionWriteScope.roots,
+    outputBoundary: {
+      kind: "patterns",
+      patterns: materializedSemantic?.outputPatterns ?? options.script.entry.metadata.produces,
+      substitutions: materializedSemantic ? {} : producePatternSubstitutions(executionLayout, executionOutputRoot)
+    }
   });
   writeFileSync(path.join(runDir, "stdout.txt"), execution.stdout, "utf8");
   writeFileSync(path.join(runDir, "stderr.txt"), execution.stderr, "utf8");
@@ -310,6 +374,13 @@ export function runScriptHost(options: {
     );
   }
 
+  if (materializedSemantic) {
+    const outputVerification = verifySemanticPresetOutputs(materializedSemantic.outputs);
+    if (!outputVerification.ok) {
+      return scriptFailure(options.commandName, CliErrorCode.ScriptDeclaredProduceMismatch, outputVerification.hint, runDir, layout.rootDir);
+    }
+  }
+
   const scriptedResult = readScriptResult(resultPath, options.script.entry.source === "preset" ? path.join(executionOutputRoot, "artifacts", "preset-result.json") : undefined, {
     allowMissingPresetResult: options.script.entry.source === "preset" && options.requireScriptResult !== true,
     scriptId: options.script.entry.id
@@ -329,7 +400,7 @@ export function runScriptHost(options: {
     );
   }
   const generatedPaths = stage ? canonicalGeneratedPaths(stage, execution.generated) : execution.generated;
-  const ingestOp = stage ? scriptIngestOp(stage, executionWriteScope.roots, runId) : undefined;
+  const ingestOp = stage ? scriptIngestOp(stage, materializedSemantic?.writerRoots ?? executionWriteScope.roots, runId) : undefined;
   const canonicalResult = stage ? canonicalizeScriptResult(stage, scriptedResult.value) : scriptedResult.value;
   if (scriptedResult.value.ok !== true && options.allowFailedScriptResult !== true) {
     const failure = scriptFailure(options.commandName, CliErrorCode.ScriptResultFailed, "Script reported a failed result.", runDir, layout.rootDir);
@@ -355,6 +426,7 @@ export function runScriptHost(options: {
     runDir,
     generated: generatedPaths.map((filePath) => relativeToRoot(layout.rootDir, filePath)),
     scriptedResult: canonicalResult,
+    ...(preparedSemantic ? { capabilityReceipt: preparedSemantic.receipt } : {}),
     ...(ingestOp ? { ingestOp } : {})
   };
 }
@@ -363,62 +435,6 @@ function reportsNoOverwriteLeafConflicts(entry: ScriptEntry): boolean {
   return entry.metadata.purpose === "scaffold" &&
     entry.writes.length > 0 &&
     entry.writes.every((scope) => scope.endsWith("/**") && entry.reads.includes(scope));
-}
-
-export function scriptHostCliResult(options: {
-  readonly rootDir: string;
-  readonly commandName: string;
-  readonly script: unknown;
-  readonly run: ScriptHostSuccess;
-}): CliResult {
-  return {
-    ok: true,
-    command: options.commandName,
-    script: options.script,
-    runId: options.run.runId,
-    evidenceBundle: relativeToRoot(options.rootDir, options.run.runDir),
-    generated: options.run.generated,
-    warnings: Array.isArray(options.run.scriptedResult.warnings) ? options.run.scriptedResult.warnings : undefined,
-    rows: typeof options.run.scriptedResult.rows === "number" ? options.run.scriptedResult.rows : undefined,
-    report: options.run.scriptedResult.report ?? options.run.scriptedResult
-  };
-}
-
-function validateResolvedScript(script: ResolvedScriptEntry): { readonly ok: true } | { readonly ok: false; readonly hint: string } {
-  const entry = script.entry;
-  if (entry.type !== "script") return { ok: false, hint: "Script entry type must be script." };
-  if (!entry.id || !entry.command) return { ok: false, hint: "Script entry id and command are required." };
-  if (!["user", "vertical", "preset"].includes(entry.source)) return { ok: false, hint: "Script source is invalid." };
-  if (entry.metadata.contractVersion !== "script-entry/v1") return { ok: false, hint: "Script metadata contractVersion must be script-entry/v1." };
-  if (!entry.metadata.description || !entry.metadata.purpose || !Array.isArray(entry.metadata.produces)) {
-    return { ok: false, hint: "Script metadata description, purpose, and produces are required." };
-  }
-  if (entry.metadata.kind !== undefined && !["action", "check"].includes(entry.metadata.kind)) {
-    return { ok: false, hint: "Script metadata kind must be action or check." };
-  }
-  return { ok: true };
-}
-
-function invalidScriptOrPolicy(
-  command: string,
-  validation: { readonly ok: true } | { readonly ok: false; readonly hint: string },
-  policy: PresetPolicyResolution
-): { readonly ok: false; readonly result: CliResult } {
-  if (!validation.ok) return scriptFailure(command, CliErrorCode.ScriptContractInvalid, validation.hint);
-  if (!policy.ok) return scriptFailure(command, policy.error.code, policy.error.hint);
-  throw new Error("Script and policy validation unexpectedly succeeded.");
-}
-
-function scriptFailure(command: string, code: CliErrorCode, hint: string, runDir?: string, rootDir?: string): { readonly ok: false; readonly result: CliResult } {
-  return {
-    ok: false,
-    result: {
-      ok: false,
-      command,
-      evidenceBundle: runDir && rootDir ? relativeToRoot(rootDir, runDir) : undefined,
-      error: cliError(code, hint)
-    }
-  };
 }
 
 function readScriptResult(

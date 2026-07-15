@@ -4,7 +4,8 @@ import {
   isPresetRunEntrypoint,
   presetRunEntrypointCapabilities
 } from "../../cli/preset-entrypoint-capabilities.ts";
-import type { PresetManifestV3 } from "../../../../kernel/src/index.ts";
+import type { PresetInputV3, PresetManifestV3 } from "../../../../kernel/src/index.ts";
+import { semanticPresetScriptEntry } from "./preset-capability-runtime.ts";
 import { legacyPresetScriptEntry, type LegacyPresetScriptEntrypoint } from "./preset-script-runner.ts";
 import type { ResolvedPreset } from "./state.ts";
 import { runScriptHost, type ResolvedScriptEntry } from "./script-host.ts";
@@ -41,7 +42,7 @@ export function smokePresetEntrypoints(
 ): PresetEntrypointSmokeResult {
   const manifest = preset.manifest;
   if (manifest.schema === "preset-manifest/v3") {
-    return smokePresetV3Entrypoints(manifest);
+    return smokePresetV3Entrypoints(rootInput, preset, manifest);
   }
   const issues: PresetEntrypointSmokeIssue[] = [];
   const entrypoints = Object.entries(manifest.entrypoints ?? {}).map(([name, entrypoint]) => {
@@ -99,21 +100,74 @@ export function smokePresetEntrypoints(
   return { ok: issues.length === 0, entrypoints, issues };
 }
 
-function smokePresetV3Entrypoints(manifest: PresetManifestV3): PresetEntrypointSmokeResult {
-  const entrypoints = Object.entries(manifest.entrypoints ?? {}).map(([name, entrypoint]) => ({
-    name,
-    type: entrypoint.type,
-    ...(entrypoint.type === "script" ? { command: entrypoint.command } : {}),
-    ok: false
-  }));
-  const issues = entrypoints.map((entrypoint): PresetEntrypointSmokeIssue => ({
-    code: "preset_entrypoint_runtime_unregistered",
-    entrypoint: entrypoint.name,
-    path: `entrypoints.${entrypoint.name}`,
-    message: `Entrypoint ${entrypoint.name} uses preset-manifest/v3 semantic capabilities, but the semantic script host is not registered in this Phase 0 runtime.`,
-    nextCommand: `ha preset check ${manifest.id} --json`
-  }));
+function smokePresetV3Entrypoints(
+  rootInput: HarnessLayoutInput,
+  preset: ResolvedPreset,
+  manifest: PresetManifestV3
+): PresetEntrypointSmokeResult {
+  const issues: PresetEntrypointSmokeIssue[] = [];
+  const semanticPreset = { ...preset, manifest };
+  const entrypoints = Object.entries(manifest.entrypoints ?? {}).map(([name, entrypoint]) => {
+    if (!isPresetRunEntrypoint(name)) {
+      issues.push(entrypointCapabilityUnregisteredIssue(preset, name, entrypoint.type));
+      return entrypoint.type === "script"
+        ? { name, type: entrypoint.type, command: entrypoint.command, ok: false }
+        : { name, type: entrypoint.type, ok: false };
+    }
+    if (entrypoint.type !== "script") {
+      issues.push(runtimeUnregisteredIssue(preset, name, entrypoint.type));
+      return { name, type: entrypoint.type, ok: false };
+    }
+    const taskId = `task_PRESET_CHECK_${safeToken(manifest.id)}`;
+    const smoke = runScriptHost({
+      rootInput,
+      commandName: "preset-check",
+      script: {
+        ...semanticPresetScriptEntry(semanticPreset, name, entrypoint),
+        context: {
+          presetId: manifest.id,
+          presetTitle: manifest.title,
+          entrypoint: name,
+          taskId,
+          validationSmoke: true
+        }
+      },
+      inputs: syntheticSmokeInputs(entrypoint.inputs),
+      outputRoot: taskPackagePath(rootInput, taskId),
+      dryRun: true,
+      allowFailedScriptResult: true,
+      requireScriptResult: true
+    });
+    if (!smoke.ok) {
+      const error = smoke.result.error;
+      issues.push({
+        code: error?.code === "script_not_found"
+          ? "preset_entrypoint_script_missing"
+          : error?.code === "preset_runtime_unavailable"
+            ? "preset_entrypoint_runtime_unregistered"
+            : "preset_entrypoint_smoke_failed",
+        entrypoint: name,
+        path: `entrypoints.${name}${error?.code === "script_not_found" ? ".command" : ""}`,
+        message: `Entrypoint ${name} failed its semantic startup smoke: ${error?.hint ?? "unknown runtime failure"}`,
+        nextCommand: error?.code === "script_not_found" ? repairCommand(preset) : smokeReproductionCommand(preset)
+      });
+    }
+    return { name, type: entrypoint.type, command: entrypoint.command, ok: smoke.ok };
+  });
   return { ok: issues.length === 0, entrypoints, issues };
+}
+
+function syntheticSmokeInputs(inputs: Readonly<Record<string, PresetInputV3>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(inputs).flatMap(([name, input]) => {
+    if ("default" in input || "defaultFrom" in input) return [];
+    if (!input.required) return [];
+    if (input.type === "boolean") return [[name, "false"]];
+    if (input.type === "integer") return [[name, "0"]];
+    if (input.type === "enum" || input.type === "enum-list") return [[name, input.values[0] ?? ""]];
+    if (input.type === "decision-ref") return [[name, "dec_PRESET_CHECK"]];
+    if (input.type === "task-ref") return [[name, "task_PRESET_CHECK"]];
+    return [[name, "preset-check"]];
+  }));
 }
 
 function entrypointCapabilityUnregisteredIssue(

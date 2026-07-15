@@ -269,9 +269,25 @@ test("optional receipt contract fields carry non-empty absence reasons", () => {
     field: "data.rows",
     reason: "Only emitted when a scripted preset run writes a numeric rows value in its result."
   }, {
+    command: "preset-run",
+    field: "data.runId",
+    reason: "Only emitted by the semantic script host for an executable v3 entrypoint."
+  }, {
+    command: "preset-run",
+    field: "data.capabilityReceipt",
+    reason: "Only emitted by v3 semantic execution with its exact provider bindings."
+  }, {
     command: "preset-action",
     field: "data.rows",
     reason: "Only emitted when a scripted preset action writes a numeric rows value in its result."
+  }, {
+    command: "preset-action",
+    field: "data.runId",
+    reason: "Only emitted by the semantic script host for an executable v3 entrypoint."
+  }, {
+    command: "preset-action",
+    field: "data.capabilityReceipt",
+    reason: "Only emitted by v3 semantic execution with its exact provider bindings."
   }, {
     command: "script-run",
     field: "data.rows",

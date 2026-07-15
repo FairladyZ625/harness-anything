@@ -1,0 +1,37 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "milestone-dossier",
+  "title": "Aggregation-Boundary Understanding Dossier",
+  "vertical": "software/coding",
+  "version": "2.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "entrypoints": {
+    "gather": {
+      "type": "script",
+      "command": "scripts/dossier-data.mjs",
+      "intent": { "verb": "gather", "subject": "milestone-dossier-data" },
+      "inputs": {
+        "coordinationTaskId": { "type": "task-ref", "required": true, "defaultFrom": "current-task" },
+        "decisionId": { "type": "decision-ref", "required": false }
+      },
+      "requires": [{
+        "capability": "relation-graph",
+        "version": "1",
+        "select": { "scope": "decision-or-all", "decisionFrom": "decisionId", "view": "dossier" }
+      }],
+      "produces": [{
+        "capability": "task-artifacts",
+        "version": "1",
+        "target": { "taskFrom": "coordinationTaskId" },
+        "artifacts": [
+          { "id": "milestone-dossier-data", "schema": "milestone-dossier-data/v1", "mediaTypes": ["application/json"], "cardinality": "one", "required": true }
+        ]
+      }],
+      "sideEffects": []
+    }
+  },
+  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "software-coding-standard", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [{ "slot": "dossier-shell", "templateRef": "template://dossier/editorial-shell@1", "materializeAs": "artifacts/dossier.scaffold.html", "localePolicy": { "prefer": "project", "fallback": "zh-CN" } }] }],
+  "defaultProfile": "baseline"
+}

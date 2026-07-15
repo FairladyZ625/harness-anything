@@ -1,0 +1,46 @@
+{
+  "schema": "preset-manifest/v2",
+  "id": "milestone-dossier",
+  "title": "Aggregation-Boundary Understanding Dossier",
+  "vertical": "software/coding",
+  "version": "1.0.0",
+  "kind": "process-action",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [
+    { "id": "relation-graph-projection", "kind": "projection", "version": "1", "required": true },
+    { "id": "dossier-gate-checker", "kind": "checker", "version": "1", "required": true }
+  ],
+  "entrypoints": {
+    "gather": {
+      "type": "script",
+      "command": "scripts/dossier-data.mjs",
+      "reads": [
+        "{{paths.tasksRoot}}/**",
+        "{{paths.decisionsRoot}}/**",
+        "{{paths.localRoot}}/**"
+      ],
+      "writes": [
+        "{{outputRoot}}/artifacts/**"
+      ],
+      "inputs": {
+        "coordinationTaskId": "{{taskId}}",
+        "decisionId": ""
+      }
+    }
+  },
+  "profiles": [{
+    "id": "baseline",
+    "title": "Baseline",
+    "checkerProfile": "software-coding-standard",
+    "completionGates": ["ci", "code-doc-reconciliation"],
+    "templateSelections": [
+      {
+        "slot": "dossier-shell",
+        "templateRef": "template://dossier/editorial-shell@1",
+        "materializeAs": "artifacts/dossier.scaffold.html",
+        "localePolicy": { "prefer": "project", "fallback": "zh-CN" }
+      }
+    ]
+  }],
+  "defaultProfile": "baseline"
+}
