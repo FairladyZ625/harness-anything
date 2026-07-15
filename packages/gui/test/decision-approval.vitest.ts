@@ -321,6 +321,27 @@ describe("server-render smoke · approval + pool", () => {
     expect(html).toMatch(/drift\/conflict not projected|drift\/conflict 未投影/);
   });
 
+  it("VerdictCard offers both evidence retry and judgment-only recovery for accept", () => {
+    const html = renderToStaticMarkup(
+      createElement(VerdictCard, {
+        d,
+        decisions: [d],
+        facts,
+        tasks,
+        relations,
+        onTrace: () => undefined,
+        onDecide: () => undefined,
+        onInspectFact: () => undefined,
+        readOnly: false,
+        initialPendingAction: "accept",
+      }),
+    );
+
+    expect(html).toContain('data-testid="decision-accept-existing-evidence"');
+    expect(html).toContain('data-testid="decision-accept-judgment-only"');
+    expect(html).toMatch(/claim anchor|claim 锚点/);
+  });
+
   it("VerdictCard shows read-only banner when readOnly", () => {
     const html = renderToStaticMarkup(
       createElement(VerdictCard, {

@@ -3,9 +3,10 @@
 // 拆分依据：check-file-complexity 的 600 行上限，"split by responsibility
 // instead of shaving lines"。
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path, { resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -91,6 +92,42 @@ export function writeTriadicLedger(rootDir) {
     "  localRoot: .harness",
     ""
   ].join("\n"));
+  writeFileSync(path.join(rootDir, "harness/people.yaml"), [
+    "schema: harness-people/v1",
+    "people:",
+    "  - personId: person_gui_e2e",
+    "    displayName: GUI E2E",
+    "    primaryEmail: gui-e2e@example.test",
+    "    roles: [owner]",
+    "    credentials:",
+    "      - kind: unix-socket-owner-boundary",
+    `        issuer: host:${hostname()}`,
+    `        subject: ${process.getuid?.() ?? 0}`,
+    "roles:",
+    "  - roleId: owner",
+    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+    ""
+  ].join("\n"));
+  const attributionDir = path.join(rootDir, "harness/attribution-events");
+  mkdirSync(attributionDir, { recursive: true });
+  writeFileSync(path.join(attributionDir, "decision-propose.jsonl"), `${JSON.stringify({
+    schema: "attribution-event/v1",
+    journalRecordSchema: "write-journal/v2",
+    eventId: "evt_gui_e2e_propose",
+    opId: "op_gui_e2e_propose",
+    kind: "decision_propose",
+    entityId: "decision/dec_gui_smoke",
+    actor: {
+      principal: { kind: "person", personId: "person_gui_e2e" },
+      executor: { kind: "agent", id: "codex" },
+    },
+    principalSource: { kind: "migration", evidenceRef: "e2e/gui-decision-accept" },
+    executorSource: "client-asserted",
+    at: "2026-07-10T00:00:00.000Z",
+    recordedAt: "2026-07-10T00:00:00.000Z",
+    payloadHash: "gui-e2e-payload-hash",
+    payloadRef: { path: "e2e/gui-decision-accept", sha256: "gui-e2e-payload-sha" },
+  })}\n`);
   writeFileSync(path.join(taskDir, "INDEX.md"), [
     "---",
     "schema: task-package/v2",
@@ -161,9 +198,9 @@ export function writeTriadicLedger(rootDir) {
     "rejected:",
     "  - {id: \"RJ1\", text: \"Keep the global hairball\", why_not: \"Focused graph is more legible\"}",
     "claims:",
-    "  - {id: \"CH1\", text: \"The public path preserves kernel relation names\", load_bearing: true}",
-    "  - {id: \"CH2\", text: \"Loose associations stay optional\", load_bearing: true}",
-    "  - {id: \"RJ1\", text: \"The global hairball should remain rejected\", load_bearing: true}",
+    "  - {id: \"C1\", text: \"The public path preserves kernel relation names\", load_bearing: true}",
+    "  - {id: \"C2\", text: \"Loose associations stay optional\", load_bearing: true}",
+    "  - {id: \"C3\", text: \"The global hairball should remain rejected\", load_bearing: true}",
     "relations:",
     "  - {relation_id: rel_5287143733cccbd9, source: decision/dec_gui_smoke, target: task/task-gui-smoke, type: derives, strength: strong, direction: directed, origin: declared, rationale: \"Decision derived the GUI task\", state: active}",
     "  - {relation_id: rel_f0e4909f80e86478, source: decision/dec_gui_smoke/CH1, target: fact/task-gui-smoke/F-ABCDEFGH, type: evidenced-by, strength: strong, direction: directed, origin: declared, rationale: \"Fact evidences the public projection\", state: active}",
@@ -200,6 +237,13 @@ export function writeTriadicLedger(rootDir) {
     "---",
     ""
   ].join("\n"));
+
+  const harnessRoot = path.join(rootDir, "harness");
+  execFileSync("git", ["-C", harnessRoot, "init", "-q"]);
+  execFileSync("git", ["-C", harnessRoot, "config", "user.email", "gui-e2e@example.test"]);
+  execFileSync("git", ["-C", harnessRoot, "config", "user.name", "GUI E2E"]);
+  execFileSync("git", ["-C", harnessRoot, "add", "."]);
+  execFileSync("git", ["-C", harnessRoot, "commit", "-q", "-m", "seed GUI E2E ledger"]);
 }
 
 export async function closeElectronApp(electronApp) {
@@ -213,4 +257,3 @@ export async function closeElectronApp(electronApp) {
 export function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
-

@@ -166,7 +166,9 @@ export function DecisionsView({
         handleSkip();
       } else if (key === "a") {
         event.preventDefault();
-        handleDecide(current.decisionId, "accept");
+        window.dispatchEvent(
+          new CustomEvent("decision-queue-hotkey", { detail: { action: "accept" } }),
+        );
       } else if (key === "r") {
         // open rationale via Reject button path: dispatch through handleDecide only after rationale
         // VerdictCard owns the rationale panel; fire a synthetic click on reject is brittle.
@@ -188,7 +190,7 @@ export function DecisionsView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, handleDecide, handleNext, handlePrev, handleSkip, readOnly]);
+  }, [current, handleNext, handlePrev, handleSkip, readOnly]);
 
   const processedTone: Record<DecideAction, string> = {
     accept: "text-success",
@@ -442,20 +444,20 @@ export function DecisionsView({
 }
 
 /**
- * Wraps VerdictCard so keyboard r/d open the rationale panel without a DOM
+ * Wraps VerdictCard so keyboard a/r/d open the rationale panel without a DOM
  * query. Listens for the queue hotkey custom event and remounts the card with
  * initialPendingAction set so the rationale panel opens.
  */
 function HotkeyAwareVerdict(
   props: Omit<ComponentProps<typeof VerdictCard>, "initialPendingAction">,
 ) {
-  const [forceAction, setForceAction] = useState<"reject" | "defer" | null>(null);
+  const [forceAction, setForceAction] = useState<DecideAction | null>(null);
   const [pulse, setPulse] = useState(0);
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ action: "reject" | "defer" }>).detail;
-      if (detail?.action === "reject" || detail?.action === "defer") {
+      const detail = (event as CustomEvent<{ action: DecideAction }>).detail;
+      if (detail?.action === "accept" || detail?.action === "reject" || detail?.action === "defer") {
         setForceAction(detail.action);
         setPulse((n) => n + 1);
       }

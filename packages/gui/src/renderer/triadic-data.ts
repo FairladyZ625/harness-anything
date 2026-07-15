@@ -21,7 +21,7 @@ export type DecideAction = "accept" | "reject" | "defer";
 export interface DecideMutationInput {
   readonly decisionId: string;
   readonly action: DecideAction;
-  /** Required non-empty for reject; optional for defer; ignored for accept. */
+  /** Required non-empty for judgment-only accept/reject; optional for defer. */
   readonly judgmentOnlyRationale?: string;
 }
 
