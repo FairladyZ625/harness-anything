@@ -2,6 +2,7 @@ import type { EntityId, TaskId } from "../domain/index.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { VersionControlSystem } from "../ports/version-control-system.ts";
 import type { AttributionEventStore } from "./write-journal-attribution-events.ts";
+import type { ProjectionChangeEvent } from "../projection/projection-change-event.ts";
 import type { WriteOp } from "../ports/write-coordinator.ts";
 import type { ActorAxes, AgentRef, OperationalActor, WriteAttribution } from "../schemas/actor-attribution.ts";
 export type { OperationalActor } from "../schemas/actor-attribution.ts";
@@ -25,6 +26,7 @@ export interface JournaledWriteCoordinatorOptions {
   readonly commitAuthor?: GitCommitAuthor;
   readonly versionControlSystem?: VersionControlSystem;
   readonly attributionEventStore?: AttributionEventStore;
+  readonly onProjectionChange?: (event: ProjectionChangeEvent) => void;
 }
 
 export type JournalRecoveryOptions = Omit<JournaledWriteCoordinatorOptions, "attribution">;

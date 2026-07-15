@@ -96,6 +96,7 @@ export * from "./ports/index.ts";
 export * from "./projection/post-merge-checks.ts";
 export * from "./projection/relation-flow-frontmatter.ts";
 export * from "./projection/relation-graph-projection.ts";
+export type { ProjectionChangeEvent } from "./projection/projection-change-event.ts";
 export {
   auditTaskProvenance,
   queryExecutionProjection,

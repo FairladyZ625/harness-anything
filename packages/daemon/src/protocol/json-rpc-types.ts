@@ -12,6 +12,12 @@ export interface JsonRpcRequest {
   readonly id?: JsonRpcId;
 }
 
+export interface JsonRpcNotification {
+  readonly jsonrpc: "2.0";
+  readonly method: string;
+  readonly params?: JsonObject;
+}
+
 export interface JsonRpcSuccessResponse<Result = unknown> {
   readonly jsonrpc: "2.0";
   readonly id: JsonRpcId;

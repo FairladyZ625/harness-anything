@@ -24,6 +24,7 @@ import {
   isSshAuthorityWireBootstrapFrame,
   type AcceptSshForcedCommand
 } from "./ssh-forced-command.ts";
+import type { JsonRpcNotification } from "../protocol/json-rpc-types.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
 export interface UnixSocketTransportOptions {
@@ -32,7 +33,8 @@ export interface UnixSocketTransportOptions {
   readonly acceptedConnectionEvidenceAdapter?: AcceptedConnectionEvidenceAdapter<net.Socket>;
   readonly createProtocolServer: (
     authContext: DaemonAuthenticationContext,
-    acceptedConnection?: AcceptedConnectionBinding
+    acceptedConnection: AcceptedConnectionBinding | undefined,
+    notificationSink: (notification: JsonRpcNotification) => void
   ) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
