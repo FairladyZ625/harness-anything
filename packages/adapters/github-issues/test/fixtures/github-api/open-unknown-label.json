@@ -1,0 +1,20 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "number": 105,
+      "title": "Unknown label fixture",
+      "state": "open",
+      "state_reason": null,
+      "html_url": "https://github.com/acme/widgets/issues/105",
+      "assignee": null,
+      "labels": [{ "name": "provider-specific" }]
+    }
+  },
+  "expected": {
+    "canonicalStatus": "planned",
+    "rawStatus": "open:null",
+    "ref": "acme/widgets#105"
+  }
+}

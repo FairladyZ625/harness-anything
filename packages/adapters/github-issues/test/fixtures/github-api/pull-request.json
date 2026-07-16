@@ -1,0 +1,17 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "number": 110,
+      "title": "Pull request marker fixture",
+      "state": "open",
+      "state_reason": null,
+      "html_url": "https://github.com/acme/widgets/pull/110",
+      "assignee": null,
+      "labels": [],
+      "pull_request": { "url": "https://api.github.com/repos/acme/widgets/pulls/110" }
+    }
+  },
+  "expectedError": "RefNotFound"
+}

@@ -1,0 +1,20 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "number": 106,
+      "title": "Completed fixture",
+      "state": "closed",
+      "state_reason": "completed",
+      "html_url": "https://github.com/acme/widgets/issues/106",
+      "assignee": null,
+      "labels": [{ "name": "blocked" }]
+    }
+  },
+  "expected": {
+    "canonicalStatus": "done",
+    "rawStatus": "closed:completed",
+    "ref": "acme/widgets#106"
+  }
+}

@@ -34,6 +34,9 @@
     },
     {
       "path": "../adapters/multica"
+    },
+    {
+      "path": "../adapters/github-issues"
     }
   ]
 }

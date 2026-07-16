@@ -1,0 +1,19 @@
+{
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": [
+      {
+        "number": 203,
+        "title": "List page two",
+        "state": "closed",
+        "state_reason": "completed",
+        "html_url": "https://github.com/acme/widgets/issues/203",
+        "assignee": { "login": "fixture-assignee" },
+        "labels": []
+      }
+    ]
+  },
+  "expectedRefs": ["acme/widgets#203"],
+  "expectedStatuses": ["done"]
+}

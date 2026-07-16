@@ -1,0 +1,8 @@
+{
+  "cases": [
+    { "name": "unauthorized", "response": { "status": 401, "headers": {}, "body": { "message": "private body must be ignored" } }, "expectedError": "AuthMissing" },
+    { "name": "forbidden", "response": { "status": 403, "headers": {}, "body": { "message": "private body must be ignored" } }, "expectedError": "AuthMissing" },
+    { "name": "not-found", "response": { "status": 404, "headers": {}, "body": { "message": "private body must be ignored" } }, "expectedError": "RefNotFound" },
+    { "name": "rate-limit", "response": { "status": 403, "headers": { "x-ratelimit-remaining": "0", "retry-after": "7" }, "body": { "message": "private body must be ignored" } }, "expectedError": "RateLimited" }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "number": 109,
+      "title": "Unmapped reason fixture",
+      "state": "closed",
+      "state_reason": "provider_specific",
+      "html_url": "https://github.com/acme/widgets/issues/109",
+      "assignee": null,
+      "labels": []
+    }
+  },
+  "expected": {
+    "canonicalStatus": "unknown",
+    "rawStatus": "closed:provider_specific",
+    "ref": "acme/widgets#109",
+    "staleReason": "status_unmapped"
+  }
+}

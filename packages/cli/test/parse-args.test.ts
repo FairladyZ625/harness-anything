@@ -175,6 +175,8 @@ const parseCases: ReadonlyArray<ParseCase> = [
   { name: "lesson sediment", argv: ["lesson", "sediment", "task_1", "candidate-1", "--title", "Learning"], kind: "lesson-sediment", fields: { taskId: "task_1", candidateId: "candidate-1", title: "Learning", mode: "dry-run" } },
   { name: "adopt multica", argv: ["adopt", "multica", "EXT-1", "--task", "task_1", "--title", "External", "--status", "todo"], kind: "adopt-multica", fields: { ref: "EXT-1", taskId: "task_1", title: "External", status: "todo" } },
   { name: "snapshot multica", argv: ["snapshot", "multica", "EXT-1", "--title", "External", "--status", "todo"], kind: "snapshot-multica", fields: { ref: "EXT-1", title: "External", status: "todo" } },
+  { name: "snapshot github", argv: ["snapshot", "github", "Acme/Widgets#101"], kind: "snapshot-github", fields: { ref: "Acme/Widgets#101" } },
+  { name: "list github", argv: ["list", "github", "Acme/Widgets", "--raw-status", "closed:completed", "--label", "fixture-label"], kind: "list-github", fields: { repository: "Acme/Widgets", rawStatus: "closed:completed", label: "fixture-label" } },
   { name: "migrate plan", argv: ["migrate", "plan", "--limit", "5"], kind: "migrate-plan", fields: { limit: 5 } },
   { name: "migrate structure", argv: ["migrate", "structure", "--apply", "--confirm-plan"], kind: "migrate-structure", fields: { mode: "apply", confirmPlan: true } },
   { name: "migrate anchors", argv: ["migrate", "anchors", "--apply"], kind: "migrate-anchors", fields: { mode: "apply" } },

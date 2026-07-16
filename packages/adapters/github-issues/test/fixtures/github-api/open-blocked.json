@@ -1,0 +1,20 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "number": 103,
+      "title": "Blocked fixture",
+      "state": "open",
+      "state_reason": null,
+      "html_url": "https://github.com/acme/widgets/issues/103",
+      "assignee": { "login": "fixture-assignee" },
+      "labels": [{ "name": "blocked: upstream" }]
+    }
+  },
+  "expected": {
+    "canonicalStatus": "blocked",
+    "rawStatus": "open:null",
+    "ref": "acme/widgets#103"
+  }
+}

@@ -7,6 +7,16 @@ import {
   runLedgerMaterializer
 } from "../../../adapters/local/src/index.ts";
 import { multicaAdapterProviderMetadata } from "../../../adapters/multica/src/index.ts";
+import {
+  makeGithubIssuesLifecycleEngine,
+  type GithubCredentialResolver,
+  type GithubHttpRequest,
+  type GithubHttpResponse,
+  type GithubIssuesLifecycleEngine,
+  type GithubIssuesProviderOptions,
+  type GithubTransport,
+  type GithubTransportError
+} from "../../../adapters/github-issues/src/index.ts";
 import type { HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import { makeMarkdownArtifactStore } from "../../../kernel/src/index.ts";
 import type {
@@ -71,3 +81,17 @@ export function selectCliAdapterProvider(capability: AdapterCapability): CliComp
   if (localProvider.metadata.capabilities.some((registered) => registered === capability)) return localProvider;
   throw new Error(`No CLI adapter provider registered for capability: ${capability}`);
 }
+
+export function createGithubIssuesReadProvider(options: GithubIssuesProviderOptions = {}) {
+  return makeGithubIssuesLifecycleEngine(options);
+}
+
+export type {
+  GithubCredentialResolver,
+  GithubHttpRequest,
+  GithubHttpResponse,
+  GithubIssuesLifecycleEngine,
+  GithubIssuesProviderOptions,
+  GithubTransport,
+  GithubTransportError
+};

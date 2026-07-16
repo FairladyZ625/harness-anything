@@ -1,0 +1,21 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "number": 102,
+      "title": "Active fixture",
+      "state": "open",
+      "state_reason": null,
+      "html_url": "https://github.com/acme/widgets/issues/102",
+      "assignee": { "login": "fixture-assignee" },
+      "labels": []
+    }
+  },
+  "expected": {
+    "canonicalStatus": "active",
+    "rawStatus": "open:null",
+    "ref": "acme/widgets#102",
+    "assignee": "fixture-assignee"
+  }
+}

@@ -15,5 +15,10 @@
   },
   "include": [
     "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../../kernel"
+    }
   ]
 }

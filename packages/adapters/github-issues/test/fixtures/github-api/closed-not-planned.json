@@ -1,0 +1,20 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "number": 107,
+      "title": "Not planned fixture",
+      "state": "closed",
+      "state_reason": "not_planned",
+      "html_url": "https://github.com/acme/widgets/issues/107",
+      "assignee": null,
+      "labels": [{ "name": "needs review" }]
+    }
+  },
+  "expected": {
+    "canonicalStatus": "cancelled",
+    "rawStatus": "closed:not_planned",
+    "ref": "acme/widgets#107"
+  }
+}

@@ -46,11 +46,17 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
     return 2;
   }
 
-  const daemonOutput = await runCommandThroughDaemon(parsed.value);
+  const daemonOutput = isGithubIssuesReadCommand(parsed.value)
+    ? undefined
+    : await runCommandThroughDaemon(parsed.value);
   const output = daemonOutput ?? toCommandReceipt(await runRegisteredCommand(parsed.value));
 
   emit(output, parsed.value.json);
   return output.ok ? 0 : 1;
+}
+
+function isGithubIssuesReadCommand(command: { readonly action: { readonly kind: string } }): boolean {
+  return command.action.kind === "snapshot-github" || command.action.kind === "list-github";
 }
 
 async function maybeRunDaemonCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {

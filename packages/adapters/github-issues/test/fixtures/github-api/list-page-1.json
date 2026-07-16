@@ -1,0 +1,29 @@
+{
+  "response": {
+    "status": 200,
+    "headers": { "link": "<https://api.github.com/repositories/1/issues?page=2>; rel=\"next\"" },
+    "body": [
+      {
+        "number": 201,
+        "title": "List page one",
+        "state": "open",
+        "state_reason": null,
+        "html_url": "https://github.com/acme/widgets/issues/201",
+        "assignee": null,
+        "labels": [{ "name": "needs review" }]
+      },
+      {
+        "number": 202,
+        "title": "List pull request",
+        "state": "open",
+        "state_reason": null,
+        "html_url": "https://github.com/acme/widgets/pull/202",
+        "assignee": null,
+        "labels": [],
+        "pull_request": { "url": "https://api.github.com/repos/acme/widgets/pulls/202" }
+      }
+    ]
+  },
+  "expectedRefs": ["acme/widgets#201"],
+  "expectedStatuses": ["in_review"]
+}

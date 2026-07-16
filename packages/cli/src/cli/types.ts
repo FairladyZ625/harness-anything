@@ -279,6 +279,8 @@ export interface ParsedCommand {
     | { readonly kind: "lesson-sediment"; readonly taskId: string; readonly candidateId: string; readonly mode: "dry-run"; readonly title: string }
     | { readonly kind: "adopt-multica"; readonly taskId: string; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
     | { readonly kind: "snapshot-multica"; readonly ref: string; readonly title: string; readonly status: string; readonly url: string }
+    | { readonly kind: "snapshot-github"; readonly ref: string }
+    | { readonly kind: "list-github"; readonly repository: string; readonly rawStatus?: string; readonly label?: string }
     | { readonly kind: "migrate-plan"; readonly limit: number }
     | { readonly kind: "migrate-structure"; readonly mode: "plan" | "apply"; readonly confirmPlan: boolean }
     | { readonly kind: "migrate-anchors"; readonly mode: AnchorBackfillMode }
