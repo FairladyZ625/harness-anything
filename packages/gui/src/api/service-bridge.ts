@@ -1,3 +1,7 @@
+import {
+  projectDaemonStatusForRenderer,
+  type DaemonStatusResultV2
+} from "../../../application/src/index.ts";
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, deferredGuiBridgeContracts, terminalGuiBridgeContracts, type ApiRouteContract } from "./api-contract-registry.ts";
 import { terminalBridgeHandlerImplementations } from "./terminal-bridge-handlers.ts";
@@ -15,34 +19,17 @@ type ShippedGuiBridgeRoute = Extract<(typeof apiRouteContracts)[number], { reado
 type ShippedGuiBridgeMethod = ShippedGuiBridgeRoute["guiBridgeMethod"];
 export type TerminalGuiBridgeMethod = (typeof terminalGuiBridgeContracts)[number]["guiBridgeMethod"];
 type LocalControllerGuiMethod =
-  | "getCatalogSnapshot"
-  | "getTasks"
-  | "getTaskDetail"
-  | "getTaskDocument"
-  | "getPeripheralDocuments"
-  | "getPeripheralDocument"
-  | "getRelationGraph"
-  | "getTriadicProjection"
-  | "getDecisions"
-  | "getDecisionDetail"
-  | "proposeDecision"
-  | "acceptDecision"
-  | "rejectDecision"
-  | "deferDecision"
-  | "getTaskFacts"
-  | "getFacts"
-  | "getTaskExecutions"
-  | "getExecutions"
-  | "getExecutionEvidencePage"
-  | "getExecutionDetail"
-  | "getReviewDetail"
-  | "setTaskStatus"
-  | "reviewTask"
-  | "appendTaskProgress"
-  | "rebuildGovernance";
+  | "getCatalogSnapshot" | "getTasks" | "getTaskDetail" | "getTaskDocument"
+  | "getPeripheralDocuments" | "getPeripheralDocument" | "getRelationGraph"
+  | "getTriadicProjection" | "getDecisions" | "getDecisionDetail" | "proposeDecision"
+  | "acceptDecision" | "rejectDecision" | "deferDecision" | "getTaskFacts" | "getFacts"
+  | "getTaskExecutions" | "getExecutions" | "getExecutionEvidencePage" | "getExecutionDetail"
+  | "getReviewDetail" | "setTaskStatus" | "reviewTask" | "appendTaskProgress" | "rebuildGovernance";
+type DaemonStatusGuiServiceMethod = "getStatus";
 type TerminalGuiServiceMethod = (typeof terminalGuiBridgeContracts)[number]["serviceMethod"];
 
 interface GuiBridgeServiceProxy {
+  readonly getStatus: () => Promise<unknown> | unknown;
   readonly getCatalogSnapshot: () => Promise<unknown> | unknown;
   readonly getTasks: () => Promise<unknown> | unknown;
   readonly getTaskDetail: (payload: unknown) => Promise<unknown> | unknown;
@@ -81,11 +68,15 @@ export interface GuiBridgeHandlerContext {
 }
 
 export interface GuiBridgeHandlerImplementation {
-  readonly serviceMethod: LocalControllerGuiMethod | TerminalGuiServiceMethod;
+  readonly serviceMethod: LocalControllerGuiMethod | DaemonStatusGuiServiceMethod | TerminalGuiServiceMethod;
   readonly invoke: (context: GuiBridgeHandlerContext) => Promise<unknown> | unknown;
 }
 
 export const guiBridgeHandlerImplementations = {
+  getDaemonStatus: {
+    serviceMethod: "getStatus",
+    invoke: ({ service }) => service.getStatus()
+  },
   getCatalogSnapshot: {
     serviceMethod: "getCatalogSnapshot",
     invoke: ({ service }) => service.getCatalogSnapshot()
@@ -250,6 +241,7 @@ export async function dispatchGuiServiceMethod(
 
 function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeServiceProxy {
   return {
+    getStatus: async () => projectDaemonStatusResult(await invokeDaemonGuiRoute(request, "getDaemonStatus", undefined)),
     getCatalogSnapshot: () => invokeDaemonGuiRoute(request, "getCatalogSnapshot", undefined),
     getTasks: () => invokeDaemonGuiRoute(request, "getTasks", undefined),
     getTaskDetail: (payload) => invokeDaemonGuiRoute(request, "getTaskDetail", payload),
@@ -281,6 +273,13 @@ function createDaemonServiceProxy(request: GuiDaemonRequester): GuiBridgeService
     terminalResize: (payload) => invokeDaemonGuiRoute(request, "terminalResize", payload),
     terminalExit: (payload) => invokeDaemonGuiRoute(request, "terminalExit", payload)
   };
+}
+
+export function projectDaemonStatusResult(raw: unknown): unknown {
+  if (isServicePayloadRecord(raw) && raw.schema === "daemon-status/v2") {
+    return projectDaemonStatusForRenderer(raw as unknown as DaemonStatusResultV2);
+  }
+  return raw;
 }
 
 async function invokeDaemonGuiRoute(

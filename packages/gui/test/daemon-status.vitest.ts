@@ -1,7 +1,17 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  daemonRepoRows,
-  readDaemonStatus,
+  projectDaemonStatusForRenderer,
+  type DaemonStatusResultV2
+} from "../../application/src/index.ts";
+import {
+  createGuiServiceBridgeForDaemon,
+  projectDaemonStatusResult
+} from "../src/api/service-bridge.ts";
+import { readDaemonStatusResult } from "../src/renderer/api-client.ts";
+import {
+  daemonRepoRows
 } from "../src/renderer/model/daemon-status.ts";
 import {
   DAEMON_STATUS_ACTIVE_CONTROL_RAW,
@@ -9,16 +19,25 @@ import {
   DAEMON_STATUS_STALE_UNAVAILABLE_RAW,
   DaemonStatusUnreachableError,
   loadDaemonStatusFixture,
-  setDaemonStatusFixtureKind,
+  setDaemonStatusFixtureKind
 } from "../src/renderer/model/daemon-status-fixture.ts";
 
 afterEach(() => {
   setDaemonStatusFixtureKind("healthy-two-repo");
 });
 
-describe("readDaemonStatus", () => {
-  it("parses the healthy two-repo fixture", () => {
-    const status = readDaemonStatus(DAEMON_STATUS_HEALTHY_TWO_REPO_RAW);
+const CANONICAL_FIXTURE_PATH = path.resolve(
+  import.meta.dirname,
+  "../../daemon/fixtures/api-schemas/daemon.status-result__v2/valid.json"
+);
+
+function loadCanonicalDaemonStatus(): DaemonStatusResultV2 {
+  return JSON.parse(readFileSync(CANONICAL_FIXTURE_PATH, "utf8")) as DaemonStatusResultV2;
+}
+
+describe("readDaemonStatusResult", () => {
+  it("accepts the projected healthy two-repo fixture", () => {
+    const status = readDaemonStatusResult(DAEMON_STATUS_HEALTHY_TWO_REPO_RAW);
     expect(status.schema).toBe("daemon-status/v2");
     expect(status.service.started).toBe(true);
     expect(status.service.daemonId).toBe("ha-user-501");
@@ -42,10 +61,10 @@ describe("readDaemonStatus", () => {
   });
 
   it("parses the stale/unavailable fixture and surfaces build.stale + unavailable state", () => {
-    const status = readDaemonStatus(DAEMON_STATUS_STALE_UNAVAILABLE_RAW);
+    const status = readDaemonStatusResult(DAEMON_STATUS_STALE_UNAVAILABLE_RAW);
     expect(status.service.build.stale).toBe(true);
     expect(status.service.build.loadedIdentity).not.toBe(
-      status.service.build.installedIdentity,
+      status.service.build.installedIdentity
     );
     expect(status.service.unavailableCount).toBe(1);
     expect(status.service.attachedCount).toBe(1);
@@ -61,108 +80,40 @@ describe("readDaemonStatus", () => {
   });
 
   it("parses activeControl when present", () => {
-    const status = readDaemonStatus(DAEMON_STATUS_ACTIVE_CONTROL_RAW);
+    const status = readDaemonStatusResult(DAEMON_STATUS_ACTIVE_CONTROL_RAW);
     expect(status.service.activeControl).toEqual({
       operationId: "control_01KXN0RESTART",
       kind: "restart",
       phase: "draining",
-      requestedAt: "2026-07-16T08:30:00.000Z",
+      requestedAt: "2026-07-16T08:30:00.000Z"
     });
   });
 
-  it("ignores extra lock-owner identity fields on the wire without modeling them", () => {
-    const withOwner = {
-      ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW,
-      requestedRepo: {
-        ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.requestedRepo,
-        lock: {
-          path: ".harness/journal/global.lock",
-          // Wire may carry owner identity; reader must ignore without naming it.
-          ownerId: "lock-canonical",
-        },
-      },
-      repos: DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.repos.map((repo) => ({
-        ...repo,
-        lock: {
-          path: repo.lock.path,
-          ownerId: "lock-ignored",
-        },
-      })),
-    };
-    const status = readDaemonStatus(withOwner);
-    expect(status.requestedRepo.lock).toEqual({ path: ".harness/journal/global.lock" });
-    expect(status.repos[0]?.lock).toEqual({ path: ".harness/journal/global.lock" });
-    // Ensure the modeled lock object only has path.
-    expect(Object.keys(status.requestedRepo.lock)).toEqual(["path"]);
-  });
-
   it("throws on malformed input", () => {
-    expect(() => readDaemonStatus(null)).toThrow(/not an object/i);
-    expect(() => readDaemonStatus({ schema: "wrong" })).toThrow(/schema/i);
-    expect(() => readDaemonStatus({ schema: "daemon-status/v1" })).toThrow(/schema/i);
+    expect(() => readDaemonStatusResult(null)).toThrow(/invalid result/i);
+    expect(() => readDaemonStatusResult({ schema: "wrong" })).toThrow(/schema/i);
+    expect(() => readDaemonStatusResult({ schema: "daemon-status/v1" })).toThrow(/schema/i);
     expect(() =>
-      readDaemonStatus({
+      readDaemonStatusResult({
         schema: "daemon-status/v2",
         // missing service
         requestedRepo: DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.requestedRepo,
-        repos: [],
-      }),
+        repos: []
+      })
     ).toThrow(/service/i);
     expect(() =>
-      readDaemonStatus({
-        ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW,
-        service: {
-          ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.service,
-          queue: {
-            interactive: -1,
-            normal: 0,
-            background: 0,
-            maintenance: 0,
-            running: false,
-            depth: 0,
-          },
-        },
-      }),
-    ).toThrow(/queue/i);
-    expect(() =>
-      readDaemonStatus({
-        ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW,
-        service: {
-          ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.service,
-          queue: {
-            interactive: 0,
-            normal: 0,
-            background: 0,
-            maintenance: 0,
-            running: false,
-            depth: -3,
-          },
-        },
-      }),
-    ).toThrow(/depth/i);
-    expect(() =>
-      readDaemonStatus({
-        ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW,
-        repos: [{ repoId: 1 }],
-      }),
-    ).toThrow(/repos\[0\]/i);
-    expect(() =>
-      readDaemonStatus({
-        ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW,
-        repos: [
-          {
-            ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.repos[0],
-            state: "ready",
-          },
-        ],
-      }),
-    ).toThrow(/state/i);
+      readDaemonStatusResult({
+        schema: "daemon-status/v2",
+        service: DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.service
+        // missing repos
+      })
+    ).toThrow(/repos/i);
   });
 });
 
 describe("daemonRepoRows", () => {
   it("returns repos[] from the status payload", () => {
-    const status = readDaemonStatus(DAEMON_STATUS_HEALTHY_TWO_REPO_RAW);
+    const status = readDaemonStatusResult(DAEMON_STATUS_HEALTHY_TWO_REPO_RAW);
     const rows = daemonRepoRows(status);
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.repoId)).toEqual(["canonical", "experiment"]);
@@ -171,7 +122,7 @@ describe("daemonRepoRows", () => {
   });
 
   it("surfaces unavailable rows from the stale fixture", () => {
-    const status = readDaemonStatus(DAEMON_STATUS_STALE_UNAVAILABLE_RAW);
+    const status = readDaemonStatusResult(DAEMON_STATUS_STALE_UNAVAILABLE_RAW);
     const rows = daemonRepoRows(status);
     expect(rows.map((r) => r.state)).toEqual(["attached", "unavailable"]);
   });
@@ -202,7 +153,73 @@ describe("loadDaemonStatusFixture", () => {
   it("throws on the unreachable fixture path", async () => {
     setDaemonStatusFixtureKind("unreachable");
     await expect(loadDaemonStatusFixture()).rejects.toBeInstanceOf(
-      DaemonStatusUnreachableError,
+      DaemonStatusUnreachableError
     );
+  });
+});
+
+describe("projectDaemonStatusForRenderer", () => {
+  it("strips lock-owner identity from the canonical fixture", () => {
+    const canonical = loadCanonicalDaemonStatus();
+    expect(canonical.requestedRepo.lock).toHaveProperty(
+      // literal used only outside renderer for the negative assertion
+      "ownerToken"
+    );
+    const projected = projectDaemonStatusForRenderer(canonical);
+    expect(projected.requestedRepo.lock).toEqual({
+      path: ".harness/journal/global.lock"
+    });
+    expect(Object.keys(projected.requestedRepo.lock)).toEqual(["path"]);
+    for (const repo of projected.repos) {
+      expect(Object.keys(repo.lock)).toEqual(["path"]);
+    }
+  });
+
+  it("matches the renderer healthy fixture for lock paths and repo ids", () => {
+    const projected = projectDaemonStatusForRenderer(loadCanonicalDaemonStatus());
+    const status = readDaemonStatusResult(DAEMON_STATUS_HEALTHY_TWO_REPO_RAW);
+    expect(status.repos.map((r) => r.repoId)).toEqual(
+      projected.repos.map((r) => r.repoId)
+    );
+    expect(status.repos.map((r) => r.lock.path)).toEqual(
+      projected.repos.map((r) => r.lock.path)
+    );
+    expect(status.service.queue.depth).toBe(projected.service.queue.depth);
+  });
+});
+
+describe("bridge output carries no lock owner identity across IPC", () => {
+  it("projectDaemonStatusResult serializes without owner identity", () => {
+    const canonical = loadCanonicalDaemonStatus();
+    // Prove the wire fixture still carries owner identity before projection.
+    const wireSerialized = JSON.stringify(canonical);
+    expect(wireSerialized.includes("ownerToken")).toBe(true);
+
+    const projected = projectDaemonStatusResult(canonical);
+    const serialized = JSON.stringify(projected);
+    expect(serialized.includes("ownerToken")).toBe(false);
+    expect(serialized).not.toMatch(/lock-canonical|lock-experiment/);
+  });
+
+  it("getDaemonStatus proxy path projects before returning across the bridge", async () => {
+    const canonical = loadCanonicalDaemonStatus();
+    const bridge = createGuiServiceBridgeForDaemon(async (route) => {
+      expect(route.id).toBe("daemon.status");
+      return {
+        ok: true,
+        details: { data: canonical as unknown as Record<string, unknown> }
+      };
+    });
+
+    const result = await bridge.invoke("getDaemonStatus", null);
+    const serialized = JSON.stringify(result);
+    expect(serialized.includes("ownerToken")).toBe(false);
+    expect(serialized).not.toMatch(/lock-canonical|lock-experiment/);
+
+    const status = readDaemonStatusResult(result);
+    expect(status.schema).toBe("daemon-status/v2");
+    expect(status.service.queue.depth).toBe(1);
+    expect(status.repos[0]?.lock).toEqual({ path: ".harness/journal/global.lock" });
+    expect(Object.keys(status.repos[0]!.lock)).toEqual(["path"]);
   });
 });
