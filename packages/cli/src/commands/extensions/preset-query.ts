@@ -62,7 +62,7 @@ export function runPresetValidate(rootInput: HarnessLayoutInput, action: {
 
 export function runPresetList(rootInput: HarnessLayoutInput, activeVerticalId: string): CliResult {
   const entries = discoverPresetEntries(rootInput, activeVerticalId);
-  const validations = entries.map((entry) => validateResolvedPreset(rootInput, entry));
+  const validations = entries.map(summarizeResolvedPreset);
   const issues = validations.flatMap((entry) => entry.issues);
   const warnings = validations.flatMap((entry) => entry.warnings);
   return {
@@ -71,6 +71,28 @@ export function runPresetList(rootInput: HarnessLayoutInput, activeVerticalId: s
     presets: validations.map((entry) => entry.summary),
     issues,
     warnings
+  };
+}
+
+function summarizeResolvedPreset(
+  entry: ReturnType<typeof discoverPresetEntries>[number]
+): {
+  readonly issues: ReadonlyArray<unknown>;
+  readonly warnings: ReadonlyArray<unknown>;
+  readonly summary: Record<string, unknown>;
+} {
+  if (isInvalidPreset(entry)) {
+    return { issues: entry.issues, warnings: [], summary: publicPresetEntrySummary(entry) };
+  }
+  const structural = validatePresetManifestForUse(entry.manifest);
+  return {
+    issues: structural.issues,
+    warnings: entry.warnings ?? [],
+    summary: {
+      ...publicPresetSummary(entry),
+      valid: structural.ok,
+      issueCount: structural.issues.length
+    }
   };
 }
 

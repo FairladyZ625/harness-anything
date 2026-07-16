@@ -5,6 +5,30 @@ import path from "node:path";
 import test from "node:test";
 import { runJson, withTempRoot } from "./helpers/preset-script-fixtures.ts";
 
+test("preset list reports registry metadata without running entrypoint smoke", () => {
+  withTempRoot((rootDir) => {
+    writePreset(rootDir, "list-only-discovery", {
+      check: {
+        type: "script",
+        command: "scripts/missing-check.mjs",
+        writes: ["{{outputRoot}}/**"]
+      }
+    });
+
+    const listed = runJson(rootDir, ["preset", "list"]);
+
+    assert.equal(listed.ok, true);
+    const preset = listed.presets.find((candidate: Record<string, unknown>) => candidate.id === "list-only-discovery");
+    assert.equal(preset.valid, true);
+    assert.equal(preset.issueCount, 0);
+    assert.equal(listed.issues.some((issue: Record<string, unknown>) => issue.entrypoint === "check"), false);
+
+    const inspected = runJson(rootDir, ["preset", "inspect", "list-only-discovery"], false);
+    assert.equal(inspected.ok, false);
+    assert.equal(inspected.issues[0].code, "preset_entrypoint_script_missing");
+  });
+});
+
 test("preset inspect and check fail closed when a declared entrypoint script is missing", () => {
   withTempRoot((rootDir) => {
     writePreset(rootDir, "missing-entrypoint", {
