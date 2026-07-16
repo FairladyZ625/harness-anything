@@ -19,8 +19,10 @@ export type {
 export { readModuleAttributionProjection } from "../../kernel/src/index.ts";
 export {
   authorityProtocolTuple,
+  canonicalAuthorityAttributionEventStorageBytesV2,
   canonicalAuthorityRequestDigest,
   completeAuthorityCommittedReceiptV2,
+  createDurableAuthorityCommittedEventPublisherV2,
   createAuthoritySubmissionService,
   makeCompositeAuthoritySemanticCompilerV2,
   createInMemoryShadowPublicationLog,
@@ -33,7 +35,11 @@ export {
 } from "./authority/index.ts";
 export type {
   AttributedCoordinatorFactory,
+  AuthorityAttributionEventLogPrimitiveV2,
+  AuthorityAttributionEventLogRecordV2,
   AuthorityCommittedEventPublisherV2,
+  AuthorityCommittedPhysicalObservationPortV2,
+  AuthorityCommittedPhysicalObservationV2,
   AuthorityCommittedReceipt,
   AuthorityFenceWitness,
   AuthorityIndeterminateReceipt,
@@ -87,6 +93,12 @@ export {
   createCompoundReceiptService,
   isCompoundOperationReceipt
 } from "./receipt/index.ts";
+export * from "./receipt/witness-v1.ts";
+export * from "./receipt/v2-integrity.ts";
+export * from "./receipt/v2-service.ts";
+export * from "./receipt/v2-types.ts";
+export * from "./receipt/validation-v2.ts";
+export * from "./receipt/wire-v1.ts";
 export type {
   AppliedExactAtCut,
   ApplyBlockedOrigin,

@@ -42,7 +42,8 @@ test("durable store preserves every four-state boundary across kill and restart"
 
       const resumed = await createCompoundReceiptService({ store }).initialize(identity);
       assert.equal(resumed.phase, phase, `${phase} must not reset to PENDING after restart`);
-      assert.equal(classifyCompoundExit({ kind: "RECEIPT", receipt: resumed }).code === 0, phase === "ACK_COMMITTED");
+      assert.equal(classifyCompoundExit({ kind: "RECEIPT", receipt: resumed }).code === 0, false,
+        "legacy v1 receipt lacks the V2 canonical witness required for exit zero");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -58,8 +59,8 @@ test("CLI exit exposes stderr action and separates historical cut from current l
     const revoked = await service.setCurrentLease(identity, "REVOKED");
     const output = renderCompoundCliExit({ kind: "RECEIPT", receipt: revoked });
 
-    assert.equal(output.exitCode, 0);
-    assert.match(output.stderr, /^COMMITTED_APPLIED:/u);
+    assert.equal(output.exitCode, 1);
+    assert.match(output.stderr, /^INTERNAL_ERROR:/u);
     assert.match(output.stderr, /Next:/u);
     assert.equal(output.json.historicalCut?.tag, "APPLIED_EXACT_AT_CUT");
     assert.equal(output.json.currentLease, "REVOKED");
