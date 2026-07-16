@@ -10,6 +10,8 @@ export function memoryAuthoredStore(options: { readonly failOpen?: boolean } = {
     executions,
     taskStatus: "planned" as const satisfies "planned" | "active" | "blocked" | "in_review",
     failSubmit: false,
+    listExecutions: async () => [...executions.values()]
+      .sort((left, right) => left.claimed_at.localeCompare(right.claimed_at) || left.execution_id.localeCompare(right.execution_id)),
     readExecution: async (input) => executions.get(input.executionId) ?? null,
     openExecution: async (input) => {
       if (options.failOpen) throw new Error("authored open failed");

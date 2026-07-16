@@ -128,10 +128,10 @@ export const coreCommandSpecs = defineCommandSpecs([
   },
   {
     "kind": "task-claim",
-    "usage": "task claim <id> [--execution] [--ttl-ms <ms>] [--json]",
-    "options": [{"flag":"--execution","description":"Open a new Execution round, or rotate the active holder's credential."},{"flag":"--ttl-ms","description":"Set the task holder lease duration in milliseconds."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
-    "summary": "Claim a task holder lease; repeating an Execution claim as its current holder rotates the lease token.",
-    "examples": ["harness-anything task claim task_01ABC --ttl-ms 86400000", "harness-anything task claim task_01ABC --execution --json"],
+    "usage": "task claim <id> [--execution] [--execution-id <execution-id>] [--ttl-ms <ms>] [--json]",
+    "options": [{"flag":"--execution","description":"Use the Execution claim path; the sole active round is reused instead of opening a duplicate."},{"flag":"--execution-id","description":"Select the active Execution to resume when legacy state contains multiple active rounds."},{"flag":"--ttl-ms","description":"Set the task holder lease duration in milliseconds."},{"flag":"--json","description":"Emit command-receipt/v2 JSON."}],
+    "summary": "Claim a task holder lease; Execution claims rotate a live lease, reuse the sole active round, or require --execution-id when legacy active rounds are ambiguous.",
+    "examples": ["harness-anything task claim task_01ABC --ttl-ms 86400000", "harness-anything task claim task_01ABC --execution --json", "harness-anything task claim task_01ABC --execution-id exe_01ABC --json"],
     "parse": parseCoreTaskArgs,
     "run": runTaskLifecycleCommand,
     "receiptContract": {

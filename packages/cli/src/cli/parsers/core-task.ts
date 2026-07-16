@@ -5,7 +5,7 @@ import type { CliResult, ParsedCommand } from "../types.ts";
 import { parseTaskArchive } from "./core-task-archive.ts";
 import { parseTaskCodeDocReconcile } from "./core-task-code-doc.ts";
 import { parseTaskContractMigrate } from "./core-task-contract.ts";
-import { parseExecutionSubmissionOptions } from "./core-task-execution.ts";
+import { parseExecutionSubmissionOptions, parseTaskClaim } from "./core-task-execution.ts";
 import { parseTaskList } from "./core-task-list.ts";
 import { parseTaskReviewExecution } from "./core-task-review-execution.ts";
 import { parseTaskConsentRecord } from "./core-task-consent.ts";
@@ -44,23 +44,6 @@ export function parseCoreTaskArgs(args: ReadonlyArray<string>, rootDir: string, 
   if (args[0] === "task" && args[1] === "relate" && args[2] && args[3] && args[4]) return parseTaskRelate(args, rootDir, json);
   if (args[0] === "task" && args[1] === "list") return parseTaskList(args, rootDir, json);
   return null;
-}
-
-function parseTaskClaim(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
-  const ttlValue = readOption(args, "--ttl-ms");
-  let ttlMs: number | undefined;
-  if (ttlValue !== undefined) {
-    ttlMs = Number(ttlValue);
-    if (!Number.isInteger(ttlMs) || ttlMs <= 0) {
-      return { ok: false, error: cliError(CliErrorCode.InvalidTaskMetadata, "Use --ttl-ms with a positive integer.") };
-    }
-  }
-  return ok(rootDir, json, {
-    kind: "task-claim",
-    taskId: args[2],
-    execution: args.includes("--execution"),
-    ...(ttlMs !== undefined ? { ttlMs } : {})
-  });
 }
 
 function parseStatusSet(args: ReadonlyArray<string>, rootDir: string, json: boolean): ParseResult {
