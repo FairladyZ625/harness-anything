@@ -369,11 +369,13 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
     assert.equal(git(rootDir, env, "rev-parse", "HEAD"), headAfterBatch, "opaque transparent roads reject before publication");
     assert.equal(consumed, 2, "opaque transparent roads reject before token consumption");
 
-    const childFactory = loopbackV2ChildFactory(service, changeLog, v2SchemaTuple);
+    const clientReportedChannel = Buffer.alloc(32, 99).toString("hex");
+    assert.notEqual(clientReportedChannel, Buffer.from(nonce).toString("hex"));
+    const childFactory = loopbackV2ChildFactory(service, changeLog, v2SchemaTuple, nonce);
     const client = new PersistentSshAuthorityClient({
       target: { destination: "authority.internal", fixedCommand: "ha-authority-connect" },
       workspaceId,
-      channelNonceDigest: () => Buffer.from(nonce).toString("hex"),
+      channelNonceDigest: () => clientReportedChannel,
       protocol: v2SchemaTuple,
       childFactory
     });
@@ -552,7 +554,8 @@ function loopbackChildFactory(
 function loopbackV2ChildFactory(
   submissionService: ReturnType<typeof createAuthoritySubmissionService>,
   replicaChangeLog: ReplicaChangeLog,
-  protocol: ProtocolSchemaTupleV2
+  protocol: ProtocolSchemaTupleV2,
+  serverChannelNonceDigest: Uint8Array
 ): SshAuthorityChildFactory {
   return {
     spawn: () => {
@@ -565,6 +568,7 @@ function loopbackV2ChildFactory(
         output: serverToClient,
         workspaceId,
         protocol,
+        serverChannelNonceDigest,
         submissionService,
         replicaChangeLog
       });

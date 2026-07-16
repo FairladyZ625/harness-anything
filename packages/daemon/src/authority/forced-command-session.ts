@@ -34,6 +34,8 @@ export interface AuthorityForcedCommandOptions {
   readonly output: Writable;
   readonly workspaceId: string;
   readonly protocol: AuthorityNegotiatedProtocol;
+  /** Server-observed connection binding. V2 never accepts the hello field as authority. */
+  readonly serverChannelNonceDigest?: Uint8Array;
   readonly submissionService: AuthoritySubmissionService;
   readonly replicaChangeLog: ReplicaChangeLog;
   readonly maxFrameBytes?: number;
@@ -109,8 +111,15 @@ export function serveAuthorityForcedCommand(options: AuthorityForcedCommandOptio
         return;
       }
       handshaken = true;
-      negotiatedChannelNonceDigest = value.channelNonceDigest;
       negotiatedV2 = "policy" in value.protocol;
+      if (negotiatedV2 && options.serverChannelNonceDigest?.byteLength !== 32) {
+        write(response(value.requestId, generation, false, undefined, "SERVER_CHANNEL_BINDING_REQUIRED", "V2 requires a server-observed connection binding."));
+        await streamClose("UPGRADE_REQUIRED", "Reconnect through a transport that provides a server-observed connection binding.");
+        return;
+      }
+      negotiatedChannelNonceDigest = negotiatedV2
+        ? Buffer.from(options.serverChannelNonceDigest!).toString("hex")
+        : value.channelNonceDigest;
       write(response(value.requestId, generation, true, {
         accepted: true,
         protocol: options.protocol,
