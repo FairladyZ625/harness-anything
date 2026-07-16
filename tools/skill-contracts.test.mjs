@@ -9,14 +9,14 @@ import { runtimeSkillTargetDirs, syncRuntimeSkills } from "./sync-runtime-skills
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const skillsRoot = path.join(repoRoot, "skills");
 
-test("repository decision skills are discoverable with agent metadata", () => {
+test("repository skills are discoverable with agent metadata", () => {
   const skillNames = readdirSync(skillsRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
 
-  assert.deepEqual(skillNames, ["decision", "decisions", "graph-panorama", "preset-creator", "vertical-creator"]);
-  for (const skillName of ["decision", "decisions", "graph-panorama"]) {
+  assert.deepEqual(skillNames, ["decision", "decisions", "graph-panorama", "preset-creator", "preset-trigger", "vertical-creator"]);
+  for (const skillName of ["decision", "decisions", "graph-panorama", "preset-trigger"]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
   }
@@ -74,4 +74,42 @@ test("graph panorama skill reads SQLite projection and writes only generated HTM
   assert.match(body, /Do not edit authored markdown/u);
   assert.match(body, /Do not generate DOT or Mermaid output/u);
   assert.doesNotMatch(body, /\bwriteFileSync\b|\bfs\.write|\bapply_patch\b|cat\s*>\s*.+\.md|tee\s+.+\.md/u);
+});
+
+test("preset trigger routes task creation through dynamic preset discovery", () => {
+  const body = readFileSync(path.join(skillsRoot, "preset-trigger", "SKILL.md"), "utf8");
+  const metadata = readFileSync(path.join(skillsRoot, "preset-trigger", "agents", "openai.yaml"), "utf8");
+  const bundledPresetsRoot = path.join(
+    repoRoot,
+    "packages",
+    "cli",
+    "src",
+    "commands",
+    "extensions",
+    "assets",
+    "software-coding",
+    "presets",
+  );
+  const bundledPresetIds = readdirSync(bundledPresetsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(path.join(bundledPresetsRoot, entry.name, "preset.json")))
+    .map((entry) => entry.name);
+
+  assert.match(body, /name: preset-trigger/u);
+  assert.match(body, /Use whenever an agent is creating, planning, scoping, or preparing a Harness task package/u);
+  assert.match(body, /ha preset list/u);
+  assert.match(body, /ha task create --help/u);
+  assert.match(body, /ha preset inspect <id>/u);
+  assert.match(body, /ha task create --title "<title>" --vertical <vertical-id> --preset <id>/u);
+  assert.match(body, /Do not replace it with a hardcoded vertical/u);
+  assert.doesNotMatch(body, /--vertical software\/coding/u);
+  assert.match(body, /pre-discovery router/u);
+  assert.match(body, /post-discovery semantic contract/u);
+  assert.match(body, /Do not hand-create task package directories/u);
+  assert.match(body, /report that failure instead of\s+guessing a preset ID/u);
+  assert.doesNotMatch(body, /## Available Presets/u);
+  assert.doesNotMatch(body, /^\s*- `[^`]+`:\s/mu);
+  for (const presetId of bundledPresetIds) {
+    assert.equal(body.includes(presetId), false, `hardcoded bundled preset ID: ${presetId}`);
+  }
+  assert.match(metadata, /default_prompt: "Use \$preset-trigger /u);
 });

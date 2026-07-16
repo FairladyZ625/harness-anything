@@ -1,0 +1,4 @@
+interface:
+  display_name: "Preset Trigger"
+  short_description: "Route task creation through dynamic preset discovery"
+  default_prompt: "Use $preset-trigger to discover the current Harness presets and choose one before creating this task package."
