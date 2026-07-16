@@ -31,6 +31,10 @@ export interface DaemonControlCommandInput {
   readonly daemonEntryPath: () => string;
 }
 
+type DaemonControlHandoff =
+  | { readonly kind: "adopt"; readonly status: Record<string, unknown> }
+  | { readonly kind: "autostart" };
+
 export async function runDaemonControl(
   input: DaemonControlCommandInput,
   kind: DaemonControlKind
@@ -99,18 +103,20 @@ async function completeDaemonReplacement(
   if (!isPositivePid(beforePid)) {
     throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
   }
-  await waitForDaemonControlRelease(lifecycle, beforePid, timeoutMs);
+  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, timeoutMs);
+  if (handoff.kind === "adopt") return handoff.status;
   let replacement: Record<string, unknown>;
   try {
     replacement = await lifecycle.startReplacement(lifecycle.target, timeoutMs);
   } catch (error) {
     throw new Error(`daemon ${kind} replacement did not become reachable: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (replacement.started !== true || !isPositivePid(replacement.pid)) {
+  const replacementLifecycle = normalizeDaemonLifecycleStatus(replacement);
+  if (!replacementLifecycle) {
     throw new Error(`daemon ${kind} replacement did not return a reachable started daemon status`);
   }
-  if (replacement.pid === beforePid) {
-    throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacement.pid)}`);
+  if (replacementLifecycle.pid === beforePid) {
+    throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacementLifecycle.pid)}`);
   }
   return replacement;
 }
@@ -139,25 +145,52 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
   };
 }
 
-async function waitForDaemonControlRelease(
+async function waitForDaemonControlHandoff(
   lifecycle: DaemonControlLifecycle,
   beforePid: number,
   timeoutMs: number
-): Promise<void> {
+): Promise<DaemonControlHandoff> {
   const pollIntervalMs = 100;
   const attempts = Math.ceil(timeoutMs / pollIntervalMs) + 1;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const endpointReleased = !await lifecycle.probeStatus(lifecycle.target);
-    const ownerReleased = !lifecycle.ownerIsAlive(beforePid);
-    if (endpointReleased && ownerReleased) return;
+    const status = await lifecycle.probeStatus(lifecycle.target);
+    const ownerAlive = lifecycle.ownerIsAlive(beforePid);
+
+    // One service process owns each OS-user + userRoot pair. While the old
+    // owner lives, neither a reachable endpoint nor autostart can prove a safe handoff.
+    if (!ownerAlive) {
+      // Once the owner is dead, an absent exact endpoint is the only state
+      // that permits the existing autostart primitive to run.
+      if (!status) return { kind: "autostart" };
+      const observedLifecycle = normalizeDaemonLifecycleStatus(status);
+      if (observedLifecycle && observedLifecycle.pid !== beforePid) {
+        return { kind: "adopt", status };
+      }
+      // Reachable old-PID or malformed status is not replacement proof and
+      // blocks autostart, avoiding an overlapping service-owner window.
+    }
+
     if (attempt + 1 === attempts) {
-      if (!endpointReleased) {
+      if (status) {
         throw new Error(`old daemon endpoint was not released before timeout (pid ${beforePid})`);
       }
       throw new Error(`old daemon owner did not exit after releasing its endpoint (pid ${beforePid})`);
     }
     await lifecycle.wait(pollIntervalMs);
   }
+  throw new Error(`daemon control handoff exhausted without a safe decision (pid ${beforePid})`);
+}
+
+function normalizeDaemonLifecycleStatus(
+  status: Record<string, unknown>
+): { readonly started: true; readonly pid: number } | undefined {
+  const lifecycle = status.schema === "daemon-status/v2"
+    ? (isDaemonControlRecord(status.service) ? status.service : undefined)
+    : status.schema === "daemon-status/v1"
+      ? status
+      : undefined;
+  if (lifecycle?.started !== true || !isPositivePid(lifecycle.pid)) return undefined;
+  return { started: true, pid: lifecycle.pid };
 }
 
 async function probeExactDaemonStatus(target: LocalDaemonTarget): Promise<Record<string, unknown> | undefined> {

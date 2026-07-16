@@ -71,7 +71,7 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
             assert.equal(released, true);
             assert.equal(target.userRoot, controlTarget.userRoot);
             replacementStarts += 1;
-            return { schema: "daemon-status/v1", started: true, pid: 84 };
+            return v2DaemonStatus(84);
           },
           wait: async () => undefined
         }
@@ -94,9 +94,7 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
       assert.equal(receipt.operationId, `control-${scenario.action}`);
       assert.equal(receipt.controlSchema, "daemon-control-accepted/v1");
       assert.deepEqual(receipt.replacement, {
-        schema: "daemon-status/v1",
-        started: true,
-        pid: 84,
+        ...v2DaemonStatus(84),
         userRoot: controlTarget.userRoot,
         endpoint: controlTarget.socketPath
       });
@@ -106,7 +104,7 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
   }
 });
 
-test("daemon control waits for endpoint and owner release before exactly one replacement start", async () => {
+test("daemon control waits for endpoint and owner release before exactly one v2 replacement autostart", async () => {
   const events: string[] = [];
   let ownerProbe = 0;
   const lifecycle = {
@@ -123,7 +121,7 @@ test("daemon control waits for endpoint and owner release before exactly one rep
     },
     startReplacement: async () => {
       events.push("replacement-start");
-      return { started: true, pid: 84 };
+      return v2DaemonStatus(84);
     },
     wait: async () => {
       events.push("poll-wait");
@@ -144,15 +142,99 @@ test("daemon control waits for endpoint and owner release before exactly one rep
   assert.equal(events.filter((event) => event === "replacement-start").length, 1);
 });
 
-test("accepted control does not start a replacement while the old endpoint remains reachable", async () => {
+test("daemon control adopts a v2 replacement already exposed by the service supervisor", async () => {
   let replacementStarts = 0;
   const lifecycle = {
     target: controlTarget,
-    probeStatus: async () => ({ started: true, pid: 42 }),
+    probeStatus: async () => v2DaemonStatus(84),
+    ownerIsAlive: () => false,
+    startReplacement: async () => {
+      replacementStarts += 1;
+      return v2DaemonStatus(85);
+    },
+    wait: async () => undefined
+  } satisfies DaemonControlLifecycle;
+
+  const { exitCode, receipt } = await runCapturedControl(lifecycle);
+
+  assert.equal(exitCode, 0);
+  assert.equal(replacementStarts, 0);
+  assert.deepEqual(receipt.replacement, {
+    ...v2DaemonStatus(84),
+    userRoot: controlTarget.userRoot,
+    endpoint: controlTarget.socketPath
+  });
+});
+
+test("daemon control retains v1 top-level status compatibility for supervisor replacement", async () => {
+  let replacementStarts = 0;
+  const lifecycle = {
+    target: controlTarget,
+    probeStatus: async () => ({ schema: "daemon-status/v1", started: true, pid: 84 }),
+    ownerIsAlive: () => false,
+    startReplacement: async () => {
+      replacementStarts += 1;
+      return v2DaemonStatus(85);
+    },
+    wait: async () => undefined
+  } satisfies DaemonControlLifecycle;
+
+  const { exitCode, receipt } = await runCapturedControl(lifecycle);
+
+  assert.equal(exitCode, 0);
+  assert.equal(replacementStarts, 0);
+  assert.equal((receipt.replacement as Record<string, unknown>).pid, 84);
+});
+
+test("accepted control does not adopt a reachable new endpoint while the old owner remains alive", async () => {
+  let replacementStarts = 0;
+  const lifecycle = {
+    target: controlTarget,
+    probeStatus: async () => v2DaemonStatus(84),
     ownerIsAlive: () => true,
     startReplacement: async () => {
       replacementStarts += 1;
-      return { started: true, pid: 84 };
+      return v2DaemonStatus(85);
+    },
+    wait: async () => undefined
+  } satisfies DaemonControlLifecycle;
+
+  const { exitCode, receipt } = await runCapturedControl(lifecycle, ["--timeout-ms", "100"]);
+
+  assert.equal(exitCode, 1);
+  assert.equal(replacementStarts, 0);
+  assert.match(controlErrorHint(receipt), /old daemon endpoint was not released/u);
+});
+
+test("daemon control does not accept a reachable endpoint that still reports the old PID", async () => {
+  let replacementStarts = 0;
+  const lifecycle = {
+    target: controlTarget,
+    probeStatus: async () => v2DaemonStatus(42),
+    ownerIsAlive: () => false,
+    startReplacement: async () => {
+      replacementStarts += 1;
+      return v2DaemonStatus(84);
+    },
+    wait: async () => undefined
+  } satisfies DaemonControlLifecycle;
+
+  const { exitCode, receipt } = await runCapturedControl(lifecycle, ["--timeout-ms", "100"]);
+
+  assert.equal(exitCode, 1);
+  assert.equal(replacementStarts, 0);
+  assert.match(controlErrorHint(receipt), /old daemon endpoint was not released/u);
+});
+
+test("daemon control fails closed on reachable malformed v2 status without starting", async () => {
+  let replacementStarts = 0;
+  const lifecycle = {
+    target: controlTarget,
+    probeStatus: async () => ({ schema: "daemon-status/v2", service: { started: true } }),
+    ownerIsAlive: () => false,
+    startReplacement: async () => {
+      replacementStarts += 1;
+      return v2DaemonStatus(84);
     },
     wait: async () => undefined
   } satisfies DaemonControlLifecycle;
@@ -189,7 +271,7 @@ test("daemon control fails when the replacement PID does not change", async () =
     target: controlTarget,
     probeStatus: async () => undefined,
     ownerIsAlive: () => false,
-    startReplacement: async () => ({ started: true, pid: 42 }),
+    startReplacement: async () => v2DaemonStatus(42),
     wait: async () => undefined
   } satisfies DaemonControlLifecycle;
 
@@ -284,4 +366,11 @@ function controlErrorHint(receipt: Record<string, unknown>): string {
   return typeof error === "object" && error !== null && "hint" in error
     ? String(error.hint)
     : "";
+}
+
+function v2DaemonStatus(pid: number): Record<string, unknown> {
+  return {
+    schema: "daemon-status/v2",
+    service: { started: true, pid }
+  };
 }
