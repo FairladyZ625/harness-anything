@@ -159,6 +159,7 @@ export function createAuthorityRepoLifecycleController(input: {
   readonly allowInMemoryFixture?: true;
 }): AuthorityRepoLifecycleController {
   const started = new Map<string, StartedAuthorityRepo>();
+  const starting = new Map<string, Promise<AuthorityRepoStartResult>>();
   const unavailable = new Map<string, string>();
 
   return {
@@ -184,9 +185,24 @@ export function createAuthorityRepoLifecycleController(input: {
     unavailableReason: (repoId) => unavailable.get(repoId)
   };
 
-  async function startRepo(repo: DaemonRepoNamespace, runtime: AuthorityLifecycleRuntime): Promise<AuthorityRepoStartResult> {
+  function startRepo(repo: DaemonRepoNamespace, runtime: AuthorityLifecycleRuntime): Promise<AuthorityRepoStartResult> {
     const existing = started.get(repo.repoId);
-    if (existing) return { ok: true, component: existing.component };
+    if (existing) return Promise.resolve(existing.repo.canonicalRoot === repo.canonicalRoot
+      ? { ok: true, component: existing.component }
+      : { ok: false, error: "AUTHORITY_REPO_ATTACHMENT_MISMATCH" });
+    const pending = starting.get(repo.repoId);
+    if (pending) return pending;
+    const attempt = startRepoOnce(repo, runtime).finally(() => {
+      if (starting.get(repo.repoId) === attempt) starting.delete(repo.repoId);
+    });
+    starting.set(repo.repoId, attempt);
+    return attempt;
+  }
+
+  async function startRepoOnce(
+    repo: DaemonRepoNamespace,
+    runtime: AuthorityLifecycleRuntime
+  ): Promise<AuthorityRepoStartResult> {
     let state: DurableAuthorityServiceState | undefined;
     let component: AuthorityRepoComponent | undefined;
     try {
@@ -227,6 +243,7 @@ export function createAuthorityRepoLifecycleController(input: {
   }
 
   async function stopRepo(repo: DaemonRepoNamespace, reason: AuthorityRepoStopReason): Promise<void> {
+    await starting.get(repo.repoId);
     const entry = started.get(repo.repoId);
     if (!entry) return;
     entry.published = false;

@@ -56,6 +56,43 @@ test("lifecycle-one-repo-start-fails keeps the healthy repo published and record
   });
 });
 
+test("one attachment generation shares exactly one concurrent start and serve", async () => {
+  await withRoots(async ({ serviceRoot, alphaRoot }) => {
+    let releaseStart: (() => void) | undefined;
+    const startReleased = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    let starts = 0;
+    let serves = 0;
+    const controller = createAuthorityRepoLifecycleController({
+      hooks: {
+        start: async ({ repo }) => {
+          starts += 1;
+          await startReleased;
+          return componentFixture(repo.repoId);
+        },
+        serve: async () => {
+          serves += 1;
+        },
+        stop: async ({ component, reason }) => component.stop(reason)
+      },
+      serviceStateRoot: serviceRoot,
+      resolveCompositionData: async (repo) => compositionFixture(repo)
+    });
+    const repo = { repoId: "alpha", canonicalRoot: alphaRoot };
+    const first = controller.startRepo(repo, runtimeFixture());
+    const second = controller.startRepo(repo, runtimeFixture());
+    releaseStart?.();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert.equal(firstResult.ok, true);
+    assert.equal(secondResult.ok, true);
+    assert.equal(starts, 1);
+    assert.equal(serves, 1);
+    if (firstResult.ok && secondResult.ok) assert.equal(firstResult.component, secondResult.component);
+    await controller.stopAll("daemon-shutdown");
+  });
+});
+
 test("lifecycle-dynamic-bind-unbind unpublishes before stop and detaches only after durable close", async () => {
   await withRoots(async ({ serviceRoot, alphaRoot }) => {
     const events: string[] = [];
