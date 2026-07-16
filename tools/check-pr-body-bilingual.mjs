@@ -10,9 +10,11 @@ export const defaultThresholds = Object.freeze({
 const ENGLISH_HEADING = /^# English\s*$/mu;
 const CHINESE_HEADING = /^# 中文\s*$/mu;
 const SHARED_CHECKLIST_HEADING = /^## PR Gate Checklist \/ PR 门禁清单\s*$/mu;
+const LEVEL_TWO_HEADING = /^##[ \t]+(.+?)\s*$/gmu;
 const MERGIFY_QUEUE_BRANCH = /^mergify\/merge-queue\//u;
 const MERGIFY_QUEUE_PAYLOAD = /"merge-queue-pr"\s*:\s*true/u;
 const MERGIFY_AUTHORS = new Set(["mergify[bot]", "app/mergify"]);
+export const defaultPrTemplatePath = ".github/pull_request_template.md";
 
 export function countBilingualSignals(body) {
   return {
@@ -73,11 +75,94 @@ export function splitPrBodyLanguageBlocks(body) {
   };
 }
 
-export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
+function parseLevelTwoSections(block) {
+  const matches = Array.from(block.matchAll(LEVEL_TWO_HEADING));
+  return matches.map((match, index) => ({
+    heading: match[1],
+    content: block.slice(
+      match.index + match[0].length,
+      matches[index + 1]?.index ?? block.length
+    )
+  }));
+}
+
+function deriveRequiredSections(templateBody, templatePath) {
+  const blocks = splitPrBodyLanguageBlocks(templateBody);
+  if (!blocks.ok) {
+    throw new Error(`Cannot derive required PR sections from ${templatePath}: ${blocks.issues.join(" ")}`);
+  }
+
+  return {
+    english: parseLevelTwoSections(blocks.englishBlock),
+    chinese: parseLevelTwoSections(blocks.chineseBlock)
+  };
+}
+
+function normalizedContentLines(content) {
+  return content
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function isGenericPlaceholderLine(line) {
+  const value = line
+    .replace(/^(?:>\s*)+/u, "")
+    .replace(/^(?:[-*+]|\d+[.)])\s*/u, "")
+    .replace(/^\[[ xX]\]\s*/u, "")
+    .trim();
+
+  return value.length === 0
+    || /^[-–—_./\\…]+$/u.test(value)
+    || /^(?:todo|tbd|placeholder|fill[ -]?me|to be filled|待补充?|待填写|待完善)(?:[：:].*)?$/iu.test(value)
+    || /^(?:\[[^\]]*\]|<[^>]*>)$/u.test(value);
+}
+
+function hasMeaningfulSectionContent(content, templateContent) {
+  const templateScaffolding = new Set(normalizedContentLines(templateContent));
+  return normalizedContentLines(content).some((line) => (
+    !templateScaffolding.has(line) && !isGenericPlaceholderLine(line)
+  ));
+}
+
+function formatRequiredHeadings(headings) {
+  return headings.map((heading) => `\`## ${heading}\``).join(", ");
+}
+
+export function checkPrBodyBilingual(body, thresholds = defaultThresholds, {
+  templateBody = readFileSync(defaultPrTemplatePath, "utf8"),
+  templatePath = defaultPrTemplatePath
+} = {}) {
   const blocks = splitPrBodyLanguageBlocks(body);
   const englishCounts = countBilingualSignals(blocks.englishBlock);
   const chineseCounts = countBilingualSignals(blocks.chineseBlock);
   const issues = [...blocks.issues];
+
+  if (blocks.ok) {
+    const requiredSections = deriveRequiredSections(templateBody, templatePath);
+    const englishSections = new Map(parseLevelTwoSections(blocks.englishBlock).map((section) => [section.heading, section]));
+    const chineseSections = new Map(parseLevelTwoSections(blocks.chineseBlock).map((section) => [section.heading, section]));
+    const missingEnglish = requiredSections.english
+      .filter((required) => {
+        const section = englishSections.get(required.heading);
+        return !section || !hasMeaningfulSectionContent(section.content, required.content);
+      })
+      .map((section) => section.heading);
+    const missingChinese = requiredSections.chinese
+      .filter((required) => {
+        const section = chineseSections.get(required.heading);
+        return !section || !hasMeaningfulSectionContent(section.content, required.content);
+      })
+      .map((section) => section.heading);
+
+    if (missingEnglish.length > 0) {
+      issues.push(`English block is missing required sections or has empty/placeholder-only sections from ${templatePath}: ${formatRequiredHeadings(missingEnglish)}.`);
+    }
+    if (missingChinese.length > 0) {
+      issues.push(`中文块缺少 ${templatePath} 要求的章节，或章节仅含空白/占位文本：${formatRequiredHeadings(missingChinese)}。`);
+    }
+  }
 
   if (blocks.ok && englishCounts.latinWords < thresholds.minLatinWords) {
     issues.push(`英文块内容不足：需要至少 ${thresholds.minLatinWords} 个拉丁单词，当前 ${englishCounts.latinWords} 个。`);
@@ -130,8 +215,10 @@ function readBodyFromArgs(argv) {
         "Usage: node tools/check-pr-body-bilingual.mjs [--text <body> | --file <path> | --env <name>]",
         "",
         "Requires a top-level `# English` block before a top-level `# 中文` block.",
+        `Each language block must fill every \`##\` section declared in ${defaultPrTemplatePath}.`,
         "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
         "要求顶级 `# English` 块位于顶级 `# 中文` 块之前。",
+        `每个语言块都必须填写 ${defaultPrTemplatePath} 声明的全部 \`##\` 章节。`,
         "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。"
       ].join("\n"));
       process.stdout.write("\n");
@@ -168,8 +255,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         "",
         ...result.issues,
         "",
-        "How to fix: fill the PR body as two complete blocks: `# English` first, then `---`, then `# 中文`.",
-        "修复方式：请按两块完整正文填写 PR body：先写 `# English`，再用 `---` 分隔，然后写 `# 中文`。"
+        `How to fix: fill every required section from ${defaultPrTemplatePath} in two complete blocks: \`# English\` first, then \`---\`, then \`# 中文\`.`,
+        `修复方式：请填写 ${defaultPrTemplatePath} 的全部必需章节，并按两块完整正文组织：先写 \`# English\`，再用 \`---\` 分隔，然后写 \`# 中文\`。`
       ].join("\n"));
       process.stderr.write("\n");
       process.exitCode = 1;
