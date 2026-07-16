@@ -4,7 +4,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { JsonRpcLineClient } from "../../../daemon/src/index.ts";
+import {
+  daemonIdFromEnv,
+  JsonRpcLineClient,
+  localUserDaemonEndpoint
+} from "../../../daemon/src/index.ts";
 import { runDaemonConnect } from "../../src/commands/daemon/connect.ts";
 
 export function writePeopleRoster(rootDir: string, person: {
@@ -12,8 +16,16 @@ export function writePeopleRoster(rootDir: string, person: {
   readonly displayName: string;
   readonly email: string;
   readonly role: "owner" | "maintainer";
-}): void {
+}, options: {
+  readonly userRoot?: string;
+  readonly daemonId?: string;
+} = {}): void {
   const harnessRoot = path.join(rootDir, "harness");
+  const namedPipeEndpoint = localUserDaemonEndpoint(
+    options.userRoot ?? path.join(rootDir, ".daemon-user"),
+    options.daemonId ?? daemonIdFromEnv(),
+    "win32"
+  );
   mkdirSync(harnessRoot, { recursive: true });
   writeFileSync(path.join(harnessRoot, "people.yaml"), [
     "schema: harness-people/v1",
@@ -26,6 +38,9 @@ export function writePeopleRoster(rootDir: string, person: {
     "      - kind: unix-socket-owner-boundary",
     `        issuer: host:${hostname()}`,
     `        subject: ${process.getuid?.() ?? 0}`,
+    "      - kind: windows-named-pipe-client",
+    `        issuer: host:${hostname()}:named-pipe`,
+    `        subject: ${namedPipeEndpoint}`,
     "roles:",
     "  - roleId: owner",
     "    commandClasses: [admin, repo-write, repo-read, arbiter]",

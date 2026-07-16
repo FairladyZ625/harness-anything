@@ -168,9 +168,11 @@ function removeTempRootSync(rootDir: string): void {
 }
 
 function daemonTestEnv(rootDir: string, env: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+  const homeDir = path.join(rootDir, ".home");
   return {
     ...process.env,
-    HOME: path.join(rootDir, ".home"),
+    HOME: homeDir,
+    USERPROFILE: homeDir,
     GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_ACTOR: "agent:daemon-cli-test",
     HARNESS_GIT_AUTHOR_NAME: "Harness Test",

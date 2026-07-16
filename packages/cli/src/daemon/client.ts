@@ -338,8 +338,13 @@ function commandForCanonicalHarness(command: ParsedCommand): ParsedCommand {
     : { ...command, rootDir: canonicalRoot };
 }
 
-function daemonClientCliEntrypointPath(): string {
-  return fileURLToPath(import.meta.url).replace(/\/daemon\/client\.(ts|js)$/u, "/index.$1");
+export function daemonClientCliEntrypointPath(moduleUrl: string | URL = import.meta.url): string {
+  const clientUrl = new URL(moduleUrl);
+  const extension = path.posix.extname(clientUrl.pathname);
+  if (extension !== ".ts" && extension !== ".js") {
+    throw new Error(`unsupported daemon client module extension: ${extension || "<none>"}`);
+  }
+  return fileURLToPath(new URL(`../index${extension}`, clientUrl));
 }
 
 function readRemoteConfig(env: NodeJS.ProcessEnv): RemoteDaemonConfig {

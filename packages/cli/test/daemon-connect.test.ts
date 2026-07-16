@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   daemonIdForUserRoot,
   defaultNamedPipePath,
@@ -13,11 +14,23 @@ import { createDaemonLocalTransport } from "../src/commands/daemon/serve-transpo
 import { hasPrivilegedSshdAncestor } from "../src/commands/daemon/sshd-witness.ts";
 import {
   commandRunPayload,
+  daemonClientCliEntrypointPath,
   remoteDaemonUnavailableHint,
   remoteDaemonSshArgs,
   type RemoteDaemonConfig
 } from "../src/daemon/client.ts";
 import { parseArgs } from "../src/cli/parse-args.ts";
+
+test("daemon client resolves its CLI entrypoint across native path separators", () => {
+  const clientPath = fileURLToPath(new URL("../src/daemon/client.ts", import.meta.url));
+  const expectedEntrypoint = path.resolve(path.dirname(clientPath), "../index.ts");
+
+  assert.equal(daemonClientCliEntrypointPath(), expectedEntrypoint);
+  assert.equal(
+    daemonClientCliEntrypointPath("file:///C:/workspace/packages/cli/dist/daemon/client.js"),
+    fileURLToPath("file:///C:/workspace/packages/cli/dist/index.js")
+  );
+});
 
 test("daemon endpoint selection uses a named pipe on Windows and a unix socket on POSIX", () => {
   const userRoot = "/srv/harness-user";

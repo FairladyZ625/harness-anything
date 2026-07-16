@@ -501,7 +501,7 @@ test("daemon client resolves an existing single-repo registry without requiring 
       displayName: "Registered User",
       email: "registered@example.test",
       role: "owner"
-    });
+    }, { userRoot });
     const registered = runDaemonCommand(rootDir, ["daemon", "repo", "register", "--repo-id", "canonical", "--user-root", userRoot, "--no-link", "--json"], {
       HARNESS_DAEMON_USER_ROOT: userRoot
     });
