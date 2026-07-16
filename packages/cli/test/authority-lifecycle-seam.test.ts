@@ -142,6 +142,22 @@ test("missing-server-binding-axis fails closed before component serve", async ()
   });
 });
 
+test("production lifecycle rejects in-memory binding and namespace adapters", async () => {
+  await withRoots(async ({ serviceRoot, alphaRoot }) => {
+    const controller = createAuthorityRepoLifecycleController({
+      hooks: hooksFixture([]),
+      serviceStateRoot: serviceRoot,
+      resolveCompositionData: async (repo) => ({
+        ...compositionFixture(repo),
+        bindingRuntime: {} as AuthorityRepoCompositionData["bindingRuntime"]
+      })
+    });
+    const result = await controller.startRepo({ repoId: "alpha", canonicalRoot: alphaRoot }, runtimeFixture());
+    assert.equal(result.ok, false);
+    assert.match(result.ok ? "" : result.error, /AUTHORITY_DURABLE_ADAPTER_REQUIRED:bindingRuntime/u);
+  });
+});
+
 test("restart-durable-recovery restores operation, replica, binding and namespace state before serve", async () => {
   await withRoots(async ({ serviceRoot }) => {
     const first = openDurableAuthorityServiceState({ serviceStateRoot: serviceRoot, repoId: "alpha" });
@@ -239,6 +255,38 @@ test("publication-tree-mismatch uses real Git trees and rejects paths outside th
       }]
     };
     assert.throws(() => assertPublicationMatchesMutationSet(mismatched, mutationSet), /AUTHORITY_PUBLICATION_TREE_MISMATCH/u);
+  });
+});
+
+test("production composition reads publication evidence from the repo's real authored Git tree", async () => {
+  await withRoots(async ({ serviceRoot, alphaRoot }) => {
+    const authoredRoot = path.join(alphaRoot, "harness");
+    mkdirSync(path.join(authoredRoot, "tasks", "task_T"), { recursive: true });
+    git(authoredRoot, "init", "-q");
+    writeFileSync(path.join(authoredRoot, "tasks", "task_T", "INDEX.md"), "before\n");
+    git(authoredRoot, "add", ".");
+    git(authoredRoot, "commit", "-q", "-m", "seed authored tree");
+    const before = git(authoredRoot, "rev-parse", "HEAD");
+    writeFileSync(path.join(authoredRoot, "tasks", "task_T", "INDEX.md"), "after\n");
+    git(authoredRoot, "add", ".");
+    git(authoredRoot, "commit", "-q", "-m", "publish authored tree");
+    let observed: ReadonlyArray<string> = [];
+    const hooks: AuthorityRepoLifecycleHooks = {
+      ...hooksFixture([]),
+      start: async ({ repo, inspectPublication }) => {
+        observed = (await inspectPublication(before)).physicalChanges.map((change) => change.path);
+        return componentFixture(repo.repoId);
+      }
+    };
+    const controller = createAuthorityRepoLifecycleController({
+      hooks,
+      serviceStateRoot: serviceRoot,
+      resolveCompositionData: async (repo) => compositionFixture(repo)
+    });
+    const result = await controller.startRepo({ repoId: "alpha", canonicalRoot: alphaRoot }, runtimeFixture());
+    assert.equal(result.ok, true, result.ok ? "" : result.error);
+    assert.deepEqual(observed, ["tasks/task_T/INDEX.md"]);
+    await controller.stopAll("daemon-shutdown");
   });
 });
 
@@ -367,8 +415,13 @@ function compositionFixture(repo: { readonly repoId: string; readonly canonicalR
     revocationEpochs: {},
     admissionTokenRef: "token-server-observed",
     operationNamespace: "namespace-server-observed",
-    bindingRuntime: {} as AuthorityRepoCompositionData["bindingRuntime"],
-    namespaceVerifier: { verify: async () => undefined },
+    bindingRuntime: {
+      durability: { schema: "authority-service-state-adapter/v1", recovery: "replayed-before-serve" }
+    } as AuthorityRepoCompositionData["bindingRuntime"],
+    namespaceVerifier: {
+      verify: async () => undefined,
+      durability: { schema: "authority-service-state-adapter/v1", recovery: "replayed-before-serve" }
+    },
     committedEventPublisher: { publish: async () => { throw new Error("fixture publisher is not invoked"); } }
   };
 }

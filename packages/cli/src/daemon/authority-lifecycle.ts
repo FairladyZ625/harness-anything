@@ -12,7 +12,12 @@ import type {
   DaemonRepoNamespace,
   PersonRegistry
 } from "../../../daemon/src/index.ts";
-import { stableStringify, type WriteAttribution, type WriteCoordinator } from "../../../kernel/src/index.ts";
+import {
+  resolveHarnessLayout,
+  stableStringify,
+  type WriteAttribution,
+  type WriteCoordinator
+} from "../../../kernel/src/index.ts";
 import type { DaemonAuthorityCommandSubmissionV2 } from "./authority-command-submission.ts";
 import {
   createGitCanonicalPublicationInspector,
@@ -102,10 +107,24 @@ export interface AuthorityLifecycleRuntime {
 }
 
 export interface AuthorityRepoCompositionData extends AuthorityRepoServerData {
-  readonly bindingRuntime: ActorAxesBindingRuntimeV2;
-  readonly namespaceVerifier: OperationNamespaceVerifierV2;
+  readonly bindingRuntime: ActorAxesBindingRuntimeV2 & AuthorityDurableAdapterMarker;
+  readonly namespaceVerifier: OperationNamespaceVerifierV2 & AuthorityDurableAdapterMarker;
   readonly committedEventPublisher: AuthorityCommittedEventPublisherV2;
 }
+
+export interface AuthorityDurableAdapterMarker {
+  readonly durability: {
+    readonly schema: "authority-service-state-adapter/v1";
+    readonly recovery: "replayed-before-serve";
+  };
+}
+
+export const authorityDurableAdapterMarker: AuthorityDurableAdapterMarker = Object.freeze({
+  durability: Object.freeze({
+    schema: "authority-service-state-adapter/v1" as const,
+    recovery: "replayed-before-serve" as const
+  })
+});
 
 export interface AuthorityRepoLifecycleController {
   readonly startRepo: (repo: DaemonRepoNamespace, runtime: AuthorityLifecycleRuntime) => Promise<AuthorityRepoStartResult>;
@@ -131,7 +150,13 @@ interface StartedAuthorityRepo {
 export function createAuthorityRepoLifecycleController(input: {
   readonly hooks: AuthorityRepoLifecycleHooks;
   readonly serviceStateRoot: string;
-  readonly resolveCompositionData: (repo: DaemonRepoNamespace) => Promise<AuthorityRepoCompositionData>;
+  readonly resolveCompositionData: (
+    repo: DaemonRepoNamespace,
+    state: DurableAuthorityServiceState
+  ) => Promise<AuthorityRepoCompositionData>;
+  readonly resolvePublicationRoot?: (repo: DaemonRepoNamespace) => string;
+  /** Test-only escape hatch; production composition must carry durable adapter markers. */
+  readonly allowInMemoryFixture?: true;
 }): AuthorityRepoLifecycleController {
   const started = new Map<string, StartedAuthorityRepo>();
   const unavailable = new Map<string, string>();
@@ -165,13 +190,15 @@ export function createAuthorityRepoLifecycleController(input: {
     let state: DurableAuthorityServiceState | undefined;
     let component: AuthorityRepoComponent | undefined;
     try {
-      const serverData = await input.resolveCompositionData(repo);
-      validateServerData(repo, serverData);
       state = openDurableAuthorityServiceState({
         serviceStateRoot: input.serviceStateRoot,
         repoId: repo.repoId
       });
-      const publicationInspector = createGitCanonicalPublicationInspector(repo.canonicalRoot);
+      const serverData = await input.resolveCompositionData(repo, state);
+      validateServerData(repo, serverData, input.allowInMemoryFixture === true);
+      const publicationInspector = createGitCanonicalPublicationInspector(
+        input.resolvePublicationRoot?.(repo) ?? resolveHarnessLayout(repo.canonicalRoot).authoredRoot
+      );
       const attributedCoordinatorFactory = makeHeldLockAttributedCoordinatorFactory(runtime);
       component = await input.hooks.start({
         repo,
@@ -250,7 +277,11 @@ export function makeHeldLockAttributedCoordinatorFactory(
   };
 }
 
-function validateServerData(repo: DaemonRepoNamespace, data: AuthorityRepoCompositionData): void {
+function validateServerData(
+  repo: DaemonRepoNamespace,
+  data: AuthorityRepoCompositionData,
+  allowInMemoryFixture: boolean
+): void {
   if (data.repoId !== repo.repoId || data.canonicalRoot !== repo.canonicalRoot) {
     throw new Error("AUTHORITY_SERVER_REPO_BINDING_MISMATCH");
   }
@@ -263,6 +294,17 @@ function validateServerData(repo: DaemonRepoNamespace, data: AuthorityRepoCompos
     operationNamespace: data.operationNamespace
   })) {
     if (typeof value !== "string" || !value.trim()) throw new Error(`AUTHORITY_SERVER_AXIS_REQUIRED:${name}`);
+  }
+  if (!allowInMemoryFixture) {
+    for (const [name, adapter] of Object.entries({
+      bindingRuntime: data.bindingRuntime,
+      namespaceVerifier: data.namespaceVerifier
+    })) {
+      if (adapter.durability?.schema !== "authority-service-state-adapter/v1"
+        || adapter.durability.recovery !== "replayed-before-serve") {
+        throw new Error(`AUTHORITY_DURABLE_ADAPTER_REQUIRED:${name}`);
+      }
+    }
   }
 }
 
