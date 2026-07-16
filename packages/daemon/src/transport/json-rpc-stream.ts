@@ -1,14 +1,21 @@
 import { randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
-import type { DaemonAuthenticationContext, DaemonTransportKind } from "./auth-context.ts";
-import { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./frame-codec.ts";
+import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 import type { JsonRpcErrorResponse, JsonRpcId, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
+import type {
+  AcceptedConnectionEvidence,
+  DaemonAuthenticationContext,
+  DaemonTransportKind
+} from "./auth-context.ts";
+import { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./frame-codec.ts";
 
 export interface DaemonTransportConnection {
   readonly connectionId: string;
   readonly transportKind: DaemonTransportKind;
   readonly authContext: DaemonAuthenticationContext;
+  readonly acceptedConnectionEvidence?: AcceptedConnectionEvidence;
+  readonly isConnectionGenerationActive: () => boolean;
   readonly close: () => Promise<void>;
 }
 
@@ -31,7 +38,11 @@ export interface JsonRpcStreamOptions {
   readonly output: Writable;
   readonly transportKind: DaemonTransportKind;
   readonly authContext: DaemonAuthenticationContext;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly acceptedConnectionEvidence?: AcceptedConnectionEvidence;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection?: AcceptedConnectionBinding
+  ) => JsonRpcProtocolServer;
   readonly authenticateFirstFrame?: (
     frame: unknown,
     authContext: DaemonAuthenticationContext
@@ -42,9 +53,16 @@ export interface JsonRpcStreamOptions {
 
 export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTransportConnection {
   const reader = createJsonLineFrameReader();
-  const connectionId = options.connectionId ?? randomUUID();
+  const connectionId = options.connectionId ?? options.acceptedConnectionEvidence?.connectionId ?? randomUUID();
+  assertEvidenceMatchesConnection(options.acceptedConnectionEvidence, connectionId, options.transportKind);
+  let generationActive = true;
+  const acceptedConnection = options.acceptedConnectionEvidence
+    ? acceptedConnectionBinding(options.acceptedConnectionEvidence)
+    : undefined;
   let authContext = options.authContext;
-  let server = options.authenticateFirstFrame ? undefined : options.createProtocolServer(authContext);
+  let server = options.authenticateFirstFrame
+    ? undefined
+    : options.createProtocolServer(authContext, acceptedConnection);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
 
@@ -59,7 +77,9 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     if (batch.error) failConnection(parseError(batch.error));
   });
   options.input.on("error", (error: Error) => failConnection(error));
+  options.input.once("close", invalidateGeneration);
   options.output.on("error", (error: Error) => options.onError?.(error));
+  options.input.resume();
 
   return {
     connectionId,
@@ -67,8 +87,13 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     get authContext() {
       return authContext;
     },
+    ...(options.acceptedConnectionEvidence
+      ? { acceptedConnectionEvidence: options.acceptedConnectionEvidence }
+      : {}),
+    isConnectionGenerationActive: () => generationActive,
     close: async () => {
       await queue;
+      invalidateGeneration();
       options.input.destroy();
       options.output.end();
     }
@@ -91,7 +116,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
         return;
       }
       authContext = result.authContext ?? authContext;
-      server = options.createProtocolServer(authContext);
+      server = options.createProtocolServer(authContext, acceptedConnection);
       waitingForAuthentication = false;
       if (!result.forwardFrame) return;
     }
@@ -114,6 +139,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   }
 
   function failConnection(error: Error): void {
+    invalidateGeneration();
     options.onError?.(error);
     writeFrame(streamErrorResponse(null, -32700, error.message));
     options.output.end();
@@ -121,6 +147,39 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
 
   function writeFrame(frame: unknown): void {
     options.output.write(encodeJsonLineFrame(frame));
+  }
+
+  function invalidateGeneration(): void {
+    generationActive = false;
+  }
+
+  function acceptedConnectionBinding(evidence: AcceptedConnectionEvidence): AcceptedConnectionBinding {
+    return Object.freeze({
+      evidence,
+      connectionId: evidence.connectionId,
+      connectionGeneration: evidence.connectionGeneration,
+      isActive: () => generationActive,
+      assertActive: () => {
+        if (!generationActive) throw new Error("accepted connection generation is closed");
+      }
+    });
+  }
+}
+
+function assertEvidenceMatchesConnection(
+  evidence: AcceptedConnectionEvidence | undefined,
+  connectionId: string,
+  transportKind: DaemonTransportKind
+): void {
+  if (!evidence) return;
+  if (evidence.connectionId !== connectionId) {
+    throw new Error("accepted connection evidence does not match the stream connection id");
+  }
+  if (evidence.transportKind !== transportKind) {
+    throw new Error("accepted connection evidence does not match the stream transport kind");
+  }
+  if (evidence.channelBinding.digest.byteLength !== 32) {
+    throw new Error("accepted connection channel digest must be 32 bytes");
   }
 }
 

@@ -1,17 +1,28 @@
 // @slice-activation PLT-Daemon W3 transport adapters exported for daemon composition roots.
 import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import type { DaemonAuthenticationContext } from "./auth-context.ts";
+import { connectionGeneration, createAcceptedConnectionEvidence } from "./accepted-connection-evidence.ts";
+import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
+import type {
+  AcceptedConnectionEvidenceAdapter,
+  DaemonAuthenticationContext
+} from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
+import { createNodeSocketAcceptedConnectionEvidenceAdapter } from "./node-socket-peer-credential.ts";
 import { authenticateSshForcedCommandFrame, type AcceptSshForcedCommand } from "./ssh-forced-command.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
 
 export interface UnixSocketTransportOptions {
   readonly daemonId: string;
   readonly socketPath?: string;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly acceptedConnectionEvidenceAdapter?: AcceptedConnectionEvidenceAdapter<net.Socket>;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection?: AcceptedConnectionBinding
+  ) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
   readonly acceptSshForcedCommand?: boolean | AcceptSshForcedCommand;
@@ -95,23 +106,53 @@ export function ensurePrivateUnixSocketDirectory(directory: string, uid = proces
 
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
+  const evidenceAdapter = options.acceptedConnectionEvidenceAdapter
+    ?? createNodeSocketAcceptedConnectionEvidenceAdapter();
   const server = net.createServer((socket) => {
+    void acceptUnixSocket(socket);
+  });
+
+  async function acceptUnixSocket(socket: net.Socket): Promise<void> {
     const ownerUid = statSync(endpoint).uid;
+    const compatibilityBoundary = {
+      ownerUid,
+      source: "unix-socket-filesystem-owner-boundary" as const
+    };
     const authContext: DaemonAuthenticationContext = {
       transportKind: "unix-socket",
       endpoint,
       // 0700 parent + 0600 socket authorize only this filesystem owner. This
       // identifies that access boundary; it does not observe the client process.
-      unixSocketOwnerBoundary: {
-        ownerUid,
-        source: "unix-socket-filesystem-owner-boundary"
-      }
+      unixSocketOwnerBoundary: compatibilityBoundary
     };
+    const connectionId = randomUUID();
+    const generation = connectionGeneration();
+    const acceptedConnectionEvidence = await evidenceAdapter.observeAcceptedConnection({
+      socket,
+      connectionId,
+      connectionGeneration: generation,
+      daemonInstanceId: options.daemonId,
+      compatibilityBoundary
+    }).catch(() => createAcceptedConnectionEvidence({
+      connectionId,
+      connectionGeneration: generation,
+      daemonInstanceId: options.daemonId,
+      transportKind: "unix-socket",
+      peerCredential: {
+        available: false,
+        code: "observation_failed",
+        source: "os-peer-credential-adapter"
+      },
+      compatibilityBoundary
+    }));
+    if (socket.destroyed) return;
     const connection = serveJsonRpcStream({
       input: socket,
       output: socket,
       transportKind: "unix-socket",
       authContext,
+      connectionId,
+      acceptedConnectionEvidence,
       ...(options.acceptSshForcedCommand ? {
         authenticateFirstFrame: (frame: unknown, context: DaemonAuthenticationContext) => authenticateSshForcedCommandFrame(
           frame,
@@ -123,7 +164,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     });
     options.onConnection?.(connection);
     socket.once("close", () => options.onConnectionClosed?.(connection));
-  });
+  }
 
   return {
     kind: "unix-socket",

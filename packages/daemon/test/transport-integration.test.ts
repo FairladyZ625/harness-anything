@@ -32,6 +32,7 @@ import {
   windowsNamedPipeIntegrationEntry,
   unixSocketDirectory,
   type DaemonAuthenticationContext,
+  type DaemonTransportConnection,
   type JsonRpcProtocolServer,
   type JsonRpcRequest,
   type JsonRpcResponse,
@@ -371,11 +372,15 @@ test("Windows named pipe transport path and local test entry are declared", () =
 test("named pipe transport completes JSON-RPC on Windows", { skip: process.platform !== "win32" ? windowsNamedPipeIntegrationEntry().reason : false }, async (t) => {
   const pipePath = `${defaultNamedPipePath(`transport-${process.pid}`)}-${Date.now()}`;
   const seenAuthContexts: DaemonAuthenticationContext[] = [];
+  const seenConnections: DaemonTransportConnection[] = [];
   const transport = createNamedPipeTransportServer({
     daemonId: "daemon-test",
     pipePath,
     createProtocolServer: makeProtocolServerFactory(),
-    onConnection: (connection) => seenAuthContexts.push(connection.authContext)
+    onConnection: (connection) => {
+      seenConnections.push(connection);
+      seenAuthContexts.push(connection.authContext);
+    }
   });
   t.after(async () => {
     await transport.stop();
@@ -390,6 +395,11 @@ test("named pipe transport completes JSON-RPC on Windows", { skip: process.platf
   assert.equal(resultReceipt(response).ok, true);
   assert.equal(seenAuthContexts[0]?.transportKind, "named-pipe");
   assert.equal(seenAuthContexts[0]?.namedPipeClient?.endpoint, pipePath);
+  assert.deepEqual(seenConnections[0]?.acceptedConnectionEvidence?.peerCredential, {
+    available: false,
+    code: "platform_unsupported",
+    source: "os-peer-credential-adapter"
+  });
   socket.end();
 });
 
