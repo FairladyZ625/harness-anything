@@ -32,6 +32,7 @@ test("workspace lease configuration rejects unclaimed writes and permits the cla
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error?.code, "write_rejected");
     assert.match(rejected.error?.hint ?? "", /requires an active lease/u);
+    assert.match(rejected.error?.hint ?? "", new RegExp(`ha task claim ${taskId}`, "u"));
 
     const claimed = runJson(rootDir, ["task", "claim", taskId]);
     assert.equal(claimed.ok, true);

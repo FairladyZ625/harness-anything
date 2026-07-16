@@ -29,7 +29,10 @@ const cliErrorMappers = {
   RelatedTaskHardDeleteForbidden: (error) => cliError(CliErrorCode.RelatedTaskHardDeleteForbidden, error.reason ?? `Task ${error.taskId} has active incoming relations; use archive, supersede, or retire the related records before hard delete.`),
   RateLimited: () => cliError(CliErrorCode.RateLimited, "Command failed."),
   EngineUnreachable: () => cliError(CliErrorCode.EngineUnreachable, "Command failed."),
-  Timeout: () => cliError(CliErrorCode.Timeout, "Command failed."),
+  Timeout: (error) => cliError(
+    CliErrorCode.Timeout,
+    `Operation timed out after ${error.ms}ms. Retry the command; if it repeats, run 'ha doctor --json' and inspect engine or daemon connectivity.`
+  ),
   WriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ?? "Write lock is held."),
   GlobalWriteConflict: (error) => cliError(CliErrorCode.WriteConflict, error.owner ? `Global write lock is held: ${error.owner}` : "Global write lock is held."),
   WriteRejected: (error) => error.code && isCliErrorCode(error.code)
@@ -42,7 +45,11 @@ const cliErrorMappers = {
   TaskPackageNotFound: (error) => cliError(CliErrorCode.TaskNotFound, `task not found: ${error.taskId}`),
   JournalUnavailable: (error) => {
     const cause = journalUnavailableCause(error.cause);
-    return cliError(CliErrorCode.JournalUnavailable, cause ? `Journal is unavailable: ${cause}` : "Journal is unavailable.");
+    const summary = cause ? `Journal is unavailable: ${cause.replace(/[.\s]+$/u, "")}` : "Journal is unavailable";
+    return cliError(
+      CliErrorCode.JournalUnavailable,
+      `${summary}. Run 'ha doctor --json' to inspect journal and daemon health, then retry the command.`
+    );
   }
 } satisfies CliErrorMapperByTag;
 

@@ -119,6 +119,7 @@ test("CLI preset action preserves a failed receipt without ingesting staged writ
 
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "preset_script_result_failed");
+    assert.match(result.error.hint, /inspect artifacts\/preset-result\.json in the evidence bundle/iu);
     assert.equal(result.report.status, "failed");
     assert.deepEqual(result.generated, []);
     assert.equal(existsSync(path.join(
@@ -131,6 +132,27 @@ test("CLI preset action preserves a failed receipt without ingesting staged writ
     )), false);
     assert.equal(gitRead(rootDir, "rev-parse", "HEAD"), headBefore);
     assert.equal(gitRead(rootDir, "status", "--short"), "");
+  });
+});
+
+test("CLI preset action reports a missing entrypoint file with a repair command", () => {
+  withTempRoot((rootDir) => {
+    initializeHarness(rootDir);
+    writeProcessActionPreset(rootDir, "missing-entrypoint-file", "scaffold", []);
+    rmSync(path.join(
+      rootDir,
+      ".harness/presets/missing-entrypoint-file/scripts/preset-action.mjs"
+    ));
+
+    const result = runJson(rootDir, [
+      "preset", "action", "missing-entrypoint-file", "scaffold",
+      "--task", "task-missing-entrypoint", "--allow-scripts"
+    ], false);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "preset_script_not_found");
+    assert.match(result.error.hint, /scripts\/preset-action\.mjs/u);
+    assert.match(result.error.hint, /ha preset validate <preset-package>\/preset\.json --json/u);
   });
 });
 
