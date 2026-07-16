@@ -1444,10 +1444,14 @@
       "directWrites": [
         {
           "file": "packages/cli/src/receipt/durable-store.ts"
+        },
+        {
+          "file": "packages/cli/src/receipt/durable-store-v2.ts"
         }
       ],
       "evidence": [
         "packages/cli/src/receipt/durable-store.ts:76",
+        "packages/cli/src/receipt/durable-store-v2.ts:1",
         "packages/application/src/receipt/service.ts:1"
       ],
       "freshness": "fsync-atomic-rename"

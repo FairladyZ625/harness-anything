@@ -2,8 +2,11 @@ import {
   classifyCompoundExit,
   type CompoundExitDefinition,
   type CompoundExitInput,
-  type CompoundOperationReceipt
+  type CompoundOperationReceipt,
+  type CompoundOperationReceiptV2
 } from "../../../application/src/index.ts";
+
+type RenderableCompoundReceipt = CompoundOperationReceipt | CompoundOperationReceiptV2;
 
 export interface CompoundCliExit {
   readonly exitCode: number;
@@ -13,13 +16,13 @@ export interface CompoundCliExit {
   readonly json: {
     readonly symbol: CompoundExitDefinition["symbol"];
     readonly exitCode: number;
-    readonly authority: CompoundOperationReceipt["authority"] | null;
-    readonly origin: CompoundOperationReceipt["origin"] | null;
-    readonly phase: CompoundOperationReceipt["phase"] | null;
-    readonly delivery: CompoundOperationReceipt["delivery"] | null;
-    readonly historicalCut: CompoundOperationReceipt["origin"] | null;
-    readonly currentLease: CompoundOperationReceipt["currentLease"] | null;
-    readonly acknowledgement: CompoundOperationReceipt["acknowledgement"] | null;
+    readonly authority: RenderableCompoundReceipt["authority"] | null;
+    readonly origin: RenderableCompoundReceipt["origin"] | null;
+    readonly phase: RenderableCompoundReceipt["phase"] | null;
+    readonly delivery: RenderableCompoundReceipt["delivery"] | null;
+    readonly historicalCut: RenderableCompoundReceipt["origin"] | null;
+    readonly currentLease: RenderableCompoundReceipt["currentLease"] | null;
+    readonly acknowledgement: RenderableCompoundReceipt["acknowledgement"] | null;
     readonly nextAction: string;
   };
 }

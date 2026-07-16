@@ -72,6 +72,8 @@ export interface CreatePrepublishedAuthorityKeyInput {
 export interface LocalAuthorityKeyStore {
   readonly stateDirectory: string;
   readonly keyIds: () => ReadonlyArray<string>;
+  /** Rebuilds the public cache from secure private material, gated by the canonical registry. */
+  readonly recoverPublicCache: (canonicalRegistry: AuthorityKeyRegistryV1) => ReadonlyArray<string>;
   readonly createPrepublishedKey: (input: CreatePrepublishedAuthorityKeyInput) => AuthorityKeyRegistryEntryV1;
   readonly signingProfile: (canonicalRegistry: AuthorityKeyRegistryV1, nowMs: number) => ActorAxesSigningProfileV2;
   readonly proofKeyResolver: (canonicalRegistry: AuthorityKeyRegistryV1, nowMs: number) => ActorAxesProofKeyResolverV2;
@@ -143,6 +145,25 @@ export function openLocalAuthorityKeyStore(options: LocalAuthorityKeyStoreOption
     keyIds: () => cache.keys
       .filter((entry) => secureFileExists(privateKeyPath(entry.keyId), expectedUid))
       .map((entry) => entry.keyId),
+    recoverPublicCache: (canonicalRegistry) => {
+      assertRegistryScope(canonicalRegistry, authorityId);
+      const recovered: LocalAuthorityKeyCacheEntry[] = [];
+      for (const entry of canonicalRegistry.entries) {
+        if (entry.authorityId !== authorityId || entry.issuer !== issuer
+          || entry.algorithm !== "Ed25519" || entry.purpose !== authoritySigningPurpose) continue;
+        const destination = privateKeyPath(entry.keyId);
+        if (!secureFileExists(destination, expectedUid)) continue;
+        const privateKey = readPrivateKey(destination, expectedUid);
+        const publicDer = createPublicKey(privateKey).export({ format: "der", type: "spki" });
+        const publicKeySpki = publicDer.toString("base64url");
+        if (authorityKeyId(publicDer) !== entry.keyId || publicKeySpki !== entry.publicKeySpki) {
+          throw new Error("AUTHORITY_KEY_STORE_RECOVERY_REGISTRY_MISMATCH");
+        }
+        recovered.push({ keyId: entry.keyId, publicKeySpki });
+      }
+      persistCache(recovered);
+      return recovered.map((entry) => entry.keyId).sort();
+    },
     createPrepublishedKey: (input) => {
       positiveKeyStoreInteger(input.generation, "generation");
       nonNegativeKeyStoreInteger(input.nowMs, "nowMs");

@@ -1,4 +1,6 @@
 import type { CompoundOperationReceipt } from "./types.ts";
+import { isCompoundOperationReceiptV2 } from "./validation-v2.ts";
+import type { CompoundOperationReceiptV2 } from "./v2-types.ts";
 
 export const compoundExitCodes = {
   COMMITTED_APPLIED: 0,
@@ -27,7 +29,7 @@ export interface CompoundExitDefinition {
 }
 
 export const compoundExitDefinitions = {
-  COMMITTED_APPLIED: definition("COMMITTED_APPLIED", "Canonical effect committed, applied exactly at the named historical cut, and delivery acknowledgment committed.", "COMMITTED + APPLIED_EXACT_AT_CUT + ACK_COMMITTED", "Do not retry."),
+  COMMITTED_APPLIED: definition("COMMITTED_APPLIED", "Canonical effect committed, applied exactly at the named historical cut, and delivery acknowledgment committed.", "V2 COMMITTED integrity tuple + canonical exact witness + durable ACK_COMMITTED", "Do not retry."),
   NOT_COMMITTED: definition("NOT_COMMITTED", "The authority terminally rejected the operation or found a base conflict.", "Authority REJECTED", "Correct the request and submit with a new opId."),
   COMMITTED_LOCAL_CONFLICT: definition("COMMITTED_LOCAL_CONFLICT", "The canonical effect committed, but the origin view has a local conflict.", "COMMITTED + LOCAL_CONFLICT", "Resolve locally; never resubmit this op."),
   COMMITTED_APPLY_BLOCKED: definition("COMMITTED_APPLY_BLOCKED", "The canonical effect committed, but local apply or required quiescence is blocked.", "COMMITTED + APPLY_BLOCKED or NONQUIESCENT", "Repair or quiesce, then reapply the receipt; never resubmit this op."),
@@ -42,7 +44,7 @@ export const compoundExitDefinitions = {
 } as const satisfies Record<CompoundExitSymbol, CompoundExitDefinition>;
 
 export type CompoundExitInput =
-  | { readonly kind: "RECEIPT"; readonly receipt: CompoundOperationReceipt }
+  | { readonly kind: "RECEIPT"; readonly receipt: CompoundOperationReceipt | CompoundOperationReceiptV2 }
   | { readonly kind: "RESYNC_OR_UPGRADE_REQUIRED" }
   | { readonly kind: "LOCAL_BUSY_UNSENT" }
   | { readonly kind: "INTERNAL_ERROR" }
@@ -64,7 +66,9 @@ export function classifyCompoundExit(input: CompoundExitInput): CompoundExitDefi
   }
   if (receipt.origin?.tag === "SUPERSEDED") return compoundExitDefinitions.COMMITTED_SUPERSEDED;
   if (receipt.origin?.tag === "VIEW_UNAVAILABLE") return compoundExitDefinitions.COMMITTED_VIEW_UNAVAILABLE;
-  if (receipt.origin?.tag === "APPLIED_EXACT_AT_CUT"
+  if (isCompoundOperationReceiptV2(receipt)
+    && receipt.origin?.tag === "APPLIED_EXACT_AT_CUT"
+    && receipt.origin.witnessDigest === receipt.origin.witness.canonicalWitnessDigest
     && receipt.phase === "ACK_COMMITTED"
     && receipt.delivery === "ACK_COMMITTED"
     && receipt.terminalLSN !== undefined

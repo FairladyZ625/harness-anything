@@ -6,12 +6,15 @@ import {
   compoundExitCodes,
   compoundExitDefinitions,
   compoundReceiptSchema,
+  compoundReceiptV2Schema,
+  createHistoricalExcludedSetWitnessV1,
   createCompoundReceiptService,
   isCompoundOperationReceipt,
   type AuthorityCommittedReceipt,
   type AuthorityOperationReceipt,
   type CompoundExitInput,
   type CompoundOperationReceipt,
+  type CompoundOperationReceiptV2,
   type CompoundReceiptStore,
   type ImmutableReceiptAcknowledgement,
   type OriginResolution,
@@ -52,7 +55,8 @@ test("compound receipt advances monotonically and keeps historical cut separate 
 
   const acknowledged = await service.commitAcknowledgement(identity, acknowledgement(91));
   assert.equal(acknowledged.phase, "ACK_COMMITTED");
-  assert.equal(classifyCompoundExit({ kind: "RECEIPT", receipt: acknowledged }).code, 0);
+  assert.equal(classifyCompoundExit({ kind: "RECEIPT", receipt: acknowledged }).symbol, "INTERNAL_ERROR",
+    "legacy v1 has no canonical historical witness and cannot prove exit zero");
   assert.equal((await service.initialize(identity)).phase, "ACK_COMMITTED", "initialize must resume, not reset");
 
   await assert.rejects(service.detach(identity, "late detach"), /terminal delivery ACK_COMMITTED/u);
@@ -122,7 +126,7 @@ test("exit zero requires all three proofs", () => {
 
 test("all twelve exit codes have a reproducible positive scenario", () => {
   const cases: ReadonlyArray<readonly [keyof typeof compoundExitCodes, CompoundExitInput]> = [
-    ["COMMITTED_APPLIED", { kind: "RECEIPT", receipt: receipt({ phase: "ACK_COMMITTED", authority: committed, origin: origin("APPLIED_EXACT_AT_CUT"), delivery: "ACK_COMMITTED", terminalLSN: 12, acknowledgement: acknowledgement(12) }) }],
+    ["COMMITTED_APPLIED", { kind: "RECEIPT", receipt: v2AppliedReceipt(12) }],
     ["NOT_COMMITTED", { kind: "RECEIPT", receipt: receipt({ authority: authority("REJECTED") }) }],
     ["COMMITTED_LOCAL_CONFLICT", { kind: "RECEIPT", receipt: receipt({ phase: "COMMITTED", authority: committed, origin: origin("LOCAL_CONFLICT") }) }],
     ["COMMITTED_APPLY_BLOCKED", { kind: "RECEIPT", receipt: receipt({ phase: "COMMITTED", authority: committed, origin: origin("NONQUIESCENT") }) }],
@@ -219,6 +223,73 @@ function acknowledgement(terminalLSN: number): ImmutableReceiptAcknowledgement {
     writerExclusionId: "exclude-1",
     waiterId: identity.waiterId,
     terminalLSN
+  };
+}
+
+function v2AppliedReceipt(terminalLSN: number): CompoundOperationReceiptV2 {
+  const witness = createHistoricalExcludedSetWitnessV1({
+    cutId: "cut-7",
+    epochToken: "opaque-epoch-2",
+    revision: 7,
+    selectedPathSetDigest: "sha256:selected",
+    cutJournalLSN: 71,
+    writerExclusionId: "exclude-1",
+    fingerprints: [{
+      path: "task.md", objectKind: "file", logicalMode: 0o644, byteSize: 4, blobDigest: "sha256:file"
+    }],
+    watcherFenceEntries: [{ path: "task.md", fenceToken: "fence-task" }]
+  });
+  return {
+    schema: compoundReceiptV2Schema,
+    workspaceId: identity.workspaceId,
+    viewId: identity.viewId,
+    opId: identity.opId,
+    waiterId: identity.waiterId,
+    resultTokenDigest: "66".repeat(32),
+    phase: "ACK_COMMITTED",
+    authority: committed,
+    origin: {
+      tag: "APPLIED_EXACT_AT_CUT",
+      viewId: identity.viewId,
+      opId: identity.opId,
+      version: 7,
+      cutId: witness.cutId,
+      cutKind: "WRITE_EXCLUDED",
+      cutJournalLSN: witness.cutJournalLSN,
+      verifiedAffectedDigest: witness.affectedDigest,
+      writerExclusionId: "exclude-1",
+      witness,
+      witnessDigest: witness.canonicalWitnessDigest
+    },
+    originPin: { state: "PINNED", cutId: witness.cutId, witnessDigest: witness.canonicalWitnessDigest },
+    delivery: "ACK_COMMITTED",
+    pinReleaseEligible: true,
+    terminalLSN,
+    acknowledgement: {
+      viewId: identity.viewId,
+      workspaceId: identity.workspaceId,
+      opId: identity.opId,
+      epochToken: witness.epochToken,
+      revision: 7,
+      commitSha: "abc",
+      canonicalEventDigest: "44".repeat(32),
+      changeSetDigest: "55".repeat(32),
+      semanticMutationSetDigest: "22".repeat(32),
+      actorAxesBindingDigest: "33".repeat(32),
+      affectedDigest: witness.affectedDigest,
+      cutId: witness.cutId,
+      cutKind: "WRITE_EXCLUDED",
+      cutJournalLSN: witness.cutJournalLSN,
+      witnessDigest: witness.canonicalWitnessDigest,
+      writerExclusionId: "exclude-1",
+      waiterId: identity.waiterId,
+      preparedSequence: 5,
+      preparedReceiptDigest: "77".repeat(32),
+      terminalLSN
+    },
+    currentLease: "NOT_REQUESTED",
+    sequence: 6,
+    updatedAt: "2026-07-16T00:00:00.000Z"
   };
 }
 

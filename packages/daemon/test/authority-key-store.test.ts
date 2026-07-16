@@ -83,6 +83,39 @@ test("local authority key store keeps private material external and requires can
   });
 });
 
+test("local authority key store reconstructs a lost public cache only from the canonical registry", { skip: process.platform === "win32" }, () => {
+  withStoreLayout(({ workspaceRoot, serviceRoot, stateDirectory }) => {
+    const opened = openLocalAuthorityKeyStore({
+      serviceStateRoot: serviceRoot,
+      stateDirectory,
+      workspaceRoot,
+      authorityId,
+      issuer
+    });
+    const prepublished = opened.createPrepublishedKey({ generation: 1, nowMs: 1_000 });
+    const activeRegistry = createAuthorityKeyRegistryV1({
+      authorityId,
+      generation: 1,
+      globalRevocationEpoch: 1,
+      revision: 2,
+      entries: [{ ...prepublished, state: "ACTIVE_SIGNING" }]
+    });
+    rmSync(path.join(stateDirectory, "authority-public-key-cache.json"));
+
+    const restarted = openLocalAuthorityKeyStore({
+      serviceStateRoot: serviceRoot,
+      stateDirectory,
+      workspaceRoot,
+      authorityId,
+      issuer
+    });
+    assert.deepEqual(restarted.keyIds(), [], "private files alone must not invent lifecycle authority");
+    assert.deepEqual(restarted.recoverPublicCache(activeRegistry), [prepublished.keyId]);
+    assert.deepEqual(restarted.keyIds(), [prepublished.keyId]);
+    assert.equal(restarted.signingProfile(activeRegistry, 1_001).keyId, prepublished.keyId);
+  });
+});
+
 test("local authority key store rejects governed roots, symlinks, broad files, and owner mismatches", { skip: process.platform === "win32" }, () => {
   withStoreLayout(({ root, workspaceRoot, serviceRoot, stateDirectory }) => {
     assert.throws(() => openLocalAuthorityKeyStore({
