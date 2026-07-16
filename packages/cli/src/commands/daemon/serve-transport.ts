@@ -1,6 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import {
   createNamedPipeTransportServer,
@@ -68,11 +69,15 @@ export async function acquireDaemonSocketOwnership(
   endpoint: string,
   platform: NodeJS.Platform = process.platform
 ): Promise<DaemonSocketOwnership> {
-  if (platform === "win32") return { release: () => undefined };
-
-  ensurePrivateUnixSocketDirectory(path.dirname(endpoint));
-  const lockPath = `${endpoint}.owner`;
+  const lockPath = daemonSocketOwnerLockPath(endpoint, platform);
+  if (platform !== "win32") ensurePrivateUnixSocketDirectory(path.dirname(endpoint));
   return acquireUnixSocketOwnership(endpoint, lockPath);
+}
+
+function daemonSocketOwnerLockPath(endpoint: string, platform: NodeJS.Platform): string {
+  if (platform !== "win32") return `${endpoint}.owner`;
+  const endpointDigest = createHash("sha256").update(endpoint).digest("hex").slice(0, 32);
+  return path.join(os.tmpdir(), `harness-anything-daemon-${endpointDigest}.owner`);
 }
 
 export async function withDaemonSocketOwnership<Result>(

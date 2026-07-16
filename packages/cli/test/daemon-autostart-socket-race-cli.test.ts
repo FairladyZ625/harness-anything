@@ -28,6 +28,25 @@ test("an unreachable socket owner hands startup ownership to one waiting contend
   });
 });
 
+test("Windows named-pipe startup ownership waits for the current contender", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    const endpoint = `\\\\.\\pipe\\ha-${path.basename(rootDir)}`;
+    const first = await acquireDaemonSocketOwnership(endpoint, "win32");
+    let contenderSettled = false;
+    const contender = acquireDaemonSocketOwnership(endpoint, "win32").then((ownership) => {
+      contenderSettled = true;
+      return ownership;
+    });
+
+    await delay(50);
+    assert.equal(contenderSettled, false);
+    first.release();
+
+    const second = await contender;
+    second.release();
+  });
+});
+
 test("daemon status cannot report started when its lock exists but the socket is unreachable", async () => {
   await withTempRootAsync(async (rootDir) => {
     runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
@@ -148,9 +167,12 @@ async function stopDaemonProcesses(repoRoots: ReadonlyArray<string>): Promise<vo
 }
 
 function describeSettledResult(result: PromiseSettledResult<Record<string, unknown>>): string {
-  return result.status === "fulfilled"
-    ? JSON.stringify(result.value)
-    : result.reason instanceof Error
-      ? `${result.reason.name}: ${result.reason.message}`
-      : String(result.reason);
+  if (result.status === "fulfilled") return JSON.stringify(result.value);
+  if (!(result.reason instanceof Error)) return String(result.reason);
+  const commandError = result.reason as Error & { readonly stdout?: unknown; readonly stderr?: unknown };
+  return [
+    `${commandError.name}: ${commandError.message}`,
+    typeof commandError.stdout === "string" && commandError.stdout ? `stdout: ${commandError.stdout}` : undefined,
+    typeof commandError.stderr === "string" && commandError.stderr ? `stderr: ${commandError.stderr}` : undefined
+  ].filter((line) => line !== undefined).join("\n");
 }
