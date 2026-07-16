@@ -6,6 +6,7 @@ import { entityForCommand } from "./command-input-descriptors.ts";
 const excludedCommandKinds = [
   "help",
   "version",
+  "completion",
   "capabilities",
   "entity-list"
 ] as const satisfies ReadonlyArray<CommandKind>;

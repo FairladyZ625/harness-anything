@@ -72,6 +72,7 @@ export function toCommandReceipt(result: CliResult): CommandReceipt | CommandFai
 
 export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
   if (!receipt.ok) return renderFailureReceiptText(receipt);
+  if (receipt.command === "completion") return renderCompletionText(receipt);
   if (receipt.command === "capabilities") return renderCapabilitiesText(receipt);
   if (receipt.command === "preset list") return renderPresetListText(receipt);
   const data = receiptDetailsData(receipt);
@@ -95,6 +96,11 @@ export function renderReceiptText(receipt: CommandReceiptEnvelope): string {
   if (mode) parts.push(`mode=${formatToken(mode.mode)}`, `package=${formatToken(mode.packageName)}`);
   parts.push(`summary=${formatToken(receipt.summary)}`);
   return parts.join(" ");
+}
+
+function renderCompletionText(receipt: CommandReceipt): string {
+  const script = receiptDetailsData(receipt).completionScript;
+  return typeof script === "string" ? script : "";
 }
 
 function renderFailureReceiptText(receipt: CommandFailureReceipt): string {
