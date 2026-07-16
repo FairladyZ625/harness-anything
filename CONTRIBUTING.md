@@ -8,6 +8,15 @@ Harness Anything is a repo-native harness. Public code and docs live in this rep
 - Public changes belong in source, tests, examples, `docs-release/**`, or tool scripts.
 - Keep authored task evidence separate from generated projections and local worktree state.
 
+## Contributor License Agreement (CLA)
+
+External contributions require a one-time CLA signature. The project is
+licensed under AGPL-3.0-or-later, and the CLA preserves the maintainers'
+ability to offer the code under additional license terms; see [CLA.md](CLA.md)
+for the full text. When you open your first pull request, the `cla` workflow
+will prompt you — sign by posting the comment it requests. Your signature is
+recorded once and covers future contributions.
+
 ## Change Flow
 
 1. Branch from latest `origin/main`.

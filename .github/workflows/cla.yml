@@ -1,0 +1,42 @@
+name: cla
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla-assistant:
+    # Run for PR events and for "I have read the CLA ..." / recheck comments on PRs.
+    if: >
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       (contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA') ||
+        github.event.comment.body == 'recheck'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: CLA Assistant Lite
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: signatures/cla.json
+          path-to-document: https://github.com/${{ github.repository }}/blob/main/CLA.md
+          branch: cla-signatures
+          # Internal authors covered by employment/ownership; bots excluded.
+          allowlist: FairladyZ625,dependabot[bot],mergify[bot],github-actions[bot]
+          custom-notsigned-prcomment: >
+            Thank you for your contribution. Before we can accept it, we ask
+            every external contributor to sign our Contributor License
+            Agreement (CLA) so the project retains the licensing flexibility
+            described in CLA.md. Please read the linked CLA document and sign
+            by posting the comment below.
+          lock-pullrequest-aftermerge: false
