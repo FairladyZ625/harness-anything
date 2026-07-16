@@ -2,146 +2,255 @@ import type { DaemonStatusModel } from "./daemon-status.ts";
 import { readDaemonStatus } from "./daemon-status.ts";
 
 /**
- * Realistic multi-repo happy-path fixture for the System settings panel.
- * Intentionally includes `uptimeMs` so the UI can demonstrate that field;
- * the non-fixture path must not invent one.
- *
+ * Healthy two-repo fixture mirroring draft statusHealthyTwoRepo.
  * Lock-owner identity from the wire shape is omitted: the panel only shows
  * lock paths, and privileged identity material must not live in the renderer.
  */
-export const DAEMON_STATUS_FIXTURE_RAW = {
-  schema: "daemon-status/v1",
-  started: true,
-  daemonId: "ha-48291",
-  pid: 48291,
-  rootDir: "/Users/dev/work/harness-anything",
-  repoId: "repo-harness-anything",
-  endpoint: "repo-router",
-  version: "0.4.2",
-  protocolVersion: 3,
-  lock: {
-    path: "/Users/dev/work/harness-anything/.harness/daemon.lock",
+export const DAEMON_STATUS_HEALTHY_TWO_REPO_RAW = {
+  schema: "daemon-status/v2",
+  service: {
+    daemonId: "ha-user-501",
+    pid: 41001,
+    endpoint: "/Users/example/.harness/daemon.sock",
+    userRoot: "/Users/example",
+    started: true,
+    startedAt: "2026-07-16T08:00:00.000Z",
+    uptimeMs: 1_800_000,
+    build: {
+      version: "0.1.0",
+      loadedIdentity:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      installedIdentity:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      identitySource: "installed-artifact-set",
+      stale: false,
+    },
+    queue: {
+      interactive: 0,
+      normal: 0,
+      background: 1,
+      maintenance: 0,
+      running: true,
+      depth: 1,
+    },
+    connections: { active: 2, total: 17 },
+    repoCount: 2,
+    attachedCount: 2,
+    unavailableCount: 0,
+    lastReconcileAt: "2026-07-16T08:29:59.000Z",
+    lastReconcileError: null,
+    activeControl: null,
   },
-  queue: {
-    interactive: 1,
-    normal: 2,
-    background: 0,
-    maintenance: 1,
-    running: true,
+  requestedRepo: {
+    repoId: "canonical",
+    canonicalRoot: "/work/canonical",
+    displayName: "Canonical",
+    state: "attached",
+    lock: { path: ".harness/journal/global.lock" },
+    queue: {
+      interactive: 0,
+      normal: 0,
+      background: 1,
+      maintenance: 0,
+      running: true,
+      depth: 1,
+    },
+    lastRecovery: null,
+    projectionGeneration: null,
+    lastError: null,
+    lastMaterializerError: null,
+    lastReconcileError: null,
   },
-  queueDepth: 4,
-  connections: { active: 2, total: 5 },
-  lastRecovery: null,
-  projectionGeneration: 17,
-  uptimeMs: 3_661_000,
   repos: [
     {
-      repoId: "repo-harness-anything",
-      canonicalRoot: "/Users/dev/work/harness-anything",
-      state: "ready",
-      lockPath: "/Users/dev/work/harness-anything/.harness/daemon.lock",
-      queue: {
-        interactive: 1,
-        normal: 1,
-        background: 0,
-        maintenance: 0,
-        running: true,
-      },
-      lastRecovery: null,
-      projectionGeneration: 17,
-      lastError: null,
-      lastMaterializerError: null,
-    },
-    {
-      repoId: "repo-sidecar-tools",
-      canonicalRoot: "/Users/dev/work/sidecar-tools",
-      state: "recovering",
-      lockPath: null,
+      repoId: "canonical",
+      canonicalRoot: "/work/canonical",
+      displayName: "Canonical",
+      state: "attached",
+      lock: { path: ".harness/journal/global.lock" },
       queue: {
         interactive: 0,
-        normal: 1,
-        background: 0,
-        maintenance: 1,
+        normal: 0,
+        background: 1,
+        maintenance: 0,
         running: true,
+        depth: 1,
       },
-      lastRecovery: { at: "2026-07-16T08:12:00.000Z", reason: "projection-gap" },
-      projectionGeneration: 4,
-      lastError: "projection lag exceeded soft budget",
+      lastRecovery: null,
+      projectionGeneration: null,
+      lastError: null,
       lastMaterializerError: null,
+      lastReconcileError: null,
     },
     {
-      repoId: "repo-legacy-monolith",
-      canonicalRoot: "/Users/dev/archive/legacy-monolith",
-      state: "locked",
-      lockPath: "/Users/dev/archive/legacy-monolith/.harness/daemon.lock",
+      repoId: "experiment",
+      canonicalRoot: "/work/experiment",
+      displayName: "Experiment",
+      state: "attached",
+      lock: { path: ".harness/journal/global.lock" },
       queue: {
         interactive: 0,
         normal: 0,
         background: 0,
         maintenance: 0,
         running: false,
+        depth: 0,
       },
       lastRecovery: null,
       projectionGeneration: null,
       lastError: null,
-      lastMaterializerError: "materializer refused foreign lock owner",
+      lastMaterializerError: null,
+      lastReconcileError: null,
     },
   ],
 } as const;
 
-/** Unreachable / stopped fixture for unit tests and manual flip. */
-export const DAEMON_STATUS_UNREACHABLE_RAW = {
-  schema: "daemon-status/v1",
-  started: false,
-  daemonId: "",
-  pid: 0,
-  rootDir: "",
-  repoId: "",
-  endpoint: "repo-router",
-  version: "",
-  protocolVersion: 0,
-  lock: { path: null },
-  queue: {
-    interactive: 0,
-    normal: 0,
-    background: 0,
-    maintenance: 0,
-    running: false,
+/**
+ * One-unavailable + stale-build fixture mirroring draft
+ * statusOneUnavailableAndStale. Exercises the stale chip, unavailableCount,
+ * danger state pills, and lastReconcileError.
+ */
+export const DAEMON_STATUS_STALE_UNAVAILABLE_RAW = {
+  schema: "daemon-status/v2",
+  service: {
+    daemonId: "ha-user-501",
+    pid: 41001,
+    endpoint: "/Users/example/.harness/daemon.sock",
+    userRoot: "/Users/example",
+    started: true,
+    startedAt: "2026-07-16T08:00:00.000Z",
+    uptimeMs: 1_800_000,
+    build: {
+      version: "0.1.0",
+      loadedIdentity:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      installedIdentity:
+        "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      identitySource: "installed-artifact-set",
+      stale: true,
+    },
+    queue: {
+      interactive: 0,
+      normal: 0,
+      background: 0,
+      maintenance: 0,
+      running: false,
+      depth: 0,
+    },
+    connections: { active: 1, total: 18 },
+    repoCount: 2,
+    attachedCount: 1,
+    unavailableCount: 1,
+    lastReconcileAt: "2026-07-16T08:29:59.000Z",
+    lastReconcileError: {
+      at: "2026-07-16T08:29:59.000Z",
+      code: "repo_reconcile_failed",
+      message: "repo experiment remains unavailable",
+      repoId: "experiment",
+    },
+    activeControl: null,
   },
-  queueDepth: 0,
-  connections: { active: 0, total: 0 },
-  lastRecovery: null,
-  projectionGeneration: null,
+  requestedRepo: {
+    repoId: "canonical",
+    canonicalRoot: "/work/canonical",
+    displayName: "Canonical",
+    state: "attached",
+    lock: { path: ".harness/journal/global.lock" },
+    queue: {
+      interactive: 0,
+      normal: 0,
+      background: 0,
+      maintenance: 0,
+      running: false,
+      depth: 0,
+    },
+    lastRecovery: null,
+    projectionGeneration: null,
+    lastError: null,
+    lastMaterializerError: null,
+    lastReconcileError: null,
+  },
+  repos: [
+    {
+      repoId: "canonical",
+      canonicalRoot: "/work/canonical",
+      displayName: "Canonical",
+      state: "attached",
+      lock: { path: ".harness/journal/global.lock" },
+      queue: {
+        interactive: 0,
+        normal: 0,
+        background: 0,
+        maintenance: 0,
+        running: false,
+        depth: 0,
+      },
+      lastRecovery: null,
+      projectionGeneration: null,
+      lastError: null,
+      lastMaterializerError: null,
+      lastReconcileError: null,
+    },
+    {
+      repoId: "experiment",
+      canonicalRoot: "/work/experiment",
+      displayName: "Experiment",
+      state: "unavailable",
+      lock: { path: null },
+      queue: {
+        interactive: 0,
+        normal: 0,
+        background: 0,
+        maintenance: 0,
+        running: false,
+        depth: 0,
+      },
+      lastRecovery: null,
+      projectionGeneration: null,
+      lastError: "global lock already held",
+      lastMaterializerError: null,
+      lastReconcileError: {
+        at: "2026-07-16T08:29:59.000Z",
+        code: "repo_reconcile_failed",
+        message: "global lock already held",
+        repoId: "experiment",
+      },
+    },
+  ],
 } as const;
 
-/** Top-level only (no repos[]) — exercises the single-row fallback. */
-export const DAEMON_STATUS_NO_REPOS_RAW = {
-  schema: "daemon-status/v1",
-  started: true,
-  daemonId: "ha-10001",
-  pid: 10001,
-  rootDir: "/tmp/single-repo",
-  repoId: "repo-single",
-  endpoint: "repo-router",
-  version: "0.4.2",
-  protocolVersion: "3",
-  lock: { path: null },
-  queue: {
-    interactive: 0,
-    normal: 3,
-    background: 1,
-    maintenance: 0,
-    running: true,
+/** Unreachable / error path — thrown by the loader for the error UI. */
+export class DaemonStatusUnreachableError extends Error {
+  constructor(message = "Daemon unreachable") {
+    super(message);
+    this.name = "DaemonStatusUnreachableError";
+  }
+}
+
+/**
+ * Fixture with an active restart control in progress — useful for manual flip
+ * and for covering the activeControl banner path.
+ */
+export const DAEMON_STATUS_ACTIVE_CONTROL_RAW = {
+  ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW,
+  service: {
+    ...DAEMON_STATUS_HEALTHY_TWO_REPO_RAW.service,
+    activeControl: {
+      operationId: "control_01KXN0RESTART",
+      kind: "restart",
+      phase: "draining",
+      requestedAt: "2026-07-16T08:30:00.000Z",
+    },
   },
-  queueDepth: 4,
-  connections: { active: 1, total: 1 },
-  lastRecovery: null,
-  projectionGeneration: 2,
 } as const;
 
-export type DaemonStatusFixtureKind = "multi-repo" | "unreachable" | "no-repos";
+export type DaemonStatusFixtureKind =
+  | "healthy-two-repo"
+  | "stale-unavailable"
+  | "active-control"
+  | "unreachable";
 
-let activeFixtureKind: DaemonStatusFixtureKind = "multi-repo";
+let activeFixtureKind: DaemonStatusFixtureKind = "healthy-two-repo";
 
 /** Test-only seam to flip which fixture the loader returns. */
 export function setDaemonStatusFixtureKind(kind: DaemonStatusFixtureKind): void {
@@ -154,22 +263,29 @@ export function getDaemonStatusFixtureKind(): DaemonStatusFixtureKind {
 
 function rawForKind(kind: DaemonStatusFixtureKind): unknown {
   switch (kind) {
+    case "stale-unavailable":
+      return DAEMON_STATUS_STALE_UNAVAILABLE_RAW;
+    case "active-control":
+      return DAEMON_STATUS_ACTIVE_CONTROL_RAW;
     case "unreachable":
-      return DAEMON_STATUS_UNREACHABLE_RAW;
-    case "no-repos":
-      return DAEMON_STATUS_NO_REPOS_RAW;
-    case "multi-repo":
+      return null;
+    case "healthy-two-repo":
     default:
-      return DAEMON_STATUS_FIXTURE_RAW;
+      return DAEMON_STATUS_HEALTHY_TWO_REPO_RAW;
   }
 }
 
 /**
  * Async fixture loader — shape matches a future bridge call so the hook can
  * swap implementations with a one-line change.
+ *
+ * // TODO(daemon-wire): replace fixture with real bridge call once X4 GUI route lands
  */
 export async function loadDaemonStatusFixture(): Promise<DaemonStatusModel> {
   // Tiny yield so react-query can observe a loading tick under test if needed.
   await Promise.resolve();
+  if (activeFixtureKind === "unreachable") {
+    throw new DaemonStatusUnreachableError("Could not read daemon status.");
+  }
   return readDaemonStatus(rawForKind(activeFixtureKind));
 }

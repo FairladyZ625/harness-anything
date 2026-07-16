@@ -1,38 +1,23 @@
 import type { DaemonRepoStatus, DaemonStatusModel } from "../../model/daemon-status.ts";
-import { daemonRepoRows, sumQueueDepth } from "../../model/daemon-status.ts";
+import { daemonRepoRows } from "../../model/daemon-status.ts";
 import { t } from "../../i18n/index.tsx";
 
-/** Map daemon repo state → badge tone colors (reuse design palette). */
+/** Map daemon repo state → badge tone colors (v2 4-state enum). */
 function stateTone(state: string): { color: string; bg: string } {
   const normalized = state.toLowerCase();
-  if (normalized === "ready" || normalized === "running" || normalized === "active") {
+  if (normalized === "attached") {
     return {
       color: "var(--color-success)",
       bg: "color-mix(in oklch, var(--color-success) 12%, transparent)",
     };
   }
-  if (
-    normalized === "recovering" ||
-    normalized === "locked" ||
-    normalized === "degraded" ||
-    normalized === "stale"
-  ) {
-    return {
-      color: "var(--color-stale, var(--color-status-in-review))",
-      bg: "color-mix(in oklch, var(--color-stale, var(--color-status-in-review)) 12%, transparent)",
-    };
-  }
-  if (
-    normalized === "stopped" ||
-    normalized === "error" ||
-    normalized === "unreachable" ||
-    normalized === "failed"
-  ) {
+  if (normalized === "unavailable") {
     return {
       color: "var(--color-danger)",
       bg: "color-mix(in oklch, var(--color-danger) 12%, transparent)",
     };
   }
+  // detaching / detached (and any unknown) → muted
   return {
     color: "var(--color-text-muted)",
     bg: "color-mix(in oklch, var(--color-text-muted) 10%, transparent)",
@@ -56,15 +41,39 @@ function StatePill({ state }: { state: string }) {
   );
 }
 
-function RepoRow({ repo }: { repo: DaemonRepoStatus }) {
-  const depth = sumQueueDepth(repo.queue);
-  const lockLabel = repo.lockPath ?? t("views.settingsView.systemUnlockedDash");
-  const errorText = repo.lastError ?? repo.lastMaterializerError;
+function RepoRow({
+  repo,
+  isCurrent,
+}: {
+  repo: DaemonRepoStatus;
+  isCurrent: boolean;
+}) {
+  const lockLabel = repo.lock.path ?? t("views.settingsView.systemUnlockedDash");
+  const errorText =
+    repo.lastError ??
+    repo.lastMaterializerError ??
+    repo.lastReconcileError?.message ??
+    null;
+  const label = repo.displayName?.trim() || repo.repoId;
 
   return (
-    <tr className="border-b border-border last:border-b-0">
+    <tr
+      className={`border-b border-border last:border-b-0 ${
+        isCurrent ? "bg-surface-raised/40" : ""
+      }`}
+    >
       <td className="px-3 py-2 align-top">
-        <span className="font-mono text-[12px] text-text">{repo.repoId}</span>
+        <span className="inline-flex flex-col gap-0.5">
+          <span className="font-mono text-[12px] text-text">{label}</span>
+          {repo.displayName ? (
+            <span className="font-mono text-[10px] text-text-faint">{repo.repoId}</span>
+          ) : null}
+          {isCurrent ? (
+            <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">
+              {t("views.settingsView.systemCurrentRepo")}
+            </span>
+          ) : null}
+        </span>
       </td>
       <td className="max-w-[16rem] px-3 py-2 align-top">
         <span
@@ -78,12 +87,12 @@ function RepoRow({ repo }: { repo: DaemonRepoStatus }) {
         <StatePill state={repo.state} />
       </td>
       <td className="px-3 py-2 align-top">
-        <span className="font-mono text-[12px] text-text-muted">{depth}</span>
+        <span className="font-mono text-[12px] text-text-muted">{repo.queue.depth}</span>
       </td>
       <td className="max-w-[14rem] px-3 py-2 align-top">
         <span
           className="block truncate font-mono text-[11px] text-text-muted"
-          title={repo.lockPath ?? undefined}
+          title={repo.lock.path ?? undefined}
         >
           {lockLabel}
         </span>
@@ -103,6 +112,7 @@ function RepoRow({ repo }: { repo: DaemonRepoStatus }) {
 
 export function DaemonRepoTable({ status }: { status: DaemonStatusModel }) {
   const rows = daemonRepoRows(status);
+  const currentRepoId = status.requestedRepo.repoId;
 
   return (
     <div className="overflow-x-auto">
@@ -110,7 +120,7 @@ export function DaemonRepoTable({ status }: { status: DaemonStatusModel }) {
         <thead>
           <tr className="border-b border-border font-mono text-[12px] uppercase tracking-wide text-text-faint">
             <th className="px-3 py-2 font-medium">
-              {t("views.settingsView.systemColRepoId")}
+              {t("views.settingsView.systemColRepo")}
             </th>
             <th className="px-3 py-2 font-medium">
               {t("views.settingsView.systemColRoot")}
@@ -131,7 +141,11 @@ export function DaemonRepoTable({ status }: { status: DaemonStatusModel }) {
         </thead>
         <tbody>
           {rows.map((repo) => (
-            <RepoRow key={repo.repoId} repo={repo} />
+            <RepoRow
+              key={repo.repoId}
+              repo={repo}
+              isCurrent={repo.repoId === currentRepoId}
+            />
           ))}
         </tbody>
       </table>

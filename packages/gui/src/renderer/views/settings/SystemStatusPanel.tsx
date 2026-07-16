@@ -1,22 +1,26 @@
 import type { ReactNode } from "react";
-import { ArrowsClockwise, CircleNotch, HardDrives, WarningCircle } from "@phosphor-icons/react";
+import {
+  ArrowsClockwise,
+  CircleNotch,
+  HardDrives,
+  Warning,
+  WarningCircle,
+} from "@phosphor-icons/react";
 import { BTN, Section, Row } from "../../components/ui/widgets";
 import { useDaemonStatusQuery } from "../../model/daemon-status-query.ts";
-import type { DaemonStatusModel } from "../../model/daemon-status.ts";
+import type {
+  DaemonActiveControl,
+  DaemonServiceStatus,
+  DaemonStatusModel,
+} from "../../model/daemon-status.ts";
 import { t } from "../../i18n/index.tsx";
 import { DaemonRepoTable } from "./DaemonRepoTable.tsx";
 
-function formatUptime(status: DaemonStatusModel): string {
-  if (typeof status.uptimeMs === "number" && Number.isFinite(status.uptimeMs)) {
-    return formatDurationMs(status.uptimeMs);
+function formatUptimeMs(uptimeMs: number | undefined): string {
+  if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) {
+    return t("views.settingsView.systemUnknownDash");
   }
-  if (typeof status.startedAt === "string" && status.startedAt.length > 0) {
-    const started = Date.parse(status.startedAt);
-    if (Number.isFinite(started)) {
-      return formatDurationMs(Date.now() - started);
-    }
-  }
-  return t("views.settingsView.systemUnknownDash");
+  return formatDurationMs(uptimeMs);
 }
 
 function formatDurationMs(ms: number): string {
@@ -49,6 +53,18 @@ function ReachabilityBadge({ started }: { started: boolean }) {
   );
 }
 
+function StaleBuildChip() {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-md bg-stale/15 px-2.5 py-1 text-[13px] font-semibold text-stale"
+      title={t("views.settingsView.systemStaleBuildHint")}
+    >
+      <Warning weight="bold" className="text-[12px]" aria-hidden />
+      {t("views.settingsView.systemStaleBuild")}
+    </span>
+  );
+}
+
 function MonoValue({ children, title }: { children: ReactNode; title?: string }) {
   return (
     <span className="max-w-full break-all font-mono text-[12px] text-text-muted" title={title}>
@@ -57,48 +73,96 @@ function MonoValue({ children, title }: { children: ReactNode; title?: string })
   );
 }
 
+function ActiveControlBanner({ control }: { control: DaemonActiveControl }) {
+  const kindLabel =
+    control.kind === "restart"
+      ? t("views.settingsView.systemControlKindRestart")
+      : t("views.settingsView.systemControlKindRefresh");
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-stale/40 bg-stale/10 px-3 py-2 text-[13px] text-stale"
+      role="status"
+    >
+      <CircleNotch weight="bold" className="animate-spin text-[14px]" aria-hidden />
+      <span>
+        {t("views.settingsView.systemActiveControl", {
+          kind: kindLabel,
+          phase: control.phase,
+          operationId: control.operationId,
+        })}
+      </span>
+    </div>
+  );
+}
+
+function RepoSummary({ service }: { service: DaemonServiceStatus }) {
+  const summary = t("views.settingsView.systemRepoSummary", {
+    attached: String(service.attachedCount),
+    total: String(service.repoCount),
+  });
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2 font-mono text-[12px] text-text-muted">
+      <span>{summary}</span>
+      {service.unavailableCount > 0 ? (
+        <span className="text-danger">
+          {t("views.settingsView.systemUnavailableCount", {
+            count: String(service.unavailableCount),
+          })}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function DaemonStatusCard({ status }: { status: DaemonStatusModel }) {
-  const lockLabel = status.lock.path ?? t("views.settingsView.systemUnlocked");
-  const connectionsLabel = `${status.connections.active} / ${status.connections.total}`;
+  const { service } = status;
+  const connectionsLabel = `${service.connections.active} / ${service.connections.total}`;
+  const reconcile = service.lastReconcileError;
 
   return (
     <Section
       title={t("views.settingsView.systemDaemonStatus")}
-      action={<ReachabilityBadge started={status.started} />}
+      action={
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <ReachabilityBadge started={service.started} />
+          {service.build.stale ? <StaleBuildChip /> : null}
+        </span>
+      }
     >
       <Row label={t("views.settingsView.systemVersion")}>
-        <MonoValue>{status.version || "—"}</MonoValue>
+        <MonoValue>{service.build.version || "—"}</MonoValue>
       </Row>
-      <Row label={t("views.settingsView.systemProtocolVersion")}>
-        <MonoValue>{String(status.protocolVersion)}</MonoValue>
+      <Row label={t("views.settingsView.systemUptime")}>
+        <MonoValue>{formatUptimeMs(service.uptimeMs)}</MonoValue>
       </Row>
       <Row label={t("views.settingsView.systemPid")}>
-        <MonoValue>{status.pid || "—"}</MonoValue>
+        <MonoValue>{service.pid || "—"}</MonoValue>
       </Row>
       <Row label={t("views.settingsView.systemEndpoint")}>
-        <MonoValue>{status.endpoint || "—"}</MonoValue>
+        <MonoValue title={service.endpoint}>{service.endpoint || "—"}</MonoValue>
       </Row>
       <Row label={t("views.settingsView.systemDaemonId")}>
-        <MonoValue>{status.daemonId || "—"}</MonoValue>
+        <MonoValue>{service.daemonId || "—"}</MonoValue>
       </Row>
-      <Row
-        label={t("views.settingsView.systemUptime")}
-        desc={t("views.settingsView.systemUptimeHint")}
-      >
-        <MonoValue>{formatUptime(status)}</MonoValue>
+      <Row label={t("views.settingsView.systemUserRoot")}>
+        <MonoValue title={service.userRoot}>{service.userRoot || "—"}</MonoValue>
       </Row>
       <Row label={t("views.settingsView.systemQueueDepth")}>
-        <MonoValue>{status.queueDepth}</MonoValue>
+        <MonoValue>{service.queue.depth}</MonoValue>
       </Row>
       <Row label={t("views.settingsView.systemConnections")}>
         <MonoValue>{connectionsLabel}</MonoValue>
       </Row>
-      <Row label={t("views.settingsView.systemLock")}>
-        <MonoValue title={status.lock.path ?? undefined}>{lockLabel}</MonoValue>
+      <Row label={t("views.settingsView.systemRepoSummaryLabel")}>
+        <RepoSummary service={service} />
       </Row>
-      <Row label={t("views.settingsView.systemRootDir")}>
-        <MonoValue title={status.rootDir}>{status.rootDir || "—"}</MonoValue>
-      </Row>
+      {reconcile ? (
+        <Row label={t("views.settingsView.systemLastReconcileError")}>
+          <span className="font-mono text-[12px] text-danger" title={reconcile.message}>
+            {reconcile.code}: {reconcile.message}
+          </span>
+        </Row>
+      ) : null}
     </Section>
   );
 }
@@ -181,6 +245,9 @@ export function SystemStatusPanel() {
   return (
     <div className="flex flex-col gap-3">
       <ControlsRow onRefresh={() => void query.refetch()} isRefreshing={query.isFetching} />
+      {status.service.activeControl ? (
+        <ActiveControlBanner control={status.service.activeControl} />
+      ) : null}
       <DaemonStatusCard status={status} />
       <Section title={t("views.settingsView.systemRepos")}>
         <DaemonRepoTable status={status} />

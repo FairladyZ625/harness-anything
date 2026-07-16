@@ -1,13 +1,24 @@
 /**
- * Typed model + validating reader for daemon-status/v1.
+ * Typed model + validating reader for daemon-status/v2.
  * Fixture-backed today; later swapped for a real bridge call (X4).
  *
- * Note: wire `lock.owner*` / `lockOwner*` identity fields are intentionally
- * not modeled here — the System panel only surfaces lock paths, and the
- * renderer contract forbids privileged identity material in this layer.
+ * Note: wire lock-owner identity fields are intentionally not modeled
+ * here — the System panel only surfaces lock paths, and the renderer
+ * contract forbids privileged identity material in this layer.
  */
 
-export const DAEMON_STATUS_SCHEMA = "daemon-status/v1" as const;
+export const DAEMON_STATUS_SCHEMA = "daemon-status/v2" as const;
+
+export type DaemonRepoState = "attached" | "unavailable" | "detaching" | "detached";
+
+export type DaemonControlKind = "restart" | "refresh";
+
+export type DaemonControlPhase =
+  | "accepted"
+  | "draining"
+  | "building"
+  | "replacing"
+  | "failed";
 
 export interface DaemonQueueLanes {
   readonly interactive: number;
@@ -15,6 +26,7 @@ export interface DaemonQueueLanes {
   readonly background: number;
   readonly maintenance: number;
   readonly running: boolean;
+  readonly depth: number;
 }
 
 export interface DaemonLockInfo {
@@ -26,70 +38,88 @@ export interface DaemonConnections {
   readonly total: number;
 }
 
+export interface DaemonBuildInfo {
+  readonly version: string;
+  readonly loadedIdentity: string;
+  readonly installedIdentity: string;
+  readonly identitySource: "installed-artifact-set";
+  readonly stale: boolean;
+}
+
+export interface DaemonReconcileError {
+  readonly at: string;
+  readonly code: string;
+  readonly message: string;
+  readonly repoId: string | null;
+}
+
+export interface DaemonActiveControl {
+  readonly operationId: string;
+  readonly kind: DaemonControlKind;
+  readonly phase: DaemonControlPhase;
+  readonly requestedAt: string;
+}
+
+export interface DaemonServiceStatus {
+  readonly daemonId: string;
+  readonly pid: number;
+  readonly endpoint: string;
+  readonly userRoot: string;
+  readonly started: boolean;
+  readonly startedAt: string;
+  readonly uptimeMs: number;
+  readonly build: DaemonBuildInfo;
+  readonly queue: DaemonQueueLanes;
+  readonly connections: DaemonConnections;
+  readonly repoCount: number;
+  readonly attachedCount: number;
+  readonly unavailableCount: number;
+  readonly lastReconcileAt: string | null;
+  readonly lastReconcileError: DaemonReconcileError | null;
+  readonly activeControl: DaemonActiveControl | null;
+}
+
 export interface DaemonRepoStatus {
   readonly repoId: string;
   readonly canonicalRoot: string;
-  readonly state: string;
-  readonly lockPath: string | null;
+  readonly displayName?: string;
+  readonly state: DaemonRepoState;
+  readonly lock: DaemonLockInfo;
   readonly queue: DaemonQueueLanes;
   readonly lastRecovery: unknown | null;
   readonly projectionGeneration: unknown | null;
   readonly lastError: string | null;
   readonly lastMaterializerError: string | null;
+  readonly lastReconcileError: DaemonReconcileError | null;
 }
 
 export interface DaemonStatusModel {
   readonly schema: typeof DAEMON_STATUS_SCHEMA;
-  readonly started: boolean;
-  readonly daemonId: string;
-  readonly pid: number;
-  readonly rootDir: string;
-  readonly repoId: string;
-  readonly endpoint: string;
-  readonly version: string;
-  readonly protocolVersion: string | number;
-  readonly lock: DaemonLockInfo;
-  readonly queue: DaemonQueueLanes;
-  readonly queueDepth: number;
-  readonly connections: DaemonConnections;
-  readonly lastRecovery: unknown | null;
-  readonly projectionGeneration: unknown | null;
-  /** Optional multi-repo table. Absent → synthesize a single row from top-level fields. */
-  readonly repos?: ReadonlyArray<DaemonRepoStatus>;
-  /**
-   * Coming in a later daemon contract. Render as "—" / "unknown" when absent.
-   * Do not fabricate a value outside fixtures that intentionally include it.
-   */
-  readonly uptimeMs?: number;
-  readonly startedAt?: string;
+  readonly service: DaemonServiceStatus;
+  readonly requestedRepo: DaemonRepoStatus;
+  readonly repos: ReadonlyArray<DaemonRepoStatus>;
 }
 
-/** Sum of the four queue lanes (does not include the `running` flag). */
-export function sumQueueDepth(queue: DaemonQueueLanes): number {
-  return queue.interactive + queue.normal + queue.background + queue.maintenance;
-}
+const REPO_STATES = new Set<DaemonRepoState>([
+  "attached",
+  "unavailable",
+  "detaching",
+  "detached",
+]);
 
-/**
- * Rows for the per-repo table: prefer `repos[]` when present; otherwise
- * synthesize one row from the top-level status fields.
- */
+const CONTROL_KINDS = new Set<DaemonControlKind>(["restart", "refresh"]);
+
+const CONTROL_PHASES = new Set<DaemonControlPhase>([
+  "accepted",
+  "draining",
+  "building",
+  "replacing",
+  "failed",
+]);
+
+/** Rows for the per-repo table — always `repos[]` in v2. */
 export function daemonRepoRows(status: DaemonStatusModel): ReadonlyArray<DaemonRepoStatus> {
-  if (status.repos && status.repos.length > 0) {
-    return status.repos;
-  }
-  return [
-    {
-      repoId: status.repoId,
-      canonicalRoot: status.rootDir,
-      state: status.started ? "ready" : "stopped",
-      lockPath: status.lock.path,
-      queue: status.queue,
-      lastRecovery: status.lastRecovery,
-      projectionGeneration: status.projectionGeneration,
-      lastError: null,
-      lastMaterializerError: null,
-    },
-  ];
+  return status.repos;
 }
 
 export function readDaemonStatus(value: unknown): DaemonStatusModel {
@@ -101,74 +131,166 @@ export function readDaemonStatus(value: unknown): DaemonStatusModel {
       `Daemon status schema must be ${DAEMON_STATUS_SCHEMA}, got ${String(value.schema)}.`,
     );
   }
-  if (typeof value.started !== "boolean") {
-    throw new Error("Daemon status.started must be a boolean.");
+  if (value.service === undefined) {
+    throw new Error("Daemon status.service is required.");
   }
-  if (typeof value.daemonId !== "string") {
-    throw new Error("Daemon status.daemonId must be a string.");
+  const service = readService(value.service);
+  const requestedRepo = readRepoStatus(value.requestedRepo, "requestedRepo");
+  if (!Array.isArray(value.repos)) {
+    throw new Error("Daemon status.repos must be an array.");
   }
-  if (!isFiniteNumber(value.pid)) {
-    throw new Error("Daemon status.pid must be a number.");
-  }
-  if (typeof value.rootDir !== "string") {
-    throw new Error("Daemon status.rootDir must be a string.");
-  }
-  if (typeof value.repoId !== "string") {
-    throw new Error("Daemon status.repoId must be a string.");
-  }
-  if (typeof value.endpoint !== "string") {
-    throw new Error("Daemon status.endpoint must be a string.");
-  }
-  if (typeof value.version !== "string") {
-    throw new Error("Daemon status.version must be a string.");
-  }
-  if (!isProtocolVersion(value.protocolVersion)) {
-    throw new Error("Daemon status.protocolVersion must be a string or number.");
-  }
-  const lock = readLock(value.lock);
-  const queue = readQueue(value.queue, "queue");
-  if (!isFiniteNumber(value.queueDepth)) {
-    throw new Error("Daemon status.queueDepth must be a number.");
-  }
-  const connections = readConnections(value.connections);
-
-  let repos: ReadonlyArray<DaemonRepoStatus> | undefined;
-  if (value.repos !== undefined) {
-    if (!Array.isArray(value.repos)) {
-      throw new Error("Daemon status.repos must be an array when present.");
-    }
-    repos = value.repos.map((entry, index) => readRepoStatus(entry, index));
-  }
-
-  const model: DaemonStatusModel = {
+  const repos = value.repos.map((entry, index) =>
+    readRepoStatus(entry, `repos[${index}]`),
+  );
+  return {
     schema: DAEMON_STATUS_SCHEMA,
-    started: value.started,
-    daemonId: value.daemonId,
-    pid: value.pid,
-    rootDir: value.rootDir,
-    repoId: value.repoId,
-    endpoint: value.endpoint,
-    version: value.version,
-    protocolVersion: value.protocolVersion,
-    lock,
-    queue,
-    queueDepth: value.queueDepth,
-    connections,
-    lastRecovery: value.lastRecovery ?? null,
-    projectionGeneration: value.projectionGeneration ?? null,
-    ...(repos !== undefined ? { repos } : {}),
-    ...(isFiniteNumber(value.uptimeMs) ? { uptimeMs: value.uptimeMs } : {}),
-    ...(typeof value.startedAt === "string" ? { startedAt: value.startedAt } : {}),
+    service,
+    requestedRepo,
+    repos,
   };
-  return model;
 }
 
-function readLock(value: unknown): DaemonLockInfo {
+function readService(value: unknown): DaemonServiceStatus {
   if (!isRecord(value)) {
-    throw new Error("Daemon status.lock must be an object.");
+    throw new Error("Daemon status.service must be an object.");
+  }
+  if (typeof value.daemonId !== "string" || value.daemonId.length === 0) {
+    throw new Error("Daemon status.service.daemonId must be a non-empty string.");
+  }
+  if (!isNonNegInt(value.pid) || value.pid < 1) {
+    throw new Error("Daemon status.service.pid must be a positive integer.");
+  }
+  if (typeof value.endpoint !== "string" || value.endpoint.length === 0) {
+    throw new Error("Daemon status.service.endpoint must be a non-empty string.");
+  }
+  if (typeof value.userRoot !== "string" || value.userRoot.length === 0) {
+    throw new Error("Daemon status.service.userRoot must be a non-empty string.");
+  }
+  if (typeof value.started !== "boolean") {
+    throw new Error("Daemon status.service.started must be a boolean.");
+  }
+  if (typeof value.startedAt !== "string") {
+    throw new Error("Daemon status.service.startedAt must be a string.");
+  }
+  if (!isNonNegInt(value.uptimeMs)) {
+    throw new Error("Daemon status.service.uptimeMs must be a non-negative integer.");
+  }
+  const build = readBuild(value.build);
+  const queue = readQueue(value.queue, "service.queue");
+  const connections = readConnections(value.connections);
+  if (!isNonNegInt(value.repoCount)) {
+    throw new Error("Daemon status.service.repoCount must be a non-negative integer.");
+  }
+  if (!isNonNegInt(value.attachedCount)) {
+    throw new Error("Daemon status.service.attachedCount must be a non-negative integer.");
+  }
+  if (!isNonNegInt(value.unavailableCount)) {
+    throw new Error(
+      "Daemon status.service.unavailableCount must be a non-negative integer.",
+    );
+  }
+  if (!isNullableString(value.lastReconcileAt)) {
+    throw new Error(
+      "Daemon status.service.lastReconcileAt must be a string or null.",
+    );
+  }
+  const lastReconcileError = readReconcileError(
+    value.lastReconcileError,
+    "service.lastReconcileError",
+  );
+  const activeControl = readActiveControl(value.activeControl);
+  return {
+    daemonId: value.daemonId,
+    pid: value.pid,
+    endpoint: value.endpoint,
+    userRoot: value.userRoot,
+    started: value.started,
+    startedAt: value.startedAt,
+    uptimeMs: value.uptimeMs,
+    build,
+    queue,
+    connections,
+    repoCount: value.repoCount,
+    attachedCount: value.attachedCount,
+    unavailableCount: value.unavailableCount,
+    lastReconcileAt: value.lastReconcileAt,
+    lastReconcileError,
+    activeControl,
+  };
+}
+
+function readBuild(value: unknown): DaemonBuildInfo {
+  if (!isRecord(value)) {
+    throw new Error("Daemon status.service.build must be an object.");
+  }
+  if (typeof value.version !== "string" || value.version.length === 0) {
+    throw new Error("Daemon status.service.build.version must be a non-empty string.");
+  }
+  if (typeof value.loadedIdentity !== "string") {
+    throw new Error("Daemon status.service.build.loadedIdentity must be a string.");
+  }
+  if (typeof value.installedIdentity !== "string") {
+    throw new Error(
+      "Daemon status.service.build.installedIdentity must be a string.",
+    );
+  }
+  if (value.identitySource !== "installed-artifact-set") {
+    throw new Error(
+      "Daemon status.service.build.identitySource must be installed-artifact-set.",
+    );
+  }
+  if (typeof value.stale !== "boolean") {
+    throw new Error("Daemon status.service.build.stale must be a boolean.");
+  }
+  return {
+    version: value.version,
+    loadedIdentity: value.loadedIdentity,
+    installedIdentity: value.installedIdentity,
+    identitySource: "installed-artifact-set",
+    stale: value.stale,
+  };
+}
+
+function readActiveControl(value: unknown): DaemonActiveControl | null {
+  if (value === null) return null;
+  if (!isRecord(value)) {
+    throw new Error("Daemon status.service.activeControl must be an object or null.");
+  }
+  if (typeof value.operationId !== "string" || value.operationId.length === 0) {
+    throw new Error(
+      "Daemon status.service.activeControl.operationId must be a non-empty string.",
+    );
+  }
+  if (typeof value.kind !== "string" || !CONTROL_KINDS.has(value.kind as DaemonControlKind)) {
+    throw new Error(
+      "Daemon status.service.activeControl.kind must be restart or refresh.",
+    );
+  }
+  if (
+    typeof value.phase !== "string" ||
+    !CONTROL_PHASES.has(value.phase as DaemonControlPhase)
+  ) {
+    throw new Error("Daemon status.service.activeControl.phase is invalid.");
+  }
+  if (typeof value.requestedAt !== "string") {
+    throw new Error(
+      "Daemon status.service.activeControl.requestedAt must be a string.",
+    );
+  }
+  return {
+    operationId: value.operationId,
+    kind: value.kind as DaemonControlKind,
+    phase: value.phase as DaemonControlPhase,
+    requestedAt: value.requestedAt,
+  };
+}
+
+function readLock(value: unknown, label: string): DaemonLockInfo {
+  if (!isRecord(value)) {
+    throw new Error(`Daemon status.${label}.lock must be an object.`);
   }
   if (!isNullableString(value.path)) {
-    throw new Error("Daemon status.lock.path must be a string or null.");
+    throw new Error(`Daemon status.${label}.lock.path must be a string or null.`);
   }
   // Wire may also carry lock-owner identity; the System panel does not surface it.
   return { path: value.path };
@@ -179,12 +301,17 @@ function readQueue(value: unknown, label: string): DaemonQueueLanes {
     throw new Error(`Daemon status.${label} must be an object.`);
   }
   for (const lane of ["interactive", "normal", "background", "maintenance"] as const) {
-    if (!isFiniteNumber(value[lane])) {
-      throw new Error(`Daemon status.${label}.${lane} must be a number.`);
+    if (!isNonNegInt(value[lane])) {
+      throw new Error(
+        `Daemon status.${label}.${lane} must be a non-negative integer.`,
+      );
     }
   }
   if (typeof value.running !== "boolean") {
     throw new Error(`Daemon status.${label}.running must be a boolean.`);
+  }
+  if (!isNonNegInt(value.depth)) {
+    throw new Error(`Daemon status.${label}.depth must be a non-negative integer.`);
   }
   return {
     interactive: value.interactive as number,
@@ -192,53 +319,93 @@ function readQueue(value: unknown, label: string): DaemonQueueLanes {
     background: value.background as number,
     maintenance: value.maintenance as number,
     running: value.running,
+    depth: value.depth as number,
   };
 }
 
 function readConnections(value: unknown): DaemonConnections {
   if (!isRecord(value)) {
-    throw new Error("Daemon status.connections must be an object.");
+    throw new Error("Daemon status.service.connections must be an object.");
   }
-  if (!isFiniteNumber(value.active) || !isFiniteNumber(value.total)) {
-    throw new Error("Daemon status.connections.active/total must be numbers.");
+  if (!isNonNegInt(value.active) || !isNonNegInt(value.total)) {
+    throw new Error(
+      "Daemon status.service.connections.active/total must be non-negative integers.",
+    );
   }
   return { active: value.active as number, total: value.total as number };
 }
 
-function readRepoStatus(value: unknown, index: number): DaemonRepoStatus {
+function readReconcileError(
+  value: unknown,
+  label: string,
+): DaemonReconcileError | null {
+  if (value === null) return null;
   if (!isRecord(value)) {
-    throw new Error(`Daemon status.repos[${index}] must be an object.`);
+    throw new Error(`Daemon status.${label} must be an object or null.`);
   }
-  if (typeof value.repoId !== "string") {
-    throw new Error(`Daemon status.repos[${index}].repoId must be a string.`);
+  if (typeof value.at !== "string") {
+    throw new Error(`Daemon status.${label}.at must be a string.`);
   }
-  if (typeof value.canonicalRoot !== "string") {
-    throw new Error(`Daemon status.repos[${index}].canonicalRoot must be a string.`);
+  if (typeof value.code !== "string" || value.code.length === 0) {
+    throw new Error(`Daemon status.${label}.code must be a non-empty string.`);
   }
-  if (typeof value.state !== "string") {
-    throw new Error(`Daemon status.repos[${index}].state must be a string.`);
+  if (typeof value.message !== "string" || value.message.length === 0) {
+    throw new Error(`Daemon status.${label}.message must be a non-empty string.`);
   }
-  if (!isNullableString(value.lockPath)) {
-    throw new Error(`Daemon status.repos[${index}].lockPath must be a string or null.`);
+  if (!isNullableString(value.repoId)) {
+    throw new Error(`Daemon status.${label}.repoId must be a string or null.`);
+  }
+  return {
+    at: value.at,
+    code: value.code,
+    message: value.message,
+    repoId: value.repoId,
+  };
+}
+
+function readRepoStatus(value: unknown, label: string): DaemonRepoStatus {
+  if (!isRecord(value)) {
+    throw new Error(`Daemon status.${label} must be an object.`);
+  }
+  if (typeof value.repoId !== "string" || value.repoId.length === 0) {
+    throw new Error(`Daemon status.${label}.repoId must be a non-empty string.`);
+  }
+  if (typeof value.canonicalRoot !== "string" || value.canonicalRoot.length === 0) {
+    throw new Error(
+      `Daemon status.${label}.canonicalRoot must be a non-empty string.`,
+    );
+  }
+  if (typeof value.state !== "string" || !REPO_STATES.has(value.state as DaemonRepoState)) {
+    throw new Error(
+      `Daemon status.${label}.state must be attached|unavailable|detaching|detached.`,
+    );
+  }
+  if (value.displayName !== undefined && typeof value.displayName !== "string") {
+    throw new Error(`Daemon status.${label}.displayName must be a string when present.`);
   }
   if (!isNullableString(value.lastError)) {
-    throw new Error(`Daemon status.repos[${index}].lastError must be a string or null.`);
+    throw new Error(`Daemon status.${label}.lastError must be a string or null.`);
   }
   if (!isNullableString(value.lastMaterializerError)) {
     throw new Error(
-      `Daemon status.repos[${index}].lastMaterializerError must be a string or null.`,
+      `Daemon status.${label}.lastMaterializerError must be a string or null.`,
     );
   }
   return {
     repoId: value.repoId,
     canonicalRoot: value.canonicalRoot,
-    state: value.state,
-    lockPath: value.lockPath,
-    queue: readQueue(value.queue, `repos[${index}].queue`),
+    ...(typeof value.displayName === "string" ? { displayName: value.displayName } : {}),
+    state: value.state as DaemonRepoState,
+    lock: readLock(value.lock, label),
+    queue: readQueue(value.queue, `${label}.queue`),
     lastRecovery: value.lastRecovery ?? null,
     projectionGeneration: value.projectionGeneration ?? null,
     lastError: value.lastError,
     lastMaterializerError: value.lastMaterializerError,
+    lastReconcileError: readReconcileError(
+      value.lastReconcileError,
+      `${label}.lastReconcileError`,
+    ),
   };
 }
 
@@ -246,14 +413,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+function isNonNegInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && Number.isInteger(value);
 }
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
-}
-
-function isProtocolVersion(value: unknown): value is string | number {
-  return typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
 }
