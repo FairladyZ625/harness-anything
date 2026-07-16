@@ -238,7 +238,7 @@ test("missing lease error names the caller and reports no holder", async () => {
       assert.equal(rejected.holder, null);
       assert.match(rejected.message, /caller principal=alice, executor=agent:codex/u);
       assert.match(rejected.message, /current holder none; lease status none/u);
-      assert.match(rejected.message, /claim the task before retrying/u);
+      assert.match(rejected.message, /run 'ha task claim task_[0-9A-Z]+' before retrying/u);
       return true;
     });
   } finally {
