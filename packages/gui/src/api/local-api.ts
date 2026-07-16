@@ -41,15 +41,28 @@ export function validateProjectPath(projectRoot: string, candidatePath: string):
   if (isForeignAbsolutePath(candidatePath)) {
     return { ok: false, normalizedPath: candidatePath, reason: "path_outside_project" };
   }
-  const root = normalizeExistingPath(projectRoot);
-  const candidate = normalizePossiblyMissingPath(root, candidatePath);
-  if (!isInside(root, candidate)) {
-    return { ok: false, normalizedPath: candidate, reason: "path_outside_project" };
+  const fallbackPath = path.isAbsolute(candidatePath)
+    ? path.resolve(candidatePath)
+    : path.resolve(projectRoot, candidatePath);
+  try {
+    const root = normalizeExistingPath(projectRoot);
+    const unresolvedCandidate = path.isAbsolute(candidatePath)
+      ? path.resolve(candidatePath)
+      : path.resolve(root, candidatePath);
+    if (!isInside(root, unresolvedCandidate)) {
+      return { ok: false, normalizedPath: unresolvedCandidate, reason: "path_outside_project" };
+    }
+    const candidate = normalizePossiblyMissingPath(root, candidatePath);
+    if (!isInside(root, candidate)) {
+      return { ok: false, normalizedPath: candidate, reason: "path_outside_project" };
+    }
+    if (isPrivateHarnessPath(root, candidate)) {
+      return { ok: false, normalizedPath: candidate, reason: "path_is_private" };
+    }
+    return { ok: true, normalizedPath: candidate };
+  } catch {
+    return { ok: false, normalizedPath: fallbackPath, reason: "path_outside_project" };
   }
-  if (isPrivateHarnessPath(root, candidate)) {
-    return { ok: false, normalizedPath: candidate, reason: "path_is_private" };
-  }
-  return { ok: true, normalizedPath: candidate };
 }
 
 function isForeignAbsolutePath(inputPath: string): boolean {

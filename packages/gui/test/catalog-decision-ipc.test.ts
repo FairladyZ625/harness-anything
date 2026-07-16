@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { daemonIdFromEnv, localUserDaemonEndpoint } from "../../daemon/src/index.ts";
 import { createGuiServiceBridgeForDaemon, createLocalGuiServiceBridge } from "../src/index.ts";
 
 test("GUI daemon bridge maps all catalog and decision mutation methods to declared routes", async () => {
@@ -150,6 +151,11 @@ function writeCatalogPreset(rootDir: string, id: string, title: string): void {
 function initializeGuiWriteRepository(rootDir: string): void {
   writeHarnessConfig(rootDir);
   const harnessRoot = path.join(rootDir, "harness");
+  const namedPipeEndpoint = localUserDaemonEndpoint(
+    path.join(rootDir, "user-daemon"),
+    daemonIdFromEnv(),
+    "win32"
+  );
   writeFileSync(path.join(harnessRoot, "people.yaml"), [
     "schema: harness-people/v1",
     "people:",
@@ -161,6 +167,9 @@ function initializeGuiWriteRepository(rootDir: string): void {
     "      - kind: unix-socket-owner-boundary",
     `        issuer: host:${hostname()}`,
     `        subject: ${process.getuid?.() ?? 0}`,
+    "      - kind: windows-named-pipe-client",
+    `        issuer: host:${hostname()}:named-pipe`,
+    `        subject: ${namedPipeEndpoint}`,
     "roles:",
     "  - roleId: owner",
     "    commandClasses: [admin, repo-write, repo-read, arbiter]",
