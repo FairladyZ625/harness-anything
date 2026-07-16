@@ -79,7 +79,10 @@ export function runLegacyPresetScriptEntrypoint(
         ok: false,
         command: commandName,
         preset: presetSummary,
-        error: cliError(CliErrorCode.PresetScriptNotFound, "Preset script entrypoint was not found inside the preset package.")
+        error: cliError(
+          CliErrorCode.PresetScriptNotFound,
+          `Preset '${preset.manifest.id}' declares missing script '${entrypoint.command}'. Add the file under the preset package or correct preset.json, then run 'ha preset validate <preset-package>/preset.json --json'.`
+        )
       }
     };
   }
@@ -315,7 +318,10 @@ function scriptError(value: unknown): CliResult["error"] {
       return cliError(error.code, error.hint);
     }
   }
-  return cliError(CliErrorCode.PresetScriptResultFailed, "Preset script reported a failed result.");
+  return cliError(
+    CliErrorCode.PresetScriptResultFailed,
+    "Preset script reported a failed result. Inspect artifacts/preset-result.json in the evidence bundle, correct the reported condition, then rerun the preset command."
+  );
 }
 
 function readScriptedResult(outputRoot: string): Record<string, unknown> | undefined {
