@@ -38,7 +38,9 @@ export function defaultUnixSocketPath(
 ): string {
   const normalized = typeof options === "number" ? { uid: options } : options;
   const uid = normalized.uid ?? process.getuid?.() ?? 0;
-  return path.join(
+  const platform = normalized.platform ?? process.platform;
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+  return pathApi.join(
     unixSocketDirectory({ ...normalized, uid }),
     `daemon-${uid}-${safeUnixSocketEndpointId(daemonId)}.sock`
   );
@@ -47,21 +49,22 @@ export function defaultUnixSocketPath(
 export function unixSocketDirectory(options: UnixSocketPathOptions = {}): string {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
   const uid = options.uid ?? process.getuid?.() ?? 0;
   const tmpdir = readNonEmptyPath(env.TMPDIR) ?? options.tmpdir ?? os.tmpdir();
 
   if (platform === "linux") {
     const xdgRuntimeDir = readNonEmptyPath(env.XDG_RUNTIME_DIR);
-    if (xdgRuntimeDir) return path.join(xdgRuntimeDir, "harness-anything");
+    if (xdgRuntimeDir) return pathApi.join(xdgRuntimeDir, "harness-anything");
 
-    const userRuntimeDir = path.join(options.linuxRuntimeRoot ?? "/run/user", String(uid));
-    if (existsSync(userRuntimeDir)) return path.join(userRuntimeDir, "harness-anything");
+    const userRuntimeDir = pathApi.join(options.linuxRuntimeRoot ?? "/run/user", String(uid));
+    if (existsSync(userRuntimeDir)) return pathApi.join(userRuntimeDir, "harness-anything");
   }
 
   // macOS os.tmpdir() normally resolves to Darwin's per-user temporary
   // directory. The uid suffix also keeps the fallback safe if it resolves to
   // a shared directory such as /tmp on any POSIX platform.
-  return path.join(tmpdir, `harness-anything-${uid}`);
+  return pathApi.join(tmpdir, `harness-anything-${uid}`);
 }
 
 export function ensurePrivateUnixSocketDirectory(directory: string, uid = process.getuid?.() ?? 0): void {

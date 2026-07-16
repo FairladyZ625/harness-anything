@@ -57,11 +57,16 @@ test("hermetic test environment removes Git author and agent-session fallbacks",
     assert.equal(environment.env.HARNESS_GIT_AUTHOR_EMAIL, "developer@example.test");
     assert.equal(environment.env.CLAUDE_CODE_SESSION_ID, undefined);
     assert.equal(environment.env.CODEX_THREAD_ID, undefined);
-    assert.equal(environment.env.PATH, process.env.PATH);
+    assert.equal(readEnvironmentValue(environment.env, "PATH"), readEnvironmentValue(process.env, "PATH"));
   } finally {
     environment.cleanup();
   }
 });
+
+function readEnvironmentValue(env, name) {
+  const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name.toUpperCase());
+  return key === undefined ? undefined : env[key];
+}
 
 test("Git identity failures teach the fixture-local repair command", () => {
   assert.match(gitFixtureIdentityGuidance("Author identity unknown"), /git -c user\.email=.* -c user\.name=/u);
