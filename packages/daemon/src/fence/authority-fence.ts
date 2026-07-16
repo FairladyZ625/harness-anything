@@ -178,6 +178,9 @@ function sameFenceIdentity(left: FenceFileIdentity, right: FenceFileIdentity): b
 }
 
 async function syncFenceDirectory(directory: string): Promise<void> {
+  // Windows exposes file FlushFileBuffers but rejects fsync on directory
+  // handles with EPERM. The file enrollment itself is synced above.
+  if (process.platform === "win32") return;
   const directoryHandle = await open(directory, "r");
   try {
     await directoryHandle.sync();

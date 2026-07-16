@@ -9,7 +9,7 @@ const relativeSchemaPath = "packages/cli/src/commands/extensions/assets/software
 const schemaPath = path.join(root, relativeSchemaPath);
 const expected = `${JSON.stringify(architectureManifestJsonSchema(), null, 2)}\n`;
 const checkOnly = process.argv.includes("--check");
-const actual = existsSync(schemaPath) ? readFileSync(schemaPath, "utf8") : undefined;
+const actual = existsSync(schemaPath) ? normalizeLineEndings(readFileSync(schemaPath, "utf8")) : undefined;
 
 if (actual === expected) {
   console.log(`Generated architecture manifest schema is fresh: ${relativeSchemaPath}`);
@@ -19,4 +19,8 @@ if (actual === expected) {
 } else {
   writeFileSync(schemaPath, expected, "utf8");
   console.log(`Generated architecture manifest schema updated: ${relativeSchemaPath}`);
+}
+
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n?/gu, "\n");
 }

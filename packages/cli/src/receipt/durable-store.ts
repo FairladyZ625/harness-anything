@@ -69,6 +69,7 @@ function durableReplace(directory: string, target: string, receipt: CompoundOper
 }
 
 function fsyncDirectory(directory: string): void {
+  if (process.platform === "win32") return;
   const descriptor = openSync(directory, "r");
   try {
     fsyncSync(descriptor);
