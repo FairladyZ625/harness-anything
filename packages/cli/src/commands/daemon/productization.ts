@@ -295,33 +295,37 @@ function ensurePeopleRoster(filePath: string, input: {
   if (existsSync(filePath)) return;
   mkdirSync(path.dirname(filePath), { recursive: true });
   const uid = process.getuid?.();
-  writeFileSync(filePath, [
-    "schema: harness-people/v1",
-    "people:",
-    `  - personId: ${input.personId}`,
-    `    displayName: ${input.displayName}`,
-    ...(input.primaryEmail ? [`    primaryEmail: ${input.primaryEmail}`] : []),
-    `    roles: [${input.role}]`,
-    "    credentials:",
-    "      - kind: ssh-forced-command-person",
-    `        issuer: host:${os.hostname()}`,
-    `        subject: ${input.personId}`,
-    ...(typeof uid === "number" ? [
-      "      - kind: unix-socket-owner-boundary",
+  try {
+    writeFileSync(filePath, [
+      "schema: harness-people/v1",
+      "people:",
+      `  - personId: ${input.personId}`,
+      `    displayName: ${input.displayName}`,
+      ...(input.primaryEmail ? [`    primaryEmail: ${input.primaryEmail}`] : []),
+      `    roles: [${input.role}]`,
+      "    credentials:",
+      "      - kind: ssh-forced-command-person",
       `        issuer: host:${os.hostname()}`,
-      `        subject: ${uid}`
-    ] : []),
-    "roles:",
-    "  - roleId: owner",
-    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
-    "  - roleId: maintainer",
-    "    commandClasses: [repo-write, repo-read]",
-    "  - roleId: observer",
-    "    commandClasses: [repo-read]",
-    "  - roleId: arbiter",
-    "    commandClasses: [arbiter, repo-write, repo-read]",
-    ""
-  ].join("\n"), "utf8");
+      `        subject: ${input.personId}`,
+      ...(typeof uid === "number" ? [
+        "      - kind: unix-socket-owner-boundary",
+        `        issuer: host:${os.hostname()}`,
+        `        subject: ${uid}`
+      ] : []),
+      "roles:",
+      "  - roleId: owner",
+      "    commandClasses: [admin, repo-write, repo-read, arbiter]",
+      "  - roleId: maintainer",
+      "    commandClasses: [repo-write, repo-read]",
+      "  - roleId: observer",
+      "    commandClasses: [repo-read]",
+      "  - roleId: arbiter",
+      "    commandClasses: [arbiter, repo-write, repo-read]",
+      ""
+    ].join("\n"), { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if ((error as { readonly code?: string }).code !== "EEXIST") throw error;
+  }
 }
 
 function installCanonicalPreReceiveHook(rootDir: string): void {
