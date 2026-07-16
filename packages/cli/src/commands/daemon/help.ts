@@ -35,12 +35,22 @@ export const daemonCapabilityOperations = [
     "stop",
     "ha daemon stop",
     "Stop the persistent local daemon after draining queued writes."
+  ),
+  daemonCapabilityOperation(
+    "restart",
+    "ha daemon restart --json",
+    "Request a service-wide daemon restart through the canonical admin control RPC."
+  ),
+  daemonCapabilityOperation(
+    "refresh",
+    "ha daemon refresh --json",
+    "Request a service-wide daemon refresh after the runtime artifact changes."
   )
 ] as const;
 
 export function renderDaemonHelp(): string {
   return [
-    "Usage: harness-anything daemon <start|status|stop|connect|bootstrap-server|install-templates> [options]",
+    "Usage: harness-anything daemon <start|status|stop|restart|refresh|connect|repo|bootstrap-server|install-templates> [options]",
     "Alias: ha daemon <subcommand> [options]",
     "",
     "Commands:",
@@ -48,6 +58,12 @@ export function renderDaemonHelp(): string {
     "  start --foreground           Run the daemon service in the foreground.",
     "  status --json                Show lock holder, queue depth, connections, and version.",
     "  stop [--timeout-ms <ms>]     Signal the daemon and wait for queue drain and lock release.",
+    "  restart [--timeout-ms <ms>]  Request a service-wide restart through admin.daemon.restart.",
+    "  refresh [options]            Request a service-wide refresh through admin.daemon.refresh.",
+    "    --trigger explicit|post-merge|dist-watcher",
+    "                               Classify the refresh caller (default: explicit).",
+    "    --timeout-ms <ms>          Set the aggregate queue drain timeout (100-120000).",
+    "    --reason <text>            Record the operator or automation reason.",
     "  connect --stdio              Relay stdin/stdout to an already-running daemon.",
     "  repo <subcommand>            Register, list, or unregister daemon repositories.",
     "  bootstrap-server             Initialize a canonical team server repository.",

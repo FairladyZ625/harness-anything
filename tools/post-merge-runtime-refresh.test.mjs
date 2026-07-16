@@ -22,7 +22,7 @@ test("feature worktree merges never install or restart the shared runtime", () =
 
   assert.equal(plan.buildCli, true);
   assert.equal(plan.installCli, false);
-  assert.equal(plan.restartDaemon, false);
+  assert.equal(plan.refreshDaemon, false);
 });
 
 test("canonical main installs daemon-only changes without starting a stopped daemon", () => {
@@ -41,7 +41,7 @@ test("canonical main installs daemon-only changes without starting a stopped dae
     buildCli: true,
     buildGui: false,
     installCli: true,
-    restartDaemon: false,
+    refreshDaemon: false,
     syncDependencies: false
   });
 });
@@ -55,7 +55,7 @@ test("canonical main does not restart when the old daemon PID is unknown", () =>
   });
 
   assert.equal(plan.installCli, true);
-  assert.equal(plan.restartDaemon, false);
+  assert.equal(plan.refreshDaemon, false);
 });
 
 test("test-only changes do not rebuild or restart the installed runtime", () => {
@@ -69,7 +69,7 @@ test("test-only changes do not rebuild or restart the installed runtime", () => 
   assert.equal(plan.buildCli, false);
   assert.equal(plan.buildGui, false);
   assert.equal(plan.installCli, false);
-  assert.equal(plan.restartDaemon, false);
+  assert.equal(plan.refreshDaemon, false);
 });
 
 test("lockfile changes synchronize dependencies before rebuilding both workspaces", () => {
@@ -84,13 +84,27 @@ test("lockfile changes synchronize dependencies before rebuilding both workspace
   assert.equal(plan.buildCli, true);
   assert.equal(plan.buildGui, true);
   assert.equal(plan.installCli, true);
-  assert.equal(plan.restartDaemon, false);
+  assert.equal(plan.refreshDaemon, false);
 });
 
-test("canonical refresh completes every build before stopping the old daemon", () => {
+test("canonical refresh completes every build and install before requesting canonical control", () => {
   const calls = [];
   const run = (command, args) => {
     calls.push([command, ...args]);
+    if (args.includes("refresh")) {
+      return JSON.stringify({
+        ok: true,
+        schema: "daemon-command/v1",
+        command: "daemon-refresh",
+        accepted: true,
+        operationId: "control-refresh",
+        kind: "refresh",
+        before: {
+          pid: 42,
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      });
+    }
     if (args.includes("status")) {
       return JSON.stringify({
         ok: true,
@@ -98,19 +112,40 @@ test("canonical refresh completes every build before stopping the old daemon", (
         reachable: true,
         pid: 84,
         queueDepth: 0,
-        rootDir: "/repo"
+        rootDir: "/repo",
+        service: {
+          pid: 84,
+          queue: { depth: 0 },
+          build: {
+            loadedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            installedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            stale: false
+          }
+        },
+        requestedRepo: { canonicalRoot: "/repo" }
       });
     }
     return "";
   };
 
   executePostMergeRuntimeRefresh({
-    daemonStatus: { started: true, reachable: true, pid: 42, rootDir: "/repo" },
+    daemonStatus: {
+      started: true,
+      reachable: true,
+      pid: 42,
+      rootDir: "/repo",
+      service: {
+        pid: 42,
+        build: {
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
     plan: {
       buildCli: true,
       buildGui: true,
       installCli: true,
-      restartDaemon: true,
+      refreshDaemon: true,
       syncDependencies: true
     },
     repoRoot: "/repo",
@@ -118,13 +153,15 @@ test("canonical refresh completes every build before stopping the old daemon", (
   });
 
   const rendered = calls.map((call) => call.join(" "));
-  const stopIndex = rendered.findIndex((call) => call.includes("daemon stop"));
-  assert.ok(rendered.findIndex((call) => call.includes("npm ci")) < stopIndex);
-  assert.ok(rendered.findIndex((call) => call.includes("@harness-anything/cli")) < stopIndex);
-  assert.ok(rendered.findIndex((call) => call.includes("@harness-anything/gui")) < stopIndex);
-  assert.ok(rendered.findIndex((call) => call.includes("npm install -g")) < stopIndex);
-  assert.ok(stopIndex >= 0);
-  assert.ok(rendered.some((call) => call.includes("daemon start --service")));
+  const refreshIndex = rendered.findIndex((call) => call.includes("daemon refresh"));
+  assert.ok(rendered.findIndex((call) => call.includes("npm ci")) < refreshIndex);
+  assert.ok(rendered.findIndex((call) => call.includes("@harness-anything/cli")) < refreshIndex);
+  assert.ok(rendered.findIndex((call) => call.includes("@harness-anything/gui")) < refreshIndex);
+  assert.ok(rendered.findIndex((call) => call.includes("npm install -g")) < refreshIndex);
+  assert.ok(refreshIndex >= 0);
+  assert.ok(rendered[refreshIndex].includes("--trigger post-merge"));
+  assert.equal(rendered.some((call) => call.includes("daemon stop")), false);
+  assert.equal(rendered.some((call) => call.includes("daemon start")), false);
   assert.ok(rendered.some((call) => call.includes("daemon status --json")));
   assert.ok(rendered.some((call) => call.includes("task list --limit 1")));
 });
@@ -143,15 +180,131 @@ test("build failure leaves the running daemon untouched", () => {
       buildCli: true,
       buildGui: false,
       installCli: true,
-      restartDaemon: true,
+      refreshDaemon: true,
       syncDependencies: false
     },
     repoRoot: "/repo",
     run
   }), /build failed/u);
 
-  assert.equal(calls.some((call) => call.includes("daemon stop")), false);
-  assert.equal(calls.some((call) => call.includes("daemon start")), false);
+  assert.equal(calls.some((call) => call.includes("daemon refresh")), false);
+});
+
+test("RPC rejection leaves post-merge verification untouched", () => {
+  const calls = [];
+  const run = (command, args) => {
+    calls.push([command, ...args].join(" "));
+    if (args.includes("refresh")) {
+      return JSON.stringify({ ok: false, schema: "daemon-command/v1", command: "daemon-refresh" });
+    }
+    return "";
+  };
+
+  assert.throws(() => executePostMergeRuntimeRefresh({
+    daemonStatus: { started: true, reachable: true, pid: 42, rootDir: "/repo" },
+    plan: {
+      buildCli: false,
+      buildGui: false,
+      installCli: false,
+      refreshDaemon: true,
+      syncDependencies: false
+    },
+    repoRoot: "/repo",
+    run
+  }), /refresh request was rejected/u);
+
+  assert.equal(calls.some((call) => call.includes("daemon status")), false);
+});
+
+test("refresh verification rejects an unchanged daemon PID", () => {
+  assert.throws(() => executePostMergeRuntimeRefresh({
+    daemonStatus: {
+      started: true,
+      reachable: true,
+      pid: 42,
+      rootDir: "/repo",
+      service: {
+        pid: 42,
+        build: {
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    plan: {
+      buildCli: false,
+      buildGui: false,
+      installCli: false,
+      refreshDaemon: true,
+      syncDependencies: false
+    },
+    repoRoot: "/repo",
+    statusPollAttempts: 1,
+    run: (_command, args) => args.includes("refresh")
+      ? JSON.stringify({
+        ok: true,
+        accepted: true,
+        operationId: "control-refresh",
+        kind: "refresh",
+        before: {
+          pid: 42,
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      })
+      : JSON.stringify({
+        started: true,
+        reachable: true,
+        service: {
+          pid: 42,
+          queue: { depth: 0 },
+          build: {
+            loadedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            installedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            stale: false
+          }
+        },
+        requestedRepo: { canonicalRoot: "/repo" }
+      })
+  }), /PID did not change/u);
+});
+
+test("refresh verification rejects an unchanged loaded build identity", () => {
+  const identity = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  assert.throws(() => executePostMergeRuntimeRefresh({
+    daemonStatus: {
+      started: true,
+      reachable: true,
+      pid: 42,
+      rootDir: "/repo",
+      service: { pid: 42, build: { loadedIdentity: identity } }
+    },
+    plan: {
+      buildCli: false,
+      buildGui: false,
+      installCli: false,
+      refreshDaemon: true,
+      syncDependencies: false
+    },
+    repoRoot: "/repo",
+    statusPollAttempts: 1,
+    run: (_command, args) => args.includes("refresh")
+      ? JSON.stringify({
+        ok: true,
+        accepted: true,
+        operationId: "control-refresh",
+        kind: "refresh",
+        before: { pid: 42, loadedIdentity: identity }
+      })
+      : JSON.stringify({
+        started: true,
+        reachable: true,
+        service: {
+          pid: 84,
+          queue: { depth: 0 },
+          build: { loadedIdentity: identity, installedIdentity: identity, stale: false }
+        },
+        requestedRepo: { canonicalRoot: "/repo" }
+      })
+  }), /build identity did not change/u);
 });
 
 test("post-merge discovery refreshes a running canonical daemon for daemon-only changes", () => {
@@ -161,10 +314,49 @@ test("post-merge discovery refreshes a running canonical daemon for daemon-only 
     if (command === "git" && args[0] === "branch") return "main\n";
     if (command === "git" && args[0] === "diff") return "packages/daemon/src/index.ts\n";
     if (command === "ha") {
-      return JSON.stringify({ started: true, reachable: true, pid: 42, rootDir: "/repo" });
+      return JSON.stringify({
+        started: true,
+        reachable: true,
+        pid: 42,
+        rootDir: "/repo",
+        service: {
+          pid: 42,
+          build: {
+            loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      });
+    }
+    if (args.includes("refresh")) {
+      return JSON.stringify({
+        ok: true,
+        accepted: true,
+        operationId: "control-refresh",
+        kind: "refresh",
+        before: {
+          pid: 42,
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      });
     }
     if (args.includes("status")) {
-      return JSON.stringify({ started: true, reachable: true, pid: 84, queueDepth: 0, rootDir: "/repo" });
+      return JSON.stringify({
+        started: true,
+        reachable: true,
+        pid: 84,
+        queueDepth: 0,
+        rootDir: "/repo",
+        service: {
+          pid: 84,
+          queue: { depth: 0 },
+          build: {
+            loadedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            installedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            stale: false
+          }
+        },
+        requestedRepo: { canonicalRoot: "/repo" }
+      });
     }
     return "";
   };
@@ -178,6 +370,7 @@ test("post-merge discovery refreshes a running canonical daemon for daemon-only 
 
   const rendered = calls.map((call) => call.join(" "));
   assert.ok(rendered.some((call) => call === "git diff --name-only old new --"));
-  assert.ok(rendered.some((call) => call.includes("daemon stop")));
-  assert.ok(rendered.some((call) => call.includes("daemon start --service")));
+  assert.ok(rendered.some((call) => call.includes("daemon refresh") && call.includes("--trigger post-merge")));
+  assert.equal(rendered.some((call) => call.includes("daemon stop")), false);
+  assert.equal(rendered.some((call) => call.includes("daemon start")), false);
 });

@@ -10,7 +10,8 @@ import {
   resolveHarnessLayout,
 } from "../../../../kernel/src/index.ts";
 import {
-  currentDaemonProtocolVersion
+  currentDaemonProtocolVersion,
+  type JsonObject
 } from "../../../../daemon/src/index.ts";
 import { initializeHarness } from "../init.ts";
 import { resolveCliVersion } from "../core/version.ts";
@@ -38,6 +39,12 @@ export interface DaemonCommandInput {
     args: ReadonlyArray<string>,
     hooks?: DaemonServeHooks
   ) => Promise<void>;
+  readonly requestDaemonControl?: (request: DaemonControlRequest) => Promise<Record<string, unknown>>;
+}
+
+export interface DaemonControlRequest {
+  readonly method: "admin.daemon.restart" | "admin.daemon.refresh";
+  readonly params: JsonObject;
 }
 
 export interface DaemonServeHooks {
@@ -76,6 +83,8 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
     if (action === "start") return await startDaemon(input);
     if (action === "status") return await statusDaemon(input);
     if (action === "stop") return await stopDaemon(input);
+    if (action === "restart") return await controlDaemon(input, "restart");
+    if (action === "refresh") return await controlDaemon(input, "refresh");
     if (action === "bootstrap-server") return await bootstrapServer(input);
     if (action === "install-templates") return installTemplates(input);
     if (action === "repo") return runDaemonRepoCommand({ rootDir: input.rootDir, args: input.args, json: input.json });
@@ -89,6 +98,61 @@ export async function runDaemonProductCommand(input: DaemonCommandInput): Promis
     emitDaemonError(CliErrorCode.JournalUnavailable, error instanceof Error ? error.message : String(error), input.json);
     return 1;
   }
+}
+
+type DaemonControlKind = "restart" | "refresh";
+type DaemonRefreshTrigger = "explicit" | "post-merge" | "dist-watcher";
+
+async function controlDaemon(input: DaemonCommandInput, kind: DaemonControlKind): Promise<number> {
+  const drainTimeoutMs = daemonControlTimeoutMs(input.args);
+  const trigger = kind === "refresh" ? daemonRefreshTrigger(input.args) : undefined;
+  const params = {
+    payload: {
+      reason: readOption(input.args, "--reason") ?? `${trigger ?? "explicit"} daemon ${kind} request`,
+      drainTimeoutMs,
+      ...(trigger ? { trigger } : {})
+    }
+  };
+  const method: DaemonControlRequest["method"] = kind === "restart"
+    ? "admin.daemon.restart"
+    : "admin.daemon.refresh";
+  const request = input.requestDaemonControl ?? ((control: DaemonControlRequest) => requestLocalDaemonJsonRpc(
+    input.rootDir,
+    control.method,
+    control.params,
+    5_000,
+    {
+      userRoot: readDaemonUserRootOption(input.args),
+      socketPath: readOption(input.args, "--socket"),
+      allowLegacySocket: false
+    }
+  ));
+  const receipt = await request({ method, params });
+  if (receipt.schema !== "daemon-control-accepted/v1"
+    || receipt.accepted !== true
+    || receipt.kind !== kind
+    || typeof receipt.operationId !== "string"
+    || receipt.operationId.length === 0) {
+    throw new Error(`${method} did not return daemon-control-accepted/v1`);
+  }
+  const { schema: controlSchema, ...controlResult } = receipt;
+  emitDaemonResult(`daemon-${kind}`, { ...controlResult, controlSchema }, input.json);
+  return 0;
+}
+
+function daemonControlTimeoutMs(args: ReadonlyArray<string>): number {
+  const raw = readOption(args, "--timeout-ms") ?? "5000";
+  const timeoutMs = Number(raw);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 120_000) {
+    throw new Error("Use --timeout-ms with an integer from 100 through 120000.");
+  }
+  return timeoutMs;
+}
+
+function daemonRefreshTrigger(args: ReadonlyArray<string>): DaemonRefreshTrigger {
+  const trigger = readOption(args, "--trigger") ?? "explicit";
+  if (trigger === "explicit" || trigger === "post-merge" || trigger === "dist-watcher") return trigger;
+  throw new Error("Use --trigger explicit|post-merge|dist-watcher.");
 }
 
 async function startDaemon(input: DaemonCommandInput): Promise<number> {
@@ -442,7 +506,7 @@ function emitDaemonResult(command: string, result: Record<string, unknown>, json
     return;
   }
   const parts = [`ok`, `command=${command}`];
-  for (const key of ["started", "reachable", "mode", "queueDepth", "version", "protocolVersion", "pid", "rootDir", "repoId", "endpoint", "drained", "stopped", "reportPath", "outputDir"] as const) {
+  for (const key of ["started", "reachable", "mode", "queueDepth", "version", "protocolVersion", "pid", "rootDir", "repoId", "endpoint", "drained", "stopped", "accepted", "operationId", "kind", "reportPath", "outputDir"] as const) {
     if (result[key] !== undefined) parts.push(`${key}=${JSON.stringify(result[key])}`);
   }
   if (typeof result.lockPath === "string") parts.push(`lock=${result.lockPath}`);
