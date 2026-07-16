@@ -1,7 +1,11 @@
 import path from "node:path";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { sha256Text, stablePayloadHash } from "../integrity/stable-hash.ts";
+import { sha256Text, stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
+import {
+  authorityAttributionEventV2KeyDigest,
+  decodeAuthorityAttributionEventV2Bytes
+} from "../integrity/authority-attribution-event-v2-log.ts";
 import type { AttributionEvent } from "../schemas/attribution-event.ts";
 import {
   decodeStrictAttributionEventV1,
@@ -13,6 +17,7 @@ import { localLayoutFileSystem, localProjectionSourceFileSystem } from "./local-
 
 export interface AttributionEventSourceInput {
   readonly relativePath: string;
+  readonly sourcePath: string;
   readonly body: string;
   readonly statSignature: string;
   readonly contentSha256: string;
@@ -41,11 +46,12 @@ export function captureAttributionEventSourcePersistentCache(
   reuseCacheWithoutValidation = false
 ): AttributionEventSourcePersistentCache | null {
   const layout = resolveHarnessLayout(rootInput);
-  const cached = attributionEventSourceCache.get(layout.attributionEventsRoot);
+  const layoutIdentity = attributionEventSourceLayoutIdentity(rootInput);
+  const cached = attributionEventSourceCache.get(layoutIdentity);
   if (!cached || (!reuseCacheWithoutValidation && !stableAttributionSignatures(cached.signatures))) return null;
   return {
     schema: "attribution-event-source-cache/v1",
-    layoutIdentity: layout.attributionEventsRoot,
+    layoutIdentity,
     source: cached.source,
     signatures: [...cached.signatures].map(([inputPath, signature]) => ({
       relativePath: path.relative(layout.rootDir, inputPath).split(path.sep).join("/"),
@@ -60,12 +66,13 @@ export function restoreAttributionEventSourcePersistentCache(
 ): AttributionSourceCacheRestore {
   if (!validPersistentAttributionCache(persisted)) return "invalid";
   const layout = resolveHarnessLayout(rootInput);
-  if (persisted.layoutIdentity !== layout.attributionEventsRoot) return "stale";
+  const layoutIdentity = attributionEventSourceLayoutIdentity(rootInput);
+  if (persisted.layoutIdentity !== layoutIdentity) return "stale";
   const signatures = new Map(persisted.signatures.map(({ relativePath, signature }) => [
     path.resolve(layout.rootDir, relativePath),
     signature
   ]));
-  rememberAttributionEventSourceCache(layout.attributionEventsRoot, {
+  rememberAttributionEventSourceCache(layoutIdentity, {
     source: persisted.source,
     signatures
   });
@@ -75,6 +82,11 @@ export function restoreAttributionEventSourcePersistentCache(
 export interface AttributionEventSource {
   readonly inputs: ReadonlyArray<AttributionEventSourceInput>;
   readonly hash: string;
+}
+
+export function attributionEventSourceLayoutIdentity(rootInput: HarnessLayoutInput): string {
+  const layout = resolveHarnessLayout(rootInput);
+  return [layout.attributionEventsRoot, layout.authorityAttributionEventsV2Root].join("\0");
 }
 
 export function readAttributionEvents(rootInput: HarnessLayoutInput): ReadonlyArray<AttributionEvent> {
@@ -99,78 +111,98 @@ function readAttributionEventSourceAttempt(
   reuseCacheWithoutValidation: boolean,
   attempt: number
 ): AttributionEventSource {
-  const eventsRoot = resolveHarnessLayout(rootInput).attributionEventsRoot;
-  if (!localLayoutFileSystem.exists(eventsRoot)) {
-    const source = emptyAttributionEventSource();
-    rememberAttributionEventSourceCache(eventsRoot, {
-      source,
-      signatures: new Map([[eventsRoot, null]])
-    });
-    return source;
-  }
-  const cached = attributionEventSourceCache.get(eventsRoot);
+  const layout = resolveHarnessLayout(rootInput);
+  const layoutIdentity = attributionEventSourceLayoutIdentity(rootInput);
+  const eventRoots = [
+    { root: layout.attributionEventsRoot, schema: "attribution-event/v1" as const },
+    { root: layout.authorityAttributionEventsV2Root, schema: "attribution-event/v2" as const }
+  ];
+  const cached = attributionEventSourceCache.get(layoutIdentity);
   if (cached && (reuseCacheWithoutValidation
-    ? attributionRootSignatureMatches(eventsRoot, cached.signatures)
+    ? attributionRootSignaturesMatch(eventRoots.map(({ root }) => root), cached.signatures)
     : stableAttributionSignatures(cached.signatures, validation))) {
-    attributionEventSourceCache.delete(eventsRoot);
-    attributionEventSourceCache.set(eventsRoot, cached);
+    attributionEventSourceCache.delete(layoutIdentity);
+    attributionEventSourceCache.set(layoutIdentity, cached);
     return cached.source;
-  }
-  let directory: ReturnType<typeof localProjectionSourceFileSystem.readStableDirents>;
-  try {
-    directory = localProjectionSourceFileSystem.readStableDirents(eventsRoot);
-  } catch {
-    return retryAttributionEventSource(rootInput, eventsRoot, validation, reuseCacheWithoutValidation, attempt);
   }
   const previousByPath = new Map(cached?.source.inputs.map((input) => [input.relativePath, input]));
   const inputs: AttributionEventSourceInput[] = [];
-  for (const entry of directory.entries
-    .filter((candidate) => !candidate.isDirectory() && candidate.name.endsWith(".jsonl"))
-    .sort((left, right) => left.name.localeCompare(right.name))) {
-    const filePath = path.join(eventsRoot, entry.name);
-    const signature = localProjectionSourceFileSystem.statSignature(filePath);
-    if (signature === null) return retryAttributionEventSource(rootInput, eventsRoot, validation, reuseCacheWithoutValidation, attempt);
-    const previous = previousByPath.get(entry.name);
-    if (previous?.statSignature === signature) {
-      inputs.push(previous);
+  const signatureEntries: Array<readonly [string, string | null]> = [];
+  for (const eventRoot of eventRoots) {
+    if (!localLayoutFileSystem.exists(eventRoot.root)) {
+      signatureEntries.push([eventRoot.root, null]);
       continue;
     }
+    let directory: ReturnType<typeof localProjectionSourceFileSystem.readStableDirents>;
     try {
-      const stable = localProjectionSourceFileSystem.readStableText(filePath);
-      inputs.push({
-        relativePath: entry.name,
-        body: stable.body,
-        statSignature: stable.signature,
-        contentSha256: sha256Text(stable.body),
-        eventId: decodeUnionAttributionEventBody(stable.body).eventId
-      });
+      directory = localProjectionSourceFileSystem.readStableDirents(eventRoot.root);
     } catch {
-      return retryAttributionEventSource(rootInput, eventsRoot, validation, reuseCacheWithoutValidation, attempt);
+      return retryAttributionEventSource(rootInput, layoutIdentity, validation, reuseCacheWithoutValidation, attempt);
+    }
+    signatureEntries.push([eventRoot.root, directory.signature]);
+    for (const entry of directory.entries
+      .filter((candidate) => !candidate.isDirectory() && candidate.name.endsWith(".jsonl"))
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      const filePath = path.join(eventRoot.root, entry.name);
+      const sourcePath = path.relative(layout.rootDir, filePath).split(path.sep).join("/");
+      const relativePath = eventRoot.schema === "attribution-event/v1"
+        ? entry.name
+        : `authority-v2/${entry.name}`;
+      const signature = localProjectionSourceFileSystem.statSignature(filePath);
+      if (signature === null) {
+        return retryAttributionEventSource(rootInput, layoutIdentity, validation, reuseCacheWithoutValidation, attempt);
+      }
+      const previous = previousByPath.get(relativePath);
+      if (previous?.statSignature === signature) {
+        inputs.push(previous);
+        signatureEntries.push([filePath, previous.statSignature]);
+        continue;
+      }
+      try {
+        const stable = localProjectionSourceFileSystem.readStableText(filePath);
+        const event = eventRoot.schema === "attribution-event/v1"
+          ? decodeAttributionEventBody(stable.body)
+          : decodeAuthorityAttributionEventV2Bytes(Buffer.from(stable.body, "utf8"));
+        if (event.schema === "attribution-event/v2"
+            && entry.name !== `${authorityAttributionEventV2KeyDigest(event.workspaceId, event.opId)}.jsonl`) {
+          throw new Error(`authority attribution event path does not match (${event.workspaceId}, ${event.opId})`);
+        }
+        inputs.push({
+          relativePath,
+          sourcePath,
+          body: stable.body,
+          statSignature: stable.signature,
+          contentSha256: sha256Text(stable.body),
+          eventId: event.eventId
+        });
+        signatureEntries.push([filePath, stable.signature]);
+      } catch {
+        return retryAttributionEventSource(rootInput, layoutIdentity, validation, reuseCacheWithoutValidation, attempt);
+      }
     }
   }
-  const signatures = new Map<string, string | null>([
-    [eventsRoot, directory.signature],
-    ...inputs.map((input) => [path.join(eventsRoot, input.relativePath), input.statSignature] as const)
-  ]);
+  const signatures = new Map<string, string | null>(signatureEntries);
   if (!stableAttributionSignatures(signatures, validation)) {
-    return retryAttributionEventSource(rootInput, eventsRoot, validation, reuseCacheWithoutValidation, attempt);
+    return retryAttributionEventSource(rootInput, layoutIdentity, validation, reuseCacheWithoutValidation, attempt);
   }
+  const sortedInputs = inputs.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   const source = {
-    inputs,
+    inputs: sortedInputs,
     hash: stablePayloadHash({
-      schema: "attribution-event-source/v2",
-      inputs: inputs.map(({ relativePath, contentSha256 }) => ({ relativePath, contentSha256 }))
+      schema: "attribution-event-source/v3",
+      inputs: sortedInputs.map(({ relativePath, contentSha256 }) => ({ relativePath, contentSha256 }))
     })
   };
-  rememberAttributionEventSourceCache(eventsRoot, { source, signatures });
+  rememberAttributionEventSourceCache(layoutIdentity, { source, signatures });
   return source;
 }
 
-function attributionRootSignatureMatches(
-  eventsRoot: string,
+function attributionRootSignaturesMatch(
+  eventRoots: ReadonlyArray<string>,
   signatures: ReadonlyMap<string, string | null>
 ): boolean {
-  return localProjectionSourceFileSystem.statSignature(eventsRoot) === signatures.get(eventsRoot);
+  return eventRoots.every((eventRoot) =>
+    localProjectionSourceFileSystem.statSignature(eventRoot) === signatures.get(eventRoot));
 }
 
 function rememberAttributionEventSourceCache(
@@ -213,17 +245,10 @@ function retryAttributionEventSource(
   return readAttributionEventSourceAttempt(rootInput, validation, reuseCacheWithoutValidation, attempt + 1);
 }
 
-function emptyAttributionEventSource(): AttributionEventSource {
-  return {
-    inputs: [],
-    hash: stablePayloadHash({ schema: "attribution-event-source/v2", inputs: [] })
-  };
-}
-
 function validPersistentAttributionSource(source: AttributionEventSource): boolean {
   if (source.inputs.some((input) => !validPersistentAttributionInput(input))) return false;
   return source.hash === stablePayloadHash({
-    schema: "attribution-event-source/v2",
+    schema: "attribution-event-source/v3",
     inputs: source.inputs.map(({ relativePath, contentSha256 }) => ({ relativePath, contentSha256 }))
   });
 }
@@ -249,6 +274,8 @@ function validPersistentAttributionCache(persisted: AttributionEventSourcePersis
   if (persisted.source.inputs.some((input) =>
     typeof input.relativePath !== "string" ||
     !isSafeRelativeSourceCachePath(input.relativePath) ||
+    typeof input.sourcePath !== "string" ||
+    !isSafeRelativeSourceCachePath(input.sourcePath) ||
     typeof input.body !== "string" ||
     typeof input.statSignature !== "string" ||
     typeof input.contentSha256 !== "string")) return false;
@@ -262,18 +289,37 @@ function validPersistentAttributionCache(persisted: AttributionEventSourcePersis
 
 export function readAttributionEventsFromSource(source: AttributionEventSource): ReadonlyArray<AttributionEvent> {
   return source.inputs
-    .map((input) => decodeAttributionEventBody(input.body))
+    .map((input) => decodeUnionAttributionEventBody(input.body))
+    .filter((event): event is AttributionEvent => event.schema === "attribution-event/v1")
     .sort((left, right) => left.eventId.localeCompare(right.eventId));
 }
 
 export function readUnionAttributionEventsFromSource(source: AttributionEventSource): ReadonlyArray<UnionAttributionEvent> {
-  return source.inputs
-    .map((input) => decodeUnionAttributionEventBody(input.body))
-    .sort((left, right) => {
-      const leftRevision = left.schema === "attribution-event/v2" ? left.revision : Number.NEGATIVE_INFINITY;
-      const rightRevision = right.schema === "attribution-event/v2" ? right.revision : Number.NEGATIVE_INFINITY;
-      return leftRevision - rightRevision || left.eventId.localeCompare(right.eventId);
-    });
+  return selectUnionAttributionEventPrecedence(
+    source.inputs.map((input) => decodeUnionAttributionEventBody(input.body))
+  );
+}
+
+export function selectUnionAttributionEventPrecedence(
+  events: ReadonlyArray<UnionAttributionEvent>
+): ReadonlyArray<UnionAttributionEvent> {
+  const byOpId = new Map<string, UnionAttributionEvent>();
+  for (const event of events) {
+    const existing = byOpId.get(event.opId);
+    if (!existing || (existing.schema === "attribution-event/v1" && event.schema === "attribution-event/v2")) {
+      byOpId.set(event.opId, event);
+      continue;
+    }
+    if (existing.schema === "attribution-event/v2" && event.schema === "attribution-event/v1") continue;
+    if (stableStringify(existing) !== stableStringify(event)) {
+      throw new Error(`ATTRIBUTION_EVENT_OP_ID_COLLISION:${event.opId}`);
+    }
+  }
+  return [...byOpId.values()].sort((left, right) => {
+    const leftRevision = left.schema === "attribution-event/v2" ? left.revision : Number.NEGATIVE_INFINITY;
+    const rightRevision = right.schema === "attribution-event/v2" ? right.revision : Number.NEGATIVE_INFINITY;
+    return leftRevision - rightRevision || left.eventId.localeCompare(right.eventId);
+  });
 }
 
 export function attributionEventSourceHash(rootInput: HarnessLayoutInput): string {

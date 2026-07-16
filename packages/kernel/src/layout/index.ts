@@ -36,6 +36,7 @@ export interface HarnessLayout {
   readonly generatedRoot: string;
   readonly runtimeEventLedgerRoot: string;
   readonly attributionEventsRoot: string;
+  readonly authorityAttributionEventsV2Root: string;
   readonly cacheRoot: string;
   readonly projectionPath: string;
   readonly executionEvidenceProjectionPath: string;
@@ -186,6 +187,7 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     generatedRoot,
     runtimeEventLedgerRoot: path.join(generatedRoot, "runtime-events"),
     attributionEventsRoot: path.join(authoredRoot, "attribution-events"),
+    authorityAttributionEventsV2Root: path.join(authoredRoot, "authority-attribution-events", "v2"),
     cacheRoot: path.join(localRoot, "cache"),
     projectionPath: path.join(localRoot, "cache", "projections.sqlite"),
     executionEvidenceProjectionPath: path.join(localRoot, "cache", "execution-evidence.sqlite"),

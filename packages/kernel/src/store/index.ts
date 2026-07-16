@@ -7,3 +7,5 @@ export * from "./local-version-control-system.ts";
 export * from "./markdown-artifact-store.ts";
 export * from "./write-journal-coordinator.ts";
 export * from "./write-journal-attribution-events.ts";
+export * from "./authority-attribution-event-v2-log.ts";
+export * from "./authority-attribution-event-v2-recovery.ts";

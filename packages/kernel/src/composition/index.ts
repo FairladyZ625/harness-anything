@@ -5,3 +5,18 @@ export { makeMarkdownArtifactStore } from "../store/markdown-artifact-store.ts";
 export { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator } from "../store/write-journal-coordinator.ts";
 export { makeLocalLockRegistry } from "../store/local-lock-registry.ts";
 export { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+export {
+  authorityAttributionEventV2FilePath,
+  authorityAttributionEventV2IntegrityReportSchema,
+  makeLocalAuthorityAttributionEventV2Log
+} from "../store/authority-attribution-event-v2-log.ts";
+export type {
+  AuthorityAttributionEventV2AppendResult,
+  AuthorityAttributionEventV2IntegrityReport,
+  AuthorityAttributionEventV2Log
+} from "../store/authority-attribution-event-v2-log.ts";
+export { recoverAuthorityAttributionEventV2FromOperationRecord } from "../store/authority-attribution-event-v2-recovery.ts";
+export type {
+  DurableAuthorityOperationRecordSourceV2,
+  RecoverableAuthorityOperationRecordV2
+} from "../store/authority-attribution-event-v2-recovery.ts";

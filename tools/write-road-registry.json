@@ -14,8 +14,8 @@
   ],
   "rowCountReconciliation": {
     "phase1FunctionalRows": 26,
-    "registryRows": 50,
-    "difference": "One phase 1 feature row is retired. Six additional rows split mixed write functions and infrastructure: module canonical/view, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road. Three hosted typed-authority rows keep Execution, execution-scoped Review, and human Consent records RPC-only. Two further ADR-0028 P4 rows register the attributed doc_sync_submit coordinator road and the preset script staging-mirror ingest road. One ADR-0028 P5 row registers the coordinator-owned immutable attribution event trail. One dedicated T4 administrative migration row registers the attributed, confirmed-plan, key-only retirement of historical ownership fields. One ADR-0029 TW-01 row registers the authority replication submission road (attributed-coordinator entry over forced-command SSH). One ADR-0029 TW-02 row registers the compound receipt durable store (client-side crash-recovery receipt records, fsync + atomic rename). One ADR-0029 TW-03 row registers the broker local-view native applier (crash-safe transparent view materialization). One ADR-0029 TW-04 row registers the platform semantic-probe scratch writes (temporary qualification probes, created and removed inside one probe run). One ADR-0029 TW-06 row registers the authority fence enrollment anchor and durability boundary stores. One authority key-material row registers fd-secure private material in repository-external service state as non-SoT state under dec_01KXN3ZDDNPVZ6ADH62R69MTCN; repository, harness, CAS, and backup roots remain forbidden. One daemon transport row registers the socket owner-lock lifecycle state (task_01KXD0A37NN8ZQEJ2ENG5K313V): ephemeral single-instance mutex outside SoT, not entity data. One identity bootstrap row registers the user-profile people roster boundary (XD-1/XD-2). Two GUI decision rows register proposal and judgment transitions through the authenticated daemon IPC write road (dec_01KXDR0A9AR1Z57Q3M1JEDMBVR). One preset-guidance row records create-milestone agent writes beneath the configured repository-relative milestones root."
+    "registryRows": 51,
+    "difference": "One phase 1 feature row is retired. Six additional rows split mixed write functions and infrastructure: module canonical/view, script declared writes/produces, worktree code/binding, task-holder runtime state, one WriteCoordinator runtime substrate row, and the Fact-to-Execution administrative migration road. Three hosted typed-authority rows keep Execution, execution-scoped Review, and human Consent records RPC-only. Two further ADR-0028 P4 rows register the attributed doc_sync_submit coordinator road and the preset script staging-mirror ingest road. One ADR-0028 P5 row registers the coordinator-owned immutable attribution event trail. One parallel authority-attribution-event/v2 sibling row registers canonical-byte append, read-after-write, recovery, retention, backup, integrity, and materializer coverage under dec_01KXNB6RYNBD9SJBCXGWTDRP8A. One dedicated T4 administrative migration row registers the attributed, confirmed-plan, key-only retirement of historical ownership fields. One ADR-0029 TW-01 row registers the authority replication submission road (attributed-coordinator entry over forced-command SSH). One ADR-0029 TW-02 row registers the compound receipt durable store (client-side crash-recovery receipt records, fsync + atomic rename). One ADR-0029 TW-03 row registers the broker local-view native applier (crash-safe transparent view materialization). One ADR-0029 TW-04 row registers the platform semantic-probe scratch writes (temporary qualification probes, created and removed inside one probe run). One ADR-0029 TW-06 row registers the authority fence enrollment anchor and durability boundary stores. One authority key-material row registers fd-secure private material in repository-external service state as non-SoT state under dec_01KXN3ZDDNPVZ6ADH62R69MTCN; repository, harness, CAS, and backup roots remain forbidden. One authority lifecycle row registers restart-replayed per-repo operations, replica changes, bindings, and namespaces under daemon service state. One daemon transport row registers the socket owner-lock lifecycle state (task_01KXD0A37NN8ZQEJ2ENG5K313V): ephemeral single-instance mutex outside SoT, not entity data. One identity bootstrap row registers the user-profile people roster boundary (XD-1/XD-2). Two GUI decision rows register proposal and judgment transitions through the authenticated daemon IPC write road (dec_01KXDR0A9AR1Z57Q3M1JEDMBVR). One preset-guidance row records create-milestone agent writes beneath the configured repository-relative milestones root."
   },
   "rows": [
     {
@@ -423,6 +423,54 @@
         "packages/kernel/src/store/write-journal-durable.ts:117"
       ],
       "freshness": "append-only-op-id-shard"
+    },
+    {
+      "id": "authority-attribution-event.v2.immutable-store",
+      "sourceInventoryRows": [
+        1
+      ],
+      "road": "A",
+      "bearing": "authority-attribution-audit",
+      "leaseRequired": false,
+      "channel": {
+        "pathClass": "authority-authored-durable",
+        "zoneClass": "parallel-versioned-immutable-attribution-event-trail"
+      },
+      "entry": [
+        "authority-v2-publisher",
+        "authority-v2-recovery",
+        "attribution-union-reader",
+        "ledger-materializer"
+      ],
+      "cliActions": [],
+      "directWrites": [
+        {
+          "file": "packages/kernel/src/store/write-journal-durable.ts"
+        }
+      ],
+      "retentionPaths": [
+        "<authoredRoot>/authority-attribution-events/v2/*.jsonl"
+      ],
+      "backupPaths": [
+        "<authoredRoot>/authority-attribution-events/v2"
+      ],
+      "integrityPaths": [
+        "packages/kernel/src/store/authority-attribution-event-v2-log.ts#scanIntegrity"
+      ],
+      "materializerPaths": [
+        "packages/kernel/src/local/attribution-event-source.ts#readUnionAttributionEvents",
+        "packages/kernel/src/projection/sqlite-attribution-projection.ts#materializeAttributionProjectionFromEvents"
+      ],
+      "recoveryPaths": [
+        "packages/kernel/src/store/authority-attribution-event-v2-recovery.ts#recoverAuthorityAttributionEventV2FromOperationRecord"
+      ],
+      "evidence": [
+        "packages/kernel/src/store/authority-attribution-event-v2-log.ts:49",
+        "packages/kernel/src/store/authority-attribution-event-v2-recovery.ts:27",
+        "packages/kernel/src/local/attribution-event-source.ts:89",
+        "packages/kernel/src/projection/sqlite-attribution-projection.ts:82"
+      ],
+      "freshness": "append-only-workspace-op-canonical-bytes-fsync-read-after-write"
     },
     {
       "id": "task.migration.backfill",

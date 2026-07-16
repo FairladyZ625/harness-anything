@@ -6,6 +6,7 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter } from "../markdown/frontmatter.ts";
 import {
+  attributionEventSourceLayoutIdentity,
   captureAttributionEventSourcePersistentCache,
   decodeUnionAttributionEventBody,
   restoreAttributionEventSourcePersistentCache,
@@ -105,7 +106,7 @@ export function captureProjectionSourceCacheSnapshot(
   }) : previousSnapshot!.files.filter((row) => row.cacheKind === "task");
   const attributionFiles = attribution ? attribution.source.inputs.map((input) => ({
     cacheKind: "attribution" as const,
-    sourcePath: rootRelativePath(layout.rootDir, path.join(layout.attributionEventsRoot, input.relativePath)),
+    sourcePath: input.sourcePath,
     sourceKind: "attribution-event",
     ownerId: input.eventId ?? decodeUnionAttributionEventBody(input.body).eventId,
     statSignature: input.statSignature,
@@ -257,7 +258,7 @@ export function restoreProjectionSourceCacheSnapshot(
     const attributionMetadata = requiredMetadata(metadata, "attribution");
     const taskLayoutIdentity = [layout.rootDir, layout.authoredRoot, layout.tasksRoot, layout.decisionsRoot].join("\0");
     if (taskMetadata.layoutIdentity !== taskLayoutIdentity ||
-        attributionMetadata.layoutIdentity !== layout.attributionEventsRoot) {
+        attributionMetadata.layoutIdentity !== attributionEventSourceLayoutIdentity(rootInput)) {
       return { valid: true, task: "stale", attribution: "stale" };
     }
     const taskFiles = snapshot.files.filter((row) => row.cacheKind === "task");
@@ -296,16 +297,17 @@ export function restoreProjectionSourceCacheSnapshot(
       layoutIdentity: String(attributionMetadata.layoutIdentity),
       source: {
         inputs: attributionFiles.map((row) => ({
-          relativePath: path.relative(layout.attributionEventsRoot, path.resolve(layout.rootDir, row.sourcePath)).split(path.sep).join("/"),
+          relativePath: attributionSourceRelativePath(layout, row.sourcePath),
+          sourcePath: row.sourcePath,
           body: row.body,
           statSignature: row.statSignature,
           contentSha256: row.contentSha256,
           ...(row.ownerId ? { eventId: row.ownerId } : {})
         })),
         hash: stablePayloadHash({
-          schema: "attribution-event-source/v2",
+          schema: "attribution-event-source/v3",
           inputs: attributionFiles.map((row) => ({
-            relativePath: path.relative(layout.attributionEventsRoot, path.resolve(layout.rootDir, row.sourcePath)).split(path.sep).join("/"),
+            relativePath: attributionSourceRelativePath(layout, row.sourcePath),
             contentSha256: row.contentSha256
           }))
         })
@@ -384,6 +386,25 @@ export function updateProjectionSourceCacheSnapshot(
       throw error;
     }
   }));
+}
+
+function attributionSourceRelativePath(
+  layout: ReturnType<typeof resolveHarnessLayout>,
+  sourcePath: string
+): string {
+  const absolutePath = path.resolve(layout.rootDir, sourcePath);
+  const legacyRelative = path.relative(layout.attributionEventsRoot, absolutePath);
+  if (isRegisteredAttributionRootPath(legacyRelative)) return legacyRelative.split(path.sep).join("/");
+  const authorityRelative = path.relative(layout.authorityAttributionEventsV2Root, absolutePath);
+  if (isRegisteredAttributionRootPath(authorityRelative)) return `authority-v2/${authorityRelative.split(path.sep).join("/")}`;
+  throw new Error(`attribution source path is outside registered roots: ${sourcePath}`);
+}
+
+function isRegisteredAttributionRootPath(relativePath: string): boolean {
+  return relativePath.length > 0
+    && relativePath !== ".."
+    && !relativePath.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativePath);
 }
 
 function projectionSourceCacheSnapshot(input: {

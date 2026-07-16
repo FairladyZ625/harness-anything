@@ -21,7 +21,7 @@ import {
   readAttributionProjection
 } from "../../src/projection/sqlite-attribution-projection.ts";
 import { queryTaskProjectionRows } from "../../src/projection/sqlite-projection-store.ts";
-import { rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
+import { readTaskProjection, rebuildTaskProjection } from "../../src/projection/sqlite-task-projection.ts";
 import {
   attributionEventCompleteness,
   canonicalAttributionEventDigestV2,
@@ -29,6 +29,7 @@ import {
   type AttributionEventV2,
   type PhysicalChangeV2
 } from "../../src/schemas/attribution-event-union.ts";
+import { makeLocalAuthorityAttributionEventV2Log } from "../../src/store/authority-attribution-event-v2-log.ts";
 import { withTempStore } from "./helpers.ts";
 
 const digestA = "11".repeat(32);
@@ -94,9 +95,7 @@ test("union event headers and mutation join rebuild identically after SQLite del
       mutation("fact", "fact/task_T/F-1", "create"),
       mutation("relation", "relation/rel_0123456789abcdef", "create")
     ]);
-    const eventsRoot = path.join(rootDir, "harness/attribution-events");
-    mkdirSync(eventsRoot, { recursive: true });
-    writeFileSync(path.join(eventsRoot, "v2.jsonl"), `${JSON.stringify(event)}\n`, "utf8");
+    makeLocalAuthorityAttributionEventV2Log(rootDir).ensure(event);
 
     rebuildTaskProjection({ rootDir });
     const before = readAttributionProjection(rootDir);
@@ -110,6 +109,92 @@ test("union event headers and mutation join rebuild identically after SQLite del
     assert.equal(existsSync(projectionPath), false);
     rebuildTaskProjection({ rootDir });
     assert.deepEqual(readAttributionProjection(rootDir), before);
+  });
+});
+
+test("materializer applies V2-over-V1 precedence even when called with both versions", () => {
+  withTempStore((rootDir) => {
+    const taskId = "task_T";
+    const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), [
+      "---",
+      "schema: task-package/v2",
+      `task_id: ${taskId}`,
+      "title: Materializer precedence",
+      "lifecycle:",
+      "  bindingSchema: lifecycle-binding/v1",
+      "  engine: local",
+      "  status: active",
+      "  ref: ",
+      "  titleSnapshot: Materializer precedence",
+      "  url: ",
+      "  bindingCreatedAt: 2026-07-13T00:00:00.000Z",
+      "  bindingFingerprint: sha256:fixture",
+      "packageDisposition: active",
+      "---",
+      ""
+    ].join("\n"), "utf8");
+    rebuildTaskProjection({ rootDir });
+    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const v2 = v2Event([mutation("fact", "fact/task_T/F-1", "create")]);
+    const v1 = decodeUnionAttributionEventBody(`${JSON.stringify(v1Event({
+      eventId: v2.eventId,
+      opId: v2.opId
+    }))}\n`);
+
+    const rows = materializeAttributionProjectionFromEvents(projectionPath, [v1, v2]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.eventSchemaVersion, 2);
+    const db = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM attribution_events").get() as { count: number }).count), 0);
+      assert.equal(Number((db.prepare("SELECT COUNT(*) AS count FROM attribution_event_headers").get() as { count: number }).count), 1);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+test("incremental materializer replaces a projected V1 shadow when durable V2 appears", () => {
+  withTempStore((rootDir) => {
+    const taskId = "task_T";
+    const taskRoot = path.join(rootDir, "harness/tasks", taskId);
+    const eventsRoot = path.join(rootDir, "harness/attribution-events");
+    mkdirSync(taskRoot, { recursive: true });
+    mkdirSync(eventsRoot, { recursive: true });
+    writeFileSync(path.join(taskRoot, "INDEX.md"), [
+      "---",
+      "schema: task-package/v2",
+      `task_id: ${taskId}`,
+      "title: Incremental precedence",
+      "lifecycle:",
+      "  bindingSchema: lifecycle-binding/v1",
+      "  engine: local",
+      "  status: active",
+      "  ref: ",
+      "  titleSnapshot: Incremental precedence",
+      "  url: ",
+      "  bindingCreatedAt: 2026-07-13T00:00:00.000Z",
+      "  bindingFingerprint: sha256:fixture",
+      "packageDisposition: active",
+      "---",
+      ""
+    ].join("\n"), "utf8");
+    const v2 = v2Event([mutation("fact", "fact/task_T/F-1", "create")]);
+    writeFileSync(path.join(eventsRoot, "legacy-shadow.jsonl"), `${JSON.stringify(v1Event({
+      eventId: v2.eventId,
+      opId: v2.opId
+    }))}\n`, "utf8");
+    rebuildTaskProjection({ rootDir });
+    assert.equal(readAttributionProjection(rootDir)[0]?.eventSchemaVersion, 1);
+
+    makeLocalAuthorityAttributionEventV2Log(rootDir).ensure(v2);
+    readTaskProjection({ rootDir });
+    const rows = readAttributionProjection(rootDir);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.eventSchemaVersion, 2);
+    assert.equal(rows[0]?.opId, v2.opId);
   });
 });
 

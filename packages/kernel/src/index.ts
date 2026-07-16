@@ -138,15 +138,31 @@ export {
   physicalChangeSetDigestV2,
 } from "./schemas/attribution-event-union.ts";
 export type { AttributionEventV2, PhysicalChangeV2 } from "./schemas/attribution-event-union.ts";
+export {
+  AuthorityAttributionEventV2ProtocolDamageError,
+  decodeAuthorityAttributionEventV2Bytes,
+  encodeAuthorityAttributionEventV2Bytes
+} from "./integrity/authority-attribution-event-v2-log.ts";
 export * from "./schemas/task-schema-resolver.ts";
 export {
+  authorityAttributionEventV2FilePath,
+  authorityAttributionEventV2IntegrityReportSchema,
   makeJournaledWriteCoordinator,
+  makeLocalAuthorityAttributionEventV2Log,
   makeOperationalJournaledWriteCoordinator,
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,
   makeMarkdownArtifactStore,
   readContentAddressedTextBlob,
+  recoverAuthorityAttributionEventV2FromOperationRecord,
   writeContentAddressedBlob
+} from "./composition/index.ts";
+export type {
+  AuthorityAttributionEventV2AppendResult,
+  AuthorityAttributionEventV2IntegrityReport,
+  AuthorityAttributionEventV2Log,
+  DurableAuthorityOperationRecordSourceV2,
+  RecoverableAuthorityOperationRecordV2
 } from "./composition/index.ts";
 export { writeCoordinatedPayload, writeCoordinatedTaskDocuments } from "./write-coordination/write-helpers.ts";
 export {
