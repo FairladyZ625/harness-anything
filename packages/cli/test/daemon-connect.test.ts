@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import {
   daemonIdForUserRoot,
@@ -25,7 +26,10 @@ test("daemon endpoint selection uses a named pipe on Windows and a unix socket o
     localUserDaemonEndpoint(userRoot, daemonId, "win32"),
     defaultNamedPipePath(daemonIdForUserRoot(userRoot, daemonId))
   );
-  assert.equal(localUserDaemonEndpoint(userRoot, daemonId, "linux"), localUserDaemonSocketPath(userRoot, daemonId));
+  assert.equal(
+    localUserDaemonEndpoint(userRoot, daemonId, "linux"),
+    localUserDaemonSocketPath(userRoot, daemonId, { platform: "linux" })
+  );
 });
 
 test("daemon client resolves the same Linux per-user runtime socket authority", () => {
@@ -132,7 +136,7 @@ test("after an independently tested sshd witness passes, principal comes from st
     verifySshdContext: () => true
   });
 
-  assert.deepEqual(authentication, { personId: "person_alice", canonicalRoot: "/srv/canonical" });
+  assert.deepEqual(authentication, { personId: "person_alice", canonicalRoot: path.resolve("/srv/canonical") });
 });
 
 test("forced-command principal rejects client-controlled privileged options in the original command", () => {

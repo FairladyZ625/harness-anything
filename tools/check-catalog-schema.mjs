@@ -94,7 +94,7 @@ function validateContractLock() {
     for (const locale of document.locales ?? []) {
       if (typeof locale.bodyPath === "string" && isSafeBodyPath(locale.bodyPath)) {
         const bodyPath = path.join(catalogRoot, locale.bodyPath);
-        if (existsSync(bodyPath)) bodies[locale.bodyPath] = readFileSync(bodyPath, "utf8");
+        if (existsSync(bodyPath)) bodies[locale.bodyPath] = normalizeTextForDigest(readFileSync(bodyPath, "utf8"));
       }
     }
   }
@@ -116,6 +116,10 @@ function validateContractLock() {
   if (JSON.stringify(lock.presets) !== JSON.stringify(expectedPresets)) {
     fail(`${path.relative(root, lockPath)}: preset lock mismatch; keep index order, bump changed preset versions, and refresh digests intentionally`);
   }
+}
+
+function normalizeTextForDigest(value) {
+  return value.replace(/\r\n?/gu, "\n");
 }
 
 function digest(value) {

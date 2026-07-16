@@ -19,7 +19,12 @@ test("catalog contract lock accepts pinned assets and rejects unversioned body d
     assert.equal(clean.status, 0, clean.stderr);
 
     const bodyPath = path.join(root, assetRelative, "templates/task.plan/en-US.md");
-    writeFileSync(bodyPath, `${readFileSync(bodyPath, "utf8")}\nUnversioned drift.\n`, "utf8");
+    const body = readFileSync(bodyPath, "utf8").replace(/\r\n?/gu, "\n");
+    writeFileSync(bodyPath, body.replace(/\n/gu, "\r\n"), "utf8");
+    const windowsCheckout = run(root);
+    assert.equal(windowsCheckout.status, 0, windowsCheckout.stderr);
+
+    writeFileSync(bodyPath, `${readFileSync(bodyPath, "utf8")}\r\nUnversioned drift.\r\n`, "utf8");
     const drifted = run(root);
     assert.equal(drifted.status, 1);
     assert.match(drifted.stderr, /catalog lock mismatch/u);

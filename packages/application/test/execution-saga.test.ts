@@ -312,19 +312,31 @@ test("submit-for-review rejects an Execution without a finalized primary Session
   }
 });
 
-test("submit-for-review changes Execution and Task atomically before releasing the Lease", async () => {
+test("submit-for-review finalizes the Session before changing authored state or releasing the Lease", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-execution-submit-"));
   try {
     const holder = makeTaskHolderService({ rootInput: rootDir });
     const authored = memoryAuthoredStore();
+    let failSessionFinalization = true;
     const saga = makeExecutionSagaService({
       taskHolderService: holder,
       authoredStore: authored,
+      finalizeSession: async () => {
+        if (failSessionFinalization) throw new Error("session materializer conflict");
+      },
       generateExecutionId: () => executionId,
       now: () => "2026-07-11T00:00:00.000Z"
     });
-    const claimed = await saga.claim({ taskId, principal: aliceCodex });
-    authored.failSubmit = true;
+    const claimed = await saga.claim({
+      taskId,
+      principal: aliceCodex,
+      primarySession: {
+        runtime: "codex",
+        sessionId: "conflicting-session",
+        source: "runtime",
+        detectedAt: "2026-07-11T00:00:00.000Z"
+      }
+    });
 
     await assert.rejects(saga.submitForReview({
       taskId,
@@ -339,12 +351,12 @@ test("submit-for-review changes Execution and Task atomically before releasing t
         residualRisks: [],
         evidence: []
       }
-    }), /authored submit failed/u);
+    }), /session materializer conflict/u);
     assert.equal(authored.executions.get(executionId)?.state, "active");
     assert.equal(authored.taskStatus, "active");
     assert.notEqual((await holder.holder({ taskId })).effectiveHolder, null);
 
-    authored.failSubmit = false;
+    failSessionFinalization = false;
     await saga.submitForReview({
       taskId,
       executionId,

@@ -1,5 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   buildLocalStepInvocation,
@@ -10,6 +14,7 @@ import {
   formatStopPointSummary,
   parseLocalCheckArgs
 } from "./run-local-check.mjs";
+import { npmCliInvocation } from "./node-cli-invocation.mjs";
 
 test("parseLocalCheckArgs defaults to the light stop gate", () => {
   assert.deepEqual(parseLocalCheckArgs([]), { full: false });
@@ -55,6 +60,26 @@ test("local steps apply the shared QoS prefix", () => {
     command: "nice",
     args: ["-n", "10", "npm", "run", "typecheck"]
   });
+});
+
+test("Windows npm resolution launches npm-cli.js through Node instead of a command wrapper", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-windows-npm-cli-"));
+  try {
+    const npmCli = path.join(rootDir, "npm-cli.js");
+    writeFileSync(npmCli, "process.stdout.write(process.argv.slice(2).join('|'));\n", "utf8");
+    const invocation = npmCliInvocation(["run", "typecheck"], {
+      env: { npm_execpath: npmCli },
+      execPath: process.execPath
+    });
+    assert.equal(invocation.command, process.execPath);
+    assert.deepEqual(invocation.args, [npmCli, "run", "typecheck"]);
+    const launched = spawnSync(invocation.command, invocation.args, { encoding: "utf8" });
+    assert.equal(launched.error, undefined);
+    assert.equal(launched.status, 0);
+    assert.equal(launched.stdout, "run|typecheck");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("stop-point summary derives completed and omitted gates from the manifest", () => {

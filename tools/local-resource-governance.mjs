@@ -1,6 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  accessSync,
+  constants,
+  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -41,7 +44,7 @@ export function discoverQosPrefix({
   commandExists = binaryExists,
   isCi = Boolean(process.env.CI)
 } = {}) {
-  if (isCi) return [];
+  if (isCi || platform === "win32") return [];
   return selectQosPrefix({
     platform,
     hasTaskpolicy: platform === "darwin" && commandExists("taskpolicy"),
@@ -279,8 +282,20 @@ function defaultProcessAlive(pid) {
 }
 
 function binaryExists(name) {
-  const result = spawnSync("/bin/sh", ["-c", `command -v ${name}`], { stdio: "ignore" });
-  return result.status === 0;
+  const pathEntries = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
+    : [""];
+  return pathEntries.some((entry) => extensions.some((extension) => {
+    const candidate = path.join(entry, `${name}${extension}`);
+    if (!existsSync(candidate)) return false;
+    try {
+      accessSync(candidate, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }));
 }
 
 function defaultSleep(ms) {

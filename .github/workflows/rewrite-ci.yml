@@ -302,6 +302,32 @@ jobs:
       - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job node26-compatibility --exclude mergify-queue-metadata-edit-noop
 
+  windows-local-check:
+    if: github.event_name == 'pull_request'
+    needs: metadata-source-proof
+    runs-on: windows-latest
+    steps:
+      - name: Reuse same-SHA source validation
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source == 'true' }}
+        run: echo "Reusing successful source validation for the same head SHA."
+      - uses: actions/checkout@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        with:
+          node-version: 24
+          cache: npm
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: npm ci
+      - if: ${{ needs.metadata-source-proof.outputs.reuse_source != 'true' }}
+        run: npm run check:local
+        env:
+          # Exercise the native developer stop-point instead of letting the
+          # runner's ambient CI=true upgrade this smoke into check:ci.
+          CI: "false"
+
   source-validation-proof:
     if: github.event_name == 'pull_request' && needs.metadata-source-proof.outputs.reuse_source != 'true'
     needs:
@@ -315,6 +341,7 @@ jobs:
       - supply-chain
       - gui-build
       - node26-compatibility
+      - windows-local-check
     permissions:
       statuses: write
     runs-on: ubuntu-latest

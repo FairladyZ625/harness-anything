@@ -44,6 +44,11 @@ test("QoS selection prefers taskpolicy on darwin and otherwise falls back to nic
   assert.deepEqual(selectQosPrefix({ platform: "darwin", hasTaskpolicy: false, hasNice: false }), []);
   assert.deepEqual(discoverQosPrefix({ platform: "darwin", commandExists: (name) => name === "taskpolicy", isCi: false }), ["taskpolicy", "-c", "utility"]);
   assert.deepEqual(discoverQosPrefix({ platform: "darwin", commandExists: () => true, isCi: true }), []);
+  assert.deepEqual(discoverQosPrefix({
+    platform: "win32",
+    commandExists: () => { throw new Error("Windows must not probe POSIX commands"); },
+    isCi: false
+  }), []);
   assert.deepEqual(prefixCommand(["nice", "-n", "10"], "node", ["test.mjs"]), {
     command: "nice",
     args: ["-n", "10", "node", "test.mjs"]

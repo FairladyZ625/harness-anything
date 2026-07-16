@@ -1,7 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { selectLocalGateChecks } from "./run-local-gates-check.mjs";
+import { selectLocalGateChecks, staticCheckerInvocation } from "./run-local-gates-check.mjs";
 
 test("local gates check derives PR-required static checkers from the manifest", () => {
   const plan = selectLocalGateChecks(makeManifest(), {
@@ -13,7 +17,23 @@ test("local gates check derives PR-required static checkers from the manifest", 
 
   assert.deepEqual(plan.map((entry) => entry.id), ["check-alpha", "scan-beta"]);
   assert.equal(plan[0].scriptCommand, "node tools/check-alpha.mjs");
+  assert.deepEqual(plan[0].invocation, { command: process.execPath, args: ["tools/check-alpha.mjs"] });
   assert.deepEqual(plan[1].workflowJobs, ["supply-chain"]);
+});
+
+test("static gate child launch uses explicit Node argv without a POSIX shell", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-static-gate-launch-"));
+  try {
+    mkdirSync(path.join(rootDir, "tools"));
+    writeFileSync(path.join(rootDir, "tools", "check-windows.mjs"), "process.stdout.write('windows-safe');\n", "utf8");
+    const invocation = staticCheckerInvocation("node tools/check-windows.mjs");
+    const launched = spawnSync(invocation.command, invocation.args, { cwd: rootDir, encoding: "utf8" });
+    assert.equal(launched.error, undefined);
+    assert.equal(launched.status, 0);
+    assert.equal(launched.stdout, "windows-safe");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("local gates check rejects manifest static checker gates with missing package scripts", () => {

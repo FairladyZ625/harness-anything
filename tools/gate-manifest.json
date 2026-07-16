@@ -211,7 +211,8 @@
       ],
       "helperJobsNotRegisteredAsGates": [
         "metadata-source-proof",
-        "source-validation-proof"
+        "source-validation-proof",
+        "windows-local-check"
       ],
       "nonPullRequestGateJobs": [
         "full-check"

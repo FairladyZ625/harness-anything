@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { npmCliInvocation } from "./node-cli-invocation.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const manifestPath = path.join(repoRoot, "tools/gate-manifest.json");
@@ -168,22 +169,53 @@ function readManifest() {
   return JSON.parse(readFileSync(manifestPath, "utf8"));
 }
 
+export function manifestGateCommandInvocations(command, options = {}) {
+  return splitShellAndList(command).map((part) => {
+    const echoMatch = /^echo "([^"\r\n]*)"$/u.exec(part);
+    if (echoMatch) {
+      return {
+        command: options.execPath ?? process.execPath,
+        args: ["-e", "console.log(process.argv[1])", echoMatch[1]]
+      };
+    }
+    const tokens = part.split(/\s+/u);
+    if (tokens[0] === "npm" && tokens[1] === "run" && tokens.length >= 3) {
+      return npmCliInvocation(tokens.slice(1), options);
+    }
+    if (tokens[0] === "node" && /^tools\/[\w./-]+\.mjs$/u.test(tokens[1] ?? "")) {
+      return {
+        command: options.execPath ?? process.execPath,
+        args: [tokens[1], ...tokens.slice(2)]
+      };
+    }
+    throw new Error(`unsupported manifest gate command without a shell: ${part}`);
+  });
+}
+
 function runCommand(label, command) {
   console.log(`\n▶ ${label}  (${command})`);
   const started = Date.now();
-  const result = spawnSync(command, {
-    cwd: repoRoot,
-    env: process.env,
-    shell: "/bin/sh",
-    stdio: "inherit"
-  });
+  let result;
+  try {
+    for (const invocation of manifestGateCommandInvocations(command)) {
+      result = spawnSync(invocation.command, invocation.args, {
+        cwd: repoRoot,
+        env: process.env,
+        stdio: "inherit"
+      });
+      if (result.error || result.status !== 0) break;
+    }
+  } catch (error) {
+    console.error(`✖ ${label} failed to launch: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
   const elapsedS = ((Date.now() - started) / 1000).toFixed(1);
-  if (result.error) {
+  if (result?.error) {
     console.error(`✖ ${label} failed to launch: ${result.error.message}`);
     return false;
   }
-  if (result.status !== 0) {
-    console.error(`✖ ${label} failed (exit ${result.status ?? "signal"}) after ${elapsedS}s`);
+  if (result?.status !== 0) {
+    console.error(`✖ ${label} failed (exit ${result?.status ?? "signal"}) after ${elapsedS}s`);
     return false;
   }
   console.log(`✓ ${label} (${elapsedS}s)`);

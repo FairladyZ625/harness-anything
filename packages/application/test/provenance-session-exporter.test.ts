@@ -183,7 +183,8 @@ test("provenance session exporter accepts an explicit runtime transcript file", 
     const body = readSessionEntity(rootDir, exported.session.sessionId).body;
     assert.match(body, /Export this Desktop transcript explicitly\./u);
     assert.match(body, /The explicit transcript was archived\./u);
-    assert.match(body, new RegExp(`Runtime log: ${transcriptFile.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
+    const displayedTranscriptFile = transcriptFile.replace(/\\/gu, "/");
+    assert.match(body, new RegExp(`Runtime log: ${displayedTranscriptFile.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

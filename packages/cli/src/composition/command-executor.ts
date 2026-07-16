@@ -9,6 +9,7 @@ import {
   makeRuntimeEventLedgerService,
   makeRuntimeEventAppendPromise,
   makeTaskHolderService,
+  type ProvenanceSessionExporterRejected,
   type ProvenanceSessionExportResult,
   type TaskHolderPrincipal
 } from "../../../application/src/index.ts";
@@ -36,6 +37,7 @@ export interface ParsedCommandExecutionOptions {
   readonly missingActorAttributionMessage?: string;
   readonly requireProvidedActorAttribution?: boolean;
   readonly currentSession?: CurrentSessionRef;
+  readonly syncExportedSession?: (result: ProvenanceSessionExportResult) => Effect.Effect<void, ProvenanceSessionExporterRejected>;
 }
 
 export async function runRegisteredCommandWithCliComposition(
@@ -73,7 +75,7 @@ export async function runRegisteredCommandWithCliComposition(
     }
     return sessionBranchId;
   };
-  const syncExportedSession = (_result: ProvenanceSessionExportResult): Effect.Effect<void, never> => Effect.void;
+  const syncExportedSession = options.syncExportedSession ?? ((_result: ProvenanceSessionExportResult) => Effect.void);
   let actorAttributionResolved = false;
   let actorAttribution: CliActorAttribution | undefined;
   let actorAttributionError: CliActorAttributionError | undefined;

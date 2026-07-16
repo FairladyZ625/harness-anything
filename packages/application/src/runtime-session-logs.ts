@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import type { CurrentSessionRef, CurrentSessionRuntime } from "../../kernel/src/index.ts";
@@ -134,7 +135,7 @@ async function findFirstRuntimeLog(
   return undefined;
 }
 
-function defaultRuntimeLogRoots(runtime: CurrentSessionRuntime, homeDir = process.env.HOME): ReadonlyArray<string> {
+function defaultRuntimeLogRoots(runtime: CurrentSessionRuntime, homeDir = os.homedir()): ReadonlyArray<string> {
   if (!homeDir) return [];
   if (runtime === "claude-code") return [path.join(homeDir, ".claude", "projects")];
   if (runtime === "codex") {
@@ -452,7 +453,7 @@ function readArray(record: JsonObject, key: string): ReadonlyArray<unknown> {
 }
 
 export function displayRuntimePath(logPath: string): string {
-  const homeDir = process.env.HOME;
+  const homeDir = os.homedir();
   if (homeDir && logPath.startsWith(`${homeDir}${path.sep}`)) {
     return `~/${path.relative(homeDir, logPath).split(path.sep).join("/")}`;
   }

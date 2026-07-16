@@ -17,7 +17,7 @@ const manifestPath = path.join(repoRoot, "tools/gate-manifest.json");
 const packageJsonPath = path.join(repoRoot, "package.json");
 
 const npmHarnessScriptPattern = /^npm run (harness:[^\s&|;]+)$/u;
-const staticCheckerCommandPattern = /^node tools\/(?:check|scan)-[^&|;]+\.mjs(?:\s|$)/u;
+const staticCheckerCommandPattern = /^node (tools\/(?:check|scan)-[^&|;\s]+\.mjs)$/u;
 // These entries are manifest-vetted sub-second scans, never tests or builds.
 // A bounded batch keeps their combined wall time below the local-stop budget.
 const STATIC_GATE_CONCURRENCY = 8;
@@ -65,6 +65,7 @@ export function selectLocalGateChecks(manifest, packageScripts) {
       command: gate.command,
       scriptName,
       scriptCommand,
+      invocation: staticCheckerInvocation(scriptCommand),
       workflowJobs: jobs
     });
   }
@@ -73,6 +74,12 @@ export function selectLocalGateChecks(manifest, packageScripts) {
     throw new Error("manifest yielded no PR-required static checker gates");
   }
   return selected;
+}
+
+export function staticCheckerInvocation(scriptCommand, execPath = process.execPath) {
+  const match = staticCheckerCommandPattern.exec(scriptCommand);
+  if (!match) throw new Error(`not a static checker command: ${scriptCommand}`);
+  return { command: execPath, args: [match[1]] };
 }
 
 function parseHarnessScriptName(command) {
@@ -86,10 +93,9 @@ function readJson(filePath) {
 
 function runCommand(entry) {
   const started = Date.now();
-  const child = spawn(entry.scriptCommand, {
+  const child = spawn(entry.invocation.command, entry.invocation.args, {
     cwd: repoRoot,
     env: process.env,
-    shell: "/bin/sh",
     stdio: ["ignore", "pipe", "pipe"]
   });
   let stdout = "";

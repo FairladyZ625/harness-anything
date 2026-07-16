@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import { resolveLocalCliActorAttribution } from "../src/composition/local-principal.ts";
-import { createCliCommandService } from "../src/daemon/command-service.ts";
+import { createCliCommandService, materializeExportedSession } from "../src/daemon/command-service.ts";
 import type { CliDaemonRuntime } from "../src/daemon/queued-write-coordinator.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
@@ -200,6 +200,44 @@ test("daemon command service rejects malformed caller sessions and always settle
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("daemon Session synchronization fails closed when the target branch conflicts", async () => {
+  const runtime: CliDaemonRuntime = {
+    enqueueInteractiveWrite: async () => ({ flush: { reason: "explicit", opCount: 0, committed: true } }),
+    enqueueMaterializerBatch: async () => ({
+      dryRun: false,
+      merged: 0,
+      considered: 1,
+      branches: [{
+        branch: "sessions/conflicting-session",
+        commitCount: 1,
+        status: "conflict",
+        commits: ["abc123"],
+        warning: "session merge conflict"
+      }],
+      warnings: ["session merge conflict"],
+      projectionRebuilt: false,
+      attributionEventsProjected: 0
+    }),
+    status: () => ({})
+  };
+
+  await assert.rejects(materializeExportedSession(runtime, {
+    session: {
+      schema: "provenance-session/v1",
+      sessionId: "conflicting-session",
+      runtime: "codex",
+      source: "runtime",
+      detectedAt: "2026-07-15T00:00:00.000Z",
+      exportedAt: "2026-07-15T00:01:00.000Z"
+    },
+    path: "sessions/conflicting-session.md"
+  }), (error) => {
+    assert.equal((error as { readonly code?: unknown }).code, "write_failed");
+    assert.match(String((error as { readonly reason?: unknown }).reason), /session merge conflict/u);
+    return true;
+  });
 });
 
 test("local resolver combines configured principal and asserted executor once", () => {

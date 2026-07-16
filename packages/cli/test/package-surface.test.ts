@@ -267,9 +267,10 @@ test("architecture contracts are single-authority, portable, and route the scaff
     .map((document) => {
       const bodyPath = document.locales.find((locale) => locale.locale === "en-US")?.bodyPath;
       assert.notEqual(bodyPath, undefined, `${document.id} must have an en-US provider body`);
+      const providerBody = readFileSync(path.join(assetRoot, bodyPath!), "utf8").replace(/\r\n?/gu, "\n");
       return {
         materializeAs: document.materializeAs,
-        sha256: createHash("sha256").update(readFileSync(path.join(assetRoot, bodyPath!), "utf8")).digest("hex")
+        sha256: createHash("sha256").update(providerBody).digest("hex")
       };
     })
     .sort((left, right) => left.materializeAs.localeCompare(right.materializeAs));

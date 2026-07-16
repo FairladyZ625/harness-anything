@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { collectGuiVitestFiles, validateGuiVitestManifest } from "./gui-test-runner-lib.mjs";
 import { guiVitestManifest } from "./gui-test-manifest.mjs";
 import { createHermeticTestEnvironment } from "./test-process-environment.mjs";
+import { npmCliInvocation } from "./node-cli-invocation.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -38,15 +38,9 @@ if (guiVitestManifest.length === 0) {
   process.exit(0);
 }
 
-const npmCli = resolveNpmCli();
+const npmInvocation = npmCliInvocation(["run", "test:gui", "-w", "@harness-anything/gui"]);
 const testEnvironment = createHermeticTestEnvironment();
-const child = npmCli
-  ? spawn(process.execPath, [npmCli, "run", "test:gui", "-w", "@harness-anything/gui"], {
-    cwd: repoRoot,
-    stdio: "inherit",
-    env: testEnvironment.env
-  })
-  : spawn("npm", ["run", "test:gui", "-w", "@harness-anything/gui"], {
+const child = spawn(npmInvocation.command, npmInvocation.args, {
   cwd: repoRoot,
   stdio: "inherit",
   env: testEnvironment.env
@@ -66,11 +60,3 @@ child.on("close", (code, signal) => {
   }
   process.exit(code ?? 1);
 });
-
-function resolveNpmCli() {
-  if (process.env.npm_execpath && existsSync(process.env.npm_execpath)) {
-    return process.env.npm_execpath;
-  }
-  const candidate = resolve(process.execPath, "..", "node_modules", "npm", "bin", "npm-cli.js");
-  return existsSync(candidate) ? candidate : undefined;
-}

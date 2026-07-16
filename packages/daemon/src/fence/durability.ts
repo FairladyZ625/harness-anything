@@ -150,6 +150,7 @@ async function appendDurabilityRecord(
   } finally {
     await handle.close();
   }
+  if (process.platform === "win32") return;
   const directoryHandle = await open(directory, "r");
   try {
     await directoryHandle.sync();

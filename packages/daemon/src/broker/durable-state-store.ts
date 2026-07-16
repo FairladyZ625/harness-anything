@@ -125,6 +125,7 @@ export async function atomicWrite(destination: string, bytes: Uint8Array): Promi
 }
 
 export async function syncDirectory(directory: string): Promise<void> {
+  if (process.platform === "win32") return;
   const handle = await open(directory, "r");
   try {
     await handle.sync();
@@ -132,4 +133,3 @@ export async function syncDirectory(directory: string): Promise<void> {
     await handle.close();
   }
 }
-

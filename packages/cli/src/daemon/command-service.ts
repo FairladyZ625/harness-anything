@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { commandClassForCliActionKind, type AuthenticatedActor, type JsonObject } from "../../../daemon/src/index.ts";
-import { makeHumanFallbackSessionProbe, type TaskHolderExecutor } from "../../../application/src/index.ts";
+import { makeHumanFallbackSessionProbe, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
 import type { CurrentSessionRef, WriteCoordinator } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
 import { toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "../cli/receipt.ts";
@@ -41,6 +41,7 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
             missingActorAttributionMessage: "Daemon writes require a per-request authenticated actor from harness/people.yaml."
           }),
           ...(currentSession ? { currentSession } : {}),
+          syncExportedSession: (exported) => materializeExportedSessionEffect(runtime, exported),
           makeWriteCoordinator: (actor) => attribution
             ? makeDaemonQueuedWriteCoordinator(
               runtime,
@@ -91,6 +92,49 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
       }
     }
   };
+}
+
+export function materializeExportedSession(
+  runtime: CliDaemonRuntime,
+  exported: ProvenanceSessionExportResult
+): Promise<void> {
+  const sessionId = exported.session.sessionId;
+  return (async () => {
+    try {
+      const report = await runtime.enqueueMaterializerBatch({ sessionId });
+      const target = report.branches.find((branch) => branch.branch === `sessions/${sessionId}`);
+      if (!target || target.commitCount === 0 || target.status === "merged") return;
+      throw new Error(target.warning ?? `materializer left sessions/${sessionId} in ${target.status} state`);
+    } catch (error) {
+      throw sessionMaterializationRejection(sessionId, error);
+    }
+  })();
+}
+
+function materializeExportedSessionEffect(
+  runtime: CliDaemonRuntime,
+  exported: ProvenanceSessionExportResult
+): Effect.Effect<void, ProvenanceSessionExporterRejected> {
+  return Effect.tryPromise({
+    try: () => materializeExportedSession(runtime, exported),
+    catch: (error) => isSessionMaterializationRejection(error)
+      ? error
+      : sessionMaterializationRejection(exported.session.sessionId, error)
+  });
+}
+
+function sessionMaterializationRejection(sessionId: string, error: unknown): ProvenanceSessionExporterRejected {
+  return {
+    _tag: "ProvenanceSessionExporterRejected",
+    sessionId,
+    code: "write_failed",
+    reason: error instanceof Error ? error.message : String(error)
+  };
+}
+
+function isSessionMaterializationRejection(error: unknown): error is ProvenanceSessionExporterRejected {
+  return typeof error === "object" && error !== null && "_tag" in error
+    && (error as { readonly _tag?: unknown })._tag === "ProvenanceSessionExporterRejected";
 }
 
 async function withSessionMaterialization(

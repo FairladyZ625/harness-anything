@@ -18,6 +18,7 @@ import {
   withLocalHeavySlot
 } from "./local-resource-governance.mjs";
 import { clearIncrementalArtifacts } from "./clear-incremental-artifacts.mjs";
+import { localNodeCliInvocation, npmCliInvocation } from "./node-cli-invocation.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const LINTABLE_EXTENSION = /\.(?:c|m)?js$|\.tsx?$/u;
@@ -71,10 +72,17 @@ export function deriveAffectedTestPrefixes(changedFiles) {
 }
 
 export function buildSteps(full, changedFiles = []) {
-  const steps = [["incremental typecheck", "npm", ["run", "typecheck"]]];
+  const npmStep = (label, args) => {
+    const invocation = npmCliInvocation(args);
+    return [label, invocation.command, invocation.args];
+  };
+  const steps = [npmStep("incremental typecheck", ["run", "typecheck"])];
   steps.push(["manifest local stop gates", process.execPath, ["tools/run-local-gates-check.mjs"]]);
   const lintFiles = changedFiles.filter((file) => LINTABLE_EXTENSION.test(file) && existsSync(path.join(repoRoot, file)));
-  if (lintFiles.length > 0) steps.push(["changed-file lint", "npx", ["--no-install", "eslint", ...lintFiles]]);
+  if (lintFiles.length > 0) {
+    const invocation = localNodeCliInvocation(repoRoot, "node_modules/eslint/bin/eslint.js", lintFiles);
+    steps.push(["changed-file lint", invocation.command, invocation.args]);
+  }
 
   const prefixes = deriveAffectedTestPrefixes(changedFiles);
   if (prefixes.length > 0) {
@@ -82,13 +90,13 @@ export function buildSteps(full, changedFiles = []) {
     steps.push(["affected fast tests", process.execPath, ["tools/run-node-tests.mjs", "--tier", "fast", ...prefixArgs]]);
     steps.push(["affected contract tests", process.execPath, ["tools/run-node-tests.mjs", "--tier", "contract", ...prefixArgs]]);
     if (prefixes.includes("packages/") || prefixes.includes("packages/gui/")) {
-      steps.push(["affected GUI tests", "npm", ["run", "test:gui"]]);
+      steps.push(npmStep("affected GUI tests", ["run", "test:gui"]));
     }
   }
 
   if (full) {
-    steps.push(["integration tests", "npm", ["run", "test:integration"]]);
-    steps.push(["GUI E2E", "npm", ["run", "test:gui:e2e"]]);
+    steps.push(npmStep("integration tests", ["run", "test:integration"]));
+    steps.push(npmStep("GUI E2E", ["run", "test:gui:e2e"]));
   }
   return steps;
 }
