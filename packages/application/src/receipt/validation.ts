@@ -5,6 +5,10 @@ import {
   type ImmutableReceiptAcknowledgement,
   type OriginResolution
 } from "./types.ts";
+import {
+  isCompleteAuthorityCommittedReceiptV2,
+  type AuthorityCommittedReceipt
+} from "../authority/index.ts";
 import { isRecord } from "../record.ts";
 
 const authorityTags = ["COMMITTED", "REJECTED", "RETRYABLE_NOT_COMMITTED", "INDETERMINATE"] as const;
@@ -28,6 +32,8 @@ export function isCompoundOperationReceipt(value: unknown): value is CompoundOpe
   if (origin !== undefined && !validOrigin(origin, value)) return false;
   if (acknowledgement !== undefined && !validAcknowledgement(acknowledgement, value)) return false;
   if (value.terminalLSN !== undefined && !nonNegativeInteger(value.terminalLSN)) return false;
+  if ((value.delivery === "RESULT_PREPARED" || value.delivery === "ACK_COMMITTED")
+    && !completeAuthority(authority)) return false;
 
   if (value.phase === "PENDING") return origin === undefined && acknowledgement === undefined && value.delivery !== "ACK_COMMITTED";
   if (!isRecord(authority) || authority.tag !== "COMMITTED") return false;
@@ -70,8 +76,19 @@ function validAcknowledgement(
     || acknowledgement.viewId !== receipt.viewId
     || acknowledgement.workspaceId !== receipt.workspaceId
     || acknowledgement.opId !== receipt.opId
-    || acknowledgement.waiterId !== receipt.waiterId) return false;
+    || acknowledgement.waiterId !== receipt.waiterId
+    || !completeAuthority(receipt.authority)
+    || acknowledgement.canonicalEventDigest !== receipt.authority.integrityTuple.canonicalEventDigest) return false;
   return ["epoch", "revision", "cutJournalLSN", "terminalLSN"].every((field) => nonNegativeInteger(acknowledgement[field]));
+}
+
+function completeAuthority(value: unknown): value is AuthorityCommittedReceipt & {
+  readonly authorityIntegrity: NonNullable<AuthorityCommittedReceipt["authorityIntegrity"]>;
+  readonly integrityTuple: NonNullable<AuthorityCommittedReceipt["integrityTuple"]>;
+} {
+  return isRecord(value)
+    && value.tag === "COMMITTED"
+    && isCompleteAuthorityCommittedReceiptV2(value as unknown as AuthorityCommittedReceipt);
 }
 
 function requiredStrings(value: Record<string, unknown>, fields: ReadonlyArray<string>): boolean {
@@ -85,4 +102,3 @@ function nonNegativeInteger(value: unknown): value is number {
 function includes<const Values extends readonly string[]>(values: Values, value: unknown): value is Values[number] {
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
-

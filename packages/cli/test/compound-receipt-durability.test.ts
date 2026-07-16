@@ -117,7 +117,7 @@ async function advanceTo(directory: string, phase: CompoundReceiptPhase): Promis
     epoch: 1,
     revision: 3,
     commitSha: "commit-3",
-    canonicalEventDigest: "sha256:event",
+    canonicalEventDigest: "44".repeat(32),
     affectedDigest: "sha256:affected",
     cutId: "cut-crash",
     cutKind: "WRITE_EXCLUDED",
@@ -136,6 +136,21 @@ function committedReceipt(): AuthorityCommittedReceipt {
     semanticDigest: "sha256:request",
     revision: 3,
     commitSha: "commit-3",
-    previousCommit: "commit-2"
+    previousCommit: "commit-2",
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "sha256:request",
+      semanticMutationSetDigest: "22".repeat(32),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "33".repeat(32),
+      canonicalMutationSet: { registryVersion: 1, mutations: [] }
+    },
+    integrityTuple: {
+      schema: "authority-integrity-tuple/v2",
+      canonicalEventDigest: "44".repeat(32),
+      changeSetDigest: "55".repeat(32),
+      semanticMutationSetDigest: "22".repeat(32),
+      actorAxesBindingDigest: "33".repeat(32)
+    }
   };
 }

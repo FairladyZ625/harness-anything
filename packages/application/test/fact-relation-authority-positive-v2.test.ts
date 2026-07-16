@@ -50,7 +50,8 @@ test("typed fact-create and relation-create publish hosted bytes with one cross-
     const tokenDigest = actorAxesBindingTokenDigestV2(token);
     const bases = new Map<string, { readonly semanticVersion: string | null; readonly stateDigest: Uint8Array | null }>();
     const changeLog = createInMemoryReplicaChangeLog();
-    const service = authority(rootDir, env, claims, secret, tokenDigest, changeLog, bases);
+    let failEventPublication = false;
+    const service = authority(rootDir, env, claims, secret, tokenDigest, changeLog, bases, () => failEventPublication);
     const factRef = ref("fact", "fact/task_T/F-DEADBEEF");
     const factSet: SemanticMutationSetV2 = {
       registryVersion: 1,
@@ -106,6 +107,10 @@ test("typed fact-create and relation-create publish hosted bytes with one cross-
     for (const [receipt, mutationSet] of [[factReceipt, factSet], [relationReceipt, relationSet]] as const) {
       const digest = Buffer.from(semanticMutationSetDigestV2(mutationSet)).toString("hex");
       assert.equal(receipt.authorityIntegrity?.semanticMutationSetDigest, digest);
+      assert.equal(receipt.integrityTuple?.semanticMutationSetDigest, digest);
+      assert.equal(receipt.integrityTuple?.actorAxesBindingDigest, receipt.authorityIntegrity?.actorAxesBindingDigest);
+      assert.match(receipt.integrityTuple?.changeSetDigest ?? "", /^[a-f0-9]{64}$/u);
+      assert.match(receipt.integrityTuple?.canonicalEventDigest ?? "", /^[a-f0-9]{64}$/u);
       assert.equal(events.find((event) => event.opId === receipt.opId)?.schema, "attribution-event/v1");
       assert.equal(events.find((event) => event.opId === receipt.opId)?.authorityIntegrity?.semanticMutationSetDigest, digest);
       assert.equal(changes.find((change) => change.opId === receipt.opId)?.authorityIntegrity?.semanticMutationSetDigest, digest);
@@ -128,6 +133,27 @@ test("typed fact-create and relation-create publish hosted bytes with one cross-
     assert.equal(rows[0]?.actor.executor?.id, claims.executorAgentId);
     assert.equal(rows[0]?.digestStatus.semanticMutationSet, "verified");
     assert.equal(rows[0]?.digestStatus.actorAxesBinding, "verified");
+
+    failEventPublication = true;
+    const unpublishedFactRef = ref("fact", "fact/task_T/F-ABCD1234");
+    const unpublishedSet: SemanticMutationSetV2 = {
+      registryVersion: 1,
+      mutations: [{ entity: unpublishedFactRef, action: { registryVersion: 1, action: "create" } }]
+    };
+    const unpublishedEnvelope = bindEnvelope(
+      requestEnvelope(3, factCreatePayload("F-ABCD1234"), [absent(unpublishedFactRef)], unpublishedSet),
+      claims,
+      tokenDigest
+    );
+    const unpublishedReceipt = await service.submitV2!({
+      requestId: "event-store-unavailable",
+      presentationToken: token,
+      envelope: encodeSemanticMutationEnvelopeV2(unpublishedEnvelope)
+    });
+    assert.equal(unpublishedReceipt.tag, "INDETERMINATE", JSON.stringify(unpublishedReceipt));
+    assert.match(unpublishedReceipt.tag === "INDETERMINATE" ? unpublishedReceipt.reason : "", /V2_EVENT_PUBLICATION_FAILED/u);
+    assert.equal(unpublishedReceipt.tag === "INDETERMINATE" && typeof unpublishedReceipt.commitSha === "string", true);
+    assert.equal("integrityTuple" in unpublishedReceipt, false);
   });
 });
 
@@ -138,7 +164,8 @@ function authority(
   secret: Uint8Array,
   tokenDigest: Uint8Array,
   changeLog: ReplicaChangeLog,
-  bases: Map<string, { readonly semanticVersion: string | null; readonly stateDigest: Uint8Array | null }>
+  bases: Map<string, { readonly semanticVersion: string | null; readonly stateDigest: Uint8Array | null }>,
+  failEventPublication: () => boolean
 ) {
   return createAuthoritySubmissionService({
     workspaceId: claims.workspaceId,
@@ -198,7 +225,17 @@ function authority(
           readHostedDocument: async () => null
         }
       }),
-      operationNamespaceVerifier: { verify: async () => undefined }
+      operationNamespaceVerifier: { verify: async () => undefined },
+      committedEventPublisher: {
+        publish: async (input) => {
+          if (failEventPublication()) throw new Error("durable V2 event store unavailable");
+          return materializeCommittedAttributionEventV2({
+            ...input,
+            physicalChanges: [{ path: `authority/${input.receipt.opId}`, beforeDigest: null, afterDigest: "55".repeat(32) }],
+            recordedAt: input.occurredAt
+          });
+        }
+      }
     }
   });
 }
@@ -264,11 +301,11 @@ function finalize(envelope: SemanticMutationEnvelopeV2): SemanticMutationEnvelop
   return { ...envelope, claimedSemanticRequestDigest: semanticRequestDigestV2(envelope) };
 }
 
-function factCreatePayload(): FactRelationCommandPayloadV2 {
+function factCreatePayload(factId = "F-DEADBEEF"): FactRelationCommandPayloadV2 {
   return {
     schema: "fact.create/v1",
     ownerTaskId: "task_T",
-    factId: "F-DEADBEEF",
+    factId,
     statement: "Authority writes a hosted fact.",
     source: "W2 positive control",
     observedAt: "2026-07-13T00:00:00.000Z",

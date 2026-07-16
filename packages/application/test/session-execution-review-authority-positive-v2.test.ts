@@ -142,6 +142,10 @@ test("all W4 actions publish exact refs through one composite/hosted op with cro
     for (const { receipt, mutationSet, action } of receipts) {
       const digest = Buffer.from(semanticMutationSetDigestV2(mutationSet)).toString("hex");
       assert.equal(receipt.authorityIntegrity?.semanticMutationSetDigest, digest);
+      assert.equal(receipt.integrityTuple?.semanticMutationSetDigest, digest);
+      assert.equal(receipt.integrityTuple?.actorAxesBindingDigest, receipt.authorityIntegrity?.actorAxesBindingDigest);
+      assert.match(receipt.integrityTuple?.changeSetDigest ?? "", /^[a-f0-9]{64}$/u);
+      assert.match(receipt.integrityTuple?.canonicalEventDigest ?? "", /^[a-f0-9]{64}$/u);
       assert.equal(events.find((event) => event.opId === receipt.opId)?.authorityIntegrity?.semanticMutationSetDigest, digest);
       assert.equal(changes.find((change) => change.opId === receipt.opId)?.authorityIntegrity?.semanticMutationSetDigest, digest);
       const projected = projection.find((row) => row.opId === receipt.opId);
@@ -207,7 +211,14 @@ function authority(
       },
       entityRegistrations: [entityRegistry.session, entityRegistry.execution, entityRegistry.review],
       semanticCompiler,
-      operationNamespaceVerifier: { verify: async () => undefined }
+      operationNamespaceVerifier: { verify: async () => undefined },
+      committedEventPublisher: {
+        publish: async (input) => materializeCommittedAttributionEventV2({
+          ...input,
+          physicalChanges: [{ path: `authority/${input.receipt.opId}`, beforeDigest: null, afterDigest: "55".repeat(32) }],
+          recordedAt: input.occurredAt
+        })
+      }
     }
   });
 }

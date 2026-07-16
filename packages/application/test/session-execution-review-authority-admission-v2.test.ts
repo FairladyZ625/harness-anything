@@ -100,7 +100,8 @@ test("six W4 negative controls reject before PREPARED, enqueue, or token consump
       },
       entityRegistrations: [entityRegistry.session, entityRegistry.execution, entityRegistry.review],
       semanticCompiler,
-      operationNamespaceVerifier: { verify: async () => undefined }
+      operationNamespaceVerifier: { verify: async () => undefined },
+      committedEventPublisher: { publish: async () => { throw new Error("negative control must not publish an event"); } }
     }
   });
   const omission: SemanticMutationSetV2 = { registryVersion: 1, mutations: [] };

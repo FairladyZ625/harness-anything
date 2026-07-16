@@ -1,4 +1,7 @@
-import type { AuthorityOperationReceipt } from "../authority/index.ts";
+import {
+  isCompleteAuthorityCommittedReceiptV2,
+  type AuthorityOperationReceipt
+} from "../authority/index.ts";
 import {
   CompoundReceiptTransitionError,
   compoundReceiptSchema,
@@ -92,9 +95,12 @@ function originTransition(current: CompoundOperationReceipt, origin: OriginResol
 }
 
 function prepareResultTransition(current: CompoundOperationReceipt): CompoundOperationReceipt {
-  if (current.delivery === "RESULT_PREPARED") return current;
+  if (current.delivery === "RESULT_PREPARED" || current.delivery === "PROTOCOL_DAMAGED") return current;
   if (current.delivery !== "PENDING" || current.phase !== "APPLIED_EXACT_AT_CUT") {
     throw invalid(current, "RESULT_PREPARED requires APPLIED_EXACT_AT_CUT and a live delivery");
+  }
+  if (current.authority?.tag !== "COMMITTED" || !isCompleteAuthorityCommittedReceiptV2(current.authority)) {
+    return { ...current, delivery: "PROTOCOL_DAMAGED" };
   }
   return { ...current, delivery: "RESULT_PREPARED" };
 }
@@ -129,12 +135,16 @@ function validateAcknowledgement(
   if (authority?.tag !== "COMMITTED" || origin?.tag !== "APPLIED_EXACT_AT_CUT") {
     throw invalid(current, "acknowledgement requires committed authority and exact origin evidence");
   }
+  if (!isCompleteAuthorityCommittedReceiptV2(authority)) {
+    throw invalid(current, "acknowledgement requires the complete committed authority integrity tuple");
+  }
   if (acknowledgement.workspaceId !== current.workspaceId
     || acknowledgement.viewId !== current.viewId
     || acknowledgement.opId !== current.opId
     || acknowledgement.waiterId !== current.waiterId
     || acknowledgement.revision !== authority.revision
     || acknowledgement.commitSha !== authority.commitSha
+    || acknowledgement.canonicalEventDigest !== authority.integrityTuple.canonicalEventDigest
     || acknowledgement.cutId !== origin.cutId
     || acknowledgement.cutKind !== origin.cutKind
     || acknowledgement.cutJournalLSN !== origin.cutJournalLSN

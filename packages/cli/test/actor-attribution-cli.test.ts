@@ -10,8 +10,17 @@ import {
   daemonActorAttributionForParsedCommand
 } from "../src/composition/actor-attribution.ts";
 import { resolveLocalCliActorAttribution } from "../src/composition/local-principal.ts";
+import {
+  assertAuthorityReceiptOperation,
+  assertCompleteAuthorityReceiptV2,
+  createDaemonAuthorityCommandSubmissionV2
+} from "../src/daemon/authority-command-submission.ts";
 import { createCliCommandService, materializeExportedSession } from "../src/daemon/command-service.ts";
 import type { CliDaemonRuntime } from "../src/daemon/queued-write-coordinator.ts";
+import {
+  authorityCommandAttemptFixture,
+  submitThroughActualAuthorityServiceV2
+} from "./helpers/authority-command-adapter-v2.ts";
 import { ensureTestHarnessIdentity } from "./helpers/git-fixtures.ts";
 import { unwrapCommandReceipt } from "./helpers/receipt.ts";
 
@@ -139,8 +148,8 @@ test("negative trust-boundary test: preset executor is derived from the parsed c
     kind: "agent",
     id: "preset:usage-acceptance"
   });
-  // S3a still has no daemon command-service V2 authority submissions, so the
-  // existing V1 journal source vocabulary remains unchanged in this patch.
+  // The production service host still supplies no S3a authority component, so
+  // the existing V1 journal source vocabulary remains unchanged at this seam.
   assert.equal(attribution.writeAttribution.executorSource, "client-asserted");
   assert.deepEqual(attribution.executor, { kind: "agent", id: "preset:usage-acceptance" });
 });
@@ -198,6 +207,142 @@ test("daemon command service preserves A/X attribution through the queued coordi
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("daemon command service routes canonical writes through submitV2 without forwarding raw WriteOps", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-authority-command-"));
+  try {
+    ensureTestHarnessIdentity(rootDir);
+    let authoritySubmissions = 0;
+    let canonicalEntityId: string | undefined;
+    const fixture = authorityCommandAttemptFixture();
+    const queuedRequests: Parameters<CliDaemonRuntime["enqueueInteractiveWrite"]>[0][] = [];
+    const authoritySubmissionV2 = createDaemonAuthorityCommandSubmissionV2({
+      authorityService: {
+        submit: async () => { throw new Error("legacy authority submission must not run"); },
+        submitV2: async (attempt) => {
+          authoritySubmissions += 1;
+          assert.deepEqual(attempt.envelope, fixture.attempt.envelope);
+          assert.ok(canonicalEntityId);
+          return {
+            tag: "COMMITTED",
+            workspaceId: "workspace-command-service",
+            opId: fixture.expectedOpId,
+            semanticDigest: "11".repeat(32),
+            revision: 1,
+            commitSha: "a".repeat(40),
+            previousCommit: null,
+            authorityIntegrity: {
+              schema: "authority-operation-integrity/v2",
+              semanticRequestDigest: "11".repeat(32),
+              semanticMutationSetDigest: "22".repeat(32),
+              mutationRegistryVersion: 1,
+              actorAxesBindingDigest: "33".repeat(32),
+              canonicalMutationSet: { registryVersion: 1, mutations: [] }
+            },
+            integrityTuple: {
+              schema: "authority-integrity-tuple/v2",
+              canonicalEventDigest: "44".repeat(32),
+              changeSetDigest: "55".repeat(32),
+              semanticMutationSetDigest: "22".repeat(32),
+              actorAxesBindingDigest: "33".repeat(32)
+            }
+          };
+        },
+        getOperation: async () => undefined
+      },
+      attemptCompiler: {
+        compile: async ({ command, attribution, currentSession, canonicalEntityId: entityId }) => {
+          assert.equal(command.action.kind, "new-task");
+          assert.equal(attribution.writeAttribution.actor.principal.personId, "person_alice");
+          assert.equal(attribution.writeAttribution.actor.executor?.id, "codex");
+          assert.equal(currentSession.source, "manual");
+          canonicalEntityId = entityId;
+          return {
+            requestId: "command-service-v2",
+            presentationToken: Buffer.from("server-bound-token"),
+            envelope: fixture.attempt.envelope
+          };
+        }
+      }
+    });
+    const runtime: CliDaemonRuntime = {
+      enqueueInteractiveWrite: async (request) => {
+        queuedRequests.push(request);
+        return { flush: { reason: "explicit", opCount: request.ops.length, committed: true } };
+      },
+      enqueueMaterializerBatch: async () => ({ dryRun: false, merged: 0, considered: 0, branches: [], warnings: [] }),
+      status: () => ({})
+    };
+    const service = createCliCommandService(runtime, { authoritySubmissionV2 });
+    const receipt = await service.runCommand({
+      command: {
+        rootDir,
+        json: true,
+        action: { kind: "new-task", title: "Authority Command", titleProvided: true, slug: "authority-command" }
+      },
+      session: {
+        runtime: "codex",
+        sessionId: "manual-authority-command",
+        source: "manual",
+        detectedAt: "2026-07-16T00:00:00.000Z"
+      }
+    }, {
+      actor: {
+        personId: "person_alice",
+        displayName: "Alice",
+        primaryEmail: "alice@example.test",
+        roles: ["writer"],
+        providerId: "local-peer",
+        resolvedCredential: { kind: "unix-socket-owner-boundary", issuer: "test", subject: "person_alice" }
+      },
+      executor: { kind: "agent", id: "codex" }
+    });
+
+    assert.equal(receipt.ok, true, JSON.stringify(receipt));
+    assert.equal(authoritySubmissions, 1);
+    assert.ok(canonicalEntityId);
+    assert.equal(queuedRequests.some((request) => "attribution" in request), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("negative integrity contract: a mismatched authority receipt operation is protocol damaged", () => {
+  assert.throws(() => assertAuthorityReceiptOperation({
+    tag: "REJECTED",
+    workspaceId: "workspace-command-service",
+    opId: "operation-from-another-command",
+    semanticDigest: "11".repeat(32),
+    reason: "TEST_REJECTION"
+  }, "canonical-command-operation"), /PROTOCOL_DAMAGED/u);
+});
+
+test("negative integrity contract: an incomplete V2 committed receipt is protocol damaged", () => {
+  assert.throws(() => assertCompleteAuthorityReceiptV2({
+    tag: "COMMITTED",
+    workspaceId: "workspace-command-service",
+    opId: "canonical-command-operation",
+    semanticDigest: "11".repeat(32),
+    revision: 1,
+    commitSha: "a".repeat(40),
+    previousCommit: null,
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: "11".repeat(32),
+      semanticMutationSetDigest: "22".repeat(32),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "33".repeat(32),
+      canonicalMutationSet: { registryVersion: 1, mutations: [] }
+    }
+  }), /PROTOCOL_DAMAGED/u);
+});
+
+test("daemon V2 adapter submits through the actual AuthoritySubmissionService operation identity", async () => {
+  const receipt = await submitThroughActualAuthorityServiceV2();
+  assert.equal(receipt.tag, "COMMITTED", JSON.stringify(receipt));
+  assert.match(receipt.opId, /^namespace-v2:[a-f0-9]{32}$/u);
+  assert.ok(receipt.tag === "COMMITTED" && receipt.integrityTuple);
 });
 
 test("daemon command service rejects malformed caller sessions and always settles request accounting", async () => {

@@ -1,6 +1,12 @@
 // @slice-activation TW-01 authority application contract consumed by forced-command transport and TW-02/TW-03.
 export { createInMemoryAuthorityOperationRegistry, createInMemoryReplicaChangeLog } from "./memory-stores.ts";
 export { canonicalAuthorityRequestDigest, createAuthoritySubmissionService } from "./service.ts";
+export { makeCompositeAuthoritySemanticCompilerV2 } from "./composite-semantic-compiler-v2.ts";
+export {
+  completeAuthorityCommittedReceiptV2,
+  isCompleteAuthorityCommittedReceiptV2
+} from "./committed-event-publication-v2.ts";
+export type { AuthoritySemanticCompilerRouteV2 } from "./composite-semantic-compiler-v2.ts";
 export {
   attributionShadowComparisonSchema,
   compareAttributionShadow,
@@ -17,9 +23,11 @@ export * from "./semantic-mutation-envelope-v2.ts";
 export { authorityProtocolTuple } from "./types.ts";
 export type {
   AttributedCoordinatorFactory,
+  AuthorityCommittedEventPublisherV2,
   AuthorityCommittedReceipt,
   AuthorityFenceWitness,
   AuthorityIndeterminateReceipt,
+  AuthorityIntegrityTupleV2,
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
   AuthorityOperationRecord,

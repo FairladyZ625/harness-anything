@@ -124,7 +124,8 @@ test("six W2 negative controls are REJECTED before PREPARED, enqueue, or token c
       },
       entityRegistrations: [entityRegistry.fact, entityRegistry.relation],
       semanticCompiler,
-      operationNamespaceVerifier: { verify: async () => undefined }
+      operationNamespaceVerifier: { verify: async () => undefined },
+      committedEventPublisher: { publish: async () => { throw new Error("negative control must not publish an event"); } }
     }
   });
   const omission = { ...exact, mutations: exact.mutations.slice(0, 1) };

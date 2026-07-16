@@ -3,12 +3,15 @@ import {
   compileRegistryMutationPlan,
   createWritableEntityRegistry,
   stablePayloadHash,
+  type ActorAxesBindingCoreV2,
   type AuthorityOperationIntegrity,
   type WriteCoordinator,
   type WriteOp
 } from "../../../kernel/src/index.ts";
 import type {
   AuthorityIndeterminateReceipt,
+  AuthorityCommittedEventPublisherV2,
+  AuthorityCommittedReceipt,
   AuthorityOperationEnvelope,
   AuthorityOperationReceipt,
   AuthorityOperationState,
@@ -52,7 +55,14 @@ import {
   type EntityRefPrefixMatcherV2
 } from "./semantic-authorizer-v2.ts";
 import { shadowPublicationSchema, type ShadowPublicationLog } from "./shadow.ts";
-
+import {
+  actorAxesBindingCoreFromVerifiedV2,
+  completeAuthorityCommittedReceiptV2
+} from "./committed-event-publication-v2.ts";
+import {
+  validateLegacyAuthorityIngress,
+  validateLegacyTokenEnvelopeClaims
+} from "./legacy-admission.ts";
 export interface AuthoritySubmissionServiceOptions {
   readonly workspaceId: string;
   readonly coordinatorFactory: AttributedCoordinatorFactory;
@@ -73,6 +83,7 @@ export interface AuthoritySubmissionV2Options {
   readonly entityRegistrations: Parameters<typeof createWritableEntityRegistry>[0];
   readonly semanticCompiler: AuthoritySemanticCompilerV2;
   readonly operationNamespaceVerifier: OperationNamespaceVerifierV2;
+  readonly committedEventPublisher: AuthorityCommittedEventPublisherV2;
   readonly matchEntityRefPrefix?: EntityRefPrefixMatcherV2;
 }
 
@@ -87,6 +98,7 @@ interface PreparedAuthoritySubmission {
   readonly semanticDigest: string;
   readonly coordinator: WriteCoordinator;
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
+  readonly actorAxesBinding?: ActorAxesBindingCoreV2;
   readonly canonicalRequestEnvelope?: string;
 }
 
@@ -231,6 +243,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         semanticDigest,
         coordinator,
         authorityIntegrity,
+        actorAxesBinding: actorAxesBindingCoreFromVerifiedV2(verified),
         canonicalRequestEnvelope
       };
     } catch (error) {
@@ -264,7 +277,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         rejected(envelope, semanticDigest, "SEMANTIC_DIFF_REQUIRED")
       ));
     }
-    const ingressFailure = validateIngress(envelope, semanticDigest, options.workspaceId);
+    const ingressFailure = validateLegacyAuthorityIngress(envelope, semanticDigest, options.workspaceId);
     if (ingressFailure) return terminal(await persistTerminal(envelope, semanticDigest, "REJECTED", ingressFailure));
 
     let verification: DelegationTokenVerification;
@@ -274,7 +287,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
     } catch (error) {
       return terminal(await persistTerminal(envelope, semanticDigest, "REJECTED", rejected(envelope, semanticDigest, `TOKEN_REJECTED:${describe(error)}`)));
     }
-    const claimFailure = validateTokenEnvelopeClaims(envelope, verification);
+    const claimFailure = validateLegacyTokenEnvelopeClaims(envelope, verification);
     if (claimFailure) return terminal(await persistTerminal(envelope, semanticDigest, "REJECTED", claimFailure));
 
     try {
@@ -429,7 +442,7 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
 
     for (let index = 0; index < candidates.length; index += 1) {
       const entry = candidates[index]!;
-      const receipt = {
+      const baseReceipt: AuthorityCommittedReceipt = {
         tag: "COMMITTED" as const,
         workspaceId: entry.workspaceId,
         opId: entry.opId,
@@ -439,10 +452,45 @@ export function createAuthoritySubmissionService(options: AuthoritySubmissionSer
         previousCommit: previousHead,
         ...(entry.authorityIntegrity ? { authorityIntegrity: entry.authorityIntegrity } : {})
       };
+      let receipt: AuthorityOperationReceipt = baseReceipt;
+      if (entry.authorityIntegrity) {
+        if (!entry.actorAxesBinding) {
+          receipt = await persistPostCommitIntegrityFailure(entry, "PROTOCOL_DAMAGED:ACTOR_AXES_BINDING_CORE_REQUIRED", commitSha);
+          receipts.set(entry, receipt);
+          continue;
+        }
+        try {
+          receipt = await completeAuthorityCommittedReceiptV2({
+            publisher: options.v2!.committedEventPublisher,
+            receipt: baseReceipt,
+            actorAxesBinding: entry.actorAxesBinding,
+            occurredAt: changes[index]!.changedAt
+          });
+        } catch (error) {
+          receipt = await persistPostCommitIntegrityFailure(entry, `PROTOCOL_DAMAGED:V2_EVENT_PUBLICATION_FAILED:${describe(error)}`, commitSha);
+          receipts.set(entry, receipt);
+          continue;
+        }
+      }
       await put(entry, entry.semanticDigest, "COMMITTED", receipt, commitSha, entry.authorityIntegrity, entry.canonicalRequestEnvelope);
       receipts.set(entry, receipt);
     }
     return batchReceipts(admissions, receipts);
+  }
+
+  function persistPostCommitIntegrityFailure(
+    entry: PreparedAuthoritySubmission,
+    reason: string,
+    commitSha: string
+  ): Promise<AuthorityOperationReceipt> {
+    return persistTerminal(
+      entry,
+      entry.semanticDigest,
+      "INDETERMINATE",
+      indeterminate(entry, entry.semanticDigest, reason, commitSha),
+      entry.authorityIntegrity,
+      entry.canonicalRequestEnvelope
+    );
   }
 
   async function settlePrepared(
@@ -515,38 +563,6 @@ function batchReceipts(
     if (!receipt) throw new Error(`authority batch did not settle operation ${admission.opId}`);
     return receipt;
   });
-}
-
-function validateIngress(envelope: AuthorityOperationEnvelope, digest: string, workspaceId: string): AuthorityRejectedReceipt | undefined {
-  if (!envelope.workspaceId || envelope.workspaceId !== workspaceId) return rejected(envelope, digest, "WORKSPACE_MISMATCH");
-  if (!envelope.opId || envelope.operation.opId !== envelope.opId) return rejected(envelope, digest, "OP_ID_MISMATCH");
-  if (envelope.claimedDigest !== digest) return rejected(envelope, digest, "REQUEST_DIGEST_MISMATCH");
-  if (!envelope.channelNonceDigest) return rejected(envelope, digest, "CHANNEL_BINDING_REQUIRED");
-  return undefined;
-}
-
-function validateTokenEnvelopeClaims(envelope: AuthorityOperationEnvelope, verification: DelegationTokenVerification): AuthorityRejectedReceipt | undefined {
-  const claims = verification.claims;
-  if (claims.workspaceId !== envelope.workspaceId) return rejected(envelope, envelope.claimedDigest, "TOKEN_WORKSPACE_MISMATCH");
-  if (claims.channelNonceDigest !== envelope.channelNonceDigest) return rejected(envelope, envelope.claimedDigest, "TOKEN_CHANNEL_MISMATCH");
-  if (claims.actorId !== verification.attribution.actor.principal.personId
-    || claims.executorId !== (verification.attribution.actor.executor?.id ?? null)) {
-    return rejected(envelope, envelope.claimedDigest, "TOKEN_ATTRIBUTION_MISMATCH");
-  }
-  if (!sameProtocol(claims.protocol, envelope.protocol)) return rejected(envelope, envelope.claimedDigest, "TOKEN_SCHEMA_MISMATCH");
-  if (!claims.commandScopes.includes(envelope.command)) return rejected(envelope, envelope.claimedDigest, "TOKEN_COMMAND_SCOPE_DENIED");
-  if (claims.maxOps < 1 || claims.maxBytes < Buffer.byteLength(JSON.stringify(envelope.operation), "utf8")) {
-    return rejected(envelope, envelope.claimedDigest, "TOKEN_LIMIT_EXCEEDED");
-  }
-  return undefined;
-}
-
-function sameProtocol(left: AuthorityOperationEnvelope["protocol"], right: AuthorityOperationEnvelope["protocol"]): boolean {
-  return left.wire === right.wire
-    && left.event === right.event
-    && left.receipt === right.receipt
-    && left.digest === right.digest
-    && left.commandRegistry === right.commandRegistry;
 }
 
 function rejected(envelope: Pick<AuthorityOperationEnvelope, "workspaceId" | "opId">, digest: string, reason: string): AuthorityRejectedReceipt {

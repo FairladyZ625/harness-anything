@@ -7,6 +7,8 @@ import {
   compoundExitDefinitions,
   compoundReceiptSchema,
   createCompoundReceiptService,
+  isCompoundOperationReceipt,
+  type AuthorityCommittedReceipt,
   type AuthorityOperationReceipt,
   type CompoundExitInput,
   type CompoundOperationReceipt,
@@ -24,7 +26,7 @@ const identity: ReceiptIdentity = {
   resultToken: "result-1"
 };
 
-const committed = authority("COMMITTED");
+const committed = authority("COMMITTED") as AuthorityCommittedReceipt;
 
 test("compound receipt advances monotonically and keeps historical cut separate from current lease", async () => {
   const store = memoryStore();
@@ -55,6 +57,40 @@ test("compound receipt advances monotonically and keeps historical cut separate 
 
   await assert.rejects(service.detach(identity, "late detach"), /terminal delivery ACK_COMMITTED/u);
   await assert.rejects(service.setCurrentLease(identity, "SATISFIED"), /cannot be resurrected/u);
+});
+
+test("RESULT_PREPARED fails closed to PROTOCOL_DAMAGED without the complete V2 integrity tuple", async () => {
+  const store = memoryStore();
+  const service = createCompoundReceiptService({ store, now: sequenceClock() });
+  await service.initialize(identity);
+  await service.recordAuthority(identity, incompleteCommitted());
+  await service.recordOrigin(identity, origin("APPLIED_EXACT_AT_CUT"));
+
+  const damaged = await service.prepareResult(identity);
+  assert.equal(damaged.delivery, "PROTOCOL_DAMAGED");
+  assert.notEqual(classifyCompoundExit({ kind: "RECEIPT", receipt: damaged }).code, 0);
+  assert.deepEqual(await service.prepareResult(identity), damaged, "terminal protocol damage must replay without mutation");
+  assert.equal(isCompoundOperationReceipt(receipt({
+    phase: "APPLIED_EXACT_AT_CUT",
+    authority: incompleteCommitted(),
+    origin: origin("APPLIED_EXACT_AT_CUT"),
+    delivery: "RESULT_PREPARED"
+  })), false);
+});
+
+test("ACK canonical event digest must exactly match the prepared authority tuple", async () => {
+  const store = memoryStore();
+  const service = createCompoundReceiptService({ store, now: sequenceClock() });
+  await service.initialize(identity);
+  await service.recordAuthority(identity, committed);
+  await service.recordOrigin(identity, origin("APPLIED_EXACT_AT_CUT"));
+  await service.prepareResult(identity);
+
+  await assert.rejects(service.commitAcknowledgement(identity, {
+    ...acknowledgement(91),
+    canonicalEventDigest: "99".repeat(32)
+  }), /integrity tuple does not match/u);
+  assert.equal((await store.get(identity))?.delivery, "RESULT_PREPARED");
 });
 
 test("exit zero requires all three proofs", () => {
@@ -113,9 +149,35 @@ test("all twelve exit codes have a reproducible positive scenario", () => {
 
 function authority(tag: AuthorityOperationReceipt["tag"]): AuthorityOperationReceipt {
   const base = { workspaceId: identity.workspaceId, opId: identity.opId, semanticDigest: "sha256:request" };
-  if (tag === "COMMITTED") return { ...base, tag, revision: 7, commitSha: "abc", previousCommit: "def" };
+  if (tag === "COMMITTED") return {
+    ...base,
+    tag,
+    revision: 7,
+    commitSha: "abc",
+    previousCommit: "def",
+    authorityIntegrity: {
+      schema: "authority-operation-integrity/v2",
+      semanticRequestDigest: base.semanticDigest,
+      semanticMutationSetDigest: "22".repeat(32),
+      mutationRegistryVersion: 1,
+      actorAxesBindingDigest: "33".repeat(32),
+      canonicalMutationSet: { registryVersion: 1, mutations: [] }
+    },
+    integrityTuple: {
+      schema: "authority-integrity-tuple/v2",
+      canonicalEventDigest: "44".repeat(32),
+      changeSetDigest: "55".repeat(32),
+      semanticMutationSetDigest: "22".repeat(32),
+      actorAxesBindingDigest: "33".repeat(32)
+    }
+  };
   if (tag === "INDETERMINATE") return { ...base, tag, reason: "continuity lost" };
   return { ...base, tag, reason: tag === "REJECTED" ? "base conflict" : "no effect" };
+}
+
+function incompleteCommitted(): AuthorityOperationReceipt {
+  const { authorityIntegrity: _authorityIntegrity, integrityTuple: _integrityTuple, ...incomplete } = committed;
+  return incomplete;
 }
 
 function origin(tag: OriginResolution["tag"]): OriginResolution {
@@ -149,7 +211,7 @@ function acknowledgement(terminalLSN: number): ImmutableReceiptAcknowledgement {
     epoch: 2,
     revision: 7,
     commitSha: "abc",
-    canonicalEventDigest: "sha256:event",
+    canonicalEventDigest: "44".repeat(32),
     affectedDigest: "sha256:affected",
     cutId: "cut-7",
     cutKind: "WRITE_EXCLUDED",

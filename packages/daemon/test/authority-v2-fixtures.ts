@@ -1,13 +1,35 @@
 import {
   actorAxesBindingDigestV2,
+  materializeCommittedAttributionEventV2,
   semanticMutationEnvelopeV2Schema,
   semanticMutationSetDigestV2,
   semanticRequestDigestV2,
   type ActorAxesBindingClaimsV2,
+  type AuthorityCommittedEventPublisherV2,
+  type AuthorityOperationReceipt,
   type ProtocolSchemaTupleV2,
   type SemanticMutationEnvelopeV2,
   type SemanticMutationSetV2
 } from "../../application/src/index.ts";
+
+export function v2CommittedEventPublisher(): AuthorityCommittedEventPublisherV2 {
+  return {
+    publish: async (input) =>
+      materializeCommittedAttributionEventV2({
+        ...input,
+        physicalChanges: [{ path: `authority/${input.receipt.opId}`, beforeDigest: null, afterDigest: "55".repeat(32) }],
+        recordedAt: input.occurredAt
+      })
+  };
+}
+
+export function hasCompleteV2Integrity(receipt: AuthorityOperationReceipt): boolean {
+  return receipt.tag === "COMMITTED"
+    && receipt.integrityTuple?.semanticMutationSetDigest === receipt.authorityIntegrity?.semanticMutationSetDigest
+    && receipt.integrityTuple?.actorAxesBindingDigest === receipt.authorityIntegrity?.actorAxesBindingDigest
+    && /^[a-f0-9]{64}$/u.test(receipt.integrityTuple?.changeSetDigest ?? "")
+    && /^[a-f0-9]{64}$/u.test(receipt.integrityTuple?.canonicalEventDigest ?? "");
+}
 
 export function v2Claims(
   workspaceId: string,

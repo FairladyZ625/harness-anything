@@ -13,6 +13,7 @@ import {
   encodeCanonicalCbor,
   encodeSemanticMutationEnvelopeV2,
   issueActorAxesBindingV2,
+  makeCompositeAuthoritySemanticCompilerV2,
   semanticMutationEnvelopeV2Schema,
   semanticMutationSetDigestV2,
   semanticRequestDigestV2,
@@ -24,6 +25,7 @@ import {
   type SemanticMutationEnvelopeV2,
   type SemanticMutationSetV2
 } from "../src/index.ts";
+import { taskEntityId } from "../../kernel/src/index.ts";
 
 const secret = Buffer.from("authority-v2-contract-secret");
 const schemaTuple: ProtocolSchemaTupleV2 = {
@@ -147,6 +149,37 @@ test("StoragePlan must carry the compiler's exact canonical mutation set", () =>
       }]
     }),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "STORAGE_PLAN_MUTATION_SET_MISMATCH"
+  );
+});
+
+test("composite authority compiler routes exact typed command names and fails closed otherwise", async () => {
+  const envelope = operationEnvelope(tokenClaims("token-1"), Buffer.alloc(32, 9));
+  const expected = {
+    mutationPlan: { registryVersion: 1, mutations: [] },
+    operation: { opId: "authority-overrides-this", entityId: taskEntityId("one"), kind: "progress_append" as const },
+    decodedBytes: 1n
+  };
+  const compiler = makeCompositeAuthoritySemanticCompilerV2([{
+    commandNames: ["task.update"],
+    compiler: { compile: async () => expected }
+  }]);
+
+  assert.equal(await compiler.compile(envelope), expected);
+  await assert.rejects(
+    compiler.compile({
+      ...envelope,
+      intent: envelope.intent.kind === "typed"
+        ? { ...envelope.intent, command: { ...envelope.intent.command, name: "task.unknown" } }
+        : envelope.intent
+    }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "TYPED_COMMAND_UNREGISTERED"
+  );
+  assert.throws(
+    () => makeCompositeAuthoritySemanticCompilerV2([
+      { commandNames: ["task.update"], compiler },
+      { commandNames: ["task.update"], compiler }
+    ]),
+    /AUTHORITY_SEMANTIC_COMPILER_ROUTE_INVALID/u
   );
 });
 

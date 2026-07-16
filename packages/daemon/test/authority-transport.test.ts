@@ -49,7 +49,7 @@ import {
   type SshAuthorityChild,
   type SshAuthorityChildFactory
 } from "../src/index.ts";
-import { v2Claims, v2Envelope, v2MutationSet } from "./authority-v2-fixtures.ts";
+import { hasCompleteV2Integrity, v2Claims, v2CommittedEventPublisher, v2Envelope, v2MutationSet } from "./authority-v2-fixtures.ts";
 
 const workspaceId = "workspace-tw01";
 const channelNonceDigest = "sha256:channel-generation";
@@ -285,7 +285,8 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
               decodedBytes: BigInt(envelope.intent.canonicalPayload.bytes.length)
             };
           }
-        }
+        },
+        committedEventPublisher: v2CommittedEventPublisher()
       }
     });
     const envelopes = [
@@ -300,6 +301,7 @@ test("V2 forced-command admission recomputes mutations and anchors one exact ord
     })));
 
     assert.equal(receipts.every((receipt) => receipt.tag === "COMMITTED"), true, JSON.stringify(receipts));
+    assert.equal(receipts.every(hasCompleteV2Integrity), true, JSON.stringify(receipts));
     assert.equal(new Set(receipts.map((receipt) => receipt.tag === "COMMITTED" ? receipt.commitSha : "")).size, 1);
     assert.equal(consumed, 2);
     const commitMessage = git(rootDir, env, "log", "-1", "--format=%B");
@@ -397,13 +399,11 @@ test("length-prefixed decoder rejects an oversized frame from its header before 
   const reader = createLengthPrefixedFrameReader(8);
   const header = Buffer.alloc(4);
   header.writeUInt32BE(9, 0);
-
   const batch = reader.push(header);
 
   assert.match(batch.error?.message ?? "", /exceeds limit 8/u);
   assert.deepEqual(batch.frames, []);
 });
-
 function makeAuthority(
   rootDir: string,
   env: NodeJS.ProcessEnv,

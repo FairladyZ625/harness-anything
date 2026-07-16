@@ -16,6 +16,7 @@ import {
   encodeTaskDecisionModuleCommandPayloadV2,
   issueActorAxesBindingV2,
   makeTaskDecisionModuleSemanticCompilerV2,
+  materializeCommittedAttributionEventV2,
   semanticMutationEnvelopeV2Schema,
   semanticMutationSetDigestV2,
   semanticRequestDigestV2,
@@ -96,6 +97,10 @@ test("task, decision, and module typed writes publish through their existing phy
     for (const { receipt, mutationSet } of receipts) {
       const digest = Buffer.from(semanticMutationSetDigestV2(mutationSet)).toString("hex");
       assert.equal(receipt.authorityIntegrity?.semanticMutationSetDigest, digest);
+      assert.equal(receipt.integrityTuple?.semanticMutationSetDigest, digest);
+      assert.equal(receipt.integrityTuple?.actorAxesBindingDigest, receipt.authorityIntegrity?.actorAxesBindingDigest);
+      assert.match(receipt.integrityTuple?.changeSetDigest ?? "", /^[a-f0-9]{64}$/u);
+      assert.match(receipt.integrityTuple?.canonicalEventDigest ?? "", /^[a-f0-9]{64}$/u);
       assert.equal(events.find((event) => event.opId === receipt.opId)?.authorityIntegrity?.semanticMutationSetDigest, digest);
       assert.equal(changes.find((change) => change.opId === receipt.opId)?.authorityIntegrity?.semanticMutationSetDigest, digest);
       assert.deepEqual(readBatchTrailer(git(rootDir, env, "log", "-1", "--format=%B", receipt.commitSha)), [{
@@ -170,7 +175,14 @@ function authority(
       semanticCompiler: makeTaskDecisionModuleSemanticCompilerV2({
         state: { readEntityBase: async () => null, readHostedDocument: async () => null }
       }),
-      operationNamespaceVerifier: { verify: async () => undefined }
+      operationNamespaceVerifier: { verify: async () => undefined },
+      committedEventPublisher: {
+        publish: async (input) => materializeCommittedAttributionEventV2({
+          ...input,
+          physicalChanges: [{ path: `authority/${input.receipt.opId}`, beforeDigest: null, afterDigest: "55".repeat(32) }],
+          recordedAt: input.occurredAt
+        })
+      }
     }
   });
 }

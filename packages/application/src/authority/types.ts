@@ -1,4 +1,6 @@
 import type {
+  ActorAxesBindingCoreV2,
+  AttributionEventV2,
   AuthorityOperationIntegrity,
   WriteAttribution,
   WriteCoordinator,
@@ -87,6 +89,28 @@ export interface AuthorityCommittedReceipt {
   readonly commitSha: string;
   readonly previousCommit: string | null;
   readonly authorityIntegrity?: AuthorityOperationIntegrity;
+  readonly integrityTuple?: AuthorityIntegrityTupleV2;
+}
+
+export interface AuthorityIntegrityTupleV2 {
+  readonly schema: "authority-integrity-tuple/v2";
+  readonly canonicalEventDigest: string;
+  readonly changeSetDigest: string;
+  readonly semanticMutationSetDigest: string;
+  readonly actorAxesBindingDigest: string;
+}
+
+/**
+ * Publishes the complete attribution event before a V2 COMMITTED receipt is
+ * made externally visible. Implementations own the durable event boundary and
+ * must return the exact event that was persisted.
+ */
+export interface AuthorityCommittedEventPublisherV2 {
+  readonly publish: (input: {
+    readonly receipt: AuthorityCommittedReceipt;
+    readonly actorAxesBinding: ActorAxesBindingCoreV2;
+    readonly occurredAt: string;
+  }) => Promise<AttributionEventV2>;
 }
 
 export interface AuthorityRejectedReceipt {
