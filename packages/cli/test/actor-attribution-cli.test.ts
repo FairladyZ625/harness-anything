@@ -274,7 +274,9 @@ test("daemon command service routes canonical writes through submitV2 without fo
       enqueueMaterializerBatch: async () => ({ dryRun: false, merged: 0, considered: 0, branches: [], warnings: [] }),
       status: () => ({})
     };
-    const service = createCliCommandService(runtime, { authoritySubmissionV2 });
+    const service = createCliCommandService(runtime, {
+      resolveAuthoritySubmissionV2: () => authoritySubmissionV2
+    });
     const receipt = await service.runCommand({
       command: {
         rootDir,

@@ -8,6 +8,11 @@ import test from "node:test";
 import { Effect } from "effect";
 import type { AuthorityOperationReceipt } from "../../application/src/index.ts";
 import {
+  channelDigest32,
+  connectionGeneration,
+  type AuthorityConnectionDispatch
+} from "../../daemon/src/index.ts";
+import {
   assertPublicationMatchesMutationSet,
   createGitCanonicalPublicationInspector
 } from "../src/daemon/authority-publication-evidence.ts";
@@ -20,7 +25,11 @@ import {
   type AuthorityLifecycleRuntime
 } from "../src/daemon/authority-lifecycle.ts";
 import { openDurableAuthorityServiceState } from "../src/daemon/authority-service-state.ts";
-import { createDaemonServiceHost } from "../src/daemon/service-host.ts";
+import {
+  bindAuthoritySubmissionForDispatch,
+  createDaemonServiceHost,
+  localAuthorityPeerPolicy
+} from "../src/daemon/service-host.ts";
 
 test("lifecycle-initial-two-repos starts and serves each component before transport publication", async () => {
   await withRoots(async ({ serviceRoot, alphaRoot, betaRoot }) => {
@@ -325,6 +334,110 @@ test("production composition reads publication evidence from the repo's real aut
     assert.deepEqual(observed, ["tasks/task_T/INDEX.md"]);
     await controller.stopAll("daemon-shutdown");
   });
+});
+
+test("live authority dispatch binds only an active same-repo connection and rechecks generation at submit", async () => {
+  let activeChecks = 0;
+  let binds = 0;
+  const base = componentFixture("alpha");
+  const component: AuthorityRepoComponent = {
+    ...base,
+    bindConnection: (context) => {
+      binds += 1;
+      assert.equal(context.repoId, "alpha");
+      return base.commandSubmissionV2;
+    }
+  };
+  const dispatch: AuthorityConnectionDispatch = {
+    available: true,
+    context: {
+      schema: "authority-connection-context/v1",
+      connectionId: "connection-alpha",
+      connectionGeneration: connectionGeneration("generation-alpha"),
+      actor: {
+        personId: "person_local",
+        displayName: "Local Person",
+        providerId: "transport-derived/v1",
+        resolvedCredential: {
+          kind: "unix-socket-owner-boundary",
+          issuer: "host:fixture",
+          subject: "501"
+        }
+      },
+      repoId: "alpha",
+      channelBinding: {
+        digest: channelDigest32(Buffer.alloc(32, 0x61)),
+        source: "transport-observed"
+      },
+      peerCredential: {
+        schema: "os-observed-peer-credential/v1",
+        platform: "darwin",
+        source: "getpeereid",
+        uid: 501,
+        gid: 20
+      }
+    },
+    assertActive: () => {
+      activeChecks += 1;
+    }
+  };
+
+  const bound = bindAuthoritySubmissionForDispatch(component, "alpha", dispatch);
+  assert.ok(bound);
+  await bound.submit(undefined as never);
+  assert.equal(binds, 1);
+  assert.equal(activeChecks, 2);
+
+  const unavailable = bindAuthoritySubmissionForDispatch(component, "alpha", {
+    available: false,
+    code: "peer_credential_unavailable"
+  });
+  assert.equal(unavailable, undefined);
+  assert.equal(binds, 1);
+  assert.throws(
+    () => bindAuthoritySubmissionForDispatch(component, "beta", dispatch),
+    /AUTHORITY_CONNECTION_REPO_MISMATCH/u
+  );
+});
+
+test("production peer policy requires the OS-observed UID, daemon UID and actor credential UID to agree", () => {
+  const daemonUid = process.getuid?.();
+  const peerCredential = {
+    schema: "os-observed-peer-credential/v1" as const,
+    platform: "darwin" as const,
+    source: "getpeereid" as const,
+    uid: daemonUid ?? 501,
+    gid: 20
+  };
+  const actor = {
+    personId: "person_local",
+    displayName: "Local Person",
+    providerId: "transport-derived/v1",
+    resolvedCredential: {
+      kind: "unix-socket-owner-boundary" as const,
+      issuer: "host:fixture",
+      subject: String(peerCredential.uid)
+    }
+  };
+  const repo = { repoId: "alpha", canonicalRoot: "/tmp/alpha" };
+
+  assert.equal(
+    localAuthorityPeerPolicy({ actor, repo, peerCredential }),
+    typeof daemonUid === "number"
+  );
+  assert.equal(localAuthorityPeerPolicy({
+    actor: { ...actor, resolvedCredential: { ...actor.resolvedCredential, subject: String(peerCredential.uid + 1) } },
+    repo,
+    peerCredential
+  }), false);
+  assert.equal(localAuthorityPeerPolicy({
+    actor: {
+      ...actor,
+      resolvedCredential: { kind: "ssh-forced-command-person", issuer: "host:fixture", subject: actor.personId }
+    },
+    repo,
+    peerCredential
+  }), false);
 });
 
 function controllerFixture(serviceStateRoot: string, events: string[], failingRepo?: string) {

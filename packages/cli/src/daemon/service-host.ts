@@ -12,6 +12,8 @@ import {
   createPtyTerminalSessionService,
   createJsonRpcProtocolServer,
   calculateDaemonArtifactIdentity,
+  type AcceptedConnectionBinding,
+  type AuthorityConnectionDispatch,
   type DaemonActiveControlStatus,
   type DaemonControlService,
   type DaemonStatusResultV2,
@@ -74,7 +76,10 @@ export async function createDaemonServiceHost(
   authorityLifecycle?: AuthorityRepoLifecycleController
 ): Promise<{
   readonly daemonId: string;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => ReturnType<typeof createJsonRpcProtocolServer>;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection?: AcceptedConnectionBinding
+  ) => ReturnType<typeof createJsonRpcProtocolServer>;
   readonly acceptsSshForcedCommand: (canonicalRoot: string) => boolean;
   readonly status: () => DaemonStatusResultV2;
   readonly onConnectionStart: () => void;
@@ -188,7 +193,7 @@ export async function createDaemonServiceHost(
   const serviceFallbackBinding: RepoServiceBinding = selectedFallbackBinding;
   return {
     daemonId,
-    createProtocolServer: (authContext) => createJsonRpcProtocolServer({
+    createProtocolServer: (authContext, acceptedConnection) => createJsonRpcProtocolServer({
       daemonId,
       repos: protocolRepos(),
       services: defaultRepoBinding().services,
@@ -201,6 +206,8 @@ export async function createDaemonServiceHost(
       ),
       leaseEnforcementEnabled: (repo) => leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
       authContext,
+      ...(acceptedConnection ? { acceptedConnection } : {}),
+      ...(authorityLifecycle ? { authorityPeerPolicy: localAuthorityPeerPolicy } : {}),
       ...(defaultRepoBinding().identity.identityProvider ? { identityProvider: defaultRepoBinding().identity.identityProvider } : {}),
       ...(defaultRepoBinding().identity.personRegistry ? { personRegistry: defaultRepoBinding().identity.personRegistry } : {}),
       ...(defaultRepoBinding().identity.identityAdminSnapshot ? { identityAdminSnapshot: defaultRepoBinding().identity.identityAdminSnapshot } : {}),
@@ -384,7 +391,13 @@ function createRepoServiceBinding(
   });
   const cliCommandService = createCliCommandService(runtime, {
     ...commandOptions,
-    ...(authorityComponent ? { authoritySubmissionV2: authorityComponent.commandSubmissionV2 } : {})
+    ...(authorityComponent ? {
+      resolveAuthoritySubmissionV2: (dispatch) => bindAuthoritySubmissionForDispatch(
+        authorityComponent,
+        repo.repoId,
+        dispatch
+      )
+    } : {})
   });
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
     rootInput: { rootDir, layoutOverrides },
@@ -445,6 +458,23 @@ function createRepoServiceBinding(
       }
     },
     appendRuntimeEvent
+  };
+}
+
+export function bindAuthoritySubmissionForDispatch(
+  component: AuthorityRepoComponent,
+  repoId: string,
+  dispatch: AuthorityConnectionDispatch | undefined
+): ReturnType<AuthorityRepoComponent["bindConnection"]> | undefined {
+  if (!dispatch?.available) return undefined;
+  if (dispatch.context.repoId !== repoId) throw new Error("AUTHORITY_CONNECTION_REPO_MISMATCH");
+  dispatch.assertActive();
+  const bound = component.bindConnection(dispatch.context);
+  return {
+    submit: async (submission) => {
+      dispatch.assertActive();
+      return bound.submit(submission);
+    }
   };
 }
 
@@ -512,4 +542,17 @@ function canonicalRootIdentity(value: string): string {
   } catch {
     return path.resolve(value);
   }
+}
+
+export function localAuthorityPeerPolicy(input: Parameters<NonNullable<
+  Parameters<typeof createJsonRpcProtocolServer>[0]["authorityPeerPolicy"]
+>>[0]): boolean {
+  if (input.actor.resolvedCredential.kind !== "unix-socket-owner-boundary") return false;
+  const credentialUid = Number(input.actor.resolvedCredential.subject);
+  const daemonUid = process.getuid?.();
+  return Number.isSafeInteger(credentialUid)
+    && credentialUid >= 0
+    && typeof daemonUid === "number"
+    && input.peerCredential.uid === credentialUid
+    && input.peerCredential.uid === daemonUid;
 }

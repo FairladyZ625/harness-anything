@@ -7,6 +7,7 @@ import {
   createNamedPipeTransportServer,
   createUnixSocketTransportServer,
   ensurePrivateUnixSocketDirectory,
+  type AcceptedConnectionBinding,
   type DaemonAuthenticationContext,
   type DaemonTransportConnection,
   type JsonRpcProtocolServer,
@@ -36,7 +37,10 @@ export interface DaemonLocalTransportOptions {
   readonly daemonId: string;
   readonly endpoint: string;
   readonly platform?: NodeJS.Platform;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection?: AcceptedConnectionBinding
+  ) => JsonRpcProtocolServer;
   readonly acceptSshForcedCommand: (frame: SshForcedCommandBootstrapFrame) => boolean;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;

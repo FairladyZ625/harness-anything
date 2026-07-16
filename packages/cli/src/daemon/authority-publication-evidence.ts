@@ -25,7 +25,7 @@ export function createGitCanonicalPublicationInspector(canonicalRoot: string): G
   const inspectPublication = async (expectedPreviousHead: string | null): Promise<CanonicalPublicationEvidence> => {
     const head = await currentHead();
     if (!head) throw new Error("AUTHORITY_CANONICAL_PUBLICATION_MISSING");
-    const row = gitText(rootDir, "rev-list", "--parents", "-n", "1", head).split(" ");
+    const row = publicationGitText(rootDir, "rev-list", "--parents", "-n", "1", head).split(" ");
     const parentCommits = row.slice(1);
     if (parentCommits.length !== (expectedPreviousHead ? 1 : 0)
       || (expectedPreviousHead && parentCommits[0] !== expectedPreviousHead)) {
@@ -106,13 +106,13 @@ function canonicalGitPath(value: string): string {
 
 function gitOptional(rootDir: string, ...args: ReadonlyArray<string>): string | null {
   try {
-    return gitText(rootDir, ...args);
+    return publicationGitText(rootDir, ...args);
   } catch {
     return null;
   }
 }
 
-function gitText(rootDir: string, ...args: ReadonlyArray<string>): string {
+function publicationGitText(rootDir: string, ...args: ReadonlyArray<string>): string {
   return gitBuffer(rootDir, ...args).toString("utf8").trim();
 }
 

@@ -8,7 +8,7 @@ import type {
 } from "../../../application/src/index.ts";
 import { Effect } from "effect";
 import type {
-  AuthenticatedActor,
+  AuthorityConnectionContext,
   DaemonRepoNamespace,
   PersonRegistry
 } from "../../../daemon/src/index.ts";
@@ -33,26 +33,6 @@ export type AuthorityRepoStopReason =
   | "registry-disabled"
   | "reconcile-removed"
   | "daemon-shutdown";
-
-export interface AuthorityConnectionContext {
-  readonly schema: "authority-connection-context/v1";
-  readonly connectionId: string;
-  readonly connectionGeneration: string;
-  readonly actor: AuthenticatedActor;
-  readonly repoId: string;
-  readonly channelBinding: {
-    readonly digest: Uint8Array;
-    readonly source: "transport-observed";
-  };
-  readonly peerCredential: {
-    readonly schema: "os-observed-peer-credential/v1";
-    readonly platform: NodeJS.Platform;
-    readonly source: "getpeereid" | "LOCAL_PEERCRED" | "SO_PEERCRED";
-    readonly uid: number;
-    readonly gid?: number;
-    readonly pid?: number;
-  };
-}
 
 export interface AuthorityRepoServerData {
   readonly authenticatedPersonRegistry: PersonRegistry;
@@ -236,7 +216,7 @@ export function createAuthorityRepoLifecycleController(input: {
     } catch (error) {
       if (component) await stopStartedComponent(repo, component, "repo-detached").catch(() => undefined);
       await state?.close().catch(() => undefined);
-      const message = describe(error);
+      const message = authorityLifecycleErrorMessage(error);
       unavailable.set(repo.repoId, message);
       return { ok: false, error: message };
     }
@@ -325,6 +305,6 @@ function validateServerData(
   }
 }
 
-function describe(error: unknown): string {
+function authorityLifecycleErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

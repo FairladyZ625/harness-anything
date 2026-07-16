@@ -13,7 +13,7 @@ const runnerPath = path.join(repoRoot, "tools/run-staged-activation.mjs");
 const registry = JSON.parse(readFileSync(path.join(repoRoot, "tools/staged-activation.json"), "utf8"));
 
 test("every registered island is currently inactive and its fixture flips the probe to activated", () => {
-  assert.equal(registry.islands.length, 4);
+  assert.equal(registry.islands.length, 3);
   for (const island of registry.islands) {
     const current = runProbe(island, repoRoot);
     assert.equal(current.status, 1, `${island.id}: ${current.stdout}\n${current.stderr}`);

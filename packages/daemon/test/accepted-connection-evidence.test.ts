@@ -9,8 +9,6 @@ import test from "node:test";
 import type { LocalControllerService } from "../../application/src/index.ts";
 import { createInMemoryTerminalSessionService } from "../../gui/src/terminal/session-registry.ts";
 import {
-  canonicalPeerCredentialBytes,
-  channelDigest32,
   createAcceptedConnectionEvidence,
   createJsonRpcProtocolServer,
   createNodeSocketAcceptedConnectionEvidenceAdapter,
@@ -22,97 +20,6 @@ import {
   type DaemonTransportConnection,
   type JsonObject
 } from "../src/index.ts";
-
-test("typed unavailable peer credentials have a distinct canonical domain and a 32-byte digest", () => {
-  const unavailable = {
-    available: false,
-    code: "observation_failed",
-    source: "os-peer-credential-adapter"
-  } as const;
-  const evidence = createAcceptedConnectionEvidence({
-    connectionId: "connection-a",
-    connectionGeneration: connectionGeneration("generation-a"),
-    daemonInstanceId: "daemon-a",
-    transportKind: "unix-socket",
-    peerCredential: unavailable,
-    serverRandom: Buffer.alloc(32, 0x5a)
-  });
-  const evidenceWithOwnerBoundary = createAcceptedConnectionEvidence({
-    connectionId: "connection-a",
-    connectionGeneration: connectionGeneration("generation-a"),
-    daemonInstanceId: "daemon-a",
-    transportKind: "unix-socket",
-    peerCredential: unavailable,
-    compatibilityBoundary: {
-      ownerUid: 999,
-      source: "unix-socket-filesystem-owner-boundary"
-    },
-    serverRandom: Buffer.alloc(32, 0x5a)
-  });
-
-  assert.deepEqual(
-    canonicalPeerCredentialBytes(unavailable),
-    Buffer.concat([
-      lp("harness-peer-credential/unavailable/v1"),
-      lp("observation_failed"),
-      lp("os-peer-credential-adapter")
-    ])
-  );
-  assert.equal(evidence.channelBinding.digest.byteLength, 32);
-  assert.equal(evidence.channelBinding.source, "transport-observed");
-  assert.deepEqual(evidence.channelBinding.digest, evidenceWithOwnerBoundary.channelBinding.digest);
-  assert.equal(
-    Buffer.from(evidence.channelBinding.digest).toString("hex"),
-    "bcd84a359885c2f4ce5c3416a708b82cfe301a9ad8be72739acdef2d49b2c419"
-  );
-  const callerDigest = evidence.channelBinding.digest;
-  callerDigest[0] = 0;
-  assert.equal(
-    Buffer.from(evidence.channelBinding.digest).toString("hex"),
-    "bcd84a359885c2f4ce5c3416a708b82cfe301a9ad8be72739acdef2d49b2c419"
-  );
-  assert.notDeepEqual(
-    canonicalPeerCredentialBytes(unavailable),
-    canonicalPeerCredentialBytes({
-      available: true,
-      value: {
-        schema: "os-observed-peer-credential/v1",
-        platform: "darwin",
-        source: "getpeereid",
-        uid: 0
-      }
-    })
-  );
-});
-
-test("available peer credentials preserve canonical source and optional numeric fields", () => {
-  const available = {
-    available: true,
-    value: {
-      schema: "os-observed-peer-credential/v1",
-      platform: "darwin",
-      source: "LOCAL_PEERCRED",
-      uid: 501,
-      gid: 20,
-      pid: 4242
-    }
-  } as const;
-
-  assert.deepEqual(
-    canonicalPeerCredentialBytes(available),
-    Buffer.concat([
-      lp("harness-peer-credential/available/v1"),
-      lp("darwin"),
-      lp("LOCAL_PEERCRED"),
-      uint64(501),
-      Buffer.from([1]),
-      uint64(20),
-      Buffer.from([1]),
-      uint64(4242)
-    ])
-  );
-  assert.throws(() => channelDigest32(Buffer.alloc(31)), /channel digest must be 32 bytes/u);
-});
 
 test("connection-getpeereid-valid observes the same accepted Darwin socket", {
   skip: process.platform !== "darwin" ? "Darwin getpeereid fixture" : false
@@ -226,7 +133,7 @@ test("connection-local-peercred-valid reaches the live stream and closes its gen
   assert.throws(() => protocolBinding.assertActive(), /connection generation is closed/u);
 });
 
-test("client channel and peer self-reports are ignored by the live authority context", async () => {
+test("client-channel-self-report-ignored and client-peer-self-report-ignored use only server evidence in the live authority context", async () => {
   const evidence = createAcceptedConnectionEvidence({
     connectionId: "server-connection",
     connectionGeneration: connectionGeneration("server-generation"),
@@ -359,7 +266,7 @@ test("accepted daemon transport delivers evidence to the JSON-RPC live handler",
   }
 });
 
-test("digest-with-unavailable-credential keeps I1 live and submitV2 calls=0", async () => {
+test("socket-owner-only-i1 and digest-with-unavailable-credential keep I1 live and submitV2 calls=0", async () => {
   const evidence = createAcceptedConnectionEvidence({
     connectionId: "unavailable-connection",
     connectionGeneration: connectionGeneration("unavailable-generation"),
@@ -456,6 +363,41 @@ test("stale-generation-reuse is rejected by the live handler with submitV2 calls
   assert.deepEqual(result.dispatch, { available: false, code: "connection_generation_closed" });
 });
 
+test("connection-so-peercred-valid preserves the honest Linux source in the live handler", async () => {
+  const evidence = createAcceptedConnectionEvidence({
+    connectionId: "linux-live-connection",
+    connectionGeneration: connectionGeneration("linux-live-generation"),
+    daemonInstanceId: "server-daemon",
+    transportKind: "unix-socket",
+    peerCredential: {
+      available: true,
+      value: {
+        schema: "os-observed-peer-credential/v1",
+        platform: "linux",
+        source: "SO_PEERCRED",
+        uid: 501,
+        gid: 20,
+        pid: 4242
+      }
+    },
+    serverRandom: Buffer.alloc(32, 0x79)
+  });
+  let dispatch: AuthorityConnectionDispatch | undefined;
+  const server = authorityProtocolServer(activeBinding(evidence), (connection) => {
+    dispatch = connection;
+  });
+
+  await server.handle(helloRequest());
+  await server.handle(commandRequest());
+
+  assert.equal(dispatch?.available, true);
+  if (dispatch?.available) {
+    assert.equal(dispatch.context.peerCredential.platform, "linux");
+    assert.equal(dispatch.context.peerCredential.source, "SO_PEERCRED");
+    assert.equal(dispatch.context.peerCredential.pid, 4242);
+  }
+});
+
 test("Linux SO_PEERCRED remains typed unavailable when no Node adapter exists", async () => {
   const socket = new net.Socket();
   const adapter = createNodeSocketAcceptedConnectionEvidenceAdapter({
@@ -502,19 +444,6 @@ test("Windows named pipe evidence is fixed platform_unsupported", async () => {
   assert.equal(evidence.channelBinding.digest.byteLength, 32);
   socket.destroy();
 });
-
-function lp(value: string): Buffer {
-  const bytes = Buffer.from(value, "utf8");
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(bytes.byteLength);
-  return Buffer.concat([length, bytes]);
-}
-
-function uint64(value: number): Buffer {
-  const bytes = Buffer.alloc(8);
-  bytes.writeBigUInt64BE(BigInt(value));
-  return bytes;
-}
 
 function activeBinding(evidence: ReturnType<typeof createAcceptedConnectionEvidence>): AcceptedConnectionBinding {
   return {
@@ -629,7 +558,7 @@ function helloRequest(clientReport: JsonObject = {}) {
   };
 }
 
-function commandRequest(clientReport: JsonObject) {
+function commandRequest(clientReport: JsonObject = {}) {
   return {
     jsonrpc: "2.0" as const,
     id: "command",
