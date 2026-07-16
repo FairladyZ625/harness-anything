@@ -13,7 +13,7 @@ import {
   type TaskFilters,
 } from "./model/taskFilters.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
-import { adaptProjectionRows, buildRealProject } from "./task-adapter.ts";
+import { adaptProjectionRows, buildRealProject, REAL_PROJECT_ID } from "./task-adapter.ts";
 import { useTasksQuery, useSetTaskStatusMutation } from "./task-data.ts";
 import { useTriadicProjectionQuery } from "./triadic-data.ts";
 import { useCatalogQuery } from "./catalog-data.ts";
@@ -42,7 +42,7 @@ function AppShell() {
     forward,
     canBack,
     canForward,
-  } = useNavigationHistory({
+  } = useNavigationHistory(REAL_PROJECT_ID, {
     view: "overview",
     selectedId: null,
     previewId: null,

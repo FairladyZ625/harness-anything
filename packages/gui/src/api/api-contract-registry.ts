@@ -103,6 +103,7 @@ export const apiRouteContracts = [
     service: "DaemonStatusService",
     serviceMethod: "getStatus",
     auth: "local-session-token",
+    guiBridgeMethod: "getDaemonStatus",
     commandClass: "repo-read"
   },
   {

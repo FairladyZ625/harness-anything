@@ -1,15 +1,18 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AppLocation, NavigationHistoryState } from "./navigationHistory.ts";
 import {
   canGoBack,
   canGoForward,
-  createNavigationHistory,
   currentLocation,
   goBack as historyGoBack,
   goForward as historyGoForward,
   patchCurrent,
   pushLocation,
 } from "./navigationHistory.ts";
+import {
+  readNavigationHistory,
+  writeNavigationHistory,
+} from "./navigationHistoryStorage.ts";
 
 /**
  * AppShell 全局导航历史 hook。
@@ -26,10 +29,14 @@ import {
  * setView / setSelectedId / ... —— 下一个改 App.tsx 的人想绕过历史栈,
  * 得先把 setter 加回来,而 navigationHistory.vitest.ts 的源码扫描会拦住。
  */
-export function useNavigationHistory(initial: AppLocation) {
+export function useNavigationHistory(projectId: string, initial: AppLocation) {
   const [history, setHistory] = useState<NavigationHistoryState>(() =>
-    createNavigationHistory(initial),
+    readNavigationHistory(window.sessionStorage, projectId, initial),
   );
+
+  useEffect(() => {
+    writeNavigationHistory(window.sessionStorage, projectId, history);
+  }, [history, projectId]);
 
   const location = currentLocation(history);
 

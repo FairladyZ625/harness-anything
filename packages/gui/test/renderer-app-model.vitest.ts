@@ -10,9 +10,21 @@ import {
   toGuiCommandFeedback
 } from "../src/api/view-model.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
+import {
+  LEDGER_REFRESH_INTERVAL_MS,
+  createRendererQueryClient,
+} from "../src/renderer/query-client.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 
 describe("renderer app model", () => {
+  it("refreshes visible ledger queries without polling a hidden window", () => {
+    const defaults = createRendererQueryClient().getDefaultOptions().queries;
+
+    expect(defaults?.refetchOnWindowFocus).toBe("always");
+    expect(defaults?.refetchInterval).toBe(LEDGER_REFRESH_INTERVAL_MS);
+    expect(defaults?.refetchIntervalInBackground).toBe(false);
+  });
+
   it("keeps the renderer capability model privilege-free", () => {
     expect(rendererCapabilityModel).toEqual({
       nodeGlobalsAvailable: false,

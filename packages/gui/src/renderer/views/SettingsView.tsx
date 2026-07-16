@@ -6,6 +6,7 @@ import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widg
 import { useRebuildGovernanceMutation } from "../task-data";
 import { t, useI18n, type Locale } from "../i18n/index.tsx";
 import { useToast } from "../components/MutationToast";
+import { SystemStatusPanel } from "./settings/SystemStatusPanel.tsx";
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "dark", get label() { return t("views.settingsView.darkColor"); } },
@@ -34,7 +35,8 @@ type SettingsTab =
   | "data"
   | "terminal"
   | "privacy"
-  | "sync";
+  | "sync"
+  | "system";
 
 const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
   { id: "appearance", get label() { return t("views.settingsView.appearance"); }, get desc() { return t("views.settingsView.themesStatusColors"); } },
@@ -45,6 +47,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; desc: string }[] = [
   { id: "terminal", get label() { return t("views.settingsView.terminal"); }, get desc() { return t("views.settingsView.shellPreferences"); } },
   { id: "privacy", get label() { return t("views.settingsView.privacy"); }, get desc() { return t("views.settingsView.localDefault"); } },
   { id: "sync", get label() { return t("views.settingsView.accountSynchronization"); }, get desc() { return t("views.settingsView.v2Capabilities"); } },
+  { id: "system", get label() { return t("views.settingsView.system"); }, get desc() { return t("views.settingsView.systemDaemonStatusDesc"); } },
 ];
 
 export function SettingsView() {
@@ -238,6 +241,8 @@ export function SettingsView() {
             ))}
           </Section>
         );
+      case "system":
+        return <SystemStatusPanel />;
     }
   };
 

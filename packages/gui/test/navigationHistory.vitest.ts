@@ -13,6 +13,11 @@ import {
   pushLocation,
   type AppLocation,
 } from "../src/renderer/navigation/navigationHistory.ts";
+import {
+  readNavigationHistory,
+  writeNavigationHistory,
+  type NavigationHistorySessionStorage,
+} from "../src/renderer/navigation/navigationHistoryStorage.ts";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 
 /**
@@ -38,6 +43,83 @@ function location(overrides: Partial<AppLocation> = {}): AppLocation {
     ...overrides,
   };
 }
+
+function memorySessionStorage(): NavigationHistorySessionStorage {
+  const values = new Map<string, string>();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+}
+
+describe("navigation history session persistence", () => {
+  it("restores the complete back/forward stack for the same repository", () => {
+    const storage = memorySessionStorage();
+    let history = createNavigationHistory(location({ view: "overview" }));
+    history = pushLocation(history, location({ view: "board", selectedId: "task-1" }));
+    history = pushLocation(history, location({ view: "graph", focusedEntityRef: "task/task-1" }));
+    history = goBack(history);
+
+    writeNavigationHistory(storage, "repo-a", history);
+
+    expect(readNavigationHistory(storage, "repo-a", location())).toEqual(history);
+  });
+
+  it("falls back safely when persisted session data is corrupt", () => {
+    const fallback = location({ view: "overview" });
+    const storage: NavigationHistorySessionStorage = {
+      getItem: () => "{not-json",
+      setItem: () => undefined,
+    };
+
+    expect(readNavigationHistory(storage, "repo-a", fallback)).toEqual(
+      createNavigationHistory(fallback),
+    );
+  });
+
+  it("rejects a versioned payload whose history index is out of bounds", () => {
+    const fallback = location({ view: "overview" });
+    const storage: NavigationHistorySessionStorage = {
+      getItem: () => JSON.stringify({
+        schema: "gui-navigation-history/v1",
+        history: { entries: [location({ view: "board" })], index: 9 },
+      }),
+      setItem: () => undefined,
+    };
+
+    expect(readNavigationHistory(storage, "repo-a", fallback)).toEqual(
+      createNavigationHistory(fallback),
+    );
+  });
+
+  it("rejects a versioned payload containing an invalid application location", () => {
+    const fallback = location({ view: "overview" });
+    const storage: NavigationHistorySessionStorage = {
+      getItem: () => JSON.stringify({
+        schema: "gui-navigation-history/v1",
+        history: { entries: [null], index: 0 },
+      }),
+      setItem: () => undefined,
+    };
+
+    expect(readNavigationHistory(storage, "repo-a", fallback)).toEqual(
+      createNavigationHistory(fallback),
+    );
+  });
+
+  it("keeps navigation usable when session storage rejects writes", () => {
+    const storage: NavigationHistorySessionStorage = {
+      getItem: () => null,
+      setItem: () => { throw new Error("quota denied"); },
+    };
+
+    expect(() => writeNavigationHistory(
+      storage,
+      "repo-a",
+      createNavigationHistory(location()),
+    )).not.toThrow();
+  });
+});
 
 describe("navigationHistory create + current", () => {
   it("seeds history with the initial location at index 0", () => {
@@ -208,6 +290,10 @@ describe("App.tsx navigation funnel invariant", () => {
     path.resolve(import.meta.dirname, "../src/renderer/App.tsx"),
     "utf-8",
   );
+  const hookSource = readFileSync(
+    path.resolve(import.meta.dirname, "../src/renderer/navigation/useNavigationHistory.ts"),
+    "utf-8",
+  );
 
   const BANNED_SETTERS = [
     "setView(",
@@ -227,5 +313,11 @@ describe("App.tsx navigation funnel invariant", () => {
     expect(appSource).toContain("navigate(");
     expect(appSource).toContain("updateLocation(");
     expect(appSource).toContain("useNavigationHistory(");
+  });
+
+  it("connects the AppShell history to repository-scoped session storage", () => {
+    expect(appSource).toContain("useNavigationHistory(REAL_PROJECT_ID,");
+    expect(hookSource).toContain("readNavigationHistory(window.sessionStorage, projectId");
+    expect(hookSource).toContain("writeNavigationHistory(window.sessionStorage, projectId, history)");
   });
 });

@@ -16,6 +16,7 @@ export interface PreloadApiCapability {
 }
 
 export const allowedPreloadApi = Object.freeze({
+  getDaemonStatus: "getDaemonStatus",
   getCatalogSnapshot: "getCatalogSnapshot",
   getTasks: "getTasks",
   getTaskDetail: "getTaskDetail",
@@ -54,6 +55,7 @@ export const terminalPreloadApi = Object.freeze({
 } as const satisfies { readonly [Method in TerminalPreloadApiMethod]: Method });
 
 export const preloadApiCapabilities = Object.freeze({
+  getDaemonStatus: { method: "getDaemonStatus", status: "shipped" },
   getCatalogSnapshot: { method: "getCatalogSnapshot", status: "shipped" },
   getTasks: { method: "getTasks", status: "shipped" },
   getTaskDetail: { method: "getTaskDetail", status: "shipped" },
