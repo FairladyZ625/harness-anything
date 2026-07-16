@@ -24,6 +24,7 @@ import {
   type DaemonControlLifecycle,
   type DaemonControlRequest
 } from "./control.ts";
+import type { AuthorityRepoLifecycleController } from "../../daemon/authority-lifecycle.ts";
 
 export type { DaemonControlLifecycle } from "./control.ts";
 
@@ -50,6 +51,8 @@ export interface DaemonCommandInput {
 
 export interface DaemonServeHooks {
   readonly onStarted?: (status: Record<string, unknown>) => void;
+  /** Production/test composition point; absent until S supplies all authority inputs. */
+  readonly authorityLifecycle?: AuthorityRepoLifecycleController;
 }
 
 export function loadDaemonIdentity(rootDir: string, layoutOverrides: { readonly authoredRoot?: string } | undefined, endpoint?: string, userRoot?: string) {

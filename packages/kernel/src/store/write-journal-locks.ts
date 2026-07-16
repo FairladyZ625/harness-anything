@@ -115,6 +115,11 @@ export function assertDirectWriteAllowed(rootDir: string, layoutInput: HarnessLa
   }
 }
 
+/** Verifies that the daemon still owns the exact global-lock generation it exposes. */
+export function assertDaemonGlobalLockHeld(lock: DaemonGlobalLock): void {
+  assertHeldLock(lock);
+}
+
 function acquireLock(
   rootDir: string,
   journalPath: string,

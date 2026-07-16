@@ -163,6 +163,7 @@ const publicRuntimeSurface = [
   "listTaskIndexPaths",
   "makeCodeDocGitEvidenceResolver",
   "makeJournaledWriteCoordinator",
+  "makeLocalAuthorityAttributionEventV2Log",
   "makeLocalLockRegistry",
   "makeLocalVersionControlSystem",
   "makeMarkdownArtifactStore",

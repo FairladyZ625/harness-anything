@@ -536,6 +536,37 @@ test("daemon interactive queue does not mix different principals or sources with
   });
 });
 
+test("authority attributed coordinator is backed by the current daemon held-lock generation", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initAuthoredGit(rootDir);
+    const runtime = createDaemonRuntime({
+      rootDir,
+      materializerPollMs: false,
+      interactiveMicroBatchMs: 0
+    });
+    await runtime.start();
+    await runtime.assertWriteFenceHeld();
+
+    const coordinator = runtime.createAttributedCoordinator({
+      attribution: testAttribution,
+      sessionId: "authority-held-lock"
+    });
+    Effect.runSync(coordinator.enqueue(docWrite("op-authority-held-a", "task-authority-a", "note.md", "a\n")));
+    Effect.runSync(coordinator.enqueue(docWrite("op-authority-held-b", "task-authority-b", "note.md", "b\n")));
+    const flush = Effect.runSync(coordinator.flush("explicit"));
+
+    assert.equal(flush.committed, true);
+    assert.equal(flush.opCount, 2);
+    assert.match(git(rootDir, "log", "master..sessions/authority-held-lock", "--oneline"), /op-authority-held-a/u);
+    await runtime.stop();
+    await assert.rejects(runtime.assertWriteFenceHeld(), (error: unknown) =>
+      typeof error === "object"
+      && error !== null
+      && "_tag" in error
+      && error._tag === "JournalUnavailable");
+  });
+});
+
 test("multi-repo daemon isolates attach lock failures by repo", async () => {
   await withTempStoreAsync(async (lockedRoot) => {
     await withTempStoreAsync(async (availableRoot) => {

@@ -141,6 +141,7 @@ export type { AttributionEventV2, PhysicalChangeV2 } from "./schemas/attribution
 export * from "./schemas/task-schema-resolver.ts";
 export {
   makeJournaledWriteCoordinator,
+  makeLocalAuthorityAttributionEventV2Log,
   makeOperationalJournaledWriteCoordinator,
   makeLocalLockRegistry,
   makeLocalVersionControlSystem,

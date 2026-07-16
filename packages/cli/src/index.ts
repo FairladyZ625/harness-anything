@@ -93,7 +93,7 @@ async function runDaemonServe(
   const startedAt = new Date().toISOString();
   return withDaemonSocketOwnership(endpoint, async () => {
     let runtime: MultiRepoHarnessDaemonRuntime | undefined;
-    let serviceHost: ReturnType<typeof createDaemonServiceHost> | undefined;
+    let serviceHost: Awaited<ReturnType<typeof createDaemonServiceHost>> | undefined;
     try {
       const serveRepos = daemonServeRepos(rootDir, layoutOverrides, requestedRepoId, userRoot);
       const defaultRepoId = defaultDaemonServeRepoId(serveRepos, rootDir, requestedRepoId);
@@ -117,11 +117,11 @@ async function runDaemonServe(
       }
       const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
       const connections: DaemonConnectionStats = { active: 0, total: 0 };
-      serviceHost = createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections, userRoot, {
+      serviceHost = await createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections, userRoot, {
         entrypoint,
         loadedIdentity: loadedBuild.identity,
         startedAt
-      });
+      }, hooks.authorityLifecycle);
       serviceHost.startRegistryReconcile(userRoot);
       const transport = createDaemonLocalTransport({
         daemonId: serviceHost.daemonId,

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { Effect } from "effect";
-import type { RecoveryReport } from "../ports/write-coordinator.ts";
+import type { RecoveryReport, WriteCoordinator } from "../ports/write-coordinator.ts";
+import type { WriteAttribution } from "../schemas/actor-attribution.ts";
 import type { ProjectionSourceFenceFactory } from "../ports/projection-source-fence.ts";
 import type { WriteError } from "../domain/index.ts";
 import {
@@ -18,7 +19,7 @@ import {
   type InteractiveWriteAttribution,
   type InteractiveWriteRequest
 } from "./daemon-runtime-queue.ts";
-import { acquireDaemonGlobalLock, type DaemonGlobalLock } from "./write-journal-locks.ts";
+import { acquireDaemonGlobalLock, assertDaemonGlobalLockHeld, type DaemonGlobalLock } from "./write-journal-locks.ts";
 import { makeJournaledWriteCoordinator, makeOperationalJournaledWriteCoordinator, recoverJournaledWrites } from "./write-journal-coordinator.ts";
 import type { OperationalActor } from "./write-journal-types.ts";
 import { writeOpTouchedPaths } from "./write-journal-operations.ts";
@@ -80,6 +81,12 @@ export interface HarnessDaemonRuntime {
   readonly enqueueBackgroundBatch: <Result>(request: BackgroundBatchRequest<Result>) => Promise<Result>;
   readonly enqueueMaterializerBatch: (options?: DaemonMaterializerBatchOptions) => Promise<LedgerMaterializerReport>;
   readonly queryExecutionEvidencePage: (query: ExecutionEvidencePageQuery) => Promise<ExecutionEvidencePage>;
+  /** Authority/application port backed by this runtime's current held global lock. */
+  readonly createAttributedCoordinator: (input: {
+    readonly attribution: WriteAttribution;
+    readonly sessionId: string;
+  }) => WriteCoordinator;
+  readonly assertWriteFenceHeld: () => Promise<void>;
 }
 
 export interface DaemonMaterializerBatchOptions {
@@ -137,7 +144,9 @@ export function createDaemonRuntime(options: DaemonRuntimeOptions): HarnessDaemo
     enqueueInteractiveWrite: (request) => context.enqueueInteractiveWrite(request),
     enqueueBackgroundBatch: (request) => context.enqueueBackgroundBatch(request),
     enqueueMaterializerBatch: (batchOptions) => context.enqueueMaterializerBatch(batchOptions),
-    queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query)
+    queryExecutionEvidencePage: (query) => context.queryExecutionEvidencePage(query),
+    createAttributedCoordinator: (input) => context.createAttributedCoordinator(input),
+    assertWriteFenceHeld: () => context.assertWriteFenceHeld()
   };
 }
 
@@ -393,6 +402,37 @@ class DaemonRepoRuntimeContext implements HarnessDaemonRuntime {
   queryExecutionEvidencePage(query: ExecutionEvidencePageQuery): Promise<ExecutionEvidencePage> {
     this.requireAttached();
     return this.projectionGeneration.queryExecutionEvidencePage(query);
+  }
+
+  createAttributedCoordinator(input: {
+    readonly attribution: WriteAttribution;
+    readonly sessionId: string;
+  }): WriteCoordinator {
+    const started = this.requireAttached();
+    const coordinator = this.makeStartedCoordinator(started, input);
+    const projectionWrites: Array<ReturnType<DaemonProjectionGenerationManager["beginCanonicalWrite"]>> = [];
+    return {
+      enqueue: (op) => Effect.suspend(() => {
+        const touchedPaths = writeOpTouchedPaths(this.runtimeContext, op);
+        const projectionWrite = this.projectionGeneration.beginCanonicalWrite(touchedPaths);
+        projectionWrites.push(projectionWrite);
+        return coordinator.enqueue(op);
+      }),
+      flush: (reason) => Effect.ensuring(
+        coordinator.flush(reason),
+        Effect.sync(() => {
+          for (const projectionWrite of projectionWrites.splice(0, projectionWrites.length)) {
+            projectionWrite.settle();
+          }
+        })
+      ),
+      recover: coordinator.recover
+    };
+  }
+
+  async assertWriteFenceHeld(): Promise<void> {
+    const { lock } = this.requireAttached();
+    assertDaemonGlobalLockHeld(lock);
   }
 
   private requireAttached(): { readonly lock: DaemonGlobalLock } {

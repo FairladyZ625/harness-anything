@@ -1,15 +1,26 @@
 // @slice-activation PLT-Daemon W3 transport adapters exported for daemon composition roots.
+import { randomUUID } from "node:crypto";
 import net from "node:net";
-import type { DaemonAuthenticationContext } from "./auth-context.ts";
+import type { AcceptedConnectionBinding } from "../protocol/connection-context.ts";
+import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
+import { connectionGeneration, createAcceptedConnectionEvidence } from "./accepted-connection-evidence.ts";
+import type {
+  AcceptedConnectionEvidenceAdapter,
+  DaemonAuthenticationContext
+} from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
 import { authenticateSshForcedCommandFrame, type AcceptSshForcedCommand } from "./ssh-forced-command.ts";
-import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
+import { createNodeSocketAcceptedConnectionEvidenceAdapter } from "./node-socket-peer-credential.ts";
 
 export interface NamedPipeTransportOptions {
   readonly daemonId: string;
   readonly pipePath?: string;
   readonly platform?: NodeJS.Platform;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => JsonRpcProtocolServer;
+  readonly acceptedConnectionEvidenceAdapter?: AcceptedConnectionEvidenceAdapter<net.Socket>;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection?: AcceptedConnectionBinding
+  ) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
   readonly acceptSshForcedCommand?: boolean | AcceptSshForcedCommand;
@@ -45,17 +56,44 @@ export function windowsNamedPipeIntegrationEntry(): WindowsNamedPipeIntegrationE
 export function createNamedPipeTransportServer(options: NamedPipeTransportOptions): NamedPipeTransportServer {
   const endpoint = options.pipePath ?? defaultNamedPipePath(options.daemonId);
   const platform = options.platform ?? process.platform;
+  const evidenceAdapter = options.acceptedConnectionEvidenceAdapter
+    ?? createNodeSocketAcceptedConnectionEvidenceAdapter({ platform, transportKind: "named-pipe" });
   const server = net.createServer((socket) => {
+    void acceptNamedPipeConnection(socket);
+  });
+
+  async function acceptNamedPipeConnection(socket: net.Socket): Promise<void> {
     const authContext: DaemonAuthenticationContext = {
       transportKind: "named-pipe",
       endpoint,
       namedPipeClient: { endpoint, source: "windows-named-pipe" }
     };
+    const connectionId = randomUUID();
+    const generation = connectionGeneration();
+    const acceptedConnectionEvidence = await evidenceAdapter.observeAcceptedConnection({
+      socket,
+      connectionId,
+      connectionGeneration: generation,
+      daemonInstanceId: options.daemonId
+    }).catch(() => createAcceptedConnectionEvidence({
+      connectionId,
+      connectionGeneration: generation,
+      daemonInstanceId: options.daemonId,
+      transportKind: "named-pipe",
+      peerCredential: {
+        available: false,
+        code: "platform_unsupported",
+        source: "os-peer-credential-adapter"
+      }
+    }));
+    if (socket.destroyed) return;
     const connection = serveJsonRpcStream({
       input: socket,
       output: socket,
       transportKind: "named-pipe",
       authContext,
+      connectionId,
+      acceptedConnectionEvidence,
       ...(options.acceptSshForcedCommand ? {
         authenticateFirstFrame: (frame: unknown, context: DaemonAuthenticationContext) => authenticateSshForcedCommandFrame(
           frame,
@@ -67,7 +105,7 @@ export function createNamedPipeTransportServer(options: NamedPipeTransportOption
     });
     options.onConnection?.(connection);
     socket.once("close", () => options.onConnectionClosed?.(connection));
-  });
+  }
 
   return {
     kind: "named-pipe",

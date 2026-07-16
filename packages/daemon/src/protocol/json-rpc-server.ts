@@ -22,6 +22,12 @@ import { readTaskHolderExecutor } from "./task-holder-payload.ts";
 import { appendJsonRpcCommandEvent, appendJsonRpcWriteEventIfNeeded } from "./runtime-event-dispatch.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import { resolveIdentityActorForMethod } from "./identity-dispatch.ts";
+import {
+  resolveAuthorityConnectionForRequest,
+  type AcceptedConnectionBinding,
+  type AuthorityConnectionDispatch,
+  type AuthorityPeerPolicy
+} from "./connection-context.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
   actorStampJson,
@@ -68,7 +74,12 @@ export interface DaemonServiceHost {
   readonly DaemonStatusService?: DaemonStatusService;
   readonly DaemonControlService?: DaemonControlService;
   readonly CliCommandService?: {
-    readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null; readonly repo?: DaemonRepoNamespace }) => Promise<CommandReceipt | CommandFailureReceipt>;
+    readonly runCommand: (payload?: JsonObject, context?: {
+      readonly actor?: AuthenticatedActor;
+      readonly executor?: TaskHolderExecutor | null;
+      readonly repo?: DaemonRepoNamespace;
+      readonly authorityConnection?: AuthorityConnectionDispatch;
+    }) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
   readonly DocSyncService?: {
     readonly submit: (request: DocSyncSubmitRequestV1, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null; readonly repo?: DaemonRepoNamespace }) => Promise<DocSyncSubmitResultV1>;
@@ -84,6 +95,8 @@ export interface JsonRpcServerOptions {
   /** Workspace policy resolver supplied by the CLI composition root. */
   readonly leaseEnforcementEnabled?: (repo: DaemonRepoNamespace) => boolean;
   readonly authContext?: DaemonAuthenticationContext;
+  readonly acceptedConnection?: AcceptedConnectionBinding;
+  readonly authorityPeerPolicy?: AuthorityPeerPolicy;
   readonly identityProvider?: IdentityProvider;
   readonly personRegistry?: PersonRegistry;
   readonly identityAdminSnapshot?: IdentityAdminSnapshot;
@@ -194,6 +207,13 @@ async function handleRequest(
     }
   }
 
+  const authorityConnection = await resolveAuthorityConnectionForRequest({
+    acceptedConnection: identityOptions.acceptedConnection,
+    actor,
+    repo,
+    peerPolicy: identityOptions.authorityPeerPolicy
+  });
+
   if (contract.mode === "notification-stub") {
     return response(stampReceipt(successReceipt(request.method, `registered no-op notification stub for ${request.method}`, {
       subscription: "noop"
@@ -207,7 +227,14 @@ async function handleRequest(
     return response(receipt);
   }
 
-  const result = await callServiceMethod(effectiveContract, params, options, actor, repo);
+  const result = await callServiceMethod(
+    effectiveContract,
+    params,
+    options,
+    actor,
+    repo,
+    authorityConnection
+  );
   const receipt = stampReceipt(result, actor);
   await appendJsonRpcWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
   return response(receipt);
@@ -300,7 +327,8 @@ async function callServiceMethod(
   params: JsonObject,
   options: JsonRpcServerOptions,
   actor: AuthenticatedActor | undefined,
-  repo: DaemonRepoNamespace | undefined
+  repo: DaemonRepoNamespace | undefined,
+  authorityConnection: AuthorityConnectionDispatch | undefined
 ): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
   const payload = isJsonObject(params.payload) ? params.payload : undefined;
   if (contract.method === "repo.command.run" && repo) {
@@ -319,7 +347,12 @@ async function callServiceMethod(
     if (!services.CliCommandService) {
       return failureReceipt(contract.method, "cli_command_service_unavailable", "Daemon command service is not configured.");
     }
-    return services.CliCommandService.runCommand(payload, { actor, executor: readTaskHolderExecutor(payload), repo });
+    return services.CliCommandService.runCommand(payload, {
+      actor,
+      executor: readTaskHolderExecutor(payload),
+      repo,
+      ...(authorityConnection ? { authorityConnection } : {})
+    });
   }
   if (contract.method === "repo.task.claim" || contract.method === "repo.task.holder" || contract.method === "repo.task.release") {
     return callTaskHolderMethod(contract, payload, services, actor);

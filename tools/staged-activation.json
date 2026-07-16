@@ -50,27 +50,6 @@
       "registeredAt": "2026-07-13"
     },
     {
-      "id": "v2-binding-runtime-adapter",
-      "description": "ActorAxesBindingRuntimeV2 has a daemon or CLI production adapter outside the authority service contract consumer.",
-      "probe": {
-        "command": "node",
-        "args": [
-          "tools/probe-production-consumer.mjs",
-          "--definition",
-          "any:packages/application/src/authority/actor-axes-binding-v2.ts#ActorAxesBindingRuntimeV2",
-          "--consumer-root",
-          "packages/daemon/src",
-          "--consumer-root",
-          "packages/cli/src",
-          "--match",
-          "all"
-        ],
-        "timeoutMs": 10000
-      },
-      "anchor": "task_01KXDT1CVHBZ5YD619PRJWWZMQ",
-      "registeredAt": "2026-07-13"
-    },
-    {
       "id": "attestation-proof-provider",
       "description": "AttestationProofProvider and AttestationProofVerifier have a production transport adapter outside the handshake core.",
       "probe": {

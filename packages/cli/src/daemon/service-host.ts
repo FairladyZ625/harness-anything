@@ -12,6 +12,8 @@ import {
   createPtyTerminalSessionService,
   createJsonRpcProtocolServer,
   calculateDaemonArtifactIdentity,
+  type AcceptedConnectionBinding,
+  type AuthorityConnectionDispatch,
   type DaemonActiveControlStatus,
   type DaemonControlService,
   type DaemonStatusResultV2,
@@ -47,13 +49,17 @@ import {
   reconcileDaemonRepoRegistry,
   type DaemonReconcileState
 } from "./registry-reconciler.ts";
+import type {
+  AuthorityRepoComponent,
+  AuthorityRepoLifecycleController
+} from "./authority-lifecycle.ts";
 
 type HarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createDaemonRuntime"]>;
 type MultiRepoHarnessDaemonRuntime = ReturnType<CliCompositionAdapterProvider["createMultiRepoDaemonRuntime"]>;
 type RepoServiceBinding = ReturnType<typeof createRepoServiceBinding>;
 type RepoIdentity = ReturnType<typeof loadDaemonIdentity> & { readonly loadError?: string };
 
-export function createDaemonServiceHost(
+export async function createDaemonServiceHost(
   runtime: MultiRepoHarnessDaemonRuntime,
   repos: ReadonlyArray<DaemonRepoNamespace>,
   defaultRepoId: string,
@@ -66,10 +72,14 @@ export function createDaemonServiceHost(
     readonly entrypoint: string;
     readonly loadedIdentity: string;
     readonly startedAt: string;
-  }
-): {
+  },
+  authorityLifecycle?: AuthorityRepoLifecycleController
+): Promise<{
   readonly daemonId: string;
-  readonly createProtocolServer: (authContext: DaemonAuthenticationContext) => ReturnType<typeof createJsonRpcProtocolServer>;
+  readonly createProtocolServer: (
+    authContext: DaemonAuthenticationContext,
+    acceptedConnection?: AcceptedConnectionBinding
+  ) => ReturnType<typeof createJsonRpcProtocolServer>;
   readonly acceptsSshForcedCommand: (canonicalRoot: string) => boolean;
   readonly status: () => DaemonStatusResultV2;
   readonly onConnectionStart: () => void;
@@ -78,8 +88,9 @@ export function createDaemonServiceHost(
   readonly waitForStopRequest: () => Promise<void>;
   readonly onStop: (handler: () => Promise<void>) => void;
   readonly startRegistryReconcile: (userRoot: string) => void;
+  readonly reconcileNow: (userRoot: string) => Promise<void>;
   readonly stop: () => Promise<void>;
-} {
+}> {
   const daemonId = `ha-${process.pid}`;
   const stopHandlers: Array<() => Promise<void>> = [];
   const reposById = new Map(repos.map((repo) => [repo.repoId, repo]));
@@ -100,6 +111,7 @@ export function createDaemonServiceHost(
     for (const handler of stopHandlers.splice(0, stopHandlers.length)) {
       await handler();
     }
+    await authorityLifecycle?.stopAll("daemon-shutdown");
     await runtime.stop();
   };
   const scheduleIdleExit = () => {
@@ -154,32 +166,48 @@ export function createDaemonServiceHost(
       };
     }
   };
-  const repoBindings = new Map(repos.map((repo) => {
+  const repoBindings = new Map<string, RepoServiceBinding>();
+  for (const repo of repos) {
     const repoRuntime = runtime.getRepoRuntime(repo.repoId);
     if (!repoRuntime) throw new Error(`daemon runtime missing repo context: ${repo.repoId}`);
-    return [repo.repoId, createRepoServiceBinding(
+    const runtimeRepoStatus = runtime.status().repos.find((candidate) => candidate.repoId === repo.repoId);
+    if (authorityLifecycle && runtimeRepoStatus?.state !== "attached") continue;
+    let authorityComponent: AuthorityRepoComponent | undefined;
+    if (authorityLifecycle) {
+      const startedAuthority = await authorityLifecycle.startRepo(repo, repoRuntime);
+      if (!startedAuthority.ok) continue;
+      authorityComponent = startedAuthority.component;
+    }
+    repoBindings.set(repo.repoId, createRepoServiceBinding(
       repo,
       repoRuntime,
       runtime,
       layoutOverrides,
       commandOptions,
-      { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, activeControl: () => activeControl }
-    )] as const;
-  }));
+      { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, activeControl: () => activeControl },
+      authorityComponent
+    ));
+  }
   const selectedFallbackBinding = repoBindings.get(defaultRepoId) ?? repoBindings.values().next().value;
   if (!selectedFallbackBinding) throw new Error("daemon service host has no repo bindings");
   const serviceFallbackBinding: RepoServiceBinding = selectedFallbackBinding;
   return {
     daemonId,
-    createProtocolServer: (authContext) => createJsonRpcProtocolServer({
+    createProtocolServer: (authContext, acceptedConnection) => createJsonRpcProtocolServer({
       daemonId,
       repos: protocolRepos(),
       services: defaultRepoBinding().services,
       resolveRepoServices: (repo) => protocolRepoBinding(repo)?.services,
       resolveRepoIdentity: (repo) => protocolRepoBinding(repo)?.identity,
-      resolveRepoAvailability: (repo) => repoAvailabilityFailure(runtime, repo),
+      resolveRepoAvailability: (repo) => repoAvailabilityFailure(
+        runtime,
+        repo,
+        authorityLifecycle?.unavailableReason(repo.repoId)
+      ),
       leaseEnforcementEnabled: (repo) => leaseEnforcementEnabled({ rootDir: repo.canonicalRoot, layoutOverrides }),
       authContext,
+      ...(acceptedConnection ? { acceptedConnection } : {}),
+      ...(authorityLifecycle ? { authorityPeerPolicy: localAuthorityPeerPolicy } : {}),
       ...(defaultRepoBinding().identity.identityProvider ? { identityProvider: defaultRepoBinding().identity.identityProvider } : {}),
       ...(defaultRepoBinding().identity.personRegistry ? { personRegistry: defaultRepoBinding().identity.personRegistry } : {}),
       ...(defaultRepoBinding().identity.identityAdminSnapshot ? { identityAdminSnapshot: defaultRepoBinding().identity.identityAdminSnapshot } : {}),
@@ -218,6 +246,7 @@ export function createDaemonServiceHost(
       }, 1_000);
       reconcileTimer.unref();
     },
+    reconcileNow: (targetUserRoot) => reconcileDaemonRepos(targetUserRoot),
     stop
   };
 
@@ -255,22 +284,33 @@ export function createDaemonServiceHost(
           ...(layoutOverrides ? { layoutOverrides } : {})
         });
       },
-      bindRepo: (repo) => {
+      bindRepo: async (repo) => {
         if (repoBindings.has(repo.repoId)) return;
         const namespace = reposById.get(repo.repoId) ?? { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot };
         reposById.set(repo.repoId, namespace);
         const repoRuntime = runtime.getRepoRuntime(repo.repoId);
         if (!repoRuntime) throw new Error(`daemon runtime missing repo context: ${repo.repoId}`);
+        let authorityComponent: AuthorityRepoComponent | undefined;
+        if (authorityLifecycle) {
+          const startedAuthority = await authorityLifecycle.startRepo(namespace, repoRuntime);
+          if (!startedAuthority.ok) throw new Error(startedAuthority.error);
+          authorityComponent = startedAuthority.component;
+        }
         repoBindings.set(repo.repoId, createRepoServiceBinding(
           namespace,
           repoRuntime,
           runtime,
           layoutOverrides,
           commandOptions,
-          { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, activeControl: () => activeControl }
+          { daemonId, endpoint, connections, userRoot, reconcileStatus: reconcileState, build, controlService, activeControl: () => activeControl },
+          authorityComponent
         ));
       },
       detachRepo: async (repoId) => {
+        repoBindings.delete(repoId);
+        const repo = reposById.get(repoId);
+        authorityLifecycle?.unpublishRepo(repoId);
+        if (repo) await authorityLifecycle?.stopRepo(repo, "reconcile-removed");
         if (runtime.getRepoRuntime(repoId)) await runtime.detachRepo(repoId);
       },
       removeRepo: (repoId) => {
@@ -318,7 +358,8 @@ function createRepoServiceBinding(
     };
     readonly controlService?: DaemonControlService;
     readonly activeControl?: () => DaemonActiveControlStatus | null;
-  }
+  },
+  authorityComponent?: AuthorityRepoComponent
 ): {
   readonly repo: DaemonRepoNamespace;
   readonly identity: RepoIdentity;
@@ -348,7 +389,16 @@ function createRepoServiceBinding(
       })
     }
   });
-  const cliCommandService = createCliCommandService(runtime, commandOptions);
+  const cliCommandService = createCliCommandService(runtime, {
+    ...commandOptions,
+    ...(authorityComponent ? {
+      resolveAuthoritySubmissionV2: (dispatch) => bindAuthoritySubmissionForDispatch(
+        authorityComponent,
+        repo.repoId,
+        dispatch
+      )
+    } : {})
+  });
   const appendRuntimeEvent = makeRuntimeEventAppendPromise(makeRuntimeEventLedgerService({
     rootInput: { rootDir, layoutOverrides },
     coordinator: makeDaemonQueuedOperationalWriteCoordinator(runtime, "runtime-event-protocol", {
@@ -411,6 +461,23 @@ function createRepoServiceBinding(
   };
 }
 
+export function bindAuthoritySubmissionForDispatch(
+  component: AuthorityRepoComponent,
+  repoId: string,
+  dispatch: AuthorityConnectionDispatch | undefined
+): ReturnType<AuthorityRepoComponent["bindConnection"]> | undefined {
+  if (!dispatch?.available) return undefined;
+  if (dispatch.context.repoId !== repoId) throw new Error("AUTHORITY_CONNECTION_REPO_MISMATCH");
+  dispatch.assertActive();
+  const bound = component.bindConnection(dispatch.context);
+  return {
+    submit: async (submission) => {
+      dispatch.assertActive();
+      return bound.submit(submission);
+    }
+  };
+}
+
 function loadRepoIdentity(
   rootDir: string,
   layoutOverrides: { readonly authoredRoot?: string } | undefined,
@@ -429,7 +496,8 @@ function loadRepoIdentity(
 
 function repoAvailabilityFailure(
   runtime: MultiRepoHarnessDaemonRuntime,
-  repo: DaemonRepoNamespace
+  repo: DaemonRepoNamespace,
+  authorityUnavailable?: string
 ): DaemonRepoAvailabilityFailure | undefined {
   const status = runtime.status().repos.find((candidate) => candidate.repoId === repo.repoId);
   if (!status) {
@@ -445,7 +513,7 @@ function repoAvailabilityFailure(
       }
     };
   }
-  if (status.state === "attached") return undefined;
+  if (status.state === "attached" && !authorityUnavailable) return undefined;
   const lockHeld = typeof status.lastError === "string" && /lock already held|global\.lock/u.test(status.lastError);
   return {
     code: lockHeld ? "repo_lock_held" : "repo_unavailable",
@@ -455,7 +523,7 @@ function repoAvailabilityFailure(
       state: status.state,
       lockPath: status.lockPath ?? null,
       lockOwnerToken: status.lockOwnerToken ?? null,
-      lastError: status.lastError ?? null
+      lastError: authorityUnavailable ?? status.lastError ?? null
     }
   };
 }
@@ -474,4 +542,17 @@ function canonicalRootIdentity(value: string): string {
   } catch {
     return path.resolve(value);
   }
+}
+
+export function localAuthorityPeerPolicy(input: Parameters<NonNullable<
+  Parameters<typeof createJsonRpcProtocolServer>[0]["authorityPeerPolicy"]
+>>[0]): boolean {
+  if (input.actor.resolvedCredential.kind !== "unix-socket-owner-boundary") return false;
+  const credentialUid = Number(input.actor.resolvedCredential.subject);
+  const daemonUid = process.getuid?.();
+  return Number.isSafeInteger(credentialUid)
+    && credentialUid >= 0
+    && typeof daemonUid === "number"
+    && input.peerCredential.uid === credentialUid
+    && input.peerCredential.uid === daemonUid;
 }

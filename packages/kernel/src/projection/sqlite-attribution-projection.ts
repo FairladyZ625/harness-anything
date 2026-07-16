@@ -2,12 +2,14 @@ import { SqlClient } from "@effect/sql";
 import { Effect } from "effect";
 import { canonicalEntityKinds, type CanonicalEntityKind } from "../entity/canonical-kinds.ts";
 import { entityRegistry } from "../entity/registry.ts";
+import { stableStringify } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
 import {
   decodeUnionAttributionEventBody,
-  readUnionAttributionEvents
+  readUnionAttributionEvents,
+  selectUnionAttributionEventPrecedence
 } from "../local/attribution-event-source.ts";
 import type { ActorAxes, ExecutorSource, PrincipalSource } from "../schemas/actor-attribution.ts";
 import type { AttributionEvent } from "../schemas/attribution-event.ts";
@@ -83,11 +85,12 @@ export function materializeAttributionProjectionFromEvents(
   events: ReadonlyArray<UnionAttributionEvent>
 ): ReadonlyArray<AttributionProjectionRow> {
   if (!localLayoutFileSystem.exists(projectionPath)) throw new Error("base projection database must exist before attribution materialization");
+  const selectedEvents = selectUnionAttributionEventPrecedence(events);
   runSqlite(projectionPath, Effect.flatMap(SqlClient.SqlClient, (sql) => Effect.gen(function* () {
-    yield* replaceAttributionProjectionRows(sql, events);
-    yield* materializeEntityAttributionBlocks(sql, events);
+    yield* replaceAttributionProjectionRows(sql, selectedEvents);
+    yield* materializeEntityAttributionBlocks(sql, selectedEvents);
   })));
-  return events.flatMap(eventToProjectionRows);
+  return selectedEvents.flatMap(eventToProjectionRows);
 }
 
 export function readModuleAttributionProjection(
@@ -121,7 +124,7 @@ export function replaceAttributionProjectionRows(
   sql: SqlClient.SqlClient,
   events: ReadonlyArray<UnionAttributionEvent>
 ): Effect.Effect<void, unknown> {
-  return replaceAttributionEvents(sql, events);
+  return replaceAttributionEvents(sql, selectUnionAttributionEventPrecedence(events));
 }
 
 export function applyAttributionProjectionDelta(
@@ -147,26 +150,26 @@ export interface AttributionProjectionDelta {
 }
 
 export function buildAttributionProjectionDelta(change: ProjectionSourceCacheChange): AttributionProjectionDelta {
-  const previous = new Map(change.previous.files
+  const previous = new Map(selectUnionAttributionEventPrecedence(change.previous.files
     .filter((row) => row.cacheKind === "attribution")
-    .map((row) => [row.sourcePath, row]));
-  const current = new Map(change.current.files
+    .map((row) => decodeUnionAttributionEventBody(row.body)))
+    .map((event) => [event.opId, event]));
+  const current = new Map(selectUnionAttributionEventPrecedence(change.current.files
     .filter((row) => row.cacheKind === "attribution")
-    .map((row) => [row.sourcePath, row]));
+    .map((row) => decodeUnionAttributionEventBody(row.body)))
+    .map((event) => [event.opId, event]));
   const deleteEventIds = new Set<string>();
   const upsertEvents: UnionAttributionEvent[] = [];
   const affectedSubjects = new Set<string>();
-  for (const [sourcePath, row] of previous) {
-    const next = current.get(sourcePath);
-    if (next?.contentSha256 === row.contentSha256) continue;
-    const event = decodeUnionAttributionEventBody(row.body);
+  for (const [opId, event] of previous) {
+    const next = current.get(opId);
+    if (next && stableStringify(next) === stableStringify(event)) continue;
     deleteEventIds.add(event.eventId);
     eventToProjectionRows(event).forEach((projection) => affectedSubjects.add(projection.subjectRef));
   }
-  for (const [sourcePath, row] of current) {
-    const prior = previous.get(sourcePath);
-    if (prior?.contentSha256 === row.contentSha256) continue;
-    const event = decodeUnionAttributionEventBody(row.body);
+  for (const [opId, event] of current) {
+    const prior = previous.get(opId);
+    if (prior && stableStringify(prior) === stableStringify(event)) continue;
     upsertEvents.push(event);
     eventToProjectionRows(event).forEach((projection) => affectedSubjects.add(projection.subjectRef));
   }
@@ -177,7 +180,7 @@ export function materializeEntityAttributionBlocks(
   sql: SqlClient.SqlClient,
   events: ReadonlyArray<UnionAttributionEvent>
 ): Effect.Effect<void, unknown> {
-  const rows = events.flatMap(eventToProjectionRows);
+  const rows = selectUnionAttributionEventPrecedence(events).flatMap(eventToProjectionRows);
   const rowsByTarget = attributionRowsByTarget(rows);
   return Effect.gen(function* () {
     const existing = new Set((yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master WHERE type = 'table'`)

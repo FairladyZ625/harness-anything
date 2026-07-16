@@ -137,6 +137,16 @@ export {
   type JsonRpcProtocolServer,
   type JsonRpcServerOptions
 } from "./protocol/json-rpc-server.ts";
+export {
+  resolveAuthorityConnectionDispatch,
+  resolveAuthorityConnectionForRequest,
+  type AcceptedConnectionBinding,
+  type AuthorityConnectionContext,
+  type AuthorityConnectionDispatch,
+  type AuthorityConnectionRepo,
+  type AuthorityConnectionUnavailableCode,
+  type AuthorityPeerPolicy
+} from "./protocol/connection-context.ts";
 export type {
   JsonRpcErrorObject,
   JsonRpcId,
@@ -147,15 +157,34 @@ export type {
   JsonRpcSuccessResponse
 } from "./protocol/json-rpc-types.ts";
 export {
+  type AcceptedConnectionEvidence,
+  type AcceptedConnectionEvidenceAdapter,
   type AttachTokenSubject,
+  type ChannelDigest32,
+  type ConnectionGeneration,
   type DaemonAuthenticationContext,
   type DaemonTransportKind,
   type NamedPipeClientContext,
+  type OsObservedPeerCredential,
+  type OsPeerCredentialEvidence,
   type SshExecUserContext,
   type SshForcedCommandContext,
   type SshTunnelTokenContext,
-  type UnixSocketOwnerBoundary
+  type UnixSocketOwnerBoundary,
+  type UnixSocketOwnerCompatibilityBoundary
 } from "./transport/auth-context.ts";
+export {
+  canonicalPeerCredentialBytes,
+  channelDigest32,
+  connectionGeneration,
+  createAcceptedConnectionEvidence,
+  type CreateAcceptedConnectionEvidenceInput
+} from "./transport/accepted-connection-evidence.ts";
+export {
+  createNodeSocketAcceptedConnectionEvidenceAdapter,
+  observeNodeSocketPeerCredential,
+  type NodeSocketAcceptedConnectionEvidenceAdapterOptions
+} from "./transport/node-socket-peer-credential.ts";
 export {
   authenticateSshForcedCommandFrame,
   sshForcedCommandBootstrapFrame,

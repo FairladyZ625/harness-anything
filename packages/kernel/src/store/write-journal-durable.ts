@@ -114,6 +114,10 @@ export function appendJsonLineDurably(filePath: string, value: JournalRecord | J
 }
 
 export function appendImmutableJsonLineDurably(filePath: string, value: object): boolean {
+  return appendImmutableBytesDurably(filePath, Buffer.from(`${JSON.stringify(value)}\n`, "utf8"));
+}
+
+export function appendImmutableBytesDurably(filePath: string, bytes: Uint8Array): boolean {
   mkdirSync(path.dirname(filePath), { recursive: true });
   let fd: number;
   try {
@@ -123,7 +127,13 @@ export function appendImmutableJsonLineDurably(filePath: string, value: object):
     throw error;
   }
   try {
-    writeSync(fd, `${JSON.stringify(value)}\n`, null, "utf8");
+    const buffer = Buffer.from(bytes);
+    let offset = 0;
+    while (offset < buffer.byteLength) {
+      const written = writeSync(fd, buffer, offset, buffer.byteLength - offset, offset);
+      if (written === 0) throw new Error(`durable immutable write made no progress: ${filePath}`);
+      offset += written;
+    }
     fsyncSync(fd);
   } finally {
     closeSync(fd);

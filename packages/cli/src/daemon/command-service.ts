@@ -1,5 +1,10 @@
 import { Effect } from "effect";
-import { commandClassForCliActionKind, type AuthenticatedActor, type JsonObject } from "../../../daemon/src/index.ts";
+import {
+  commandClassForCliActionKind,
+  type AuthenticatedActor,
+  type AuthorityConnectionDispatch,
+  type JsonObject
+} from "../../../daemon/src/index.ts";
 import { makeHumanFallbackSessionProbe, type ProvenanceSessionExporterRejected, type ProvenanceSessionExportResult, type TaskHolderExecutor } from "../../../application/src/index.ts";
 import type { CurrentSessionRef, WriteCoordinator } from "../../../kernel/src/index.ts";
 import { cliError, CliErrorCode } from "../cli/error-codes.ts";
@@ -13,13 +18,19 @@ import { makeDaemonAuthorityWriteCoordinator, type DaemonAuthorityCommandSubmiss
 import { makeDaemonQueuedOperationalWriteCoordinator, makeDaemonQueuedWriteCoordinator, type CliDaemonRuntime } from "./queued-write-coordinator.ts";
 
 export interface CliCommandService {
-  readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null }) => Promise<CommandReceipt | CommandFailureReceipt>;
+  readonly runCommand: (payload?: JsonObject, context?: {
+    readonly actor?: AuthenticatedActor;
+    readonly executor?: TaskHolderExecutor | null;
+    readonly authorityConnection?: AuthorityConnectionDispatch;
+  }) => Promise<CommandReceipt | CommandFailureReceipt>;
 }
 
 export interface CliCommandServiceOptions {
   readonly onCommandStart?: () => void;
   readonly onCommandSettled?: () => void;
-  readonly authoritySubmissionV2?: DaemonAuthorityCommandSubmissionV2;
+  readonly resolveAuthoritySubmissionV2?: (
+    connection: AuthorityConnectionDispatch | undefined
+  ) => DaemonAuthorityCommandSubmissionV2 | undefined;
 }
 
 export function createCliCommandService(runtime: CliDaemonRuntime, options: CliCommandServiceOptions = {}): CliCommandService {
@@ -39,8 +50,11 @@ export function createCliCommandService(runtime: CliDaemonRuntime, options: CliC
         const attribution = daemonActor
           ? daemonActorAttributionForParsedCommand(daemonActor, parsedCommand, context?.executor)
           : undefined;
-        const authorityCoordinator = attribution && options.authoritySubmissionV2
-          ? makeDaemonAuthorityWriteCoordinator(options.authoritySubmissionV2, {
+        const authoritySubmissionV2 = attribution
+          ? options.resolveAuthoritySubmissionV2?.(context?.authorityConnection)
+          : undefined;
+        const authorityCoordinator = attribution && authoritySubmissionV2
+          ? makeDaemonAuthorityWriteCoordinator(authoritySubmissionV2, {
             command: parsedCommand,
             attribution,
             currentSession
