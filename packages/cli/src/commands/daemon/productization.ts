@@ -146,7 +146,7 @@ async function startDaemon(input: DaemonCommandInput): Promise<number> {
       env: { ...process.env, HARNESS_DAEMON_MODE: "direct", HARNESS_DAEMON_USER_ROOT: target.userRoot, HARNESS_DAEMON_ID: target.daemonId }
     });
     child.unref();
-    const status = await waitForReachableStatus(target, 6_000);
+    const status = daemonStatusForCli(await waitForReachableStatus(target, 6_000));
     emitDaemonResult("daemon-start", { ...status, mode: "service", socketPath }, input.json);
     return 0;
   }
@@ -162,16 +162,17 @@ async function statusDaemon(input: DaemonCommandInput): Promise<number> {
   const layout = resolveHarnessLayout(createHarnessRuntimeContext(target.canonicalRoot, input.layoutOverrides));
   const lockStatus = readDaemonLock(path.join(layout.locksRoot, "global.lock"));
   const rpcStatus = await readReachableDaemonStatus(target);
+  const cliRpcStatus = rpcStatus ? daemonStatusForCli(rpcStatus) : undefined;
   emitDaemonResult("daemon-status", {
     ...lockStatus,
-    ...(rpcStatus ?? {
+    ...(cliRpcStatus ?? {
       version: resolveCliVersion(),
       protocolVersion: currentDaemonProtocolVersion,
       queueDepth: 0,
       queue: { interactive: 0, normal: 0, background: 0, maintenance: 0, running: false },
       connections: { active: 0, total: 0 }
     }),
-    started: rpcStatus?.started === true,
+    started: cliRpcStatus?.started === true,
     reachable: Boolean(rpcStatus)
   }, input.json);
   return 0;
@@ -188,8 +189,9 @@ async function stopDaemon(input: DaemonCommandInput): Promise<number> {
   const lockPath = path.join(layout.locksRoot, "global.lock");
   const lockStatus = readDaemonLock(lockPath);
   const rpcStatus = await readReachableDaemonStatus(target);
-  const before = { ...lockStatus, ...rpcStatus };
-  const daemonPid = typeof rpcStatus?.pid === "number" ? rpcStatus.pid : undefined;
+  const cliRpcStatus = rpcStatus ? daemonStatusForCli(rpcStatus) : undefined;
+  const before = { ...lockStatus, ...cliRpcStatus };
+  const daemonPid = typeof cliRpcStatus?.pid === "number" ? cliRpcStatus.pid : undefined;
   if (daemonPid !== undefined) {
     process.kill(daemonPid, "SIGTERM");
   }
@@ -450,6 +452,35 @@ async function waitForEndpointStopped(target: LocalDaemonTarget, timeoutMs: numb
     await waitDaemonPollInterval(100);
   }
   return !await readReachableDaemonStatus(target);
+}
+
+function daemonStatusForCli(status: Record<string, unknown>): Record<string, unknown> {
+  if (status.schema !== "daemon-status/v2") return status;
+  const service = isDaemonRecord(status.service) ? status.service : {};
+  const requestedRepo = isDaemonRecord(status.requestedRepo) ? status.requestedRepo : {};
+  const lock = isDaemonRecord(requestedRepo.lock) ? requestedRepo.lock : {};
+  const queue = isDaemonRecord(service.queue) ? service.queue : {};
+  const build = isDaemonRecord(service.build) ? service.build : {};
+  const repos = Array.isArray(status.repos)
+    ? status.repos.map((entry) => {
+        if (!isDaemonRecord(entry)) return entry;
+        const repoLock = isDaemonRecord(entry.lock) ? entry.lock : {};
+        return { ...entry, lockPath: repoLock.path ?? null, lockOwnerToken: repoLock.ownerToken ?? null };
+      })
+    : [];
+  return {
+    ...status,
+    ...service,
+    version: build.version ?? resolveCliVersion(),
+    protocolVersion: currentDaemonProtocolVersion,
+    rootDir: requestedRepo.canonicalRoot,
+    repoId: requestedRepo.repoId,
+    lock,
+    lockPath: lock.path ?? null,
+    lockOwnerToken: lock.ownerToken ?? null,
+    queueDepth: queue.depth ?? 0,
+    repos
+  };
 }
 
 function emitDaemonResult(command: string, result: Record<string, unknown>, json: boolean): void {

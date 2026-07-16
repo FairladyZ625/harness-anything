@@ -107,6 +107,29 @@ export {
   type JsonRpcMethodMode
 } from "./protocol/method-registry.ts";
 export {
+  projectDaemonStatusForRenderer,
+  type DaemonActiveControlStatus,
+  type DaemonBuildStatus,
+  type DaemonControlAcceptedV1,
+  type DaemonControlErrorV1,
+  type DaemonControlKind,
+  type DaemonControlRequestV1,
+  type DaemonControlService,
+  type DaemonControlServiceResult,
+  type DaemonProtocolErrorV1,
+  type DaemonQueueStatus,
+  type DaemonRendererStatusV2,
+  type DaemonRepoStatus,
+  type DaemonStatusRequestV2,
+  type DaemonStatusResultV2,
+  type DaemonStatusService
+} from "../../application/src/daemon-status-contract.ts";
+export {
+  calculateDaemonArtifactIdentity,
+  resolveDaemonArtifactRoot,
+  type DaemonArtifactIdentity
+} from "./protocol/daemon-artifact-identity.ts";
+export {
   createJsonRpcProtocolServer,
   type DaemonRepoAvailabilityFailure,
   type DaemonRepoNamespace,

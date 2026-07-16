@@ -1,10 +1,12 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
 import {
   isTaskHolderError,
-  runtimeEventActorFromTaskHolderPrincipal,
   taskHolderPrincipalFromActor,
   type CommandFailureReceipt,
   type CommandReceipt,
+  type DaemonControlRequestV1,
+  type DaemonControlService,
+  type DaemonStatusService,
   type DocSyncSubmitRequestV1,
   type DocSyncSubmitResultV1,
   type LocalControllerService,
@@ -16,7 +18,8 @@ import type { TerminalSessionService } from "../../../gui/src/terminal/session-r
 import { commandClassForJsonRpcRequest, currentDaemonProtocolVersion, jsonRpcMethodContracts, type JsonRpcMethodContract } from "./method-registry.ts";
 import { failureReceipt, serviceResultReceipt, successReceipt } from "./receipt-envelope.ts";
 import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcRequest, type JsonRpcResponse, type JsonValue } from "./json-rpc-types.ts";
-import { readTaskHolderExecutor, readTaskHolderExecutorForEvent } from "./task-holder-payload.ts";
+import { readTaskHolderExecutor } from "./task-holder-payload.ts";
+import { appendJsonRpcCommandEvent, appendJsonRpcWriteEventIfNeeded } from "./runtime-event-dispatch.ts";
 import { commandRootMismatch, validateForcedCommandRoot } from "./forced-command-root.ts";
 import { resolveIdentityActorForMethod } from "./identity-dispatch.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
@@ -62,9 +65,8 @@ export interface DaemonServiceHost {
   readonly LocalControllerService: LocalControllerService;
   readonly TerminalSessionService: TerminalSessionService;
   readonly TaskHolderService?: TaskHolderService;
-  readonly DaemonStatusService?: {
-    readonly getStatus: (context?: DaemonRepoServiceContext) => JsonObject | Promise<JsonObject>;
-  };
+  readonly DaemonStatusService?: DaemonStatusService;
+  readonly DaemonControlService?: DaemonControlService;
   readonly CliCommandService?: {
     readonly runCommand: (payload?: JsonObject, context?: { readonly actor?: AuthenticatedActor; readonly executor?: TaskHolderExecutor | null; readonly repo?: DaemonRepoNamespace }) => Promise<CommandReceipt | CommandFailureReceipt>;
   };
@@ -91,11 +93,13 @@ export interface JsonRpcServerOptions {
     readonly identityAdminSnapshot?: IdentityAdminSnapshot;
   } | undefined;
   readonly appendRuntimeEvent?: (input: RuntimeEventAppendInput, context?: DaemonRepoServiceContext) => Promise<void>;
+  readonly enqueueAfterResponse?: (action: () => void) => void;
 }
 
 export interface JsonRpcProtocolServer {
   readonly handle: (message: JsonRpcRequest | JsonRpcRequest[]) =>
     Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>;
+  readonly afterResponse?: () => void;
 }
 
 interface ProtocolSession {
@@ -107,14 +111,22 @@ const methodByName: ReadonlyMap<string, JsonRpcMethodContract> = new Map(jsonRpc
 export function createJsonRpcProtocolServer(options: JsonRpcServerOptions): JsonRpcProtocolServer {
   const session: ProtocolSession = { handshaken: false };
   const repos = new Map(options.repos.map((repo) => [repo.repoId, repo]));
+  const afterResponseActions: Array<() => void> = [];
+  const requestOptions: JsonRpcServerOptions = {
+    ...options,
+    enqueueAfterResponse: (action) => afterResponseActions.push(action)
+  };
 
   return {
     handle: async (message) => {
       if (Array.isArray(message)) {
-        const responses = await Promise.all(message.map((request) => handleRequest(request, session, repos, options)));
+        const responses = await Promise.all(message.map((request) => handleRequest(request, session, repos, requestOptions)));
         return responses.filter((response): response is JsonRpcResponse => response !== undefined);
       }
-      return handleRequest(message, session, repos, options);
+      return handleRequest(message, session, repos, requestOptions);
+    },
+    afterResponse: () => {
+      for (const action of afterResponseActions.splice(0, afterResponseActions.length)) action();
     }
   };
 }
@@ -163,7 +175,7 @@ async function handleRequest(
       providerId: actorResult.providerId,
       ...(actorResult.credential ? { credential: credentialJson(actorResult.credential) } : {})
     });
-    await appendCommandEvent(options, params, effectiveContract, "failed", actorResult.message, actorResult.code, undefined, repo);
+    await appendJsonRpcCommandEvent(options, params, effectiveContract, "failed", actorResult.message, actorResult.code, undefined, repo);
     return response(receipt);
   }
   const actor = actorResult?.actor;
@@ -174,7 +186,7 @@ async function handleRequest(
       ...(repo ? { resource: { repoId: repo.repoId, canonicalRoot: repo.canonicalRoot } } : {})
     });
     if (!authz.ok) {
-      await appendCommandEvent(options, params, effectiveContract, "failed", authz.message, authz.code, actor, repo);
+      await appendJsonRpcCommandEvent(options, params, effectiveContract, "failed", authz.message, authz.code, actor, repo);
       return response(stampReceipt(failureReceipt(request.method, authz.code, authz.message, {
         actor: actorStampJson(actor),
         commandClass: effectiveContract.commandClass ?? null
@@ -189,15 +201,15 @@ async function handleRequest(
   }
 
   if (contract.namespace === "admin") {
-    const result = handleAdminMethod(contract, identityOptions);
+    const result = await handleAdminMethod(contract, params, identityOptions);
     const receipt = stampReceipt(result, actor);
-    await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
+    await appendJsonRpcWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
     return response(receipt);
   }
 
   const result = await callServiceMethod(effectiveContract, params, options, actor, repo);
   const receipt = stampReceipt(result, actor);
-  await appendWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
+  await appendJsonRpcWriteEventIfNeeded(options, params, effectiveContract, receipt.ok ? "succeeded" : "failed", receipt.summary, receipt.ok ? undefined : receipt.error?.code, actor, repo);
   return response(receipt);
 }
 
@@ -301,7 +313,7 @@ async function callServiceMethod(
     if (!services.DaemonStatusService) {
       return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
     }
-    return successReceipt(contract.method, "read daemon status", await services.DaemonStatusService.getStatus(repo ? { repo } : undefined));
+    return successReceipt(contract.method, "read daemon status", await services.DaemonStatusService.getStatus(repo ? { repo } : undefined) as unknown as JsonObject);
   }
   if (contract.method === "repo.command.run") {
     if (!services.CliCommandService) {
@@ -426,10 +438,30 @@ function withEffectiveCommandClass(contract: JsonRpcMethodContract, params: Json
   return commandClass ? { ...contract, commandClass } : { ...contract };
 }
 
-function handleAdminMethod(
+async function handleAdminMethod(
   contract: JsonRpcMethodContract,
+  params: JsonObject,
   options: JsonRpcServerOptions
-): ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt> {
+): Promise<ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>> {
+  if (contract.method === "admin.daemon.restart" || contract.method === "admin.daemon.refresh") {
+    if (!options.services.DaemonControlService) {
+      return failureReceipt(contract.method, "daemon_control_unavailable", "Daemon control service is not configured. Run `ha daemon status --json` to verify the reachable service before retrying.");
+    }
+    const payload = isJsonObject(params.payload) ? params.payload : {};
+    const request = daemonControlRequest(contract.method, payload);
+    if (!request.ok) return failureReceipt(contract.method, request.code, request.hint);
+    const result = await options.services.DaemonControlService.requestControl(
+      contract.method === "admin.daemon.restart" ? "restart" : "refresh",
+      request.value
+    );
+    if (!result.ok) {
+      return failureReceipt(contract.method, result.error.code, result.error.hint, {
+        operationId: result.error.operationId
+      });
+    }
+    options.enqueueAfterResponse?.(result.afterResponse);
+    return successReceipt(contract.method, `accepted daemon ${result.accepted.kind}`, toJsonValue(result.accepted) as JsonObject);
+  }
   if (!options.identityAdminSnapshot) {
     return failureReceipt(contract.method, "people_roster_unavailable", "Admin identity methods require a loaded people roster.");
   }
@@ -456,6 +488,33 @@ function handleAdminMethod(
   return failureReceipt(contract.method, "method_not_implemented", `Admin method is not implemented: ${contract.method}`);
 }
 
+function daemonControlRequest(
+  method: "admin.daemon.restart" | "admin.daemon.refresh",
+  payload: JsonObject
+): { readonly ok: true; readonly value: DaemonControlRequestV1 } | { readonly ok: false; readonly code: string; readonly hint: string } {
+  const cliCommand = method === "admin.daemon.refresh" ? "ha daemon refresh" : "ha daemon restart";
+  if (typeof payload.reason !== "string" || payload.reason.trim().length === 0) {
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.reason. Retry with \`${cliCommand} --reason "operator request"\`.` };
+  }
+  if (!Number.isSafeInteger(payload.drainTimeoutMs) || Number(payload.drainTimeoutMs) < 100 || Number(payload.drainTimeoutMs) > 120_000) {
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.drainTimeoutMs from 100 through 120000. Retry with \`${cliCommand} --timeout-ms 5000\`.` };
+  }
+  if (method === "admin.daemon.refresh"
+    && payload.trigger !== "explicit"
+    && payload.trigger !== "post-merge"
+    && payload.trigger !== "dist-watcher") {
+    return { ok: false, code: "daemon_control_unavailable", hint: `${method} requires payload.trigger explicit|post-merge|dist-watcher. Retry with \`ha daemon refresh --trigger explicit\`.` };
+  }
+  return {
+    ok: true,
+    value: {
+      reason: payload.reason,
+      drainTimeoutMs: Number(payload.drainTimeoutMs),
+      ...(method === "admin.daemon.refresh" ? { trigger: payload.trigger as DaemonControlRequestV1["trigger"] } : {})
+    }
+  };
+}
+
 function stampReceipt<T extends ReturnType<typeof successReceipt> | ReturnType<typeof failureReceipt>>(receipt: T, actor?: AuthenticatedActor): T {
   if (!actor) return receipt;
   return {
@@ -464,90 +523,6 @@ function stampReceipt<T extends ReturnType<typeof successReceipt> | ReturnType<t
       ...(receipt.details ?? {}),
       actor: actorStampJson(actor)
     }
-  };
-}
-
-async function appendWriteEventIfNeeded(
-  options: JsonRpcServerOptions,
-  params: JsonObject,
-  contract: JsonRpcMethodContract,
-  status: "succeeded" | "failed",
-  summary: string,
-  errorCode: string | undefined,
-  actor: AuthenticatedActor | undefined,
-  repo: DaemonRepoNamespace | undefined
-): Promise<void> {
-  if (contract.commandClass === "repo-read" || contract.method === "repo.command.run") return;
-  await appendCommandEvent(options, params, contract, status, summary, errorCode, actor, repo);
-}
-
-async function appendCommandEvent(
-  options: JsonRpcServerOptions,
-  params: JsonObject,
-  contract: JsonRpcMethodContract,
-  status: "succeeded" | "failed",
-  summary: string,
-  errorCode?: string,
-  actor?: AuthenticatedActor,
-  repo?: DaemonRepoNamespace
-): Promise<void> {
-  if (!options.appendRuntimeEvent) return;
-  const command = commandEventDetails(params);
-  const session = runtimeSession(params, options.daemonId, command.taskId);
-  const executor = readTaskHolderExecutorForEvent(isJsonObject(params.payload) ? params.payload : undefined);
-  const eventActor = actor
-    ? runtimeEventActorFromTaskHolderPrincipal(taskHolderPrincipalFromActor(actor, { executor }))
-    : undefined;
-  if (!eventActor) return;
-  await options.appendRuntimeEvent({
-    kind: "result",
-    actor: eventActor,
-    session,
-    tool: {
-      toolName: command.toolName ?? contract.method,
-      ...(errorCode ? { errorCode } : {})
-    },
-    result: {
-      status,
-      summary,
-      ...(errorCode ? { errorCode } : {})
-    }
-  }, repo ? { repo } : undefined).catch(() => undefined);
-}
-
-function commandEventDetails(params: JsonObject): { readonly toolName?: string; readonly taskId?: string } {
-  const payload = isJsonObject(params.payload) ? params.payload : {};
-  const command = isJsonObject(payload.command) ? payload.command : {};
-  const action = isJsonObject(command.action) ? command.action : {};
-  const toolName = typeof action.kind === "string" && action.kind.trim() ? action.kind : undefined;
-  const taskId = typeof payload.taskId === "string"
-    ? payload.taskId
-    : typeof action.taskId === "string"
-    ? action.taskId
-    : typeof action.oldTaskId === "string"
-      ? action.oldTaskId
-      : typeof action.sourceTaskId === "string"
-        ? action.sourceTaskId
-        : undefined;
-  return {
-    ...(toolName ? { toolName } : {}),
-    ...(taskId ? { taskId } : {})
-  };
-}
-
-function runtimeSession(
-  params: JsonObject,
-  daemonId: string,
-  taskId?: string
-): { readonly sessionId: string; readonly runtime: "human" | "claude-code" | "codex" | "zcode" | "antigravity" | "unknown"; readonly taskId?: string } {
-  const session = isJsonObject(params.session) ? params.session : {};
-  const runtime = typeof session.runtime === "string" && ["human", "claude-code", "codex", "zcode", "antigravity"].includes(session.runtime)
-    ? session.runtime as "human" | "claude-code" | "codex" | "zcode" | "antigravity"
-    : "unknown";
-  return {
-    sessionId: typeof session.sessionId === "string" && session.sessionId.trim() ? session.sessionId : `daemon-${daemonId}`,
-    runtime,
-    ...(taskId ? { taskId } : {})
   };
 }
 

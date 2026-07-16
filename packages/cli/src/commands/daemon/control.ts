@@ -3,6 +3,9 @@ import {
   type JsonObject,
   type LocalDaemonTarget
 } from "../../../../daemon/src/index.ts";
+import { makeLocalVersionControlSystem } from "../../../../kernel/src/index.ts";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { readOption } from "../../cli/parse-options.ts";
 import { requestLocalDaemonJsonRpc, resolveLocalDaemonTarget } from "../../daemon/client.ts";
 
@@ -35,10 +38,18 @@ type DaemonControlHandoff =
   | { readonly kind: "adopt"; readonly status: Record<string, unknown> }
   | { readonly kind: "autostart" };
 
+class DaemonRefreshWrongCheckoutError extends Error {
+  constructor() {
+    super("Refresh is limited to the canonical main checkout. Finish the feature-worktree build without replacing the user daemon, or run refresh from the canonical main checkout.");
+    this.name = "DaemonRefreshWrongCheckoutError";
+  }
+}
+
 export async function runDaemonControl(
   input: DaemonControlCommandInput,
   kind: DaemonControlKind
 ): Promise<Record<string, unknown>> {
+  if (kind === "refresh") assertCanonicalRefreshCheckout(input.rootDir);
   const drainTimeoutMs = daemonControlTimeoutMs(input.args);
   const trigger = kind === "refresh" ? daemonRefreshTrigger(input.args) : undefined;
   const params = {
@@ -63,10 +74,19 @@ export async function runDaemonControl(
       allowLegacySocket: false
     }
   ));
-  const receipt = await request({ method, params });
+  const rpcReceipt = await request({ method, params });
+  const receipt = controlPayloadFromRpcReceipt(rpcReceipt, method);
   validateAcceptedControlReceipt(receipt, method, kind);
   const before = isDaemonControlRecord(receipt.before) ? receipt.before : {};
-  const replacement = await completeDaemonReplacement(lifecycle, before.pid, drainTimeoutMs, kind, method);
+  const replacement = await completeDaemonReplacement(
+    lifecycle,
+    before.pid,
+    before.loadedIdentity,
+    receipt.operationId,
+    drainTimeoutMs,
+    kind,
+    method
+  );
   const { schema: controlSchema, ...controlResult } = receipt;
   return {
     ...controlResult,
@@ -77,6 +97,35 @@ export async function runDaemonControl(
       endpoint: lifecycle.target.socketPath
     }
   };
+}
+
+function controlPayloadFromRpcReceipt(
+  receipt: Record<string, unknown>,
+  method: DaemonControlRequest["method"]
+): Record<string, unknown> {
+  if (receipt.ok === false) {
+    const error = isDaemonControlRecord(receipt.error) ? receipt.error : {};
+    const hint = typeof error.hint === "string" ? error.hint : `${method} was rejected by the daemon`;
+    throw new Error(hint);
+  }
+  const details = isDaemonControlRecord(receipt.details) ? receipt.details : {};
+  const data = isDaemonControlRecord(details.data) ? details.data : undefined;
+  return data ?? receipt;
+}
+
+function assertCanonicalRefreshCheckout(rootDir: string): void {
+  try {
+    const topLevel = makeLocalVersionControlSystem().topLevel(rootDir);
+    if (!topLevel) return;
+    const gitPointer = readFileSync(path.join(topLevel, ".git"), "utf8").trim();
+    const gitDir = /^gitdir:\s*(.+)$/iu.exec(gitPointer)?.[1];
+    if (gitDir && path.resolve(topLevel, gitDir).split(path.sep).includes("worktrees")) {
+      throw new DaemonRefreshWrongCheckoutError();
+    }
+  } catch (error) {
+    if (error instanceof DaemonRefreshWrongCheckoutError) throw error;
+    // Non-Git installs are valid daemon entrypoints and have no feature-worktree ambiguity.
+  }
 }
 
 function validateAcceptedControlReceipt(
@@ -96,6 +145,8 @@ function validateAcceptedControlReceipt(
 async function completeDaemonReplacement(
   lifecycle: DaemonControlLifecycle,
   beforePid: unknown,
+  beforeLoadedIdentity: unknown,
+  operationId: unknown,
   timeoutMs: number,
   kind: DaemonControlKind,
   method: DaemonControlRequest["method"]
@@ -103,7 +154,10 @@ async function completeDaemonReplacement(
   if (!isPositivePid(beforePid)) {
     throw new Error(`${method} accepted receipt did not identify the running daemon PID`);
   }
-  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, timeoutMs);
+  if (typeof beforeLoadedIdentity !== "string" || typeof operationId !== "string") {
+    throw new Error(`${method} accepted receipt did not identify the loaded build and operation`);
+  }
+  const handoff = await waitForDaemonControlHandoff(lifecycle, beforePid, beforeLoadedIdentity, operationId, timeoutMs);
   if (handoff.kind === "adopt") return handoff.status;
   let replacement: Record<string, unknown>;
   try {
@@ -117,6 +171,9 @@ async function completeDaemonReplacement(
   }
   if (replacementLifecycle.pid === beforePid) {
     throw new Error(`daemon ${kind} replacement PID did not change: ${String(replacementLifecycle.pid)}`);
+  }
+  if (!isCompleteReplacement(replacementLifecycle, beforePid, beforeLoadedIdentity, operationId)) {
+    throw new Error(`daemon ${kind} replacement did not satisfy new PID, new loaded identity, and cleared operation criteria`);
   }
   return replacement;
 }
@@ -148,6 +205,8 @@ function defaultDaemonControlLifecycle(input: DaemonControlCommandInput): Daemon
 async function waitForDaemonControlHandoff(
   lifecycle: DaemonControlLifecycle,
   beforePid: number,
+  beforeLoadedIdentity: string,
+  operationId: string,
   timeoutMs: number
 ): Promise<DaemonControlHandoff> {
   const pollIntervalMs = 100;
@@ -163,7 +222,7 @@ async function waitForDaemonControlHandoff(
       // that permits the existing autostart primitive to run.
       if (!status) return { kind: "autostart" };
       const observedLifecycle = normalizeDaemonLifecycleStatus(status);
-      if (observedLifecycle && observedLifecycle.pid !== beforePid) {
+      if (observedLifecycle && isCompleteReplacement(observedLifecycle, beforePid, beforeLoadedIdentity, operationId)) {
         return { kind: "adopt", status };
       }
       // Reachable old-PID or malformed status is not replacement proof and
@@ -183,14 +242,39 @@ async function waitForDaemonControlHandoff(
 
 function normalizeDaemonLifecycleStatus(
   status: Record<string, unknown>
-): { readonly started: true; readonly pid: number } | undefined {
-  const lifecycle = status.schema === "daemon-status/v2"
-    ? (isDaemonControlRecord(status.service) ? status.service : undefined)
-    : status.schema === "daemon-status/v1"
-      ? status
-      : undefined;
+): {
+  readonly schema: "daemon-status/v1" | "daemon-status/v2";
+  readonly started: true;
+  readonly pid: number;
+  readonly loadedIdentity?: string;
+  readonly activeOperationId?: string;
+} | undefined {
+  const isV2 = status.schema === "daemon-status/v2";
+  const lifecycle = isV2 ? (isDaemonControlRecord(status.service) ? status.service : undefined) : status.schema === "daemon-status/v1" ? status : undefined;
   if (lifecycle?.started !== true || !isPositivePid(lifecycle.pid)) return undefined;
-  return { started: true, pid: lifecycle.pid };
+  if (!isV2) return { schema: "daemon-status/v1", started: true, pid: lifecycle.pid };
+  const build = isDaemonControlRecord(lifecycle.build) ? lifecycle.build : {};
+  const activeControl = isDaemonControlRecord(lifecycle.activeControl) ? lifecycle.activeControl : undefined;
+  return {
+    schema: "daemon-status/v2",
+    started: true,
+    pid: lifecycle.pid,
+    ...(typeof build.loadedIdentity === "string" ? { loadedIdentity: build.loadedIdentity } : {}),
+    ...(typeof activeControl?.operationId === "string" ? { activeOperationId: activeControl.operationId } : {})
+  };
+}
+
+function isCompleteReplacement(
+  status: NonNullable<ReturnType<typeof normalizeDaemonLifecycleStatus>>,
+  beforePid: number,
+  beforeLoadedIdentity: string,
+  operationId: string
+): boolean {
+  if (status.pid === beforePid) return false;
+  if (status.schema === "daemon-status/v1") return true;
+  return typeof status.loadedIdentity === "string"
+    && status.loadedIdentity !== beforeLoadedIdentity
+    && status.activeOperationId !== operationId;
 }
 
 async function probeExactDaemonStatus(target: LocalDaemonTarget): Promise<Record<string, unknown> | undefined> {

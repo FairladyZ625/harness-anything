@@ -1,10 +1,10 @@
-import { taskWriteApiRoutePolicies, type LocalControllerService } from "../../../application/src/index.ts";
+import { taskWriteApiRoutePolicies, type DaemonStatusService, type LocalControllerService } from "../../../application/src/index.ts";
 import type { TerminalSessionService } from "../terminal/session-registry.ts";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";
-export type ApiServiceName = "LocalControllerService" | "TerminalSessionService";
-export type ApiServiceMethod = keyof LocalControllerService | keyof TerminalSessionService;
+export type ApiServiceName = "DaemonStatusService" | "LocalControllerService" | "TerminalSessionService";
+export type ApiServiceMethod = keyof DaemonStatusService | keyof LocalControllerService | keyof TerminalSessionService;
 
 export interface ApiRouteContract {
   readonly id: string;
@@ -23,7 +23,7 @@ export interface ApiRouteContract {
 
 export interface ApiSchemaContract {
   readonly id: string;
-  readonly owner: "application" | "gui";
+  readonly owner: "application" | "daemon" | "gui";
   readonly typeName: string;
 }
 
@@ -45,6 +45,9 @@ export interface EmptyGuiPayload {
 }
 
 export const apiSchemaContracts = [
+  { id: "daemon.protocol-error/v1", owner: "daemon", typeName: "DaemonProtocolErrorV1" },
+  { id: "daemon.status-request/v2", owner: "daemon", typeName: "DaemonStatusRequestV2" },
+  { id: "daemon.status-result/v2", owner: "daemon", typeName: "DaemonStatusResultV2" },
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "application.append-task-progress-payload/v1", owner: "application", typeName: "AppendTaskProgressPayload" },
   { id: "application.catalog-snapshot-result/v1", owner: "application", typeName: "CatalogSnapshotResult" },
@@ -90,6 +93,18 @@ export const apiSchemaContracts = [
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
 export const apiRouteContracts = [
+  {
+    id: "daemon.status",
+    method: "GET",
+    path: "/api/daemon/status",
+    inputSchemaId: "daemon.status-request/v2",
+    outputSchemaId: "daemon.status-result/v2",
+    errorSchemaId: "daemon.protocol-error/v1",
+    service: "DaemonStatusService",
+    serviceMethod: "getStatus",
+    auth: "local-session-token",
+    commandClass: "repo-read"
+  },
   {
     id: "catalog.snapshot",
     method: "GET",

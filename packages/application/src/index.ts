@@ -9,6 +9,7 @@ import type {
 } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 export * from "./public-exports.ts";
+export * from "./daemon-status-contract.ts";
 
 export interface LocalControllerServiceOptions {
   readonly rootDir: string;

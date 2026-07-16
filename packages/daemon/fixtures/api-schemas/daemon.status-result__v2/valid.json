@@ -1,0 +1,62 @@
+{
+  "schema": "daemon-status/v2",
+  "daemonId": "ha-user-501",
+  "pid": 41001,
+  "started": true,
+  "rootDir": "/work/canonical",
+  "repoId": "canonical",
+  "endpoint": "/Users/example/.harness/daemon.sock",
+  "version": "0.1.0",
+  "protocolVersion": 1,
+  "queue": {"interactive":0,"normal":0,"background":1,"maintenance":0,"running":true,"depth":1},
+  "queueDepth": 1,
+  "connections": {"active":2,"total":17},
+  "lastReconcileAt": "2026-07-16T08:29:59.000Z",
+  "lastReconcileError": null,
+  "lastRecovery": null,
+  "projectionGeneration": null,
+  "service": {
+    "daemonId": "ha-user-501",
+    "pid": 41001,
+    "endpoint": "/Users/example/.harness/daemon.sock",
+    "userRoot": "/Users/example/.harness",
+    "started": true,
+    "startedAt": "2026-07-16T08:00:00.000Z",
+    "uptimeMs": 1800000,
+    "build": {
+      "version": "0.1.0",
+      "loadedIdentity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "installedIdentity": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "identitySource": "installed-artifact-set",
+      "stale": false
+    },
+    "queue": {"interactive":0,"normal":0,"background":1,"maintenance":0,"running":true,"depth":1},
+    "connections": {"active":2,"total":17},
+    "repoCount": 2,
+    "attachedCount": 2,
+    "unavailableCount": 0,
+    "lastReconcileAt": "2026-07-16T08:29:59.000Z",
+    "lastReconcileError": null,
+    "activeControl": null
+  },
+  "requestedRepo": {
+    "repoId":"canonical","canonicalRoot":"/work/canonical","displayName":"Canonical","state":"attached",
+    "lock":{"path":".harness/journal/global.lock","ownerToken":"lock-canonical"},
+    "queue":{"interactive":0,"normal":0,"background":1,"maintenance":0,"running":true,"depth":1},
+    "lastRecovery":null,"projectionGeneration":null,"lastError":null,"lastMaterializerError":null,"lastReconcileError":null
+  },
+  "repos": [
+    {
+      "repoId":"canonical","canonicalRoot":"/work/canonical","displayName":"Canonical","state":"attached",
+      "lock":{"path":".harness/journal/global.lock","ownerToken":"lock-canonical"},
+      "queue":{"interactive":0,"normal":0,"background":1,"maintenance":0,"running":true,"depth":1},
+      "lastRecovery":null,"projectionGeneration":null,"lastError":null,"lastMaterializerError":null,"lastReconcileError":null
+    },
+    {
+      "repoId":"experiment","canonicalRoot":"/work/experiment","displayName":"Experiment","state":"attached",
+      "lock":{"path":".harness/journal/global.lock","ownerToken":"lock-experiment"},
+      "queue":{"interactive":0,"normal":0,"background":0,"maintenance":0,"running":false,"depth":0},
+      "lastRecovery":null,"projectionGeneration":null,"lastError":null,"lastMaterializerError":null,"lastReconcileError":null
+    }
+  ]
+}

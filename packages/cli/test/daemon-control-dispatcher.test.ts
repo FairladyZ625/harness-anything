@@ -46,17 +46,23 @@ test("daemon dispatcher routes restart and every refresh trigger through canonic
         requestDaemonControl: async (request: ControlRequest) => {
           requests.push(request);
           return {
-            schema: "daemon-control-accepted/v1",
-            accepted: true,
-            operationId: `control-${scenario.action}`,
-            kind: scenario.action,
-            scope: "service",
-            requestedAt: "2026-07-16T08:30:00.000Z",
-            before: {
-              pid: 42,
-              loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              repoCount: 2,
-              queueDepth: 0
+            ok: true,
+            schema: "CommandReceipt/v1",
+            details: {
+              data: {
+                schema: "daemon-control-accepted/v1",
+                accepted: true,
+                operationId: `control-${scenario.action}`,
+                kind: scenario.action,
+                scope: "service",
+                requestedAt: "2026-07-16T08:30:00.000Z",
+                before: {
+                  pid: 42,
+                  loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  repoCount: 2,
+                  queueDepth: 0
+                }
+              }
             }
           };
         },
@@ -348,7 +354,10 @@ async function runCapturedControl(
         accepted: true,
         operationId: "control-restart",
         kind: "restart",
-        before: { pid: 42 }
+        before: {
+          pid: 42,
+          loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
       }),
       daemonControlLifecycle
     });
@@ -371,6 +380,11 @@ function controlErrorHint(receipt: Record<string, unknown>): string {
 function v2DaemonStatus(pid: number): Record<string, unknown> {
   return {
     schema: "daemon-status/v2",
-    service: { started: true, pid }
+    service: {
+      started: true,
+      pid,
+      build: { loadedIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+      activeControl: null
+    }
   };
 }

@@ -283,6 +283,58 @@ test("repo.daemon.status remains available for unavailable repos", async () => {
   assert.equal((receipt.details.data.repos as ReadonlyArray<{ state: string }>)[1]?.state, "unavailable");
 });
 
+test("daemon control returns accepted data before exposing the stop action", async () => {
+  let stopRequested = false;
+  const roster = sampleRoster();
+  const server = makeServer({
+    ...rosterIdentityOptions(roster),
+    authContext: {
+      transportKind: "ssh-exec",
+      sshExecUser: { username: "alice", host: "team-host", source: "ssh-authenticated-exec" }
+    },
+    services: {
+      LocalControllerService: emptyLocalController(),
+      TerminalSessionService: createInMemoryTerminalSessionService({ createId: () => "term-1" }),
+      DaemonControlService: {
+        requestControl: (kind) => ({
+          ok: true,
+          accepted: {
+            schema: "daemon-control-accepted/v1",
+            accepted: true,
+            operationId: "control-restart",
+            kind,
+            scope: "service",
+            requestedAt: "2026-07-16T08:30:00.000Z",
+            before: {
+              pid: 41001,
+              loadedIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              repoCount: 2,
+              queueDepth: 1
+            }
+          },
+          afterResponse: () => {
+            stopRequested = true;
+          }
+        })
+      }
+    }
+  });
+  await server.handle(readFixture("hello-compatible.json"));
+
+  const response = await server.handle({
+    jsonrpc: "2.0",
+    id: "restart",
+    method: "admin.daemon.restart",
+    params: { payload: { reason: "operator request", drainTimeoutMs: 5000 } }
+  });
+  const receipt = resultReceipt(response);
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.details.data.schema, "daemon-control-accepted/v1");
+  assert.equal(stopRequested, false);
+  server.afterResponse?.();
+  assert.equal(stopRequested, true);
+});
+
 test("repo.command.run rejects payload rootDir that does not match the repo namespace", async () => {
   const calls: string[] = [];
   const server = makeServer({

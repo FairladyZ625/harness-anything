@@ -51,20 +51,6 @@ const cliCommandContracts = [
   }
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
-const daemonStatusContracts = [
-  {
-    method: "repo.daemon.status",
-    mode: "active",
-    namespace: "repo",
-    inputSchemaId: "daemon.status-request/v1",
-    outputSchemaId: "daemon.status-result/v1",
-    errorSchemaId: "daemon.protocol-error/v1",
-    auth: "local-session-token",
-    requiresRepo: true,
-    commandClass: "repo-read"
-  }
-] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
-
 const docSyncContracts = [
   {
     method: "repo.doc.sync.submit",
@@ -141,6 +127,28 @@ const notificationStubContracts = [
 ] as const satisfies ReadonlyArray<JsonRpcMethodContract>;
 
 const adminReservedContracts = [
+  {
+    method: "admin.daemon.restart",
+    mode: "active",
+    namespace: "admin",
+    inputSchemaId: "daemon.control-request/v1",
+    outputSchemaId: "daemon.control-accepted/v1",
+    errorSchemaId: "daemon.control-error/v1",
+    auth: "local-session-token",
+    requiresRepo: false,
+    commandClass: "admin"
+  },
+  {
+    method: "admin.daemon.refresh",
+    mode: "active",
+    namespace: "admin",
+    inputSchemaId: "daemon.refresh-request/v1",
+    outputSchemaId: "daemon.control-accepted/v1",
+    errorSchemaId: "daemon.control-error/v1",
+    auth: "local-session-token",
+    requiresRepo: false,
+    commandClass: "admin"
+  },
   {
     method: "admin.people.list",
     mode: "active",
@@ -341,7 +349,6 @@ export const jsonRpcServiceMethodContracts = deriveJsonRpcServiceMethodContracts
 export const jsonRpcMethodContracts = [
   ...protocolMethodContracts,
   ...cliCommandContracts,
-  ...daemonStatusContracts,
   ...docSyncContracts,
   ...taskHolderContracts,
   ...jsonRpcServiceMethodContracts,

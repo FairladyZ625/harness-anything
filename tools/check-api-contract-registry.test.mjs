@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,51 @@ import { evaluateApiContractRegistry } from "./check-api-contract-registry.mjs";
 
 test("API contract registry accepts the repository route registry", () => {
   assert.deepEqual(evaluateApiContractRegistry(), []);
+});
+
+test("API contract registry rejects removal of the canonical daemon status route", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    replaceFixtureText(root, "packages/gui/src/api/api-contract-registry.ts", "id: \"daemon.status\"", "id: \"daemon.status.removed\"");
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("missing required daemon.status route")), true);
+  });
+});
+
+test("API contract registry rejects missing daemon status fixtures", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    rmSync(path.join(root, "packages/daemon/fixtures/api-schemas/daemon.status-result__v2/invalid.json"));
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("daemon.status-result/v2 missing fixture")), true);
+  });
+});
+
+test("API contract registry rejects disconnected daemon status handlers", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    replaceFixtureText(root, "packages/daemon/src/protocol/json-rpc-server.ts", "services.DaemonStatusService.getStatus", "services.DaemonStatusService.disconnectedStatus");
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("services.DaemonStatusService.getStatus")), true);
+  });
+});
+
+test("API contract registry rejects daemon admin command-class drift", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    const relativePath = "packages/daemon/src/protocol/method-registry.ts";
+    const absolutePath = path.join(root, relativePath);
+    const source = readFileSync(absolutePath, "utf8");
+    const start = source.indexOf('method: "admin.daemon.restart"');
+    const changed = source.slice(0, start) + source.slice(start).replace('commandClass: "admin"', 'commandClass: "repo-write"');
+    writeFileSync(absolutePath, changed, "utf8");
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("admin.daemon.restart") && violation.includes("commandClass")), true);
+  });
+});
+
+test("API contract registry rejects owner identity in the renderer projection", async () => {
+  await withDaemonFixtureRepo(async (root) => {
+    replaceFixtureText(
+      root,
+      "packages/application/src/daemon-status-contract.ts",
+      "lock: { path: repo.lock.path }",
+      "lock: { path: repo.lock.path, ownerToken: repo.lock.ownerToken }"
+    );
+    assert.equal(evaluateApiContractRegistry(root).some((violation) => violation.includes("path only")), true);
+  });
 });
 
 test("API contract registry accepts task write routes projected from application policy", async () => {
@@ -382,6 +427,41 @@ async function withFixtureRepo(fn) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+async function withDaemonFixtureRepo(fn) {
+  const root = await mkdtemp(path.join(tmpdir(), "ha-api-daemon-registry-"));
+  const paths = [
+    "packages/gui/src/api/api-contract-registry.ts",
+    "packages/gui/src/api/service-bridge.ts",
+    "packages/gui/src/preload/allowlist.ts",
+    "packages/gui/src/terminal/session-registry.ts",
+    "packages/application/src/index.ts",
+    "packages/application/src/daemon-status-contract.ts",
+    "packages/application/src/task-write-route-policy.ts",
+    "packages/daemon/src/protocol/method-registry.ts",
+    "packages/daemon/src/protocol/json-rpc-server.ts",
+    "packages/daemon/src/transport/json-rpc-stream.ts",
+    "packages/daemon/fixtures/api-schemas",
+    "packages/daemon/fixtures/daemon-control"
+  ];
+  try {
+    for (const relativePath of paths) {
+      const destination = path.join(root, relativePath);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      cpSync(path.resolve(relativePath), destination, { recursive: true });
+    }
+    await fn(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function replaceFixtureText(root, relativePath, before, after) {
+  const absolutePath = path.join(root, relativePath);
+  const source = readFileSync(absolutePath, "utf8");
+  assert.equal(source.includes(before), true, `${relativePath} missing replacement anchor`);
+  writeFileSync(absolutePath, source.replace(before, after), "utf8");
 }
 
 function writeFixture(root, options) {

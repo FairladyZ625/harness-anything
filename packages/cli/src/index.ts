@@ -9,7 +9,7 @@ import {
 import { parseArgs } from "./cli/parse-args.ts";
 import { readOption, stripGlobalOptions } from "./cli/parse-options.ts";
 import { appendParseFailureRuntimeEvent } from "./cli/parse-failure-runtime-event.ts";
-import type { DaemonRepoNamespace } from "../../daemon/src/index.ts";
+import { calculateDaemonArtifactIdentity, type DaemonRepoNamespace } from "../../daemon/src/index.ts";
 import { receiptDetailsData, renderReceiptText, toCommandReceipt, type CommandFailureReceipt, type CommandReceipt } from "./cli/receipt.ts";
 import type { CommandRegistryEntry } from "./cli/types.ts";
 import { parsePositiveIntegerOr } from "./cli/value-utils.ts";
@@ -17,7 +17,7 @@ import {
   runDaemonProductCommand,
   type DaemonServeHooks
 } from "./commands/daemon/productization.ts";
-import type { DaemonConnectionStats } from "./commands/daemon/status-payload.ts";
+import { daemonStatusCliProjection, type DaemonConnectionStats } from "./commands/daemon/status-payload.ts";
 import { runDaemonConnect } from "./commands/daemon/connect.ts";
 import { createDaemonLocalTransport, withDaemonSocketOwnership } from "./commands/daemon/serve-transport.ts";
 import { runRegisteredCommandWithCliComposition } from "./composition/command-executor.ts";
@@ -88,6 +88,9 @@ async function runDaemonServe(
   const requestedRepoId = readOption(args, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID ?? "canonical";
   const userRoot = readOption(args, "--user-root") ?? daemonUserRoot();
   const endpoint = readOption(args, "--socket") ?? localUserDaemonEndpoint(userRoot, daemonIdFromEnv());
+  const entrypoint = fileURLToPath(import.meta.url);
+  const loadedBuild = calculateDaemonArtifactIdentity(entrypoint);
+  const startedAt = new Date().toISOString();
   return withDaemonSocketOwnership(endpoint, async () => {
     let runtime: MultiRepoHarnessDaemonRuntime | undefined;
     let serviceHost: ReturnType<typeof createDaemonServiceHost> | undefined;
@@ -114,7 +117,11 @@ async function runDaemonServe(
       }
       const idleMs = parsePositiveIntegerOr(readOption(args, "--idle-ms"), 0, { allowZero: true });
       const connections: DaemonConnectionStats = { active: 0, total: 0 };
-      serviceHost = createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections, userRoot);
+      serviceHost = createDaemonServiceHost(runtime, serveRepos, defaultRepoId, layoutOverrides, idleMs, endpoint, connections, userRoot, {
+        entrypoint,
+        loadedIdentity: loadedBuild.identity,
+        startedAt
+      });
       serviceHost.startRegistryReconcile(userRoot);
       const transport = createDaemonLocalTransport({
         daemonId: serviceHost.daemonId,
@@ -135,7 +142,7 @@ async function runDaemonServe(
       serviceHost.onStop(async () => {
         await transport.stop();
       });
-      hooks.onStarted?.(serviceHost.status());
+      hooks.onStarted?.(daemonStatusCliProjection(serviceHost.status()));
       serviceHost.scheduleIdleExit();
       await Promise.race([waitForStopSignal(), serviceHost.waitForStopRequest()]);
     } finally {

@@ -1,0 +1,1 @@
+{"schema":"daemon-control-accepted/v1","accepted":true,"operationId":"control_01KXN0RESTART","kind":"restart","scope":"service","requestedAt":"2026-07-16T08:30:00.000Z","before":{"pid":41001,"loadedIdentity":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repoCount":2,"queueDepth":1}}

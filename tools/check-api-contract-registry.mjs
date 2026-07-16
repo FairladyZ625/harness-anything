@@ -12,10 +12,14 @@ const defaults = {
   applicationPath: "packages/application/src/index.ts",
   taskWritePolicyPath: "packages/application/src/task-write-route-policy.ts",
   terminalPath: "packages/gui/src/terminal/session-registry.ts",
+  daemonContractPath: "packages/application/src/daemon-status-contract.ts",
   daemonMethodRegistryPath: "packages/daemon/src/protocol/method-registry.ts",
+  daemonJsonRpcServerPath: "packages/daemon/src/protocol/json-rpc-server.ts",
+  daemonJsonRpcStreamPath: "packages/daemon/src/transport/json-rpc-stream.ts",
+  daemonControlFixtureRoot: "packages/daemon/fixtures/daemon-control",
   daemonApiSchemaFixtureRoot: "packages/daemon/fixtures/api-schemas"
 };
-const supportedServices = new Set(["LocalControllerService", "TerminalSessionService"]);
+const supportedServices = new Set(["DaemonStatusService", "LocalControllerService", "TerminalSessionService"]);
 const requiredTerminalRoutes = [
   { id: "terminal.sessions.create", method: "POST", path: "/api/terminal/sessions", serviceMethod: "createSession" },
   { id: "terminal.sessions.list", method: "GET", path: "/api/terminal/sessions", serviceMethod: "listSessions" },
@@ -51,10 +55,16 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
   const applicationDeclarations = collectTypeDeclarations(root, paths.applicationPath, violations);
   const registryDeclarations = collectTypeDeclarations(root, paths.registryPath, violations);
   const terminalDeclarations = collectTypeDeclarations(root, paths.terminalPath, violations);
+  const daemonContractEnabled = existsSync(path.join(root, paths.daemonContractPath));
+  const daemonDeclarations = daemonContractEnabled ? collectTypeDeclarations(root, paths.daemonContractPath, violations) : new Set();
   const guiDeclarations = new Set([...registryDeclarations, ...terminalDeclarations]);
   const localControllerMethods = collectInterfaceMethods(root, paths.applicationPath, "LocalControllerService", violations);
   const terminalSessionMethods = collectInterfaceMethods(root, paths.terminalPath, "TerminalSessionService", violations);
+  const daemonStatusMethods = daemonContractEnabled
+    ? collectInterfaceMethods(root, paths.daemonContractPath, "DaemonStatusService", violations)
+    : new Set();
   const serviceMethods = new Map([
+    ["DaemonStatusService", daemonStatusMethods],
     ["LocalControllerService", localControllerMethods],
     ["TerminalSessionService", terminalSessionMethods]
   ]);
@@ -70,10 +80,11 @@ export function evaluateApiContractRegistry(root = process.cwd(), options = {}) 
     filePath: paths.allowlistPath,
     violations
   });
-  inspectSchemaContracts(schemaContracts, applicationDeclarations, guiDeclarations, paths.registryPath, violations);
+  inspectSchemaContracts(schemaContracts, applicationDeclarations, daemonDeclarations, guiDeclarations, paths.registryPath, violations);
   inspectApiSchemaFixtures(root, schemaContracts, paths.daemonApiSchemaFixtureRoot, violations);
   inspectRegistryEntries(registry, schemaContracts, serviceMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectDaemonMethodRegistry(root, paths.daemonMethodRegistryPath, registry, violations);
+  if (daemonContractEnabled) inspectDaemonStatusContract(root, paths, registry, violations);
   inspectRequiredTerminalRoutes(registry, paths.registryPath, violations);
   inspectDeferredContracts(deferredContracts, registry, localControllerMethods, preloadMethods, preloadCapabilities, paths.registryPath, violations);
   inspectBridgeHandlers(registry, bridgeHandlers, paths.bridgePath, violations);
@@ -128,9 +139,80 @@ function inspectDaemonMethodRegistry(root, relativePath, routeContracts, violati
       violations.push(`${relativePath}: repo.${contract.id} must not be hand-listed; derive it from apiRouteContracts`);
     }
   }
-  for (const requiredMethod of ["protocol.hello", "repo.notifications.subscribe", "repo.notifications.unsubscribe", "admin.people.list", "admin.rbac.roles.list"]) {
+  for (const requiredMethod of ["protocol.hello", "repo.notifications.subscribe", "repo.notifications.unsubscribe", "admin.daemon.restart", "admin.daemon.refresh", "admin.people.list", "admin.rbac.roles.list"]) {
     if (!source.text.includes(requiredMethod)) {
       violations.push(`${relativePath}: missing daemon protocol method ${requiredMethod}`);
+    }
+  }
+}
+
+function inspectDaemonStatusContract(root, paths, routeContracts, violations) {
+  const route = routeContracts.find((entry) => entry.id === "daemon.status");
+  const expectedRoute = {
+    method: "GET",
+    path: "/api/daemon/status",
+    inputSchemaId: "daemon.status-request/v2",
+    outputSchemaId: "daemon.status-result/v2",
+    errorSchemaId: "daemon.protocol-error/v1",
+    service: "DaemonStatusService",
+    serviceMethod: "getStatus",
+    auth: "local-session-token",
+    commandClass: "repo-read"
+  };
+  if (!route) {
+    violations.push(`${paths.registryPath}: missing required daemon.status route`);
+  } else {
+    for (const [field, expected] of Object.entries(expectedRoute)) {
+      if (route[field] !== expected) violations.push(`${paths.registryPath}: daemon.status ${field} must be ${expected}`);
+    }
+  }
+
+  const contractSource = readSource(root, paths.daemonContractPath, violations)?.text ?? "";
+  if (!contractSource.includes("projectDaemonStatusForRenderer")) {
+    violations.push(`${paths.daemonContractPath}: missing renderer-safe daemon status projection`);
+  }
+  if (!contractSource.includes("lock: { path: repo.lock.path }")) {
+    violations.push(`${paths.daemonContractPath}: renderer-safe projection must reconstruct lock from path only`);
+  }
+
+  const methodSource = readSource(root, paths.daemonMethodRegistryPath, violations)?.text ?? "";
+  for (const expected of [
+    { method: "admin.daemon.restart", input: "daemon.control-request/v1" },
+    { method: "admin.daemon.refresh", input: "daemon.refresh-request/v1" }
+  ]) {
+    const start = methodSource.indexOf(`method: "${expected.method}"`);
+    const nextMethod = start < 0 ? -1 : methodSource.indexOf("method:", start + expected.method.length + 10);
+    const block = start < 0 ? "" : methodSource.slice(start, nextMethod < 0 ? start + 700 : nextMethod);
+    for (const snippet of [
+      `inputSchemaId: "${expected.input}"`,
+      "outputSchemaId: \"daemon.control-accepted/v1\"",
+      "errorSchemaId: \"daemon.control-error/v1\"",
+      "auth: \"local-session-token\"",
+      "requiresRepo: false",
+      "commandClass: \"admin\""
+    ]) {
+      if (!block.includes(snippet)) violations.push(`${paths.daemonMethodRegistryPath}: ${expected.method} missing exact ${snippet}`);
+    }
+  }
+
+  const serverSource = readSource(root, paths.daemonJsonRpcServerPath, violations)?.text ?? "";
+  for (const snippet of ["services.DaemonStatusService.getStatus", "services.DaemonControlService.requestControl", "enqueueAfterResponse"]) {
+    if (!serverSource.includes(snippet)) violations.push(`${paths.daemonJsonRpcServerPath}: missing daemon handler assertion ${snippet}`);
+  }
+  const streamSource = readSource(root, paths.daemonJsonRpcStreamPath, violations)?.text ?? "";
+  if (!streamSource.includes("server.afterResponse?.()")) {
+    violations.push(`${paths.daemonJsonRpcStreamPath}: daemon control stop hook must run after response write`);
+  }
+  for (const fixture of [
+    "restart-request.valid.json",
+    "restart-request.invalid.json",
+    "refresh-request.valid.json",
+    "refresh-request.invalid.json",
+    "accepted.valid.json",
+    "accepted.invalid.json"
+  ]) {
+    if (!existsSync(path.join(root, paths.daemonControlFixtureRoot, fixture))) {
+      violations.push(`${paths.daemonControlFixtureRoot}: missing control fixture ${fixture}`);
     }
   }
 }
@@ -318,7 +400,7 @@ function collectInterfaceMethods(root, relativePath, interfaceName, violations) 
   return methods;
 }
 
-function inspectSchemaContracts(schemaContracts, applicationDeclarations, registryDeclarations, relativePath, violations) {
+function inspectSchemaContracts(schemaContracts, applicationDeclarations, daemonDeclarations, registryDeclarations, relativePath, violations) {
   const ids = new Set();
   for (const entry of schemaContracts) {
     const label = entry.id ? `schema ${entry.id}` : "schema <missing id>";
@@ -328,9 +410,12 @@ function inspectSchemaContracts(schemaContracts, applicationDeclarations, regist
     if (entry.id && ids.has(entry.id)) violations.push(`${relativePath}: duplicate schema id ${entry.id}`);
     if (entry.id) ids.add(entry.id);
     if (entry.id && !schemaIdPattern.test(entry.id)) violations.push(`${relativePath}: ${label} has malformed id`);
-    if (entry.owner && !["application", "gui"].includes(entry.owner)) violations.push(`${relativePath}: ${label} has invalid owner ${entry.owner}`);
+    if (entry.owner && !["application", "daemon", "gui"].includes(entry.owner)) violations.push(`${relativePath}: ${label} has invalid owner ${entry.owner}`);
     if (entry.owner === "application" && entry.typeName && !applicationDeclarations.has(entry.typeName)) {
       violations.push(`${relativePath}: ${label} points to missing application type ${entry.typeName}`);
+    }
+    if (entry.owner === "daemon" && entry.typeName && !daemonDeclarations.has(entry.typeName)) {
+      violations.push(`${relativePath}: ${label} points to missing daemon contract type ${entry.typeName}`);
     }
     if (entry.owner === "gui" && entry.typeName && !registryDeclarations.has(entry.typeName)) {
       violations.push(`${relativePath}: ${label} points to missing GUI contract type ${entry.typeName}`);

@@ -102,7 +102,10 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     }
     try {
       const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[]);
-      if (response !== undefined) writeFrame(response);
+      if (response !== undefined) {
+        writeFrame(response);
+        server.afterResponse?.();
+      }
     } catch (error) {
       options.onError?.(error instanceof Error ? error : new Error(String(error)));
       const response = handlerErrorResponse(frame as JsonRpcRequest | JsonRpcRequest[], error);

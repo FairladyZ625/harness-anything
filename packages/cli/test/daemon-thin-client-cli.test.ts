@@ -80,8 +80,10 @@ test("daemon connect reaches the already-running daemon instance", async () => {
     assert.equal(hello.ok, true);
     const details = status.details as Record<string, unknown>;
     const data = details.data as Record<string, unknown>;
-    assert.equal(data.daemonId, startStatus.daemonId);
-    assert.equal(data.started, true);
+    const service = data.service as Record<string, unknown>;
+    assert.equal(data.schema, "daemon-status/v2");
+    assert.equal(service.daemonId, startStatus.daemonId);
+    assert.equal(service.started, true);
   });
 });
 
@@ -104,7 +106,9 @@ test("persistent daemon connection prevents idle exit after a command settles", 
       await delay(700);
       const status = await client.request("repo.daemon.status", { repo: { repoId: "canonical" } });
       assert.equal(status.ok, true, JSON.stringify(status));
-      assert.equal(((status.details as Record<string, unknown>).data as Record<string, unknown>).started, true);
+      const data = (status.details as Record<string, unknown>).data as Record<string, unknown>;
+      assert.equal(data.schema, "daemon-status/v2");
+      assert.equal((data.service as Record<string, unknown>).started, true);
       const probe = await connectSocket(endpoint);
       probe.destroy();
     } finally {
