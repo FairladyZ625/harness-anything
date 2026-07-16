@@ -364,8 +364,9 @@ test("concurrent daemon client writes serialize into linear git history", async 
   });
 });
 
-test("daemon start service status and stop expose productized status contract", () => {
-  withTempRoot((rootDir) => {
+test("daemon start service status and stop expose productized status contract", async () => {
+  await withTempRootAsync(async (rootDir) => {
+    runRawJson(rootDir, ["init"], { HARNESS_DAEMON_MODE: "direct" });
     try {
       const start = runDaemonCommand(rootDir, ["daemon", "start", "--service", "--json"]);
       assert.equal(start.started, true);
@@ -373,7 +374,12 @@ test("daemon start service status and stop expose productized status contract", 
       assert.equal(start.version, expectedCliVersion);
       assert.equal(typeof start.queueDepth, "number");
 
-      const status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+      let status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+      await waitForCondition(() => {
+        status = runDaemonCommand(rootDir, ["daemon", "status", "--json"]);
+        return status.lastReconcileAt !== null
+          && (status.repos as Array<{ repoId?: string; state?: string }>)[0]?.state === "attached";
+      });
       assert.equal(status.started, true);
       assert.equal(status.reachable, true);
       assert.equal(typeof status.pid, "number");
