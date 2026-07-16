@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { extractGitHubRequiredStatusCheckContexts } from "./check-github-required-contexts.mjs";
 import { parseMergifyQueueCheckSuccessContexts } from "./check-mergify-queue-contexts.mjs";
 
@@ -161,17 +162,18 @@ function mergifyCheckRuns(repo, sha) {
       || /dequeue|dequeued/iu.test(runEntry.output?.summary ?? ""));
 }
 
-function recentDequeueEvents(repo, prs) {
+export function recentDequeueEvents(repo, prs, readCheckRuns = mergifyCheckRuns) {
   const seenSha = new Set();
   const events = [];
+  const transportFailures = [];
   for (const pr of prs) {
     if (!pr.headRefOid || seenSha.has(pr.headRefOid)) continue;
     seenSha.add(pr.headRefOid);
     let runs;
     try {
-      runs = mergifyCheckRuns(repo, pr.headRefOid);
+      runs = readCheckRuns(repo, pr.headRefOid);
     } catch (error) {
-      events.push(`#${pr.number} ${pr.headRefName}: unable to read check-runs (${error.message})`);
+      transportFailures.push(`#${pr.number} ${pr.headRefName}: unable to read check-runs (${error.message})`);
       continue;
     }
     for (const runEntry of runs) {
@@ -181,7 +183,10 @@ function recentDequeueEvents(repo, prs) {
       events.push(`#${pr.number} ${runEntry.name}: ${title || "no output title"}`);
     }
   }
-  return events.slice(0, 12);
+  return {
+    events: events.slice(0, 12),
+    transportFailures: transportFailures.slice(0, 12)
+  };
 }
 
 function parseWorktrees() {
@@ -228,7 +233,7 @@ function printSection(title, lines) {
   for (const line of lines) console.log(`- ${line}`);
 }
 
-function main() {
+export function main() {
   const repo = repoNameWithOwner();
   const requiredChecks = githubRulesRequired(repo);
   const prs = runJson("gh", [
@@ -255,7 +260,9 @@ function main() {
     `#${pr.number} ${pr.headRefName} - ${pr.title} :: ${summarizeChecks(pr)}`
   )));
 
-  printSection("Recent Dequeue Events", recentDequeueEvents(repo, prs));
+  const dequeue = recentDequeueEvents(repo, prs);
+  printSection("Recent Dequeue Events", dequeue.events);
+  printSection("GitHub Transport Failures", dequeue.transportFailures);
 
   const mergifyChecks = mergifyQueueConditions();
   printSection("GitHub Branch Rules vs Mergify", [
@@ -278,9 +285,11 @@ function main() {
   }));
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
