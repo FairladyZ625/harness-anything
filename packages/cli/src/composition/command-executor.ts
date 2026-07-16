@@ -49,8 +49,10 @@ export async function runRegisteredCommandWithCliComposition(
     rootDir: command.rootDir,
     layoutOverrides: command.layoutOverrides
   };
-  const taskLeaseTtl = resolveTaskLeaseTtlMs(layoutInput, process.env, command.action.kind);
-  if (!taskLeaseTtl.ok) return taskLeaseTtl.result;
+  const taskLeaseTtl = command.action.kind === "version" || command.action.kind === "gui"
+    ? undefined
+    : resolveTaskLeaseTtlMs(layoutInput, process.env, command.action.kind);
+  if (taskLeaseTtl && !taskLeaseTtl.ok) return taskLeaseTtl.result;
   let enforceTaskLeaseResolved = false;
   let enforceTaskLeaseValue = false;
   const enforceTaskLease = () => {
@@ -170,7 +172,7 @@ export async function runRegisteredCommandWithCliComposition(
   const makeTaskHolder = () => makeTaskHolderService({
     rootInput: layoutInput,
     appendLeaseEvent,
-    defaultTtlMs: taskLeaseTtl.ttlMs
+    ...(taskLeaseTtl ? { defaultTtlMs: taskLeaseTtl.ttlMs } : {})
   });
   const makeSessionExporter = () => makeProvenanceSessionExporter({
     rootInput: layoutInput,

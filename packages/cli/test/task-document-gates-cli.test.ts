@@ -478,6 +478,10 @@ test("CLI default claim carries one person's task through submit, review, and co
 
     const claimed = runJson(rootDir, ["task", "claim", created.taskId], true, { ...sessionEnv, HARNESS_ACTOR: "agent:worker" });
     assert.match(String(claimed.executionId), /^exe_/u);
+    const activated = runJson(rootDir, [
+      "task", "transition", created.taskId, "active"
+    ], true, { ...sessionEnv, HARNESS_ACTOR: "agent:worker" });
+    assert.equal(activated.status, "active");
     writeCloseout(rootDir, path.basename(created.packagePath), [
       "## Summary", "", "Implemented the single-person closeout flow.", "",
       "## Verification", "", "node --test passed.", "",
