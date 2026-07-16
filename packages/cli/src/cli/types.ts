@@ -133,6 +133,8 @@ export interface CliResult {
   readonly rows?: number;
   readonly warnings?: ReadonlyArray<unknown>;
   readonly version?: string;
+  readonly shell?: "bash" | "zsh";
+  readonly completionScript?: string;
   readonly report?: unknown;
   readonly snapshot?: unknown;
   readonly profile?: CheckProfile;
@@ -270,6 +272,7 @@ export interface ParsedCommand {
     | { readonly kind: "task-list"; readonly filters: TaskListFilters }
     | { readonly kind: "status" }
     | { readonly kind: "version" }
+    | { readonly kind: "completion"; readonly shell: "bash" | "zsh" }
     | { readonly kind: "check"; readonly profile: CheckProfile; readonly strict: boolean; readonly postMerge: boolean }
     | { readonly kind: "governance-rebuild"; readonly mode: GovernanceRebuildMode }
     | { readonly kind: "lesson-promote"; readonly taskId: string; readonly candidateId: string; readonly mode: LessonCommandMode }

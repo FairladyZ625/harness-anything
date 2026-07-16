@@ -203,6 +203,7 @@ const repoReadCliActionKinds = new Set<string>([
   "audit-provenance",
   "capabilities",
   "check",
+  "completion",
   "decision-list",
   "decision-show",
   "decision-verify",

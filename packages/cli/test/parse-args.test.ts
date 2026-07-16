@@ -31,6 +31,7 @@ const rootDir = path.resolve(".");
 
 const parseCases: ReadonlyArray<ParseCase> = [
   { name: "help", argv: ["--help"], kind: "help" },
+  { name: "completion bash", argv: ["completion", "bash"], kind: "completion", fields: { shell: "bash" } },
   { name: "init", argv: ["init"], kind: "init", fields: { addNpmScripts: false } },
   { name: "init add npm scripts", argv: ["init", "--add-npm-scripts"], kind: "init", fields: { addNpmScripts: true } },
   { name: "init project name", argv: ["init", "--name", "human-kernel"], kind: "init", fields: { projectName: "human-kernel" } },
