@@ -1,11 +1,56 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveRuntimeConversation } from "../src/runtime-session-logs.ts";
+import { discoverRuntimeSessions, displayRuntimePath, resolveRuntimeConversation } from "../src/runtime-session-logs.ts";
 import { runEffect } from "./effect-test-helpers.ts";
+
+test("runtime session discovery uses the operating-system home when HOME is unset", async (context) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-home-"));
+  const originalHome = process.env.HOME;
+  try {
+    const sessionRoot = path.join(rootDir, ".codex", "sessions");
+    mkdirSync(sessionRoot, { recursive: true });
+    writeFileSync(path.join(sessionRoot, "rollout-2026-07-04T00-00-00-windows-home.jsonl"), "\n");
+    context.mock.method(os, "homedir", () => rootDir);
+    delete process.env.HOME;
+
+    const discovered = await runEffect(discoverRuntimeSessions(
+      {},
+      { runtime: "codex", limit: 1 },
+      "2026-07-04T00:00:00.000Z"
+    ));
+
+    assert.deepEqual(discovered.sessions, [{
+      runtime: "codex",
+      sessionId: "windows-home",
+      source: "runtime",
+      detectedAt: "2026-07-04T00:00:00.000Z"
+    }]);
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime path display abbreviates the operating-system home when HOME is unset", (context) => {
+  const originalHome = process.env.HOME;
+  try {
+    context.mock.method(os, "homedir", () => path.join(path.sep, "Users", "windows-user"));
+    delete process.env.HOME;
+
+    assert.equal(
+      displayRuntimePath(path.join(path.sep, "Users", "windows-user", ".codex", "sessions", "rollout.jsonl")),
+      "~/.codex/sessions/rollout.jsonl"
+    );
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+  }
+});
 
 test("runtime session log lookup uses exact or dash-suffix session id matches", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-"));
