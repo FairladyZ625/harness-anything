@@ -1,0 +1,7 @@
+{
+  "kindId": "codex",
+  "prompt": "Inspect the repository.",
+  "cwd": "/workspace",
+  "authenticationProfileKind": "chatgpt-account",
+  "credential": "must-not-cross-the-api"
+}

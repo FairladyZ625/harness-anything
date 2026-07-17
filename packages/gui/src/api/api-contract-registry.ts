@@ -1,60 +1,6 @@
-import {
-  taskWriteApiRoutePolicies,
-  type DaemonControlService,
-  type DaemonLogService,
-  type DaemonStatusService,
-  type LocalControllerService
-} from "../../../application/src/index.ts";
-import type { TerminalSessionService } from "../terminal/session-registry.ts";
-
-export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS";
-export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";
-export type ApiServiceName =
-  | "DaemonControlService"
-  | "DaemonLogService"
-  | "DaemonStatusService"
-  | "LocalControllerService"
-  | "TerminalSessionService";
-export type ApiServiceMethod =
-  | keyof DaemonControlService
-  | keyof DaemonLogService
-  | keyof DaemonStatusService
-  | keyof LocalControllerService
-  | keyof TerminalSessionService;
-
-export interface ApiRouteContract {
-  readonly id: string;
-  readonly method: ApiRouteMethod;
-  readonly path: string;
-  readonly inputSchemaId: string;
-  readonly outputSchemaId?: string;
-  readonly errorSchemaId: string;
-  readonly service: ApiServiceName;
-  readonly serviceMethod: ApiServiceMethod;
-  readonly auth: ApiRouteAuth;
-  readonly guiBridgeMethod?: string;
-  readonly leaseRequired?: boolean;
-  readonly commandClass?: "admin" | "repo-read" | "repo-write" | "arbiter";
-}
-
-export interface ApiSchemaContract {
-  readonly id: string;
-  readonly owner: "application" | "daemon" | "gui";
-  readonly typeName: string;
-}
-
-export interface DeferredGuiBridgeContract {
-  readonly guiBridgeMethod: string;
-  readonly service: "LocalControllerService";
-  readonly serviceMethod: keyof LocalControllerService;
-  readonly reason: string;
-}
-
-export interface TerminalGuiBridgeContract {
-  readonly guiBridgeMethod: string;
-  readonly routeId: string;
-  readonly serviceMethod: keyof TerminalSessionService;
-}
+import { taskWriteApiRoutePolicies } from "../../../application/src/index.ts";
+import type { ApiRouteContract, ApiSchemaContract, DeferredGuiBridgeContract, TerminalGuiBridgeContract } from "./api-contract-types.ts";
+export type { ApiRouteAuth, ApiRouteContract, ApiRouteMethod, ApiSchemaContract, ApiServiceMethod, ApiServiceName, DeferredGuiBridgeContract, TerminalGuiBridgeContract } from "./api-contract-types.ts";
 
 export interface EmptyGuiPayload {
   readonly kind?: "empty";
@@ -72,6 +18,9 @@ export const apiSchemaContracts = [
   { id: "daemon-log-page/v1", owner: "application", typeName: "DaemonLogPageV1" },
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "application.append-task-progress-payload/v1", owner: "application", typeName: "AppendTaskProgressPayload" },
+  { id: "application.agent-runtime-inventory-result/v1", owner: "application", typeName: "AgentRuntimeInventoryResult" },
+  { id: "application.agent-runtime-control-payload/v1", owner: "application", typeName: "AgentRuntimeControlPayload" },
+  { id: "application.agent-runtime-control-result/v1", owner: "application", typeName: "AgentRuntimeControlResult" },
   { id: "application.catalog-snapshot-result/v1", owner: "application", typeName: "CatalogSnapshotResult" },
   { id: "application.decision-detail-result/v1", owner: "application", typeName: "DecisionDetailResult" },
   { id: "application.decision-id-payload/v1", owner: "application", typeName: "DecisionIdPayload" },
@@ -115,6 +64,97 @@ export const apiSchemaContracts = [
 ] as const satisfies ReadonlyArray<ApiSchemaContract>;
 
 export const apiRouteContracts = [
+  {
+    id: "agent-runtimes.profiles",
+    method: "GET",
+    path: "/api/agent-runtimes/profiles",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.agent-runtime-control-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "profiles",
+    auth: "local-session-token",
+    guiBridgeMethod: "getAgentRuntimeProfiles",
+    commandClass: "repo-read"
+  },
+  {
+    id: "agent-runtimes.spawn",
+    method: "POST",
+    path: "/api/agent-runtimes/sessions",
+    inputSchemaId: "application.agent-runtime-control-payload/v1",
+    outputSchemaId: "application.agent-runtime-control-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "spawn",
+    auth: "local-session-token",
+    guiBridgeMethod: "spawnAgentRuntime",
+    commandClass: "repo-read"
+  },
+  {
+    id: "agent-runtimes.attach",
+    method: "POST",
+    path: "/api/agent-runtimes/sessions/:id/attach",
+    inputSchemaId: "application.agent-runtime-control-payload/v1",
+    outputSchemaId: "application.agent-runtime-control-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "attach",
+    auth: "local-session-token",
+    guiBridgeMethod: "attachAgentRuntime",
+    commandClass: "repo-read"
+  },
+  {
+    id: "agent-runtimes.status",
+    method: "GET",
+    path: "/api/agent-runtimes/sessions",
+    inputSchemaId: "application.agent-runtime-control-payload/v1",
+    outputSchemaId: "application.agent-runtime-control-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "status",
+    auth: "local-session-token",
+    guiBridgeMethod: "getAgentRuntimeStatus",
+    commandClass: "repo-read"
+  },
+  {
+    id: "agent-runtimes.events",
+    method: "GET",
+    path: "/api/agent-runtimes/sessions/:id/events",
+    inputSchemaId: "application.agent-runtime-control-payload/v1",
+    outputSchemaId: "application.agent-runtime-control-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "events",
+    auth: "local-session-token",
+    guiBridgeMethod: "getAgentRuntimeEvents",
+    commandClass: "repo-read"
+  },
+  {
+    id: "agent-runtimes.result",
+    method: "GET",
+    path: "/api/agent-runtimes/sessions/:id/result",
+    inputSchemaId: "application.agent-runtime-control-payload/v1",
+    outputSchemaId: "application.agent-runtime-control-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "result",
+    auth: "local-session-token",
+    guiBridgeMethod: "getAgentRuntimeResult",
+    commandClass: "repo-read"
+  },
+  {
+    id: "agent-runtimes.inventory",
+    method: "GET",
+    path: "/api/agent-runtimes",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: "application.agent-runtime-inventory-result/v1",
+    errorSchemaId: "application.local-controller-error/v1",
+    service: "LocalControllerService",
+    serviceMethod: "getAgentRuntimes",
+    auth: "local-session-token",
+    guiBridgeMethod: "getAgentRuntimes",
+    commandClass: "repo-read"
+  },
   {
     id: "daemon.logs.list",
     method: "GET",

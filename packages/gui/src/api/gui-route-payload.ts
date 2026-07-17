@@ -47,6 +47,8 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
       return validateSetStatusPayload(payload);
     case "application.append-task-progress-payload/v1":
       return validateAppendProgressPayload(payload);
+    case "application.agent-runtime-control-payload/v1":
+      return validateAgentRuntimePayload(route, payload);
     case "terminal.create-session-payload/v1":
       return validateTerminalCreatePayload(payload);
     case "terminal.write-session-payload/v1":
@@ -60,6 +62,27 @@ export function validateGuiRoutePayload(route: ApiRouteContract, payload: unknow
     default:
       return { ok: true, payload };
   }
+}
+
+function validateAgentRuntimePayload(route: ApiRouteContract, payload: unknown): PayloadValidation {
+  if (route.serviceMethod === "status" && (payload === undefined || payload === null)) return { ok: true, payload };
+  if (!isServicePayloadRecord(payload)) return invalidPayload("agent runtime payload must be an object.");
+  const allowed = new Set(route.serviceMethod === "spawn"
+    ? ["kindId", "prompt", "cwd", "authenticationProfileKind", "resumeProviderSessionId", "taskId", "executionId"]
+    : route.serviceMethod === "events" ? ["runtimeSessionId", "cursor"] : ["runtimeSessionId"]);
+  if (Object.keys(payload).some((key) => !allowed.has(key))) return invalidPayload("agent runtime payload contains an undeclared field.");
+  if (route.serviceMethod === "spawn") {
+    if ((payload.kindId !== "claude-code" && payload.kindId !== "codex") || !nonBlankString(payload.prompt) ||
+        !nonBlankString(payload.cwd) || !nonBlankString(payload.authenticationProfileKind)) {
+      return invalidPayload("kindId, prompt, cwd, and authenticationProfileKind are required.");
+    }
+    return { ok: true, payload };
+  }
+  if (!nonBlankString(payload.runtimeSessionId)) return invalidPayload("runtimeSessionId is required.");
+  if (payload.cursor !== undefined && (!Number.isInteger(payload.cursor) || Number(payload.cursor) < 0)) {
+    return invalidPayload("cursor must be a non-negative integer.");
+  }
+  return { ok: true, payload };
 }
 
 function validateDaemonControlRequestPayload(payload: unknown): PayloadValidation {

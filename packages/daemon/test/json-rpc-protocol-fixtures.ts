@@ -32,6 +32,13 @@ export function makeServer(overrides: Partial<Parameters<typeof createJsonRpcPro
 
 export function emptyLocalController(): LocalControllerService {
   return {
+    getAgentRuntimes: async () => ({ ok: false, error: { code: "agent_runtime_unavailable", hint: "not configured" } }),
+    profiles: async () => ({ ok: true, schema: "agent-runtime-auth-profiles/v1", profiles: [] }),
+    spawn: async () => ({ ok: false, error: { code: "agent_runtime_control_unavailable", hint: "not configured" } }),
+    attach: async () => ({ ok: false, error: { code: "agent_runtime_control_unavailable", hint: "not configured" } }),
+    status: async () => ({ ok: true, schema: "agent-runtime-session-status/v1", sessions: [] }),
+    events: async () => ({ ok: true, events: [], nextCursor: 0 }),
+    result: async () => ({ ok: false, error: { code: "agent_runtime_control_unavailable", hint: "not configured" } }),
     getTasks: () => ({ ok: true, tasks: [], warnings: [] }),
     getTaskDetail: async () => ({ ok: true }),
     getTaskDocument: async () => ({ ok: true }),

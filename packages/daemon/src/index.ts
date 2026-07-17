@@ -280,6 +280,22 @@ export {
   type PtyTerminalSessionServiceOptions
 } from "../../gui/src/terminal/pty-host.ts";
 export {
+  createAgentRuntimeSessionService,
+  type AgentRuntimeSessionServiceOptions,
+  type RuntimeAdapterProcess,
+  type RuntimeAdapterProcessEvent,
+  type RuntimeProtocolAdapter,
+  type RuntimeSessionStore,
+  type StoredRuntimeSession
+} from "./agent-runtime/session-service.ts";
+export {
+  createClaudeCodeRuntimeAdapter,
+  createCodexRuntimeAdapter,
+  type RuntimeChildProcess,
+  type RuntimeChildSpawner
+} from "./agent-runtime/protocol-adapters.ts";
+export type { AgentRuntimeControlService } from "../../application/src/agent-runtime-control.ts";
+export {
   attachTokenBootstrapFrame,
   createInMemoryAttachTokenStore,
   serveSshTunnelTokenStream,

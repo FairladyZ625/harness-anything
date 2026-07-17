@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "schema": "agent-runtime-session-status/v1",
+  "sessions": [
+    {
+      "runtimeSessionId": "runtime_1",
+      "kindId": "codex",
+      "process": {
+        "state": "alive",
+        "pid": 4242,
+        "startedAt": "2026-07-17T12:00:00.000Z",
+        "heartbeatAt": "2026-07-17T12:00:01.000Z"
+      },
+      "attachable": true,
+      "capabilities": {
+        "discover": true,
+        "spawn": true,
+        "attach": true,
+        "resume": true,
+        "interactive": true,
+        "resize": false,
+        "events": true
+      },
+      "clientBinding": {
+        "assertion": "client-asserted",
+        "taskId": "task_1"
+      }
+    }
+  ]
+}

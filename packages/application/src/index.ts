@@ -1,33 +1,12 @@
-import type { Effect } from "effect";
 import type {
-  ArtifactStore,
   DomainStatus,
-  EngineError,
   ProjectionWarning,
-  TaskProjectionRow,
-  WriteError
+  TaskProjectionRow
 } from "../../kernel/src/index.ts";
-import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
 export * from "./public-exports.ts";
 export * from "./daemon-status-contract.ts";
 export * from "./daemon-log-contract.ts";
 export * from "./daemon-log-service.ts";
-
-export interface LocalControllerServiceOptions {
-  readonly rootDir: string;
-  readonly layoutOverrides?: HarnessLayoutOverrides;
-  readonly taskWriter: LocalControllerTaskWriter;
-  readonly artifactStore: Pick<ArtifactStore, "readTaskPackage" | "listAuthoredDocuments" | "readAuthoredDocument">;
-  readonly catalogSnapshotReader?: () => CatalogSnapshotResult;
-  readonly decisionMutationPort?: LocalControllerDecisionMutationPort;
-  readonly projectionQueries?: LocalControllerProjectionQueries;
-}
-
-export interface LocalControllerProjectionQueries {
-  readonly getExecutionEvidencePage: (
-    payload: ExecutionEvidencePagePayload
-  ) => Promise<ExecutionEvidencePageResult>;
-}
 
 export interface LocalControllerSuccess {
   readonly ok: true;
@@ -512,29 +491,46 @@ export interface AppendTaskProgressPayload extends TaskIdPayload {
   readonly text: string;
 }
 
-export interface LocalControllerStatusWriteResult {
-  readonly taskId: string;
-  readonly status: DomainStatus;
+export interface AgentRuntimeStateProjection {
+  readonly state: boolean | "unknown";
+  readonly reason: string;
+  readonly observedAt?: string;
 }
-
-export interface LocalControllerProgressWriteResult {
-  readonly taskId: string;
-  readonly path: string;
+export interface AgentRuntimeCapabilityProjection { readonly name: string; readonly state: string }
+export interface AgentRuntimeInstallationStatesProjection {
+  readonly installed: AgentRuntimeStateProjection; readonly authenticated: AgentRuntimeStateProjection; readonly running: AgentRuntimeStateProjection; readonly attachable: AgentRuntimeStateProjection;
 }
-
-export interface LocalControllerTaskTreeStatusResult {
-  readonly taskId: string;
-  readonly dirty: boolean;
-  readonly entries: ReadonlyArray<string>;
+export interface AgentRuntimeKindProjection {
+  readonly kindId: string; readonly displayName: string; readonly protocolFamily: string;
+  readonly capabilities: ReadonlyArray<AgentRuntimeCapabilityProjection>;
+  readonly authenticationProfileKinds: ReadonlyArray<string>;
 }
-
-export interface LocalControllerTaskWriter {
-  readonly setStatus: (payload: SetTaskStatusPayload) => Effect.Effect<LocalControllerStatusWriteResult, EngineError | WriteError>;
-  readonly appendProgress: (payload: AppendTaskProgressPayload) => Effect.Effect<LocalControllerProgressWriteResult, EngineError | WriteError>;
-  readonly stageDocument: (payload: TaskDocumentPayload) => Effect.Effect<LocalControllerProgressWriteResult, EngineError | WriteError>;
-  readonly stageTaskTree: (payload: TaskIdPayload) => Effect.Effect<LocalControllerProgressWriteResult, EngineError | WriteError>;
-  readonly taskTreeStatus: (payload: TaskIdPayload) => Effect.Effect<LocalControllerTaskTreeStatusResult, EngineError | WriteError>;
+export interface AgentRuntimeInstallationProjection {
+  readonly installationId: string; readonly kindId: string; readonly discoveredBy: string; readonly version?: string;
+  readonly states: AgentRuntimeInstallationStatesProjection;
 }
+export interface AgentRuntimeSessionProjection {
+  readonly runtimeSessionId: string; readonly kindId: string; readonly installationId: string;
+  readonly startedAt?: string; readonly lastHeartbeatAt?: string; readonly exitedAt?: string; readonly exitCode?: number | null;
+  readonly running: AgentRuntimeStateProjection; readonly attachable: AgentRuntimeStateProjection;
+}
+export interface AgentRuntimeInventoryProjection {
+  readonly ok: true; readonly schema: "agent-runtime-inventory-projection/v1"; readonly generatedAt: string; readonly rebuildable: true;
+  readonly kinds: ReadonlyArray<AgentRuntimeKindProjection>;
+  readonly installations: ReadonlyArray<AgentRuntimeInstallationProjection>;
+  readonly sessions: ReadonlyArray<AgentRuntimeSessionProjection>;
+}
+export type AgentRuntimeInventoryResult = AgentRuntimeInventoryProjection | LocalControllerFailure;
+export type AgentRuntimeControlPayload = import("./agent-runtime-control.ts").AgentRuntimeControlPayload;
+export type AgentRuntimeControlResult = import("./agent-runtime-control.ts").AgentRuntimeControlResult;
+export type AgentRuntimeSpawnPayload = import("./agent-runtime-control.ts").AgentRuntimeSpawnPayload;
+export type AgentRuntimeSessionIdPayload = import("./agent-runtime-control.ts").AgentRuntimeSessionIdPayload;
+export type AgentRuntimeEventsPayload = import("./agent-runtime-control.ts").AgentRuntimeEventsPayload;
+export type AgentRuntimeProfilesResult = import("./agent-runtime-control.ts").AgentRuntimeProfilesResult;
+export type AgentRuntimeSessionResult = import("./agent-runtime-control.ts").AgentRuntimeSessionResult;
+export type AgentRuntimeStatusResult = import("./agent-runtime-control.ts").AgentRuntimeStatusResult;
+export type AgentRuntimeEventsResult = import("./agent-runtime-control.ts").AgentRuntimeEventsResult;
+export type AgentRuntimeResultResult = import("./agent-runtime-control.ts").AgentRuntimeResultResult;
 
 export interface ShellPanelPolicy {
   readonly displayOnly: true;
@@ -548,6 +544,13 @@ export interface OpenShellSuccess extends LocalControllerSuccess {
 export type OpenShellResult = OpenShellSuccess | LocalControllerFailure;
 
 export interface LocalControllerService {
+  readonly getAgentRuntimes: () => Promise<AgentRuntimeInventoryResult>;
+  readonly profiles: () => Promise<AgentRuntimeProfilesResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
+  readonly spawn: (payload: AgentRuntimeSpawnPayload) => Promise<AgentRuntimeSessionResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
+  readonly attach: (payload: AgentRuntimeSessionIdPayload) => Promise<AgentRuntimeSessionResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
+  readonly status: (payload?: Partial<AgentRuntimeSessionIdPayload>) => Promise<AgentRuntimeStatusResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
+  readonly events: (payload: AgentRuntimeEventsPayload) => Promise<AgentRuntimeEventsResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
+  readonly result: (payload: AgentRuntimeSessionIdPayload) => Promise<AgentRuntimeResultResult | import("./agent-runtime-control.ts").AgentRuntimeControlFailure>;
   readonly getCatalogSnapshot: () => CatalogSnapshotResult;
   readonly getTasks: () => TaskListResult;
   readonly getTaskDetail: (payload: TaskIdPayload) => Promise<TaskDetailResult>;

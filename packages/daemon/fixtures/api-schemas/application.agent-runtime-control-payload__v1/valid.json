@@ -1,0 +1,7 @@
+{
+  "kindId": "codex",
+  "prompt": "Inspect the repository and report status.",
+  "cwd": "/workspace",
+  "authenticationProfileKind": "chatgpt-account",
+  "taskId": "task_1"
+}

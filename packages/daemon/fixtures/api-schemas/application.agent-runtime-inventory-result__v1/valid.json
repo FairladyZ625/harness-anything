@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "schema": "agent-runtime-inventory-projection/v1",
+  "generatedAt": "2026-07-17T12:00:00.000Z",
+  "rebuildable": true,
+  "kinds": [
+    {
+      "kindId": "codex",
+      "displayName": "Codex",
+      "protocolFamily": "json-rpc",
+      "capabilities": [{ "name": "discover", "state": "supported" }],
+      "authenticationProfileKinds": ["chatgpt-account", "api-key"]
+    }
+  ],
+  "installations": [
+    {
+      "installationId": "local:codex:path",
+      "kindId": "codex",
+      "discoveredBy": "path",
+      "states": {
+        "installed": { "state": true, "reason": "executable-verified" },
+        "authenticated": { "state": "unknown", "reason": "authentication-not-probed" },
+        "running": { "state": "unknown", "reason": "process-witness-unavailable" },
+        "attachable": { "state": "unknown", "reason": "evidence-unavailable" }
+      }
+    }
+  ],
+  "sessions": []
+}

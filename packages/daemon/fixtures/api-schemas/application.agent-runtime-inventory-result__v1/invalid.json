@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "schema": "agent-runtime-inventory-projection/v1",
+  "generatedAt": "2026-07-17T12:00:00.000Z",
+  "rebuildable": true,
+  "kinds": [],
+  "installations": [
+    {
+      "installationId": "raw:/Users/alice/.local/bin/codex",
+      "kindId": "codex",
+      "rawPath": "/Users/alice/.local/bin/codex",
+      "credentialHash": "sha256:secret"
+    }
+  ],
+  "sessions": []
+}

@@ -30,6 +30,7 @@ import { makeDaemonReservationReconciler } from "./composition/reservation-recon
 import { createProductionAuthorityLifecycle } from "./daemon/production-authority-lifecycle.ts";
 import { loadAuthorityProductionManifest } from "./daemon/authority-production-state.ts";
 import { runCompoundReceiptExitCommand } from "./daemon/compound-receipt-runner.ts";
+import { runAgentRuntimeCommand } from "./commands/agent-runtime.ts";
 
 const runRegisteredCommand = runRegisteredCommandWithCliComposition;
 const daemonRuntimeProvider = selectCliAdapterProvider("daemon.runtime");
@@ -45,6 +46,8 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
   if (daemonOverrides.daemonProfile) process.env.HARNESS_DAEMON_PROFILE = daemonOverrides.daemonProfile;
   const daemonExit = await maybeRunDaemonCommand(argv);
   if (daemonExit !== undefined) return daemonExit;
+  const agentExit = await maybeRunAgentRuntimeCommand(argv);
+  if (agentExit !== undefined) return agentExit;
 
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
@@ -60,6 +63,13 @@ export async function main(argv: ReadonlyArray<string> = process.argv.slice(2)):
 
   emit(output, parsed.value.json);
   return output.ok ? 0 : 1;
+}
+
+async function maybeRunAgentRuntimeCommand(argv: ReadonlyArray<string>): Promise<number | undefined> {
+  if (stripGlobalOptions(argv).args[0] !== "agent") return undefined;
+  const outcome = await runAgentRuntimeCommand(argv);
+  emit(outcome.receipt, outcome.json);
+  return outcome.receipt.ok ? 0 : 1;
 }
 
 function isGithubIssuesReadCommand(command: { readonly action: { readonly kind: string } }): boolean {

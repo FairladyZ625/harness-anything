@@ -240,6 +240,7 @@ const publicRuntimeSurface = [
   "runtimeEventInterruptActions",
   "runtimeEventKinds",
   "runtimeEventResultStatuses",
+  "runtimeKindRegistry",
   "scanPrivateText",
   "schemaRegistry",
   "semanticMutationSetBytesV2",

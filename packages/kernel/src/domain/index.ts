@@ -88,6 +88,18 @@ export type {
   RuntimeEventResultStatus
 } from "./runtime-event.ts";
 
+export { runtimeKindRegistry } from "./agent-runtime.ts";
+export type {
+  AgentRuntimeInventory,
+  RuntimeCapabilityName,
+  RuntimeDiscoverySource,
+  RuntimeInstallation,
+  RuntimeKind,
+  RuntimeProcessWitness,
+  RuntimeSession,
+  RuntimeStateEvidence
+} from "./agent-runtime.ts";
+
 export { createEntityKindRegistry, getEntityKind } from "./entity-kind-registry.ts";
 export type {
   EntityKindDeclaration,

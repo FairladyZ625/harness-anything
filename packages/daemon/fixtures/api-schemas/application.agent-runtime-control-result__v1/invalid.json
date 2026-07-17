@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "session": {
+    "runtimeSessionId": "runtime_1",
+    "kindId": "codex",
+    "executablePath": "/Users/alice/.local/bin/codex",
+    "credentialHash": "private"
+  }
+}

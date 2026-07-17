@@ -16,6 +16,13 @@ export interface PreloadApiCapability {
 }
 
 export const allowedPreloadApi = Object.freeze({
+  getAgentRuntimeProfiles: "getAgentRuntimeProfiles",
+  spawnAgentRuntime: "spawnAgentRuntime",
+  attachAgentRuntime: "attachAgentRuntime",
+  getAgentRuntimeStatus: "getAgentRuntimeStatus",
+  getAgentRuntimeEvents: "getAgentRuntimeEvents",
+  getAgentRuntimeResult: "getAgentRuntimeResult",
+  getAgentRuntimes: "getAgentRuntimes",
   getDaemonLogs: "getDaemonLogs",
   getDaemonStatus: "getDaemonStatus",
   restartDaemon: "restartDaemon",
@@ -57,6 +64,13 @@ export const terminalPreloadApi = Object.freeze({
 } as const satisfies { readonly [Method in TerminalPreloadApiMethod]: Method });
 
 export const preloadApiCapabilities = Object.freeze({
+  getAgentRuntimeProfiles: { method: "getAgentRuntimeProfiles", status: "shipped" },
+  spawnAgentRuntime: { method: "spawnAgentRuntime", status: "shipped" },
+  attachAgentRuntime: { method: "attachAgentRuntime", status: "shipped" },
+  getAgentRuntimeStatus: { method: "getAgentRuntimeStatus", status: "shipped" },
+  getAgentRuntimeEvents: { method: "getAgentRuntimeEvents", status: "shipped" },
+  getAgentRuntimeResult: { method: "getAgentRuntimeResult", status: "shipped" },
+  getAgentRuntimes: { method: "getAgentRuntimes", status: "shipped" },
   getDaemonLogs: { method: "getDaemonLogs", status: "shipped" },
   getDaemonStatus: { method: "getDaemonStatus", status: "shipped" },
   restartDaemon: { method: "restartDaemon", status: "shipped" },
