@@ -1,8 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   checkPrBodyBilingual,
   countBilingualSignals,
@@ -102,6 +105,22 @@ const validChinese = [
   "- [x] PR body uses two complete language blocks. / PR 正文使用两块完整正文。"
 ].join("\n");
 
+const checkerCliPath = fileURLToPath(new URL("./check-pr-body-bilingual.mjs", import.meta.url));
+
+function runCheckerCliFromCrLfFile(t, body) {
+  const tempRoot = realpathSync(mkdtempSync(join(tmpdir(), "pr body lint-")));
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  const copiedCliPath = join(tempRoot, "check-pr-body-bilingual.mjs");
+  const bodyPath = join(tempRoot, "pull request body.md");
+  copyFileSync(checkerCliPath, copiedCliPath);
+  writeFileSync(bodyPath, body.replaceAll("\n", "\r\n"), "utf8");
+  return spawnSync(
+    process.execPath,
+    [copiedCliPath, "--file", bodyPath],
+    { encoding: "utf8" }
+  );
+}
+
 function twoBlockBody({
   english = validEnglish,
   chinese = validChinese
@@ -188,15 +207,14 @@ test("body missing one required section reports that exact heading", () => {
   assert.doesNotMatch(englishIssue, /`## Summary`/u);
 });
 
-test("CLI failure lists missing headings and the template remediation path", () => {
+test("CLI failure lists missing headings and the template remediation path", (t) => {
   const missingReferencesEnglish = validEnglish.replace(
     "\n## References\n\n- Task: task_example\n",
     "\n"
   );
-  const result = spawnSync(
-    process.execPath,
-    ["tools/check-pr-body-bilingual.mjs", "--text", twoBlockBody({ english: missingReferencesEnglish })],
-    { encoding: "utf8" }
+  const result = runCheckerCliFromCrLfFile(
+    t,
+    twoBlockBody({ english: missingReferencesEnglish })
   );
 
   assert.equal(result.status, 1);
@@ -205,12 +223,8 @@ test("CLI failure lists missing headings and the template remediation path", () 
   assert.match(result.stderr, /How to fix: fill every required section/u);
 });
 
-test("CLI accepts a body that fills the complete template structure", () => {
-  const result = spawnSync(
-    process.execPath,
-    ["tools/check-pr-body-bilingual.mjs", "--text", twoBlockBody()],
-    { encoding: "utf8" }
-  );
+test("CLI accepts a CRLF body file that fills the complete template structure", (t) => {
+  const result = runCheckerCliFromCrLfFile(t, twoBlockBody());
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /check passed/u);

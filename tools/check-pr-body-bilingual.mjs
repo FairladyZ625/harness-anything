@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 export const defaultThresholds = Object.freeze({
   minCjkChars: 20,
@@ -229,7 +230,7 @@ function readBodyFromArgs(argv) {
   return process.env.PR_BODY ?? "";
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const body = readBodyFromArgs(process.argv.slice(2));
     if (shouldSkipPrBodyBilingualCheck({
