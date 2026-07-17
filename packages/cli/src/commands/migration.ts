@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Effect, Schema } from "effect";
 import { moduleEntityId, stablePayloadHash, type WriteCoordinator, type WriteError } from "../../../kernel/src/index.ts";
@@ -170,18 +170,48 @@ export function runLegacyIntakePlan(rootInput: HarnessLayoutInput, action: Legac
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const report = buildScanReport(rootInput, action.sourcePath);
   const body = renderIntakePlan(report);
+  let outputPath: string | undefined;
   if (action.outPath) {
-    const outPath = path.resolve(rootDir, action.outPath);
-    mkdirSync(path.dirname(outPath), { recursive: true });
-    writeFileSync(outPath, body, "utf8");
+    const resolved = resolveLegacyIntakeArtifactPath(rootDir, action.outPath);
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        command: "legacy-intake-plan",
+        report,
+        error: cliError(CliErrorCode.ArtifactWriteRejected, "Legacy intake plans can only be written beneath .harness/migration-artifacts using a non-symlink relative path.")
+      };
+    }
+    outputPath = resolved.path;
+    mkdirSync(path.dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, body, "utf8");
   }
   return {
     ok: true,
     command: "legacy-intake-plan",
-    path: action.outPath ? normalizeSlashes(action.outPath) : undefined,
+    path: outputPath ? normalizeSlashes(path.relative(rootDir, outputPath)) : undefined,
     rows: report.entries.length,
     report
   };
+}
+
+function resolveLegacyIntakeArtifactPath(rootDir: string, requestedPath: string): { readonly ok: true; readonly path: string } | { readonly ok: false } {
+  const artifactRoot = path.join(rootDir, ".harness", "migration-artifacts");
+  if (path.isAbsolute(requestedPath)) return { ok: false };
+  const outputPath = path.resolve(artifactRoot, requestedPath);
+  if (!isPathInside(artifactRoot, outputPath) || hasSymlinkInExistingPath(artifactRoot, outputPath)) return { ok: false };
+  return { ok: true, path: outputPath };
+}
+
+function hasSymlinkInExistingPath(rootPath: string, targetPath: string): boolean {
+  let current = rootPath;
+  if (existsSync(current) && lstatSync(current).isSymbolicLink()) return true;
+  const relative = path.relative(rootPath, targetPath);
+  for (const segment of relative.split(path.sep)) {
+    if (!segment) continue;
+    current = path.join(current, segment);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return true;
+  }
+  return false;
 }
 
 export function runLegacyCopySafeDocs(rootInput: HarnessLayoutInput, action: LegacyCopySafeDocsAction): CliResult {

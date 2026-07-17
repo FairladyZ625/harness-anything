@@ -71,8 +71,40 @@ test("CLI legacy scan and intake-plan are readonly intake evidence", () => {
     assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.storedPath === "harness/legacy/tasks/old-task"), true);
     assert.equal(scan.report.entries.some((entry: Record<string, unknown>) => entry.recommendedTreatment === "rebuild-required"), true);
     assert.equal(existsSync(path.join(rootDir, "harness/legacy")), false);
-    assert.equal(plan.path, "legacy-intake.md");
-    assert.match(readFileSync(path.join(rootDir, "legacy-intake.md"), "utf8"), /Legacy Intake Plan/);
+    assert.equal(plan.path, ".harness/migration-artifacts/legacy-intake.md");
+    assert.match(readFileSync(path.join(rootDir, ".harness/migration-artifacts/legacy-intake.md"), "utf8"), /Legacy Intake Plan/);
+  });
+});
+
+test("CLI legacy intake-plan confines --out to migration artifacts and rejects escapes", () => {
+  withTempRoot((rootDir) => {
+    writeLegacyTask(rootDir, "old-task", "active");
+    const outsidePath = path.join(rootDir, "absolute-escape.md");
+    const canonicalPath = path.join(rootDir, "harness/tasks/canonical-target.md");
+
+    const absolute = runJson(rootDir, ["legacy", "intake-plan", ".", "--out", outsidePath], false);
+    const parentEscape = runJson(rootDir, ["legacy", "intake-plan", ".", "--out", "../legacy-intake-escape.md"], false);
+    const canonical = runJson(rootDir, ["legacy", "intake-plan", ".", "--out", "../../harness/tasks/canonical-target.md"], false);
+
+    assert.equal(absolute.error.code, "artifact_write_rejected");
+    assert.equal(parentEscape.error.code, "artifact_write_rejected");
+    assert.equal(canonical.error.code, "artifact_write_rejected");
+    assert.equal(existsSync(outsidePath), false);
+    assert.equal(existsSync(path.join(rootDir, "legacy-intake-escape.md")), false);
+    assert.equal(existsSync(canonicalPath), false);
+
+    const externalRoot = mkdtempSync(path.join(tmpdir(), "ha-legacy-intake-symlink-"));
+    try {
+      const artifactRoot = path.join(rootDir, ".harness/migration-artifacts");
+      mkdirSync(artifactRoot, { recursive: true });
+      if (trySymlink(externalRoot, path.join(artifactRoot, "escape"))) {
+        const symlink = runJson(rootDir, ["legacy", "intake-plan", ".", "--out", "escape/plan.md"], false);
+        assert.equal(symlink.error.code, "artifact_write_rejected");
+        assert.equal(existsSync(path.join(externalRoot, "plan.md")), false);
+      }
+    } finally {
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
   });
 });
 
