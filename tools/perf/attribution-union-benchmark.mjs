@@ -14,12 +14,16 @@ import {
   semanticMutationSetDigestV2,
   semanticMutationWireV2
 } from "../../packages/kernel/src/index.ts";
+import {
+  authorityAttributionEventV2KeyDigest,
+  encodeAuthorityAttributionEventV2Bytes
+} from "../../packages/kernel/src/integrity/authority-attribution-event-v2-log.ts";
 
 const eventCount = positiveIntegerOption("--events", 250);
 const rebuildRounds = positiveIntegerOption("--rebuild-rounds", 5);
 const headRounds = positiveIntegerOption("--head-rounds", 10);
 const rootDir = mkdtempSync(path.join(tmpdir(), "ha-attribution-union-perf-"));
-const eventsRoot = path.join(rootDir, "harness/attribution-events");
+const eventsRoot = path.join(rootDir, "harness/authority-attribution-events/v2");
 const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
 
 try {
@@ -65,7 +69,8 @@ try {
 
 function writeEvent(revision) {
   const event = makeEvent(revision);
-  writeFileSync(path.join(eventsRoot, `${String(revision).padStart(6, "0")}.jsonl`), `${JSON.stringify(event)}\n`, "utf8");
+  const shardName = `${authorityAttributionEventV2KeyDigest(event.workspaceId, event.opId)}.jsonl`;
+  writeFileSync(path.join(eventsRoot, shardName), encodeAuthorityAttributionEventV2Bytes(event), "utf8");
 }
 
 function makeEvent(revision) {
