@@ -5,13 +5,21 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { watchMain } from "./main-watch.mjs";
+import { formatResultLine, parseMainWatchArgs, resolveCommitSha, watchMain } from "./main-watch.mjs";
 
 const knownFlake = "daemon start service status and stop expose productized status contract";
 const failedLog = readFileSync(
   new URL("./fixtures/main-watch/run-29513133791-failed.txt", import.meta.url),
   "utf8"
 );
+
+test("a short merge SHA resolves to its full local commit SHA", () => {
+  const fullSha = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const shortSha = fullSha.slice(0, 8);
+
+  assert.equal(parseMainWatchArgs([shortSha]).commitSha, shortSha);
+  assert.equal(resolveCommitSha(shortSha), fullSha);
+});
 
 test("a completed main run is a flake when every failing test exactly matches the registry", async () => {
   const result = await watchMain({
@@ -85,6 +93,66 @@ test("a successful completed main run is green without reading failure logs", as
     code: 0,
     classification: "green",
     runUrl: "https://github.com/example/repo/actions/runs/1",
+    failingTests: []
+  });
+});
+
+test("a cancelled completed main run is superseded instead of a regression", async () => {
+  const result = await watchMain({
+    commitSha: "9e447b2a9b1726d8e81c91105e41699599c0b789",
+    registry: { entries: [] },
+    github: {
+      listRuns: async () => [{
+        databaseId: 29544075307,
+        event: "push",
+        headSha: "9e447b2a9b1726d8e81c91105e41699599c0b789",
+        status: "completed",
+        conclusion: "cancelled",
+        createdAt: "2026-07-17T01:00:00Z",
+        url: "https://github.com/example/repo/actions/runs/29544075307"
+      }],
+      listNewerMainRuns: async () => [{
+        databaseId: 29544075308,
+        createdAt: "2026-07-17T01:01:00Z",
+        url: "https://github.com/example/repo/actions/runs/29544075308"
+      }],
+      readFailedLogs: async () => assert.fail("cancelled runs have no failure logs to read")
+    }
+  });
+
+  assert.deepEqual(result, {
+    code: 50,
+    classification: "superseded",
+    runUrl: "https://github.com/example/repo/actions/runs/29544075307",
+    failingTests: [],
+    supersedingRunUrl: "https://github.com/example/repo/actions/runs/29544075308"
+  });
+  assert.equal(formatResultLine(result),
+    "RESULT: 50 superseded https://github.com/example/repo/actions/runs/29544075307 https://github.com/example/repo/actions/runs/29544075308");
+});
+
+test("a startup failure is unavailable instead of a regression", async () => {
+  const result = await watchMain({
+    commitSha: "37d234863f1bb06b7fa33e511d1558bc1394dc77",
+    registry: { entries: [] },
+    github: {
+      listRuns: async () => [{
+        databaseId: 9,
+        event: "push",
+        headSha: "37d234863f1bb06b7fa33e511d1558bc1394dc77",
+        status: "completed",
+        conclusion: "startup_failure",
+        url: "https://github.com/example/repo/actions/runs/9"
+      }],
+      listNewerMainRuns: async () => assert.fail("only cancelled runs look for a superseding run"),
+      readFailedLogs: async () => assert.fail("startup failures have no failure logs to read")
+    }
+  });
+
+  assert.deepEqual(result, {
+    code: 40,
+    classification: "unavailable",
+    runUrl: "https://github.com/example/repo/actions/runs/9",
     failingTests: []
   });
 });

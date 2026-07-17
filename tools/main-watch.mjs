@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -101,6 +101,15 @@ function result(code, classification, runUrl = "-", failingTests = []) {
 
 async function classifyCompletedRun(run, registry, github) {
   if (run.conclusion === "success") return result(0, "green", run.url);
+  if (run.conclusion === "cancelled") {
+    const newerRuns = await github.listNewerMainRuns();
+    const supersedingRun = newerRuns.find((candidate) => candidate.createdAt > run.createdAt);
+    return {
+      ...result(50, "superseded", run.url),
+      supersedingRunUrl: supersedingRun?.url ?? "-"
+    };
+  }
+  if (run.conclusion !== "failure") return result(40, "unavailable", run.url);
 
   const parsedLogs = parseFailedLogs(await github.readFailedLogs(run.databaseId));
   const { failingTests } = parsedLogs;
@@ -160,7 +169,7 @@ export function parseMainWatchArgs(args) {
   if (!commitSha || commitSha.startsWith("--")) {
     throw new Error("usage: node tools/main-watch.mjs <merge-commit-sha> [--repo owner/name] [--interval seconds] [--timeout seconds] [--dry-run]");
   }
-  if (!/^[0-9a-f]{40}$/iu.test(commitSha)) throw new Error("merge commit SHA must be 40 hexadecimal characters");
+  if (!/^[0-9a-f]{7,40}$/iu.test(commitSha)) throw new Error("merge commit SHA must be 7 to 40 hexadecimal characters");
 
   const options = { commitSha, repo: null, intervalMs: 60_000, timeoutMs: 5_400_000, dryRun: false };
   for (let index = 1; index < args.length; index += 1) {
@@ -189,6 +198,18 @@ export function parseMainWatchArgs(args) {
   return options;
 }
 
+export function resolveCommitSha(commitSha) {
+  const resolved = spawnSync("git", ["rev-parse", `${commitSha}^{commit}`], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+  const fullSha = resolved.stdout?.trim();
+  if (resolved.status !== 0 || !/^[0-9a-f]{40}$/iu.test(fullSha ?? "")) {
+    throw new Error(`merge commit SHA ${commitSha} could not be resolved locally; run git fetch and try again`);
+  }
+  return fullSha;
+}
+
 async function runGh(args) {
   const { stdout } = await execFileAsync("gh", args, {
     cwd: repoRoot,
@@ -208,7 +229,18 @@ export function createGithubClient(repo) {
         "--branch", "main",
         "--commit", commitSha,
         "--limit", "20",
-        "--json", "databaseId,event,headSha,status,conclusion,url",
+        "--json", "databaseId,event,headSha,status,conclusion,createdAt,url",
+        ...repoArgs
+      ]);
+      return JSON.parse(output);
+    },
+    async listNewerMainRuns() {
+      const output = await runGh([
+        "run", "list",
+        "--workflow", "rewrite-ci",
+        "--branch", "main",
+        "--limit", "20",
+        "--json", "databaseId,headSha,createdAt,url",
         ...repoArgs
       ]);
       return JSON.parse(output);
@@ -220,6 +252,9 @@ export function createGithubClient(repo) {
 }
 
 export function formatResultLine(watchResult) {
+  if (watchResult.classification === "superseded") {
+    return `RESULT: ${watchResult.code} ${watchResult.classification} ${watchResult.runUrl} ${watchResult.supersedingRunUrl}`;
+  }
   const failingTests = watchResult.failingTests.length > 0 ? watchResult.failingTests.join(" | ") : "-";
   return `RESULT: ${watchResult.code} ${watchResult.classification} ${watchResult.runUrl} ${failingTests}`;
 }
@@ -227,6 +262,7 @@ export function formatResultLine(watchResult) {
 async function main(argv) {
   try {
     const options = parseMainWatchArgs(argv);
+    options.commitSha = resolveCommitSha(options.commitSha);
     const registry = validateRegistry(JSON.parse(await readFile(registryPath, "utf8")));
     const watchResult = await watchMain({
       ...options,
