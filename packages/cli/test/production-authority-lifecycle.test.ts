@@ -11,6 +11,7 @@ import {
   createAuthorityCutoverEntityRegistryQualification,
   createAuthorityCutoverControlService,
   createAuthorityKeyRegistryV1,
+  firstPinAuthorityKeyV1,
   isCompleteAuthorityCommittedReceiptV2
 } from "../../application/src/index.ts";
 import { protocolSchemaTupleDigest } from "../../application/src/authority/cutover-control.ts";
@@ -23,7 +24,8 @@ import { entityRegistry, entityRegistryKinds, taskEntityId, type WriteOp } from 
 import { daemonActorAttribution } from "../src/composition/actor-attribution.ts";
 import {
   authorityNamespaceProofBytes,
-  loadAuthorityProductionManifest
+  loadAuthorityProductionManifest,
+  openAuthorityProductionKeyMaterial
 } from "../src/daemon/authority-production-state.ts";
 import { createProductionAuthorityLifecycle } from "../src/daemon/production-authority-lifecycle.ts";
 import { createAuthorityProductionScanner } from "../src/daemon/authority-production-scanner.ts";
@@ -107,6 +109,30 @@ test("production manifest rejects service state that overlaps the canonical repo
       () => loadAuthorityProductionManifest(fixture.manifestPath),
       /AUTHORITY_PRODUCTION_SERVICE_STATE_MUST_BE_EXTERNAL/u
     );
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("production restart rejects a partial revoke whose registry global epoch is ahead of token runtime", () => {
+  const fixture = createFixture();
+  try {
+    const manifest = loadAuthorityProductionManifest(fixture.manifestPath);
+    const config = manifest.repos[0]!;
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8")) as ReturnType<typeof createAuthorityKeyRegistryV1>;
+    const partiallyRevoked = createAuthorityKeyRegistryV1({
+      authorityId: registry.authorityId,
+      generation: registry.generation,
+      globalRevocationEpoch: registry.globalRevocationEpoch + 1,
+      revision: registry.revision + 1,
+      entries: registry.entries
+    });
+    writeFileSync(fixture.registryPath, `${JSON.stringify(partiallyRevoked, null, 2)}\n`);
+
+    assert.throws(() => openAuthorityProductionKeyMaterial({
+      config,
+      serviceStateRoot: manifest.serviceStateRoot
+    }), /AUTHORITY_PRODUCTION_KEY_REGISTRY_EPOCH_MISMATCH/u);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -436,6 +462,7 @@ function createFixture(): {
   readonly authoredRoot: string;
   readonly serviceRoot: string;
   readonly manifestPath: string;
+  readonly registryPath: string;
 } {
   const root = mkdtempSync(path.join(tmpdir(), "ha-production-authority-"));
   const repoRoot = path.join(root, "repo");
@@ -470,12 +497,20 @@ function createFixture(): {
   });
   const now = Date.now();
   const prepublished = keyStore.createPrepublishedKey({ generation: 1, nowMs: now - 1_000 });
-  const registry = createAuthorityKeyRegistryV1({
+  const prepublishedRegistry = createAuthorityKeyRegistryV1({
     authorityId: "authority.production",
     generation: 1,
     globalRevocationEpoch: 1,
     revision: 1,
-    entries: [{ ...prepublished, state: "ACTIVE_SIGNING" }]
+    entries: [prepublished]
+  });
+  const registry = firstPinAuthorityKeyV1({
+    registry: prepublishedRegistry,
+    keyId: prepublished.keyId,
+    expectedPinnedKeyId: prepublished.keyId,
+    pinEvidence: "fixture-out-of-band-pin",
+    verifierAcknowledgement: "fixture-verifier-ack",
+    activatedAtMs: now - 999
   });
   const registryPath = path.join(authoredRoot, "authority-key-registry.json");
   writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
@@ -527,7 +562,7 @@ function createFixture(): {
   git(authoredRoot, "init", "-q");
   git(authoredRoot, "add", ".");
   git(authoredRoot, "commit", "-q", "-m", "seed authority fixture");
-  return { root, repoRoot, authoredRoot, serviceRoot, manifestPath };
+  return { root, repoRoot, authoredRoot, serviceRoot, manifestPath, registryPath };
 }
 
 function productionTuple() {

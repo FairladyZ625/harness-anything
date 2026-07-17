@@ -4,12 +4,14 @@ import path from "node:path";
 import {
   actorAxesBindingTokenDigestV2,
   assertAuthorityKeyRegistryV1,
+  createAuthorityKeyLifecycleServiceV1,
   encodeCanonicalCbor,
   type ActorAxesBindingClaimsV2,
   type ActorAxesBindingRecordV2,
   type ActorAxesBindingRuntimeV2,
   type ActorAxesProofKeyResolverV2,
   type AuthorityKeyRegistryV1,
+  type AuthorityKeyLifecycleServiceV1,
   type OperationIdV2,
   type OperationNamespaceVerifierV2,
   type ProtocolSchemaTupleV2,
@@ -110,12 +112,21 @@ export function loadAuthorityProductionManifest(manifestPath: string): Authority
 export function openAuthorityProductionKeyMaterial(input: {
   readonly config: AuthorityProductionRepoConfigV1;
   readonly serviceStateRoot: string;
-}): { readonly registry: AuthorityKeyRegistryV1; readonly keyStore: LocalAuthorityKeyStore } {
+}): {
+  readonly registry: AuthorityKeyRegistryV1;
+  readonly keyStore: LocalAuthorityKeyStore;
+  readonly keyLifecycle: AuthorityKeyLifecycleServiceV1;
+} {
   const registry = JSON.parse(readFileSync(input.config.keyRegistryPath, "utf8")) as AuthorityKeyRegistryV1;
   assertAuthorityKeyRegistryV1(registry);
   if (registry.authorityId !== input.config.authorityId
     || registry.generation !== input.config.authorityGeneration) {
     throw new Error("AUTHORITY_PRODUCTION_KEY_REGISTRY_SCOPE_MISMATCH");
+  }
+  if (BigInt(registry.globalRevocationEpoch) !== input.config.revocationEpochs.global) {
+    throw new Error(
+      "AUTHORITY_PRODUCTION_KEY_REGISTRY_EPOCH_MISMATCH: production startup rejected because registry globalRevocationEpoch and token revocationEpochs.global differ; reconcile authority-production.json with authority-key-registry.json before restarting"
+    );
   }
   const keyStore = openLocalAuthorityKeyStore({
     serviceStateRoot: input.serviceStateRoot,
@@ -126,7 +137,14 @@ export function openAuthorityProductionKeyMaterial(input: {
     forbiddenRoots: [input.config.canonicalRoot]
   });
   keyStore.recoverPublicCache(registry);
-  return { registry, keyStore };
+  return {
+    registry,
+    keyStore,
+    keyLifecycle: createAuthorityKeyLifecycleServiceV1({
+      registry,
+      revocationEpochs: input.config.revocationEpochs
+    })
+  };
 }
 
 export function createDurableAuthorityBindingRuntimeV2(input: {

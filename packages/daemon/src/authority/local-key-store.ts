@@ -205,7 +205,8 @@ export function openLocalAuthorityKeyStore(options: LocalAuthorityKeyStoreOption
         notAfterMs: null,
         verifyUntilMs: null,
         predecessorKeyId,
-        predecessorProof
+        predecessorProof,
+        activationEvidence: null
       };
     },
     signingProfile: (canonicalRegistry, nowMs) => {

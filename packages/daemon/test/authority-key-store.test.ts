@@ -15,7 +15,10 @@ import path from "node:path";
 import test from "node:test";
 import {
   authoritySigningPurpose,
-  createAuthorityKeyRegistryV1
+  createAuthorityKeyRegistryV1,
+  firstPinAuthorityKeyV1,
+  type AuthorityKeyRegistryEntryV1,
+  type AuthorityKeyRegistryV1
 } from "../../application/src/index.ts";
 import { openLocalAuthorityKeyStore } from "../src/authority/local-key-store.ts";
 
@@ -44,13 +47,7 @@ test("local authority key store keeps private material external and requires can
     });
     assert.throws(() => store.signingProfile(prepublishedRegistry, 1_000), /ACTIVE_SIGNER_REQUIRED/u);
 
-    const activeRegistry = createAuthorityKeyRegistryV1({
-      authorityId,
-      generation: 1,
-      globalRevocationEpoch: 1,
-      revision: 2,
-      entries: [{ ...prepublished, state: "ACTIVE_SIGNING" }]
-    });
+    const activeRegistry = activateKey(prepublishedRegistry, prepublished);
     const profile = store.signingProfile(activeRegistry, 1_001);
     const message = Buffer.from("canonical-registry-gated-signing", "utf8");
     const signature = sign(null, message, profile.privateKey);
@@ -93,13 +90,13 @@ test("local authority key store reconstructs a lost public cache only from the c
       issuer
     });
     const prepublished = opened.createPrepublishedKey({ generation: 1, nowMs: 1_000 });
-    const activeRegistry = createAuthorityKeyRegistryV1({
+    const activeRegistry = activateKey(createAuthorityKeyRegistryV1({
       authorityId,
       generation: 1,
       globalRevocationEpoch: 1,
-      revision: 2,
-      entries: [{ ...prepublished, state: "ACTIVE_SIGNING" }]
-    });
+      revision: 1,
+      entries: [prepublished]
+    }), prepublished);
     rmSync(path.join(stateDirectory, "authority-public-key-cache.json"));
 
     const restarted = openLocalAuthorityKeyStore({
@@ -158,13 +155,13 @@ test("local authority key store rejects governed roots, symlinks, broad files, a
       issuer
     });
     const entry = store.createPrepublishedKey({ generation: 1, nowMs: 2_000 });
-    const activeRegistry = createAuthorityKeyRegistryV1({
+    const activeRegistry = activateKey(createAuthorityKeyRegistryV1({
       authorityId,
       generation: 1,
       globalRevocationEpoch: 1,
       revision: 1,
-      entries: [{ ...entry, state: "ACTIVE_SIGNING", purpose: authoritySigningPurpose }]
-    });
+      entries: [{ ...entry, purpose: authoritySigningPurpose }]
+    }), entry);
     const privatePath = path.join(stateDirectory, "private-keys", `${entry.keyId.slice(-64)}.pk8`);
     chmodSync(privatePath, 0o644);
     assert.throws(() => store.signingProfile(activeRegistry, 2_001), /FILE_UNSAFE/u);
@@ -195,6 +192,20 @@ test("local authority key store rejects governed roots, symlinks, broad files, a
     }), /DIRECTORY_UNSAFE/u);
   });
 });
+
+function activateKey(
+  registry: AuthorityKeyRegistryV1,
+  entry: AuthorityKeyRegistryEntryV1
+): AuthorityKeyRegistryV1 {
+  return firstPinAuthorityKeyV1({
+    registry,
+    keyId: entry.keyId,
+    expectedPinnedKeyId: entry.keyId,
+    pinEvidence: "test-out-of-band-pin",
+    verifierAcknowledgement: "test-verifier-ack",
+    activatedAtMs: entry.notBeforeMs
+  });
+}
 
 function withStoreLayout(
   run: (layout: {
