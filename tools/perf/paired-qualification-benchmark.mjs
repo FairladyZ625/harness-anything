@@ -135,7 +135,7 @@ async function runProductionSocketArm({ writers, arm, round }) {
       transport: { kind: "daemon-local-unix-socket", daemonReachable: status.reachable === true }
     };
   } finally {
-    try { await cli(root, ["daemon", "stop", "--timeout-ms", "1000", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" }); } catch {}
+    try { await cli(root, ["daemon", "stop", "--timeout-ms", "1000", "--json"], { ...env, HARNESS_DAEMON_MODE: "direct" }); } catch { /* best-effort teardown; root is removed below */ }
     rmSync(root, { recursive: true, force: true });
   }
 }
