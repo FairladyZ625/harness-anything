@@ -6,7 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import type { DaemonStatusResultV2 } from "../../application/src/index.ts";
 import { daemonStatusPayload } from "../../cli/src/commands/daemon/status-payload.ts";
-import { calculateDaemonArtifactIdentity, projectDaemonStatusForRenderer } from "../src/index.ts";
+import {
+  calculateDaemonArtifactIdentity,
+  decodeDaemonStatusRequestV2,
+  decodeDaemonStatusResultV2,
+  projectDaemonStatusForRenderer
+} from "../src/index.ts";
 
 test("daemon artifact identity is deterministic over the adjudicated regular-file set", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-daemon-artifact-"));
@@ -129,4 +134,16 @@ test("renderer-safe projection is generated from the canonical fixture without m
   assert.equal(JSON.stringify(projected).includes("ownerToken"), false);
   assert.equal(canonical.requestedRepo.lock.ownerToken, "lock-canonical");
   assert.deepEqual(projected.repos.map((repo) => repo.repoId), canonical.repos.map((repo) => repo.repoId));
+});
+
+test("daemon status v2 schema fixtures prove request and result boundaries", () => {
+  const fixtureRoot = path.resolve("packages/daemon/fixtures/api-schemas");
+  const contracts = [
+    ["daemon.status-request__v2", decodeDaemonStatusRequestV2],
+    ["daemon.status-result__v2", decodeDaemonStatusResultV2]
+  ] as const;
+  for (const [fixture, decode] of contracts) {
+    assert.doesNotThrow(() => decode(JSON.parse(readFileSync(path.join(fixtureRoot, fixture, "valid.json"), "utf8"))), fixture);
+    assert.throws(() => decode(JSON.parse(readFileSync(path.join(fixtureRoot, fixture, "invalid.json"), "utf8"))), fixture);
+  }
 });

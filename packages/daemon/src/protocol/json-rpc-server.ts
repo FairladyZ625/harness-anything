@@ -1,5 +1,7 @@
 // @slice-activation PLT-Daemon W2 protocol core exported for W3 transport adapters.
 import {
+  decodeDaemonStatusRequestV2,
+  decodeDaemonStatusResultV2,
   isTaskHolderError,
   taskHolderPrincipalFromActor,
   type CommandFailureReceipt,
@@ -348,7 +350,16 @@ async function callServiceMethod(
     if (!services.DaemonStatusService) {
       return failureReceipt(contract.method, "daemon_status_service_unavailable", "Daemon status service is not configured.");
     }
-    return successReceipt(contract.method, "read daemon status", await services.DaemonStatusService.getStatus(repo ? { repo } : undefined) as unknown as JsonObject);
+    try {
+      decodeDaemonStatusRequestV2(params);
+      const status = decodeDaemonStatusResultV2(await services.DaemonStatusService.getStatus(repo ? { repo } : undefined));
+      return successReceipt(contract.method, "read daemon status", status as unknown as JsonObject);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "invalid_daemon_status_request") {
+        return failureReceipt(contract.method, "daemon_status_request_invalid", "Daemon status request is outside daemon-status-request/v2.");
+      }
+      return failureReceipt(contract.method, "daemon_status_result_invalid", "Daemon status service returned data outside daemon-status/v2.");
+    }
   }
   if (contract.method === "repo.daemon.logs.list") {
     return callDaemonLogList(services.DaemonLogService, payload, repo);

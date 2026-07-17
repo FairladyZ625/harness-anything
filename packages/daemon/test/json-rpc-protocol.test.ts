@@ -236,7 +236,7 @@ test("repo methods fail closed when the repo runtime context is missing", async 
   assert.equal(serviceCalls, 0);
 });
 
-test("repo.daemon.status remains available for unavailable repos", async () => {
+test("repo.daemon.status rejects a v1-shaped service result", async () => {
   const server = makeServer({
     repos: [
       { repoId: "canonical", canonicalRoot: "/tmp/canonical" },
@@ -280,9 +280,8 @@ test("repo.daemon.status remains available for unavailable repos", async () => {
   });
   const receipt = resultReceipt(response);
 
-  assert.equal(receipt.ok, true);
-  assert.equal(receipt.details.data.requestedRepoId, "locked");
-  assert.equal((receipt.details.data.repos as ReadonlyArray<{ state: string }>)[1]?.state, "unavailable");
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "daemon_status_result_invalid");
 });
 
 test("daemon control returns accepted data before exposing the stop action", async () => {
